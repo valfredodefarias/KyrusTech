@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Início - Kyrus ERP</title>
+    
+    <!-- Tailwind & Configurações -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="js/init-theme.js"></script>
+    <script>
+        tailwind.config = { darkMode: 'class', theme: { extend: { colors: { primary: 'var(--color-primary)' } } } }
+    </script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-sans h-screen flex overflow-hidden">
+
+    <!-- Sidebar Injetada -->
+    <div id="sidebar-container"></div>
+
+    <main class="flex-1 flex flex-col h-full relative overflow-y-auto">
+        
+        <!-- Header Simplificado -->
+        <header class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-8 py-5 sticky top-0 z-20 shadow-sm">
+            <div class="flex justify-between items-center">
+                <h2 class="text-xl font-bold text-slate-700 dark:text-white flex items-center gap-2">
+                    <i data-lucide="home" class="w-5 h-5 text-primary"></i> Visão Geral
+                </h2>
+                <div class="text-sm text-slate-500 dark:text-slate-400" id="dataAtual"></div>
+            </div>
+        </header>
+
+        <div class="p-8 max-w-6xl mx-auto w-full space-y-8 animate-fade-in-up">
+
+            <!-- 1. Cartão de Boas Vindas (Hero) -->
+            <div class="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden">
+                <div class="absolute right-0 top-0 h-full w-1/3 bg-white/5 skew-x-12"></div>
+                <div class="relative z-10">
+                    <h1 class="text-3xl font-extrabold mb-2">Olá, <span id="lblUsuario">Carregando...</span>! 👋</h1>
+                    <p class="text-blue-100 text-lg flex items-center gap-2">
+                        Você está gerenciando: <strong id="lblEmpresa" class="bg-white/20 px-2 py-0.5 rounded">...</strong>
+                    </p>
+                    <div class="mt-6 flex gap-3">
+                        <a href="lancamentos.html" class="bg-white text-blue-700 px-5 py-2.5 rounded-lg font-bold hover:bg-blue-50 transition shadow-sm flex items-center gap-2">
+                            <i data-lucide="plus-circle" class="w-4 h-4"></i> Novo Lançamento
+                        </a>
+                        <a href="dashboard.html" class="bg-blue-800/50 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-blue-800/70 transition flex items-center gap-2 border border-white/20">
+                            <i data-lucide="bar-chart-2" class="w-4 h-4"></i> Ver Relatórios
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Resumo de Contas (Saldos Rápidos) -->
+            <div>
+                <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
+                    <i data-lucide="wallet" class="w-5 h-5 text-slate-400"></i> Suas Contas
+                </h3>
+                <div id="gridContas" class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    <!-- Cards injetados via JS -->
+                    <div class="col-span-3 text-center py-10 text-slate-400">
+                        <i data-lucide="loader-2" class="w-6 h-6 animate-spin mx-auto mb-2"></i>
+                        Buscando saldos...
+                    </div>
+                </div>
+                <!-- Totalizador -->
+                <div class="mt-4 p-4 bg-slate-100 dark:bg-slate-800/50 rounded-xl flex justify-between items-center border border-slate-200 dark:border-slate-700">
+                    <span class="text-sm font-bold text-slate-500 uppercase">Saldo Total Disponível</span>
+                    <span class="text-xl font-extrabold text-slate-800 dark:text-white" id="lblSaldoTotal">R$ 0,00</span>
+                </div>
+            </div>
+
+            <!-- 3. Ações Rápidas (Atalhos) -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <a href="entidades.html" class="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-primary hover:shadow-md transition group text-center">
+                    <div class="w-10 h-10 mx-auto bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                        <i data-lucide="users" class="w-5 h-5"></i>
+                    </div>
+                    <span class="font-bold text-slate-600 dark:text-slate-300 text-sm">Clientes</span>
+                </a>
+                <a href="contas.html" class="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-primary hover:shadow-md transition group text-center">
+                    <div class="w-10 h-10 mx-auto bg-purple-100 text-purple-600 rounded-full flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                        <i data-lucide="landmark" class="w-5 h-5"></i>
+                    </div>
+                    <span class="font-bold text-slate-600 dark:text-slate-300 text-sm">Contas</span>
+                </a>
+                <a href="cartoes.html" class="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-primary hover:shadow-md transition group text-center">
+                    <div class="w-10 h-10 mx-auto bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                        <i data-lucide="credit-card" class="w-5 h-5"></i>
+                    </div>
+                    <span class="font-bold text-slate-600 dark:text-slate-300 text-sm">Cartões</span>
+                </a>
+                <a href="configuracoes.html" class="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-primary hover:shadow-md transition group text-center">
+                    <div class="w-10 h-10 mx-auto bg-slate-100 text-slate-600 rounded-full flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                        <i data-lucide="settings" class="w-5 h-5"></i>
+                    </div>
+                    <span class="font-bold text-slate-600 dark:text-slate-300 text-sm">Configuração</span>
+                </a>
+            </div>
+
+        </div>
+    </main>
+
+    <script type="module">
+        import { authGuard } from './js/auth.js';
+        import { renderSidebar } from './js/components.js';
+        import { apiFetch } from './js/api.js';
+        import { initTheme } from './js/theme.js';
+
+        // Inicialização
+        authGuard();
+        initTheme();
+        renderSidebar('home'); // Marca 'home' como ativo na sidebar
+        lucide.createIcons();
+
+        // Formata data atual
+        const opcoesData = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+        document.getElementById('dataAtual').innerText = new Date().toLocaleDateString('pt-BR', opcoesData);
+
+        const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+        // Lógica de Carregamento
+        window.onload = async () => {
+            try {
+                // 1. Busca quem sou eu
+                const user = await apiFetch('/usuarios/me');
+                if (!user) return;
+                
+                // Extrai o primeiro nome do email (fallback simples)
+                const nomeUser = user.email.split('@')[0];
+                document.getElementById('lblUsuario').innerText = nomeUser.charAt(0).toUpperCase() + nomeUser.slice(1);
+
+                // 2. Busca dados da empresa
+                const empresa = await apiFetch(`/empresas/${user.empresa_id}`);
+                if (empresa) {
+                    document.getElementById('lblEmpresa').innerText = empresa.nome_fantasia || empresa.razao_social;
+                }
+
+                // 3. Busca contas para mostrar saldo
+                const contas = await apiFetch('/contas/');
+                renderizarContas(contas);
+
+            } catch (error) {
+                console.error("Erro ao carregar home:", error);
+            }
+        };
+
+        function renderizarContas(contas) {
+            const grid = document.getElementById('gridContas');
+            grid.innerHTML = '';
+            
+            let saldoTotal = 0;
+
+            if (!contas || contas.length === 0) {
+                grid.innerHTML = '<div class="col-span-3 text-sm text-slate-400 p-4 border border-dashed rounded-lg text-center">Nenhuma conta cadastrada.</div>';
+                return;
+            }
+
+            contas.forEach(c => {
+                saldoTotal += parseFloat(c.saldo_inicial); // Nota: Num sistema real, seria saldo_atual calculado
+
+                // Ícone dinâmico
+                let icon = 'wallet';
+                if(c.tipo === 'CORRENTE') icon = 'landmark';
+                if(c.tipo === 'CAIXA') icon = 'banknote';
+
+                const cardHTML = `
+                    <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between hover:shadow-md transition cursor-pointer" onclick="window.location.href='contas.html'">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-primary">
+                                <i data-lucide="${icon}" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm font-bold text-slate-700 dark:text-slate-200 leading-tight">${c.nome_apelido}</p>
+                                <p class="text-[10px] text-slate-400 font-bold uppercase">${c.tipo}</p>
+                            </div>
+                        </div>
+                        <p class="font-mono font-bold text-slate-800 dark:text-white">${BRL.format(c.saldo_inicial)}</p>
+                    </div>
+                `;
+                grid.innerHTML += cardHTML;
+            });
+
+            document.getElementById('lblSaldoTotal').innerText = BRL.format(saldoTotal);
+            lucide.createIcons();
+        }
+    </script>
+</body>
+</html>

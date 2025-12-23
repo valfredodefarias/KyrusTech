@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Cartões - Kyrus ERP</title>
+    
+    <script src="js/init-theme.js"></script>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { 
+            darkMode: 'class', 
+            theme: { extend: { colors: { primary: 'var(--color-primary)' } } } 
+        }
+    </script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="css/style.css">
+    
+    <style>
+        .card-gradient { background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); }
+        
+        /* --- ESTILOS SENIOR (INPUTS & VISUAL) --- */
+        .input-group { position: relative; }
+        
+        .input-icon { 
+            position: absolute; 
+            left: 12px; 
+            top: 50%; 
+            transform: translateY(-50%); 
+            color: #94a3b8; 
+            pointer-events: none; 
+            width: 18px; 
+            height: 18px;
+        }
+        
+        .input-senior {
+            width: 100%;
+            padding: 10px 12px 10px 40px; /* Espaço para o ícone */
+            border-radius: 0.5rem;
+            border: 1px solid #e2e8f0;
+            background-color: #f8fafc;
+            color: #334155;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            outline: none;
+        }
+        
+        .input-senior:focus {
+            border-color: #6366f1;
+            background-color: #fff;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+        
+        /* Dark Mode Overrides */
+        .dark .input-senior {
+            border-color: #334155;
+            background-color: #1e293b; 
+            color: #f1f5f9;
+        }
+        
+        .dark .input-senior:focus {
+            border-color: #818cf8;
+            background-color: #0f172a;
+        }
+        
+        /* Labels Profissionais */
+        .label-senior {
+            display: block;
+            font-size: 0.70rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            margin-bottom: 6px;
+        }
+        .dark .label-senior { color: #94a3b8; }
+
+        /* Scrollbar personalizada para o modal */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #475569; }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-sans h-screen flex overflow-hidden">
+
+    <div id="sidebar-container"></div>
+
+    <main class="flex-1 flex flex-col h-full relative overflow-y-auto">
+        
+        <header class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-8 py-5 flex items-center justify-between shadow-sm z-10 sticky top-0">
+            <div>
+                <h2 class="text-2xl font-bold tracking-tight">Meus Cartões</h2>
+                <p class="text-sm text-slate-400">Limites e Faturas</p>
+            </div>
+            <button onclick="abrirModal()" class="bg-primary hover:brightness-90 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 font-medium transition active:scale-95">
+                <i data-lucide="credit-card" class="w-5 h-5"></i> Novo Cartão
+            </button>
+        </header>
+
+        <div class="p-8 space-y-8 max-w-7xl mx-auto w-full">
+
+            <div id="listaCartoes" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div class="col-span-full text-center py-10 text-slate-400">
+                    <i data-lucide="loader-2" class="w-8 h-8 animate-spin mx-auto mb-2"></i>
+                    Carregando cartões...
+                </div>
+            </div>
+
+            <div id="areaFatura" class="hidden bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden animate-fade-in-up">
+                <div class="px-8 py-6 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex flex-col md:flex-row justify-between items-center gap-6">
+                    <div class="flex items-center gap-4">
+                        <button id="btnMesAnt" class="p-2 hover:bg-white dark:hover:bg-slate-700 rounded-full transition text-slate-500"><i data-lucide="chevron-left"></i></button>
+                        <div class="text-center">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Fatura de</p>
+                            <h3 class="text-xl font-extrabold text-slate-800 dark:text-white capitalize" id="lblMesFatura">...</h3>
+                        </div>
+                        <button id="btnMesProx" class="p-2 hover:bg-white dark:hover:bg-slate-700 rounded-full transition text-slate-500"><i data-lucide="chevron-right"></i></button>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-xs font-bold text-slate-400 uppercase">Total da Fatura</p>
+                        <p class="text-2xl font-extrabold text-slate-800 dark:text-white" id="lblTotalFatura">R$ 0,00</p>
+                        <p class="text-xs text-slate-500" id="lblVencimento">Vence em: -</p>
+                    </div>
+                </div>
+                <div class="max-h-[500px] overflow-y-auto custom-scrollbar">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-50 dark:bg-slate-700 text-xs font-bold text-slate-500 uppercase sticky top-0">
+                            <tr>
+                                <th class="px-8 py-3">Data</th>
+                                <th class="px-8 py-3">Descrição</th>
+                                <th class="px-8 py-3">Parcela</th>
+                                <th class="px-8 py-3 text-right">Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody id="listaFatura" class="divide-y divide-slate-100 dark:divide-slate-700 text-sm dark:text-slate-300"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="modalCartao" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 sm:p-6">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onclick="fecharModal()"></div>
+
+        <div class="relative w-full max-w-lg transform rounded-2xl bg-white dark:bg-slate-800 shadow-2xl transition-all border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col max-h-[90vh]">
+            
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700">
+                <h3 class="font-bold text-lg text-slate-800 dark:text-white" id="modalTitulo">Gerenciar Cartão</h3>
+                <button onclick="fecharModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-red-500 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-y-auto custom-scrollbar">
+                
+                <div class="mb-8 relative group perspective">
+                    <div class="card-gradient rounded-xl p-6 text-white shadow-lg transform transition hover:scale-[1.02] duration-300 relative overflow-hidden h-44 flex flex-col justify-between select-none">
+                        <div class="absolute top-0 right-0 -mr-10 -mt-10 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl"></div>
+                        
+                        <div class="flex justify-between items-start z-10">
+                            <div class="opacity-90 font-mono text-sm tracking-widest font-bold">KYRUS CARD</div>
+                            <i data-lucide="contactless" class="w-6 h-6 opacity-80"></i>
+                        </div>
+
+                        <div class="z-10 mt-2">
+                             <div class="text-[10px] uppercase opacity-70 mb-1">Nome do Cartão</div>
+                             <div class="font-bold text-xl tracking-wide truncate" id="previewNome">SEU CARTÃO</div>
+                        </div>
+
+                        <div class="flex justify-between items-end z-10">
+                            <div>
+                                <div class="text-[9px] uppercase opacity-70">Limite Total</div>
+                                <div class="font-bold font-mono tracking-tight" id="previewLimite">R$ 0,00</div>
+                            </div>
+                            <div class="text-right">
+                                 <div class="text-[9px] uppercase opacity-70">Fecha / Vence</div>
+                                 <div class="font-bold text-sm font-mono"><span id="previewFecha">01</span> / <span id="previewVence">10</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <form id="formCartao" class="space-y-5">
+                    <input type="hidden" id="cartaoId">
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div>
+                            <label class="label-senior">Apelido do Cartão</label>
+                            <div class="input-group">
+                                <i data-lucide="credit-card" class="input-icon"></i>
+                                <input type="text" id="nome_cartao" class="input-senior" placeholder="Ex: Nubank Black" required oninput="atualizarPreview()">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="label-senior">Limite Total</label>
+                            <div class="input-group">
+                                <i data-lucide="dollar-sign" class="input-icon"></i>
+                                <input type="number" step="0.01" id="limite_total" class="input-senior" placeholder="0,00" required oninput="atualizarPreview()">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-100 dark:border-slate-700 mt-2">
+                        <div class="flex items-center gap-2 mb-3">
+                            <i data-lucide="calendar-clock" class="w-4 h-4 text-purple-500"></i>
+                            <span class="text-xs font-bold text-slate-500 uppercase">Ciclo de Pagamento</span>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="label-senior text-purple-600 dark:text-purple-400">Dia Fechamento</label>
+                                <input type="number" id="dia_fechamento" class="input-senior text-center font-bold text-lg" placeholder="01" min="1" max="31" required oninput="atualizarPreview()">
+                                <p class="text-[10px] text-slate-400 mt-1 text-center">Melhor dia compra</p>
+                            </div>
+                            <div>
+                                <label class="label-senior text-red-500 dark:text-red-400">Dia Vencimento</label>
+                                <input type="number" id="dia_vencimento" class="input-senior text-center font-bold text-lg" placeholder="10" min="1" max="31" required oninput="atualizarPreview()">
+                                <p class="text-[10px] text-slate-400 mt-1 text-center">Dia do pagamento</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700 mt-6">
+                        <button type="button" onclick="fecharModal()" class="px-5 py-2.5 rounded-lg text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition text-sm">
+                            Cancelar
+                        </button>
+                        <button type="submit" class="px-6 py-2.5 rounded-lg bg-primary text-white font-bold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm flex items-center gap-2">
+                            <i data-lucide="check" class="w-4 h-4"></i> Salvar Cartão
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { authGuard } from './js/auth.js';
+        import { renderSidebar } from './js/components.js';
+        import { apiFetch } from './js/api.js';
+        import { initTheme } from './js/theme.js';
+
+        // 1. Inicialização
+        authGuard();
+        initTheme(); // Lógica de toggle (o script da head já cuidou do flash)
+        renderSidebar('cartoes');
+
+        // 2. Globais para o HTML
+        window.abrirModal = abrirModal;
+        window.fecharModal = fecharModal;
+        window.selecionarCartao = selecionarCartao;
+        window.editarCartao = editarCartao;
+        window.atualizarPreview = atualizarPreview; // Importante para o oninput
+
+        const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+        let cartoesList = [];
+        let todosLancamentos = [];
+        let cartaoSelecionadoId = null;
+        let mesFaturaAtual = new Date();
+
+        // 3. Event Listeners
+        document.getElementById('formCartao').addEventListener('submit', salvarCartao);
+        document.getElementById('btnMesAnt').addEventListener('click', () => mudarMesFatura(-1));
+        document.getElementById('btnMesProx').addEventListener('click', () => mudarMesFatura(1));
+
+        // 4. Carga Inicial
+        carregarDados();
+
+        async function carregarDados() {
+            try {
+                const [cRes, lRes] = await Promise.all([
+                    apiFetch('/cartoes/'),
+                    apiFetch('/lancamentos/')
+                ]);
+                cartoesList = cRes || [];
+                todosLancamentos = lRes || [];
+                renderizarCartoes();
+            } catch (e) { console.error(e); }
+        }
+
+        // --- Lógica Visual do Novo Modal ---
+        function atualizarPreview() {
+            const nome = document.getElementById('nome_cartao').value;
+            const limite = document.getElementById('limite_total').value;
+            const fecha = document.getElementById('dia_fechamento').value;
+            const vence = document.getElementById('dia_vencimento').value;
+
+            // Atualiza textos
+            document.getElementById('previewNome').innerText = nome || 'SEU CARTÃO';
+            
+            const valLimite = parseFloat(limite);
+            document.getElementById('previewLimite').innerText = isNaN(valLimite) 
+                ? 'R$ 0,00' 
+                : BRL.format(valLimite);
+
+            document.getElementById('previewFecha').innerText = fecha ? String(fecha).padStart(2, '0') : '--';
+            document.getElementById('previewVence').innerText = vence ? String(vence).padStart(2, '0') : '--';
+        }
+
+        function abrirModal() {
+            document.getElementById('formCartao').reset();
+            document.getElementById('cartaoId').value = '';
+            document.getElementById('modalTitulo').innerText = 'Novo Cartão';
+            
+            // Reseta visualmente o preview
+            atualizarPreview();
+
+            document.getElementById('modalCartao').classList.remove('hidden');
+            
+            // Garante que os ícones do preview renderizem se for a primeira abertura
+            lucide.createIcons();
+        }
+
+        function fecharModal() { 
+            document.getElementById('modalCartao').classList.add('hidden'); 
+        }
+
+        function editarCartao(id, e) {
+            e.stopPropagation();
+            const c = cartoesList.find(x => x.id === id);
+            
+            // Preenche form
+            document.getElementById('cartaoId').value = c.id;
+            document.getElementById('nome_cartao').value = c.nome_cartao;
+            document.getElementById('limite_total').value = c.limite_total;
+            document.getElementById('dia_fechamento').value = c.dia_fechamento;
+            document.getElementById('dia_vencimento').value = c.dia_vencimento;
+            
+            document.getElementById('modalTitulo').innerText = 'Editar Cartão';
+            
+            // Atualiza preview com os dados carregados
+            atualizarPreview();
+            
+            document.getElementById('modalCartao').classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        async function salvarCartao(e) {
+            e.preventDefault();
+            const id = document.getElementById('cartaoId').value;
+            const payload = {
+                nome_cartao: document.getElementById('nome_cartao').value,
+                limite_total: parseFloat(document.getElementById('limite_total').value),
+                dia_fechamento: parseInt(document.getElementById('dia_fechamento').value),
+                dia_vencimento: parseInt(document.getElementById('dia_vencimento').value),
+                status: "ATIVO"
+            };
+
+            let res;
+            if (id) res = await apiFetch(`/cartoes/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+            else res = await apiFetch('/cartoes/', { method: 'POST', body: JSON.stringify(payload) });
+
+            if (res) {
+                fecharModal();
+                carregarDados();
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Sucesso!',
+                    text: 'Cartão salvo com sucesso.',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+            }
+        }
+
+        // --- Lógica da Lista e Fatura (Mantida do original) ---
+        function renderizarCartoes() {
+            const grid = document.getElementById('listaCartoes');
+            if (cartoesList.length === 0) {
+                grid.innerHTML = '<div class="col-span-full text-center text-slate-400 py-10">Nenhum cartão cadastrado.</div>';
+                return;
+            }
+
+            grid.innerHTML = cartoesList.map(c => {
+                const gastos = todosLancamentos
+                    .filter(l => l.cartao_id === c.id && l.status !== 'PAGO')
+                    .reduce((acc, l) => acc + parseFloat(l.valor_previsto), 0);
+                
+                const limiteTotal = parseFloat(c.limite_total);
+                const limiteDisponivel = limiteTotal - gastos;
+                const percentualUso = limiteTotal > 0 ? (gastos / limiteTotal) * 100 : 0;
+                const isSelected = c.id === cartaoSelecionadoId;
+                const borderClass = isSelected ? 'ring-4 ring-purple-200 border-purple-500' : 'border-slate-200 hover:border-purple-300';
+
+                return `
+                    <div onclick="selecionarCartao(${c.id})" class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border ${borderClass} dark:border-slate-700 transition cursor-pointer group relative overflow-hidden">
+                        <div class="h-24 card-gradient p-4 text-white relative select-none">
+                            <div class="flex justify-between items-start">
+                                <span class="font-bold text-lg tracking-wide drop-shadow-md truncate pr-8">${c.nome_cartao}</span>
+                                <i data-lucide="contactless" class="w-6 h-6 opacity-70"></i>
+                            </div>
+                            <div class="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition z-20">
+                                <button onclick="editarCartao(${c.id}, event)" class="p-1.5 bg-white/20 hover:bg-white/40 rounded backdrop-blur-sm shadow-sm"><i data-lucide="edit-2" class="w-3 h-3 text-white"></i></button>
+                            </div>
+                        </div>
+                        <div class="p-5">
+                            <div class="flex justify-between items-end mb-2">
+                                <div>
+                                    <p class="text-[10px] text-slate-400 font-bold uppercase">Disponível</p>
+                                    <p class="text-lg font-bold text-green-600">${BRL.format(limiteDisponivel)}</p>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-[10px] text-slate-400 font-bold uppercase">Total</p>
+                                    <p class="text-sm font-bold text-slate-600 dark:text-slate-300">${BRL.format(limiteTotal)}</p>
+                                </div>
+                            </div>
+                            <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2 mb-4 overflow-hidden">
+                                <div class="bg-purple-600 h-2 rounded-full transition-all duration-500" style="width: ${Math.min(percentualUso, 100)}%"></div>
+                            </div>
+                            <div class="flex justify-between text-xs text-slate-500 font-medium">
+                                <span>Fecha dia <strong class="text-purple-600">${String(c.dia_fechamento).padStart(2,'0')}</strong></span>
+                                <span>Vence dia <strong class="text-red-600">${String(c.dia_vencimento).padStart(2,'0')}</strong></span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        function selecionarCartao(id) {
+            cartaoSelecionadoId = id;
+            renderizarCartoes();
+            document.getElementById('areaFatura').classList.remove('hidden');
+            atualizarFatura();
+            // Scroll suave até a fatura em telas menores
+            if(window.innerWidth < 1024) {
+                setTimeout(() => document.getElementById('areaFatura').scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+            }
+        }
+
+        function mudarMesFatura(delta) {
+            mesFaturaAtual.setMonth(mesFaturaAtual.getMonth() + delta);
+            atualizarFatura();
+        }
+
+        function atualizarFatura() {
+            const cartao = cartoesList.find(c => c.id === cartaoSelecionadoId);
+            if (!cartao) return;
+
+            const ano = mesFaturaAtual.getFullYear();
+            const mes = mesFaturaAtual.getMonth();
+            const dataVencimento = new Date(ano, mes, cartao.dia_vencimento);
+            
+            document.getElementById('lblMesFatura').innerText = dataVencimento.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+            document.getElementById('lblVencimento').innerText = "Vence em: " + dataVencimento.toLocaleDateString('pt-BR');
+
+            const strMesAno = dataVencimento.toISOString().slice(0, 7); 
+            const itens = todosLancamentos.filter(l => l.cartao_id === cartao.id && l.data_vencimento.startsWith(strMesAno));
+
+            const total = itens.reduce((acc, l) => acc + parseFloat(l.valor_previsto), 0);
+            document.getElementById('lblTotalFatura').innerText = BRL.format(total);
+
+            const tbody = document.getElementById('listaFatura');
+            tbody.innerHTML = itens.map(l => `
+                <tr class="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
+                    <td class="px-8 py-3 text-slate-500 font-mono text-xs">${new Date(l.data_competencia).toLocaleDateString('pt-BR')}</td>
+                    <td class="px-8 py-3 font-medium text-slate-700 dark:text-slate-300">${l.descricao}</td>
+                    <td class="px-8 py-3 text-xs text-slate-400">${l.numero_parcela ? `${l.numero_parcela}x` : 'À vista'}</td>
+                    <td class="px-8 py-3 text-right font-bold text-slate-700 dark:text-slate-200">${BRL.format(l.valor_previsto)}</td>
+                </tr>
+            `).join('');
+
+            if (itens.length === 0) tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-slate-400 italic">Nenhuma compra nesta fatura.</td></tr>';
+        }
+    </script>
+</body>
+</html>

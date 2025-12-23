@@ -1,0 +1,20 @@
+# Framework e Servidor
+fastapi
+uvicorn[standard]
+
+# Configuração e Segurança
+pydantic-settings
+python-dotenv
+passlib
+bcrypt==3.2.2
+python-jose[cryptography]
+python-multipart 
+
+# Banco de Dados e ORM (PostgreSQL)
+sqlmodel
+alembic
+psycopg2-binary
+
+# Armazenamento de Arquivos (AWS S3)
+boto3
+

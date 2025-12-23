@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Contas Bancárias - Kyrus ERP</title>
+    
+    <script src="js/init-theme.js"></script>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { 
+            darkMode: 'class', 
+            theme: { extend: { colors: { primary: 'var(--color-primary)' } } } 
+        }
+    </script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="css/style.css">
+    
+    <style>
+        /* Gradiente Diferenciado para Contas (Verde/Esmeralda - Dinheiro) */
+        .account-gradient { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+        
+        /* --- ESTILOS SENIOR (INPUTS & VISUAL) --- */
+        .input-group { position: relative; }
+        
+        .input-icon { 
+            position: absolute; 
+            left: 12px; 
+            top: 50%; 
+            transform: translateY(-50%); 
+            color: #94a3b8; 
+            pointer-events: none; 
+            width: 18px; 
+            height: 18px;
+        }
+        
+        .input-senior {
+            width: 100%;
+            padding: 10px 12px 10px 40px; /* Espaço para o ícone */
+            border-radius: 0.5rem;
+            border: 1px solid #e2e8f0;
+            background-color: #f8fafc;
+            color: #334155;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            outline: none;
+            appearance: none; /* Remove estilo padrão de select */
+        }
+        
+        .input-senior:focus {
+            border-color: #10b981; /* Foco Verde para contas */
+            background-color: #fff;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+        }
+        
+        /* Dark Mode Overrides */
+        .dark .input-senior {
+            border-color: #334155;
+            background-color: #1e293b; 
+            color: #f1f5f9;
+        }
+        
+        .dark .input-senior:focus {
+            border-color: #34d399;
+            background-color: #0f172a;
+        }
+        
+        /* Labels Profissionais */
+        .label-senior {
+            display: block;
+            font-size: 0.70rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            margin-bottom: 6px;
+        }
+        .dark .label-senior { color: #94a3b8; }
+
+        /* Scrollbar personalizada */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #475569; }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-sans h-screen flex overflow-hidden">
+
+    <div id="sidebar-container"></div>
+
+    <main class="flex-1 flex flex-col h-full relative overflow-y-auto">
+        <header class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-8 py-5 flex items-center justify-between shadow-sm z-10 sticky top-0">
+            <div>
+                <h2 class="text-2xl font-bold tracking-tight">Contas Bancárias</h2>
+                <p class="text-sm text-slate-400">Caixas e Bancos</p>
+            </div>
+            <button onclick="abrirModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 font-medium transition active:scale-95">
+                <i data-lucide="plus-circle" class="w-5 h-5"></i> Nova Conta
+            </button>
+        </header>
+
+        <div class="p-8 flex-1">
+            <div id="gridContas" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div class="col-span-full text-center py-10 text-slate-400">
+                    <i data-lucide="loader-2" class="w-8 h-8 animate-spin mx-auto mb-2"></i>
+                    Carregando contas...
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="modalConta" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 sm:p-6">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onclick="fecharModal()"></div>
+
+        <div class="relative w-full max-w-lg transform rounded-2xl bg-white dark:bg-slate-800 shadow-2xl transition-all border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col max-h-[90vh]">
+            
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700">
+                <h3 class="font-bold text-lg text-slate-800 dark:text-white" id="modalTitulo">Gerenciar Conta</h3>
+                <button onclick="fecharModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-red-500 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            
+            <div class="p-6 overflow-y-auto custom-scrollbar">
+                
+                <div class="mb-8 relative group perspective">
+                    <div class="account-gradient rounded-xl p-6 text-white shadow-lg transform transition hover:scale-[1.02] duration-300 relative overflow-hidden h-40 flex flex-col justify-between select-none">
+                        <div class="absolute bottom-0 left-0 -ml-10 -mb-10 w-40 h-40 bg-white opacity-10 rounded-full blur-3xl"></div>
+                        
+                        <div class="flex justify-between items-start z-10">
+                            <div class="flex items-center gap-2">
+                                <div class="p-1.5 bg-white/20 rounded backdrop-blur-sm">
+                                    <i data-lucide="landmark" class="w-5 h-5"></i>
+                                </div>
+                                <span class="font-bold tracking-wide text-sm opacity-90 uppercase" id="previewBanco">SEU BANCO</span>
+                            </div>
+                            <span class="text-[10px] bg-white/20 px-2 py-0.5 rounded font-bold uppercase backdrop-blur-sm" id="previewTipo">CORRENTE</span>
+                        </div>
+
+                        <div class="z-10 mt-2">
+                             <div class="text-[10px] uppercase opacity-70 mb-1">Nome da Conta</div>
+                             <div class="font-bold text-xl tracking-wide truncate" id="previewNome">Minha Conta</div>
+                        </div>
+
+                        <div class="z-10">
+                             <div class="text-[10px] uppercase opacity-70">Saldo Inicial</div>
+                             <div class="font-bold font-mono text-lg" id="previewSaldo">R$ 0,00</div>
+                        </div>
+                    </div>
+                </div>
+
+                <form id="formConta" class="space-y-5">
+                    <input type="hidden" id="contaId">
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div class="col-span-1 md:col-span-2">
+                            <label class="label-senior">Nome da Conta</label>
+                            <div class="input-group">
+                                <i data-lucide="wallet" class="input-icon"></i>
+                                <input type="text" id="nome" class="input-senior" placeholder="Ex: Conta Principal" required oninput="atualizarPreview()">
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="label-senior">Instituição / Banco</label>
+                            <div class="input-group">
+                                <i data-lucide="building-2" class="input-icon"></i>
+                                <input type="text" id="banco" class="input-senior" placeholder="Ex: Itaú" oninput="atualizarPreview()">
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="label-senior">Saldo Inicial</label>
+                            <div class="input-group">
+                                <i data-lucide="coins" class="input-icon"></i>
+                                <input type="number" step="0.01" id="saldo_inicial" class="input-senior" placeholder="0.00" value="0.00" oninput="atualizarPreview()">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-100 dark:border-slate-700 mt-2">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="label-senior">Tipo de Conta</label>
+                                <div class="input-group">
+                                    <i data-lucide="tag" class="input-icon"></i>
+                                    <select id="tipo" class="input-senior cursor-pointer" onchange="atualizarPreview()">
+                                        <option value="CORRENTE">Corrente</option>
+                                        <option value="POUPANCA">Poupança</option>
+                                        <option value="CAIXA">Caixa Físico</option>
+                                        <option value="INVESTIMENTO">Investimento</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="label-senior">Status</label>
+                                <div class="input-group">
+                                    <i data-lucide="activity" class="input-icon"></i>
+                                    <select id="status" class="input-senior cursor-pointer">
+                                        <option value="ATIVO">Ativo</option>
+                                        <option value="INATIVO">Inativo</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700 mt-6">
+                        <button type="button" onclick="fecharModal()" class="px-5 py-2.5 rounded-lg text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition text-sm">
+                            Cancelar
+                        </button>
+                        <button type="submit" class="px-6 py-2.5 rounded-lg bg-emerald-600 text-white font-bold shadow-lg hover:bg-emerald-700 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm flex items-center gap-2">
+                            <i data-lucide="check" class="w-4 h-4"></i> Salvar Conta
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { authGuard } from './js/auth.js';
+        import { renderSidebar } from './js/components.js';
+        import { apiFetch } from './js/api.js';
+        import { initTheme } from './js/theme.js';
+
+        authGuard();
+        initTheme();
+        renderSidebar('contas');
+
+        // Globais
+        window.abrirModal = abrirModal;
+        window.fecharModal = fecharModal;
+        window.editar = editar;
+        window.excluir = excluir;
+        window.atualizarPreview = atualizarPreview;
+
+        let contasCache = [];
+        const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+        carregarContas();
+
+        async function carregarContas() {
+            const data = await apiFetch('/contas/');
+            if (data) {
+                contasCache = data;
+                renderizarGrid(data);
+            }
+        }
+
+        function renderizarGrid(dados) {
+            const grid = document.getElementById('gridContas');
+            grid.innerHTML = '';
+
+            if (dados.length === 0) {
+                grid.innerHTML = '<div class="col-span-full text-center text-slate-400 py-10 italic">Nenhuma conta cadastrada.</div>';
+                return;
+            }
+
+            dados.forEach(c => {
+                let icon = 'landmark'; // Default bank
+                if(c.tipo === 'CAIXA') icon = 'banknote';
+                if(c.tipo === 'INVESTIMENTO') icon = 'trending-up';
+                if(c.tipo === 'POUPANCA') icon = 'piggy-bank';
+
+                const card = document.createElement('div');
+                card.className = "bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 hover:border-emerald-400 dark:hover:border-emerald-600 transition group relative overflow-hidden";
+                card.innerHTML = `
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                                <i data-lucide="${icon}" class="w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-lg leading-tight text-slate-800 dark:text-slate-100">${c.nome}</h4>
+                                <p class="text-xs text-slate-500 uppercase tracking-wide font-bold">${c.banco || c.tipo}</p>
+                            </div>
+                        </div>
+                        <div class="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition flex gap-1 bg-white dark:bg-slate-800 p-1 rounded shadow-sm">
+                            <button onclick="editar(${c.id})" class="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 hover:text-blue-500 rounded transition"><i data-lucide="edit-2" class="w-4 h-4"></i></button>
+                            <button onclick="excluir(${c.id})" class="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 hover:text-red-500 rounded transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-4 border-t border-slate-50 dark:border-slate-700 flex justify-between items-end">
+                        <div>
+                            <p class="text-[10px] text-slate-400 font-bold uppercase">Saldo Inicial</p>
+                            <p class="text-xl font-bold font-mono text-slate-700 dark:text-slate-200 tracking-tight">${BRL.format(c.saldo_inicial)}</p>
+                        </div>
+                        <span class="px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${c.status === 'ATIVO' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}">
+                            ${c.status}
+                        </span>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+            lucide.createIcons();
+        }
+
+        // --- Lógica Visual (Preview) ---
+        function atualizarPreview() {
+            const nome = document.getElementById('nome').value;
+            const banco = document.getElementById('banco').value;
+            const saldo = document.getElementById('saldo_inicial').value;
+            const tipo = document.getElementById('tipo').value;
+
+            document.getElementById('previewNome').innerText = nome || 'Minha Conta';
+            document.getElementById('previewBanco').innerText = banco || 'SEU BANCO';
+            document.getElementById('previewTipo').innerText = tipo;
+            
+            const valSaldo = parseFloat(saldo);
+            document.getElementById('previewSaldo').innerText = isNaN(valSaldo) ? 'R$ 0,00' : BRL.format(valSaldo);
+        }
+
+        function abrirModal() {
+            document.getElementById('formConta').reset();
+            document.getElementById('contaId').value = '';
+            document.getElementById('modalTitulo').innerText = 'Nova Conta';
+            
+            atualizarPreview(); // Reset visual
+            document.getElementById('modalConta').classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function fecharModal() {
+            document.getElementById('modalConta').classList.add('hidden');
+        }
+
+        function editar(id) {
+            const item = contasCache.find(c => c.id == id);
+            if (!item) return;
+            
+            document.getElementById('contaId').value = item.id;
+            document.getElementById('nome').value = item.nome;
+            document.getElementById('banco').value = item.banco;
+            document.getElementById('tipo').value = item.tipo;
+            document.getElementById('status').value = item.status;
+            document.getElementById('saldo_inicial').value = item.saldo_inicial;
+            
+            document.getElementById('modalTitulo').innerText = 'Editar Conta';
+            
+            atualizarPreview(); // Carrega dados no preview
+            document.getElementById('modalConta').classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        // Submit Form
+        document.getElementById('formConta').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('contaId').value;
+            const payload = {
+                nome: document.getElementById('nome').value,
+                banco: document.getElementById('banco').value,
+                tipo: document.getElementById('tipo').value,
+                status: document.getElementById('status').value,
+                saldo_inicial: parseFloat(document.getElementById('saldo_inicial').value) || 0
+            };
+
+            let res;
+            if (id) {
+                res = await apiFetch(`/contas/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+            } else {
+                res = await apiFetch('/contas/', { method: 'POST', body: JSON.stringify(payload) });
+            }
+
+            if (res) {
+                fecharModal();
+                carregarContas();
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Sucesso!',
+                    text: 'Conta salva com sucesso.',
+                    timer: 1500,
+                    showConfirmButton: false
+                });
+            }
+        });
+
+        async function excluir(id) {
+            const result = await Swal.fire({ 
+                title: 'Excluir conta?', 
+                text: "Essa ação não pode ser desfeita.",
+                icon: 'warning', 
+                showCancelButton: true, 
+                confirmButtonColor: '#ef4444',
+                cancelButtonColor: '#64748b',
+                confirmButtonText: 'Sim, excluir',
+                cancelButtonText: 'Cancelar'
+            });
+            
+            if (result.isConfirmed) {
+                const res = await apiFetch(`/contas/${id}`, { method: 'DELETE' });
+                if (res) {
+                    carregarContas();
+                    Swal.fire('Excluído!', 'A conta foi removida.', 'success');
+                }
+            }
+        }
+    </script>
+</body>
+</html>

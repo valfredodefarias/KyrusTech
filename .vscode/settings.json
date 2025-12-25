@@ -1,16 +1,15 @@
 {
-    "python-envs.pythonProjects": [],
-    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "python.analysis.typeCheckingMode": "standard",
+    "files.autoSave": "afterDelay",
+    "python.defaultInterpreterPath": "/bin/python",
     "liveServer.settings.ignoreFiles": [
-        ".vscode/**",
-        "**/*.py",
-        "**/*.pyc",
+        "**/*.db",
+        "**/*.sqlite",
+        "**/*.log",
         "**/__pycache__/**",
-        "venv/**",
-        "app/**",
-        "alembic/**",
-        ".env",
-        "*.db",
-        "*.sqlite"
+        ".vscode/**",
+        "**/*.scss",
+        "**/*.sass",
+        "**/*.ts"
     ]
 }

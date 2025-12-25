@@ -16,6 +16,7 @@ class LancamentoBase(SQLModel):
     
     tipo: str # RECEITA ou DESPESA
     status: str = "PENDENTE"
+    ipp: Optional[bool] = None
     
     # IDs de vínculo
     plano_contas_id: int
@@ -26,6 +27,7 @@ class LancamentoBase(SQLModel):
     numero_parcela: Optional[str] = None
     conciliado: bool = False
     observacao: Optional[str] = None
+    centro_custo_id: Optional[int] = None 
 
 # Criação (Herda tudo da base)
 class LancamentoCreate(LancamentoBase):
@@ -41,6 +43,7 @@ class LancamentoRead(LancamentoBase):
     nome_conta: Optional[str] = None 
     nome_cartao: Optional[str] = None
     nome_plano_contas: Optional[str] = None 
+    ipp: Optional[bool] = None
 
 # Atualização (Tudo opcional)
 class LancamentoUpdate(SQLModel):
@@ -54,12 +57,15 @@ class LancamentoUpdate(SQLModel):
     plano_contas_id: Optional[int] = None
     entidade_id: Optional[int] = None
     conciliado: Optional[bool] = None
+    ipp: Optional[bool] = None
+    centro_custo_id: Optional[int] = None 
 
 # Schema Especial para Ações em Massa (Bulk)
 class BulkActionSchema(SQLModel):
     ids: List[int]
     data_pagamento: Optional[datetime.date] = None
     copiar_valor: bool = True
+    conta_id: Optional[int] = None
 
 
 # Schema específico para Transferência
@@ -69,6 +75,10 @@ class TransferenciaCreate(SQLModel):
     valor: Decimal
     data_transferencia: datetime.date
     observacao: Optional[str] = None
-    # Opcional: IDs de categorias específicas para identificar transferências
-    categoria_saida_id: int 
-    categoria_entrada_id: int
+    
+    # Tornamos opcionais para o front não precisar enviar obrigatóriamente
+    categoria_saida_id: Optional[int] = None 
+    categoria_entrada_id: Optional[int] = None
+
+    centro_custo_id: Optional[int] = None
+    efetivado: bool = True

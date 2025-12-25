@@ -22,7 +22,7 @@ export function renderSidebar(activePageId) {
             ${createMenuItem('entidades', 'Entidades', 'users', activePageId)}
             ${createMenuItem('contas', 'Contas Bancárias', 'wallet', activePageId)}
             ${createMenuItem('cartoes', 'Cartões', 'credit-card', activePageId)}
-            ${createMenuItem('centros-custo', 'Centros de Custo', 'pie-chart', activePageId)}
+            ${createMenuItem('centro_custo', 'Centros de Custo', 'pie-chart', activePageId)}
             
             <div class="pt-4 pb-2 px-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Configuração</div>
             ${createMenuItem('configuracoes', 'Minha Empresa', 'settings', activePageId)}

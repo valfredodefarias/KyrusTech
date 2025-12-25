@@ -1,54 +1,37 @@
 // js/api.js
-import { API_BASE_URL } from './config.js';
-import { logout } from './auth.js';
 
-/**
- * Wrapper profissional para o fetch nativo.
- * Adiciona automaticamente o Token e trata erros globais (401).
- */
+// ADICIONE 'export' AQUI 👇
+export const API_BASE = 'http://192.168.0.39:8000/api/v1'; 
+
 export async function apiFetch(endpoint, options = {}) {
-    const token = localStorage.getItem('access_token');
+    // ... (o resto do seu código continua igual)
+    const token = localStorage.getItem('token');
     
-    // Configuração padrão dos Headers
     const headers = {
         'Content-Type': 'application/json',
-        ...(options.headers || {})
+        ...options.headers
     };
 
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const config = {
-        ...options,
-        headers
-    };
+    // ... logs ...
 
     try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+        // Usa a variável exportada
+        const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
+        
+        // ... tratamentos de erro ...
 
-        // INTERCEPTADOR DE SEGURANÇA (O Guardião)
-        if (response.status === 401) {
-            console.warn("⛔ Sessão expirada ou token inválido.");
-            logout(); // Redireciona para login
-            return null;
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Erro na requisição');
         }
 
-        // Se der erro 403 (Sem permissão) ou 500, podemos tratar aqui ou deixar passar
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-            throw new Error(errorData.detail || 'Erro na requisição');
-        }
-
-        // Retorna JSON se houver conteúdo, senão null
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.indexOf("application/json") !== -1) {
-            return await response.json();
-        }
-        return null;
-
+        return await res.json();
     } catch (error) {
-        console.error("🔥 Erro de API:", error);
-        throw error; // Repassa o erro para quem chamou tratar (ex: mostrar SweetAlert)
+        console.error("💥 API Error:", error);
+        return null;
     }
 }

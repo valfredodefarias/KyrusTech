@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Centros de Custo - Kyrus ERP</title>
+    
+    <script type="module" src="js/init-theme.js"></script>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { 
+            darkMode: 'class', 
+            theme: { extend: { colors: { primary: 'var(--color-primary)' } } } 
+        }
+    </script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="css/style.css">
+    
+    <style>
+        .card-gradient { background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); } /* Azul/Ciano para diferenciar de Cartões */
+        
+        /* Reutilizando estilos Senior do seu projeto */
+        .input-group { position: relative; }
+        .input-icon { 
+            position: absolute; left: 12px; top: 50%; transform: translateY(-50%); 
+            color: #94a3b8; pointer-events: none; width: 18px; height: 18px;
+        }
+        .input-senior {
+            width: 100%; padding: 10px 12px 10px 40px; border-radius: 0.5rem;
+            border: 1px solid #e2e8f0; background-color: #f8fafc; color: #334155;
+            font-size: 0.875rem; font-weight: 500; transition: all 0.2s; outline: none;
+        }
+        .input-senior:focus {
+            border-color: #3b82f6; background-color: #fff;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        .dark .input-senior { border-color: #334155; background-color: #1e293b; color: #f1f5f9; }
+        .dark .input-senior:focus { border-color: #60a5fa; background-color: #0f172a; }
+        
+        .label-senior {
+            display: block; font-size: 0.70rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.05em; color: #64748b; margin-bottom: 6px;
+        }
+        .dark .label-senior { color: #94a3b8; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #475569; }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-sans h-screen flex overflow-hidden">
+
+    <div id="sidebar-container"></div>
+
+    <main class="flex-1 flex flex-col h-full relative overflow-y-auto">
+        
+        <header class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-8 py-5 flex items-center justify-between shadow-sm z-10 sticky top-0">
+            <div>
+                <h2 class="text-2xl font-bold tracking-tight">Centros de Custo</h2>
+                <p class="text-sm text-slate-400">Gerenciamento de Departamentos e Projetos</p>
+            </div>
+            <button onclick="abrirModal()" class="bg-primary hover:brightness-90 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 font-medium transition active:scale-95">
+                <i data-lucide="plus-circle" class="w-5 h-5"></i> Novo Centro
+            </button>
+        </header>
+
+        <div class="p-8 space-y-8 max-w-7xl mx-auto w-full">
+
+            <div id="listaCentros" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div class="col-span-full text-center py-10 text-slate-400">
+                    <i data-lucide="loader-2" class="w-8 h-8 animate-spin mx-auto mb-2"></i>
+                    Carregando dados...
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <div id="modalCentro" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 sm:p-6">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onclick="fecharModal()"></div>
+
+        <div class="relative w-full max-w-lg transform rounded-2xl bg-white dark:bg-slate-800 shadow-2xl transition-all border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col max-h-[90vh]">
+            
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700">
+                <h3 class="font-bold text-lg text-slate-800 dark:text-white" id="modalTitulo">Gerenciar Centro de Custo</h3>
+                <button onclick="fecharModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-red-500 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-y-auto custom-scrollbar">
+                
+                <div class="mb-8 relative group perspective flex justify-center">
+                    <div class="card-gradient rounded-xl p-6 text-white shadow-lg transform transition w-full h-32 flex flex-col justify-between relative overflow-hidden select-none">
+                        <div class="absolute -right-4 -top-4 bg-white/10 w-24 h-24 rounded-full blur-xl"></div>
+                        
+                        <div class="flex justify-between items-start z-10">
+                            <div class="opacity-80 font-mono text-xs tracking-widest uppercase border border-white/30 px-2 py-0.5 rounded" id="previewStatus">ATIVO</div>
+                            <i data-lucide="layers" class="w-6 h-6 opacity-80"></i>
+                        </div>
+
+                        <div class="z-10">
+                             <div class="text-[10px] uppercase opacity-70 mb-1">Nome do Centro de Custo</div>
+                             <div class="font-bold text-xl tracking-wide truncate" id="previewNome">NOVO DEPARTAMENTO</div>
+                        </div>
+
+                        <div class="flex justify-between items-end z-10">
+                            <div class="flex items-center gap-1 opacity-70">
+                                <i data-lucide="hash" class="w-3 h-3"></i>
+                                <span class="text-xs font-mono" id="previewCodigo">---</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <form id="formCentro" class="space-y-5">
+                    <input type="hidden" id="centroId">
+                    
+                    <div>
+                        <label class="label-senior">Nome do Centro / Departamento</label>
+                        <div class="input-group">
+                            <i data-lucide="type" class="input-icon"></i>
+                            <input type="text" id="nome" class="input-senior" placeholder="Ex: Marketing, Obras, TI..." required oninput="atualizarPreview()">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-5">
+                        <div>
+                            <label class="label-senior">Código (Opcional)</label>
+                            <div class="input-group">
+                                <i data-lucide="hash" class="input-icon"></i>
+                                <input type="text" id="codigo" class="input-senior uppercase" placeholder="Ex: MKT-01" oninput="atualizarPreview()">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="label-senior">Status</label>
+                            <div class="input-group">
+                                <i data-lucide="activity" class="input-icon"></i>
+                                <select id="status" class="input-senior appearance-none cursor-pointer" onchange="atualizarPreview()">
+                                    <option value="ATIVO" selected>ATIVO</option>
+                                    <option value="INATIVO">INATIVO</option>
+                                </select>
+                                <i data-lucide="chevron-down" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700 mt-6">
+                        <button type="button" onclick="fecharModal()" class="px-5 py-2.5 rounded-lg text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition text-sm">
+                            Cancelar
+                        </button>
+                        <button type="submit" class="px-6 py-2.5 rounded-lg bg-primary text-white font-bold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm flex items-center gap-2">
+                            <i data-lucide="check" class="w-4 h-4"></i> Salvar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { authGuard } from './js/auth.js';
+        import { renderSidebar } from './js/components.js';
+        import { apiFetch } from './js/api.js';
+        import { initTheme } from './js/theme.js';
+
+        // 1. Inicialização
+        authGuard();
+        initTheme();
+        renderSidebar('centro_custo'); // Garanta que seu sidebar.js tenha um case para 'centro_custo' ou ajuste aqui
+
+        // 2. Globais
+        window.abrirModal = abrirModal;
+        window.fecharModal = fecharModal;
+        window.editarCentro = editarCentro;
+        window.deletarCentro = deletarCentro;
+        window.atualizarPreview = atualizarPreview;
+
+        let centrosList = [];
+
+        // 3. Listeners
+        document.getElementById('formCentro').addEventListener('submit', salvarCentro);
+
+        // 4. Carga Inicial
+        carregarDados();
+
+        async function carregarDados() {
+            try {
+                // Ajuste a rota para '/centro_custo/' se você não tiver implementado o sufixo 's' no backend
+                // Baseado nos seus arquivos, parece ser singular ou plural dependendo do router.
+                // Assumindo endpoint: /centro_custo/
+                const res = await apiFetch('/centro_custo/'); 
+                centrosList = res || [];
+                renderizarCentros();
+            } catch (e) { console.error(e); }
+        }
+
+        function atualizarPreview() {
+            const nome = document.getElementById('nome').value;
+            const codigo = document.getElementById('codigo').value;
+            const status = document.getElementById('status').value;
+
+            document.getElementById('previewNome').innerText = nome || 'NOVO DEPARTAMENTO';
+            document.getElementById('previewCodigo').innerText = codigo ? codigo.toUpperCase() : '---';
+            document.getElementById('previewStatus').innerText = status;
+            
+            const badge = document.getElementById('previewStatus');
+            if(status === 'INATIVO') {
+                badge.className = "opacity-80 font-mono text-xs tracking-widest uppercase border border-red-200 bg-red-500/20 px-2 py-0.5 rounded";
+            } else {
+                badge.className = "opacity-80 font-mono text-xs tracking-widest uppercase border border-white/30 px-2 py-0.5 rounded";
+            }
+        }
+
+        function abrirModal() {
+            document.getElementById('formCentro').reset();
+            document.getElementById('centroId').value = '';
+            document.getElementById('modalTitulo').innerText = 'Novo Centro de Custo';
+            atualizarPreview();
+            document.getElementById('modalCentro').classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function fecharModal() { 
+            document.getElementById('modalCentro').classList.add('hidden'); 
+        }
+
+        function editarCentro(id) {
+            const item = centrosList.find(x => x.id === id);
+            if(!item) return;
+
+            document.getElementById('centroId').value = item.id;
+            document.getElementById('nome').value = item.nome;
+            document.getElementById('codigo').value = item.codigo || '';
+            document.getElementById('status').value = item.status || 'ATIVO';
+
+            document.getElementById('modalTitulo').innerText = 'Editar Centro de Custo';
+            atualizarPreview();
+            document.getElementById('modalCentro').classList.remove('hidden');
+        }
+
+        async function deletarCentro(id) {
+            const result = await Swal.fire({
+                title: 'Tem certeza?',
+                text: "Você não poderá reverter isso! Lançamentos vinculados podem perder a referência.",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Sim, deletar!',
+                cancelButtonText: 'Cancelar'
+            });
+
+            if (result.isConfirmed) {
+                const res = await apiFetch(`/centro_custo/${id}`, { method: 'DELETE' });
+                if (res) {
+                    Swal.fire('Deletado!', 'O centro de custo foi removido.', 'success');
+                    carregarDados();
+                }
+            }
+        }
+
+        async function salvarCentro(e) {
+            e.preventDefault();
+            const id = document.getElementById('centroId').value;
+            
+            const payload = {
+                nome: document.getElementById('nome').value,
+                codigo: document.getElementById('codigo').value.toUpperCase(),
+                status: document.getElementById('status').value
+            };
+
+            let res;
+            // IMPORTANTE: Certifique-se que seu Backend aceita PUT e tem a rota configurada
+            if (id) {
+                res = await apiFetch(`/centro_custo/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+            } else {
+                res = await apiFetch('/centro_custo/', { method: 'POST', body: JSON.stringify(payload) });
+            }
+
+            if (res) {
+                fecharModal();
+                carregarDados();
+                const msg = id ? 'Centro atualizado!' : 'Centro criado com sucesso!';
+                const Toast = Swal.mixin({
+                    toast: true, position: 'top-end', showConfirmButton: false, timer: 3000,
+                    timerProgressBar: true
+                });
+                Toast.fire({ icon: 'success', title: msg });
+            }
+        }
+
+        function renderizarCentros() {
+            const grid = document.getElementById('listaCentros');
+            if (centrosList.length === 0) {
+                grid.innerHTML = '<div class="col-span-full text-center text-slate-400 py-10 bg-white dark:bg-slate-800 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">Nenhum centro de custo cadastrado.</div>';
+                return;
+            }
+
+            grid.innerHTML = centrosList.map(c => {
+                const isInactive = c.status === 'INATIVO';
+                const opacityClass = isInactive ? 'opacity-60 grayscale' : '';
+                
+                return `
+                    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 hover:border-blue-400 transition group relative overflow-hidden ${opacityClass}">
+                        <div class="p-6 flex items-start justify-between">
+                            <div class="flex gap-4">
+                                <div class="w-12 h-12 rounded-lg card-gradient flex items-center justify-center text-white shadow-md">
+                                    <i data-lucide="layers" class="w-6 h-6"></i>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-slate-800 dark:text-slate-100 text-lg">${c.nome}</h3>
+                                    <div class="flex items-center gap-2 mt-1">
+                                        <span class="text-xs font-mono bg-slate-100 dark:bg-slate-700 text-slate-500 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-600">
+                                            ${c.codigo || 'S/ CÓDIGO'}
+                                        </span>
+                                        ${isInactive ? '<span class="text-[10px] font-bold text-red-500 bg-red-100 px-2 py-0.5 rounded">INATIVO</span>' : ''}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onclick="editarCentro(${c.id})" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-blue-500 rounded-lg transition" title="Editar">
+                                    <i data-lucide="edit-2" class="w-4 h-4"></i>
+                                </button>
+                                <button onclick="deletarCentro(${c.id})" class="p-2 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 rounded-lg transition" title="Excluir">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="h-1 w-full bg-gradient-to-r from-blue-500 to-cyan-400 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left"></div>
+                    </div>
+                `;
+            }).join('');
+            lucide.createIcons();
+        }
+    </script>
+</body>
+</html>

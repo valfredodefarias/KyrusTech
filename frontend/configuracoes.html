@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Configurações - Kyrus ERP</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Tema e Estilos -->
+    <script type="module" src="js/init-theme.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { 
+            darkMode: 'class', 
+            theme: { extend: { colors: { primary: 'var(--color-primary)' } } } 
+        }
+    </script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="css/style.css">
+
+    <style>
+        /* Estilos da Árvore de Categorias */
+        .cat-item { transition: all 0.2s; border-left: 3px solid transparent; }
+        .cat-item:hover { background-color: rgba(0,0,0,0.03); border-left-color: var(--color-primary); }
+        .dark .cat-item:hover { background-color: rgba(255,255,255,0.05); }
+        
+        /* Níveis de Hierarquia */
+        .nivel-1 { margin-left: 0px; font-weight: 700; background-color: rgba(0,0,0,0.02); } 
+        .dark .nivel-1 { background-color: rgba(255,255,255,0.02); }
+        .nivel-2 { margin-left: 20px; border-left: 1px solid #e2e8f0; } 
+        .dark .nivel-2 { border-left-color: #334155; }
+        .nivel-3 { margin-left: 40px; border-left: 1px solid #e2e8f0; }
+        .dark .nivel-3 { border-left-color: #334155; }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-sans h-screen flex overflow-hidden">
+
+    <!-- Sidebar -->
+    <div id="sidebar-container"></div>
+
+    <main class="flex-1 flex flex-col h-full relative overflow-y-auto custom-scrollbar">
+        
+        <header class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-8 py-5 flex items-center justify-between shadow-sm sticky top-0 z-20">
+            <div>
+                <h2 class="text-2xl font-bold tracking-tight">Configurações</h2>
+                <p class="text-sm text-slate-400">Personalização e parâmetros do sistema</p>
+            </div>
+            <button onclick="window.location.reload()" class="p-2 text-slate-400 hover:text-blue-500 transition rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700">
+                <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+            </button>
+        </header>
+
+        <div class="p-8 space-y-8 max-w-7xl mx-auto w-full">
+
+            <!-- 1. BLOCO EMPRESA & BRANDING -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                
+                <!-- Dados da Empresa (Editável) -->
+                <div class="lg:col-span-2 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
+                    <div class="flex items-center justify-between mb-6 border-b border-slate-100 dark:border-slate-700 pb-4">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600 rounded-lg">
+                                <i data-lucide="building" class="w-5 h-5"></i>
+                            </div>
+                            <h3 class="font-bold text-lg">Identidade da Empresa</h3>
+                        </div>
+                        <button onclick="salvarEmpresa()" class="text-sm bg-primary hover:brightness-90 text-white px-4 py-2 rounded-lg font-bold transition shadow-sm flex items-center gap-2">
+                            <i data-lucide="save" class="w-4 h-4"></i> Salvar Dados
+                        </button>
+                    </div>
+                    
+                    <form id="formEmpresa" class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <!-- Campos Básicos -->
+                        <div class="md:col-span-2">
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Nome Fantasia</label>
+                            <input type="text" id="nome_fantasia" class="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-primary outline-none transition">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Razão Social</label>
+                            <input type="text" id="razao_social" class="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-primary outline-none transition">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">CNPJ</label>
+                            <input type="text" id="cnpj" class="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-primary outline-none transition">
+                        </div>
+
+                        <!-- BRANDING -->
+                        <div class="md:col-span-2 border-t border-slate-100 dark:border-slate-700 pt-4 mt-2">
+                            <h4 class="font-bold text-sm mb-4 text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                <i data-lucide="palette" class="w-4 h-4"></i> Personalização Visual
+                            </h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Cor Primária</label>
+                                    <div class="flex items-center gap-2">
+                                        <input type="color" id="cor_primaria" class="h-10 w-12 rounded border border-slate-300 cursor-pointer p-0.5 bg-white">
+                                        <input type="text" id="hex_cor" class="flex-1 p-2.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 uppercase font-mono text-sm" readonly>
+                                    </div>
+                                    <p class="text-[10px] text-slate-400 mt-1">Define a cor dos botões e destaques.</p>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Logo URL</label>
+                                    <input type="text" id="logo_url" placeholder="https://..." class="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-primary outline-none">
+                                    <p class="text-[10px] text-slate-400 mt-1">Link direto da imagem da sua logo.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Cartão Aparência (Tema) -->
+                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 h-fit">
+                    <div class="flex items-center gap-3 mb-6 border-b border-slate-100 dark:border-slate-700 pb-4">
+                        <div class="p-2 bg-purple-100 dark:bg-purple-900/30 text-purple-600 rounded-lg">
+                            <i data-lucide="moon" class="w-5 h-5"></i>
+                        </div>
+                        <h3 class="font-bold text-lg">Aparência</h3>
+                    </div>
+                    <div class="flex items-center justify-between py-2">
+                        <span class="font-medium text-sm">Modo Escuro</span>
+                        <button id="btnThemeToggle" class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-200 dark:bg-blue-600 transition-colors">
+                            <span class="sr-only">Alternar Tema</span>
+                            <span id="themeIndicator" class="translate-x-1 inline-block h-4 w-4 transform rounded-full bg-white transition dark:translate-x-6"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. BLOCO PLANO DE CONTAS -->
+            <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4 border-b border-slate-100 dark:border-slate-700 pb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 rounded-lg">
+                            <i data-lucide="list-tree" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-lg">Plano de Contas</h3>
+                            <p class="text-xs text-slate-400">Estrutura hierárquica financeira</p>
+                        </div>
+                    </div>
+                    <button onclick="abrirModalCategoria()" class="bg-primary hover:brightness-90 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md flex items-center gap-2 transition">
+                        <i data-lucide="plus" class="w-4 h-4"></i> Nova Categoria
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <!-- Coluna Receitas -->
+                    <div class="bg-emerald-50 dark:bg-emerald-900/10 rounded-xl p-4 border border-emerald-100 dark:border-emerald-800">
+                        <h4 class="font-bold text-emerald-700 dark:text-emerald-400 mb-4 flex items-center gap-2">
+                            <i data-lucide="arrow-up-circle" class="w-4 h-4"></i> Receitas
+                        </h4>
+                        <div id="listaReceitas" class="space-y-1 text-sm"></div>
+                    </div>
+
+                    <!-- Coluna Despesas -->
+                    <div class="bg-red-50 dark:bg-red-900/10 rounded-xl p-4 border border-red-100 dark:border-red-800">
+                        <h4 class="font-bold text-red-700 dark:text-red-400 mb-4 flex items-center gap-2">
+                            <i data-lucide="arrow-down-circle" class="w-4 h-4"></i> Despesas
+                        </h4>
+                        <div id="listaDespesas" class="space-y-1 text-sm"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Modal Nova/Editar Categoria -->
+    <div id="modalCategoria" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-opacity">
+        <div class="bg-white dark:bg-slate-800 w-full max-w-md rounded-xl shadow-2xl overflow-hidden transform transition-all border border-slate-200 dark:border-slate-700">
+            <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
+                <h3 class="font-bold text-lg text-slate-800 dark:text-white" id="modalTitulo">Nova Categoria</h3>
+                <button onclick="fecharModalCategoria()" class="text-slate-400 hover:text-red-500 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            
+            <form id="formCategoria" class="p-6 space-y-4">
+                <input type="hidden" id="catId">
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Tipo</label>
+                        <select id="catTipo" onchange="atualizarSelectPais(); sugerirCodigo()" class="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm outline-none focus:border-blue-500 cursor-pointer">
+                            <option value="R">Receita</option>
+                            <option value="D" selected>Despesa</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Categoria Pai</label>
+                        <select id="catPai" onchange="sugerirCodigo()" class="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm outline-none focus:border-blue-500 cursor-pointer">
+                            <option value="">Nenhuma (Raiz)</option>
+                            <!-- Preenchido via JS -->
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="col-span-1">
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Código</label>
+                        <input type="text" id="catCodigo" class="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 font-mono text-sm outline-none focus:border-blue-500 font-bold" placeholder="Ex: 2.01">
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Nome</label>
+                        <input type="text" id="catNome" class="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm outline-none focus:border-blue-500 transition" required placeholder="Ex: Marketing...">
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2 pt-2">
+                    <input type="checkbox" id="catPermite" class="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" checked>
+                    <label for="catPermite" class="text-sm font-medium text-slate-600 dark:text-slate-300">Permite lançamentos?</label>
+                </div>
+                <p class="text-[10px] text-slate-400 -mt-2 ml-6">Desmarque se for apenas uma pasta agrupadora (ex: "1. Receitas").</p>
+
+                <div class="flex justify-end gap-2 pt-4 border-t border-slate-100 dark:border-slate-700 mt-2">
+                    <button type="button" onclick="fecharModalCategoria()" class="px-4 py-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-sm font-bold transition">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 bg-primary hover:brightness-90 text-white rounded-lg text-sm font-bold shadow-md transition flex items-center gap-2">
+                        <i data-lucide="check" class="w-4 h-4"></i> Salvar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODULE JS -->
+    <script type="module">
+        import { authGuard } from './js/auth.js';
+        import { renderSidebar } from './js/components.js';
+        import { apiFetch } from './js/api.js';
+        import { initTheme } from './js/theme.js';
+
+        // 1. Inicialização
+        authGuard();
+        initTheme();
+        renderSidebar('configuracoes');
+
+        // 2. Export Globais
+        window.abrirModalCategoria = abrirModalCategoria;
+        window.fecharModalCategoria = fecharModalCategoria;
+        window.editarCategoria = editarCategoria;
+        window.excluirCategoria = excluirCategoria;
+        window.salvarEmpresa = salvarEmpresa;
+        window.atualizarSelectPais = atualizarSelectPais;
+        window.sugerirCodigo = sugerirCodigo;
+
+        let todasCategorias = [];
+        let empresaId = null;
+
+        // 3. Carga Inicial
+        carregarDadosEmpresa();
+        carregarPlanoContas();
+        setupThemeToggle();
+        setupColorPicker();
+
+        // --- LÓGICA DE EMPRESA & BRANDING (PERSISTENTE) ---
+        
+        async function carregarDadosEmpresa() {
+            try {
+                const user = await apiFetch('/usuarios/me');
+                if(user) {
+                    empresaId = user.empresa_id;
+                    const empresa = await apiFetch(`/empresas/${empresaId}`);
+                    if(empresa) {
+                        document.getElementById('nome_fantasia').value = empresa.nome_fantasia;
+                        document.getElementById('razao_social').value = empresa.razao_social || '';
+                        document.getElementById('cnpj').value = empresa.cnpj || '';
+                        document.getElementById('logo_url').value = empresa.logo_url || '';
+                        
+                        const cor = empresa.cor_primaria || '#0d6efd';
+                        document.getElementById('cor_primaria').value = cor;
+                        document.getElementById('hex_cor').value = cor;
+                        
+                        // Garante que o navegador esteja sincronizado se o usuário acabou de entrar
+                        localStorage.setItem('kyrus_brand_color', cor);
+                        document.documentElement.style.setProperty('--color-primary', cor);
+                    }
+                }
+            } catch(e) { console.error("Erro empresa:", e); }
+        }
+
+        async function salvarEmpresa() {
+            if(!empresaId) return;
+            
+            const payload = {
+                nome_fantasia: document.getElementById('nome_fantasia').value,
+                razao_social: document.getElementById('razao_social').value,
+                cnpj: document.getElementById('cnpj').value,
+                logo_url: document.getElementById('logo_url').value,
+                cor_primaria: document.getElementById('cor_primaria').value
+            };
+
+            try {
+                // 1. Salva no Backend (Fonte da Verdade)
+                // Nota: Verifique se o seu backend tem a rota PATCH /empresas/{id}.
+                // Se não tiver, o código abaixo pode dar 405 Method Not Allowed.
+                // Mas, baseado no nosso último ajuste, já deve ter.
+                const res = await apiFetch(`/empresas/${empresaId}`, { 
+                    method: 'PATCH', 
+                    body: JSON.stringify(payload) 
+                });
+
+                if (res) {
+                    // 2. Salva no LocalStorage (Para F5 rápido)
+                    localStorage.setItem('kyrus_brand_color', payload.cor_primaria);
+                    
+                    // 3. Aplica visualmente na hora
+                    document.documentElement.style.setProperty('--color-primary', payload.cor_primaria);
+
+                    Swal.fire({
+                        icon: 'success', 
+                        title: 'Dados salvos!', 
+                        text: 'Configurações atualizadas com sucesso.',
+                        timer: 2000,
+                        showConfirmButton: false
+                    });
+                }
+            } catch(e) {
+                console.error(e);
+                Swal.fire('Erro', 'Falha ao salvar no servidor.', 'error');
+            }
+        }
+
+        function setupColorPicker() {
+            const picker = document.getElementById('cor_primaria');
+            const text = document.getElementById('hex_cor');
+            picker.addEventListener('input', (e) => { text.value = e.target.value; });
+        }
+
+        // --- LÓGICA DE PLANO DE CONTAS (HIERARQUIA) ---
+
+        async function carregarPlanoContas() {
+            try {
+                const dados = await apiFetch('/plano-contas/');
+                if(dados) {
+                    todasCategorias = dados;
+                    renderizarHierarquia(dados);
+                }
+            } catch(e) { console.error("Erro categorias:", e); }
+        }
+
+        function renderizarHierarquia(lista) {
+            const divRec = document.getElementById('listaReceitas');
+            const divDesp = document.getElementById('listaDespesas');
+            divRec.innerHTML = '';
+            divDesp.innerHTML = '';
+
+            const renderizarItem = (cat, nivel = 1) => {
+                const classeNivel = `nivel-${Math.min(nivel, 3)}`; 
+                const html = `
+                    <div class="cat-item ${classeNivel} flex justify-between items-center p-2 rounded mb-1 group">
+                        <div class="flex items-center gap-2 overflow-hidden">
+                            <span class="font-mono text-[11px] text-slate-500 font-bold bg-white dark:bg-slate-900/50 px-1.5 rounded">${cat.codigo || ''}</span>
+                            <span class="font-medium truncate text-slate-700 dark:text-slate-200 text-sm">${cat.nome}</span>
+                        </div>
+                        <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onclick="editarCategoria(${cat.id})" class="p-1 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"><i data-lucide="edit-2" class="w-3.5 h-3.5"></i></button>
+                            <button onclick="excluirCategoria(${cat.id})" class="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                        </div>
+                    </div>
+                `;
+                
+                const filhos = lista.filter(c => c.conta_pai_id === cat.id).sort((a,b) => (a.codigo||'').localeCompare(b.codigo||''));
+                let filhosHtml = '';
+                filhos.forEach(filho => { filhosHtml += renderizarItem(filho, nivel + 1); });
+
+                return html + filhosHtml;
+            };
+
+            const raizesReceita = lista.filter(c => c.tipo === 'R' && !c.conta_pai_id).sort((a,b) => (a.codigo||'').localeCompare(b.codigo||''));
+            const raizesDespesa = lista.filter(c => c.tipo === 'D' && !c.conta_pai_id).sort((a,b) => (a.codigo||'').localeCompare(b.codigo||''));
+
+            if(raizesReceita.length === 0) divRec.innerHTML = '<p class="text-xs text-slate-400 p-2 italic">Sem categorias.</p>';
+            else raizesReceita.forEach(r => divRec.innerHTML += renderizarItem(r));
+
+            if(raizesDespesa.length === 0) divDesp.innerHTML = '<p class="text-xs text-slate-400 p-2 italic">Sem categorias.</p>';
+            else raizesDespesa.forEach(r => divDesp.innerHTML += renderizarItem(r));
+
+            lucide.createIcons();
+        }
+
+        // --- LÓGICA DE CÓDIGO INTELIGENTE ---
+
+        function atualizarSelectPais() {
+            const tipo = document.getElementById('catTipo').value;
+            const selectPai = document.getElementById('catPai');
+            selectPai.innerHTML = '<option value="">Nenhuma (Criar nova Raiz)</option>';
+            
+            const possiveisPais = todasCategorias.filter(c => c.tipo === tipo).sort((a,b) => (a.codigo||'').localeCompare(b.codigo||''));
+            
+            possiveisPais.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.innerText = `${c.codigo || ''} ${c.nome}`;
+                selectPai.appendChild(opt);
+            });
+        }
+
+        function sugerirCodigo() {
+            const tipo = document.getElementById('catTipo').value;
+            const idPai = document.getElementById('catPai').value;
+            const inputCodigo = document.getElementById('catCodigo');
+            
+            let novoCodigo = "";
+
+            if (!idPai) {
+                // Raiz (ex: 3.)
+                const raizes = todasCategorias.filter(c => c.tipo === tipo && !c.conta_pai_id);
+                let maior = 0;
+                raizes.forEach(r => {
+                    const num = parseInt((r.codigo || '0').split('.')[0]);
+                    if(!isNaN(num) && num > maior) maior = num;
+                });
+                novoCodigo = `${maior + 1}.`; 
+            } else {
+                // Filha (ex: 2.1)
+                const paiObj = todasCategorias.find(c => String(c.id) === String(idPai));
+                if(paiObj) {
+                    const codigoPai = paiObj.codigo || '';
+                    const irmaos = todasCategorias.filter(c => String(c.conta_pai_id) === String(idPai));
+                    let maiorFilho = 0;
+                    irmaos.forEach(irm => {
+                        const parts = (irm.codigo || '').split('.');
+                        const lastNum = parseInt(parts[parts.length-1] || parts[parts.length-2]); 
+                        if(!isNaN(lastNum) && lastNum > maiorFilho) maiorFilho = lastNum;
+                    });
+                    
+                    const prefixo = codigoPai.endsWith('.') ? codigoPai : `${codigoPai}.`;
+                    novoCodigo = `${prefixo}${maiorFilho + 1}`;
+                }
+            }
+            inputCodigo.value = novoCodigo;
+        }
+
+        // CRUD Categorias
+        document.getElementById('formCategoria').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('catId').value;
+            const payload = {
+                nome: document.getElementById('catNome').value,
+                tipo: document.getElementById('catTipo').value,
+                codigo: document.getElementById('catCodigo').value,
+                conta_pai_id: document.getElementById('catPai').value || null,
+                permite_lancamentos: document.getElementById('catPermite').checked
+            };
+
+            let res;
+            if(id) res = await apiFetch(`/plano-contas/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+            else res = await apiFetch('/plano-contas/', { method: 'POST', body: JSON.stringify(payload) });
+
+            if(res) {
+                fecharModalCategoria();
+                carregarPlanoContas();
+                const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 2000 });
+                Toast.fire({ icon: 'success', title: 'Salvo com sucesso' });
+            }
+        });
+
+        function abrirModalCategoria() {
+            document.getElementById('formCategoria').reset();
+            document.getElementById('catId').value = '';
+            document.getElementById('modalTitulo').innerText = 'Nova Categoria';
+            document.getElementById('catTipo').disabled = false; 
+            document.getElementById('catPermite').checked = true;
+            atualizarSelectPais();
+            sugerirCodigo();
+            document.getElementById('modalCategoria').classList.remove('hidden');
+        }
+
+        function fecharModalCategoria() { document.getElementById('modalCategoria').classList.add('hidden'); }
+
+        function editarCategoria(id) {
+            const item = todasCategorias.find(c => c.id === id);
+            if(!item) return;
+            document.getElementById('catId').value = item.id;
+            document.getElementById('catNome').value = item.nome;
+            document.getElementById('catTipo').value = item.tipo;
+            atualizarSelectPais();
+            document.getElementById('catPai').value = item.conta_pai_id || "";
+            document.getElementById('catCodigo').value = item.codigo || '';
+            document.getElementById('catPermite').checked = item.permite_lancamentos;
+            document.getElementById('modalTitulo').innerText = 'Editar Categoria';
+            document.getElementById('modalCategoria').classList.remove('hidden');
+        }
+
+        async function excluirCategoria(id) {
+            const temFilhos = todasCategorias.some(c => c.conta_pai_id === id);
+            if(temFilhos) { Swal.fire('Atenção', 'Esta categoria possui subcategorias. Exclua as filhas primeiro.', 'warning'); return; }
+            if ((await Swal.fire({title: 'Excluir?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33'})).isConfirmed) {
+                const res = await apiFetch(`/plano-contas/${id}`, { method: 'DELETE' });
+                if(res) carregarPlanoContas();
+            }
+        }
+
+        function setupThemeToggle() {
+            const btn = document.getElementById('btnThemeToggle');
+            const indicator = document.getElementById('themeIndicator');
+            if(document.documentElement.classList.contains('dark')) indicator.classList.add('translate-x-6');
+            btn.addEventListener('click', () => {
+                const isDark = document.documentElement.classList.toggle('dark');
+                if(isDark) { localStorage.setItem('theme', 'dark'); indicator.classList.add('translate-x-6'); } 
+                else { localStorage.setItem('theme', 'light'); indicator.classList.remove('translate-x-6'); }
+            });
+        }
+    </script>
+</body>
+</html>

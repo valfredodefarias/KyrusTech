@@ -17,4 +17,4 @@ api_router.include_router(plano_contas.router, prefix="/plano-contas", tags=["Pl
 api_router.include_router(entidades.router, prefix="/entidades", tags=["Entidades"])
 api_router.include_router(cartoes.router, prefix="/cartoes", tags=["Cartões de Crédito"])
 api_router.include_router(lancamentos.router, prefix="/lancamentos", tags=["Lançamentos"])
-api_router.include_router(centro_custo.router, prefix="/centros-custo", tags=["Centros de Custo"])
+api_router.include_router(centro_custo.router, prefix="/centro_custo", tags=["Centros de Custo"])

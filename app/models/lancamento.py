@@ -21,6 +21,7 @@ class Lancamento(SQLModel, table=True):
     tipo: str = Field(index=True)
     status: str = Field(default="PENDENTE", index=True)
     origem: str = Field(default="WEB", index=True) # WEB, RECORRENCIA, TRANSFERENCIA
+    ipp: bool = Field(default=False)
     
     valor_previsto: Decimal = Field(max_digits=12, decimal_places=2)
     valor_pago: Decimal = Field(default=0.0, max_digits=12, decimal_places=2)

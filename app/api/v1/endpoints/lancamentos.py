@@ -94,9 +94,8 @@ def pay_bulk(
     payload: BulkActionSchema,
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    """
-    Baixa (paga) múltiplos lançamentos de uma vez.
-    """
+    """Baixa (paga) múltiplos lançamentos de uma vez."""
+    # ... (lógica de data igual estava) ...
     if payload.data_pagamento:
         data_final = str(payload.data_pagamento)
     else:
@@ -106,7 +105,8 @@ def pay_bulk(
         db=db, 
         ids=payload.ids, 
         data_pagamento=data_final, 
-        empresa_id=empresa_id
+        empresa_id=empresa_id,
+        conta_id=payload.conta_id # <--- PASSA O NOVO PARAMETRO
     )
 
 @router.post("/transferir")

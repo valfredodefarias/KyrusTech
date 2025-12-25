@@ -1,5 +1,3 @@
-# app/models/empresa.py
-
 from typing import List, Optional, TYPE_CHECKING
 from sqlmodel import Field, Relationship, SQLModel
 import datetime
@@ -24,7 +22,7 @@ class Empresa(SQLModel, table=True):
     cor_primaria: Optional[str] = Field(default="#0d6efd")
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
-    # Relacionamentos Inversos (back-references)
+    # Relacionamentos
     usuarios: List["Usuario"] = Relationship(back_populates="empresa")
     plano_contas: List["PlanoContas"] = Relationship(back_populates="empresa")
     contas: List["Conta"] = Relationship(back_populates="empresa")

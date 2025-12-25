@@ -56,7 +56,8 @@
     <script type="module">
         import { initTheme } from './js/theme.js';
         import { login } from './js/auth.js';
-        import { apiFetch } from './js/api.js';
+        // IMPORTANTE: Trocamos apiFetch por API_BASE para usar no login manual
+        import { API_BASE } from './js/api.js'; 
 
         // Inicia o tema (Dark mode / Cor)
         initTheme();
@@ -78,8 +79,9 @@
             formData.append('password', password);
 
             try {
-                // Fetch manual aqui pois apiFetch é para JSON, e login exige FormUrlEncoded
-                const res = await fetch('http://localhost:8000/api/v1/auth/login', {
+                // Fetch manual usando a variável global do API.JS
+                // Isso garante que usamos o IP correto (192.168...) em vez de localhost
+                const res = await fetch(`${API_BASE}/auth/login`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/x-www-form-urlencoded'},
                     body: formData
@@ -92,6 +94,7 @@
                 login(data.access_token);
 
             } catch (err) {
+                console.error(err);
                 document.getElementById('errorMsg').innerText = "E-mail ou senha incorretos.";
                 document.getElementById('errorMsg').classList.remove('hidden');
                 btn.innerHTML = originalText; btn.disabled = false;

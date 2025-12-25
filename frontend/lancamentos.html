@@ -3,168 +3,1061 @@
 <head>
     <meta charset="UTF-8">
     <title>Lançamentos - Kyrus ERP</title>
-    <script src="js/init-theme.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"> 
+    
+    <!-- Módulos do Sistema -->
+    <script type="module" src="js/init-theme.js"></script>
+
+    <!-- Tailwind & Bibliotecas -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        tailwind.config = { darkMode: 'class', theme: { extend: { colors: { primary: 'var(--color-primary)' } } } }
+        tailwind.config = { 
+            darkMode: 'class', 
+            theme: { 
+                extend: { 
+                    colors: { primary: 'var(--color-primary)' },
+                    screens: { 'xs': '475px' } 
+                } 
+            } 
+        }
     </script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dayjs@1/dayjs.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/lancamentos.css">
+    
     <style>
-        .modal-label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; margin-bottom: 4px; text-transform: uppercase; }
-        .modal-input { width: 100%; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.9rem; font-weight: 500; color: #1e293b; background: #f8fafc; }
-        .modal-input:focus { border-color: #6366f1; background: #fff; outline: none; }
+        /* Estilos UI Essenciais */
+        .drawer-base { 
+            position: fixed; top: 0; bottom: 0; right: 0; z-index: 50;
+            background: white; border-left: 1px solid #e2e8f0;
+            transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; flex-direction: column;
+        }
+        .dark .drawer-base { background: #1e293b; border-color: #334155; }
+        .drawer-open { transform: translateX(0); }
+        
+        .overlay { 
+            position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); 
+            backdrop-filter: blur(2px); z-index: 40; 
+            opacity: 0; pointer-events: none; transition: opacity 0.3s; 
+        }
+        .overlay-open { opacity: 1; pointer-events: auto; }
+
+        .input-senior { 
+            width: 100%; padding: 10px 12px; border-radius: 0.5rem;
+            border: 1px solid #e2e8f0; background-color: #fff; color: #1e293b;
+            font-size: 0.875rem; outline: none; transition: border-color 0.2s;
+        }
+        .dark .input-senior { background-color: #0f172a; border-color: #334155; color: #f1f5f9; }
+        .input-senior:focus { border-color: var(--color-primary); }
+        
+        .label-senior { 
+            display: block; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; 
+            color: #64748b; margin-bottom: 4px; letter-spacing: 0.05em;
+        }
+        .dark .label-senior { color: #94a3b8; }
+
+        /* Cards de Seleção */
+        .option-card { 
+            cursor: pointer; border: 2px solid transparent; transition: all 0.2s; 
+            opacity: 0.7; filter: grayscale(100%);
+        }
+        .dark .option-card { background-color: #1e293b; }
+        .option-card:hover { opacity: 1; filter: grayscale(0%); border-color: #cbd5e1; transform: translateY(-2px); }
+        .option-card.selected { 
+            border-color: #3b82f6; background-color: #eff6ff; 
+            opacity: 1; filter: grayscale(0%); transform: scale(1.02); 
+        }
+        .dark .option-card.selected { background-color: rgba(59, 130, 246, 0.15); border-color: #60a5fa; }
+
+        /* Chips Filtro */
+        .chip-filter { 
+            padding: 6px 12px; border-radius: 99px; font-size: 0.75rem; font-weight: 700; 
+            border: 1px solid transparent; cursor: pointer; transition: all 0.2s; 
+            display: flex; align-items: center; gap: 6px; white-space: nowrap;
+        }
+        .chip-default { background: white; border-color: #e2e8f0; color: #64748b; }
+        .dark .chip-default { background: #1e293b; border-color: #334155; color: #94a3b8; }
+        .chip-active { background: #eff6ff; border-color: #3b82f6; color: #2563eb; }
+        .dark .chip-active { background: rgba(59, 130, 246, 0.2); border-color: #60a5fa; color: #60a5fa; }
+
+        /* Botões de Calculadora */
+        .calc-btn { border: 1px solid #e2e8f0; transition: all 0.2s; }
+        .dark .calc-btn { border-color: #334155; }
+        .calc-btn.active { background-color: #3b82f6; color: white; border-color: #3b82f6; }
+        .calc-btn:not(.active):hover { background-color: #f1f5f9; }
+        .dark .calc-btn:not(.active):hover { background-color: #1e293b; }
+
+        /* IPP Checkbox */
+        .ipp-checkbox { 
+            width: 22px; height: 22px; border-radius: 6px; border: 2px solid #cbd5e1; 
+            display: flex; align-items: center; justify-content: center; 
+            cursor: pointer; transition: all 0.2s; 
+        }
+        .ipp-checked { background-color: #8b5cf6; border-color: #8b5cf6; color: white; }
+        .ipp-unchecked:hover { border-color: #8b5cf6; }
+
+        #bulkActionsBar { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .hidden-bar { transform: translate(-50%, 150%) !important; }
+        .row-selected { background-color: rgba(59, 130, 246, 0.05) !important; }
+        .dark .row-selected { background-color: rgba(59, 130, 246, 0.15) !important; }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #475569; }
+
+        .indicator-badge {
+            background-color: #ef4444; color: white; border-radius: 999px;
+            padding: 2px 6px; font-size: 10px; font-weight: bold; margin-left: 6px;
+        }
+
+        /* Estilo para o separador de data */
+        .date-separator {
+            background-color: #f8fafc;
+        }
+        .dark .date-separator {
+            background-color: #1e293b;
+        }
     </style>
 </head>
 <body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-sans h-screen flex overflow-hidden">
 
+    <!-- Sidebar Injetada via JS -->
     <div id="sidebar-container"></div>
 
-    <main class="flex-1 flex flex-col h-full relative overflow-hidden ml-64 transition-all duration-300">
+    <main class="flex-1 flex flex-col h-full relative overflow-y-auto custom-scrollbar">
         
-        <header class="bg-white dark:bg-slate-800 border-b border-slate-200 px-6 py-4 flex items-center justify-between z-20">
-            <div class="flex items-center gap-4">
-                <h2 class="text-xl font-bold tracking-tight">Lançamentos</h2>
-                <div class="h-6 w-px bg-slate-200 mx-2"></div>
-                <button onclick="abrirModalTransferencia()" class="flex items-center gap-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg text-xs font-bold transition">
-                    <i data-lucide="arrow-left-right" class="w-3.5 h-3.5"></i> Entre Contas
+        <!-- HEADER -->
+        <header class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-4 lg:px-6 lg:py-4 flex flex-col xl:flex-row items-center justify-between shadow-sm z-20 sticky top-0 gap-3">
+            
+            <div class="flex items-center justify-between w-full xl:w-auto gap-3">
+                <!-- Navegação Mês -->
+                <div class="flex items-center bg-slate-100 dark:bg-slate-700 rounded-lg p-1 shadow-inner flex-1 xl:flex-none justify-center" id="navMesContainer">
+                    <button onclick="mudarMes(-1)" class="p-2 hover:bg-white dark:hover:bg-slate-600 rounded-md transition text-slate-500 dark:text-slate-300"><i data-lucide="chevron-left" class="w-5 h-5"></i></button>
+                    <span id="lblMesAtual" class="w-32 text-center text-sm font-bold uppercase select-none text-slate-700 dark:text-slate-200">...</span>
+                    <button onclick="mudarMes(1)" class="p-2 hover:bg-white dark:hover:bg-slate-600 rounded-md transition text-slate-500 dark:text-slate-300"><i data-lucide="chevron-right" class="w-5 h-5"></i></button>
+                </div>
+                
+                <!-- Refresh -->
+                <button onclick="inicializarTela()" class="p-2 text-slate-400 hover:text-blue-500 transition border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700" title="Atualizar">
+                    <i data-lucide="refresh-cw" class="w-5 h-5"></i>
                 </button>
             </div>
-            <div class="flex items-center gap-3">
-                <div class="relative">
-                    <i data-lucide="search" class="absolute left-3 top-2.5 w-4 h-4 text-slate-400"></i>
-                    <input type="text" id="search" onkeyup="aplicarFiltrosGerais()" placeholder="Buscar..." class="pl-9 pr-4 py-2 border rounded-lg text-sm w-64 focus:ring-2 focus:ring-indigo-500 outline-none">
+
+            <div id="indicadorDataCustom" class="hidden w-full xl:w-auto bg-orange-100 text-orange-700 border border-orange-200 px-3 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2">
+                <i data-lucide="calendar-clock" class="w-3 h-3"></i> Periodo Personalizado
+            </div>
+
+            <!-- Filtros Globais (Barra Superior) -->
+            <div class="flex flex-col sm:flex-row gap-2 w-full xl:w-auto flex-1 justify-center px-0 xl:px-4">
+                <div class="relative flex-1">
+                    <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10 pointer-events-none"></i>
+                    <input type="text" id="filtroBusca" onkeyup="aplicarFiltros()" placeholder="Buscar lançamentos..." class="input-senior pl-9 shadow-sm h-10">
                 </div>
-                <button onclick="toggleDrawer('drawerFiltros')" class="p-2 border rounded-lg hover:bg-slate-50 text-slate-500"><i data-lucide="filter" class="w-5 h-5"></i></button>
-                <button onclick="abrirDrawerForm()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-md flex items-center gap-2 font-bold text-sm">
+            </div>
+
+            <!-- Botões -->
+            <div class="flex gap-2 w-full xl:w-auto overflow-x-auto pb-1 xl:pb-0">
+                <button onclick="abrirModalTransferencia()" class="flex-1 xl:flex-none justify-center px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition flex items-center gap-2 whitespace-nowrap text-slate-600 dark:text-slate-300">
+                    <i data-lucide="arrow-right-left" class="w-4 h-4"></i> <span class="hidden xs:inline">Transferir</span>
+                </button>
+                
+                <button onclick="toggleFiltroDrawer()" class="flex-1 xl:flex-none justify-center px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition flex items-center gap-2 whitespace-nowrap text-slate-600 dark:text-slate-300 relative">
+                    <i data-lucide="filter" class="w-4 h-4"></i> <span class="hidden xs:inline">Filtros</span>
+                    <span id="badgeFiltros" class="hidden indicator-badge">0</span>
+                </button>
+                
+                <button onclick="abrirDrawer()" class="flex-1 xl:flex-none justify-center bg-primary hover:brightness-90 text-white px-5 py-2 rounded-lg shadow-md flex items-center gap-2 font-bold transition active:scale-95 text-sm whitespace-nowrap">
                     <i data-lucide="plus" class="w-4 h-4"></i> Novo
                 </button>
             </div>
         </header>
 
-        <div class="px-6 py-3 border-b border-slate-100 bg-white flex items-center gap-3 overflow-x-auto no-scrollbar">
-            <button onclick="aplicarFiltroRapido('TODOS')" id="btn-todos" class="filter-btn active shadow-sm">Todos</button>
-            <button onclick="aplicarFiltroRapido('ATRASADO')" id="btn-atrasado" class="filter-btn"><span class="w-2 h-2 rounded-full bg-red-500 mr-1"></span> Atrasados</button>
-            <button onclick="aplicarFiltroRapido('HOJE')" id="btn-hoje" class="filter-btn"><span class="w-2 h-2 rounded-full bg-blue-500 mr-1"></span> Hoje</button>
-            <button onclick="aplicarFiltroRapido('PAGO')" id="btn-pago" class="filter-btn"><i data-lucide="check" class="w-3 h-3 mr-1"></i> Pagos</button>
+        <!-- Filtros Rápidos -->
+        <div class="px-4 lg:px-6 pt-3 pb-3 flex gap-2 overflow-x-auto custom-scrollbar items-center border-b border-transparent">
+            <button onclick="setFiltroRapido('TODOS')" id="chip-TODOS" class="chip-filter chip-active">Todos</button>
+            <button onclick="setFiltroRapido('ATRASADO')" id="chip-ATRASADO" class="chip-filter chip-default text-red-600 border-red-200 bg-red-50 dark:bg-red-900/10"><i data-lucide="alert-circle" class="w-3 h-3"></i> Atrasados</button>
+            <button onclick="setFiltroRapido('HOJE')" id="chip-HOJE" class="chip-filter chip-default text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-900/10"><i data-lucide="calendar" class="w-3 h-3"></i> Hoje</button>
+            <button onclick="setFiltroRapido('IPP')" id="chip-IPP" class="chip-filter chip-default text-purple-600 border-purple-200 bg-purple-50 dark:bg-purple-900/10"><i data-lucide="check-square" class="w-3 h-3"></i> IPP</button>
         </div>
 
-        <div class="flex-1 overflow-y-auto p-6" id="containerLista">
-            <div class="text-center text-slate-400 mt-10"><i data-lucide="loader-2" class="w-8 h-8 animate-spin mb-2 mx-auto"></i> Carregando...</div>
+        <div class="p-4 lg:p-6 space-y-4 lg:space-y-6 pb-28 lg:pb-32">
+            <!-- KPIs -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800 p-4 rounded-xl flex justify-between items-center shadow-sm"><div><p class="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Receitas</p><p class="text-xl lg:text-2xl font-black text-emerald-600" id="kpiReceitas">R$ 0,00</p></div><i data-lucide="trending-up" class="text-emerald-300 w-8 h-8 opacity-50"></i></div>
+                <div class="bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-800 p-4 rounded-xl flex justify-between items-center shadow-sm"><div><p class="text-[10px] font-bold text-red-500 uppercase tracking-widest">Despesas</p><p class="text-xl lg:text-2xl font-black text-red-600" id="kpiDespesas">R$ 0,00</p></div><i data-lucide="trending-down" class="text-red-300 w-8 h-8 opacity-50"></i></div>
+                <div class="bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800 p-4 rounded-xl flex justify-between items-center shadow-sm"><div><p class="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Saldo Previsto</p><p class="text-xl lg:text-2xl font-black text-blue-600" id="kpiSaldo">R$ 0,00</p></div><i data-lucide="wallet" class="text-blue-300 w-8 h-8 opacity-50"></i></div>
+            </div>
+
+            <!-- Tabela -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col h-full">
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-left border-collapse min-w-[800px]">
+                        <thead class="bg-slate-50 dark:bg-slate-900/50 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
+                            <tr>
+                                <th class="p-4 w-10 text-center"><input type="checkbox" id="checkAll" onclick="toggleSelectAll()" class="w-4 h-4 rounded border-slate-300 text-primary cursor-pointer"></th>
+                                <th class="p-4 text-center w-14">IPP</th>
+                                <th class="p-4 w-32">Vencimento</th>
+                                <th class="p-4">Descrição</th>
+                                <th class="p-4">Classificação</th>
+                                <th class="p-4 text-right">Valor</th>
+                                <th class="p-4 text-center">Status</th>
+                                <th class="p-4 text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="listaLancamentos" class="text-sm divide-y divide-slate-100 dark:divide-slate-700 dark:text-slate-300">
+                            <tr><td colspan="8" class="p-8 text-center text-slate-400">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </main>
 
-    <div id="backdropForm" onclick="fecharDrawerForm()" class="fixed inset-0 bg-slate-900/50 z-40 hidden backdrop-blur-sm"></div>
-    <div id="drawerFormulario" class="fixed inset-y-0 right-0 z-50 w-[600px] bg-white shadow-2xl transform translate-x-full drawer flex flex-col">
-        <div class="px-6 py-5 border-b flex justify-between items-center">
-            <h3 class="text-xl font-bold" id="drawerTitulo">Novo Lançamento</h3>
-            <button onclick="fecharDrawerForm()"><i data-lucide="x" class="w-6 h-6 text-slate-400"></i></button>
+    <!-- DRAWER DE FILTROS AVANÇADOS -->
+    <div id="filtroDrawer" class="drawer-base w-full sm:w-80">
+        <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
+            <h3 class="font-bold text-lg flex items-center gap-2"><i data-lucide="list-filter" class="w-4 h-4 text-blue-500"></i> Filtros Avançados</h3>
+            <button onclick="toggleFiltroDrawer()" class="text-slate-400 hover:text-red-500 p-2"><i data-lucide="x" class="w-6 h-6"></i></button>
         </div>
-        <form id="formLancamento" class="flex-1 overflow-y-auto p-6 space-y-5">
-            <input type="hidden" id="lancamentoId">
-            <div class="flex gap-2 p-1 bg-slate-100 rounded-lg">
-                <div id="btnTipoDespesa" onclick="setTipo('DESPESA')" class="flex-1 py-2 text-center text-xs font-bold rounded cursor-pointer transition">SAÍDA</div>
-                <div id="btnTipoReceita" onclick="setTipo('RECEITA')" class="flex-1 py-2 text-center text-xs font-bold rounded cursor-pointer transition">ENTRADA</div>
-                <input type="hidden" id="tipo" value="DESPESA">
-            </div>
-            <div class="grid grid-cols-2 gap-4">
-                <div><label class="label-senior">Valor</label><input type="number" step="0.01" id="valor_previsto" class="input-senior font-bold" required></div>
-                <div><label class="label-senior">Vencimento</label><input type="date" id="data_vencimento" class="input-senior" required></div>
-            </div>
-            <div><label class="label-senior">Categoria</label><select id="id_plano_contas" class="input-senior" onchange="aoMudarCategoria()"></select></div>
-            <div><label class="label-senior">Entidade</label><select id="id_entidade" class="input-senior" onchange="autoPreencherCategoria()"></select></div>
-            <div><label class="label-senior">Descrição</label><input type="text" id="descricao" class="input-senior"></div>
-            <div class="border rounded-xl p-3">
-                <div class="flex gap-4 mb-2 border-b pb-2">
-                    <button type="button" onclick="switchTabPagamento('conta')" class="text-xs font-bold text-indigo-600">CONTA</button>
-                    <button type="button" onclick="switchTabPagamento('cartao')" class="text-xs font-bold text-slate-400">CARTÃO</button>
-                </div>
-                <div id="content-conta" class="grid grid-cols-2 gap-2"></div>
-                <div id="content-cartao" class="hidden grid grid-cols-2 gap-2"></div>
-                <input type="hidden" id="id_conta_bancaria"><input type="hidden" id="id_cartao"><input type="hidden" id="cartao_fechamento"><input type="hidden" id="cartao_vencimento">
-            </div>
-            <div class="flex items-center gap-3 bg-slate-50 p-3 rounded border">
-                <input type="checkbox" id="check_pago" class="w-5 h-5 accent-green-600" onclick="toggleCamposPagamento()">
-                <label for="check_pago" class="font-bold text-sm">Pago / Baixado?</label>
-            </div>
-            <div id="area_pagamento" class="hidden grid grid-cols-2 gap-4">
-                <div><label class="label-senior">Data Pagamento</label><input type="date" id="data_pagamento" class="input-senior"></div>
-                <div><label class="label-senior">Valor Pago</label><input type="number" step="0.01" id="valor_pago" class="input-senior"></div>
-                <div class="col-span-2"><input type="checkbox" id="conciliado"> <label>Conciliado</label></div>
-            </div>
-            <div class="bg-indigo-50 p-3 rounded border border-indigo-100">
-                <div class="flex justify-between"><label class="font-bold text-xs text-indigo-800">Parcelamento</label><input type="checkbox" id="check_parcelado" onclick="toggleParcelamento()"></div>
-                <div id="area_parcelas" class="hidden mt-2 grid grid-cols-2 gap-2">
-                    <button type="button" onclick="setModoParcela('total')" id="btnParcelaTotal" class="p-1 text-[10px] font-bold rounded bg-white">Valor Total</button>
-                    <button type="button" onclick="setModoParcela('fixo')" id="btnParcelaFixo" class="p-1 text-[10px] font-bold rounded bg-indigo-200">Valor Fixo</button>
-                    <input type="number" id="qtd_parcelas" class="input-senior" value="2">
-                    <input type="number" id="valor_parcela_input" class="input-senior bg-white" readonly>
+        
+        <div class="flex-1 p-6 space-y-6 overflow-y-auto custom-scrollbar">
+            <div class="space-y-2">
+                <label class="label-senior text-blue-600">Período Personalizado</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <input type="date" id="filtroDataInicio" class="input-senior text-xs" onchange="aplicarFiltros()">
+                    <input type="date" id="filtroDataFim" class="input-senior text-xs" onchange="aplicarFiltros()">
                 </div>
             </div>
-            <input type="hidden" id="data_competencia"> </form>
-        <div class="p-5 border-t flex justify-end gap-2">
-            <button onclick="fecharDrawerForm()" class="px-4 py-2 font-bold text-slate-500">Cancelar</button>
-            <button onclick="salvarLancamento()" class="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg">Salvar</button>
+            <hr class="border-slate-100 dark:border-slate-700">
+            <div>
+                <label class="label-senior">Tipo</label>
+                <div class="flex gap-4 mt-2">
+                    <label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" id="chkReceita" checked onchange="aplicarFiltros()" class="accent-emerald-500 w-5 h-5"> Receitas</label>
+                    <label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" id="chkDespesa" checked onchange="aplicarFiltros()" class="accent-red-500 w-5 h-5"> Despesas</label>
+                </div>
+            </div>
+            <div>
+                <label class="label-senior">Status</label>
+                <div class="flex gap-4 mt-2">
+                    <label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" id="chkPago" checked onchange="aplicarFiltros()" class="accent-blue-500 w-5 h-5"> Pagos</label>
+                    <label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" id="chkPendente" checked onchange="aplicarFiltros()" class="accent-blue-500 w-5 h-5"> Pendentes</label>
+                </div>
+            </div>
+            <hr class="border-slate-100 dark:border-slate-700">
+            <div class="space-y-4">
+                <!-- Filtro de Categoria -->
+                <div>
+                    <label class="label-senior">Categoria</label>
+                    <select id="filtroCategoria" onchange="aplicarFiltros()" class="input-senior cursor-pointer h-10"><option value="">Todas</option></select>
+                </div>
+                
+                <!-- NOVO LOCAL DO FILTRO DE CENTRO DE CUSTO (Ao lado do conceito de filtros) -->
+                <div>
+                    <label class="label-senior flex items-center gap-2">
+                        Centro de Custo (Filial) 
+                    </label>
+                    <select id="filtroCentroCustoDrawer" onchange="aplicarFiltros()" class="input-senior cursor-pointer h-10">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="label-senior">Conta Bancária</label>
+                    <select id="filtroConta" onchange="aplicarFiltros()" class="input-senior cursor-pointer h-10"><option value="">Todas</option></select>
+                </div>
+                <div>
+                    <label class="label-senior">Entidade</label>
+                    <select id="filtroEntidade" onchange="aplicarFiltros()" class="input-senior cursor-pointer h-10"><option value="">Todas</option></select>
+                </div>
+            </div>
+            <hr class="border-slate-100 dark:border-slate-700">
+            <div>
+                <label class="label-senior">Valor (R$)</label>
+                <div class="flex items-center gap-2 mt-1">
+                    <input type="number" id="filtroValorMin" placeholder="Min" class="input-senior h-10" onchange="aplicarFiltros()">
+                    <span class="text-slate-400">-</span>
+                    <input type="number" id="filtroValorMax" placeholder="Max" class="input-senior h-10" onchange="aplicarFiltros()">
+                </div>
+            </div>
+        </div>
+        <div class="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+            <button onclick="limparFiltros()" class="w-full py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition flex items-center justify-center gap-2">
+                <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Limpar Filtros
+            </button>
         </div>
     </div>
 
-    <div id="modalTransferencia" class="fixed inset-0 bg-slate-900/60 hidden flex items-center justify-center z-50 backdrop-blur-sm">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 border border-slate-200">
-            <div class="flex justify-between items-center mb-6">
-                <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2"><i data-lucide="arrow-left-right" class="text-indigo-600"></i> Transferência</h3>
-                <button onclick="document.getElementById('modalTransferencia').classList.add('hidden')"><i data-lucide="x" class="w-5 h-5 text-slate-400"></i></button>
-            </div>
-            
-            <form id="formTransferencia" class="space-y-4">
+    <!-- Barra de Ações em Massa -->
+    <div id="bulkActionsBar" class="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] sm:w-auto bg-slate-900 text-white px-4 sm:px-6 py-3 rounded-2xl shadow-2xl flex items-center justify-between sm:justify-start gap-4 z-50 hidden-bar">
+        <div class="text-sm font-bold flex items-center gap-2 whitespace-nowrap"><span class="bg-white text-slate-900 rounded-full w-6 h-6 flex items-center justify-center text-xs" id="lblQtdSel">0</span> <span class="hidden sm:inline">selecionados</span></div>
+        <div class="h-6 w-px bg-slate-700 hidden sm:block"></div>
+        <div class="flex gap-3 overflow-x-auto no-scrollbar">
+            <button onclick="baixarEmMassa('ONTEM')" class="hover:text-emerald-400 text-xs font-bold uppercase transition flex items-center gap-1"><i data-lucide="check" class="w-3 h-3"></i> <span class="hidden xs:inline">Ontem</span></button>
+            <button onclick="baixarEmMassa('HOJE')" class="hover:text-emerald-400 text-xs font-bold uppercase transition flex items-center gap-1"><i data-lucide="check-circle-2" class="w-3 h-3"></i> Hoje</button>
+            <button onclick="baixarEmMassa('OUTRO')" class="hover:text-emerald-400 text-xs font-bold uppercase transition flex items-center gap-1"><i data-lucide="calendar" class="w-3 h-3"></i> Outra</button>
+        </div>
+        <div class="h-6 w-px bg-slate-700 hidden sm:block"></div>
+        <button onclick="excluirEmMassa()" class="text-red-400 hover:text-red-300 p-1 rounded-full hover:bg-white/10 transition" title="Excluir"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+    </div>
+
+    <div id="drawerOverlay" onclick="fecharTodosDrawers()" class="overlay fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40"></div>
+
+    <!-- DRAWER NOVO LANÇAMENTO (SEPARAÇÃO CONTA/CARTÃO) -->
+    <div id="drawerLateral" class="drawer-base fixed inset-y-0 right-0 w-full sm:w-[600px] z-50">
+        <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
+            <h2 class="text-lg font-bold text-slate-800 dark:text-white" id="drawerTitulo">Novo Lançamento</h2>
+            <button onclick="fecharTodosDrawers()" class="p-2 bg-slate-200 dark:bg-slate-700 rounded-full hover:opacity-80 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        
+        <div class="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar space-y-6">
+            <div id="formLancamento" class="space-y-6">
+                <input type="hidden" id="lancamentoId">
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <label class="cursor-pointer relative">
+                        <input type="radio" name="tipo" value="DESPESA" class="peer hidden" checked disabled>
+                        <div class="border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center peer-checked:bg-red-50 dark:peer-checked:bg-red-900/20 peer-checked:border-red-200 peer-checked:text-red-600 font-bold text-sm transition flex items-center justify-center gap-2">
+                            <i data-lucide="arrow-down-circle" class="w-4 h-4"></i> DESPESA
+                        </div>
+                    </label>
+                    <label class="cursor-pointer relative">
+                        <input type="radio" name="tipo" value="RECEITA" class="peer hidden" disabled>
+                        <div class="border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center peer-checked:bg-emerald-50 dark:peer-checked:bg-emerald-900/20 peer-checked:border-emerald-200 peer-checked:text-emerald-600 font-bold text-sm transition flex items-center justify-center gap-2">
+                            <i data-lucide="arrow-up-circle" class="w-4 h-4"></i> RECEITA
+                        </div>
+                    </label>
+                </div>
+
                 <div>
-                    <label class="modal-label text-red-500">Sai da Conta</label>
-                    <select id="transf_origem" class="modal-input cursor-pointer bg-red-50/50 focus:border-red-400"></select>
+                    <label class="label-senior">Categoria (Define Tipo)</label>
+                    <select id="plano_contas_id" class="input-senior cursor-pointer font-bold h-12" onchange="aoMudarCategoria()" required></select>
+                </div>
+                <div>
+                    <label class="label-senior">Descrição</label>
+                    <input type="text" id="descricao" class="input-senior h-12" required placeholder="Ex: Material de Escritório">
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-100 dark:border-slate-700">
+                    <div class="space-y-3 border-b sm:border-b-0 sm:border-r border-slate-200 dark:border-slate-600 pb-4 sm:pb-0 sm:pr-4">
+                        <p class="text-xs font-extrabold text-slate-400 uppercase text-center mb-2">Vencimento</p>
+                        <div><label class="label-senior">Data</label><input type="date" id="data_vencimento" class="input-senior h-10" required></div>
+                        <div><label class="label-senior">Valor (R$)</label><input type="number" step="0.01" id="valor_previsto" class="input-senior font-bold text-lg h-10" required></div>
+                        <label class="flex items-center gap-2 mt-4 cursor-pointer p-2 hover:bg-white dark:hover:bg-slate-800 rounded transition border border-transparent hover:border-slate-200">
+                            <input type="checkbox" id="checkIPP" class="w-5 h-5 text-purple-600 rounded border-slate-300 focus:ring-purple-500">
+                            <span class="text-xs font-bold text-purple-600 uppercase">Incluída p/ Pagamento (IPP)</span>
+                        </label>
+                    </div>
+                    <div class="space-y-3 sm:pl-1">
+                        <div class="flex justify-between items-center mb-2 pt-2 sm:pt-0">
+                            <p class="text-xs font-extrabold text-emerald-600 uppercase">Pagamento</p>
+                            <input type="checkbox" id="checkPago" onchange="toggleCamposPagamento()" class="accent-emerald-500 w-5 h-5 cursor-pointer">
+                        </div>
+                        <div id="camposPagamento" class="opacity-50 pointer-events-none transition-opacity">
+                            <div class="mb-3"><label class="label-senior text-emerald-600">Data Baixa</label><input type="date" id="data_pagamento" class="input-senior border-emerald-200 h-10"></div>
+                            <div><label class="label-senior text-emerald-600">Valor Pago</label><input type="number" step="0.01" id="valor_pago" class="input-senior border-emerald-200 font-bold text-emerald-600 h-10"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div><label class="label-senior">Centro Custo</label><select id="centro_custo_id" class="input-senior cursor-pointer h-10" onchange="atualizarContasPorCentro()"></select></div>
+                    <div><label class="label-senior">Entidade</label><select id="entidade_id" class="input-senior cursor-pointer h-10"></select></div>
                 </div>
                 
-                <div class="flex justify-center -my-2 relative z-10">
-                    <div class="bg-slate-100 rounded-full p-1 border border-slate-200"><i data-lucide="arrow-down" class="w-4 h-4 text-slate-400"></i></div>
+                <!-- SELEÇÃO DE ORIGEM FINANCEIRA -->
+                <div class="pt-2">
+                    <input type="hidden" id="conta_id">
+                    <input type="hidden" id="cartao_id">
+                    
+                    <div class="mb-5">
+                        <label class="label-senior mb-2 flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                            <i data-lucide="wallet" class="w-3 h-3"></i> Contas Bancárias / Caixa
+                        </label>
+                        <div id="gridContasBancos" class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-32 overflow-y-auto custom-scrollbar p-1 border border-slate-100 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900/30">
+                            <!-- JS preenche aqui -->
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="label-senior mb-2 flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                            <i data-lucide="credit-card" class="w-3 h-3"></i> Cartões de Crédito
+                        </label>
+                        <div id="gridCartoesCredito" class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-32 overflow-y-auto custom-scrollbar p-1 border border-slate-100 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900/30">
+                            <!-- JS preenche aqui -->
+                        </div>
+                    </div>
                 </div>
 
-                <div>
-                    <label class="modal-label text-green-600">Entra na Conta</label>
-                    <select id="transf_destino" class="modal-input cursor-pointer bg-green-50/50 focus:border-green-400"></select>
+                <!-- Parcelamento -->
+                <div class="border-t border-slate-100 dark:border-slate-700 pt-4">
+                    <label class="flex items-center gap-2 cursor-pointer w-fit p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition">
+                        <input type="checkbox" id="checkParcelado" onchange="toggleAreaParcelamento()" class="accent-blue-600 w-5 h-5 rounded">
+                        <span class="text-sm font-bold text-blue-600 flex items-center gap-2"><i data-lucide="layers" class="w-4 h-4"></i> Parcelamento / Recorrência</span>
+                    </label>
+                    
+                    <div id="areaParcelamento" class="hidden mt-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-5 rounded-2xl shadow-sm space-y-4">
+                        <div class="grid grid-cols-3 gap-4">
+                            <div class="col-span-1">
+                                <label class="label-senior">Quantidade</label>
+                                <input type="number" id="qtd_parcelas" value="2" min="2" class="input-senior text-center font-bold text-lg h-12" oninput="calcularParcelas()">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="label-senior mb-1">Modo de Cálculo</label>
+                                <div class="flex gap-2">
+                                    <button type="button" onclick="setModoCalculo('TOTAL')" id="btnCalcTotal" class="calc-btn active flex-1 py-2 px-3 rounded-lg text-xs font-bold flex flex-col items-center justify-center gap-1">
+                                        <span>Valor Total</span>
+                                    </button>
+                                    <button type="button" onclick="setModoCalculo('PARCELA')" id="btnCalcParcela" class="calc-btn flex-1 py-2 px-3 rounded-lg text-xs font-bold flex flex-col items-center justify-center gap-1">
+                                        <span>Valor Parcela</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800 rounded-xl p-3 flex items-center gap-3">
+                            <div class="bg-blue-100 dark:bg-blue-900/30 p-2 rounded-full text-blue-600"><i data-lucide="calculator" class="w-4 h-4"></i></div>
+                            <div>
+                                <p class="text-[10px] uppercase font-bold text-blue-400">Resumo da Simulação</p>
+                                <p class="text-sm font-bold text-blue-700 dark:text-blue-300 font-mono" id="resumoParcelas">...</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+            </div>
+        </div>
+        <div class="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-end gap-3 pb-8 sm:pb-4">
+            <button onclick="fecharTodosDrawers()" class="px-5 py-3 rounded-xl text-slate-500 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 text-sm transition">Cancelar</button>
+            <button onclick="salvarLancamento()" class="px-8 py-3 rounded-xl bg-primary text-white font-bold shadow-lg shadow-blue-500/20 text-sm flex items-center gap-2 active:scale-95 transition"><i data-lucide="check" class="w-4 h-4"></i> Salvar</button>
+        </div>
+    </div>
 
+    <!-- Modal Transferência -->
+    <div id="modalTransferencia" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onclick="fecharModalTransferencia()"></div>
+        <div class="relative w-full max-w-2xl bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div class="flex justify-between items-center mb-6"><h3 class="text-xl font-bold flex items-center gap-2 text-slate-800 dark:text-white"><i data-lucide="arrow-right-left" class="text-blue-500"></i> Nova Transferência</h3><button onclick="fecharModalTransferencia()" class="text-slate-400 hover:text-red-500"><i data-lucide="x" class="w-6 h-6"></i></button></div>
+            <div id="formTransferencia" class="space-y-6">
                 <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="modal-label">Valor (R$)</label>
-                        <input type="number" step="0.01" id="transf_valor" class="modal-input font-bold text-lg text-slate-700" placeholder="0,00" required>
-                    </div>
-                    <div>
-                        <label class="modal-label">Data</label>
-                        <input type="date" id="transf_data" class="modal-input text-sm" required>
-                    </div>
+                    <div><label class="label-senior">Valor (R$)</label><input type="number" step="0.01" id="transf_valor" class="input-senior font-mono font-bold text-lg text-blue-600 h-12" required></div>
+                    <div><label class="label-senior">Data</label><input type="date" id="transf_data" class="input-senior h-12" required></div>
                 </div>
-
-                <div>
-                    <label class="modal-label">Descrição (Opcional)</label>
-                    <input type="text" id="transf_obs" class="modal-input" placeholder="Ex: Sangria de caixa">
+                <div><label class="label-senior">Centro de Custo</label><select id="transf_centro_custo" class="input-senior cursor-pointer h-10"></select></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 relative">
+                    <div class="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-100 dark:border-red-900/30"><label class="label-senior text-red-500 mb-3"><i data-lucide="log-out" class="w-3 h-3 inline"></i> Sai de (Origem)</label><input type="hidden" id="conta_origem_id" required><div id="gridOrigem" class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-1"></div></div>
+                    <div class="hidden md:flex absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-700 p-2 rounded-full border shadow-lg z-10 text-slate-400"><i data-lucide="arrow-right" class="w-5 h-5"></i></div>
+                    <div class="bg-emerald-50 dark:bg-emerald-900/10 p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/30"><label class="label-senior text-emerald-500 mb-3"><i data-lucide="log-in" class="w-3 h-3 inline"></i> Entra em (Destino)</label><input type="hidden" id="conta_destino_id" required><div id="gridDestino" class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-1"></div></div>
                 </div>
-                
-                <div class="bg-indigo-50 p-3 rounded-lg flex items-start gap-3 border border-indigo-100 mt-2">
-                    <div class="pt-0.5"><input type="checkbox" id="transf_efetivada" class="w-5 h-5 accent-indigo-600 cursor-pointer" checked></div>
-                    <div>
-                        <label for="transf_efetivada" class="block text-xs font-bold text-indigo-900 cursor-pointer select-none">Dinheiro caiu na hora?</label>
-                        <p class="text-[10px] text-indigo-600">Se desmarcado, cria como "Pendente" (Agendado).</p>
-                    </div>
-                </div>
-
-                <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
-                    <button type="button" onclick="document.getElementById('modalTransferencia').classList.add('hidden')" class="px-4 py-2 text-slate-500 font-bold text-sm hover:bg-slate-50 rounded-lg">Cancelar</button>
-                    <button type="button" onclick="realizarTransferencia()" class="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow text-sm transition transform active:scale-95">Confirmar Transferência</button>
-                </div>
-            </form>
+                <div class="flex items-center gap-2"><input type="checkbox" id="transf_efetivado" class="w-5 h-5 rounded border-slate-300 text-green-600 focus:ring-green-500" checked><span class="text-sm font-bold text-slate-700 dark:text-slate-200">Baixar automaticamente?</span></div>
+                <button type="button" onclick="salvarTransferencia()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg mt-4 flex justify-center gap-2 items-center"><i data-lucide="check-circle" class="w-5 h-5"></i> Confirmar Transferência</button>
+            </div>
         </div>
     </div>
 
-    <div id="backdropFiltros" class="hidden"></div> <script type="module" src="js/lancamentos.js"></script>
+    <!-- SCRIPT (Módulos JS) -->
+    <script type="module">
+        import { authGuard } from './js/auth.js';
+        import { renderSidebar } from './js/components.js';
+        import { apiFetch } from './js/api.js';
+        import { initTheme } from './js/theme.js';
+
+        // 1. Setup Básico
+        authGuard();
+        initTheme();
+        renderSidebar('lancamentos');
+
+        // 2. Exportar Funções para o HTML (janela global)
+        window.abrirDrawer = abrirDrawer;
+        window.fecharTodosDrawers = fecharTodosDrawers;
+        window.toggleFiltroDrawer = toggleFiltroDrawer;
+        window.abrirModalTransferencia = abrirModalTransferencia;
+        window.fecharModalTransferencia = fecharModalTransferencia;
+        window.mudarMes = mudarMes;
+        window.aplicarFiltros = aplicarFiltros;
+        window.setFiltroRapido = setFiltroRapido;
+        window.limparFiltros = limparFiltros;
+        window.toggleIPP = toggleIPP;
+        window.toggleSelectAll = toggleSelectAll;
+        window.checkRow = checkRow;
+        window.baixarEmMassa = baixarEmMassa;
+        window.excluirEmMassa = excluirEmMassa;
+        window.salvarLancamento = salvarLancamento;
+        window.editarLancamento = editarLancamento;
+        window.excluirLancamento = excluirLancamento;
+        window.toggleCamposPagamento = toggleCamposPagamento;
+        window.toggleAreaParcelamento = toggleAreaParcelamento;
+        window.setModoCalculo = setModoCalculo;
+        window.calcularParcelas = calcularParcelas;
+        window.selecionarContaDrawer = selecionarContaDrawer;
+        window.selecionarContaTransferencia = selecionarContaTransferencia;
+        window.aoMudarCategoria = aoMudarCategoria;
+        window.atualizarContasPorCentro = atualizarContasPorCentro;
+        window.salvarTransferencia = salvarTransferencia;
+        window.inicializarTela = inicializarTela;
+
+        // 3. Estado Local
+        const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+        let lancamentosList = [], centrosList = [], contasList = [], cartoesList = [], entidadesList = [], categoriasList = [];
+        let mesAtual = new Date();
+        let filtroRapido = 'TODOS';
+        let selectionMode = new Set();
+        let modoCalculo = 'TOTAL';
+
+        // 4. Listeners Extras
+        document.getElementById('valor_previsto').addEventListener('input', calcularParcelas);
+
+        // 5. Execução Inicial
+        inicializarTela();
+
+        // ---------------------------------------------------------
+        // FUNÇÕES PRINCIPAIS
+        // ---------------------------------------------------------
+
+        async function inicializarTela() {
+            atualizarLabelMes();
+            try {
+                // Requisições PARALELAS e SEM CACHE para garantir dados frescos
+                const [cc, c, cart, ent, cat, lanc] = await Promise.all([
+                    apiFetch('/centro_custo/'),
+                    apiFetch('/contas/'),
+                    apiFetch('/cartoes/'),
+                    apiFetch('/entidades/'),
+                    apiFetch('/plano-contas/'),
+                    apiFetch('/lancamentos/')
+                ]);
+
+                centrosList = cc || [];
+                contasList = c || [];
+                cartoesList = cart || [];
+                entidadesList = ent || [];
+                categoriasList = cat || [];
+                lancamentosList = lanc || [];
+
+                popularSelectsIniciais();
+                aplicarFiltros(); // Renderiza a tabela
+                
+            } catch (e) {
+                console.error("Erro ao carregar dados:", e);
+                Swal.fire('Erro', 'Falha ao conectar com o servidor. Verifique o console.', 'error');
+            }
+        }
+
+        function popularSelectsIniciais() {
+            const fill = (id, list) => { 
+                const el = document.getElementById(id); 
+                if(el) el.innerHTML = '<option value="">Todos/Selecione...</option>' + list.map(i => `<option value="${i.id}">${i.nome}</option>`).join(''); 
+            };
+            
+            fill('filtroCentroCustoDrawer', centrosList); // Novo local do filtro
+            fill('filtroConta', contasList); // Preenchido inicialmente com todas
+            fill('filtroEntidade', entidadesList);
+            fill('filtroCategoria', categoriasList);
+            
+            fill('centro_custo_id', centrosList);
+            fill('entidade_id', entidadesList);
+            fill('transf_centro_custo', centrosList);
+
+            // Categorias (Agrupadas no Form de Novo Lançamento)
+            const selCat = document.getElementById('plano_contas_id');
+            const rec = categoriasList.filter(c => c.tipo === 'R');
+            const desp = categoriasList.filter(c => c.tipo === 'D');
+            selCat.innerHTML = '<option value="">Selecione...</option>';
+            if(rec.length) selCat.innerHTML += `<optgroup label="RECEITAS">${rec.map(c=>`<option value="${c.id}" data-tipo="RECEITA">${c.nome}</option>`).join('')}</optgroup>`;
+            if(desp.length) selCat.innerHTML += `<optgroup label="DESPESAS">${desp.map(c=>`<option value="${c.id}" data-tipo="DESPESA">${c.nome}</option>`).join('')}</optgroup>`;
+        }
+
+        function aplicarFiltros() {
+            const termo = document.getElementById('filtroBusca').value.toLowerCase();
+            // Lê do novo input no drawer
+            const ccId = document.getElementById('filtroCentroCustoDrawer').value;
+            const contaId = document.getElementById('filtroConta').value;
+            const entId = document.getElementById('filtroEntidade').value;
+            const catId = document.getElementById('filtroCategoria').value;
+            
+            const verPago = document.getElementById('chkPago').checked;
+            const verPendente = document.getElementById('chkPendente').checked;
+            const verReceita = document.getElementById('chkReceita').checked;
+            const verDespesa = document.getElementById('chkDespesa').checked;
+            
+            const dataInicio = document.getElementById('filtroDataInicio').value;
+            const dataFim = document.getElementById('filtroDataFim').value;
+            const valMin = parseFloat(document.getElementById('filtroValorMin').value);
+            const valMax = parseFloat(document.getElementById('filtroValorMax').value);
+
+            let qtdFiltros = 0;
+            if (ccId) qtdFiltros++; if (contaId) qtdFiltros++; if (entId) qtdFiltros++; if (catId) qtdFiltros++;
+            if (!verPago) qtdFiltros++; if (!verPendente) qtdFiltros++; if (!verReceita) qtdFiltros++; if (!verDespesa) qtdFiltros++;
+            if (dataInicio || dataFim) qtdFiltros++; if (!isNaN(valMin) || !isNaN(valMax)) qtdFiltros++;
+
+            const badge = document.getElementById('badgeFiltros');
+            if (qtdFiltros > 0) { badge.innerText = qtdFiltros; badge.classList.remove('hidden'); } else { badge.classList.add('hidden'); }
+
+            const temPeriodoCustom = (dataInicio && dataFim);
+            if (temPeriodoCustom) {
+                document.getElementById('navMesContainer').classList.add('opacity-50', 'pointer-events-none');
+                document.getElementById('indicadorDataCustom').classList.remove('hidden');
+            } else {
+                document.getElementById('navMesContainer').classList.remove('opacity-50', 'pointer-events-none');
+                document.getElementById('indicadorDataCustom').classList.add('hidden');
+            }
+
+            const ano = mesAtual.getFullYear();
+            const mes = mesAtual.getMonth();
+            const hojeInicio = new Date(); hojeInicio.setHours(0,0,0,0);
+            const hojeFim = new Date(); hojeFim.setHours(23,59,59,999);
+            const amanha = new Date(hojeInicio); amanha.setDate(amanha.getDate() + 1);
+
+            const filtrados = lancamentosList.filter(l => {
+                const dtVenc = new Date(l.data_vencimento + 'T00:00:00');
+                
+                if (temPeriodoCustom) {
+                    const dInicio = new Date(dataInicio + 'T00:00:00'); const dFim = new Date(dataFim + 'T23:59:59');
+                    if (dtVenc < dInicio || dtVenc > dFim) return false;
+                } else if (filtroRapido === 'TODOS' || filtroRapido === 'IPP') {
+                    if (dtVenc.getFullYear() !== ano || dtVenc.getMonth() !== mes) return false;
+                }
+
+                if (termo && !l.descricao.toLowerCase().includes(termo) && !l.valor_previsto.toString().includes(termo)) return false;
+                if (ccId && String(l.centro_custo_id) !== String(ccId)) return false;
+                if (contaId && String(l.conta_id) !== String(contaId)) return false;
+                if (entId && String(l.entidade_id) !== String(entId)) return false;
+                if (catId && String(l.plano_contas_id) !== String(catId)) return false;
+
+                if (l.status === 'PAGO' && !verPago) return false;
+                if (l.status !== 'PAGO' && !verPendente) return false;
+                if (l.tipo === 'RECEITA' && !verReceita) return false;
+                if (l.tipo === 'DESPESA' && !verDespesa) return false;
+
+                const valor = parseFloat(l.valor_previsto);
+                if (!isNaN(valMin) && valor < valMin) return false;
+                if (!isNaN(valMax) && valor > valMax) return false;
+
+                if (filtroRapido === 'ATRASADO') { if (l.status === 'PAGO' || dtVenc >= hojeInicio) return false; }
+                else if (filtroRapido === 'HOJE') { if (dtVenc < hojeInicio || dtVenc > hojeFim) return false; }
+                else if (filtroRapido === 'IPP') { if (!l.ipp) return false; }
+                
+                return true;
+            });
+
+            renderizarTabela(filtrados);
+            atualizarKPIs(filtrados);
+        }
+
+        function limparFiltros() {
+            document.getElementById('filtroCentroCustoDrawer').value="";
+            document.getElementById('filtroConta').value=""; document.getElementById('filtroEntidade').value="";
+            document.getElementById('filtroCategoria').value=""; document.getElementById('filtroBusca').value="";
+            document.getElementById('filtroDataInicio').value=""; document.getElementById('filtroDataFim').value="";
+            document.getElementById('filtroValorMin').value=""; document.getElementById('filtroValorMax').value="";
+            document.getElementById('chkPago').checked=true; document.getElementById('chkPendente').checked=true;
+            document.getElementById('chkReceita').checked=true; document.getElementById('chkDespesa').checked=true;
+            setFiltroRapido('TODOS');
+        }
+
+        function renderizarTabela(lista) {
+            const tbody = document.getElementById('listaLancamentos');
+            tbody.innerHTML = '';
+            selectionMode.clear();
+            atualizarBarraAcoes();
+            document.getElementById('checkAll').checked = false;
+
+            if (lista.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-slate-400 italic">Nenhum lançamento encontrado neste período.</td></tr>';
+                return;
+            }
+
+            // --- ALTERAÇÃO AQUI: Ordenar por Data (Crescente) e Valor (Decrescente) ---
+            lista.sort((a, b) => {
+                const dateA = new Date(a.data_vencimento);
+                const dateB = new Date(b.data_vencimento);
+                const diffData = dateA - dateB;
+                
+                if (diffData !== 0) return diffData; // Diferentes datas: ordena por data
+                
+                return b.valor_previsto - a.valor_previsto; // Mesma data: ordena por valor (maior pro menor)
+            });
+
+            const hoje = new Date(); hoje.setHours(0,0,0,0);
+            let ultimoVencimento = null;
+
+            tbody.innerHTML = lista.map(l => {
+                let headerRow = '';
+                
+                // --- ALTERAÇÃO AQUI: Adicionar cabeçalho de data se mudar ---
+                if (l.data_vencimento !== ultimoVencimento) {
+                    const dataObj = new Date(l.data_vencimento + 'T00:00:00'); // Garante fuso
+                    const options = { weekday: 'long', day: 'numeric', month: 'long' };
+                    const dataFormatada = dataObj.toLocaleDateString('pt-BR', options);
+                    const hojeStr = new Date().toISOString().split('T')[0];
+                    const isHoje = l.data_vencimento === hojeStr;
+                    
+                    const labelData = isHoje 
+                        ? `<span class="text-blue-600 font-bold">Hoje, ${dataFormatada}</span>`
+                        : `<span class="capitalize">${dataFormatada}</span>`;
+
+                    headerRow = `
+                        <tr class="date-separator border-b border-slate-200 dark:border-slate-700">
+                            <td colspan="8" class="px-4 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider bg-slate-50 dark:bg-slate-800/50">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="calendar" class="w-3 h-3"></i>
+                                    ${labelData}
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                    ultimoVencimento = l.data_vencimento;
+                }
+                // -------------------------------------------------------------
+
+                const ent = entidadesList.find(e => e.id === l.entidade_id)?.nome || '-';
+                const cc = centrosList.find(c => c.id === l.centro_custo_id)?.nome || '';
+                const cat = categoriasList.find(c => c.id === l.plano_contas_id)?.nome || '';
+                const isPago = l.status === 'PAGO'; const dtVenc = new Date(l.data_vencimento + 'T00:00:00');
+                let statusBadge = '';
+                if (isPago) statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">PAGO</span>';
+                else if (dtVenc < hoje) statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">ATRASADO</span>';
+                else if (dtVenc.getTime() === hoje.getTime()) statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">VENCE HOJE</span>';
+                else statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400">ABERTO</span>';
+
+                const ippClass = l.ipp ? 'ipp-checked bg-purple-600 border-purple-600 text-white' : 'ipp-unchecked border-slate-300 dark:border-slate-600';
+
+                return `
+                ${headerRow}
+                <tr class="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition group" id="row-${l.id}">
+                    <td class="p-4 text-center"><input type="checkbox" onchange="checkRow(${l.id})" class="chk-row w-5 h-5 rounded border-slate-300 text-primary cursor-pointer" value="${l.id}"></td>
+                    <td class="p-4 text-center"><div onclick="toggleIPP(${l.id}, ${l.ipp})" class="ipp-checkbox mx-auto ${ippClass}" title="Alternar IPP">${l.ipp?'<i data-lucide="check" class="w-3 h-3"></i>':''}</div></td>
+                    
+                    <!-- DATA CORRIGIDA AQUI -->
+                    <td class="p-4 font-mono text-xs text-slate-500 dark:text-slate-400">${l.data_vencimento.split('-').reverse().join('/')}</td>
+                    
+                    <td class="p-4 font-medium text-slate-800 dark:text-slate-200">
+                        ${l.descricao} 
+                        ${l.numero_parcela ? `<span class="text-[10px] bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded ml-1 text-slate-500 border border-slate-200 dark:border-slate-600">${l.numero_parcela}</span>` : ''}
+                    </td>
+                    <td class="p-4 text-xs">
+                        <div class="font-bold text-slate-700 dark:text-slate-300">${ent}</div>
+                        ${cc ? `<div class="text-[10px] text-slate-400 mt-0.5">${cat} • ${cc}</div>` : `<div class="text-[10px] text-slate-400 mt-0.5">${cat}</div>`}
+                    </td>
+                    <td class="p-4 text-right font-bold ${l.tipo==='RECEITA'?'text-emerald-600':'text-red-600'}">
+                        ${BRL.format(l.valor_previsto)}
+                    </td>
+                    <td class="p-4 text-center">${statusBadge}</td>
+                    <td class="p-4 text-center">
+                        <div class="flex items-center justify-center gap-2 lg:opacity-0 group-hover:opacity-100 transition">
+                            <button onclick="editarLancamento(${l.id})" class="p-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 rounded"><i data-lucide="edit-2" class="w-4 h-4"></i></button>
+                            <button onclick="excluirLancamento(${l.id})" class="p-2 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 rounded"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        // --- SELEÇÃO DE CARTÃO/CONTA ---
+        function atualizarContasPorCentro() {
+            const cc = document.getElementById('centro_custo_id').value;
+            const contasF = cc ? contasList.filter(c => String(c.centro_custo_id) === String(cc)) : contasList;
+            const cartoesF = cc ? cartoesList.filter(c => String(c.centro_custo_id) === String(cc)) : cartoesList;
+            const gridContas = document.getElementById('gridContasBancos');
+            const gridCartoes = document.getElementById('gridCartoesCredito');
+            
+            if(contasF.length === 0) gridContas.innerHTML = '<p class="col-span-2 text-xs text-slate-400 text-center italic p-2">Sem contas disponíveis.</p>';
+            else gridContas.innerHTML = contasF.map(c => `
+                <div onclick="selecionarContaDrawer('conta', ${c.id})" 
+                     id="card-conta-${c.id}" 
+                     class="option-card bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold flex gap-2 items-center">
+                     <div class="p-1.5 bg-emerald-100 dark:bg-emerald-900/30 rounded text-emerald-600"><i data-lucide="wallet" class="w-3 h-3"></i></div>
+                     ${c.nome}
+                </div>
+            `).join('');
+
+            if(cartoesF.length === 0) gridCartoes.innerHTML = '<p class="col-span-2 text-xs text-slate-400 text-center italic p-2">Sem cartões disponíveis.</p>';
+            else gridCartoes.innerHTML = cartoesF.map(c => `
+                <div onclick="selecionarContaDrawer('cartao', ${c.id})" 
+                     id="card-cartao-${c.id}" 
+                     class="option-card bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold flex gap-2 items-center">
+                     <div class="p-1.5 bg-purple-100 dark:bg-purple-900/30 rounded text-purple-600"><i data-lucide="credit-card" class="w-3 h-3"></i></div>
+                     ${c.nome_cartao}
+                </div>
+            `).join('');
+            
+            lucide.createIcons();
+        }
+
+        function selecionarContaDrawer(tipo, id) {
+            document.getElementById('conta_id').value = '';
+            document.getElementById('cartao_id').value = '';
+            document.querySelectorAll('.option-card').forEach(el => el.classList.remove('selected'));
+
+            if (tipo === 'conta') {
+                document.getElementById('conta_id').value = id;
+            } else {
+                document.getElementById('cartao_id').value = id;
+            }
+            
+            const card = document.getElementById(`card-${tipo}-${id}`);
+            if(card) card.classList.add('selected');
+        }
+
+        function editarLancamento(id) {
+            const l = lancamentosList.find(i=>i.id===id); if(!l) return;
+            document.getElementById('lancamentoId').value = l.id;
+            document.getElementById('drawerTitulo').innerText = 'Editar Lançamento';
+            document.getElementById('descricao').value = l.descricao;
+            document.getElementById('valor_previsto').value = l.valor_previsto;
+            document.getElementById('data_vencimento').value = l.data_vencimento;
+            document.getElementById('plano_contas_id').value = l.plano_contas_id;
+            aoMudarCategoria();
+            
+            document.getElementById('centro_custo_id').value = l.centro_custo_id||'';
+            atualizarContasPorCentro(); 
+            
+            if(l.conta_id) selecionarContaDrawer('conta', l.conta_id);
+            else if(l.cartao_id) selecionarContaDrawer('cartao', l.cartao_id);
+            else {
+                document.querySelectorAll('.option-card').forEach(el => el.classList.remove('selected'));
+                document.getElementById('conta_id').value = '';
+                document.getElementById('cartao_id').value = '';
+            }
+
+            document.getElementById('entidade_id').value = l.entidade_id||'';
+            const isPago = l.status==='PAGO'; 
+            document.getElementById('checkPago').checked=isPago; 
+            toggleCamposPagamento();
+            
+            if(isPago) { 
+                document.getElementById('data_pagamento').value = l.data_pagamento||''; 
+                document.getElementById('valor_pago').value = l.valor_pago||l.valor_previsto; 
+            }
+            document.getElementById('checkIPP').checked = l.ipp;
+
+            fecharTodosDrawers();
+            document.getElementById('drawerOverlay').classList.add('overlay-open');
+            document.getElementById('drawerLateral').classList.add('drawer-open');
+        }
+
+        function atualizarKPIs(lista) {
+            const rec = lista.filter(l => l.tipo === 'RECEITA').reduce((acc,l)=>acc+parseFloat(l.valor_previsto),0);
+            const desp = lista.filter(l => l.tipo === 'DESPESA').reduce((acc,l)=>acc+parseFloat(l.valor_previsto),0);
+            document.getElementById('kpiReceitas').innerText = BRL.format(rec);
+            document.getElementById('kpiDespesas').innerText = BRL.format(desp);
+            document.getElementById('kpiSaldo').innerText = BRL.format(rec - desp);
+        }
+
+        function mudarMes(d) { mesAtual.setMonth(mesAtual.getMonth() + d); atualizarLabelMes(); aplicarFiltros(); }
+        function atualizarLabelMes() { document.getElementById('lblMesAtual').innerText = mesAtual.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }); }
+
+        function abrirDrawer() {
+            document.getElementById('lancamentoId').value='';
+            document.getElementById('drawerTitulo').innerText='Novo Lançamento';
+            
+            // Tenta pegar o centro de custo do filtro para facilitar
+            const cc = document.getElementById('filtroCentroCustoDrawer').value;
+            if(cc) document.getElementById('centro_custo_id').value = cc;
+            
+            atualizarContasPorCentro(); 
+            document.getElementById('data_vencimento').value = new Date().toISOString().split('T')[0];
+            toggleCamposPagamento(); toggleAreaParcelamento();
+
+            document.querySelectorAll('.option-card').forEach(el=>el.classList.remove('selected'));
+            document.getElementById('conta_id').value = '';
+            document.getElementById('cartao_id').value = '';
+
+            fecharTodosDrawers();
+            document.getElementById('drawerOverlay').classList.add('overlay-open');
+            document.getElementById('drawerLateral').classList.add('drawer-open');
+        }
+
+        async function salvarLancamento() {
+            if(!document.getElementById('descricao').value || !document.getElementById('valor_previsto').value) 
+                return Swal.fire('Erro','Descrição e Valor são obrigatórios','warning');
+            
+            const id = document.getElementById('lancamentoId').value;
+            const isParc = document.getElementById('checkParcelado').checked;
+            
+            // Pega os dados básicos
+            const payload = {
+                descricao: document.getElementById('descricao').value,
+                valor_previsto: parseFloat(document.getElementById('valor_previsto').value),
+                data_vencimento: document.getElementById('data_vencimento').value,
+                tipo: document.querySelector('input[name="tipo"]:checked').value,
+                plano_contas_id: parseInt(document.getElementById('plano_contas_id').value),
+                centro_custo_id: parseInt(document.getElementById('centro_custo_id').value)||null,
+                entidade_id: parseInt(document.getElementById('entidade_id').value)||null,
+                conta_id: parseInt(document.getElementById('conta_id').value)||null,
+                cartao_id: parseInt(document.getElementById('cartao_id').value)||null,
+                status: document.getElementById('checkPago').checked ? 'PAGO':'PENDENTE',
+                valor_pago: parseFloat(document.getElementById('valor_pago').value)||0,
+                data_pagamento: document.getElementById('data_pagamento').value||null,
+                ipp: document.getElementById('checkIPP').checked
+            };
+
+            let res;
+
+            // --- LÓGICA DE PARCELAMENTO ---
+            if(isParc && !id) {
+                const qtd = parseInt(document.getElementById('qtd_parcelas').value);
+                const lista = []; 
+                
+                // Cálculo do valor da parcela
+                let valParc = payload.valor_previsto; 
+                if(modoCalculo === 'TOTAL') {
+                    // Arredonda para 2 casas decimais para evitar 33.333333
+                    valParc = Math.round((payload.valor_previsto / qtd) * 100) / 100;
+                }
+
+                // Data base
+                const [ano, mes, dia] = payload.data_vencimento.split('-').map(Number);
+
+                for(let i=0; i<qtd; i++) {
+                    // Lógica segura de data (JavaScript Date começa mês em 0)
+                    const dataObj = new Date(ano, (mes - 1) + i, dia);
+                    const novaData = dataObj.toISOString().split('T')[0];
+
+                    lista.push({
+                        ...payload, 
+                        valor_previsto: valParc, 
+                        data_vencimento: novaData, 
+                        numero_parcela: `${i+1}/${qtd}`, 
+                        descricao: `${payload.descricao} (${i+1}/${qtd})`,
+                        // Se for parcelado, geralmente só a 1ª pode estar paga, ou todas pendentes.
+                        // Aqui forçamos pendente nas parcelas futuras para evitar erro lógico
+                        status: (i === 0 && payload.status === 'PAGO') ? 'PAGO' : 'PENDENTE',
+                        valor_pago: (i === 0 && payload.status === 'PAGO') ? payload.valor_pago : 0,
+                        data_pagamento: (i === 0 && payload.status === 'PAGO') ? payload.data_pagamento : null
+                    });
+                }
+                res = await apiFetch('/lancamentos/bulk', {method:'POST', body:JSON.stringify(lista)});
+            
+            } else {
+                // --- CRIAÇÃO/EDIÇÃO UNITÁRIA ---
+                if(id) res = await apiFetch(`/lancamentos/${id}`, {method:'PUT', body:JSON.stringify(payload)});
+                else res = await apiFetch('/lancamentos/', {method:'POST', body:JSON.stringify(payload)});
+            }
+
+            if(res) { 
+                fecharTodosDrawers(); 
+                const novos = await apiFetch('/lancamentos/');
+                if(novos) lancamentosList = novos;
+                aplicarFiltros();
+                // AQUI REMOVI O SWAL.FIRE DE SUCESSO
+            }
+        }
+
+        async function toggleIPP(id, atual) {
+            const novo = !atual;
+            const l = lancamentosList.find(i=>i.id===id); if(l) l.ipp = novo;
+            aplicarFiltros(); 
+            try { 
+                await apiFetch(`/lancamentos/${id}`, { method:'PUT', body:JSON.stringify({ipp:novo})}); 
+            } catch(e) { 
+                console.error(e); 
+                if(l) l.ipp = atual; 
+                aplicarFiltros(); 
+            }
+        }
+
+        // --- Funções Auxiliares de UI ---
+        function toggleFiltroDrawer() {
+            const d=document.getElementById('filtroDrawer'); const o=document.getElementById('drawerOverlay');
+            if(d.classList.contains('drawer-open')) {d.classList.remove('drawer-open');o.classList.remove('overlay-open');} else {d.classList.add('drawer-open');o.classList.add('overlay-open');}
+        }
+        function fecharTodosDrawers() {
+            document.getElementById('filtroDrawer').classList.remove('drawer-open');
+            document.getElementById('drawerLateral').classList.remove('drawer-open');
+            document.getElementById('drawerOverlay').classList.remove('overlay-open');
+        }
+        function toggleSelectAll() { const m=document.getElementById('checkAll').checked; document.querySelectorAll('.chk-row').forEach(c=>{c.checked=m; checkRow(parseInt(c.value),false)}); atualizarBarraAcoes(); }
+        function checkRow(id,up=true){ const c=document.querySelector(`.chk-row[value="${id}"]`); const r=document.getElementById(`row-${id}`); if(c.checked){ selectionMode.add(id); r.classList.add('row-selected'); } else { selectionMode.delete(id); r.classList.remove('row-selected'); } if(up) atualizarBarraAcoes(); }
+        function atualizarBarraAcoes(){ const b=document.getElementById('bulkActionsBar'); document.getElementById('lblQtdSel').innerText=selectionMode.size; if(selectionMode.size>0) b.classList.remove('hidden-bar'); else b.classList.add('hidden-bar'); }
+        async function excluirEmMassa() { const ids=Array.from(selectionMode); if(await Swal.fire({title:'Excluir?',icon:'warning',showCancelButton:true}).then(r=>r.isConfirmed)){ await apiFetch('/lancamentos/bulk-delete',{method:'POST', body:JSON.stringify({ids})}); inicializarTela(); } }
+        
+        async function baixarEmMassa(modo) {
+            const ids = Array.from(selectionMode);
+            let d = new Date().toISOString().split('T')[0];
+            if(modo==='ONTEM') {
+                const dt = new Date(); dt.setDate(dt.getDate()-1); d = dt.toISOString().split('T')[0];
+            } else if(modo==='OUTRO') {
+                const { value: formValues } = await Swal.fire({
+                    title: 'Baixa em Massa',
+                    html: `
+                        <label class="block text-left text-sm font-bold text-gray-700 mb-1">Data do Pagamento</label>
+                        <input type="date" id="swal-date" class="swal2-input mb-4" value="${d}">
+                        
+                        <label class="block text-left text-sm font-bold text-gray-700 mb-1">Conta Bancária (Opcional)</label>
+                        <select id="swal-account" class="swal2-select">
+                            <option value="">Manter original</option>
+                            ${contasList.map(c => `<option value="${c.id}">${c.nome}</option>`).join('')}
+                        </select>
+                    `,
+                    focusConfirm: false,
+                    showCancelButton: true,
+                    preConfirm: () => {
+                        return [
+                            document.getElementById('swal-date').value,
+                            document.getElementById('swal-account').value
+                        ]
+                    }
+                });
+
+                if (!formValues) return;
+                d = formValues[0];
+                var contaId = formValues[1] ? parseInt(formValues[1]) : null;
+            }
+
+            const payload = {
+                ids: ids,
+                data_pagamento: d,
+                copiar_valor: true,
+                conta_id: contaId || null
+            };
+
+            await apiFetch('/lancamentos/bulk-pay', {method:'POST',body:JSON.stringify(payload)}); 
+            inicializarTela();
+        }
+
+        async function excluirLancamento(id){ if(await Swal.fire({title:'Excluir?',icon:'warning',showCancelButton:true}).then(r=>r.isConfirmed)){ await apiFetch('/lancamentos/bulk-delete',{method:'POST', body:JSON.stringify({ids:[id]})}); inicializarTela(); } }
+        function toggleCamposPagamento(){ const c=document.getElementById('checkPago').checked; const d=document.getElementById('camposPagamento'); if(c) d.classList.remove('opacity-50','pointer-events-none'); else d.classList.add('opacity-50','pointer-events-none'); }
+        function toggleAreaParcelamento(){ const c=document.getElementById('checkParcelado').checked; const d=document.getElementById('areaParcelamento'); if(c) d.classList.remove('hidden'); else d.classList.add('hidden'); }
+        function setModoCalculo(m){ modoCalculo=m; document.getElementById('btnCalcTotal').className=`calc-btn flex-1 py-2 px-3 rounded-lg text-xs font-bold flex flex-col items-center justify-center gap-1 ${m==='TOTAL'?'active':''}`; document.getElementById('btnCalcParcela').className=`calc-btn flex-1 py-2 px-3 rounded-lg text-xs font-bold flex flex-col items-center justify-center gap-1 ${m==='PARCELA'?'active':''}`; calcularParcelas(); }
+        function calcularParcelas(){ if(!document.getElementById('checkParcelado').checked) return; const qtd=parseInt(document.getElementById('qtd_parcelas').value)||1; const val=parseFloat(document.getElementById('valor_previsto').value)||0; const el=document.getElementById('resumoParcelas'); if(modoCalculo==='TOTAL') el.innerText=`${qtd}x de ${BRL.format(val/qtd)} (Total: ${BRL.format(val)})`; else el.innerText=`${qtd}x de ${BRL.format(val)} (Total: ${BRL.format(val*qtd)})`; }
+        function aoMudarCategoria() { const sel = document.getElementById('plano_contas_id'); const tipo = sel.options[sel.selectedIndex].getAttribute('data-tipo'); if(tipo) document.querySelectorAll('input[name="tipo"]').forEach(r=>r.checked=(r.value===tipo)); }
+        function setFiltroRapido(tipo) { filtroRapido=tipo; document.querySelectorAll('.chip-filter').forEach(c => { c.classList.remove('chip-active'); c.classList.add('chip-default'); }); document.getElementById(`chip-${tipo}`).classList.add('chip-active'); aplicarFiltros(); }
+        
+        function abrirModalTransferencia() { 
+            document.getElementById('transf_valor').value = '';
+            document.getElementById('transf_data').value = new Date().toISOString().split('T')[0];
+            document.getElementById('transf_centro_custo').value = '';
+            document.getElementById('conta_origem_id').value = '';
+            document.getElementById('conta_destino_id').value = '';
+            document.getElementById('transf_efetivado').checked = true;
+            
+            document.querySelectorAll('.option-card').forEach(el=>el.classList.remove('selected'));
+            
+            document.getElementById('modalTransferencia').classList.remove('hidden'); 
+            renderizarSelecaoContasTransferencia(); 
+        }
+        function fecharModalTransferencia() { document.getElementById('modalTransferencia').classList.add('hidden'); }
+        function renderizarSelecaoContasTransferencia() { const criarGrid = (id, tipo) => { document.getElementById(id).innerHTML = contasList.map(c => `<div onclick="selecionarContaTransferencia('${tipo}',${c.id})" id="card-${tipo}-${c.id}" class="option-card bg-white dark:bg-slate-700 p-2 rounded border text-xs font-bold cursor-pointer flex gap-2 items-center"><i data-lucide="wallet" class="w-3 h-3 text-blue-500"></i>${c.nome}</div>`).join(''); }; criarGrid('gridOrigem', 'origem'); criarGrid('gridDestino', 'destino'); lucide.createIcons(); }
+        function selecionarContaTransferencia(tipo, id) { document.getElementById(`conta_${tipo}_id`).value = id; document.querySelectorAll(`#grid${tipo.charAt(0).toUpperCase()+tipo.slice(1)} .option-card`).forEach(e=>e.classList.remove('selected')); document.getElementById(`card-${tipo}-${id}`).classList.add('selected'); }
+        async function salvarTransferencia() {
+            const p = {
+                valor: parseFloat(document.getElementById('transf_valor').value),
+                data_transferencia: document.getElementById('transf_data').value,
+                conta_origem_id: parseInt(document.getElementById('conta_origem_id').value),
+                conta_destino_id: parseInt(document.getElementById('conta_destino_id').value),
+                centro_custo_id: parseInt(document.getElementById('transf_centro_custo').value) || null,
+                efetivado: document.getElementById('transf_efetivado').checked
+            };
+            
+            if (!p.valor || !p.conta_origem_id || !p.conta_destino_id) {
+                return Swal.fire('Atenção', 'Selecione as contas e o valor.', 'warning');
+            }
+            
+            await apiFetch('/lancamentos/transferir', {method:'POST', body:JSON.stringify(p)});
+            fecharModalTransferencia();
+            inicializarTela();
+        }
+    </script>
 </body>
 </html>

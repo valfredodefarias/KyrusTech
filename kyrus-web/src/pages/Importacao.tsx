@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../services/api';
+import { useLookupStore } from '../store/lookupStore';
 import { 
     UploadCloud, ArrowRight, CheckCircle, AlertTriangle, 
     FileSpreadsheet, Save, Loader2, Download,
@@ -214,6 +215,7 @@ const DraggableTreeItem = ({ item, depth = 0, onDragStart, onDrop, onEdit, onDel
 
 // --- PLANO CONTAS MANAGER (COM RECALCULO AUTOMÁTICO) ---
 export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: ItemSistema[], onUpdateList: (l: any) => void }) => {
+    const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
   const [localList, setLocalList] = useState<ItemSistema[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -386,8 +388,8 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
         setHasChanges(false);
         alert("Ordem salva com sucesso!");
         
-        const res = await api.get('/plano-contas/');
-        onUpdateList(res.data);
+        const updated = await fetchPlanoContas(true);
+        onUpdateList(updated);
 
     } catch (e) {
         console.error(e);
@@ -608,6 +610,10 @@ export function Importacao() {
   const [mapContas, setMapContas] = useState<Record<string, string>>({});
   const [mapCentros, setMapCentros] = useState<Record<string, string>>({});
   const [mapEntidades, setMapEntidades] = useState<Record<string, string>>({});
+    const fetchEntidades = useLookupStore((state) => state.fetchEntidades);
+    const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
+    const setEntidadesCache = useLookupStore((state) => state.setEntidades);
+    const setPlanoContasCache = useLookupStore((state) => state.setPlanoContas);
   
     const [modalOpen, setModalOpen] = useState(false);
     const [modalType, setModalType] = useState<'CATEGORIA'|'ENTIDADE'|'CONTA'|'CENTRO' | null>(null);
@@ -621,14 +627,15 @@ export function Importacao() {
   async function carregarDadosIniciais() {
     try {
       const [rContas, rCats, rCentros, rEnt] = await Promise.all([
-          api.get('/contas/'), api.get('/plano-contas/'), api.get('/centro-custo/'), api.get('/entidades/')
+                    api.get('/contas/'), fetchPlanoContas(), api.get('/centro-custo/'), fetchEntidades()
       ]);
-      setSistemaData({ contas: rContas.data || [], categorias: rCats.data || [], centros: rCentros.data || [], entidades: rEnt.data || [] });
+            setSistemaData({ contas: rContas.data || [], categorias: rCats || [], centros: rCentros.data || [], entidades: rEnt || [] });
     } catch (error) { console.error("Erro dados iniciais", error); setFeedback({ type: 'error', message: 'Falha ao carregar dados.' }); }
   }
 
   const handleCategoriesUpdate = (newCats: ItemSistema[]) => {
       setSistemaData(prev => ({ ...prev, categorias: newCats }));
+            setPlanoContasCache(newCats);
   };
 
   async function handleDownloadModelo() {
@@ -662,12 +669,20 @@ export function Importacao() {
               const tipo = modalValue.startsWith('1') ? 'R' : 'D';
               res = await api.post('/plano-contas/', { nome: modalValue, tipo: tipo, permite_lancamentos: true }); 
               newItem = res.data;
-              setSistemaData(prev => ({...prev, categorias: [...prev.categorias, newItem]}));
+              setSistemaData(prev => {
+                const next = [...prev.categorias, newItem];
+                setPlanoContasCache(next);
+                return { ...prev, categorias: next };
+              });
               setMapCategorias(prev => ({...prev, [modalPendingKey]: newItem.id}));
           } else if (modalType === 'ENTIDADE') {
               res = await api.post('/entidades/', { nome: modalValue, tipo: 'AMBOS' });
               newItem = res.data;
-              setSistemaData(prev => ({...prev, entidades: [...prev.entidades, newItem]}));
+              setSistemaData(prev => {
+                const next = [...prev.entidades, newItem];
+                setEntidadesCache(next);
+                return { ...prev, entidades: next };
+              });
               setMapEntidades(prev => ({...prev, [modalPendingKey]: newItem.id}));
           } else if (modalType === 'CONTA') {
               res = await api.post('/contas/', { nome: modalValue, tipo: 'CORRENTE' });
@@ -710,10 +725,18 @@ export function Importacao() {
           results.forEach((res: any) => {
               if (!res) return;
               if (type === 'CATEGORIA') {
-                  setSistemaData(prev => ({ ...prev, categorias: [...prev.categorias, res.data] }));
+                                    setSistemaData(prev => {
+                                        const next = [...prev.categorias, res.data];
+                                        setPlanoContasCache(next);
+                                        return { ...prev, categorias: next };
+                                    });
                   setMapCategorias(prev => ({ ...prev, [res.name]: res.data.id }));
               } else if (type === 'ENTIDADE') {
-                  setSistemaData(prev => ({ ...prev, entidades: [...prev.entidades, res.data] }));
+                                    setSistemaData(prev => {
+                                        const next = [...prev.entidades, res.data];
+                                        setEntidadesCache(next);
+                                        return { ...prev, entidades: next };
+                                    });
                   setMapEntidades(prev => ({ ...prev, [res.name]: res.data.id }));
               } else if (type === 'CONTA') {
                   setSistemaData(prev => ({ ...prev, contas: [...prev.contas, res.data] }));

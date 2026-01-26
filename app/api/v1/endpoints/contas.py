@@ -9,10 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select, func, case
 from loguru import logger
 from pydantic import BaseModel
+from datetime import date
 
 from app.db.session import get_db
 from app.crud import crud_conta
 from app.schemas.conta import ContaCreate, ContaRead, ContaUpdate
+from app.schemas.lancamento import LancamentoRead
 from app.models.conta import Conta
 from app.models.lancamento import Lancamento
 from app.api.v1.deps import get_empresa_id_from_user
@@ -25,6 +27,14 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 # Schema para retorno do saldo
 class ContaSaldo(ContaRead):
     saldo_atual: float
+
+# Schema leve para extrato
+class LancamentoExtratoOut(BaseModel):
+    id: int
+    data_pagamento: Optional[date]
+    descricao: str
+    valor_pago: Decimal
+    tipo: str
 
 @router.get("/", response_model=List[ContaSaldo])
 def read_all_contas(
@@ -39,26 +49,38 @@ def read_all_contas(
     contas = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
     resultado = []
 
-    for conta in contas:
-        # 1. Calcula Receitas Pagas
-        receitas = db.exec(
-            select(func.sum(Lancamento.valor_pago))
-            .where(
-                Lancamento.conta_id == conta.id,
-                Lancamento.status == 'PAGO',
-                Lancamento.tipo == 'RECEITA'
-            )
-        ).one()
+    # Agrega receitas e despesas por conta em uma única query (evita N+1)
+    saldo_query = (
+        select(
+            Lancamento.conta_id,
+            func.sum(
+                case(
+                    (Lancamento.tipo == "RECEITA", Lancamento.valor_pago),
+                    else_=0,
+                )
+            ).label("receitas"),
+            func.sum(
+                case(
+                    (Lancamento.tipo == "DESPESA", Lancamento.valor_pago),
+                    else_=0,
+                )
+            ).label("despesas"),
+        )
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.status == "PAGO",
+            Lancamento.conta_id.is_not(None),
+        )
+        .group_by(Lancamento.conta_id)
+    )
 
-        # 2. Calcula Despesas Pagas
-        despesas = db.exec(
-            select(func.sum(Lancamento.valor_pago))
-            .where(
-                Lancamento.conta_id == conta.id,
-                Lancamento.status == 'PAGO',
-                Lancamento.tipo == 'DESPESA'
-            )
-        ).one()
+    saldos_por_conta = {
+        row[0]: (row[1], row[2])
+        for row in db.exec(saldo_query).all()
+    }
+
+    for conta in contas:
+        receitas, despesas = saldos_por_conta.get(conta.id, (0, 0))
 
         # --- CORREÇÃO DO ERRO DE TIPO ---
         # Convertemos tudo para Decimal antes de somar.
@@ -82,6 +104,48 @@ def read_all_contas(
         resultado.append(conta_dict)
 
     return resultado
+
+@router.get("/{conta_id}/extrato", response_model=List[LancamentoExtratoOut])
+def extrato_conta(
+    *,
+    db: Session = Depends(get_db),
+    conta_id: int,
+    skip: int = 0,
+    limit: int = 15,
+    empresa_id: int = Depends(get_empresa_id_from_user)
+):
+    """
+    Retorna os últimos lançamentos pagos de uma conta.
+    """
+    query = (
+        select(
+            Lancamento.id,
+            Lancamento.data_pagamento,
+            Lancamento.descricao,
+            Lancamento.valor_pago,
+            Lancamento.tipo,
+        )
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.conta_id == conta_id,
+            Lancamento.status == "PAGO",
+        )
+        .order_by(Lancamento.data_pagamento.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+
+    rows = db.exec(query).all()
+    return [
+        {
+            "id": row[0],
+            "data_pagamento": row[1],
+            "descricao": row[2],
+            "valor_pago": row[3],
+            "tipo": row[4],
+        }
+        for row in rows
+    ]
 
 @router.post("/", response_model=ContaRead, status_code=201)
 def create_conta(

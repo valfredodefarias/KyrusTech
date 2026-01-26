@@ -27,7 +27,11 @@ def get_db() -> Generator[Session, None, None]:
     Abre a sessão, entrega para o endpoint e fecha automaticamente.
     """
     with Session(engine) as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            session.rollback()
+            raise
 
 # --- APELIDO PARA COMPATIBILIDADE ---
 get_session = get_db

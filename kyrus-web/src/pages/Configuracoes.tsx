@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { useLookupStore } from '../store/lookupStore';
 import { 
   Building2, UploadCloud, Layers, Save, Loader2, 
-  Palette, Check, AlertCircle, Camera 
+  Palette, Check, AlertCircle, Camera, RefreshCw 
 } from 'lucide-react';
 
 // Importa os componentes do arquivo de Importação
@@ -205,19 +206,25 @@ const GestaoPlanoContas = () => {
   const [categorias, setCategorias] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
+  const setPlanoContasCache = useLookupStore((state) => state.setPlanoContas);
+
   // Reutiliza a lógica de carregar categorias
-  async function loadCats() {
+  async function loadCats(force = false) {
     setLoading(true);
     try {
-      const res = await api.get('/plano-contas/');
-      setCategorias(res.data);
+      const data = await fetchPlanoContas(force);
+      setCategorias(data);
     } catch(e) { console.error(e); } finally { setLoading(false); }
   }
 
   useEffect(() => { loadCats(); }, []);
 
   // Callback para atualizar lista localmente após drag & drop
-  const handleUpdate = (newCats: any[]) => setCategorias(newCats);
+  const handleUpdate = (newCats: any[]) => {
+    setCategorias(newCats);
+    setPlanoContasCache(newCats);
+  };
 
   if(loading) return <div className="p-20 text-center"><Loader2 className="animate-spin w-10 h-10 text-blue-500 mx-auto"/></div>;
 
@@ -228,10 +235,19 @@ const GestaoPlanoContas = () => {
                 <h2 className="text-2xl font-bold text-white">Plano de Contas</h2>
                 <p className="text-slate-400 mt-1">Estruture suas receitas e despesas hierarquicamente.</p>
             </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => loadCats(true)}
+              className="text-xs bg-slate-800/50 hover:bg-slate-800 text-slate-300 px-3 py-2 rounded-lg border border-slate-700 flex items-center gap-2 transition"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Sincronizar
+            </button>
             <div className="text-xs text-slate-400 bg-slate-800/50 px-4 py-2 rounded-lg border border-slate-700 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-blue-500"/>
-                Arraste para organizar • Solte sobre outro para criar subgrupo
+              <Layers className="w-4 h-4 text-blue-500"/>
+              Arraste para organizar • Solte sobre outro para criar subgrupo
             </div>
+          </div>
         </div>
         
         {/* Renderiza o componente importado de Importacao.tsx */}

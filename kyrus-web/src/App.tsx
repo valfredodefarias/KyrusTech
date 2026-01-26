@@ -4,6 +4,7 @@ import type { JSX } from 'react';
 // Pages
 import { Login } from './pages/Login';
 import { Home } from './pages/Home';
+import { Dashboard } from './pages/Dashboard';
 import { Consultor } from './pages/Consultor';  
 import { CentroCusto } from './pages/CentroCusto';
 import { Contas } from './pages/Contas';
@@ -12,6 +13,7 @@ import { Lancamentos } from './pages/Lancamentos';
 import { Entidades } from './pages/Entidades';
 import { Cartoes } from './pages/Cartoes';
 import { Configuracoes } from './pages/Configuracoes'; // <--- NOVO IMPORT
+import { Auditoria } from './pages/Auditoria';
 
 // Components & Store
 import { Layout } from './components/Layout';
@@ -47,7 +49,8 @@ function App() {
           <Route path="/importacao" element={<Importacao />} /> {/* Mantido para acesso direto se precisar */}
           
           {/* Placeholder para Dashboard */}
-          <Route path="/dashboard" element={<div>Em breve: Dashboard</div>} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/auditoria" element={<Auditoria />} />
           <Route path="/integracoes" element={<div>Em breve: Integrações</div>} />
         </Route>
 

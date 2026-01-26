@@ -3,10 +3,11 @@ import { NavLink } from 'react-router-dom';
 import { 
   Home, BarChart2, PlusCircle, Users, 
   Landmark, CreditCard, Settings, Link as LinkIcon, LogOut,
-  Briefcase, Layers, Building2, Upload
+  Briefcase, Layers, Upload, RefreshCw, ClipboardList
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { api } from '../services/api';
+import { useLookupStore } from '../store/lookupStore';
 
 // --- TIPAGEM ---
 interface EmpresaInfo {
@@ -24,6 +25,9 @@ export function Sidebar() {
   const logout = useAuthStore((state) => state.logout);
   const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
   const [isConsultor, setIsConsultor] = useState(false);
+  const fetchEntidades = useLookupStore((state) => state.fetchEntidades);
+  const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
+  const [syncing, setSyncing] = useState(false);
 
   // --- CARREGAMENTO DE DADOS ---
   useEffect(() => {
@@ -64,6 +68,7 @@ export function Sidebar() {
     
     // --- IMPORTAÇÃO ---
     { icon: Upload, label: 'Importação', path: '/importacao' },
+    { icon: ClipboardList, label: 'Auditoria', path: '/auditoria' },
     
     // --- SISTEMA ---
     { icon: LinkIcon, label: 'Integrações', path: '/integracoes' },
@@ -90,6 +95,17 @@ export function Sidebar() {
 
   const logoSrc = getLogoUrl(empresa?.logo_url);
 
+  const handleSyncCadastros = async () => {
+    setSyncing(true);
+    try {
+      await Promise.all([fetchEntidades(true), fetchPlanoContas(true)]);
+    } catch (error) {
+      console.error('Erro ao sincronizar cadastros', error);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
     <aside className="w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 hidden md:flex flex-col h-screen sticky top-0 transition-all z-30 shadow-sm">
       
@@ -109,9 +125,11 @@ export function Sidebar() {
               />
             ) : (
               // Fallback: Iniciais do nome
-              <span className="text-2xl font-bold text-slate-400 dark:text-slate-300 w-full h-full flex items-center justify-center bg-slate-50 dark:bg-slate-800">
-                {empresa?.nome_fantasia ? empresa.nome_fantasia.substring(0,2).toUpperCase() : 'KY'}
-              </span>
+              <img
+                src="/kyrus.png"
+                alt="Logo Kyrus"
+                className="w-full h-full object-contain p-2 bg-slate-50 dark:bg-slate-800"
+              />
             )}
         </div>
 
@@ -127,9 +145,11 @@ export function Sidebar() {
                     </span>
                 </>
             ) : (
-                <h1 className="text-xl font-extrabold text-slate-800 dark:text-white tracking-tighter">
-                  Kyrus<span style={{ color: primaryColor }}>Tech</span>
-                </h1>
+                <img
+                  src="/kyrusnamegg.png"
+                  alt="KyrusTech"
+                  className="h-6 w-auto"
+                />
             )}
         </div>
 
@@ -165,6 +185,14 @@ export function Sidebar() {
 
       {/* --- FOOTER / SAIR --- */}
       <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+        <button 
+            onClick={handleSyncCadastros}
+            disabled={syncing}
+            className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors font-bold text-sm mb-2 disabled:opacity-50"
+        >
+          <RefreshCw size={18} strokeWidth={2.5} className={syncing ? 'animate-spin' : ''} />
+          Sincronizar Cadastros
+        </button>
         <button 
             onClick={logout} 
             className="flex items-center gap-3 px-4 py-3 w-full text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors font-bold text-sm"

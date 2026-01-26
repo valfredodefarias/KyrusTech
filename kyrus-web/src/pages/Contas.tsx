@@ -77,7 +77,12 @@ export function Contas() {
   // Dados do Extrato
   const [extratoData, setExtratoData] = useState<LancamentoExtrato[]>([]);
   const [extratoLoading, setExtratoLoading] = useState(false);
+  const [extratoLoadingMore, setExtratoLoadingMore] = useState(false);
   const [contaExtratoNome, setContaExtratoNome] = useState('');
+  const [extratoContaId, setExtratoContaId] = useState<number | null>(null);
+  const [extratoPage, setExtratoPage] = useState(0);
+  const [extratoHasMore, setExtratoHasMore] = useState(true);
+  const EXTRATO_PAGE_SIZE = 150;
 
   // Formulário
   const [form, setForm] = useState<FormConta>({
@@ -225,25 +230,33 @@ export function Contas() {
     }
   }
 
-  async function handleVerExtrato(id: number, nome: string) {
-    setContaExtratoNome(nome);
-    setExtratoOpen(true);
-    setExtratoLoading(true);
+  async function fetchExtratoPage(contaId: number, page: number, append: boolean) {
+    if (page === 0) setExtratoLoading(true);
+    else setExtratoLoadingMore(true);
     try {
-      const res = await api.get('/lancamentos/');
-      const todos = res.data;
-      
-      const filtrados = todos
-        .filter((l: any) => l.conta_id === id && l.status === 'PAGO')
-        .sort((a: any, b: any) => new Date(b.data_pagamento).getTime() - new Date(a.data_pagamento).getTime())
-        .slice(0, 15);
-
-      setExtratoData(filtrados);
+      const { data } = await api.get(`/contas/${contaId}/extrato`, {
+        params: { skip: page * EXTRATO_PAGE_SIZE, limit: EXTRATO_PAGE_SIZE }
+      });
+      const items = data || [];
+      setExtratoData(prev => (append ? [...prev, ...items] : items));
+      setExtratoPage(page);
+      setExtratoHasMore(items.length === EXTRATO_PAGE_SIZE);
     } catch (error) {
       console.error("Erro ao carregar extrato", error);
     } finally {
       setExtratoLoading(false);
+      setExtratoLoadingMore(false);
     }
+  }
+
+  async function handleVerExtrato(id: number, nome: string) {
+    setContaExtratoNome(nome);
+    setExtratoContaId(id);
+    setExtratoOpen(true);
+    setExtratoData([]);
+    setExtratoPage(0);
+    setExtratoHasMore(true);
+    await fetchExtratoPage(id, 0, false);
   }
 
   const filteredContas = contas.filter(c => {
@@ -610,7 +623,7 @@ export function Contas() {
                     </tr>
                 </thead>
                 <tbody className="text-sm divide-y divide-slate-100 dark:divide-slate-700">
-                    {extratoLoading ? (
+                    {extratoLoading && extratoData.length === 0 ? (
                         <tr><td colSpan={3} className="p-6 text-center text-slate-400">Carregando...</td></tr>
                     ) : extratoData.length === 0 ? (
                         <tr><td colSpan={3} className="p-6 text-center text-slate-400 italic">Nenhuma movimentação recente.</td></tr>
@@ -629,6 +642,20 @@ export function Contas() {
                     )}
                 </tbody>
             </table>
+         </div>
+
+         <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-center">
+           {extratoHasMore ? (
+             <button
+               onClick={() => extratoContaId && fetchExtratoPage(extratoContaId, extratoPage + 1, true)}
+               disabled={extratoLoadingMore}
+               className="px-4 py-2 rounded-lg text-sm font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition disabled:opacity-50"
+             >
+               {extratoLoadingMore ? 'Carregando...' : 'Carregar mais'}
+             </button>
+           ) : (
+             <span className="text-xs text-slate-400">Fim do extrato</span>
+           )}
          </div>
       </div>
 

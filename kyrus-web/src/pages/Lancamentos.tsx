@@ -1,11 +1,12 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../services/api';
+import { useLookupStore } from '../store/lookupStore';
 import { 
   Plus, Search, Filter, RefreshCw, ChevronLeft, ChevronRight, 
   ArrowRightLeft, Wallet, CreditCard, Layers, Calendar, 
   TrendingUp, TrendingDown, AlertCircle, CheckCircle2, 
-  Trash2, Edit2, Check, X, UploadCloud, FileText, Loader2, 
-  CalendarClock, User, ChevronDown, Save, Paperclip, Download, ExternalLink,
+  Trash2, Check, X, UploadCloud, FileText, Loader2, 
+  CalendarClock, User, ChevronDown, Save, Paperclip, Download,
   Image as ImageIcon, FileSpreadsheet, Presentation, LayoutGrid, CheckSquare, Square
 } from 'lucide-react';
 
@@ -22,15 +23,15 @@ interface Lancamento {
 
 // --- UTILS (CORREÇÃO DE DATA) ---
 const fixDate = (dateString: string) => {
-  if (!dateString) return '';
+  if (!dateString) return null;
   const [year, month, day] = dateString.split('-').map(Number);
-  const date = new Date(year, month - 1, day);
-  return date;
+  return new Date(year, month - 1, day);
 };
 
 const formatDateExtenso = (dateString: string) => {
     if (!dateString) return '-';
     const date = fixDate(dateString);
+  if (!date) return '-';
     return date.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'long' });
 };
 
@@ -222,6 +223,13 @@ export function Lancamentos() {
     plano_contas_id: '', centro_custo_id: ''
   });
 
+  const auxLoadedRef = useRef(false);
+  const lancamentosAbortRef = useRef<AbortController | null>(null);
+  const lastLancamentosKeyRef = useRef<string>('');
+
+  const fetchEntidades = useLookupStore((state) => state.fetchEntidades);
+  const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
+
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
   // --- INIT ---
@@ -243,23 +251,56 @@ export function Lancamentos() {
   }, [mesAtual, filtrosAvancados.dataInicio, filtrosAvancados.dataFim]);
 
   async function loadAuxData() {
+    if (auxLoadedRef.current) return;
     try {
       const [rC, rCt, rCC, rE, rCat] = await Promise.all([
-        api.get('/contas/'), api.get('/cartoes/'), api.get('/centro-custo/'), api.get('/entidades/'), api.get('/plano-contas/')
+        api.get('/contas/'), api.get('/cartoes/'), api.get('/centro-custo/'), fetchEntidades(), fetchPlanoContas()
       ]);
-      setContas(rC.data); setCartoes(rCt.data); setCentros(rCC.data); setEntidades(rE.data); setCategorias(rCat.data);
+      setContas(rC.data); setCartoes(rCt.data); setCentros(rCC.data); setEntidades(rE); setCategorias(rCat);
+      auxLoadedRef.current = true;
     } catch(e) { console.error(e); }
   }
 
-  async function loadLancamentos(ini?: string, fim?: string) {
+  async function syncCadastros() {
+    try {
+      const [rE, rCat] = await Promise.all([
+        fetchEntidades(true),
+        fetchPlanoContas(true)
+      ]);
+      setEntidades(rE);
+      setCategorias(rCat);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function loadLancamentos(ini?: string, fim?: string, opts?: { force?: boolean }) {
+    const key = `${ini || ''}|${fim || ''}`;
+    if (!opts?.force && key === lastLancamentosKeyRef.current && lancamentos.length > 0) return;
+    lastLancamentosKeyRef.current = key;
+
+    if (lancamentosAbortRef.current) {
+      lancamentosAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    lancamentosAbortRef.current = controller;
+
     setLoading(true);
     try {
       const params: any = { limit: 5000 }; 
       if(ini) params.data_inicio = ini;
       if(fim) params.data_fim = fim;
-      const res = await api.get('/lancamentos/', { params });
+      const res = await api.get('/lancamentos/', { params, signal: controller.signal });
       setLancamentos(res.data);
-    } catch(e) { console.error(e); } finally { setLoading(false); }
+    } catch(e: any) {
+      if (e?.code === 'ERR_CANCELED') return;
+      console.error(e);
+    } finally {
+      if (lancamentosAbortRef.current === controller) {
+        lancamentosAbortRef.current = null;
+        setLoading(false);
+      }
+    }
   }
 
   async function toggleIpp(l: Lancamento) {
@@ -292,7 +333,7 @@ export function Lancamentos() {
       });
       setShowBulkPay(false);
       setSelectedIds(new Set());
-      loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
+      loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { force: true });
     } catch (e) {
       console.error(e);
       alert('Erro ao baixar em lote');
@@ -315,7 +356,7 @@ export function Lancamentos() {
       await api.post('/lancamentos/bulk-delete', { ids: Array.from(selectedIds) });
       setShowBulkDelete(false);
       setSelectedIds(new Set());
-      loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
+      loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { force: true });
     } catch (e) {
       console.error(e);
       alert('Erro ao apagar em lote');
@@ -442,7 +483,7 @@ export function Lancamentos() {
         });
         alert("Transferência realizada!");
         setShowTransfer(false);
-        loadLancamentos();
+        loadLancamentos(undefined, undefined, { force: true });
     } catch(e) { alert("Erro na transferência."); } finally { setSaving(false); }
   }
 
@@ -492,8 +533,8 @@ export function Lancamentos() {
       }
       setShowDrawer(false); 
       // Recarrega inteligente
-      if(filtrosAvancados.dataInicio) loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
-      else { const ano = mesAtual.getFullYear(); const mes = mesAtual.getMonth() + 1; loadLancamentos(new Date(ano, mes-1, 1).toISOString().split('T')[0], new Date(ano, mes, 0).toISOString().split('T')[0]); }
+      if(filtrosAvancados.dataInicio) loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { force: true });
+      else { const ano = mesAtual.getFullYear(); const mes = mesAtual.getMonth() + 1; loadLancamentos(new Date(ano, mes-1, 1).toISOString().split('T')[0], new Date(ano, mes, 0).toISOString().split('T')[0], { force: true }); }
     } catch(e) { alert("Erro ao salvar"); } finally { setSaving(false); }
   }
 
@@ -523,7 +564,8 @@ export function Lancamentos() {
             <span className="w-32 text-center text-xs font-bold uppercase pt-1 text-white">{mesAtual.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</span>
             <button onClick={()=>setMesAtual(new Date(mesAtual.setMonth(mesAtual.getMonth()+1)))} className="p-1.5 hover:bg-slate-600 rounded-md text-slate-300 transition-colors"><ChevronRight className="w-4 h-4"/></button>
           </div>
-          <button onClick={()=>loadLancamentos()} className="p-2 text-slate-400 hover:text-blue-400 border border-slate-600 rounded-lg hover:border-blue-500 transition-colors"><RefreshCw className={`w-4 h-4 ${loading?'animate-spin':''}`}/></button>
+          <button onClick={()=>loadLancamentos(undefined, undefined, { force: true })} className="p-2 text-slate-400 hover:text-blue-400 border border-slate-600 rounded-lg hover:border-blue-500 transition-colors" title="Sincronizar lançamentos"><RefreshCw className={`w-4 h-4 ${loading?'animate-spin':''}`}/></button>
+          <button onClick={syncCadastros} className="p-2 text-slate-400 hover:text-emerald-400 border border-slate-600 rounded-lg hover:border-emerald-500 transition-colors" title="Sincronizar cadastros"><Layers className="w-4 h-4"/></button>
         </div>
 
         <div className="flex-1 w-full flex gap-2 items-center">
@@ -818,7 +860,7 @@ export function Lancamentos() {
                   <select className="w-full p-3 rounded-lg border border-slate-600 bg-slate-800 text-white outline-none focus:border-blue-500 text-sm" value={formData.entidade_id} onChange={e=>{
                     const eid = e.target.value;
                     const last = lancamentos.find(l=>String(l.entidade_id)===eid);
-                    setFormData(prev => ({...prev, entidade_id:eid, plano_contas_id: last ? last.plano_contas_id : prev.plano_contas_id, tipo: last ? last.tipo : prev.tipo}));
+                    setFormData((prev: any) => ({...prev, entidade_id:eid, plano_contas_id: last ? last.plano_contas_id : prev.plano_contas_id, tipo: last ? last.tipo : prev.tipo}));
                   }}>
                     <option value="">Selecione...</option>
                     {entidades.map(e=><option key={e.id} value={e.id}>{e.nome}</option>)}

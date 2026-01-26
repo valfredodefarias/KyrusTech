@@ -8,6 +8,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, Query, UploadFile, File, status, Form, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select, col
+from sqlalchemy.orm import selectinload
 from loguru import logger
 
 # --- Imports do Projeto ---
@@ -18,6 +19,7 @@ from app.models.lancamento import Lancamento
 from app.models.plano_contas import PlanoContas 
 from app.models.conta import Conta
 from app.models.centro_custo import CentroCusto
+from app.models.entidade import Entidade
 
 # Dependências de Usuário e Empresa
 from app.api.deps import get_current_user, get_empresa_id_from_user 
@@ -51,7 +53,7 @@ def listar_lancamentos(
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """Lista lançamentos com paginação."""
-    query = select(Lancamento).where(
+    query = select(Lancamento).options(selectinload(Lancamento.anexos)).where(
         Lancamento.empresa_id == empresa_id,
         Lancamento.is_deleted == False
     )
@@ -131,7 +133,7 @@ def encontrar_coluna(df: pd.DataFrame, possiveis_nomes: list) -> str:
 
 @router.get("/importar/modelo", response_class=StreamingResponse)
 def download_modelo_importacao():
-    df = pd.DataFrame(columns=["DATA VENCIMENTO", "DATA PAGAMENTO", "DESCRIÇÃO", "VALOR", "CONTA", "CATEGORIA", "CENTRO DE CUSTO"])
+    df = pd.DataFrame(columns=["DATA VENCIMENTO", "DATA PAGAMENTO", "DESCRIÇÃO", "VALOR", "CONTA", "CATEGORIA", "CENTRO DE CUSTO", "ENTIDADE"])
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Importacao')
@@ -144,76 +146,31 @@ def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session =
     df.columns = [str(c).upper().strip() for c in df.columns]
     col_conta = encontrar_coluna(df, ["CONTA", "BANCO"])
     col_cat = encontrar_coluna(df, ["CATEGORIA", "PLANO DE CONTAS"])
+    col_centro = encontrar_coluna(df, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO"])
+    col_entidade = encontrar_coluna(df, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
     sist_contas = session.exec(select(Conta).where(Conta.empresa_id == current_user.empresa_id)).all()
     sist_cats = session.exec(select(PlanoContas).where(PlanoContas.empresa_id == current_user.empresa_id)).all()
     sist_centros = session.exec(select(CentroCusto).where(CentroCusto.empresa_id == current_user.empresa_id)).all()
+    sist_entidades = session.exec(select(Entidade).where(Entidade.empresa_id == current_user.empresa_id)).all()
     nomes_contas = {c.nome.upper().strip(): c.id for c in sist_contas}
     nomes_cats = {c.nome.upper().strip(): c.id for c in sist_cats}
+    nomes_centros = {c.nome.upper().strip(): c.id for c in sist_centros}
+    nomes_entidades = {c.nome.upper().strip(): c.id for c in sist_entidades}
     conflitos = {
         "contas": [c for c in df[col_conta].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_contas] if col_conta else [],
         "categorias": [c for c in df[col_cat].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_cats] if col_cat else [],
-        "centros": []
+        "centros": [c for c in df[col_centro].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_centros] if col_centro else [],
+        "entidades": [c for c in df[col_entidade].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_entidades] if col_entidade else []
     }
-    return {"conflitos": conflitos, "sistema": {"contas": [{"id": c.id, "nome": c.nome} for c in sist_contas], "categorias": [{"id": c.id, "nome": c.nome, "tipo": c.tipo, "codigo": c.codigo} for c in sist_cats], "centros": [{"id": c.id, "nome": c.nome} for c in sist_centros]}}
-
-@router.post("/importar/executar")
-def executar_importacao(file: UploadFile = File(...), mapeamento_json: str = Form(...), conta_padrao_id: Optional[int] = Form(None), session: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
-    mapeamento = json.loads(mapeamento_json)
-    empresa_id = current_user.empresa_id
-    # Caches do sistema
-    cats_query = session.exec(select(PlanoContas).where(PlanoContas.empresa_id == empresa_id)).all()
-    cache_tipos = {c.id: c.tipo for c in cats_query}
-    nomes_cats_sist = {c.nome.strip().upper(): c.id for c in cats_query}
-    nomes_contas_sist = {c.nome.strip().upper(): c.id for c in session.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()}
-    nomes_centros_sist = {c.nome.strip().upper(): c.id for c in session.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).all()}
-    
-    map_cats = {str(k).upper().strip(): v for k, v in mapeamento.get('map_categorias', {}).items()}
-    map_contas = {str(k).upper().strip(): v for k, v in mapeamento.get('map_contas', {}).items()}
-    
-    df = pd.read_excel(io.BytesIO(file.file.read()))
-    df.columns = [str(c).upper().strip() for c in df.columns]
-    col_venc, col_pag, col_desc, col_valor = df.columns[0], df.columns[1], df.columns[2], df.columns[3]
-    col_conta, col_cat, col_centro = encontrar_coluna(df, ["CONTA", "BANCO"]), encontrar_coluna(df, ["CATEGORIA", "PLANO DE CONTAS"]), encontrar_coluna(df, ["CENTRO DE CUSTO", "FILIAL"])
-
-    rows_saved, erros = 0, []
-    for index, row in df.iterrows():
-        try:
-            if pd.isna(row[col_venc]): continue
-            dt_venc = pd.to_datetime(row[col_venc], dayfirst=True).date()
-            dt_pag = pd.to_datetime(row[col_pag], dayfirst=True).date() if pd.notna(row[col_pag]) and str(row[col_pag]).strip() != '' else None
-            valor = Decimal(str(row[col_valor]).replace(',', '.')) if pd.notna(row[col_valor]) else Decimal("0.00")
-            
-            nome_cat = str(row[col_cat]).upper().strip() if col_cat and pd.notna(row[col_cat]) else ""
-            cat_id = map_cats.get(nome_cat) or nomes_cats_sist.get(nome_cat)
-            if not cat_id: raise Exception(f"Categoria '{nome_cat}' não mapeada.")
-            
-            use_conta_id = None
-            nome_conta = str(row[col_conta]).upper().strip() if col_conta and pd.notna(row[col_conta]) else ""
-            if nome_conta and nome_conta not in ('NAN', ''):
-                use_conta_id = map_contas.get(nome_conta) or nomes_contas_sist.get(nome_conta)
-            if not use_conta_id: use_conta_id = conta_padrao_id 
-
-            cc_id = nomes_centros_sist.get(str(row[col_centro]).upper().strip()) if col_centro and pd.notna(row[col_centro]) else None
-
-            novo = Lancamento(
-                descricao=str(row[col_desc])[:250],
-                tipo=cache_tipos.get(int(cat_id), "DESPESA"),
-                valor_previsto=valor,
-                valor_pago=valor if dt_pag else Decimal("0.00"),
-                data_vencimento=dt_venc,
-                data_pagamento=dt_pag,
-                data_competencia=dt_venc,
-                plano_contas_id=int(cat_id),
-                conta_id=int(use_conta_id) if use_conta_id else None,
-                centro_custo_id=cc_id,
-                empresa_id=empresa_id
-            )
-            session.add(novo)
-            rows_saved += 1
-        except Exception as e: erros.append(f"Linha {index+2}: {str(e)}")
-    
-    session.commit()
-    return {"importados": rows_saved, "erros": erros}
+    return {
+        "conflitos": conflitos,
+        "sistema": {
+            "contas": [{"id": c.id, "nome": c.nome} for c in sist_contas],
+            "categorias": [{"id": c.id, "nome": c.nome, "tipo": c.tipo, "codigo": c.codigo} for c in sist_cats],
+            "centros": [{"id": c.id, "nome": c.nome} for c in sist_centros],
+            "entidades": [{"id": e.id, "nome": e.nome} for e in sist_entidades]
+        }
+    }
 
 
 # ==========================================
@@ -246,35 +203,63 @@ async def importar_executar(
     try:
         # Parse do mapeamento
         mapeamento = json.loads(mapeamento_json)
-        map_categorias = mapeamento.get('map_categorias', {})
-        map_contas = mapeamento.get('map_contas', {})
-        map_centros = mapeamento.get('map_centros', {})
-        map_entidades = mapeamento.get('map_entidades', {})
+        map_categorias = {str(k).upper().strip(): v for k, v in mapeamento.get('map_categorias', {}).items()}
+        map_contas = {str(k).upper().strip(): v for k, v in mapeamento.get('map_contas', {}).items()}
+        map_centros = {str(k).upper().strip(): v for k, v in mapeamento.get('map_centros', {}).items()}
+        map_entidades = {str(k).upper().strip(): v for k, v in mapeamento.get('map_entidades', {}).items()}
         
         # Lê o arquivo
         conteudo = await file.read()
         df = pd.read_excel(io.BytesIO(conteudo))
+        df.columns = [str(c).upper().strip() for c in df.columns]
         
         empresa_id = current_user.empresa_id
         erros = []
         importados = 0
         
+        # Colunas principais (com fallback)
+        col_venc = encontrar_coluna(df, ["DATA VENCIMENTO", "VENCIMENTO", "DATA"])
+        col_pag = encontrar_coluna(df, ["DATA PAGAMENTO", "PAGAMENTO"])
+        col_desc = encontrar_coluna(df, ["DESCRIÇÃO", "DESCRICAO", "HISTÓRICO", "HISTORICO"])
+        col_valor = encontrar_coluna(df, ["VALOR", "VALOR PAGO", "VALOR PREVISTO"])
+        col_cat = encontrar_coluna(df, ["CATEGORIA", "PLANO DE CONTAS"])
+        col_ent = encontrar_coluna(df, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
+        col_conta = encontrar_coluna(df, ["CONTA", "BANCO"])
+        col_centro = encontrar_coluna(df, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO"])
+        col_tipo = encontrar_coluna(df, ["TIPO"])
+
+        # Caches do sistema
+        cats_query = db.exec(select(PlanoContas).where(PlanoContas.empresa_id == empresa_id)).all()
+        cache_tipos = {c.id: c.tipo for c in cats_query}
+        nomes_cats_sist = {c.nome.strip().upper(): c.id for c in cats_query}
+        nomes_contas_sist = {c.nome.strip().upper(): c.id for c in db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()}
+        nomes_centros_sist = {c.nome.strip().upper(): c.id for c in db.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).all()}
+        nomes_entidades_sist = {e.nome.strip().upper(): e.id for e in db.exec(select(Entidade).where(Entidade.empresa_id == empresa_id)).all()}
+
         for idx, row in df.iterrows():
             try:
-                # Extrai dados da linha
-                descricao = str(row.get('Descrição', '')).strip()
-                tipo = str(row.get('Tipo', 'RECEITA')).upper()
-                valor = float(row.get('Valor', 0))
-                data_str = row.get('Data')
-                categoria_nome = str(row.get('Categoria', 'A Categorizar')).strip()
-                entidade_nome = str(row.get('Entidade', '')).strip()
-                conta_nome = str(row.get('Conta', '')).strip()
-                centro_nome = str(row.get('Centro de Custo', '')).strip()
+                if col_venc and pd.isna(row[col_venc]):
+                    continue
+
+                descricao = str(row[col_desc]).strip() if col_desc and pd.notna(row[col_desc]) else ""
+                tipo_raw = str(row[col_tipo]).upper().strip() if col_tipo and pd.notna(row[col_tipo]) else ""
+                tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw else "")
+                valor_raw = row[col_valor] if col_valor else None
+                valor = Decimal(str(valor_raw).replace(',', '.')) if pd.notna(valor_raw) else Decimal("0.00")
+                data_venc_raw = row[col_venc] if col_venc else None
+                data_pag_raw = row[col_pag] if col_pag else None
+                categoria_nome = str(row[col_cat]).strip() if col_cat and pd.notna(row[col_cat]) else "A Categorizar"
+                entidade_nome = str(row[col_ent]).strip() if col_ent and pd.notna(row[col_ent]) else ""
+                conta_nome = str(row[col_conta]).strip() if col_conta and pd.notna(row[col_conta]) else ""
+                centro_nome = str(row[col_centro]).strip() if col_centro and pd.notna(row[col_centro]) else ""
                 
                 # Mapeia para IDs usando mapeamento
                 plano_contas_id = None
-                if categoria_nome in map_categorias:
-                    plano_contas_id = int(map_categorias[categoria_nome])
+                cat_key = categoria_nome.upper().strip()
+                if cat_key in map_categorias:
+                    plano_contas_id = int(map_categorias[cat_key])
+                elif cat_key in nomes_cats_sist:
+                    plano_contas_id = int(nomes_cats_sist[cat_key])
                 else:
                     # Busca categoria no sistema ou cria "A Categorizar"
                     categoria = db.exec(
@@ -292,41 +277,69 @@ async def importar_executar(
                             permite_lancamentos=True
                         )
                         db.add(categoria)
-                        db.commit()
-                        db.refresh(categoria)
+                        db.flush()
                     plano_contas_id = categoria.id
+
+                if not tipo:
+                    tipo = "RECEITA" if cache_tipos.get(int(plano_contas_id)) == "R" else "DESPESA"
                 
                 # Mapeia entidade
                 entidade_id = None
-                if entidade_nome and entidade_nome in map_entidades:
-                    entidade_id = int(map_entidades[entidade_nome])
+                entidade_id = None
+                ent_key = entidade_nome.upper().strip() if entidade_nome else ""
+                if ent_key:
+                    if ent_key in map_entidades:
+                        entidade_id = int(map_entidades[ent_key])
+                    elif ent_key in nomes_entidades_sist:
+                        entidade_id = int(nomes_entidades_sist[ent_key])
+                    else:
+                        nova_ent = Entidade(nome=entidade_nome, tipo="AMBOS", status="ATIVO", empresa_id=empresa_id)
+                        db.add(nova_ent)
+                        db.flush()
+                        entidade_id = nova_ent.id
+                        nomes_entidades_sist[ent_key] = entidade_id
                 
                 # Mapeia conta
                 conta_id = None
-                if conta_nome and conta_nome in map_contas:
-                    conta_id = int(map_contas[conta_nome])
+                conta_id = None
+                conta_key = conta_nome.upper().strip() if conta_nome else ""
+                if conta_key:
+                    if conta_key in map_contas:
+                        conta_id = int(map_contas[conta_key])
+                    elif conta_key in nomes_contas_sist:
+                        conta_id = int(nomes_contas_sist[conta_key])
                 
                 # Mapeia centro de custo
                 centro_custo_id = None
-                if centro_nome and centro_nome in map_centros:
-                    centro_custo_id = int(map_centros[centro_nome])
+                centro_custo_id = None
+                centro_key = centro_nome.upper().strip() if centro_nome else ""
+                if centro_key:
+                    if centro_key in map_centros:
+                        centro_custo_id = int(map_centros[centro_key])
+                    elif centro_key in nomes_centros_sist:
+                        centro_custo_id = int(nomes_centros_sist[centro_key])
+                    else:
+                        novo_centro = CentroCusto(nome=centro_nome, empresa_id=empresa_id)
+                        db.add(novo_centro)
+                        db.flush()
+                        centro_custo_id = novo_centro.id
+                        nomes_centros_sist[centro_key] = centro_custo_id
                 
                 # Parse da data
-                from datetime import datetime
-                if isinstance(data_str, str):
-                    data_vencimento = datetime.strptime(data_str, "%d/%m/%Y").date()
-                else:
-                    data_vencimento = data_str
+                data_vencimento = pd.to_datetime(data_venc_raw, dayfirst=True).date() if pd.notna(data_venc_raw) else None
+                data_pagamento = pd.to_datetime(data_pag_raw, dayfirst=True).date() if pd.notna(data_pag_raw) and str(data_pag_raw).strip() != '' else None
+                if not data_vencimento:
+                    raise Exception("Data de vencimento inválida")
                 
                 # Cria lançamento
                 novo_lancamento = Lancamento(
                     descricao=descricao,
                     tipo=tipo,
-                    status="ABERTO",
                     origem="IMPORTACAO",
                     valor_previsto=Decimal(str(valor)),
-                    valor_pago=None,
+                    valor_pago=Decimal(str(valor)) if data_pagamento else Decimal("0.00"),
                     data_vencimento=data_vencimento,
+                    data_pagamento=data_pagamento,
                     data_competencia=data_vencimento,
                     empresa_id=empresa_id,
                     plano_contas_id=plano_contas_id,

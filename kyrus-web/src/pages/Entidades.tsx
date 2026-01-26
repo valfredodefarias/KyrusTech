@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { useLookupStore } from '../store/lookupStore';
 import { 
   Plus, Search, Edit2, Trash2, X, Check, Users, Truck, Briefcase, Loader2, AlertCircle
 } from 'lucide-react';
@@ -23,6 +24,14 @@ interface EmpresaInfo {
   cor_primaria: string;
 }
 
+interface EntidadeFormState {
+  id: number | null;
+  nome: string;
+  tipo: 'CLIENTE' | 'FORNECEDOR' | 'AMBOS';
+  cpf_cnpj: string;
+  status: 'ATIVO' | 'INATIVO';
+}
+
 export function Entidades() {
   // --- ESTADOS GERAIS ---
   const [loading, setLoading] = useState(true);
@@ -39,15 +48,18 @@ export function Entidades() {
   const [saving, setSaving] = useState(false);
   
   // Estado inicial do formulário
-  const initialFormState = {
-    id: null as number | null,
+  const initialFormState: EntidadeFormState = {
+    id: null,
     nome: '',
-    tipo: 'CLIENTE' as const,
+    tipo: 'CLIENTE',
     cpf_cnpj: '',
-    status: 'ATIVO' as const
+    status: 'ATIVO'
   };
 
-  const [form, setForm] = useState(initialFormState);
+  const [form, setForm] = useState<EntidadeFormState>(initialFormState);
+
+  const fetchEntidades = useLookupStore((state) => state.fetchEntidades);
+  const setEntidadesCache = useLookupStore((state) => state.setEntidades);
 
   // --- INICIALIZAÇÃO ---
   useEffect(() => {
@@ -84,8 +96,8 @@ export function Entidades() {
 
   async function carregarLista() {
     try {
-      const res = await api.get('/entidades/');
-      setEntidades(res.data);
+      const data = await fetchEntidades();
+      setEntidades(data);
     } catch (error) {
       console.error("Erro ao carregar lista:", error);
     }
@@ -136,7 +148,9 @@ export function Entidades() {
       }
 
       setShowModal(false);
-      await carregarLista(); // Refresh silencioso
+      const data = await fetchEntidades(true);
+      setEntidades(data);
+      setEntidadesCache(data);
       
     } catch (error: any) {
       console.error(error);
@@ -163,7 +177,11 @@ export function Entidades() {
     try {
       await api.delete(`/entidades/${id}`);
       // Atualização otimista (remove da tela instantaneamente)
-      setEntidades(prev => prev.filter(e => e.id !== id)); 
+      setEntidades(prev => {
+        const next = prev.filter(e => e.id !== id);
+        setEntidadesCache(next);
+        return next;
+      }); 
     } catch (error: any) {
       const errorMsg = error.response?.data?.detail || "Erro ao excluir. Verifique se há vínculos.";
       alert(errorMsg);

@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+.tox/
+
+# Database
+postgres_data/
+*.db
+
+# Uploads
+static/uploads/
+
+# Frontend
+kyrus-web/node_modules/
+kyrus-web/.env
+kyrus-web/dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+
+# Others
+.DS_Store
+*.log
+README.md
+iniciar.txt
+backup_banco.sql

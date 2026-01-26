@@ -22,6 +22,7 @@ class Conta(AuditMixin, SQLModel, table=True):
     nome: str = Field(index=True) # Ex: "Itaú PJ", "Caixinha"
     tipo: str = Field(index=True) # Ex: "CORRENTE", "POUPANCA", "CAIXA", "INVESTIMENTO"
     banco: Optional[str] = None   # Nome do banco (visual)
+    logo_url: Optional[str] = None  # Logo/foto do banco ou conta
     
     # --- Financeiro Robusto ---
     saldo_inicial: Decimal = Field(default=0.0, max_digits=15, decimal_places=2)

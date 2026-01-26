@@ -33,7 +33,7 @@ export const API_BASE_URL = '{API_BASE_URL}';
 export const BACKEND_URL = 'http://{LOCAL_IP}:{BACKEND_PORT}';
 export const FRONTEND_URL = 'http://{LOCAL_IP}:{FRONTEND_PORT}';
 export const LOCAL_IP = '{LOCAL_IP}';
-export const APP_NAME = 'Kyrus ERP';
+export const APP_NAME = 'KyrusTech';
 """
     
     try:

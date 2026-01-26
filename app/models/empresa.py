@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .lancamento import Lancamento
     from .integracao_bancaria import IntegracaoBancaria
     from .anexo_lancamento import AnexoLancamento
+    from .consultor_empresa import ConsultorEmpresa
 
 class Empresa(AuditMixin, SQLModel, table=True):
     __tablename__ = "empresas"
@@ -38,5 +39,9 @@ class Empresa(AuditMixin, SQLModel, table=True):
     cartoes: List["Cartao"] = Relationship(back_populates="empresa")
     centros_custo: List["CentroCusto"] = Relationship(back_populates="empresa")
     lancamentos: List["Lancamento"] = Relationship(back_populates="empresa")
+    consultores: List["ConsultorEmpresa"] = Relationship(
+        back_populates="empresa",
+        sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan")
+    )
     integracoes_bancarias: List["IntegracaoBancaria"] = Relationship(back_populates="empresa")
     # anexo_lancamento não precisa de back_populates direto aqui geralmente, mas pode ter se necessário

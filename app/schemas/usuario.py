@@ -12,6 +12,7 @@ class UsuarioBase(SQLModel):
     is_superuser: bool = False  # Adicionado pois costuma ser exigido pelo Auth
     nome: Optional[str] = None
     empresa_id: Optional[int] = None
+    consultor_role: str = "USUARIO_NORMAL"  # Novo: role do consultor
 
 # --- CREATE ---
 # O sistema espera "UserCreate", então usamos esse nome
@@ -26,6 +27,7 @@ class UserUpdate(SQLModel):
     is_consultor: Optional[bool] = None
     nome: Optional[str] = None
     empresa_id: Optional[int] = None
+    consultor_role: Optional[str] = None  # Novo: role do consultor
 
 # --- READ ---
 class UserRead(UsuarioBase, AuditReadMixin):
@@ -35,3 +37,7 @@ class UserRead(UsuarioBase, AuditReadMixin):
 UsuarioCreate = UserCreate
 UsuarioUpdate = UserUpdate
 UsuarioRead = UserRead
+
+# --- Role Change Request ---
+class RoleChangeRequest(SQLModel):
+    role: str  # "SUPER_CONSULTOR" ou "CONSULTOR"

@@ -1,19 +1,19 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { 
-  Plus, RefreshCw, CreditCard, Edit2, X, Check, Loader2, 
-  ChevronLeft, ChevronRight, CheckCircle2, Building2, Wallet
+  Plus, RefreshCw, Edit2, X, Check, Loader2, 
+  ChevronLeft, ChevronRight, CheckCircle2, Building2
 } from 'lucide-react';
 
 // --- INTERFACES ---
 interface Cartao {
   id: number;
   nome_cartao: string;
-  limite_total: number;      // Nome oficial do banco
+  limite_total: number;
   dia_fechamento: number;
   dia_vencimento: number;
   centro_custo_id?: number;
-  conta_pagamento_id?: number; // Nome oficial do Schema/Banco
+  conta_id?: number;
   status: 'ATIVO' | 'INATIVO';
   empresa_id: number;
 }
@@ -29,10 +29,10 @@ interface Lancamento {
   cartao_id?: number;
 }
 
-interface CentroCusto { id: number; nome: string; }
-interface Conta { id: number; nome: string; }
+interface CentroCusto { id: number; nome?: string; descricao?: string; }
+interface Conta { id: number; nome?: string; descricao?: string; }
 
-// --- COMPONENTES UI ---
+// --- COMPONENTE INPUT ---
 const InputDark = (props: any) => (
   <div className="w-full">
     {props.label && <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{props.label}</label>}
@@ -44,46 +44,48 @@ const InputDark = (props: any) => (
 );
 
 export function Cartoes() {
-  // --- ESTADOS ---
+  // --- TRAVA DE SEGURANÇA CONTRA DUPLA REQUISIÇÃO ---
+  const dataFetchedRef = useRef(false);
+
   const [loading, setLoading] = useState(true);
   const [cartoes, setCartoes] = useState<Cartao[]>([]);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [centros, setCentros] = useState<CentroCusto[]>([]);
   const [contas, setContas] = useState<Conta[]>([]);
 
-  // --- UI ---
   const [selectedCartaoId, setSelectedCartaoId] = useState<number | null>(null);
   const [mesFatura, setMesFatura] = useState(new Date());
   const [filtroCC, setFiltroCC] = useState('');
   const [primaryColor, setPrimaryColor] = useState('#2563eb');
 
-  // --- MODAIS ---
   const [showDrawer, setShowDrawer] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
-  // Forms - Usando NOMES EXATOS do Schema Python
   const [formData, setFormData] = useState({
     id: null as number | null,
     nome_cartao: '',
-    limite_total: '',          // <--- CORRIGIDO
+    limite_total: '',
     dia_fechamento: '',
     dia_vencimento: '',
     centro_custo_id: '',
-    conta_pagamento_id: '',    // <--- CORRIGIDO
+    conta_id: '',
     status: 'ATIVO'
   });
 
   const [payData, setPayData] = useState({
     data: new Date().toISOString().split('T')[0],
-    conta_pagamento_id: ''     // <--- CORRIGIDO
+    conta_id: ''
   });
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
-  // --- INIT ---
   useEffect(() => {
+    // SE JÁ CARREGOU, NÃO CARREGA DE NOVO
+    if (dataFetchedRef.current) return;
+    dataFetchedRef.current = true;
+
     const cor = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim();
     if(cor) setPrimaryColor(cor);
     carregarDados();
@@ -92,32 +94,37 @@ export function Cartoes() {
   async function carregarDados() {
     setLoading(true);
     try {
+      console.log("⚡ Carregando dados de Cartões (Única Vez)...");
+
       const [resC, resL, resCC, resConta] = await Promise.all([
         api.get('/cartoes/'),
-        api.get('/lancamentos/', { params: { limit: 2000 } }), // Mais histórico para cálculo
+        api.get('/lancamentos/', { params: { limit: 2000 } }),
         api.get('/centro-custo/'),
         api.get('/contas/')
       ]);
-      setCartoes(resC.data);
-      setLancamentos(resL.data);
-      setCentros(resCC.data);
-      setContas(resConta.data);
-    } catch (e) { console.error(e); } finally { setLoading(false); }
+
+      setCartoes(resC.data || []);
+      setLancamentos(resL.data || []);
+      setCentros(resCC.data || []);
+      setContas(resConta.data || []);
+    } catch (e: any) { 
+        console.error("Erro ao carregar dados:", e);
+    } finally { 
+        setLoading(false); 
+    }
   }
 
-  // --- FILTROS ---
   const filteredCartoes = cartoes.filter(c => !filtroCC || String(c.centro_custo_id) === filtroCC);
 
-  // --- CÁLCULO DA FATURA ---
   const faturaAtual = useMemo(() => {
     if (!selectedCartaoId) return { itens: [], total: 0, pendente: 0, vencimento: null };
-    
     const cartao = cartoes.find(c => c.id === selectedCartaoId);
     if(!cartao) return { itens: [], total: 0, pendente: 0, vencimento: null };
 
     const ano = mesFatura.getFullYear();
     const mes = mesFatura.getMonth();
-    const vencimento = new Date(ano, mes, cartao.dia_vencimento);
+    const diaVenc = cartao.dia_vencimento > 28 ? 28 : (cartao.dia_vencimento || 10);
+    const vencimento = new Date(ano, mes, diaVenc);
     const strMes = vencimento.toISOString().slice(0, 7); 
     
     const itens = lancamentos.filter(l => l.cartao_id === cartao.id && l.data_vencimento.startsWith(strMes));
@@ -127,11 +134,10 @@ export function Cartoes() {
     return { itens, total, pendente, vencimento };
   }, [selectedCartaoId, mesFatura, lancamentos, cartoes]);
 
-  // --- ACTIONS ---
   function handleOpenCreate() {
     setFormData({ 
         id: null, nome_cartao: '', limite_total: '', dia_fechamento: '', dia_vencimento: '', 
-        centro_custo_id: '', conta_pagamento_id: '', status: 'ATIVO' 
+        centro_custo_id: '', conta_id: '', status: 'ATIVO' 
     });
     setIsEditing(false);
     setShowDrawer(true);
@@ -143,19 +149,22 @@ export function Cartoes() {
     setFormData({
         id: c.id,
         nome_cartao: c.nome_cartao, 
-        limite_total: String(c.limite_total || 0), // <--- USO CORRETO
+        limite_total: String(c.limite_total || 0),
         dia_fechamento: String(c.dia_fechamento), 
         dia_vencimento: String(c.dia_vencimento),
         centro_custo_id: c.centro_custo_id ? String(c.centro_custo_id) : '',
-        conta_pagamento_id: c.conta_pagamento_id ? String(c.conta_pagamento_id) : '', // <--- USO CORRETO
+        conta_id: c.conta_id ? String(c.conta_id) : '',
         status: c.status || 'ATIVO'
     });
     setShowDrawer(true);
   }
 
-  // Helpers
   const safeFloat = (val: any) => { const v = parseFloat(String(val).replace(',', '.')); return isNaN(v) ? 0 : v; };
-  const safeInt = (val: any) => { const v = parseInt(String(val)); return isNaN(v) ? null : v; }
+  const safeInt = (val: any) => { 
+      if (!val || val === '') return null;
+      const v = parseInt(String(val)); 
+      return isNaN(v) ? null : v; 
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -163,15 +172,14 @@ export function Cartoes() {
     
     setSaving(true);
     try {
-        // PAYLOAD AGORA COINCIDE COM SCHEMAS.PY
         const payload = {
             nome_cartao: formData.nome_cartao,
-            limite_total: safeFloat(formData.limite_total), // <--- CHAVE CORRETA
+            limite_total: safeFloat(formData.limite_total),
             dia_fechamento: safeInt(formData.dia_fechamento) || 1,
             dia_vencimento: safeInt(formData.dia_vencimento) || 10,
             centro_custo_id: safeInt(formData.centro_custo_id),
-            conta_pagamento_id: safeInt(formData.conta_pagamento_id), // <--- CHAVE CORRETA
-            empresa_id: 0 // Passa validação Pydantic (Backend ignora)
+            conta_id: safeInt(formData.conta_id),
+            empresa_id: 0 
         };
 
         if (isEditing && formData.id) {
@@ -181,11 +189,13 @@ export function Cartoes() {
         }
 
         setShowDrawer(false);
+        // Force reload bypass ref
+        dataFetchedRef.current = false; 
         carregarDados();
+        dataFetchedRef.current = true;
     } catch(e: any) { 
         console.error("Erro no save:", e);
-        const msg = e.response?.data?.detail ? JSON.stringify(e.response.data.detail) : "Erro ao salvar.";
-        alert(msg);
+        alert("Erro ao salvar.");
     } finally { 
         setSaving(false); 
     }
@@ -197,25 +207,25 @@ export function Cartoes() {
     try {
         const ids = faturaAtual.itens.filter(l => l.status !== 'PAGO').map(l => l.id);
         
-        // Ajuste aqui se seu endpoint bulk-pay esperar 'conta_id' ou 'conta_pagamento_id'
-        // Normalmente endpoints de ação usam nomes simples, vou mandar conta_id para garantir.
         await api.post('/lancamentos/bulk-pay', {
             ids,
             data_pagamento: payData.data,
-            conta_id: payData.conta_pagamento_id ? parseInt(payData.conta_pagamento_id) : null,
+            conta_id: payData.conta_id ? parseInt(payData.conta_id) : null,
             copiar_valor: true
         });
         
         setShowPayModal(false);
+        dataFetchedRef.current = false;
         carregarDados();
+        dataFetchedRef.current = true;
     } catch(e) { alert("Erro ao pagar fatura"); } finally { setSaving(false); }
   }
 
-  // --- CARD VISUAL ---
   const CardVisual = ({ dados, previewMode = false }: any) => {
-    const nomeCC = centros.find(cc => String(cc.id) === String(dados.centro_custo_id))?.nome || 'GERAL';
-    const limiteTotal = parseFloat(String(dados.limite_total).replace(',', '.')) || 0;
+    const cc = centros.find(c => String(c.id) === String(dados.centro_custo_id));
+    const nomeCC = cc ? (cc.nome || cc.descricao || 'GERAL') : 'GERAL';
     
+    const limiteTotal = parseFloat(String(dados.limite_total).replace(',', '.')) || 0;
     let disponivel = limiteTotal;
     let percentual = 0;
     
@@ -266,8 +276,6 @@ export function Cartoes() {
 
   return (
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 overflow-y-auto custom-scrollbar">
-      
-      {/* HEADER */}
       <header className="bg-slate-800 border-b border-slate-700 px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 sticky top-0 z-20 shadow-md">
         <div>
             <h2 className="text-xl font-bold text-white">Cartões de Crédito</h2>
@@ -278,19 +286,18 @@ export function Cartoes() {
                 <Building2 className="absolute left-3 top-2.5 w-4 h-4 text-slate-400"/>
                 <select className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-600 bg-slate-900 text-white text-sm outline-none focus:ring-2 focus:ring-blue-500" value={filtroCC} onChange={e => setFiltroCC(e.target.value)}>
                     <option value="">Todas as Filiais</option>
-                    {centros.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                    {centros.map(c => <option key={c.id} value={c.id}>{c.nome || c.descricao}</option>)}
                 </select>
             </div>
-            <button onClick={carregarDados} className="p-2 border border-slate-600 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition"><RefreshCw className={`w-5 h-5 ${loading?'animate-spin':''}`}/></button>
+            <button onClick={() => { dataFetchedRef.current = false; carregarDados(); }} className="p-2 border border-slate-600 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition"><RefreshCw className={`w-5 h-5 ${loading?'animate-spin':''}`}/></button>
             <button onClick={handleOpenCreate} className="px-4 py-2 rounded-lg text-white font-bold text-sm shadow hover:brightness-110 flex items-center gap-2" style={{backgroundColor: primaryColor}}><Plus className="w-4 h-4"/> Novo</button>
         </div>
       </header>
 
-      {/* LISTA DE CARTÕES */}
       <div className="p-6 space-y-8 max-w-7xl mx-auto w-full">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredCartoes.length === 0 && !loading && (
-                <div className="col-span-full py-12 text-center text-slate-500 border-2 border-dashed border-slate-700 rounded-xl">Nenhum cartão encontrado.</div>
+                <div className="col-span-full py-12 text-center text-slate-500 border-2 border-dashed border-slate-700 rounded-xl">Nenhum cartão encontrado. Clique em "Novo" para criar.</div>
             )}
             {filteredCartoes.map(c => (
                 <div key={c.id} className={`rounded-xl transition group relative ${selectedCartaoId === c.id ? 'ring-2 ring-offset-2 ring-offset-slate-900 ring-blue-500' : ''}`} onClick={() => setSelectedCartaoId(c.id)}>
@@ -301,7 +308,6 @@ export function Cartoes() {
             ))}
         </div>
 
-        {/* FATURA */}
         {selectedCartaoId && (
             <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden animate-in slide-in-from-top-4 fade-in duration-300">
                 <div className="px-6 py-4 border-b border-slate-700 bg-slate-800/50 flex flex-col md:flex-row justify-between items-center gap-4">
@@ -309,7 +315,7 @@ export function Cartoes() {
                         <button onClick={() => setMesFatura(new Date(mesFatura.setMonth(mesFatura.getMonth() - 1)))} className="p-2 hover:bg-slate-700 rounded-full transition text-slate-400 hover:text-white"><ChevronLeft className="w-6 h-6"/></button>
                         <div className="text-center min-w-[180px]">
                             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Fatura de</p>
-                            <h3 className="text-2xl font-black text-white capitalize">{faturaAtual.vencimento?.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</h3>
+                            <h3 className="text-2xl font-black text-white capitalize">{faturaAtual.vencimento?.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) || mesFatura.toLocaleDateString('pt-BR', { month: 'long' })}</h3>
                         </div>
                         <button onClick={() => setMesFatura(new Date(mesFatura.setMonth(mesFatura.getMonth() + 1)))} className="p-2 hover:bg-slate-700 rounded-full transition text-slate-400 hover:text-white"><ChevronRight className="w-6 h-6"/></button>
                     </div>
@@ -318,14 +324,14 @@ export function Cartoes() {
                         <div className="text-right">
                             <p className="text-[10px] font-bold text-slate-400 uppercase">Total da Fatura</p>
                             <p className="text-2xl font-black text-white">{BRL.format(faturaAtual.total)}</p>
-                            <p className="text-xs text-slate-500 mt-0.5">Vence dia {faturaAtual.vencimento?.toLocaleDateString('pt-BR', {day:'numeric', month:'short'})}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">Vence dia {faturaAtual.vencimento?.toLocaleDateString('pt-BR', {day:'numeric', month:'short'}) || '--'}</p>
                         </div>
                         {faturaAtual.pendente > 0 && (
                             <button onClick={() => {
                                 const cartao = cartoes.find(c => c.id === selectedCartaoId);
                                 setPayData({ 
                                     data: new Date().toISOString().split('T')[0], 
-                                    conta_pagamento_id: cartao?.conta_pagamento_id ? String(cartao.conta_pagamento_id) : '' 
+                                    conta_id: cartao?.conta_id ? String(cartao.conta_id) : '' 
                                 });
                                 setShowPayModal(true);
                             }} className="bg-emerald-600 hover:bg-emerald-500 text-white pl-4 pr-5 py-2.5 rounded-lg shadow-lg flex items-center gap-3 transition transform active:scale-95">
@@ -371,7 +377,6 @@ export function Cartoes() {
         )}
       </div>
 
-      {/* --- DRAWER NOVO/EDITAR --- */}
       {showDrawer && (
         <div className="fixed inset-0 z-50 flex justify-end">
             <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setShowDrawer(false)}></div>
@@ -382,7 +387,6 @@ export function Cartoes() {
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
-                    {/* PREVIEW DO CARTÃO (LIVE) */}
                     <div className="transform scale-90 origin-top">
                         <CardVisual dados={formData} previewMode={true} />
                     </div>
@@ -393,14 +397,14 @@ export function Cartoes() {
                                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Centro de Custo</label>
                                 <select className="w-full p-2.5 rounded-lg border border-slate-600 bg-slate-800 text-white text-sm outline-none focus:border-blue-500" value={formData.centro_custo_id} onChange={e => setFormData({...formData, centro_custo_id: e.target.value})}>
                                     <option value="">Selecione...</option>
-                                    {centros.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                                    {centros.map(c => <option key={c.id} value={c.id}>{c.nome || c.descricao}</option>)}
                                 </select>
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Conta Padrão</label>
-                                <select className="w-full p-2.5 rounded-lg border border-slate-600 bg-slate-800 text-white text-sm outline-none focus:border-blue-500" value={formData.conta_pagamento_id} onChange={e => setFormData({...formData, conta_pagamento_id: e.target.value})}>
+                                <select className="w-full p-2.5 rounded-lg border border-slate-600 bg-slate-800 text-white text-sm outline-none focus:border-blue-500" value={formData.conta_id} onChange={e => setFormData({...formData, conta_id: e.target.value})}>
                                     <option value="">Perguntar ao pagar</option>
-                                    {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                                    {contas.map(c => <option key={c.id} value={c.id}>{c.nome || c.descricao}</option>)}
                                 </select>
                             </div>
                         </div>
@@ -431,7 +435,6 @@ export function Cartoes() {
         </div>
       )}
 
-      {/* --- MODAL PAGAR FATURA --- */}
       {showPayModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setShowPayModal(false)}></div>
@@ -447,9 +450,9 @@ export function Cartoes() {
                     <InputDark label="Data do Pagamento" type="date" value={payData.data} onChange={(e:any) => setPayData({...payData, data: e.target.value})} />
                     <div>
                         <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Sair da Conta</label>
-                        <select className="w-full p-3 rounded-lg border border-slate-600 bg-slate-700 text-white outline-none focus:border-blue-500" value={payData.conta_pagamento_id} onChange={e => setPayData({...payData, conta_pagamento_id: e.target.value})}>
+                        <select className="w-full p-3 rounded-lg border border-slate-600 bg-slate-700 text-white outline-none focus:border-blue-500" value={payData.conta_id} onChange={e => setPayData({...payData, conta_id: e.target.value})}>
                             <option value="">Selecione...</option>
-                            {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                            {contas.map(c => <option key={c.id} value={c.id}>{c.nome || c.descricao}</option>)}
                         </select>
                     </div>
                 </div>

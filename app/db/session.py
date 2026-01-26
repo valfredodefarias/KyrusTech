@@ -1,22 +1,33 @@
-# app/db/session.py
 from typing import Generator
-from sqlmodel import create_engine, Session
+from sqlmodel import create_engine, Session, SQLModel
 from app.core.config import settings
 
-# Configuração para SQLite (evita erro de thread) ou Postgres
-connect_args = {"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
+# Garante que a URL seja uma string
+database_url = str(settings.DATABASE_URL)
 
+# Cria a engine com configurações otimizadas
 engine = create_engine(
-    settings.DATABASE_URL, 
-    echo=False, 
-    connect_args=connect_args
+    database_url,
+    pool_pre_ping=True,
+    echo=False,
+    pool_size=20,
+    max_overflow=40,
+    pool_recycle=3600
 )
 
-# A função principal com o nome novo
-def get_session() -> Generator[Session, None, None]:
+# Criar todas as tabelas (apenas primeira vez)
+def init_db():
+    """Cria todas as tabelas no banco de dados"""
+    SQLModel.metadata.create_all(engine)
+
+# --- FUNÇÃO PRINCIPAL ---
+def get_db() -> Generator[Session, None, None]:
+    """
+    Dependência para injetar a sessão do banco em endpoints FastAPI.
+    Abre a sessão, entrega para o endpoint e fecha automaticamente.
+    """
     with Session(engine) as session:
         yield session
 
-# --- O PULO DO GATO 🐱 ---
-# Criamos um apelido: quem chamar 'get_db' recebe a 'get_session'
-get_db = get_session
+# --- APELIDO PARA COMPATIBILIDADE ---
+get_session = get_db

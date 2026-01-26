@@ -1,5 +1,10 @@
+import shutil
+import os
+from uuid import uuid4
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from sqlmodel import Session, select
 from loguru import logger
 
@@ -7,35 +12,32 @@ from app.db.session import get_db
 from app.crud.crud_empresa import create_empresa, get_empresa, update_empresa
 from app.schemas.empresa import EmpresaCreate, EmpresaRead, EmpresaUpdate
 from app.models.empresa import Empresa
-# IMPORTANTE: Importamos as dependências de segurança
 from app.api.v1.deps import get_empresa_id_from_user, get_current_active_user, get_consultor_user 
 
 router = APIRouter()
 
+# --- CONFIGURAÇÃO DE UPLOAD ---
+UPLOAD_DIR = Path("static/logos")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True) # Cria a pasta se não existir
+
 # --- ROTA BLINDADA: LISTAR TODAS ---
-# Segurança: Apenas Consultores podem ver a lista completa
 @router.get("/", response_model=List[EmpresaRead])
 def read_empresas(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user = Depends(get_consultor_user) # <--- AQUI ESTÁ O SEGredo
+    current_user = Depends(get_consultor_user)
 ):
-    """
-    Lista todas as empresas.
-    Apenas usuários com 'is_consultor=True' podem acessar.
-    """
     empresas = db.exec(select(Empresa).offset(skip).limit(limit)).all()
     return empresas
 
 # --- ROTA BLINDADA: CRIAR EMPRESA ---
-# Segurança: Apenas Consultores podem criar empresas
 @router.post("/", response_model=EmpresaRead, status_code=201)
 def create_endpoint(
     *,
     db: Session = Depends(get_db), 
     empresa_in: EmpresaCreate,
-    current_user = Depends(get_consultor_user) # <--- AQUI TAMBÉM
+    current_user = Depends(get_consultor_user)
 ):
     logger.info(f"Criando empresa: {empresa_in.nome_fantasia}")
     
@@ -53,10 +55,8 @@ def read_endpoint(
     *,
     db: Session = Depends(get_db),
     empresa_id: int,
-    current_user = Depends(get_current_active_user) # Qualquer usuário logado entra, MAS...
+    current_user = Depends(get_current_active_user)
 ):
-    # ... aqui dentro a gente filtra:
-    # Se NÃO for consultor E estiver tentando ver empresa dos outros -> BLOQUEIA
     if not current_user.is_consultor and current_user.empresa_id != empresa_id:
         raise HTTPException(status_code=403, detail="Você não tem permissão para ver esta empresa.")
         
@@ -65,7 +65,7 @@ def read_endpoint(
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
     return empresa
 
-# --- ROTA HÍBRIDA: ATUALIZAR ---
+# --- ROTA HÍBRIDA: ATUALIZAR DADOS ---
 @router.patch("/{empresa_id}", response_model=EmpresaRead)
 def update_endpoint(
     *,
@@ -74,9 +74,6 @@ def update_endpoint(
     empresa_in: EmpresaUpdate,
     current_user = Depends(get_current_active_user)
 ):
-    logger.info(f"Recebido PATCH para empresa {empresa_id}")
-    
-    # Mesma lógica de proteção
     if not current_user.is_consultor and current_user.empresa_id != empresa_id:
          raise HTTPException(status_code=403, detail="Acesso negado")
 
@@ -85,5 +82,56 @@ def update_endpoint(
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
         
     empresa = update_empresa(db=db, db_obj=db_obj, obj_in=empresa_in)
-    logger.success("Empresa atualizada com sucesso")
+    logger.success(f"Empresa {empresa_id} atualizada")
     return empresa
+
+# --- NOVA ROTA: UPLOAD DE LOGO ---
+@router.post("/{empresa_id}/logo", response_model=EmpresaRead)
+def upload_logo(
+    *,
+    db: Session = Depends(get_db),
+    empresa_id: int,
+    file: UploadFile = File(...),
+    current_user = Depends(get_current_active_user)
+):
+    """
+    Recebe um arquivo de imagem, salva na pasta 'static/logos' 
+    e atualiza a URL no banco de dados.
+    """
+    
+    # --- VALIDAÇÃO DO ARQUIVO (Agora no lugar certo) ---
+    ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"]
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(400, detail="Apenas imagens (JPG, PNG, WEBP) são permitidas.")
+
+    # 1. Verifica Permissão
+    if not current_user.is_consultor and current_user.empresa_id != empresa_id:
+         raise HTTPException(status_code=403, detail="Acesso negado")
+
+    db_obj = get_empresa(db, empresa_id)
+    if not db_obj:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    # 2. Gera nome único para evitar cache do navegador (uuid)
+    ext = file.filename.split('.')[-1]
+    filename = f"logo_{empresa_id}_{uuid4().hex[:8]}.{ext}"
+    file_path = UPLOAD_DIR / filename
+
+    # 3. Salva no Disco
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        logger.error(f"Erro ao salvar arquivo: {e}")
+        raise HTTPException(status_code=500, detail="Falha ao salvar imagem")
+
+    # 4. Atualiza Banco (URL Relativa)
+    url_relativa = f"/static/logos/{filename}"
+    
+    db_obj.logo_url = url_relativa
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+    
+    logger.success(f"Logo atualizada para empresa {empresa_id}: {url_relativa}")
+    return db_obj

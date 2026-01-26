@@ -1,54 +1,80 @@
 # app/main.py
 
-import os # <--- Necessário para criar as pastas automaticamente
+import os
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from app.api.v1.api import api_router
-from app.core.config import settings, LOCAL_IP, FRONTEND_PORT, BACKEND_PORT
+from app.core.config import settings
 
-# --- CORREÇÃO DO ERRO DE DIRETÓRIO ---
-# Verifica se as pastas existem. Se não, cria automaticamente.
-# Isso evita o "RuntimeError: Directory 'static' does not exist"
-if not os.path.exists("static/uploads"):
-    os.makedirs("static/uploads", exist_ok=True)
-    print("✅ Pastas 'static/uploads' criadas automaticamente.")
+# --- CRIAR DIRETÓRIOS NECESSÁRIOS ---
+os.makedirs("static/uploads", exist_ok=True)
 
-app = FastAPI(title=settings.PROJECT_NAME)
+# --- INICIALIZAR APLICAÇÃO ---
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    description="API Backend do Kyrus ERP",
+    version="1.0.0"
+)
 
-# --- CONFIGURAÇÃO DO CORS COM IP DINÂMICO ---
-origins = [
-    "http://localhost",
-    "http://localhost:8080",
-    "http://localhost:5500",
-    "http://localhost:5501",
-    "http://127.0.0.1:5500",
-    "http://127.0.0.1:5501",
-    
-    # IPs de rede detectados automaticamente
-    f"http://{LOCAL_IP}:{FRONTEND_PORT}",
-    f"http://{LOCAL_IP}:5500",
-    f"http://{LOCAL_IP}:{BACKEND_PORT}",
-    
-    "*" 
-]
+# --- CONFIGURAÇÃO DE CORS ---
+# Converte CORS origins para lista se for string "*"
+cors_origins = (
+    ["*"] if isinstance(settings.BACKEND_CORS_ORIGINS, str) and settings.BACKEND_CORS_ORIGINS == "*"
+    else settings.BACKEND_CORS_ORIGINS if isinstance(settings.BACKEND_CORS_ORIGINS, list)
+    else []
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# ---------------------------------------
 
-# --- SERVIR ARQUIVOS ESTÁTICOS (IMAGENS) ---
-# Agora é seguro montar, pois garantimos que a pasta existe acima.
+# --- SERVIR ARQUIVOS ESTÁTICOS ---
 app.mount("/static", StaticFiles(directory="static"), name="static")
-# -------------------------------------------------
 
+# --- ENDPOINTS PRINCIPAIS ---
 @app.get("/", tags=["Root"])
-def read_root():
-    return {"message": f"Bem-vindo à API do {settings.PROJECT_NAME}"}
+async def read_root():
+    """Endpoint raiz da API"""
+    return {
+        "message": f"Bem-vindo à API do {settings.PROJECT_NAME}",
+        "environment": settings.ENVIRONMENT,
+        "docs": "/docs",
+        "openapi": "/openapi.json"
+    }
 
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """Health check para verificar se a API está online"""
+    return {"status": "ok", "message": "API is running"}
+
+# --- INCLUIR ROTAS ---
 app.include_router(api_router, prefix="/api/v1")
+
+# --- SERVIR FRONTEND (SPA) ---
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_spa(full_path: str):
+    """
+    Serve os arquivos do frontend (kyrus-web).
+    Isso permite que o Vue Router funcione corretamente.
+    """
+    frontend_dist = Path("../kyrus-web/dist")
+    
+    # Se for um arquivo com extensão conhecida, tenta servir
+    if "." in full_path and not full_path.endswith("/"):
+        file_path = frontend_dist / full_path
+        if file_path.exists():
+            return FileResponse(file_path)
+    
+    # Caso contrário, redireciona para index.html (SPA)
+    index_path = frontend_dist / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    
+    return {"error": "Frontend não foi compilado. Execute: cd kyrus-web && npm run build"}

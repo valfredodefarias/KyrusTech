@@ -28,6 +28,7 @@ def create_entidade(
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     logger.info(f"Empresa {empresa_id} criando entidade: '{obj_in.nome}' ({obj_in.tipo})")
+    # O crud_entidade.create espera empresa_id como parâmetro separado
     entidade = crud_entidade.create(db=db, obj_in=obj_in, empresa_id=empresa_id)
     logger.success(f"Entidade '{entidade.nome}' criada com ID: {entidade.id}")
     return entidade

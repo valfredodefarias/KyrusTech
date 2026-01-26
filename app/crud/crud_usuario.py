@@ -16,6 +16,18 @@ def create_user(db: Session, *, user_in: UserCreate) -> Usuario:
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
+    
+    # Se for consultor e tiver empresa_id, vincular via ConsultorEmpresa
+    if db_user.is_consultor and db_user.empresa_id:
+        from app.models.consultor_empresa import ConsultorEmpresa
+        ce = ConsultorEmpresa(
+            usuario_id=db_user.id,
+            empresa_id=db_user.empresa_id,
+            ativo=True
+        )
+        db.add(ce)
+        db.commit()
+    
     return db_user
 
 def authenticate_user(db: Session, *, email: str, password: str) -> Optional[Usuario]:

@@ -44,7 +44,7 @@ export function Login() {
       <div className="w-full max-w-sm p-8 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-extrabold text-slate-800 dark:text-white tracking-tight">
-            Kyrus<span className="text-primary">ERP</span>
+            Kyrus<span className="text-primary">Tech</span>
           </h1>
           <p className="text-slate-400 text-sm mt-2">Acesse sua conta para continuar</p>
         </div>

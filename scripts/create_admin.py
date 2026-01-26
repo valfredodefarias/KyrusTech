@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from sqlmodel import Session, select
+from sqlmodel import Session, select, SQLModel
 from app.db.session import engine
 from app.db.base_class import Base
 # Importa todos os modelos para garantir que os relacionamentos sejam resolvidos
@@ -27,22 +27,25 @@ def create_initial_data():
     """
     Cria a empresa inicial e o usuário admin.
     """
+    # Garante que as tabelas existam antes de consultar/criar dados
+    SQLModel.metadata.create_all(engine)
+
     with Session(engine) as session:
         try:
             # 1. Verificar se a empresa já existe
             empresa_existente = session.exec(
-                select(Empresa).where(Empresa.nome_fantasia == "KyrusERP")
+                select(Empresa).where(Empresa.nome_fantasia == "KyrusTech")
             ).first()
             
             if empresa_existente:
-                logger.info(f"[INFO] Empresa 'KyrusERP' ja existe (ID: {empresa_existente.id})")
+                logger.info(f"[INFO] Empresa 'KyrusTech' ja existe (ID: {empresa_existente.id})")
                 empresa = empresa_existente
             else:
                 # 2. Criar empresa
-                logger.info("[INFO] Criando empresa 'KyrusERP'...")
+                logger.info("[INFO] Criando empresa 'KyrusTech'...")
                 empresa = Empresa(
-                    nome_fantasia="KyrusERP",
-                    razao_social="Kyrus ERP Sistemas",
+                    nome_fantasia="KyrusTech",
+                    razao_social="KyrusTech Sistemas",
                     cnpj=None,  # Pode ser preenchido depois
                     cor_primaria="#0d6efd"
                 )
@@ -53,7 +56,7 @@ def create_initial_data():
             
             # 3. Verificar se o usuário admin já existe
             usuario_existente = session.exec(
-                select(Usuario).where(Usuario.email == "admin@kyruserp.com")
+                select(Usuario).where(Usuario.email == "admin@kyrustech.com")
             ).first()
             
             if usuario_existente:
@@ -66,10 +69,14 @@ def create_initial_data():
             senha_admin = "admin123"  # Senha padrão - DEVE SER ALTERADA EM PRODUÇÃO
             hashed_password = get_password_hash(senha_admin)
             
+            # Admin padrão também é consultor para acessar o painel /consultor
             usuario = Usuario(
-                email="admin@kyruserp.com",
+                nome="Administrador",
+                email="admin@kyrustech.com",
                 hashed_password=hashed_password,
                 is_active=True,
+                is_consultor=True,
+                consultor_role="SUPER_CONSULTOR",  # Admin é super consultor
                 empresa_id=empresa.id
             )
             session.add(usuario)

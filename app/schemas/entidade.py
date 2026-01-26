@@ -9,20 +9,19 @@ class EntidadeBase(SQLModel):
     tipo: str = "AMBOS" # CLIENTE, FORNECEDOR, AMBOS
     cpf_cnpj: Optional[str] = None
     status: str = "ATIVO"
-    empresa_id: int
 
-# --- CREATE ---
+# --- CREATE (sem empresa_id, o backend extrai do user autenticado) ---
 class EntidadeCreate(EntidadeBase):
     pass
 
-# --- UPDATE (A classe que estava faltando) ---
+# --- UPDATE ---
 class EntidadeUpdate(SQLModel):
     nome: Optional[str] = None
     tipo: Optional[str] = None
     cpf_cnpj: Optional[str] = None
     status: Optional[str] = None
-    # empresa_id geralmente não se altera na edição, por isso não coloquei
 
 # --- READ ---
 class EntidadeRead(EntidadeBase, AuditReadMixin):
     id: int
+    empresa_id: int

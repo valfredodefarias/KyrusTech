@@ -138,7 +138,7 @@ export function CentroCusto() {
 
   if (loading) return (
     <div className="p-8 text-center text-slate-500 animate-pulse flex flex-col items-center justify-center h-full">
-      <Loader2 className="w-8 h-8 animate-spin mb-2 text-[var(--color-primary)]"/> 
+      <Loader2 className="w-8 h-8 animate-spin mb-2 text-(--color-primary)"/> 
       <p>Carregando departamentos...</p>
     </div>
   );
@@ -150,14 +150,14 @@ export function CentroCusto() {
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-            <Layers className="text-[var(--color-primary)]" /> Centros de Custo
+            <Layers className="text-(--color-primary)" /> Centros de Custo
           </h1>
           <p className="text-slate-500 dark:text-slate-400">Gerenciamento de departamentos e projetos.</p>
         </div>
         
-        <button 
-          onClick={handleOpenCreate}
-          className="bg-[var(--color-primary)] hover:opacity-90 text-white px-4 py-2.5 rounded-lg font-bold transition flex items-center gap-2 shadow-md active:scale-95"
+          <button 
+           onClick={handleOpenCreate}
+           className="bg-(--color-primary) hover:opacity-90 text-white px-4 py-2.5 rounded-lg font-bold transition flex items-center gap-2 shadow-md active:scale-95"
         >
           <PlusCircle size={18} /> Novo Centro
         </button>
@@ -165,11 +165,11 @@ export function CentroCusto() {
 
       {/* SEARCH */}
       <div className="relative group">
-        <Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-[var(--color-primary)] transition-colors" size={20} />
+        <Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-(--color-primary) transition-colors" size={20} />
         <input 
           type="text" 
           placeholder="Pesquisar por nome ou código..." 
-          className="w-full pl-12 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-[var(--color-primary)] outline-none transition shadow-sm"
+          className="w-full pl-12 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-(--color-primary) outline-none transition shadow-sm"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
@@ -182,7 +182,7 @@ export function CentroCusto() {
                <Layers className="w-8 h-8 text-slate-400" />
             </div>
             <h3 className="text-lg font-bold text-slate-600 dark:text-slate-400">Nenhum centro encontrado</h3>
-            <button onClick={handleOpenCreate} className="text-[var(--color-primary)] font-bold hover:underline mt-2">Criar o primeiro</button>
+            <button onClick={handleOpenCreate} className="text-(--color-primary) font-bold hover:underline mt-2">Criar o primeiro</button>
          </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -192,17 +192,17 @@ export function CentroCusto() {
             return (
               <div 
                 key={item.id} 
-                className={`relative bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 hover:border-[var(--color-primary)] hover:shadow-md hover:shadow-[var(--color-primary)]/10 transition-all duration-300 group overflow-hidden ${isInactive ? 'opacity-70 grayscale-[0.8]' : ''}`}
+                className={`relative bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 hover:border-(--color-primary) hover:shadow-md hover:shadow-(--color-primary)/10 transition-all duration-300 group overflow-hidden ${isInactive ? 'opacity-70 grayscale-[0.8]' : ''}`}
               >
                 <div className="p-6 flex items-start justify-between z-10 relative">
                   <div className="flex gap-4 items-center">
                     {/* Icon Box com cor dinâmica */}
-                    <div className="w-12 h-12 rounded-xl bg-slate-50 dark:bg-slate-700 flex items-center justify-center text-[var(--color-primary)] shadow-inner">
+                    <div className="w-12 h-12 rounded-xl bg-slate-50 dark:bg-slate-700 flex items-center justify-center text-(--color-primary) shadow-inner">
                       <Layers size={24} />
                     </div>
                     
                     <div>
-                      <h3 className="font-bold text-slate-800 dark:text-white text-lg leading-tight group-hover:text-[var(--color-primary)] transition-colors">
+                      <h3 className="font-bold text-slate-800 dark:text-white text-lg leading-tight group-hover:text-(--color-primary) transition-colors">
                         {item.nome}
                       </h3>
                       
@@ -222,7 +222,7 @@ export function CentroCusto() {
 
                   {/* Actions Hover */}
                   <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                    <button onClick={() => handleOpenEdit(item)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-[var(--color-primary)] rounded-lg transition" title="Editar">
+                    <button onClick={() => handleOpenEdit(item)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-(--color-primary) rounded-lg transition" title="Editar">
                       <Edit3 size={16} />
                     </button>
                     <button onClick={() => setItemToDelete(item)} className="p-2 hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500 rounded-lg transition" title="Excluir">
@@ -232,7 +232,7 @@ export function CentroCusto() {
                 </div>
 
                 {/* Bottom Bar Gradient */}
-                <div className="absolute bottom-0 left-0 h-1 w-full bg-[var(--color-primary)] transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-300"></div>
+                <div className="absolute bottom-0 left-0 h-1 w-full bg-(--color-primary) transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-300"></div>
               </div>
             );
           })}
@@ -249,7 +249,7 @@ export function CentroCusto() {
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700">
               <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
-                {isEditing ? <Edit3 size={20} className="text-[var(--color-primary)]" /> : <PlusCircle size={20} className="text-[var(--color-primary)]" />}
+                {isEditing ? <Edit3 size={20} className="text-(--color-primary)" /> : <PlusCircle size={20} className="text-(--color-primary)" />}
                 {isEditing ? 'Editar Centro' : 'Novo Centro'}
               </h3>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-red-500 transition">
@@ -299,7 +299,7 @@ export function CentroCusto() {
                     <input 
                       required
                       type="text" 
-                      className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 focus:border-[var(--color-primary)] focus:bg-white dark:focus:bg-slate-800 outline-none transition"
+                      className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 focus:border-(--color-primary) focus:bg-white dark:focus:bg-slate-800 outline-none transition"
                       placeholder="Ex: Marketing, Obras..."
                       value={form.nome}
                       onChange={e => setForm({...form, nome: e.target.value})}
@@ -314,7 +314,7 @@ export function CentroCusto() {
                       <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                       <input 
                         type="text" 
-                        className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 focus:border-[var(--color-primary)] focus:bg-white dark:focus:bg-slate-800 outline-none transition uppercase"
+                        className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 focus:border-(--color-primary) focus:bg-white dark:focus:bg-slate-800 outline-none transition uppercase"
                         placeholder="Ex: MKT-01"
                         value={form.codigo}
                         onChange={e => setForm({...form, codigo: e.target.value})}
@@ -326,7 +326,7 @@ export function CentroCusto() {
                     <div className="relative">
                       <Activity className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                       <select 
-                        className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 focus:border-[var(--color-primary)] focus:bg-white dark:focus:bg-slate-800 outline-none transition appearance-none cursor-pointer"
+                        className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 focus:border-(--color-primary) focus:bg-white dark:focus:bg-slate-800 outline-none transition appearance-none cursor-pointer"
                         value={form.status}
                         onChange={e => setForm({...form, status: e.target.value})}
                       >
@@ -344,7 +344,7 @@ export function CentroCusto() {
                   <button 
                     type="submit" 
                     disabled={saving}
-                    className="px-6 py-2.5 rounded-lg bg-[var(--color-primary)] text-white font-bold shadow-lg hover:brightness-110 hover:-translate-y-0.5 transition-all text-sm flex items-center gap-2 disabled:opacity-50"
+                    className="px-6 py-2.5 rounded-lg bg-(--color-primary) text-white font-bold shadow-lg hover:brightness-110 hover:-translate-y-0.5 transition-all text-sm flex items-center gap-2 disabled:opacity-50"
                   >
                     {saving ? <Loader2 className="animate-spin w-4 h-4"/> : <Check className="w-4 h-4"/>}
                     {saving ? 'Salvando...' : 'Salvar'}

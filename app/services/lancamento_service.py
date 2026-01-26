@@ -1,8 +1,8 @@
 # app/services/lancamento_service.py
 
 from datetime import datetime, date
+from decimal import Decimal
 from typing import List, Optional
-# IMPORTANTE: Adicione 'col', 'asc', 'desc' aqui
 from sqlmodel import Session, select, func, asc, desc, col 
 from fastapi import HTTPException, status
 
@@ -25,19 +25,37 @@ class LancamentoService:
     def __init__(self, session: Session):
         self.session = session
 
-    def _calcular_status(self, data_pagamento: Optional[date], data_vencimento: date) -> str:
-        if data_pagamento:
-            return "PAGO"
-        return "EM ABERTO"
+    def _aplicar_regras_negocio(self, lancamento: Lancamento):
+        """
+        Centraliza a lógica:
+        1. Sem Data Pagamento = EM ABERTO (e zera valor pago).
+        2. Com Data Pagamento = PAGO.
+        """
+        if lancamento.data_pagamento:
+            lancamento.status = "PAGO"
+            # Se pagou mas não informou valor, assume o valor previsto
+            if not lancamento.valor_pago:
+                lancamento.valor_pago = lancamento.valor_previsto
+        else:
+            lancamento.status = "EM ABERTO"
+            # Se está em aberto, não tem valor pago ainda
+            lancamento.valor_pago = Decimal("0.00")
 
     # --- Métodos CRUD Básicos ---
 
     def create(self, dados: LancamentoCreate, empresa_id: int, user_id: int) -> Lancamento:
-        db_lancamento = Lancamento.from_orm(dados)
+        # Converte para dict para ajustar campos opcionais antes de instanciar o modelo
+        payload = dados.model_dump()
+        if not payload.get("data_competencia"):
+            payload["data_competencia"] = payload.get("data_vencimento")
+
+        db_lancamento = Lancamento(**payload)
         db_lancamento.empresa_id = empresa_id
         db_lancamento.created_by_id = user_id
         db_lancamento.updated_by_id = user_id
-        db_lancamento.status = self._calcular_status(db_lancamento.data_pagamento, db_lancamento.data_vencimento)
+        
+        # Aplica a regra de negócio (Data Pagamento x Status)
+        self._aplicar_regras_negocio(db_lancamento)
 
         self.session.add(db_lancamento)
         self.session.commit()
@@ -65,10 +83,9 @@ class LancamentoService:
         if data_fim:
             query = query.where(Lancamento.data_vencimento <= data_fim)
             
-        # CORREÇÃO DO ASC: Usando asc() como função, não método
+        # Ordena por vencimento
         query = query.offset(skip).limit(limit).order_by(asc(Lancamento.data_vencimento))
         
-        # CORREÇÃO DO RETORNO: Convertendo para list()
         return list(self.session.exec(query).all())
 
     def update(self, lancamento_id: int, dados_atualizacao: LancamentoUpdate, empresa_id: int, user_id: int) -> Lancamento:
@@ -78,8 +95,9 @@ class LancamentoService:
         for key, value in dados_dict.items():
             setattr(db_lancamento, key, value)
 
-        if "data_pagamento" in dados_dict or "data_vencimento" in dados_dict:
-            db_lancamento.status = self._calcular_status(db_lancamento.data_pagamento, db_lancamento.data_vencimento)
+        # Reaplica regras (caso a data de pagamento tenha mudado ou sido removida)
+        if "data_pagamento" in dados_dict:
+            self._aplicar_regras_negocio(db_lancamento)
 
         db_lancamento.updated_by_id = user_id
         db_lancamento.updated_at = datetime.utcnow()
@@ -115,11 +133,15 @@ class LancamentoService:
     def criar_em_massa(self, lista_dados: List[LancamentoCreate], empresa_id: int, user_id: int) -> List[Lancamento]:
         novos_objetos = []
         for dados in lista_dados:
-            obj = Lancamento.from_orm(dados)
+            payload = dados.model_dump()
+            if not payload.get("data_competencia"):
+                payload["data_competencia"] = payload.get("data_vencimento")
+
+            obj = Lancamento(**payload)
             obj.empresa_id = empresa_id
             obj.created_by_id = user_id
             obj.updated_by_id = user_id
-            obj.status = self._calcular_status(obj.data_pagamento, obj.data_vencimento)
+            self._aplicar_regras_negocio(obj)
             self.session.add(obj)
             novos_objetos.append(obj)
         
@@ -129,7 +151,6 @@ class LancamentoService:
         return novos_objetos
 
     def deletar_em_massa(self, ids: List[int], empresa_id: int, user_id: int):
-        # CORREÇÃO DO IN_: Usando col() para evitar erro de tipo
         statement = select(Lancamento).where(
             col(Lancamento.id).in_(ids),
             Lancamento.empresa_id == empresa_id
@@ -143,7 +164,6 @@ class LancamentoService:
         self.session.commit()
 
     def baixar_em_massa(self, ids: List[int], data_pagamento: date, conta_id: Optional[int], empresa_id: int, user_id: int) -> int:
-        # CORREÇÃO DO IN_: Usando col()
         statement = select(Lancamento).where(
             col(Lancamento.id).in_(ids),
             Lancamento.empresa_id == empresa_id,
@@ -158,7 +178,7 @@ class LancamentoService:
             lanc.data_pagamento = data_efetiva
             if conta_id:
                 lanc.conta_id = conta_id
-            if not lanc.valor_pago:
+            if not lanc.valor_pago or lanc.valor_pago == 0:
                 lanc.valor_pago = lanc.valor_previsto
             lanc.updated_by_id = user_id
             lanc.updated_at = datetime.utcnow()
@@ -169,7 +189,6 @@ class LancamentoService:
         return count
 
     def atualizar_em_massa(self, payload: BulkUpdateSchema, empresa_id: int, user_id: int) -> dict:
-        # CORREÇÃO DO IN_: Usando col()
         statement = select(Lancamento).where(
             col(Lancamento.id).in_(payload.ids),
             Lancamento.empresa_id == empresa_id
@@ -183,12 +202,12 @@ class LancamentoService:
         for lanc in lancamentos:
             try:
                 for key, value in dados_dict.items():
-                    if key == "data_pagamento" and value is not None:
-                         lanc.status = "PAGO"
-                         if not lanc.valor_pago:
-                             lanc.valor_pago = lanc.valor_previsto
                     setattr(lanc, key, value)
                 
+                # Reaplica regra se mudou data
+                if "data_pagamento" in dados_dict:
+                     self._aplicar_regras_negocio(lanc)
+
                 lanc.updated_by_id = user_id
                 self.session.add(lanc)
                 sucesso += 1
@@ -208,9 +227,8 @@ class LancamentoService:
 
         descricao_transf = f"Transf de {conta_origem.nome} para {conta_destino.nome}"
 
-        # 2. Validação/Busca da Categoria
-        # Se o Schema estiver certo, aqui não pode dar erro de 'categoria_id'
-        categoria_id = dados.categoria_id 
+        # 2. Correção: Usando o nome correto do campo 'plano_contas_id'
+        categoria_id = dados.plano_contas_id 
         if not categoria_id:
             cat_padrao = self.session.exec(
                 select(PlanoContas).where(PlanoContas.empresa_id == empresa_id).limit(1)

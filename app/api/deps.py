@@ -8,6 +8,8 @@ from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.db.session import get_session
+from app.enums import ConsultorRole
+from app.models.empresa import Empresa
 
 # Importação de fallback para o Usuario
 try:
@@ -48,10 +50,64 @@ def get_current_user(
 def get_current_active_user(current_user: Usuario = Depends(get_current_user)) -> Usuario:
     return current_user
 
-def get_empresa_id_from_user(current_user: Usuario = Depends(get_current_user)) -> int:
+def get_empresa_id_from_user(
+    current_user: Usuario = Depends(get_current_user),
+    session: Session = Depends(get_session)
+) -> int:
+    """
+    Retorna empresa_id do usuário.
+    Para consultores, valida se ele tem acesso à empresa_id atual.
+    """
+    if current_user.is_consultor and current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value:
+        # Super consultor/admin pode operar qualquer empresa
+        if current_user.empresa_id:
+            return current_user.empresa_id
+        # Se não houver empresa setada, usa a primeira empresa existente como fallback
+        first_empresa_id = session.exec(select(Empresa.id).order_by(Empresa.id)).first()
+        if first_empresa_id:
+            return int(first_empresa_id)
+        raise HTTPException(status_code=404, detail="Nenhuma empresa cadastrada")
+
+    if current_user.is_consultor:
+        # Validar que o consultor tem acesso a essa empresa
+        from app.crud.crud_consultor_empresa import tem_acesso
+        if not tem_acesso(session, current_user.id, current_user.empresa_id):
+            # Se não tem acesso, tenta usar a primeira empresa disponível
+            from app.models.consultor_empresa import ConsultorEmpresa
+            first_acesso = session.exec(
+                select(ConsultorEmpresa)
+                .where(
+                    ConsultorEmpresa.usuario_id == current_user.id,
+                    ConsultorEmpresa.ativo == True
+                )
+            ).first()
+            
+            if first_acesso:
+                # Atualiza empresa_id do usuário para a primeira com acesso
+                current_user.empresa_id = first_acesso.empresa_id
+                session.add(current_user)
+                session.commit()
+                return first_acesso.empresa_id
+            else:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Consultor não tem acesso a nenhuma empresa"
+                )
+    
     return current_user.empresa_id
 
 def get_consultor_user(current_user: Usuario = Depends(get_current_user)) -> Usuario:
     if not current_user.is_consultor:
         raise HTTPException(status_code=403, detail="Acesso restrito a consultores")
+    return current_user
+
+
+def get_super_consultor_user(current_user: Usuario = Depends(get_current_user)) -> Usuario:
+    """Retorna o usuário se for super consultor."""
+    from app.enums import ConsultorRole
+    if not current_user.is_consultor or current_user.consultor_role != ConsultorRole.SUPER_CONSULTOR.value:
+        raise HTTPException(
+            status_code=403,
+            detail="Acesso restrito a super consultores"
+        )
     return current_user

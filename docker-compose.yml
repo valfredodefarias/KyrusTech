@@ -3,16 +3,63 @@ version: '3.8'
 services:
   db:
     image: postgres:15-alpine
-    container_name: kyrus_db_dev
+    container_name: kyrustech_db
     restart: always
     environment:
-      - POSTGRES_USER=kyrus_user
-      - POSTGRES_PASSWORD=kyrus_pass
-      - POSTGRES_DB=kyrus_db
+      - POSTGRES_USER=${POSTGRES_USER:-kyrus_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
+      - POSTGRES_DB=${POSTGRES_DB:-kyrus_db}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - ./postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kyrus_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    container_name: kyrustech_backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - PROJECT_NAME=${PROJECT_NAME:-KyrusTech}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production-env}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      - ALGORITHM=${ALGORITHM:-HS256}
+      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-*}
+      - POSTGRES_SERVER=${POSTGRES_SERVER:-db}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_USER=${POSTGRES_USER:-kyrus_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
+      - POSTGRES_DB=${POSTGRES_DB:-kyrus_db}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME:-}
+      - AWS_S3_REGION=${AWS_S3_REGION:-}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./static:/app/static
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload=false
+
+  frontend:
+    build:
+      context: ./kyrus-web
+      dockerfile: Dockerfile
+    container_name: kyrustech_frontend
+    restart: always
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:8000/api/v1}
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

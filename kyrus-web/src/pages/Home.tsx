@@ -10,6 +10,7 @@ interface ContaResumo {
   id: number;
   nome: string;
   tipo: string;
+  logo_url?: string | null;
   saldo_inicial: number;
   saldo_atual?: number; 
 }
@@ -127,8 +128,12 @@ export function Home() {
                 
                 {/* LADO ESQUERDO: ÍCONE E NOME */}
                 <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 flex-shrink-0 flex items-center justify-center" style={{ color: primaryColor }}>
-                    {c.tipo === 'CAIXA' ? <Banknote size={20} /> : <Landmark size={20} />}
+                  <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 shrink-0 flex items-center justify-center overflow-hidden" style={{ color: primaryColor }}>
+                    {c.logo_url ? (
+                      <img src={c.logo_url} alt={c.nome} className="w-full h-full object-cover" />
+                    ) : (
+                      c.tipo === 'CAIXA' ? <Banknote size={20} /> : <Landmark size={20} />
+                    )}
                   </div>
                   <div className="min-w-0"> {/* min-w-0 é essencial para o truncate funcionar dentro do flex */}
                     <p className="text-sm font-bold text-slate-700 dark:text-slate-200 leading-tight truncate" title={c.nome}>

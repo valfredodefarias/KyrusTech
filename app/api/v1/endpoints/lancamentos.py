@@ -11,13 +11,17 @@ from sqlmodel import Session, select, col
 from loguru import logger
 
 # --- Imports do Projeto ---
-from app.db.session import get_session
+# Padronizando tudo para get_db para evitar erros de importação
+from app.db.session import get_db
 from app.models.usuario import Usuario
 from app.models.lancamento import Lancamento
 from app.models.plano_contas import PlanoContas 
 from app.models.conta import Conta
 from app.models.centro_custo import CentroCusto
-from app.api.deps import get_current_user
+
+# Dependências de Usuário e Empresa
+from app.api.deps import get_current_user, get_empresa_id_from_user 
+
 from app.services.lancamento_service import LancamentoService
 
 # --- Schemas ---
@@ -29,7 +33,8 @@ from app.schemas.anexo import AnexoRead, AnexoCreate
 
 router = APIRouter()
 
-def get_service(session: Session = Depends(get_session)) -> LancamentoService:
+# Padronizado para usar get_db
+def get_service(session: Session = Depends(get_db)) -> LancamentoService:
     return LancamentoService(session)
 
 # ==========================================
@@ -38,13 +43,26 @@ def get_service(session: Session = Depends(get_session)) -> LancamentoService:
 
 @router.get("/", response_model=List[LancamentoRead])
 def listar_lancamentos(
-    skip: int = 0, limit: int = 100,
+    skip: int = 0,
+    limit: int = 100,
     data_inicio: Optional[date] = Query(None),
     data_fim: Optional[date] = Query(None),
-    service: LancamentoService = Depends(get_service),
-    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    return service.listar(empresa_id=current_user.empresa_id, skip=skip, limit=limit, data_inicio=data_inicio, data_fim=data_fim)
+    """Lista lançamentos com paginação."""
+    query = select(Lancamento).where(
+        Lancamento.empresa_id == empresa_id,
+        Lancamento.is_deleted == False
+    )
+    if data_inicio:
+        query = query.where(Lancamento.data_vencimento >= data_inicio)
+    if data_fim:
+        query = query.where(Lancamento.data_vencimento <= data_fim)
+
+    query = query.order_by(Lancamento.data_vencimento.asc()).offset(skip).limit(limit)
+    
+    return db.exec(query).all()
 
 @router.post("/", response_model=LancamentoRead, status_code=status.HTTP_201_CREATED)
 def criar_lancamento(lancamento_in: LancamentoCreate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
@@ -121,7 +139,7 @@ def download_modelo_importacao():
     return StreamingResponse(output, headers={'Content-Disposition': 'attachment; filename="modelo_kyrus.xlsx"'}, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 @router.post("/importar/analisar")
-def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
+def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     df = pd.read_excel(io.BytesIO(file.file.read()))
     df.columns = [str(c).upper().strip() for c in df.columns]
     col_conta = encontrar_coluna(df, ["CONTA", "BANCO"])
@@ -139,10 +157,10 @@ def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session =
     return {"conflitos": conflitos, "sistema": {"contas": [{"id": c.id, "nome": c.nome} for c in sist_contas], "categorias": [{"id": c.id, "nome": c.nome, "tipo": c.tipo, "codigo": c.codigo} for c in sist_cats], "centros": [{"id": c.id, "nome": c.nome} for c in sist_centros]}}
 
 @router.post("/importar/executar")
-def executar_importacao(file: UploadFile = File(...), mapeamento_json: str = Form(...), conta_padrao_id: Optional[int] = Form(None), session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
+def executar_importacao(file: UploadFile = File(...), mapeamento_json: str = Form(...), conta_padrao_id: Optional[int] = Form(None), session: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     mapeamento = json.loads(mapeamento_json)
     empresa_id = current_user.empresa_id
-    # Caches do sistema (Performance Sênior)
+    # Caches do sistema
     cats_query = session.exec(select(PlanoContas).where(PlanoContas.empresa_id == empresa_id)).all()
     cache_tipos = {c.id: c.tipo for c in cats_query}
     nomes_cats_sist = {c.nome.strip().upper(): c.id for c in cats_query}
@@ -173,7 +191,7 @@ def executar_importacao(file: UploadFile = File(...), mapeamento_json: str = For
             nome_conta = str(row[col_conta]).upper().strip() if col_conta and pd.notna(row[col_conta]) else ""
             if nome_conta and nome_conta not in ('NAN', ''):
                 use_conta_id = map_contas.get(nome_conta) or nomes_contas_sist.get(nome_conta)
-            if not use_conta_id: use_conta_id = conta_padrao_id # Fallback para NFEs/Previsões
+            if not use_conta_id: use_conta_id = conta_padrao_id 
 
             cc_id = nomes_centros_sist.get(str(row[col_centro]).upper().strip()) if col_centro and pd.notna(row[col_centro]) else None
 
@@ -196,3 +214,146 @@ def executar_importacao(file: UploadFile = File(...), mapeamento_json: str = For
     
     session.commit()
     return {"importados": rows_saved, "erros": erros}
+
+
+# ==========================================
+# IMPORTAÇÃO INTELIGENTE
+# ==========================================
+
+class ImportacaoRequest:
+    """Requisição para importação via formulário."""
+    file: UploadFile
+    mapeamento_json: str
+
+
+@router.post("/importar/executar")
+async def importar_executar(
+    file: UploadFile = File(...),
+    mapeamento_json: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Endpoint para importação de lançamentos com mapeamento de categorias.
+    Recebe arquivo XLSX e JSON com mapeamento de categorias/entidades/contas/centros.
+    """
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Arquivo deve ser XLSX ou XLS"
+        )
+    
+    try:
+        # Parse do mapeamento
+        mapeamento = json.loads(mapeamento_json)
+        map_categorias = mapeamento.get('map_categorias', {})
+        map_contas = mapeamento.get('map_contas', {})
+        map_centros = mapeamento.get('map_centros', {})
+        map_entidades = mapeamento.get('map_entidades', {})
+        
+        # Lê o arquivo
+        conteudo = await file.read()
+        df = pd.read_excel(io.BytesIO(conteudo))
+        
+        empresa_id = current_user.empresa_id
+        erros = []
+        importados = 0
+        
+        for idx, row in df.iterrows():
+            try:
+                # Extrai dados da linha
+                descricao = str(row.get('Descrição', '')).strip()
+                tipo = str(row.get('Tipo', 'RECEITA')).upper()
+                valor = float(row.get('Valor', 0))
+                data_str = row.get('Data')
+                categoria_nome = str(row.get('Categoria', 'A Categorizar')).strip()
+                entidade_nome = str(row.get('Entidade', '')).strip()
+                conta_nome = str(row.get('Conta', '')).strip()
+                centro_nome = str(row.get('Centro de Custo', '')).strip()
+                
+                # Mapeia para IDs usando mapeamento
+                plano_contas_id = None
+                if categoria_nome in map_categorias:
+                    plano_contas_id = int(map_categorias[categoria_nome])
+                else:
+                    # Busca categoria no sistema ou cria "A Categorizar"
+                    categoria = db.exec(
+                        select(PlanoContas).where(
+                            PlanoContas.empresa_id == empresa_id,
+                            PlanoContas.nome == "A Categorizar",
+                            PlanoContas.tipo == ("R" if tipo == "RECEITA" else "D")
+                        )
+                    ).first()
+                    if not categoria:
+                        categoria = PlanoContas(
+                            nome="A Categorizar",
+                            tipo=("R" if tipo == "RECEITA" else "D"),
+                            empresa_id=empresa_id,
+                            permite_lancamentos=True
+                        )
+                        db.add(categoria)
+                        db.commit()
+                        db.refresh(categoria)
+                    plano_contas_id = categoria.id
+                
+                # Mapeia entidade
+                entidade_id = None
+                if entidade_nome and entidade_nome in map_entidades:
+                    entidade_id = int(map_entidades[entidade_nome])
+                
+                # Mapeia conta
+                conta_id = None
+                if conta_nome and conta_nome in map_contas:
+                    conta_id = int(map_contas[conta_nome])
+                
+                # Mapeia centro de custo
+                centro_custo_id = None
+                if centro_nome and centro_nome in map_centros:
+                    centro_custo_id = int(map_centros[centro_nome])
+                
+                # Parse da data
+                from datetime import datetime
+                if isinstance(data_str, str):
+                    data_vencimento = datetime.strptime(data_str, "%d/%m/%Y").date()
+                else:
+                    data_vencimento = data_str
+                
+                # Cria lançamento
+                novo_lancamento = Lancamento(
+                    descricao=descricao,
+                    tipo=tipo,
+                    status="ABERTO",
+                    origem="IMPORTACAO",
+                    valor_previsto=Decimal(str(valor)),
+                    valor_pago=None,
+                    data_vencimento=data_vencimento,
+                    data_competencia=data_vencimento,
+                    empresa_id=empresa_id,
+                    plano_contas_id=plano_contas_id,
+                    entidade_id=entidade_id,
+                    conta_id=conta_id,
+                    centro_custo_id=centro_custo_id,
+                    ipp=False
+                )
+                
+                db.add(novo_lancamento)
+                importados += 1
+                
+            except Exception as e:
+                logger.error(f"Erro na linha {idx+2}: {e}")
+                erros.append(f"Linha {idx+2}: {str(e)}")
+        
+        db.commit()
+        
+        return {
+            "sucesso": True,
+            "importados": importados,
+            "erros": erros
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao processar importação: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Erro ao processar arquivo: {str(e)}"
+        )

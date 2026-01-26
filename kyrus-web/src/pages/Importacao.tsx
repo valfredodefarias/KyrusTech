@@ -1,14 +1,22 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../services/api';
 import { 
-  UploadCloud, ArrowRight, CheckCircle, AlertTriangle, 
-  FileSpreadsheet, Database, Save, ArrowLeft, Loader2, Download,
-  Plus, Check, X, Wallet, Users, Layers, Tag, Eye, EyeOff, 
-  TrendingUp, TrendingDown, Edit2, Trash2, Search, ChevronDown
+    UploadCloud, ArrowRight, CheckCircle, AlertTriangle, 
+    FileSpreadsheet, Save, Loader2, Download,
+    Plus, Check, X, Wallet, Users, Layers, Tag, 
+    TrendingUp, TrendingDown, Edit2, Trash2, ChevronDown, ChevronRight,
+    Wand2, GripVertical 
 } from 'lucide-react';
 
 // --- INTERFACES ---
-interface ItemSistema { id: number; nome: string; tipo?: string; codigo?: string; } 
+interface ItemSistema { 
+    id: number; 
+    nome: string; 
+    tipo?: string; 
+    codigo?: string; 
+    conta_pai_id?: number | null; 
+    children?: ItemSistema[];     
+} 
 
 interface SistemaData {
   contas: ItemSistema[];
@@ -30,7 +38,7 @@ interface Feedback {
   details?: string[];
 }
 
-// --- COMPONENTES UI ---
+// --- HELPER COMPONENTS ---
 
 const StepBadge = ({ num, current, label }: { num: number, current: number, label: string }) => {
     const active = num === current;
@@ -47,21 +55,16 @@ const StepBadge = ({ num, current, label }: { num: number, current: number, labe
     );
 };
 
-// --- NOVO COMPONENTE: SELECT PESQUISÁVEL ---
 const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..." }: any) => {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState('');
     const wrapperRef = useRef<HTMLDivElement>(null);
-
-    // Encontra o item selecionado para exibir o nome
     const selectedItem = options.find((opt: any) => String(opt.id) === String(value));
 
-    // Fecha ao clicar fora
     useEffect(() => {
         function handleClickOutside(event: any) {
             if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
                 setIsOpen(false);
-                // Se fechou e não selecionou nada, limpa a busca ou reseta para o selecionado
                 if (!value) setSearch(''); 
             }
         }
@@ -69,8 +72,6 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [value]);
 
-    // Ao abrir, foca e limpa busca se quiser, ou mantém. 
-    // Aqui optamos por: se tem valor, a busca inicial é o nome dele.
     useEffect(() => {
         if (selectedItem) setSearch(selectedItem.nome);
         else setSearch('');
@@ -95,7 +96,7 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
                         placeholder="Digite para buscar..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        onClick={(e) => e.stopPropagation()} // Evita fechar ao clicar no input
+                        onClick={(e) => e.stopPropagation()}
                     />
                 ) : (
                     <span className={`truncate ${!selectedItem ? 'text-slate-500' : ''}`}>
@@ -115,11 +116,7 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
                                 key={opt.id}
                                 className={`p-3 text-sm cursor-pointer hover:bg-blue-600 hover:text-white transition flex justify-between items-center
                                     ${String(opt.id) === String(value) ? 'bg-blue-500/20 text-blue-200' : 'text-slate-300'}`}
-                                onClick={() => {
-                                    onChange(opt.id);
-                                    setIsOpen(false);
-                                    setSearch(opt.nome);
-                                }}
+                                onClick={() => { onChange(opt.id); setIsOpen(false); setSearch(opt.nome); }}
                             >
                                 <span>{opt.codigo ? <span className="font-mono opacity-70 mr-2">{opt.codigo}</span> : ''}{opt.nome}</span>
                                 {String(opt.id) === String(value) && <Check className="w-4 h-4"/>}
@@ -132,129 +129,446 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
     );
 };
 
-// --- GERENCIADOR DE PLANO DE CONTAS (CRUD) ---
-const PlanoContasManager = ({ categorias, onRefresh }: { categorias: ItemSistema[], onRefresh: () => void }) => {
-    const [isOpen, setIsOpen] = useState(true);
-    const [modalOpen, setModalOpen] = useState(false);
-    const [isEditing, setIsEditing] = useState(false);
-    const [loadingParams, setLoadingParams] = useState(false);
-    const [formData, setFormData] = useState({ id: 0, nome: '', codigo: '', tipo: 'D' });
+// --- ÁRVORE DRAGGABLE ---
 
-    // Filtros e Ordenação
-    const isReceita = (c: ItemSistema) => {
-        const tipo = c.tipo ? c.tipo.toUpperCase().trim() : '';
-        const codigo = c.codigo ? c.codigo.toString().trim() : '';
-        const nome = c.nome ? c.nome.trim() : '';
-        return tipo === 'R' || tipo === 'RECEITA' || codigo.startsWith('1') || nome.startsWith('1.');
-    };
-
-    const isDespesa = (c: ItemSistema) => {
-        const tipo = c.tipo ? c.tipo.toUpperCase().trim() : '';
-        const codigo = c.codigo ? c.codigo.toString().trim() : '';
-        const nome = c.nome ? c.nome.trim() : '';
-        return tipo === 'D' || tipo === 'DESPESA' || codigo.startsWith('2') || nome.startsWith('2.');
-    };
-
-    const sorter = (a: ItemSistema, b: ItemSistema) => {
-        if (a.codigo && b.codigo) return a.codigo.localeCompare(b.codigo, undefined, { numeric: true });
-        return a.nome.localeCompare(b.nome);
-    };
-
-    const receitas = categorias.filter(isReceita).sort(sorter);
-    const despesas = categorias.filter(isDespesa).sort(sorter);
-
-    function handleOpenCreate(tipo: 'R' | 'D') {
-        setIsEditing(false);
-        setFormData({ id: 0, nome: '', codigo: tipo === 'R' ? '1.' : '2.', tipo });
-        setModalOpen(true);
-    }
-
-    function handleOpenEdit(item: ItemSistema) {
-        setIsEditing(true);
-        let tipo = item.tipo || 'D';
-        if (!item.tipo && item.codigo?.startsWith('1')) tipo = 'R';
-        setFormData({ id: item.id, nome: item.nome, codigo: item.codigo || '', tipo: tipo });
-        setModalOpen(true);
-    }
-
-    async function handleSave() {
-        if (!formData.nome) return alert("O nome é obrigatório");
-        setLoadingParams(true);
-        try {
-            if (isEditing) {
-                await api.patch(`/plano-contas/${formData.id}`, { nome: formData.nome, codigo: formData.codigo, tipo: formData.tipo });
-            } else {
-                await api.post('/plano-contas/', { nome: formData.nome, codigo: formData.codigo, tipo: formData.tipo, permite_lancamentos: true });
-            }
-            setModalOpen(false);
-            onRefresh();
-        } catch (error) { console.error(error); alert("Erro ao salvar categoria."); } finally { setLoadingParams(false); }
-    }
-
-    async function handleDelete(id: number, nome: string) {
-        if (!confirm(`Tem certeza que deseja excluir "${nome}"?`)) return;
-        try { await api.delete(`/plano-contas/${id}`); onRefresh(); } catch (error) { alert("Erro ao excluir."); }
-    }
-
-    const renderItem = (item: ItemSistema, colorClass: string) => (
-        <div key={item.id} className="group text-xs text-slate-300 bg-slate-800 px-3 py-2 rounded border border-slate-700/50 flex justify-between items-center hover:border-slate-500 transition-colors">
-            <span className="font-medium flex gap-2 overflow-hidden text-ellipsis whitespace-nowrap items-center">
-                {item.codigo && <span className={`font-mono font-bold ${colorClass}`}>{item.codigo}</span>}
-                {item.nome}
-            </span>
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => handleOpenEdit(item)} className="p-1 hover:bg-blue-500/20 rounded text-blue-400"><Edit2 className="w-3 h-3"/></button>
-                <button onClick={() => handleDelete(item.id, item.nome)} className="p-1 hover:bg-red-500/20 rounded text-red-400"><Trash2 className="w-3 h-3"/></button>
-            </div>
-        </div>
-    );
+const DraggableTreeItem = ({ item, depth = 0, onDragStart, onDrop, onEdit, onDelete, onToggle, expandedIds }: any) => {
+    const isExpanded = expandedIds.has(item.id);
+    const hasChildren = item.children && item.children.length > 0;
 
     return (
-        <div className="border border-slate-700 rounded-xl bg-slate-800 overflow-hidden mb-8 shadow-md">
-            <div className="flex justify-between items-center bg-slate-800 p-4 border-b border-slate-700">
-                <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-3 text-left outline-none flex-1 hover:opacity-80 transition">
-                    <div className="p-2 bg-slate-700 rounded-lg text-blue-400"><Database className="w-5 h-5"/></div>
-                    <div><span className="font-bold text-slate-200 block text-sm">Gerenciar Plano de Contas</span><span className="text-xs text-slate-500">{categorias.length} categorias cadastradas</span></div>
-                </button>
-                <button onClick={() => setIsOpen(!isOpen)}>{isOpen ? <EyeOff className="w-5 h-5 text-slate-500"/> : <Eye className="w-5 h-5 text-slate-500"/>}</button>
-            </div>
-            {isOpen && (
-                <div className="p-5 bg-slate-900/50 grid grid-cols-1 md:grid-cols-2 gap-8 animate-in slide-in-from-top-2">
-                    <div>
-                        <div className="flex justify-between items-center mb-3 border-b border-slate-700 pb-2"><h4 className="text-xs font-bold text-emerald-400 uppercase flex items-center gap-2"><TrendingUp className="w-4 h-4"/> Receitas ({receitas.length})</h4><button onClick={() => handleOpenCreate('R')} className="text-[10px] bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 px-2 py-1 rounded font-bold flex items-center gap-1 transition"><Plus className="w-3 h-3"/> Nova</button></div>
-                        <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-1 pr-2">{receitas.length === 0 && <p className="text-slate-500 text-xs italic">Nenhuma receita encontrada.</p>}{receitas.map(r => renderItem(r, 'text-emerald-500'))}</div>
-                    </div>
-                    <div>
-                        <div className="flex justify-between items-center mb-3 border-b border-slate-700 pb-2"><h4 className="text-xs font-bold text-red-400 uppercase flex items-center gap-2"><TrendingDown className="w-4 h-4"/> Despesas ({despesas.length})</h4><button onClick={() => handleOpenCreate('D')} className="text-[10px] bg-red-500/10 text-red-400 hover:bg-red-500/20 px-2 py-1 rounded font-bold flex items-center gap-1 transition"><Plus className="w-3 h-3"/> Nova</button></div>
-                        <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-1 pr-2">{despesas.length === 0 && <p className="text-slate-500 text-xs italic">Nenhuma despesa encontrada.</p>}{despesas.map(d => renderItem(d, 'text-red-500'))}</div>
-                    </div>
+        <div className="select-none">
+            <div 
+                draggable
+                onDragStart={(e) => onDragStart(e, item)}
+                onDragOver={(e) => { 
+                    e.preventDefault(); 
+                    e.stopPropagation();
+                    e.currentTarget.style.backgroundColor = '#1e293b'; 
+                    e.currentTarget.style.borderColor = '#3b82f6';
+                }} 
+                onDragLeave={(e) => { 
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.borderColor = 'rgba(51, 65, 85, 0.5)'; 
+                }} 
+                onDrop={(e) => { 
+                    e.preventDefault(); 
+                    e.stopPropagation(); 
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.borderColor = 'rgba(51, 65, 85, 0.5)';
+                    onDrop(item.id); 
+                }}
+                className={`group relative flex items-center p-2 mb-1 bg-slate-800 border border-slate-700/50 rounded-lg hover:border-slate-600 transition-all`}
+                style={{ marginLeft: `${depth * 20}px` }}
+            >
+                {/* Handle */}
+                <div className="cursor-grab p-1 text-slate-600 hover:text-slate-400 mr-1">
+                    <GripVertical size={14} />
                 </div>
-            )}
-            {modalOpen && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
-                    <div className="bg-slate-800 border border-slate-700 p-6 rounded-2xl shadow-2xl w-full max-w-sm animate-scale-in">
-                        <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-white flex items-center gap-2">{isEditing ? <Edit2 className="w-5 h-5 text-blue-500"/> : <Plus className="w-5 h-5 text-emerald-500"/>}{isEditing ? 'Editar Categoria' : 'Nova Categoria'}</h3><button onClick={() => setModalOpen(false)}><X className="w-5 h-5 text-slate-500 hover:text-white"/></button></div>
-                        <div className="space-y-4">
-                            <div><label className="text-xs font-bold text-slate-400 uppercase">Nome</label><input autoFocus type="text" className="w-full p-3 bg-slate-900 border border-slate-600 rounded-lg text-white mt-1 outline-none focus:border-blue-500 transition" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} /></div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="text-xs font-bold text-slate-400 uppercase">Código</label><input type="text" placeholder="Ex: 1.01" className="w-full p-3 bg-slate-900 border border-slate-600 rounded-lg text-white mt-1 outline-none focus:border-blue-500 transition font-mono" value={formData.codigo} onChange={e => setFormData({...formData, codigo: e.target.value})} /></div>
-                                <div><label className="text-xs font-bold text-slate-400 uppercase">Tipo</label><select className="w-full p-3 bg-slate-900 border border-slate-600 rounded-lg text-white mt-1 outline-none focus:border-blue-500" value={formData.tipo} onChange={e => setFormData({...formData, tipo: e.target.value})}><option value="R">Receita</option><option value="D">Despesa</option></select></div>
-                            </div>
-                            <div className="flex gap-2 justify-end mt-4 pt-4 border-t border-slate-700"><button onClick={() => setModalOpen(false)} className="px-4 py-2 text-slate-400 hover:bg-slate-700 rounded-lg font-bold transition">Cancelar</button><button onClick={handleSave} disabled={loadingParams} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex gap-2 items-center transition shadow-lg">{loadingParams ? <Loader2 className="animate-spin w-4 h-4"/> : <Save className="w-4 h-4"/>} Salvar</button></div>
-                        </div>
-                    </div>
+
+                {/* Toggle */}
+                <button onClick={(e) => { e.stopPropagation(); onToggle(item.id); }} className="p-1 mr-1 text-slate-500 hover:text-white w-6 flex justify-center">
+                    {hasChildren ? (isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}
+                </button>
+
+                {/* Content */}
+                <div className="flex-1 flex items-center gap-2 overflow-hidden">
+                    {item.codigo ? (
+                        <span className="font-mono text-[10px] font-bold text-blue-400 bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-900/30">
+                            {item.codigo}
+                        </span>
+                    ) : (
+                        <span className="text-[10px] font-bold text-orange-500 bg-orange-900/20 px-1.5 py-0.5 rounded border border-orange-900/30">Novo</span>
+                    )}
+                    <span className="text-sm font-medium text-slate-200 truncate">{item.nome}</span>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={(e) => { e.stopPropagation(); onEdit(item); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-700 rounded"><Edit2 size={12}/></button>
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(item.id); }} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded"><Trash2 size={12}/></button>
+                </div>
+            </div>
+
+            {/* Render Children Recursively */}
+            {isExpanded && hasChildren && (
+                <div className="relative">
+                    <div className="absolute left-2.75 top-0 bottom-2 w-px bg-slate-700/50" style={{ left: `${(depth * 20) + 11}px` }}></div>
+                    {item.children.map((child: any) => (
+                        <DraggableTreeItem 
+                            key={child.id} 
+                            item={child} 
+                            depth={depth + 1} 
+                            onDragStart={onDragStart}
+                            onDrop={onDrop}
+                            onEdit={onEdit}
+                            onDelete={onDelete}
+                            onToggle={onToggle}
+                            expandedIds={expandedIds}
+                        />
+                    ))}
                 </div>
             )}
         </div>
     );
 };
 
-// --- MAPPING ROW ATUALIZADO ---
+// --- PLANO CONTAS MANAGER (COM RECALCULO AUTOMÁTICO) ---
+export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: ItemSistema[], onUpdateList: (l: any) => void }) => {
+  const [localList, setLocalList] = useState<ItemSistema[]>([]);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [draggedItem, setDraggedItem] = useState<ItemSistema | null>(null);
+
+  // CRUD States
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<'CREATE'|'EDIT'>('CREATE');
+  const [formData, setFormData] = useState({ id: 0, nome: '', codigo: '', tipo: 'D' });
+
+  // --- ALGORITMO DE RECALCULO DE CÓDIGOS ---
+  // Esta função mágica recebe a lista plana desordenada, remonta a árvore visual
+  // e atribui códigos sequenciais (1.01, 1.02...) baseados na posição.
+  const recalcCodes = (items: ItemSistema[]): ItemSistema[] => {
+      // 1. Separa raízes e filhos
+      const map = new Map(items.map(i => [i.id, { ...i, children: [] as ItemSistema[] }]));
+      const roots: ItemSistema[] = [];
+      
+      // Preserva a ordem original do array para respeitar o Drag & Drop do usuário
+      items.forEach(item => {
+          if (item.conta_pai_id && map.has(item.conta_pai_id)) {
+              map.get(item.conta_pai_id)!.children!.push(map.get(item.id)!);
+          } else {
+              roots.push(map.get(item.id)!);
+          }
+      });
+
+      // 2. Função recursiva para numerar
+      const traverseAndCode = (nodes: ItemSistema[], prefix: string) => {
+          nodes.forEach((node, index) => {
+              const seq = (index + 1).toString().padStart(2, '0');
+              const newCode = `${prefix}.${seq}`;
+              
+              node.codigo = newCode; // ATRIBUI O CÓDIGO AQUI
+              
+              if (node.children && node.children.length > 0) {
+                  traverseAndCode(node.children, newCode);
+              }
+          });
+      };
+
+      // 3. Aplica nas Receitas (Prefixo 1)
+      const receitas = roots.filter(r => r.tipo === 'R' || r.tipo === 'RECEITA');
+      traverseAndCode(receitas, '1');
+
+      // 4. Aplica nas Despesas (Prefixo 2)
+      const despesas = roots.filter(r => r.tipo === 'D' || r.tipo === 'DESPESA');
+      traverseAndCode(despesas, '2');
+
+      // 5. Devolve lista plana atualizada
+      const flatten = (nodes: ItemSistema[]): ItemSistema[] => {
+          let flat: ItemSistema[] = [];
+          nodes.forEach(node => {
+              const { children, ...rest } = node;
+              flat.push(rest);
+              if (children && children.length > 0) flat = [...flat, ...flatten(children)];
+          });
+          return flat;
+      };
+
+      return flatten([...roots]); // Retorna lista plana com códigos novos
+  };
+
+  // Inicializa e já recalcula se tiver S/N
+  useEffect(() => {
+    // Ordena inicialmente por código existente para manter estabilidade
+    const sorted = [...categorias].sort((a,b) => (a.codigo||'z').localeCompare(b.codigo||'z', undefined, {numeric:true}));
+    
+    // Se houver muitos itens "S/N", podemos forçar um recálculo inicial visual
+    // Mas para não marcar como "Alterado" logo de cara, apenas setamos.
+    // Se quiser corrigir visualmente na hora, chame recalcCodes aqui.
+    const calculated = recalcCodes(sorted); 
+    setLocalList(calculated);
+
+    // Expande raízes
+    const ids = new Set(calculated.filter(c => !c.conta_pai_id).map(c => c.id));
+    setExpandedIds(prev => new Set([...prev, ...ids]));
+  }, [categorias]);
+
+  // --- BUILD TREE PARA RENDERIZAÇÃO ---
+  const buildRenderTree = (items: ItemSistema[]) => {
+      const map = new Map(items.map(i => [i.id, { ...i, children: [] as ItemSistema[] }]));
+      const roots: ItemSistema[] = [];
+      // Aqui confiamos na ordem do array (que foi reordenado pelo recalcCodes)
+      items.forEach(item => {
+          if (item.conta_pai_id && map.has(item.conta_pai_id)) {
+              map.get(item.conta_pai_id)!.children!.push(map.get(item.id)!);
+          } else {
+              roots.push(map.get(item.id)!);
+          }
+      });
+      return { roots };
+  };
+
+  const { roots } = buildRenderTree(localList);
+  const receitasTree = roots.filter(c => (c.tipo === 'R' || c.tipo === 'RECEITA'));
+  const despesasTree = roots.filter(c => (c.tipo === 'D' || c.tipo === 'DESPESA'));
+
+  // --- DRAG HANDLERS ---
+  const handleDragStart = (e: React.DragEvent, item: ItemSistema) => {
+      setDraggedItem(item);
+      e.dataTransfer.effectAllowed = 'move';
+      const ghost = document.createElement('div');
+      ghost.innerText = item.nome;
+      ghost.style.background = '#1e293b';
+      ghost.style.color = 'white';
+      ghost.style.padding = '5px 10px';
+      ghost.style.borderRadius = '4px';
+      ghost.style.position = 'absolute';
+      ghost.style.top = '-1000px';
+      document.body.appendChild(ghost);
+      e.dataTransfer.setDragImage(ghost, 0, 0);
+      setTimeout(() => document.body.removeChild(ghost), 0);
+  };
+
+  const handleDrop = (targetId: number | 'ROOT_R' | 'ROOT_D') => {
+      if (!draggedItem) return;
+      if (draggedItem.id === targetId) return; 
+
+      // 1. Cria cópia da lista
+      let newList = [...localList];
+      const itemIndex = newList.findIndex(i => i.id === draggedItem.id);
+      if (itemIndex === -1) return;
+      
+      const item = { ...newList[itemIndex] };
+      newList.splice(itemIndex, 1); // Remove da posição antiga
+
+      // 2. Atualiza pai e tipo
+      if (targetId === 'ROOT_R') {
+          item.conta_pai_id = null;
+          item.tipo = 'RECEITA';
+          newList.unshift(item); // Adiciona no topo das receitas
+      } else if (targetId === 'ROOT_D') {
+          item.conta_pai_id = null;
+          item.tipo = 'DESPESA';
+          newList.push(item); // Adiciona no fim das despesas
+      } else {
+          item.conta_pai_id = targetId;
+          const parent = localList.find(i => i.id === targetId);
+          if (parent) item.tipo = parent.tipo;
+          
+          // Lógica simples: adiciona ao final da lista para ser reprocessado pelo recalcCodes
+          // O recalcCodes vai colocar ele como filho do targetId corretamente na árvore
+          newList.push(item);
+          setExpandedIds(prev => new Set(prev).add(targetId));
+      }
+
+      // 3. MÁGICA: Recalcula todos os códigos baseados na nova estrutura
+      const reindexedList = recalcCodes(newList);
+
+      setLocalList(reindexedList);
+      setHasChanges(true);
+      setDraggedItem(null);
+  };
+
+  // --- SAVE ---
+  const handleSaveOrder = async () => {
+    setSaving(true);
+    try {
+        const payload = localList.map((item) => ({
+            id: item.id,
+            codigo: item.codigo, 
+            conta_pai_id: item.conta_pai_id,
+            tipo: item.tipo
+        }));
+
+        await api.post('/plano-contas/reordenar', payload);
+        
+        setHasChanges(false);
+        alert("Ordem salva com sucesso!");
+        
+        const res = await api.get('/plano-contas/');
+        onUpdateList(res.data);
+
+    } catch (e) {
+        console.error(e);
+        alert("Erro ao salvar ordem.");
+    } finally {
+        setSaving(false);
+    }
+  };
+
+  const handleToggle = (id: number) => {
+      const newSet = new Set(expandedIds);
+      if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
+      setExpandedIds(newSet);
+  };
+
+  const handleDelete = async (id: number) => {
+      if(!confirm("Excluir categoria?")) return;
+      try {
+          await api.delete(`/plano-contas/${id}`);
+          onUpdateList(localList.filter(c => c.id !== id));
+      } catch(e) { alert("Erro ao excluir."); }
+  };
+
+  const handleSaveModal = async () => {
+      try {
+          if (modalMode === 'CREATE') {
+              const res = await api.post('/plano-contas/', { nome: formData.nome, tipo: formData.tipo, permite_lancamentos: true });
+              // Adiciona e recalcula
+              const newList = [...localList, res.data];
+              const reindexed = recalcCodes(newList);
+              setLocalList(reindexed);
+              setHasChanges(true); // Marca como alterado para forçar salvar a ordem nova
+          } else {
+              await api.patch(`/plano-contas/${formData.id}`, { nome: formData.nome, codigo: formData.codigo });
+              onUpdateList(localList.map(c => c.id === formData.id ? {...c, nome: formData.nome, codigo: formData.codigo} : c));
+          }
+          setModalOpen(false);
+      } catch(e) { alert("Erro ao salvar"); }
+  };
+
+  return (
+    <div className="relative">
+      
+      {/* HEADER ACTIONS */}
+      <div className="flex justify-between items-center mb-6">
+          <button onClick={() => { setModalMode('CREATE'); setFormData({id:0, nome:'', codigo:'', tipo:'D'}); setModalOpen(true); }} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg font-bold flex items-center gap-2 transition shadow-lg">
+              <Plus className="w-4 h-4"/> Nova Categoria
+          </button>
+
+          {hasChanges && (
+            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-4">
+                <span className="text-xs text-orange-400 font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Ordem alterada</span>
+                <button 
+                    onClick={handleSaveOrder} 
+                    disabled={saving}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-lg transition flex items-center gap-2"
+                >
+                    {saving ? <Loader2 className="w-3 h-3 animate-spin"/> : <Save className="w-3 h-3"/>}
+                    Salvar Mudanças
+                </button>
+            </div>
+          )}
+      </div>
+
+      {/* DUAS COLUNAS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          
+          {/* RECEITAS */}
+          <div 
+            className="flex flex-col bg-slate-900/50 border border-slate-700/50 rounded-xl p-4 min-h-125"
+            onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.05)'; }}
+            onDragLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+            onDrop={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'transparent'; handleDrop('ROOT_R'); }}
+          >
+              <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-700">
+                  <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4"/> RECEITAS
+                  </h3>
+                  <span className="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-500">{receitasTree.length} Raízes</span>
+              </div>
+              <div className="flex-1 space-y-1">
+                  {receitasTree.length === 0 ? (
+                      <div className="text-center py-20 text-slate-600 text-xs italic">Arraste itens para cá</div>
+                  ) : (
+                      receitasTree.map(item => (
+                          <DraggableTreeItem 
+                             key={item.id} 
+                             item={item} 
+                             onDragStart={handleDragStart} 
+                             onDrop={handleDrop}
+                             onEdit={(i:any)=>{ setModalMode('EDIT'); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo}); setModalOpen(true); }}
+                             onDelete={handleDelete}
+                             onToggle={handleToggle}
+                             expandedIds={expandedIds}
+                          />
+                      ))
+                  )}
+              </div>
+          </div>
+
+          {/* DESPESAS */}
+          <div 
+            className="flex flex-col bg-slate-900/50 border border-slate-700/50 rounded-xl p-4 min-h-125"
+            onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.05)'; }}
+            onDragLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+            onDrop={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'transparent'; handleDrop('ROOT_D'); }}
+          >
+              <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-700">
+                  <h3 className="text-sm font-bold text-red-400 flex items-center gap-2">
+                      <TrendingDown className="w-4 h-4"/> DESPESAS
+                  </h3>
+                  <span className="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-500">{despesasTree.length} Raízes</span>
+              </div>
+              <div className="flex-1 space-y-1">
+                  {despesasTree.length === 0 ? (
+                      <div className="text-center py-20 text-slate-600 text-xs italic">Arraste itens para cá</div>
+                  ) : (
+                      despesasTree.map(item => (
+                          <DraggableTreeItem 
+                             key={item.id} 
+                             item={item} 
+                             onDragStart={handleDragStart} 
+                             onDrop={handleDrop}
+                             onEdit={(i:any)=>{ setModalMode('EDIT'); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo}); setModalOpen(true); }}
+                             onDelete={handleDelete}
+                             onToggle={handleToggle}
+                             expandedIds={expandedIds}
+                          />
+                      ))
+                  )}
+              </div>
+          </div>
+
+      </div>
+
+      {/* MODAL */}
+      {modalOpen && (
+          <div className="fixed inset-0 z-80 flex items-center justify-center bg-slate-900/80 p-4 backdrop-blur-sm">
+              <div className="bg-slate-800 p-6 rounded-xl w-full max-w-sm border border-slate-700 shadow-2xl animate-scale-in">
+                  <h3 className="font-bold text-white mb-4 text-lg">{modalMode === 'CREATE' ? 'Nova Categoria' : 'Editar Categoria'}</h3>
+                  <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Nome</label>
+                        <input autoFocus value={formData.nome} onChange={(e:any)=>setFormData({...formData, nome:e.target.value})} className="w-full p-3 rounded-lg border border-slate-600 bg-slate-900 text-white outline-none focus:border-blue-500" />
+                      </div>
+                      
+                      {modalMode === 'EDIT' && (
+                          <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Código (Calculado automaticamente)</label>
+                            <input disabled value={formData.codigo} className="w-full p-3 rounded-lg border border-slate-700 bg-slate-900/50 text-slate-500 font-mono cursor-not-allowed" />
+                          </div>
+                      )}
+                      
+                      {modalMode === 'CREATE' && (
+                          <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Tipo</label>
+                              <select className="w-full p-3 bg-slate-900 border border-slate-600 rounded-lg text-white" value={formData.tipo} onChange={e=>setFormData({...formData, tipo:e.target.value})}>
+                                  <option value="R">Receita</option>
+                                  <option value="D">Despesa</option>
+                              </select>
+                          </div>
+                      )}
+                      
+                      <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-700">
+                          <button onClick={()=>setModalOpen(false)} className="px-4 py-2 text-slate-400 hover:bg-slate-700 rounded-lg font-bold">Cancelar</button>
+                          <button onClick={handleSaveModal} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold shadow-lg">Salvar</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+    </div>
+  );
+};
+
+// --- RESTO DO CÓDIGO DA PÁGINA (MANTIDO) ---
 const MappingRow = ({ label, original, value, options, onChange, onCreate, typeLabel, icon: Icon }: any) => (
     <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 flex flex-col md:flex-row gap-4 items-center animate-in fade-in group hover:border-slate-600 transition">
         <div className="flex-1 w-full min-w-0">
             <p className="text-[10px] text-slate-500 uppercase font-bold mb-1 flex items-center gap-1 group-hover:text-slate-400 transition">
-                <FileSpreadsheet className="w-3 h-3"/> No Arquivo
+                <FileSpreadsheet className="w-3 h-3"/> {label || 'No Arquivo'}
             </p>
             <div className="p-3 bg-slate-800/50 border border-slate-700 rounded-lg text-white font-mono text-sm truncate" title={original}>
                 {original}
@@ -270,7 +584,6 @@ const MappingRow = ({ label, original, value, options, onChange, onCreate, typeL
                     <Plus className="w-3 h-3"/> Criar {typeLabel}
                 </button>
             </div>
-            {/* NOVO SEARCHABLE SELECT AQUI */}
             <SearchableSelect 
                 value={value} 
                 options={options} 
@@ -281,30 +594,29 @@ const MappingRow = ({ label, original, value, options, onChange, onCreate, typeL
     </div>
 );
 
-// --- PÁGINA PRINCIPAL ---
-
 export function Importacao() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  
   const [sistemaData, setSistemaData] = useState<SistemaData>({ contas: [], categorias: [], centros: [], entidades: [] });
   const [conflitos, setConflitos] = useState<Conflitos>({ contas: [], categorias: [], centros: [], entidades: [] });
+  
   const [mapCategorias, setMapCategorias] = useState<Record<string, string>>({});
   const [mapContas, setMapContas] = useState<Record<string, string>>({});
   const [mapCentros, setMapCentros] = useState<Record<string, string>>({});
   const [mapEntidades, setMapEntidades] = useState<Record<string, string>>({});
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalType, setModalType] = useState<'CATEGORIA'|'ENTIDADE'|'CONTA'|'CENTRO' | null>(null);
-  const [modalValue, setModalValue] = useState('');
-  const [modalPendingKey, setModalPendingKey] = useState(''); 
-  const [primaryColor, setPrimaryColor] = useState('#2563eb'); 
+  
+    const [modalOpen, setModalOpen] = useState(false);
+    const [modalType, setModalType] = useState<'CATEGORIA'|'ENTIDADE'|'CONTA'|'CENTRO' | null>(null);
+    const [modalValue, setModalValue] = useState('');
+    const [modalPendingKey, setModalPendingKey] = useState(''); 
 
-  useEffect(() => {
-    const cor = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim();
-    if(cor) setPrimaryColor(cor);
-    carregarDadosIniciais();
-  }, []);
+    useEffect(() => {
+        carregarDadosIniciais();
+    }, []);
 
   async function carregarDadosIniciais() {
     try {
@@ -314,6 +626,10 @@ export function Importacao() {
       setSistemaData({ contas: rContas.data || [], categorias: rCats.data || [], centros: rCentros.data || [], entidades: rEnt.data || [] });
     } catch (error) { console.error("Erro dados iniciais", error); setFeedback({ type: 'error', message: 'Falha ao carregar dados.' }); }
   }
+
+  const handleCategoriesUpdate = (newCats: ItemSistema[]) => {
+      setSistemaData(prev => ({ ...prev, categorias: newCats }));
+  };
 
   async function handleDownloadModelo() {
     try {
@@ -341,10 +657,10 @@ export function Importacao() {
       if(!modalValue) return;
       setLoading(true);
       try {
-          let res; let newItem;
+          let res: any; let newItem: any;
           if(modalType === 'CATEGORIA') {
               const tipo = modalValue.startsWith('1') ? 'R' : 'D';
-              res = await api.post('/plano-contas/', { nome: modalValue, tipo: tipo }); 
+              res = await api.post('/plano-contas/', { nome: modalValue, tipo: tipo, permite_lancamentos: true }); 
               newItem = res.data;
               setSistemaData(prev => ({...prev, categorias: [...prev.categorias, newItem]}));
               setMapCategorias(prev => ({...prev, [modalPendingKey]: newItem.id}));
@@ -366,6 +682,54 @@ export function Importacao() {
           }
           setModalOpen(false); setModalValue('');
       } catch(e) { alert("Erro ao criar item."); } finally { setLoading(false); }
+  }
+
+  async function handleBulkCreate(type: 'CATEGORIA' | 'ENTIDADE' | 'CONTA' | 'CENTRO') {
+      const missingList = type === 'CATEGORIA' ? conflitos.categorias.filter(k => !mapCategorias[k]) :
+                          type === 'ENTIDADE' ? conflitos.entidades.filter(k => !mapEntidades[k]) :
+                          type === 'CONTA' ? conflitos.contas.filter(k => !mapContas[k]) :
+                          conflitos.centros.filter(k => !mapCentros[k]);
+      
+      if (missingList.length === 0) return;
+      setBulkLoading(type);
+
+      try {
+          const promises = missingList.map(name => {
+              if (type === 'CATEGORIA') {
+                  const tipo = name.trim().startsWith('1') ? 'R' : 'D';
+                  return api.post('/plano-contas/', { nome: name, tipo, permite_lancamentos: true }).then(r => ({ name, data: r.data }));
+              }
+              if (type === 'ENTIDADE') return api.post('/entidades/', { nome: name, tipo: 'AMBOS' }).then(r => ({ name, data: r.data }));
+              if (type === 'CONTA') return api.post('/contas/', { nome: name, tipo: 'CORRENTE' }).then(r => ({ name, data: r.data }));
+              if (type === 'CENTRO') return api.post('/centro-custo/', { nome: name }).then(r => ({ name, data: r.data }));
+              return Promise.resolve(null);
+          });
+
+          const results = await Promise.all(promises);
+
+          results.forEach((res: any) => {
+              if (!res) return;
+              if (type === 'CATEGORIA') {
+                  setSistemaData(prev => ({ ...prev, categorias: [...prev.categorias, res.data] }));
+                  setMapCategorias(prev => ({ ...prev, [res.name]: res.data.id }));
+              } else if (type === 'ENTIDADE') {
+                  setSistemaData(prev => ({ ...prev, entidades: [...prev.entidades, res.data] }));
+                  setMapEntidades(prev => ({ ...prev, [res.name]: res.data.id }));
+              } else if (type === 'CONTA') {
+                  setSistemaData(prev => ({ ...prev, contas: [...prev.contas, res.data] }));
+                  setMapContas(prev => ({ ...prev, [res.name]: res.data.id }));
+              } else if (type === 'CENTRO') {
+                  setSistemaData(prev => ({ ...prev, centros: [...prev.centros, res.data] }));
+                  setMapCentros(prev => ({ ...prev, [res.name]: res.data.id }));
+              }
+          });
+
+      } catch (e) {
+          console.error(e);
+          alert("Erro ao criar itens em massa.");
+      } finally {
+          setBulkLoading(null);
+      }
   }
 
   function openCreateModal(type: any, excelKey: string) {
@@ -398,8 +762,10 @@ export function Importacao() {
                 <div className="flex-1"><strong className="block text-sm">{feedback.message}</strong>{feedback.details && <ul className="mt-2 list-disc list-inside text-xs opacity-80 max-h-32 overflow-y-auto custom-scrollbar">{feedback.details.map((d,i)=><li key={i}>{d}</li>)}</ul>}</div><button onClick={()=>setFeedback(null)}><X className="w-4 h-4 hover:text-white"/></button>
             </div>
         )}
+        
+        {/* STEP 1: UPLOAD */}
         {step === 1 && (
-            <div className="bg-slate-800 p-10 rounded-2xl border border-slate-700 flex flex-col items-center justify-center min-h-[400px] border-dashed relative hover:border-blue-500/50 transition-colors">
+            <div className="bg-slate-800 p-10 rounded-2xl border border-slate-700 flex flex-col items-center justify-center min-h-100 border-dashed relative hover:border-blue-500/50 transition-colors">
                 <input type="file" accept=".xlsx,.xls" onChange={e=>setFile(e.target.files?.[0]||null)} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10" />
                 <div className="text-center space-y-4 pointer-events-none">
                     <div className="w-24 h-24 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse-slow"><FileSpreadsheet className="w-12 h-12 text-blue-500"/></div>
@@ -411,22 +777,85 @@ export function Importacao() {
                 </div>
             </div>
         )}
+
+        {/* STEP 2: CATEGORIAS E ENTIDADES */}
         {step === 2 && (
             <div className="space-y-8 animate-in fade-in slide-in-from-right-8">
-                <PlanoContasManager categorias={sistemaData.categorias} onRefresh={carregarDadosIniciais} />
-                <div><h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Tag className="text-blue-500"/> Categorias Encontradas ({conflitos.categorias.length})</h3>{conflitos.categorias.length === 0 && <div className="p-4 bg-slate-800/50 border border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Tudo certo! Todas as categorias do arquivo já existem.</div>}<div className="space-y-3">{conflitos.categorias.map(k => (<MappingRow key={k} original={k} value={mapCategorias[k]} options={sistemaData.categorias} onChange={(v:string)=>setMapCategorias(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('CATEGORIA', k)} typeLabel="Categoria" icon={Tag} />))}</div></div>
-                {conflitos.entidades && conflitos.entidades.length > 0 && (<div><h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Users className="text-purple-500"/> Entidades Encontradas ({conflitos.entidades.length})</h3><div className="space-y-3">{conflitos.entidades.map(k => (<MappingRow key={k} original={k} value={mapEntidades[k]} options={sistemaData.entidades} onChange={(v:string)=>setMapEntidades(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('ENTIDADE', k)} typeLabel="Entidade" icon={Users} />))}</div></div>)}
+                
+                {/* MANAGER DE CATEGORIAS */}
+                <PlanoContasManager categorias={sistemaData.categorias} onUpdateList={handleCategoriesUpdate} />
+                
+                {/* CATEGORIAS CONFLITANTES */}
+                <div>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-bold text-white flex items-center gap-2"><Tag className="text-blue-500"/> Categorias Encontradas ({conflitos.categorias.length})</h3>
+                        {conflitos.categorias.length > 0 && (
+                            <button onClick={() => handleBulkCreate('CATEGORIA')} disabled={!!bulkLoading} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 shadow transition disabled:opacity-50">
+                                {bulkLoading === 'CATEGORIA' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3"/>} Resolver Tudo
+                            </button>
+                        )}
+                    </div>
+                    {conflitos.categorias.length === 0 && <div className="p-4 bg-slate-800/50 border border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Tudo certo! Todas as categorias do arquivo já existem.</div>}
+                    <div className="space-y-3">{conflitos.categorias.map(k => (<MappingRow key={k} original={k} value={mapCategorias[k]} options={sistemaData.categorias} onChange={(v:string)=>setMapCategorias(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('CATEGORIA', k)} typeLabel="Categoria" icon={Tag} />))}</div>
+                </div>
+
+                {/* ENTIDADES */}
+                <div>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-bold text-white flex items-center gap-2"><Users className="text-purple-500"/> Entidades Encontradas ({conflitos.entidades.length})</h3>
+                        {conflitos.entidades.length > 0 && (
+                            <button onClick={() => handleBulkCreate('ENTIDADE')} disabled={!!bulkLoading} className="text-xs bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 shadow transition disabled:opacity-50">
+                                {bulkLoading === 'ENTIDADE' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3"/>} Criar Todas
+                            </button>
+                        )}
+                    </div>
+                    {conflitos.entidades.length === 0 ? (
+                        <div className="p-4 bg-slate-800/50 border border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Nenhuma entidade nova detectada.</div>
+                    ) : (
+                        <div className="space-y-3">{conflitos.entidades.map(k => (<MappingRow key={k} original={k} value={mapEntidades[k]} options={sistemaData.entidades} onChange={(v:string)=>setMapEntidades(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('ENTIDADE', k)} typeLabel="Entidade" icon={Users} />))}</div>
+                    )}
+                </div>
+
                 <div className="flex justify-between pt-6 border-t border-slate-800"><button onClick={()=>setStep(1)} className="px-6 py-3 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={()=>setStep(3)} className="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition">Próximo <ArrowRight className="w-4 h-4"/></button></div>
             </div>
         )}
+
+        {/* STEP 3: CONTAS E CENTROS */}
         {step === 3 && (
             <div className="space-y-8 animate-in fade-in slide-in-from-right-8">
-                <div><h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Wallet className="text-emerald-500"/> Contas Bancárias ({conflitos.contas.length})</h3>{conflitos.contas.length === 0 && <div className="p-4 bg-slate-800/50 border border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Tudo certo com as contas.</div>}<div className="space-y-3">{conflitos.contas.map(k => (<MappingRow key={k} original={k} value={mapContas[k]} options={sistemaData.contas} onChange={(v:string)=>setMapContas(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('CONTA', k)} typeLabel="Conta" icon={Wallet} />))}</div></div>
-                <div><h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Layers className="text-orange-500"/> Centros de Custo ({conflitos.centros.length})</h3><div className="space-y-3">{conflitos.centros.map(k => (<MappingRow key={k} original={k} value={mapCentros[k]} options={sistemaData.centros} onChange={(v:string)=>setMapCentros(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('CENTRO', k)} typeLabel="Centro" icon={Layers} />))}</div></div>
+                
+                {/* CONTAS */}
+                <div>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-bold text-white flex items-center gap-2"><Wallet className="text-emerald-500"/> Contas Bancárias ({conflitos.contas.length})</h3>
+                        {conflitos.contas.length > 0 && (
+                            <button onClick={() => handleBulkCreate('CONTA')} disabled={!!bulkLoading} className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 shadow transition disabled:opacity-50">
+                                {bulkLoading === 'CONTA' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3"/>} Criar Todas
+                            </button>
+                        )}
+                    </div>
+                    {conflitos.contas.length === 0 && <div className="p-4 bg-slate-800/50 border border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Tudo certo com as contas.</div>}
+                    <div className="space-y-3">{conflitos.contas.map(k => (<MappingRow key={k} original={k} value={mapContas[k]} options={sistemaData.contas} onChange={(v:string)=>setMapContas(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('CONTA', k)} typeLabel="Conta" icon={Wallet} />))}</div>
+                </div>
+
+                {/* CENTROS */}
+                <div>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-bold text-white flex items-center gap-2"><Layers className="text-orange-500"/> Centros de Custo ({conflitos.centros.length})</h3>
+                        {conflitos.centros.length > 0 && (
+                            <button onClick={() => handleBulkCreate('CENTRO')} disabled={!!bulkLoading} className="text-xs bg-orange-600 hover:bg-orange-500 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 shadow transition disabled:opacity-50">
+                                {bulkLoading === 'CENTRO' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3"/>} Criar Todas
+                            </button>
+                        )}
+                    </div>
+                    <div className="space-y-3">{conflitos.centros.map(k => (<MappingRow key={k} original={k} value={mapCentros[k]} options={sistemaData.centros} onChange={(v:string)=>setMapCentros(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('CENTRO', k)} typeLabel="Centro" icon={Layers} />))}</div>
+                </div>
+
                 <div className="flex justify-between pt-6 border-t border-slate-800"><button onClick={()=>setStep(2)} className="px-6 py-3 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={handleExecutar} disabled={loading} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition disabled:opacity-50">{loading ? <Loader2 className="animate-spin w-5 h-5"/> : <CheckCircle className="w-5 h-5"/>} Confirmar Importação</button></div>
             </div>
         )}
       </div>
+
       {modalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
               <div className="bg-slate-800 border border-slate-700 p-6 rounded-2xl shadow-2xl w-full max-w-sm animate-scale-in">

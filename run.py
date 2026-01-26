@@ -1,65 +1,148 @@
-import uvicorn
-import sys
+import asyncio
 import os
+import shutil
+import sys
 from pathlib import Path
 
-# --- CONFIGURAÇÃO DE CAMINHOS ---
-# Garante que o Python encontre a pasta 'app'
+from dotenv import load_dotenv
+from sqlmodel import SQLModel
+
+from app.core.config import settings
+from app.db.session import engine
+
+load_dotenv()
+
 ROOT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT_DIR))
-
-# Caminho da pasta do Frontend (React/Vite)
 FRONTEND_DIR = ROOT_DIR / "kyrus-web"
-ENV_FILE_PATH = FRONTEND_DIR / ".env"
 
-# Importa utilitários de rede do próprio projeto
-from app.core.network import get_local_ip
+BACKEND_HOST = os.getenv("BACKEND_HOST", "0.0.0.0")
+BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8000"))
+FRONTEND_HOST = os.getenv("FRONTEND_HOST", "0.0.0.0")
+FRONTEND_PORT = int(os.getenv("FRONTEND_PORT", "5173"))
+RELOAD_BACKEND = settings.ENVIRONMENT == "development"
+BACKEND_LOG_LEVEL = "debug" if RELOAD_BACKEND else "info"
 
-def update_frontend_env(current_ip: str):
-    """
-    Atualiza o arquivo .env do Frontend com o IP atual.
-    Isso evita erro de CORS e 'Network Error' no celular.
-    """
-    api_url = f"http://{current_ip}:8000/api/v1"
-    
-    print(f"🔄 Configurando Frontend em: {ENV_FILE_PATH}")
-    
-    content = f"VITE_API_URL={api_url}\n"
-    
+
+async def init_db() -> None:
     try:
-        # Verifica se a pasta existe antes de tentar escrever
-        if not FRONTEND_DIR.exists():
-            print(f"⚠️  Pasta '{FRONTEND_DIR}' não encontrada. Pulei a configuração do frontend.")
-            return
+        SQLModel.metadata.create_all(engine)
+        print("✅ Banco de dados inicializado com sucesso")
+    except Exception as exc:
+        print(f"⚠️  Erro ao inicializar banco: {exc}")
 
-        # Escreve (ou sobrescreve) o arquivo .env
-        with open(ENV_FILE_PATH, "w") as f:
-            f.write(content)
-            
-        print(f"✅ Frontend configurado para apontar para: {api_url}")
-        
-    except Exception as e:
-        print(f"❌ Erro ao atualizar .env do frontend: {e}")
+
+def _npm_binary() -> str:
+    candidate = "npm.cmd" if os.name == "nt" else "npm"
+    npm_path = shutil.which(candidate)
+    if not npm_path:
+        raise RuntimeError("npm não encontrado no PATH. Instale o Node.js ou ajuste as variáveis de ambiente.")
+    return npm_path
+
+
+def _pythonpath_env(env: dict[str, str]) -> dict[str, str]:
+    current = env.get("PYTHONPATH")
+    root = str(ROOT_DIR)
+    if current:
+        if root not in current.split(os.pathsep):
+            env["PYTHONPATH"] = os.pathsep.join([root, current])
+    else:
+        env["PYTHONPATH"] = root
+    return env
+
+
+async def start_backend_process() -> asyncio.subprocess.Process:
+    env = _pythonpath_env(os.environ.copy())
+    args = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        BACKEND_HOST,
+        "--port",
+        str(BACKEND_PORT),
+        "--log-level",
+        BACKEND_LOG_LEVEL,
+    ]
+    if RELOAD_BACKEND:
+        args.append("--reload")
+    return await asyncio.create_subprocess_exec(*args, cwd=str(ROOT_DIR), env=env)
+
+
+async def start_frontend_process() -> asyncio.subprocess.Process:
+    if not FRONTEND_DIR.exists():
+        raise FileNotFoundError(f"Diretório do frontend não encontrado em {FRONTEND_DIR}")
+    npm_cmd = _npm_binary()
+    args = [
+        npm_cmd,
+        "run",
+        "dev",
+        "--",
+        "--host",
+        FRONTEND_HOST,
+        "--port",
+        str(FRONTEND_PORT),
+    ]
+    return await asyncio.create_subprocess_exec(*args, cwd=str(FRONTEND_DIR))
+
+
+async def wait_process(tag: str, proc: asyncio.subprocess.Process) -> tuple[str, int]:
+    return tag, await proc.wait()
+
+
+async def graceful_stop(proc: asyncio.subprocess.Process | None, tag: str) -> None:
+    if not proc or proc.returncode is not None:
+        return
+    proc.terminate()
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=10)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+    print(f"⏹️  {tag} encerrado")
+
+
+async def supervise_processes(
+    backend_proc: asyncio.subprocess.Process,
+    frontend_proc: asyncio.subprocess.Process,
+) -> tuple[str, int]:
+    tasks = [
+        asyncio.create_task(wait_process("Backend", backend_proc)),
+        asyncio.create_task(wait_process("Frontend", frontend_proc)),
+    ]
+    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    for task in pending:
+        task.cancel()
+    return next(iter(done)).result()
+
+
+async def main() -> None:
+    print("\n" + "=" * 80)
+    print("🚀 KyrusTech - Orquestrador Full Stack")
+    print("=" * 80)
+    print(f"📦 Ambiente: {settings.ENVIRONMENT}")
+    print(f"🗄️  Banco: {settings.POSTGRES_SERVER}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}")
+    print(f"🌐 Backend: http://{BACKEND_HOST}:{BACKEND_PORT}")
+    print(f"🖥️  Frontend: http://{FRONTEND_HOST}:{FRONTEND_PORT}")
+    print("=" * 80)
+
+    await init_db()
+
+    backend_proc = None
+    frontend_proc = None
+    try:
+        backend_proc = await start_backend_process()
+        frontend_proc = await start_frontend_process()
+        print("⚙️  Serviços iniciados. Pressione CTRL+C para encerrar.")
+        tag, code = await supervise_processes(backend_proc, frontend_proc)
+        print(f"⚠️  {tag} finalizou com código {code}. Encerrando serviços.")
+    finally:
+        await graceful_stop(frontend_proc, "Frontend")
+        await graceful_stop(backend_proc, "Backend")
+
 
 if __name__ == "__main__":
-    # 1. Detecta o IP da máquina
-    local_ip = get_local_ip()
-    print(f"\n🌍 IP Local Detectado: {local_ip}")
-
-    # 2. Atualiza o Frontend automaticamente
-    update_frontend_env(local_ip)
-
-    print("\n" + "="*50)
-    print("🚀 BACKEND INICIANDO...")
-    print(f"📡 API Disponível em: http://{local_ip}:8000")
-    print(f"📄 Documentação:     http://{local_ip}:8000/docs")
-    print("="*50)
-    
-    print(f"\n💡 DICA: Para iniciar o Frontend, abra OUTRO terminal e rode:")
-    print(f"   cd kyrus-web")
-    print(f"   npm run dev")
-    print("\n" + "="*50 + "\n")
-
-    # 3. Inicia o Backend (Uvicorn)
-    # host="0.0.0.0" permite que outros PCs/Celulares acessem
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n🛑 Execução interrompida pelo usuário")

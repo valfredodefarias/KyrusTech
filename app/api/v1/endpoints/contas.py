@@ -2,7 +2,10 @@
 
 from typing import List, Optional
 from decimal import Decimal # <--- Importação vital para cálculos financeiros
-from fastapi import APIRouter, Depends, HTTPException
+from pathlib import Path
+import shutil
+from uuid import uuid4
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select, func, case
 from loguru import logger
 from pydantic import BaseModel
@@ -13,8 +16,11 @@ from app.schemas.conta import ContaCreate, ContaRead, ContaUpdate
 from app.models.conta import Conta
 from app.models.lancamento import Lancamento
 from app.api.v1.deps import get_empresa_id_from_user
+from app.core.network import get_backend_url
 
 router = APIRouter()
+UPLOAD_DIR = Path("static/uploads/contas")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Schema para retorno do saldo
 class ContaSaldo(ContaRead):
@@ -67,6 +73,11 @@ def read_all_contas(
 
         # Monta objeto de retorno
         conta_dict = conta.model_dump()
+        # Garante URL completa da logo
+        if conta_dict.get("logo_url") and not str(conta_dict["logo_url"]).startswith("http"):
+            base = get_backend_url()
+            conta_dict["logo_url"] = f"{base}{conta_dict['logo_url']}" if conta_dict['logo_url'].startswith("/") else f"{base}/{conta_dict['logo_url']}"
+
         conta_dict['saldo_atual'] = saldo_real
         resultado.append(conta_dict)
 
@@ -105,3 +116,49 @@ def delete_conta(
     if not db_obj:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
     return {"ok": True}
+
+
+@router.api_route(
+    "/{conta_id}/logo",
+    methods=["POST", "PUT", "OPTIONS"],
+    response_model=ContaRead,
+)
+@router.api_route(
+    "/{conta_id}/logo/",
+    methods=["POST", "PUT", "OPTIONS"],
+    response_model=ContaRead,
+    include_in_schema=False,  # Evita operação duplicada no OpenAPI
+)
+def upload_logo_conta(
+    *,
+    db: Session = Depends(get_db),
+    conta_id: int,
+    file: UploadFile = File(...),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Salva uma logo/foto para a conta e retorna a conta atualizada."""
+    conta = crud_conta.get_by_id(db=db, id=conta_id, empresa_id=empresa_id)
+    if not conta:
+        raise HTTPException(status_code=404, detail="Conta não encontrada")
+
+    ext = Path(file.filename or "").suffix.lower()
+    allowed_exts = {".png", ".jpg", ".jpeg", ".jiff", ".jfif"}
+    if not ext or ext not in allowed_exts:
+        raise HTTPException(
+            status_code=400,
+            detail="Formato de imagem não suportado. Use png, jpg, jpeg ou jiff.",
+        )
+
+    filename = f"conta_{conta_id}_{uuid4().hex}{ext}"
+    filepath = UPLOAD_DIR / filename
+    with filepath.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # Salva URL absoluta para não depender do host do frontend
+    base = get_backend_url()
+    relative_path = f"/static/uploads/contas/{filename}"
+    conta.logo_url = f"{base}{relative_path}"
+    db.add(conta)
+    db.commit()
+    db.refresh(conta)
+    return conta

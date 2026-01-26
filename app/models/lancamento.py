@@ -41,7 +41,7 @@ class Lancamento(AuditMixin, SQLModel, table=True):
     data_competencia: datetime.date = Field(index=True)
     
     # --- Detalhes ---
-    numero_parcela: Optional[str] = None
+    numero_parcela: Optional[int] = Field(default=None)
     id_parcelamento: Optional[str] = None
     observacao: Optional[str] = None
     conciliado: bool = Field(default=False)

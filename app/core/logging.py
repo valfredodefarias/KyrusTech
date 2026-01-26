@@ -7,27 +7,37 @@ from app.core.config import settings
 
 # --- CONFIGURAÇÃO DO LOGURU ---
 
-# 1. Removemos os handlers padrão para ter controle total
+# Remover handlers padrão
 logger.remove()
 
-# 2. Adicionamos um handler para o modo de DESENVOLVIMENTO
-# Logs coloridos e formatados para fácil leitura humana
-logger.add(
-    sys.stderr,
-    level="DEBUG",
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    colorize=True,
-    enqueue=True, # Torna a escrita de logs assíncrona para não bloquear a aplicação
-    backtrace=True, # Mostra o traceback completo em caso de erro
-    diagnose=True # Adiciona informações de diagnóstico em exceções
-)
-
-# 3. (Futuro/Opcional) Adicionar um handler para o modo de PRODUÇÃO
-# Em produção, você comentaria o handler acima e descomentaria este.
-# logger.add(
-#     sys.stderr,
-#     level="INFO",
-#     format="{level} {message}", # Formato simples, pois o JSON fará o resto
-#     serialize=True, # O SEGREDO: Transforma o log em um JSON
-#     enqueue=True
-# )
+# Configuração baseada no ambiente
+if settings.ENVIRONMENT == "development":
+    # Desenvolvimento: logs coloridos e detalhados
+    logger.add(
+        sys.stderr,
+        level="DEBUG",
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        colorize=True,
+        enqueue=True,
+        backtrace=True,
+        diagnose=True
+    )
+else:
+    # Produção: logs em JSON para análise estruturada
+    logger.add(
+        sys.stderr,
+        level="INFO",
+        format="{message}",
+        serialize=True,
+        enqueue=True
+    )
+    
+    # Também salvar em arquivo
+    logger.add(
+        "logs/app.log",
+        level="INFO",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+        rotation="500 MB",
+        retention="7 days",
+        enqueue=True
+    )

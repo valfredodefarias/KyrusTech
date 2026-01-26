@@ -21,28 +21,33 @@ class LancamentoBase(SQLModel):
     valor_multa: Decimal = Decimal("0.00")
     
     data_vencimento: date
-    data_competencia: date # Importante para relatórios contábeis (DRE)
+    data_competencia: Optional[date] = None
+    # Regra de Negócio: Se vier Nulo, é considerado EM ABERTO
     data_pagamento: Optional[date] = None
     
     observacao: Optional[str] = None
     conciliado: bool = False
     
-    # IDs (Foreign Keys)
-    # OBS: Removemos 'empresa_id' daqui. O Backend pega pelo Token.
-    plano_contas_id: int # Antigo categoria_id
+    # --- CHAVES ESTRANGEIRAS ---
+    
+    # OBRIGATÓRIO: Todo lançamento precisa ter uma categoria (Plano de Contas)
+    plano_contas_id: int 
+    
+    # OPCIONAIS: O usuário pode lançar algo sem saber o banco ou o cliente ainda
     conta_id: Optional[int] = None
     entidade_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
     cartao_id: Optional[int] = None
 
-# --- CREATE (Herda da Base) ---
+# --- CREATE ---
 class LancamentoCreate(LancamentoBase):
     pass
 
-# --- UPDATE (Tudo Opcional) ---
+# --- UPDATE ---
 class LancamentoUpdate(SQLModel):
     descricao: Optional[str] = None
     tipo: Optional[str] = None
+    ipp: Optional[bool] = None
     valor_previsto: Optional[Decimal] = None
     valor_pago: Optional[Decimal] = None
     valor_juros: Optional[Decimal] = None
@@ -62,14 +67,14 @@ class LancamentoUpdate(SQLModel):
     observacao: Optional[str] = None
     conciliado: Optional[bool] = None
 
-# --- READ (O que o Backend Devolve) ---
+# --- READ ---
 class LancamentoRead(LancamentoBase, AuditReadMixin):
     id: int
-    empresa_id: int # Aqui sim mostramos o ID da empresa para leitura interna
+    empresa_id: int 
     status: str 
     anexos: List[AnexoRead] = []
 
-# --- SCHEMAS ESPECIAIS (BULK & TRANSFERÊNCIA) ---
+# --- SCHEMAS ESPECIAIS ---
 
 class BulkActionSchema(SQLModel):
     ids: List[int]
@@ -89,5 +94,6 @@ class TransferenciaCreate(SQLModel):
     conta_destino_id: int
     valor: Decimal
     data: date
-    plano_contas_id: Optional[int] = None # Padronizado (era categoria_id)
+    # Aqui é opcional, se não enviar pegamos a categoria padrão do sistema
+    plano_contas_id: Optional[int] = None 
     observacao: Optional[str] = None

@@ -5,18 +5,84 @@ import {
   ArrowRightLeft, Wallet, CreditCard, Layers, Calendar, 
   TrendingUp, TrendingDown, AlertCircle, CheckCircle2, 
   Trash2, Edit2, Check, X, UploadCloud, FileText, Loader2, 
-  CalendarClock, User, ChevronDown, Save
+  CalendarClock, User, ChevronDown, Save, Paperclip, Download, ExternalLink,
+  Image as ImageIcon, FileSpreadsheet, Presentation, LayoutGrid, CheckSquare, Square
 } from 'lucide-react';
+
+// --- INTERFACES ---
+interface Anexo { id: number; nome_arquivo: string; url: string; tipo: string; }
+interface Lancamento {
+  id: number; descricao: string; valor_previsto: number; valor_pago: number;
+  data_vencimento: string; data_pagamento?: string; tipo: 'RECEITA' | 'DESPESA';
+  status: 'PAGO' | 'PENDENTE' | 'EM ABERTO'; ipp: boolean;
+  plano_contas_id: number; entidade_id?: number; conta_id?: number;
+  cartao_id?: number; centro_custo_id?: number; anexos: Anexo[];
+  numero_parcela?: number;
+}
+
+// --- UTILS (CORREÇÃO DE DATA) ---
+const fixDate = (dateString: string) => {
+  if (!dateString) return '';
+  const [year, month, day] = dateString.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return date;
+};
+
+const formatDateExtenso = (dateString: string) => {
+    if (!dateString) return '-';
+    const date = fixDate(dateString);
+    return date.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'long' });
+};
 
 // --- COMPONENTES UI REUTILIZÁVEIS ---
 
-// 1. Select Pesquisável (Dark Mode & Parents Disabled)
+// 1. MultiSelect Dropdown
+const MultiSelectDropdown = ({ options, selectedIds, onChange, label, placeholder }: any) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const wrapperRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        function handleClickOutside(event: any) {
+            if (wrapperRef.current && !wrapperRef.current.contains(event.target)) setIsOpen(false);
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [wrapperRef]);
+
+    const toggleOption = (id: number) => {
+        const newSet = new Set(selectedIds);
+        if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
+        onChange(newSet);
+    };
+
+    const selectedLabel = selectedIds.size > 0 ? `${selectedIds.size} selecionados` : placeholder;
+
+    return (
+        <div className="relative w-full" ref={wrapperRef}>
+            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{label}</label>
+            <div onClick={() => setIsOpen(!isOpen)} className="w-full p-2.5 rounded-lg border border-slate-600 bg-slate-900 cursor-pointer flex justify-between items-center text-sm hover:border-blue-500 transition">
+                <span className={selectedIds.size > 0 ? 'text-blue-400 font-bold' : 'text-slate-500'}>{selectedLabel}</span>
+                <ChevronDown className="w-4 h-4 text-slate-400"/>
+            </div>
+            {isOpen && (
+                <div className="absolute z-50 w-full mt-1 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-h-60 overflow-y-auto custom-scrollbar p-1 animate-in fade-in zoom-in-95">
+                    {options.map((opt: any) => (
+                        <div key={opt.id} onClick={() => toggleOption(opt.id)} className={`px-3 py-2 text-sm rounded cursor-pointer transition flex items-center justify-between ${selectedIds.has(opt.id) ? 'bg-blue-600/20 text-blue-300' : 'text-slate-300 hover:bg-slate-700'}`}>
+                            <span>{opt.nome || opt.label}</span>
+                            {selectedIds.has(opt.id) ? <CheckSquare className="w-4 h-4 text-blue-400"/> : <Square className="w-4 h-4 text-slate-600"/>}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const SearchableSelect = ({ options, value, onChange, placeholder, label }: any) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  // Encontra o item selecionado dentro dos grupos
   const selectedOption = options.flatMap((g:any) => g.options).find((o:any) => String(o.id) === String(value));
 
   useEffect(() => {
@@ -27,7 +93,6 @@ const SearchableSelect = ({ options, value, onChange, placeholder, label }: any)
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [wrapperRef]);
 
-  // Filtra grupos e opções
   const filteredGroups = options.map((group: any) => ({
     ...group,
     options: group.options.filter((opt: any) => opt.label.toLowerCase().includes(search.toLowerCase()))
@@ -38,7 +103,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder, label }: any)
       {label && <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{label}</label>}
       <div 
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full p-3 rounded-lg border border-slate-600 bg-slate-800 cursor-pointer flex justify-between items-center text-sm min-h-[46px] hover:border-blue-500 transition"
+        className="w-full p-3 rounded-lg border border-slate-600 bg-slate-800 cursor-pointer flex justify-between items-center text-sm min-h-11.5 hover:border-blue-500 transition"
       >
         <span className={selectedOption ? 'text-white font-medium' : 'text-slate-500'}>
           {selectedOption ? selectedOption.label : placeholder}
@@ -61,11 +126,9 @@ const SearchableSelect = ({ options, value, onChange, placeholder, label }: any)
           <div className="overflow-y-auto custom-scrollbar p-1">
             {filteredGroups.map((group: any, idx: number) => (
               <div key={idx} className="mb-2">
-                {/* CATEGORIA PAI (NÃO CLICÁVEL) */}
                 <div className="px-3 py-1.5 text-[10px] font-bold text-blue-400 uppercase tracking-wider bg-slate-700/30 rounded mb-1">
                   {group.label}
                 </div>
-                {/* FILHOS (CLICÁVEIS) */}
                 {group.options.map((opt: any) => (
                   <div 
                     key={opt.id}
@@ -86,21 +149,17 @@ const SearchableSelect = ({ options, value, onChange, placeholder, label }: any)
   );
 };
 
-// 2. Input Estilizado Dark
 const InputDark = (props: any) => (
-  <div>
+  <div className="w-full">
     {props.label && <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{props.label}</label>}
-    <input 
-      {...props} 
-      className={`w-full p-3 rounded-lg border border-slate-600 bg-slate-800 text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-600 ${props.className || ''}`} 
-    />
+    <input {...props} className={`w-full p-3 rounded-lg border border-slate-600 bg-slate-800 text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed ${props.className || ''}`} />
   </div>
 );
 
 export function Lancamentos() {
   // --- DADOS ---
   const [loading, setLoading] = useState(true);
-  const [lancamentos, setLancamentos] = useState<any[]>([]);
+  const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [contas, setContas] = useState<any[]>([]);
   const [cartoes, setCartoes] = useState<any[]>([]);
   const [centros, setCentros] = useState<any[]>([]);
@@ -109,24 +168,44 @@ export function Lancamentos() {
 
   // --- UI STATE ---
   const [mesAtual, setMesAtual] = useState(new Date());
-  const [filtroTexto, setFiltroTexto] = useState('');
-  const [filtroRapido, setFiltroRapido] = useState<'TODOS'|'HOJE'|'ATRASADO'|'IPP'>('TODOS');
-  const [showFiltros, setShowFiltros] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [primaryColor, setPrimaryColor] = useState('#2563eb');
+  
+  // Filtros
+  const [filtroTexto, setFiltroTexto] = useState('');
+  const [centroCustoFiltro, setCentroCustoFiltro] = useState<string>('');
+  
+  const [filtrosAvancados, setFiltrosAvancados] = useState({
+      tipo: 'TODOS' as 'TODOS'|'RECEITA'|'DESPESA',
+      status: [] as string[],
+      contaIds: new Set<number>(),
+      categoriaIds: new Set<number>(),
+      dataInicio: '',
+      dataFim: ''
+  });
+  const [filtroRapido, setFiltroRapido] = useState<string | null>(null);
 
-  // --- MODAIS & DRAWERS ---
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
+
+  // Barra/ações em lote
+  const [showBulkPay, setShowBulkPay] = useState(false);
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [deleteStep, setDeleteStep] = useState(1);
+  const [deletePhrase, setDeletePhrase] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
+  const todayISO = new Date().toISOString().split('T')[0];
+  const yesterdayISO = new Date(Date.now() - 24*60*60*1000).toISOString().split('T')[0];
+  const [bulkPayData, setBulkPayData] = useState({ conta_id: '', modoData: 'HOJE', data: todayISO });
+
+  // --- MODAIS ---
   const [showDrawer, setShowDrawer] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
-  const [showEntityDrawer, setShowEntityDrawer] = useState(false); // <--- Drawer Nova Entidade
-  const [bulkPayModal, setBulkPayModal] = useState(false);
-
-  // --- FORMS STATES ---
+  const [showEntityDrawer, setShowEntityDrawer] = useState(false); 
+  
+  // --- FORMS ---
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [filesToUpload, setFilesToUpload] = useState<FileList | null>(null);
-  
-  // Nova Entidade Form
   const [newEntityData, setNewEntityData] = useState({ nome: '', tipo: 'AMBOS' });
 
   const [formData, setFormData] = useState<any>({
@@ -134,14 +213,14 @@ export function Lancamentos() {
     tipo: 'DESPESA', plano_contas_id: '', centro_custo_id: '', entidade_id: '',
     conta_id: '', cartao_id: '', status: 'PENDENTE', 
     valor_pago: '', data_pagamento: '', ipp: false,
-    is_parcelado: false, qtd_parcelas: 2, modo_calculo: 'TOTAL'
+    is_parcelado: false, qtd_parcelas: 2, modo_calculo: 'TOTAL', anexos: []
   });
 
   const [transferData, setTransferData] = useState({
-    valor: '', data: '', conta_origem: '', conta_destino: '', centro_custo: ''
+    valor: '', data: new Date().toISOString().split('T')[0], 
+    conta_origem_id: '', conta_destino_id: '', observacao: '',
+    plano_contas_id: '', centro_custo_id: ''
   });
-
-  const [bulkPayData, setBulkPayData] = useState({ date: '', accountId: '' });
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -152,7 +231,16 @@ export function Lancamentos() {
     loadAuxData();
   }, []);
 
-  useEffect(() => { loadLancamentos(); }, [mesAtual]);
+  useEffect(() => { 
+    if(!filtrosAvancados.dataInicio && !filtrosAvancados.dataFim) {
+        const ano = mesAtual.getFullYear(); const mes = mesAtual.getMonth() + 1;
+        const ini = new Date(ano, mes - 1, 1).toISOString().split('T')[0];
+        const fim = new Date(ano, mes, 0).toISOString().split('T')[0];
+        loadLancamentos(ini, fim);
+    } else {
+        loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
+    }
+  }, [mesAtual, filtrosAvancados.dataInicio, filtrosAvancados.dataFim]);
 
   async function loadAuxData() {
     try {
@@ -163,38 +251,146 @@ export function Lancamentos() {
     } catch(e) { console.error(e); }
   }
 
-  async function loadLancamentos() {
+  async function loadLancamentos(ini?: string, fim?: string) {
     setLoading(true);
     try {
-      const ano = mesAtual.getFullYear(); const mes = mesAtual.getMonth() + 1;
-      const ini = new Date(ano, mes - 1, 1).toISOString().split('T')[0];
-      const fim = new Date(ano, mes, 0).toISOString().split('T')[0];
-      const res = await api.get('/lancamentos/', { params: { data_inicio: ini, data_fim: fim } });
+      const params: any = { limit: 5000 }; 
+      if(ini) params.data_inicio = ini;
+      if(fim) params.data_fim = fim;
+      const res = await api.get('/lancamentos/', { params });
       setLancamentos(res.data);
     } catch(e) { console.error(e); } finally { setLoading(false); }
   }
 
-  // --- FILTROS ---
+  async function toggleIpp(l: Lancamento) {
+    const next = !l.ipp;
+    // Otimista: atualiza na hora
+    setLancamentos(prev => prev.map(item => item.id === l.id ? { ...item, ipp: next } : item));
+    try {
+      await api.put(`/lancamentos/${l.id}`, { ipp: next });
+    } catch (e) {
+      console.error(e);
+      // Reverte se falhar
+      setLancamentos(prev => prev.map(item => item.id === l.id ? { ...item, ipp: l.ipp } : item));
+      alert('Não foi possível marcar/desmarcar IPP');
+    }
+  }
+
+  async function handleBulkPay() {
+    if (selectedIds.size === 0) return;
+    if (!bulkPayData.conta_id) {
+      alert('Selecione uma conta para baixar em lote');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payDate = bulkPayData.modoData === 'HOJE' ? todayISO : bulkPayData.modoData === 'ONTEM' ? yesterdayISO : bulkPayData.data;
+      await api.post('/lancamentos/bulk-pay', {
+        ids: Array.from(selectedIds),
+        data_pagamento: payDate,
+        conta_id: bulkPayData.conta_id ? parseInt(bulkPayData.conta_id) : null,
+      });
+      setShowBulkPay(false);
+      setSelectedIds(new Set());
+      loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao baixar em lote');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openBulkDelete() {
+    setDeleteStep(1);
+    setDeletePhrase('');
+    setDeleteReason('');
+    setShowBulkDelete(true);
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    setSaving(true);
+    try {
+      await api.post('/lancamentos/bulk-delete', { ids: Array.from(selectedIds) });
+      setShowBulkDelete(false);
+      setSelectedIds(new Set());
+      loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao apagar em lote');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // --- LOGICA FILTRO ---
   const filteredList = useMemo(() => {
     return lancamentos.filter(l => {
+      // 1. Texto Global
       if (filtroTexto && !l.descricao.toLowerCase().includes(filtroTexto.toLowerCase()) && !String(l.valor_previsto).includes(filtroTexto)) return false;
+      
+      // 2. Centro de Custo (Header)
+      if (centroCustoFiltro && String(l.centro_custo_id) !== centroCustoFiltro) return false;
+
+      // 3. Filtros Rápidos
       const hoje = new Date().toISOString().split('T')[0];
       if (filtroRapido === 'HOJE' && l.data_vencimento !== hoje) return false;
       if (filtroRapido === 'IPP' && !l.ipp) return false;
       if (filtroRapido === 'ATRASADO' && (l.status === 'PAGO' || l.data_vencimento >= hoje)) return false;
-      return true;
-    }).sort((a,b) => a.data_vencimento.localeCompare(b.data_vencimento));
-  }, [lancamentos, filtroTexto, filtroRapido]);
+      if (filtroRapido === 'EM_ABERTO' && l.status === 'PAGO') return false;
 
-  const kpis = useMemo(() => {
-    const r = filteredList.filter(l=>l.tipo==='RECEITA').reduce((acc,l)=>acc+Number(l.valor_previsto),0);
-    const d = filteredList.filter(l=>l.tipo==='DESPESA').reduce((acc,l)=>acc+Number(l.valor_previsto),0);
-    return { r, d, s: r-d };
+      // 4. Filtros Avançados
+      if (filtrosAvancados.tipo !== 'TODOS' && l.tipo !== filtrosAvancados.tipo) return false;
+      if (filtrosAvancados.status.length > 0 && !filtrosAvancados.status.includes(l.status)) return false;
+      
+      // Filtro de Contas (Multi)
+      if (filtrosAvancados.contaIds.size > 0 && (!l.conta_id || !filtrosAvancados.contaIds.has(l.conta_id))) return false;
+      // Filtro de Categorias (Multi)
+      if (filtrosAvancados.categoriaIds.size > 0 && !filtrosAvancados.categoriaIds.has(l.plano_contas_id)) return false;
+
+      return true;
+    });
+  }, [lancamentos, filtroTexto, centroCustoFiltro, filtroRapido, filtrosAvancados]);
+
+  const contasFiltradas = useMemo(() => {
+    return contas.filter(c => !centroCustoFiltro || String(c.centro_custo_id) === String(centroCustoFiltro));
+  }, [contas, centroCustoFiltro]);
+
+  useEffect(() => {
+    if (bulkPayData.conta_id && !contasFiltradas.some(c => String(c.id) === String(bulkPayData.conta_id))) {
+      setBulkPayData(prev => ({ ...prev, conta_id: '' }));
+    }
+  }, [contasFiltradas, bulkPayData.conta_id]);
+
+  // Agrupamento
+  const { grouped, kpis } = useMemo(() => {
+    const groups: Record<string, Lancamento[]> = {};
+    let r = 0, d = 0;
+
+    filteredList.forEach(l => {
+      if (!groups[l.data_vencimento]) groups[l.data_vencimento] = [];
+      groups[l.data_vencimento].push(l);
+      if(l.tipo==='RECEITA') r += Number(l.valor_previsto); else d += Number(l.valor_previsto);
+    });
+
+    const sortedDates = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+    sortedDates.forEach(date => groups[date].sort((a, b) => b.valor_previsto - a.valor_previsto));
+
+    return { grouped: { groups, sortedDates }, kpis: { r, d, s: r-d } };
   }, [filteredList]);
 
-  // --- HANDLERS ---
+  // --- ACTIONS ---
+
+  const toggleConta = (id: number) => {
+    setFormData((prev: any) => ({ ...prev, conta_id: prev.conta_id === id ? '' : id, cartao_id: '' }));
+  };
+
+  const toggleCartao = (id: number) => {
+    setFormData((prev: any) => ({ ...prev, cartao_id: prev.cartao_id === id ? '' : id, conta_id: '' }));
+  };
   
-  function openDrawer(l?: any) {
+  function openDrawer(l?: Lancamento) {
     if(l) {
       setIsEditing(true);
       setFormData({
@@ -207,25 +403,47 @@ export function Lancamentos() {
       setIsEditing(false);
       setFormData({
         id: null, descricao: '', valor_previsto: '', data_vencimento: new Date().toISOString().split('T')[0],
-        tipo: 'DESPESA', plano_contas_id: '', centro_custo_id: '', entidade_id: '', conta_id: '', cartao_id: '',
-        status: 'PENDENTE', valor_pago: '', data_pagamento: new Date().toISOString().split('T')[0], ipp: false, is_parcelado: false, qtd_parcelas: 2, modo_calculo: 'TOTAL'
+        tipo: 'DESPESA', plano_contas_id: '', 
+        centro_custo_id: centroCustoFiltro || '', 
+        entidade_id: '', conta_id: '', cartao_id: '',
+        status: 'PENDENTE', valor_pago: '', data_pagamento: new Date().toISOString().split('T')[0], ipp: false, 
+        is_parcelado: false, qtd_parcelas: 2, modo_calculo: 'TOTAL', anexos: []
       });
     }
     setFilesToUpload(null);
     setShowDrawer(true);
   }
 
-  // CRIAÇÃO DE ENTIDADE (Via Drawer)
+  // --- FUNÇÃO RECUPERADA (FIX) ---
   async function handleCreateEntity() {
     if(!newEntityData.nome) return alert("Digite o nome");
     setSaving(true);
     try {
-      const res = await api.post('/entidades/', newEntityData);
-      setEntidades([...entidades, res.data]);
-      setFormData({...formData, entidade_id: res.data.id}); // Auto-seleciona
+      const res = await api.post('/entidades/', {
+          ...newEntityData,
+          status: 'ATIVO'
+      });
+      setEntidades(prev => [...prev, res.data]);
+      setFormData((prev:any) => ({...prev, entidade_id: res.data.id}));
       setShowEntityDrawer(false); 
       setNewEntityData({ nome: '', tipo: 'AMBOS' });
     } catch(e) { alert("Erro ao criar entidade"); } finally { setSaving(false); }
+  }
+
+  async function handleTransferencia() {
+    if(!transferData.valor || !transferData.conta_origem_id || !transferData.conta_destino_id) return alert("Preencha campos obrigatórios.");
+    setSaving(true);
+    try {
+        await api.post('/lancamentos/transferir', {
+            ...transferData, 
+            valor: parseFloat(transferData.valor),
+            plano_contas_id: transferData.plano_contas_id ? parseInt(transferData.plano_contas_id) : null,
+            centro_custo_id: transferData.centro_custo_id ? parseInt(transferData.centro_custo_id) : null
+        });
+        alert("Transferência realizada!");
+        setShowTransfer(false);
+        loadLancamentos();
+    } catch(e) { alert("Erro na transferência."); } finally { setSaving(false); }
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -247,7 +465,6 @@ export function Lancamentos() {
 
       let id = formData.id;
       if (formData.is_parcelado && !id) {
-        // Parcelamento (Bulk)
         const lista = [];
         const qtd = formData.qtd_parcelas;
         const [ano, mes, dia] = formData.data_vencimento.split('-').map(Number);
@@ -257,7 +474,7 @@ export function Lancamentos() {
           const dt = new Date(ano, (mes-1)+i, dia);
           lista.push({
             ...payload, valor_previsto: val, data_vencimento: dt.toISOString().split('T')[0],
-            descricao: `${payload.descricao} (${i+1}/${qtd})`, numero_parcela: `${i+1}/${qtd}`,
+            descricao: `${payload.descricao} (${i+1}/${qtd})`, numero_parcela: i+1,
             status: (i===0 && payload.status==='PAGO') ? 'PAGO' : 'PENDENTE',
             valor_pago: (i===0 && payload.status==='PAGO') ? payload.valor_pago : 0
           });
@@ -273,105 +490,273 @@ export function Lancamentos() {
           await api.post(`/lancamentos/${id}/anexos`, fd);
         }
       }
-      setShowDrawer(false); loadLancamentos();
+      setShowDrawer(false); 
+      // Recarrega inteligente
+      if(filtrosAvancados.dataInicio) loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
+      else { const ano = mesAtual.getFullYear(); const mes = mesAtual.getMonth() + 1; loadLancamentos(new Date(ano, mes-1, 1).toISOString().split('T')[0], new Date(ano, mes, 0).toISOString().split('T')[0]); }
     } catch(e) { alert("Erro ao salvar"); } finally { setSaving(false); }
   }
 
-  // --- PREPARAÇÃO DE DADOS PARA O SEARCHABLE SELECT (AGRUPADO) ---
+  // --- RENDER HELPERS ---
+  const getFileIcon = (nome: string) => {
+      const ext = nome.split('.').pop()?.toLowerCase();
+      if(['jpg','jpeg','png'].includes(ext||'')) return <ImageIcon className="w-4 h-4 text-purple-400"/>;
+      if(['xls','xlsx','csv'].includes(ext||'')) return <FileSpreadsheet className="w-4 h-4 text-emerald-400"/>;
+      if(['ppt','pptx'].includes(ext||'')) return <Presentation className="w-4 h-4 text-orange-400"/>;
+      return <FileText className="w-4 h-4 text-blue-400"/>;
+  };
+
+  // Normaliza o tipo da categoria para primeira letra (R/D) para lidar com dados "Receita/Despesa"
   const catOptions = [
-    { label: 'DESPESAS', options: categorias.filter(c=>c.tipo==='D').map(c=>({id:c.id, label:c.nome})) },
-    { label: 'RECEITAS', options: categorias.filter(c=>c.tipo==='R').map(c=>({id:c.id, label:c.nome})) }
+    { label: 'DESPESAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('D')).map(c=>({id:c.id, label:c.nome})) },
+    { label: 'RECEITAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('R')).map(c=>({id:c.id, label:c.nome})) }
   ];
 
   return (
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 overflow-hidden relative">
       
-      {/* HEADER */}
-      <header className="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center z-20 shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="flex bg-slate-700 rounded-lg p-1">
-            <button onClick={()=>setMesAtual(new Date(mesAtual.setMonth(mesAtual.getMonth()-1)))} className="p-1.5 hover:bg-slate-600 rounded-md text-slate-300"><ChevronLeft className="w-4 h-4"/></button>
+      {/* 1. TOP HEADER */}
+      <header className="bg-slate-800 border-b border-slate-700 p-4 flex flex-col md:flex-row justify-between items-center gap-4 z-20 shadow-md">
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="flex bg-slate-700 rounded-lg p-1 shadow-inner">
+            <button onClick={()=>setMesAtual(new Date(mesAtual.setMonth(mesAtual.getMonth()-1)))} className="p-1.5 hover:bg-slate-600 rounded-md text-slate-300 transition-colors"><ChevronLeft className="w-4 h-4"/></button>
             <span className="w-32 text-center text-xs font-bold uppercase pt-1 text-white">{mesAtual.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</span>
-            <button onClick={()=>setMesAtual(new Date(mesAtual.setMonth(mesAtual.getMonth()+1)))} className="p-1.5 hover:bg-slate-600 rounded-md text-slate-300"><ChevronRight className="w-4 h-4"/></button>
+            <button onClick={()=>setMesAtual(new Date(mesAtual.setMonth(mesAtual.getMonth()+1)))} className="p-1.5 hover:bg-slate-600 rounded-md text-slate-300 transition-colors"><ChevronRight className="w-4 h-4"/></button>
           </div>
-          <button onClick={loadLancamentos} className="p-2 text-slate-400 hover:text-blue-400 border border-slate-600 rounded-lg"><RefreshCw className={`w-4 h-4 ${loading?'animate-spin':''}`}/></button>
+          <button onClick={()=>loadLancamentos()} className="p-2 text-slate-400 hover:text-blue-400 border border-slate-600 rounded-lg hover:border-blue-500 transition-colors"><RefreshCw className={`w-4 h-4 ${loading?'animate-spin':''}`}/></button>
         </div>
 
-        <div className="relative w-96">
-          <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500"/>
-          <input type="text" placeholder="Pesquisar lançamentos..." className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-600 bg-slate-900 text-sm text-white focus:ring-2 focus:ring-blue-600 outline-none transition" value={filtroTexto} onChange={e=>setFiltroTexto(e.target.value)}/>
+        <div className="flex-1 w-full flex gap-2 items-center">
+            <div className="relative flex-1">
+                <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500"/>
+                <input type="text" placeholder="Pesquisar..." className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-600 bg-slate-900 text-sm text-white focus:ring-2 focus:ring-blue-600 outline-none transition" value={filtroTexto} onChange={e=>setFiltroTexto(e.target.value)}/>
+            </div>
+            <div className="w-48 hidden md:block">
+                <select className="w-full p-2 rounded-lg border border-slate-600 bg-slate-900 text-sm text-white outline-none focus:border-blue-500" value={centroCustoFiltro} onChange={e=>setCentroCustoFiltro(e.target.value)}>
+                    <option value="">Todos Centros</option>
+                    {centros.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
+                </select>
+            </div>
         </div>
 
-        <div className="flex gap-2">
-          <button onClick={()=>setShowTransfer(true)} className="px-4 py-2 border border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-700 flex gap-2 text-slate-300"><ArrowRightLeft className="w-4 h-4"/> Transferir</button>
-          <button onClick={()=>setShowFiltros(true)} className="px-4 py-2 border border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-700 flex gap-2 text-slate-300"><Filter className="w-4 h-4"/> Filtros</button>
-          <button onClick={()=>openDrawer()} className="px-5 py-2 rounded-lg shadow-lg text-white font-bold text-sm flex gap-2 hover:opacity-90 transition bg-blue-600 hover:bg-blue-500"><Plus className="w-4 h-4"/> Novo</button>
+        <div className="flex gap-2 w-full md:w-auto">
+          <button onClick={()=>setShowTransfer(true)} className="px-3 py-2 border border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-700 flex items-center gap-2 text-slate-300 transition-all"><ArrowRightLeft className="w-4 h-4"/> <span className="hidden lg:inline">Transf.</span></button>
+          <button onClick={()=>setShowFiltrosSidebar(true)} className={`px-3 py-2 border border-slate-600 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${showFiltrosSidebar ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-slate-700 text-slate-300'}`}><Filter className="w-4 h-4"/> <span className="hidden lg:inline">Filtros</span></button>
+          <button onClick={()=>openDrawer()} className="px-5 py-2 rounded-lg shadow-lg text-white font-bold text-sm flex gap-2 hover:brightness-110 transition bg-blue-600 hover:bg-blue-500"><Plus className="w-4 h-4"/> Novo</button>
         </div>
       </header>
 
-      {/* FILTROS RÁPIDOS */}
-      <div className="px-6 py-3 border-b border-slate-800 flex gap-2 overflow-x-auto bg-slate-900">
-        {['TODOS','ATRASADO','HOJE','IPP'].map(t=>(
-          <button key={t} onClick={()=>setFiltroRapido(t as any)} className={`px-3 py-1 rounded-full text-xs font-bold border transition flex items-center gap-1 ${filtroRapido===t?'bg-blue-900/30 border-blue-500 text-blue-400':'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}>
-            {t==='ATRASADO'&&<AlertCircle className="w-3 h-3"/>}{t==='HOJE'&&<Calendar className="w-3 h-3"/>}{t}
-          </button>
-        ))}
+      {/* 2. KPI SECTION */}
+      <div className="px-6 pt-6 pb-2 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-600"><div className="text-emerald-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Receitas</p><p className="text-2xl font-black">{BRL.format(kpis.r)}</p></div><div className="p-2 bg-emerald-900/20 rounded-lg"><TrendingUp className="text-emerald-400 w-6 h-6"/></div></div>
+        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-600"><div className="text-red-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Despesas</p><p className="text-2xl font-black">{BRL.format(kpis.d)}</p></div><div className="p-2 bg-red-900/20 rounded-lg"><TrendingDown className="text-red-400 w-6 h-6"/></div></div>
+        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-600"><div className="text-blue-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Saldo</p><p className="text-2xl font-black">{BRL.format(kpis.s)}</p></div><div className="p-2 bg-blue-900/20 rounded-lg"><Wallet className="text-blue-400 w-6 h-6"/></div></div>
       </div>
 
-      {/* KPIS */}
-      <div className="p-6 grid grid-cols-3 gap-4">
-        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex justify-between items-center"><div className="text-emerald-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Receitas</p><p className="text-2xl font-black">{BRL.format(kpis.r)}</p></div><div className="p-2 bg-emerald-900/20 rounded-lg"><TrendingUp className="text-emerald-400 w-6 h-6"/></div></div>
-        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex justify-between items-center"><div className="text-red-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Despesas</p><p className="text-2xl font-black">{BRL.format(kpis.d)}</p></div><div className="p-2 bg-red-900/20 rounded-lg"><TrendingDown className="text-red-400 w-6 h-6"/></div></div>
-        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex justify-between items-center"><div className="text-blue-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Saldo</p><p className="text-2xl font-black">{BRL.format(kpis.s)}</p></div><div className="p-2 bg-blue-900/20 rounded-lg"><Wallet className="text-blue-400 w-6 h-6"/></div></div>
+      {/* 3. FILTROS RÁPIDOS */}
+      <div className="px-6 py-2 flex gap-2 overflow-x-auto custom-scrollbar pb-4">
+         {[
+             {id: null, label: 'Todos'}, 
+             {id: 'HOJE', label: 'Vencem Hoje', icon: CalendarClock},
+             {id: 'ATRASADO', label: 'Atrasados', icon: AlertCircle},
+             {id: 'IPP', label: 'IPP', icon: LayoutGrid},
+             {id: 'EM_ABERTO', label: 'Em Aberto', icon: Layers}
+         ].map(f => (
+             <button key={String(f.id)} onClick={()=>setFiltroRapido(f.id as any)} 
+                className={`px-3 py-1.5 rounded-full text-xs font-bold border transition flex items-center gap-1.5 whitespace-nowrap 
+                ${filtroRapido===f.id ? 'bg-blue-600 text-white border-blue-500 shadow-md' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}>
+                {f.icon && <f.icon className="w-3 h-3"/>} {f.label}
+             </button>
+         ))}
       </div>
 
-      {/* TABELA */}
+      {/* 4. LISTA AGRUPADA (COM DATA FIXA) */}
       <div className="flex-1 px-6 pb-20 overflow-y-auto custom-scrollbar">
-        <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-sm overflow-hidden">
-          <table className="w-full text-left">
-            <thead className="bg-slate-900/50 border-b border-slate-700 text-xs font-bold text-slate-400 uppercase">
-              <tr>
-                <th className="p-4 w-10 text-center"><input type="checkbox" className="rounded border-slate-600 bg-slate-800 accent-blue-600 cursor-pointer" onChange={e=>{if(e.target.checked) setSelectedIds(new Set(filteredList.map(l=>l.id))); else setSelectedIds(new Set())}} checked={selectedIds.size===filteredList.length && filteredList.length>0}/></th>
-                <th className="p-4 w-16 text-center">IPP</th>
-                <th className="p-4">Vencimento</th>
-                <th className="p-4">Descrição</th>
-                <th className="p-4">Entidade / Categoria</th>
-                <th className="p-4 text-right">Valor</th>
-                <th className="p-4 text-center">Status</th>
-                <th className="p-4 text-center">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm divide-y divide-slate-700">
-              {filteredList.map(l => (
-                <tr key={l.id} className={`hover:bg-slate-700/50 transition group ${selectedIds.has(l.id)?'bg-blue-900/10':''}`}>
-                  <td className="p-4 text-center"><input type="checkbox" className="rounded border-slate-600 bg-slate-800 accent-blue-600 cursor-pointer" checked={selectedIds.has(l.id)} onChange={()=>{const s=new Set(selectedIds); if(s.has(l.id)) s.delete(l.id); else s.add(l.id); setSelectedIds(s)}}/></td>
-                  <td className="p-4 text-center"><div className={`w-5 h-5 mx-auto rounded border flex items-center justify-center ${l.ipp?'bg-purple-600 border-purple-600 text-white':'border-slate-600 text-transparent'}`}><Check className="w-3 h-3"/></div></td>
-                  <td className="p-4 font-mono text-xs text-slate-400">{new Date(l.data_vencimento).toLocaleDateString('pt-BR')}</td>
-                  <td className="p-4 font-medium text-white flex gap-2 items-center">{l.descricao} {l.anexos?.length>0 && <FileText className="w-3 h-3 text-blue-400"/>}</td>
-                  <td className="p-4 text-xs"><div className="font-bold text-slate-300">{entidades.find(e=>e.id===l.entidade_id)?.nome}</div><div className="text-slate-500">{categorias.find(c=>c.id===l.plano_contas_id)?.nome}</div></td>
-                  <td className={`p-4 text-right font-bold ${l.tipo==='RECEITA'?'text-emerald-400':'text-red-400'}`}>{BRL.format(l.valor_previsto)}</td>
-                  <td className="p-4 text-center"><span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${l.status==='PAGO'?'bg-emerald-900/30 text-emerald-400':'bg-slate-700 text-slate-400'}`}>{l.status}</span></td>
-                  <td className="p-4 text-center"><div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100"><button onClick={()=>openDrawer(l)} className="p-1 text-blue-400 hover:bg-slate-700 rounded"><Edit2 className="w-4 h-4"/></button><button className="p-1 text-red-400 hover:bg-slate-700 rounded"><Trash2 className="w-4 h-4"/></button></div></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {grouped.sortedDates.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-64 text-slate-500 opacity-60">
+                <Search className="w-12 h-12 mb-2"/>
+                <p>Nenhum lançamento encontrado.</p>
+            </div>
+        ) : (
+            grouped.sortedDates.map(date => (
+                <div key={date} className="mb-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    <div className="flex items-center gap-4 mb-2 sticky top-0 bg-slate-900/95 backdrop-blur-sm z-10 py-2 border-b border-slate-800">
+                        <div className="px-3 py-1 bg-slate-800 rounded-lg border border-slate-700 text-sm font-bold text-slate-300 flex items-center gap-2 shadow-sm">
+                            <Calendar className="w-4 h-4 text-blue-500"/>
+                            {formatDateExtenso(date)}
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-sm overflow-hidden">
+                      <table className="w-full text-left">
+                        <thead className="bg-slate-900/40 text-[11px] uppercase font-bold text-slate-500">
+                          <tr>
+                            <th className="p-3 w-10 text-center">Sel</th>
+                            <th className="p-3 w-12 text-center">IPP</th>
+                            <th className="p-3">Descrição</th>
+                            <th className="p-3 hidden md:table-cell">Entidade / Categoria</th>
+                            <th className="p-3 text-right">Valor</th>
+                            <th className="p-3 text-center w-24">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="text-sm divide-y divide-slate-700">
+                          {grouped.groups[date].map(l => (
+                                    <tr key={l.id} onClick={() => openDrawer(l)} className={`hover:bg-slate-700/50 transition cursor-pointer group ${selectedIds.has(l.id)?'bg-blue-900/10':''}`}>
+                                        <td className="p-4 w-10 text-center" onClick={e=>e.stopPropagation()}><input type="checkbox" className="rounded border-slate-600 bg-slate-800 accent-blue-600 cursor-pointer" checked={selectedIds.has(l.id)} onChange={()=>{const s=new Set(selectedIds); if(s.has(l.id)) s.delete(l.id); else s.add(l.id); setSelectedIds(s)}}/></td>
+                                        <td className="p-4 w-12 text-center" onClick={(e)=>e.stopPropagation()} onMouseDown={(e)=>e.stopPropagation()}>
+                                          <button
+                                            type="button"
+                                            onMouseDown={(e)=>e.stopPropagation()}
+                                            onClick={(e)=>{e.stopPropagation(); toggleIpp(l);}}
+                                            className={`w-7 h-7 rounded border flex items-center justify-center transition pointer-events-auto ${l.ipp?'bg-purple-600 border-purple-600 text-white':'border-slate-600 text-slate-500 hover:border-purple-400'}`}
+                                            title="Marcar como IPP"
+                                            aria-pressed={l.ipp}
+                                          >
+                                            <Check className="w-3 h-3"/>
+                                          </button>
+                                        </td>
+                                        <td className="p-4 font-medium text-white">
+                                            <div className="flex items-center gap-2">{l.descricao} {l.anexos?.length > 0 && <Paperclip className="w-3 h-3 text-blue-400"/>}</div>
+                                            {l.numero_parcela && <span className="text-[10px] text-slate-500">Parcela {l.numero_parcela}</span>}
+                                        </td>
+                                        <td className="p-4 text-xs hidden md:table-cell">
+                                            <div className="font-bold text-slate-300">{entidades.find(e=>e.id===l.entidade_id)?.nome || '-'}</div>
+                                            <div className="text-slate-500">{categorias.find(c=>c.id===l.plano_contas_id)?.nome}</div>
+                                        </td>
+                                        <td className={`p-4 text-right font-bold ${l.tipo==='RECEITA'?'text-emerald-400':'text-red-400'}`}>{BRL.format(l.valor_previsto)}</td>
+                                        <td className="p-4 text-center w-24">
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${l.status==='PAGO'?'bg-emerald-900/20 text-emerald-400 border-emerald-900':'bg-slate-700/50 text-slate-400 border-slate-600'}`}>{l.status}</span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            ))
+        )}
+      </div>
+
+      {/* Barra flutuante de ações em lote */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+          <div className="pointer-events-auto flex items-center gap-3 px-4 py-2.5 rounded-full border border-slate-700/60 bg-slate-900/80 backdrop-blur-xl shadow-2xl">
+            <div className="px-3 py-1 rounded-full bg-blue-600/20 text-blue-300 text-xs font-bold border border-blue-500/30">
+              {selectedIds.size} selecionado(s)
+            </div>
+            <button onClick={()=>setShowBulkPay(true)} className="px-3 py-1.5 rounded-full bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-500 shadow flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5"/> Baixar
+            </button>
+            <button onClick={openBulkDelete} className="px-3 py-1.5 rounded-full bg-red-600 text-white text-xs font-bold hover:bg-red-500 shadow flex items-center gap-1.5">
+              <Trash2 className="w-3.5 h-3.5"/> Apagar
+            </button>
+            <button onClick={()=>setSelectedIds(new Set())} className="px-3 py-1.5 rounded-full bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 flex items-center gap-1.5">
+              <X className="w-3.5 h-3.5"/> Limpar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- SIDEBAR FILTROS (MULTI-SELECT + BOTOES CONTAS) --- */}
+      <div className={`fixed inset-y-0 right-0 w-80 bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-700 ${showFiltrosSidebar?'translate-x-0':'translate-x-full'}`}>
+        <div className="p-4 border-b border-slate-700 flex justify-between items-center"><h3 className="font-bold flex gap-2 text-white"><Filter className="w-4 h-4 text-blue-500"/> Filtros Avançados</h3><button onClick={()=>setShowFiltrosSidebar(false)}><X className="w-5 h-5 text-slate-400 hover:text-white"/></button></div>
+        <div className="p-4 space-y-6 overflow-y-auto h-[calc(100vh-60px)] custom-scrollbar">
+           
+           {/* Filtro Tipo */}
+           <div>
+               <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Tipo de Lançamento</label>
+               <div className="flex gap-2">
+                   {['TODOS','RECEITA','DESPESA'].map(t => (
+                       <button key={t} onClick={()=>setFiltrosAvancados(prev=>({...prev, tipo: t as any}))} 
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold border transition ${filtrosAvancados.tipo===t ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-600 text-slate-400 hover:bg-slate-700'}`}>
+                        {t}
+                       </button>
+                   ))}
+               </div>
+           </div>
+
+           <div>
+               <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Período Personalizado</label>
+               <div className="grid grid-cols-2 gap-2">
+                   <input type="date" className="bg-slate-900 border border-slate-600 rounded p-2 text-xs text-white" value={filtrosAvancados.dataInicio} onChange={e=>setFiltrosAvancados({...filtrosAvancados, dataInicio:e.target.value})} />
+                   <input type="date" className="bg-slate-900 border border-slate-600 rounded p-2 text-xs text-white" value={filtrosAvancados.dataFim} onChange={e=>setFiltrosAvancados({...filtrosAvancados, dataFim:e.target.value})} />
+               </div>
+           </div>
+
+           {/* Filtro Contas como Botões (Chips) */}
+           <div>
+               <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Contas / Bancos</label>
+               <div className="flex flex-wrap gap-2">
+                   {contas.map(c => {
+                       const active = filtrosAvancados.contaIds.has(c.id);
+                       return (
+                           <button key={c.id} onClick={()=>{
+                               const newSet = new Set(filtrosAvancados.contaIds);
+                               if(active) newSet.delete(c.id); else newSet.add(c.id);
+                               setFiltrosAvancados({...filtrosAvancados, contaIds:newSet});
+                           }} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1 ${active ? 'bg-emerald-600/20 text-emerald-400 border-emerald-600' : 'bg-slate-900 border-slate-600 text-slate-400 hover:bg-slate-700'}`}>
+                               <Wallet className="w-3 h-3"/> {c.nome}
+                           </button>
+                       );
+                   })}
+               </div>
+           </div>
+
+           <MultiSelectDropdown label="Categorias" placeholder="Selecione categorias..." options={categorias} selectedIds={filtrosAvancados.categoriaIds} onChange={(s:any)=>setFiltrosAvancados({...filtrosAvancados, categoriaIds:s})} />
+           
+           <button onClick={()=>{setFiltrosAvancados({tipo:'TODOS', status:[], contaIds:new Set(), categoriaIds:new Set(), dataInicio:'', dataFim:''}); setMesAtual(new Date());}} className="w-full py-2 border border-slate-600 rounded text-slate-300 hover:bg-slate-700 text-sm mt-4">Limpar Filtros</button>
         </div>
       </div>
 
-      {/* --- DRAWERS & MODALS --- */}
+      {/* --- MODAL TRANSFERÊNCIA (COMPLETO) --- */}
+      {showTransfer && (
+        <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setShowTransfer(false)}></div>
+            <div className="relative bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-slate-700 animate-scale-in">
+                <h3 className="font-bold text-lg mb-4 text-white flex items-center gap-2"><ArrowRightLeft className="w-5 h-5 text-blue-500"/> Nova Transferência</h3>
+                <div className="space-y-4">
+                    <InputDark label="Valor (R$)" type="number" step="0.01" value={transferData.valor} onChange={(e:any)=>setTransferData({...transferData, valor:e.target.value})} />
+                    <InputDark label="Data" type="date" value={transferData.data} onChange={(e:any)=>setTransferData({...transferData, data:e.target.value})} />
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-slate-400 uppercase">De (Origem)</label>
+                            <select className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white text-sm" value={transferData.conta_origem_id} onChange={e=>setTransferData({...transferData, conta_origem_id:e.target.value})}>
+                                <option value="">Selecione...</option>
+                                {contas.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-400 uppercase">Para (Destino)</label>
+                            <select className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white text-sm" value={transferData.conta_destino_id} onChange={e=>setTransferData({...transferData, conta_destino_id:e.target.value})}>
+                                <option value="">Selecione...</option>
+                                {contas.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
+                            </select>
+                        </div>
+                    </div>
 
-      {/* FILTROS (DIREITA) */}
-      <div className={`fixed inset-y-0 right-0 w-80 bg-slate-800 shadow-2xl z-50 transform transition-transform duration-300 border-l border-slate-700 ${showFiltros?'translate-x-0':'translate-x-full'}`}>
-        <div className="p-4 border-b border-slate-700 flex justify-between items-center"><h3 className="font-bold flex gap-2 text-white"><Filter className="w-4 h-4 text-blue-500"/> Filtros</h3><button onClick={()=>setShowFiltros(false)}><X className="w-5 h-5 text-slate-400 hover:text-white"/></button></div>
-        <div className="p-4 space-y-4">
-           {/* Conteúdo dos filtros... Simplificado */}
-           <div className="p-4 text-center text-slate-500">Implementar filtros avançados aqui</div>
+                    <SearchableSelect label="Categoria (Classificação)" placeholder="Selecione..." options={catOptions} value={transferData.plano_contas_id} onChange={(id:any)=>setTransferData({...transferData, plano_contas_id:id})} />
+                    
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase mb-1">Centro de Custo</label>
+                        <select className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white text-sm" value={transferData.centro_custo_id} onChange={e=>setTransferData({...transferData, centro_custo_id:e.target.value})}>
+                            <option value="">Opcional</option>
+                            {centros.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
+                        </select>
+                    </div>
+
+                    <InputDark label="Observação" value={transferData.observacao} onChange={(e:any)=>setTransferData({...transferData, observacao:e.target.value})} />
+                </div>
+                <div className="flex gap-2 mt-6">
+                    <button onClick={() => setShowTransfer(false)} className="flex-1 py-3 text-slate-400 font-bold hover:bg-slate-700 rounded-lg transition">Cancelar</button>
+                    <button onClick={handleTransferencia} disabled={saving} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 shadow-lg transition">{saving?'Enviando...':'Confirmar'}</button>
+                </div>
+            </div>
         </div>
-      </div>
+      )}
 
-      {/* DRAWER ENTIDADE (DIREITA - SIDEBAR DE CRIAÇÃO) */}
-      <div className={`fixed inset-y-0 right-0 w-80 bg-slate-800 shadow-2xl z-[60] transform transition-transform duration-300 border-l border-slate-700 ${showEntityDrawer?'translate-x-0':'translate-x-full'}`}>
+      {/* DRAWER ENTIDADE */}
+      <div className={`fixed inset-y-0 right-0 w-80 bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-700 ${showEntityDrawer?'translate-x-0':'translate-x-full'}`}>
         <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800">
             <h3 className="font-bold text-white flex items-center gap-2"><User className="w-4 h-4 text-blue-500"/> Nova Entidade</h3>
             <button onClick={()=>setShowEntityDrawer(false)}><X className="w-5 h-5 text-slate-400 hover:text-white"/></button>
@@ -386,7 +771,7 @@ export function Lancamentos() {
         </div>
       </div>
 
-      {/* DRAWER NOVO/EDITAR (DIREITA - PRINCIPAL) */}
+      {/* DRAWER NOVO/EDITAR */}
       {showDrawer && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={()=>setShowDrawer(false)}></div>
@@ -405,7 +790,7 @@ export function Lancamentos() {
                 <InputDark label="Valor (R$)" type="number" step="0.01" className="font-bold text-lg text-blue-400" value={formData.valor_previsto} onChange={(e:any)=>setFormData({...formData, valor_previsto:e.target.value})} />
               </div>
 
-              {/* PAGAMENTO (CHECKBOX + CAMPOS) */}
+              {/* PAGAMENTO */}
               <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
                 <label className="flex items-center gap-3 cursor-pointer select-none mb-3">
                   <input type="checkbox" className="w-5 h-5 rounded border-slate-600 bg-slate-800 accent-blue-600" checked={formData.status==='PAGO'} onChange={e=>setFormData({...formData, status:e.target.checked?'PAGO':'PENDENTE'})}/>
@@ -441,13 +826,11 @@ export function Lancamentos() {
                 </div>
               </div>
 
-              {/* SELEÇÃO DE ORIGEM (CARDS AZUIS ESCUROS) */}
+              {/* ORIGEM DO RECURSO (COM FILTRAGEM INTELIGENTE) */}
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Origem do Recurso</label>
-                
-                {/* Filtro Centro Custo */}
                 <div className="mb-3">
-                    <select className="w-full p-2 text-xs rounded border border-slate-600 bg-slate-800 text-slate-300 outline-none" value={formData.centro_custo_id} onChange={e=>setFormData({...formData, centro_custo_id:e.target.value})}>
+                    <select className="w-full p-2 text-xs rounded border border-slate-600 bg-slate-800 text-slate-300 outline-none" value={formData.centro_custo_id} onChange={e=>setFormData({...formData, centro_custo_id:e.target.value, conta_id: '', cartao_id: ''})}>
                         <option value="">Todos os Centros de Custo</option>
                         {centros.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
                     </select>
@@ -458,8 +841,9 @@ export function Lancamentos() {
                   <div>
                     <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><Wallet className="w-3 h-3"/> Contas Bancárias</p>
                     <div className="grid grid-cols-2 gap-2">
-                      {contas.filter(c=>!formData.centro_custo_id || String(c.centro_custo_id)===String(formData.centro_custo_id)).map(c=>(
-                        <div key={c.id} onClick={()=>setFormData({...formData, conta_id:c.id, cartao_id:''})} className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${formData.conta_id===c.id ? 'bg-blue-600 text-white border-blue-500 shadow-md' : 'bg-slate-800 border-slate-600 text-slate-300 hover:border-slate-500'}`}>
+                      {contas.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).length === 0 && <span className="text-xs text-slate-500 italic col-span-2">Nenhuma conta neste centro.</span>}
+                      {contas.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).map(c=>(
+                        <div key={c.id} onClick={()=>toggleConta(c.id)} className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${formData.conta_id===c.id ? 'bg-blue-600 text-white border-blue-500 shadow-md' : 'bg-slate-800 border-slate-600 text-slate-300 hover:border-slate-500'}`}>
                           <div className={`p-1 rounded ${formData.conta_id===c.id?'bg-white/20':'bg-slate-700 text-emerald-400'}`}><Wallet className="w-3 h-3"/></div> {c.nome}
                         </div>
                       ))}
@@ -469,8 +853,9 @@ export function Lancamentos() {
                   <div>
                     <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><CreditCard className="w-3 h-3"/> Cartões de Crédito</p>
                     <div className="grid grid-cols-2 gap-2">
-                      {cartoes.filter(c=>!formData.centro_custo_id || String(c.centro_custo_id)===String(formData.centro_custo_id)).map(c=>(
-                        <div key={c.id} onClick={()=>setFormData({...formData, cartao_id:c.id, conta_id:''})} className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${formData.cartao_id===c.id ? 'bg-purple-600 text-white border-purple-500 shadow-md' : 'bg-slate-800 border-slate-600 text-slate-300 hover:border-slate-500'}`}>
+                      {cartoes.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).length === 0 && <span className="text-xs text-slate-500 italic col-span-2">Nenhum cartão neste centro.</span>}
+                      {cartoes.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).map(c=>(
+                        <div key={c.id} onClick={()=>toggleCartao(c.id)} className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${formData.cartao_id===c.id ? 'bg-purple-600 text-white border-purple-500 shadow-md' : 'bg-slate-800 border-slate-600 text-slate-300 hover:border-slate-500'}`}>
                           <div className={`p-1 rounded ${formData.cartao_id===c.id?'bg-white/20':'bg-slate-700 text-purple-400'}`}><CreditCard className="w-3 h-3"/></div> {c.nome_cartao}
                         </div>
                       ))}
@@ -482,11 +867,25 @@ export function Lancamentos() {
               {/* ANEXOS */}
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Anexos</label>
-                <div className="border-2 border-dashed border-slate-600 rounded-xl p-6 text-center hover:border-blue-500 relative cursor-pointer bg-slate-800/30 hover:bg-slate-800 transition">
-                  <input type="file" multiple className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={e=>setFilesToUpload(e.target.files)}/>
-                  <UploadCloud className="w-8 h-8 mx-auto text-slate-500 mb-2"/>
-                  <p className="text-sm font-medium text-slate-400">Clique para selecionar arquivos</p>
-                  {filesToUpload && <p className="text-xs text-blue-400 font-bold mt-2">{filesToUpload.length} arquivos selecionados</p>}
+                
+                {formData.anexos && formData.anexos.length > 0 && (
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                        {formData.anexos.map((anexo: Anexo) => (
+                            <div key={anexo.id} className="flex items-center gap-2 p-2 bg-slate-800 border border-slate-600 rounded-lg text-xs group hover:border-blue-500 transition">
+                                {getFileIcon(anexo.nome_arquivo)}
+                                <a href={anexo.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate hover:text-blue-400 font-medium">{anexo.nome_arquivo}</a>
+                                <a href={anexo.url} download target="_blank" className="p-1 text-slate-500 hover:text-white rounded hover:bg-slate-700"><Download className="w-3 h-3"/></a>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                <div className="border-2 border-dashed border-slate-600 rounded-xl p-6 text-center hover:border-blue-500 relative cursor-pointer bg-slate-800/30 hover:bg-slate-800 transition group">
+                  <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.xls,.xlsx,.ppt,.pptx" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={e=>setFilesToUpload(e.target.files)}/>
+                  <UploadCloud className="w-8 h-8 mx-auto text-slate-500 mb-2 group-hover:text-blue-500 transition-colors"/>
+                  <p className="text-sm font-medium text-slate-400">Arraste ou clique para anexar</p>
+                  <p className="text-[10px] text-slate-500 mt-1">PDF, Imagens, Excel, PowerPoint</p>
+                  {filesToUpload && <p className="text-xs text-blue-400 font-bold mt-2">{filesToUpload.length} novos arquivos</p>}
                 </div>
               </div>
 
@@ -494,6 +893,128 @@ export function Lancamentos() {
             <div className="p-4 border-t border-slate-700 bg-slate-800 flex justify-end gap-3">
               <button onClick={()=>setShowDrawer(false)} className="px-5 py-2.5 rounded-lg text-slate-400 font-bold hover:bg-slate-700 transition">Cancelar</button>
               <button onClick={handleSave} disabled={saving} className="px-8 py-2.5 rounded-lg text-white font-bold shadow-lg flex items-center gap-2 hover:brightness-110 disabled:opacity-50" style={{backgroundColor:primaryColor}}>{saving?<Loader2 className="animate-spin w-4 h-4"/>:<Check className="w-4 h-4"/>} Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL BAIXA EM LOTE */}
+      {showBulkPay && (
+        <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={()=>setShowBulkPay(false)}></div>
+          <div className="relative bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-slate-700">
+            <h3 className="font-bold text-lg mb-4 text-white">Baixar selecionados</h3>
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-bold text-slate-400 uppercase mb-2">Conta de pagamento</p>
+                <select className="w-full p-3 rounded-lg border border-slate-600 bg-slate-900 text-white" value={bulkPayData.conta_id} onChange={e=>setBulkPayData({...bulkPayData, conta_id: e.target.value})}>
+                  <option value="">Selecionar...</option>
+                  {contas.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
+                </select>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-400 uppercase mb-2">Data de pagamento</p>
+                <div className="flex flex-col gap-2 text-sm text-white">
+                  {[
+                    {id:'HOJE', label:'Hoje'},
+                    {id:'ONTEM', label:'Ontem'},
+                    {id:'OUTRO', label:'Outro dia'},
+                  ].map(opt=>(
+                    <label key={opt.id} className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" name="bulk-date" checked={bulkPayData.modoData===opt.id} onChange={()=>setBulkPayData({...bulkPayData, modoData: opt.id})} className="accent-blue-500" />
+                      <span>{opt.label}</span>
+                    </label>
+                  ))}
+                  {bulkPayData.modoData==='OUTRO' && (
+                    <input type="date" className="mt-1 p-2 rounded border border-slate-600 bg-slate-900 text-white" value={bulkPayData.data} onChange={e=>setBulkPayData({...bulkPayData, data:e.target.value})}/>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button onClick={()=>setShowBulkPay(false)} className="flex-1 py-3 text-slate-400 font-bold hover:bg-slate-700 rounded-lg transition">Cancelar</button>
+              <button onClick={handleBulkPay} disabled={saving} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 shadow-lg transition">{saving?'Enviando...':'Confirmar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL APAGAR EM LOTE (3 ETAPAS) */}
+      {showBulkDelete && (
+        <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={()=>setShowBulkDelete(false)}></div>
+          <div className="relative bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-lg text-white flex items-center gap-2"><Trash2 className="w-5 h-5 text-red-400"/> Apagar selecionados</h3>
+              <div className="text-[11px] text-slate-400">Etapa {deleteStep} de 3</div>
+            </div>
+
+            {deleteStep === 1 && (
+              <div className="space-y-4">
+                <div className="p-3 rounded-lg bg-red-900/20 border border-red-800 text-red-200 text-sm">
+                  Você está prestes a apagar <strong>{selectedIds.size}</strong> lançamento(s). Esta ação é irreversível.
+                </div>
+                <div className="text-xs text-slate-400">
+                  Confirme que deseja continuar.
+                </div>
+              </div>
+            )}
+
+            {deleteStep === 2 && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Motivo</label>
+                  <select className="w-full p-3 rounded-lg border border-slate-600 bg-slate-900 text-white" value={deleteReason} onChange={e=>setDeleteReason(e.target.value)}>
+                    <option value="">Selecionar...</option>
+                    <option value="DUPLICADO">Duplicado</option>
+                    <option value="LANCAMENTO_INCORRETO">Lançamento incorreto</option>
+                    <option value="CANCELADO">Cancelado</option>
+                    <option value="OUTRO">Outro</option>
+                  </select>
+                </div>
+                <div className="text-xs text-slate-400">Selecione um motivo para prosseguir.</div>
+              </div>
+            )}
+
+            {deleteStep === 3 && (
+              <div className="space-y-4">
+                <div className="p-3 rounded-lg bg-red-900/20 border border-red-800 text-red-200 text-sm">
+                  Digite <strong>APAGAR</strong> para confirmar a exclusão.
+                </div>
+                <input
+                  type="text"
+                  value={deletePhrase}
+                  onChange={e=>setDeletePhrase(e.target.value)}
+                  placeholder="Digite APAGAR"
+                  className="w-full p-3 rounded-lg border border-slate-600 bg-slate-900 text-white"
+                />
+                <div className="text-xs text-slate-400">Motivo: {deleteReason || '—'}</div>
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-6">
+              <button onClick={()=>setShowBulkDelete(false)} className="flex-1 py-3 text-slate-400 font-bold hover:bg-slate-700 rounded-lg transition">Cancelar</button>
+              {deleteStep > 1 && (
+                <button onClick={()=>setDeleteStep(prev=>Math.max(1, prev-1))} className="flex-1 py-3 bg-slate-700 text-white font-bold rounded-lg hover:bg-slate-600 transition">Voltar</button>
+              )}
+              {deleteStep < 3 && (
+                <button
+                  onClick={()=>setDeleteStep(prev=>Math.min(3, prev+1))}
+                  disabled={deleteStep === 2 && !deleteReason}
+                  className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 shadow-lg transition disabled:opacity-50"
+                >
+                  Continuar
+                </button>
+              )}
+              {deleteStep === 3 && (
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={deletePhrase.trim() !== 'APAGAR' || saving}
+                  className="flex-1 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-500 shadow-lg transition disabled:opacity-50"
+                >
+                  {saving ? 'Apagando...' : 'Apagar agora'}
+                </button>
+              )}
             </div>
           </div>
         </div>

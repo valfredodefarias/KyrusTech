@@ -12,7 +12,8 @@ from app.api.v1.endpoints import (
     centro_custo, 
     consultor,
     integracao_bancaria,
-    anexos # <--- FALTAVA ISSO AQUI (Importação)
+    anexos,
+    importacao_itau  # <--- IMPORTAÇÃO DO ENDPOINT DE IMPORTAÇÃO
 )
 
 api_router = APIRouter()
@@ -37,4 +38,7 @@ api_router.include_router(consultor.router, prefix="/consultor", tags=["Consulto
 api_router.include_router(integracao_bancaria.router, prefix="/integracoes-bancarias", tags=["Integrações"])
 
 # --- UPLOAD DE ARQUIVOS ---
-api_router.include_router(anexos.router, prefix="/anexos", tags=["Anexos"]) # <--- FALTAVA ISSO AQUI (Rota)
+api_router.include_router(anexos.router, prefix="/anexos", tags=["Anexos"])
+
+# --- IMPORTAÇÃO DE ARQUIVOS BANCÁRIOS ---
+api_router.include_router(importacao_itau.router, prefix="/importacao", tags=["Importação Itaú"])

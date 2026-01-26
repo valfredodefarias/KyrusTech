@@ -21,7 +21,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def create_consultor(email: str = "consultor@kyruserp.com", password: str = "consultor123"):
+def create_consultor(
+    email: str = "consultor@kyrustech.com",
+    password: str = "consultor123",
+    nome: str = "Consultor Interno"
+):
     """
     Cria um usuário consultor interno.
     Consultores têm acesso a todas as empresas.
@@ -41,6 +45,8 @@ def create_consultor(email: str = "consultor@kyruserp.com", password: str = "con
                 else:
                     # Atualizar para consultor
                     logger.info(f"[INFO] Convertendo usuario '{email}' para consultor...")
+                    if not getattr(usuario_existente, "nome", None):
+                        usuario_existente.nome = nome
                     usuario_existente.is_consultor = True
                     session.add(usuario_existente)
                     session.commit()
@@ -59,10 +65,12 @@ def create_consultor(email: str = "consultor@kyruserp.com", password: str = "con
             hashed_password = get_password_hash(password)
             
             consultor = Usuario(
+                nome=nome,
                 email=email,
                 hashed_password=hashed_password,
                 is_active=True,
                 is_consultor=True,
+                consultor_role="CONSULTOR",  # Consultor normal
                 empresa_id=primeira_empresa.id  # Empresa padrão (pode trocar depois)
             )
             session.add(consultor)
@@ -97,16 +105,19 @@ def create_consultor(email: str = "consultor@kyruserp.com", password: str = "con
 if __name__ == "__main__":
     import sys
     
-    email = "consultor@kyruserp.com"
+    email = "consultor@kyrustech.com"
     password = "consultor123"
+    nome = "Consultor Interno"
     
     if len(sys.argv) > 1:
         email = sys.argv[1]
     if len(sys.argv) > 2:
         password = sys.argv[2]
+    if len(sys.argv) > 3:
+        nome = sys.argv[3]
     
     try:
-        consultor = create_consultor(email, password)
+        consultor = create_consultor(email, password, nome)
         if consultor:
             print("[SUCESSO] Consultor criado com sucesso!")
         else:

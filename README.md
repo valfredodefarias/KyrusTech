@@ -1,4 +1,4 @@
-# 📘 Kyrus ERP - Arquitetura Escalável v4.0
+# 📘 KyrusTech - Arquitetura Escalável v4.0
 
 Este projeto foi configurado com paridade de ambientes em mente, utilizando Docker para garantir que o desenvolvimento seja o mais próximo possível da produção.
 
@@ -45,5 +45,5 @@ docker compose up -d
 - `docker compose down`: Para os serviços e remove os containers.
 - `docker compose logs -f db`: Vê os logs do banco de dados em tempo real.    
 
-consultor@kyruserp.com
-Senha: consultor123                         
+consultor@kyrustech.com
+Senha: consultor123

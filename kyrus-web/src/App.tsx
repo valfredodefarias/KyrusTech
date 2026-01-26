@@ -11,6 +11,7 @@ import { Importacao } from './pages/Importacao';
 import { Lancamentos } from './pages/Lancamentos';
 import { Entidades } from './pages/Entidades';
 import { Cartoes } from './pages/Cartoes';
+import { Configuracoes } from './pages/Configuracoes'; // <--- NOVO IMPORT
 
 // Components & Store
 import { Layout } from './components/Layout';
@@ -32,15 +33,22 @@ function App() {
         <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
           <Route path="/home" element={<Home />} />
           <Route path="/consultor" element={<Consultor />} />
-          <Route path="/contas" element={<Contas />} />
-          <Route path="/centro-custo" element={<CentroCusto />} />
-          <Route path="/lancamentos" element={<Lancamentos />} />
-          <Route path="/importacao" element={<Importacao />} />
-          <Route path="/entidades" element={<Entidades />} />
-          <Route path="/cartoes" element={<Cartoes />} />
           
-          {/* Placeholder para Dashboard (ainda não criamos) */}
+          <Route path="/lancamentos" element={<Lancamentos />} />
+          <Route path="/entidades" element={<Entidades />} />
+          
+          {/* Financeiro / Cadastros */}
+          <Route path="/contas" element={<Contas />} />
+          <Route path="/cartoes" element={<Cartoes />} />
+          <Route path="/centro-custo" element={<CentroCusto />} />
+          
+          {/* Sistema */}
+          <Route path="/config" element={<Configuracoes />} /> {/* <--- NOVA ROTA */}
+          <Route path="/importacao" element={<Importacao />} /> {/* Mantido para acesso direto se precisar */}
+          
+          {/* Placeholder para Dashboard */}
           <Route path="/dashboard" element={<div>Em breve: Dashboard</div>} />
+          <Route path="/integracoes" element={<div>Em breve: Integrações</div>} />
         </Route>
 
         {/* Fallback: Qualquer rota desconhecida vai para Home */}

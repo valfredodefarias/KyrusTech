@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: kyrustech_db_prod
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-kyrus_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
+      - POSTGRES_DB=${POSTGRES_DB:-kyrus_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kyrus_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kyrustech_network
+    profiles:
+      - prod
+
+  backend:
+    build: .
+    container_name: kyrustech_backend_prod
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - PROJECT_NAME=${PROJECT_NAME:-KyrusTech}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production-env}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      - ALGORITHM=${ALGORITHM:-HS256}
+      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-*}
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_USER=${POSTGRES_USER:-kyrus_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
+      - POSTGRES_DB=${POSTGRES_DB:-kyrus_db}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME:-}
+      - AWS_S3_REGION=${AWS_S3_REGION:-}
+    volumes:
+      - ./static:/app/static
+    networks:
+      - kyrustech_network
+    profiles:
+      - prod
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+
+  nginx:
+    image: nginx:alpine
+    container_name: kyrustech_nginx_prod
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./static:/app/static:ro
+      - ./kyrus-web/dist:/usr/share/nginx/html:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - backend
+    networks:
+      - kyrustech_network
+    profiles:
+      - prod
+
+networks:
+  kyrustech_network:
+    driver: bridge
+
+volumes:
+  postgres_data:

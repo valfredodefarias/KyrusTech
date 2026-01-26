@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { 
   Landmark, RefreshCw, Plus, Edit2, Trash2, ChevronRight, X, Check, Loader2, 
@@ -10,6 +10,7 @@ interface Conta {
   id: number;
   nome: string;
   banco?: string;
+  logo_url?: string | null;
   tipo: 'CORRENTE' | 'POUPANCA' | 'CAIXA' | 'INVESTIMENTO';
   saldo_inicial: number;
   saldo_atual: number;
@@ -37,6 +38,7 @@ interface FormConta {
   saldo_inicial: string; 
   centro_custo_id: string;
   status: string;
+  logo_url?: string | null;
 }
 
 interface UserData {
@@ -65,6 +67,9 @@ export function Contas() {
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string>('');
+  const [logoRemoved, setLogoRemoved] = useState(false);
   
   // Confirmação de Exclusão
   const [itemToDelete, setItemToDelete] = useState<Conta | null>(null);
@@ -130,7 +135,10 @@ export function Contas() {
   function handleOpenCreate() {
     setIsEditing(false);
     setEditingId(null);
-    setForm({ nome: '', banco: '', tipo: 'CORRENTE', saldo_inicial: '', centro_custo_id: '', status: 'ATIVO' });
+    setForm({ nome: '', banco: '', tipo: 'CORRENTE', saldo_inicial: '', centro_custo_id: '', status: 'ATIVO', logo_url: null });
+    setLogoFile(null);
+    setLogoPreview('');
+    setLogoRemoved(false);
     setDrawerOpen(true);
   }
 
@@ -143,9 +151,30 @@ export function Contas() {
       tipo: conta.tipo,
       saldo_inicial: String(conta.saldo_inicial || 0),
       centro_custo_id: conta.centro_custo_id ? String(conta.centro_custo_id) : '',
-      status: conta.status
+      status: conta.status,
+      logo_url: conta.logo_url || null
     });
+    setLogoPreview(conta.logo_url || '');
+    setLogoFile(null);
+    setLogoRemoved(false);
     setDrawerOpen(true);
+  }
+
+  function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    setLogoFile(file || null);
+    setLogoRemoved(false);
+    if (file) {
+      const preview = URL.createObjectURL(file);
+      setLogoPreview(preview);
+    }
+  }
+
+  function handleClearLogo() {
+    setLogoFile(null);
+    setLogoPreview('');
+    setLogoRemoved(true);
+    setForm(prev => ({ ...prev, logo_url: null }));
   }
 
   async function handleSave() {
@@ -156,13 +185,22 @@ export function Contas() {
       const payload = {
         ...form,
         saldo_inicial: parseFloat(form.saldo_inicial) || 0,
-        centro_custo_id: form.centro_custo_id ? parseInt(form.centro_custo_id) : null
+        centro_custo_id: form.centro_custo_id ? parseInt(form.centro_custo_id) : null,
+        ...(logoRemoved ? { logo_url: null } : {})
       };
 
+      let response;
       if (isEditing && editingId) {
-        await api.patch(`/contas/${editingId}`, payload);
+        response = await api.patch(`/contas/${editingId}`, payload);
       } else {
-        await api.post('/contas/', payload);
+        response = await api.post('/contas/', payload);
+      }
+
+      const contaId = isEditing && editingId ? editingId : response?.data?.id;
+      if (logoFile && contaId) {
+        const fd = new FormData();
+        fd.append('file', logoFile);
+        await api.post(`/contas/${contaId}/logo`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
       
       setDrawerOpen(false);
@@ -345,11 +383,15 @@ export function Contas() {
                     <div className="flex justify-between items-start mb-4">
                         <div className="flex items-center gap-3">
                             {/* Ícone colorido */}
-                            <div className="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm"
-                                style={{ backgroundColor: `${primaryColor}10`, color: primaryColor }} // 10% opacity
-                            >
-                                <IconComp className="w-5 h-5" />
-                            </div>
+                          <div className="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm overflow-hidden"
+                            style={{ backgroundColor: `${primaryColor}10`, color: primaryColor }} // 10% opacity
+                          >
+                            {c.logo_url ? (
+                              <img src={c.logo_url} alt={c.nome} className="w-full h-full object-cover" />
+                            ) : (
+                              <IconComp className="w-5 h-5" />
+                            )}
+                          </div>
                             <div>
                                 <h3 className="font-bold text-slate-700 dark:text-slate-200 leading-tight">{c.nome}</h3>
                                 <p className="text-[10px] uppercase font-bold text-slate-400 mt-0.5">{c.banco || c.tipo}</p>
@@ -408,7 +450,7 @@ export function Contas() {
         onClick={() => setDrawerOpen(false)}
       />
       
-      <div className={`fixed inset-y-0 right-0 w-full sm:w-[500px] bg-white dark:bg-slate-900 z-50 transform transition-transform duration-300 ease-out border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col ${drawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed inset-y-0 right-0 w-full sm:w-125 bg-white dark:bg-slate-900 z-50 transform transition-transform duration-300 ease-out border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col ${drawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
           <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
               <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing ? 'Editar Conta' : 'Nova Conta'}</h2>
               <button onClick={() => setDrawerOpen(false)} className="p-2 bg-slate-200 dark:bg-slate-700 rounded-full hover:opacity-80 transition">
@@ -454,6 +496,30 @@ export function Contas() {
                         value={form.banco}
                         onChange={e => setForm({...form, banco: e.target.value})}
                       />
+                  </div>
+              </div>
+
+              <div className="space-y-2">
+                  <label className="block text-xs font-bold uppercase text-slate-500">Logo / Foto do Banco</label>
+                  <div className="flex items-center gap-3">
+                      <div className="w-16 h-16 rounded-lg bg-slate-100 dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 overflow-hidden flex items-center justify-center text-[10px] text-slate-400">
+                          {logoPreview || form.logo_url ? (
+                            <img src={logoPreview || form.logo_url || ''} alt="Logo" className="w-full h-full object-cover" />
+                          ) : (
+                            'Sem logo'
+                          )}
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                          <label className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition">
+                              Selecionar arquivo
+                              <input type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
+                          </label>
+                          {(logoPreview || form.logo_url) && (
+                            <button type="button" onClick={handleClearLogo} className="px-3 py-2 rounded-lg bg-red-50 text-red-600 text-sm font-bold hover:bg-red-100 dark:bg-red-900/30 dark:text-red-200">
+                                Remover
+                            </button>
+                          )}
+                      </div>
                   </div>
               </div>
 
@@ -523,7 +589,7 @@ export function Contas() {
         onClick={() => setExtratoOpen(false)}
       />
       
-      <div className={`fixed inset-y-0 right-0 w-full sm:w-[600px] bg-white dark:bg-slate-900 z-50 transform transition-transform duration-300 ease-out border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col ${extratoOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed inset-y-0 right-0 w-full sm:w-150 bg-white dark:bg-slate-900 z-50 transform transition-transform duration-300 ease-out border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col ${extratoOpen ? 'translate-x-0' : 'translate-x-full'}`}>
          <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
              <div>
                 <h2 className="text-lg font-bold text-slate-800 dark:text-white">Extrato Recente</h2>
@@ -568,7 +634,7 @@ export function Contas() {
 
       {/* --- MODAL DE CONFIRMAÇÃO DE EXCLUSÃO --- */}
       {itemToDelete && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setItemToDelete(null)} />
            <div className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-scale-in border border-slate-700 text-center">
               <div className="w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mx-auto mb-4 text-red-500">

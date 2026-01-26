@@ -1,37 +1,65 @@
 import uvicorn
-import threading
+import sys
 import os
-import time
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
 
-# --- CONFIGURAÇÕES ---
-BACKEND_HOST = "0.0.0.0"
-BACKEND_PORT = 8000
-FRONTEND_PORT = 5501 # Usando 5501 para evitar conflito
-FRONTEND_DIR = "frontend" # Nome da pasta do frontend
+# --- CONFIGURAÇÃO DE CAMINHOS ---
+# Garante que o Python encontre a pasta 'app'
+ROOT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT_DIR))
 
-def run_backend():
-    print(f"🚀 [BACKEND] Iniciando em http://{BACKEND_HOST}:{BACKEND_PORT}")
-    uvicorn.run("app.main:app", host=BACKEND_HOST, port=BACKEND_PORT, reload=True)
+# Caminho da pasta do Frontend (React/Vite)
+FRONTEND_DIR = ROOT_DIR / "kyrus-web"
+ENV_FILE_PATH = FRONTEND_DIR / ".env"
 
-def run_frontend():
-    # Muda para o diretório do frontend para servir os arquivos corretamente
-    os.chdir(FRONTEND_DIR)
+# Importa utilitários de rede do próprio projeto
+from app.core.network import get_local_ip
+
+def update_frontend_env(current_ip: str):
+    """
+    Atualiza o arquivo .env do Frontend com o IP atual.
+    Isso evita erro de CORS e 'Network Error' no celular.
+    """
+    api_url = f"http://{current_ip}:8000/api/v1"
     
-    server_address = (BACKEND_HOST, FRONTEND_PORT)
-    httpd = HTTPServer(server_address, SimpleHTTPRequestHandler)
+    print(f"🔄 Configurando Frontend em: {ENV_FILE_PATH}")
     
-    print(f"🎨 [FRONTEND] Iniciando em http://{BACKEND_HOST}:{FRONTEND_PORT}")
-    httpd.serve_forever()
+    content = f"VITE_API_URL={api_url}\n"
+    
+    try:
+        # Verifica se a pasta existe antes de tentar escrever
+        if not FRONTEND_DIR.exists():
+            print(f"⚠️  Pasta '{FRONTEND_DIR}' não encontrada. Pulei a configuração do frontend.")
+            return
+
+        # Escreve (ou sobrescreve) o arquivo .env
+        with open(ENV_FILE_PATH, "w") as f:
+            f.write(content)
+            
+        print(f"✅ Frontend configurado para apontar para: {api_url}")
+        
+    except Exception as e:
+        print(f"❌ Erro ao atualizar .env do frontend: {e}")
 
 if __name__ == "__main__":
-    # Inicia o Frontend em uma thread separada (segundo plano)
-    t_front = threading.Thread(target=run_frontend)
-    t_front.daemon = True
-    t_front.start()
+    # 1. Detecta o IP da máquina
+    local_ip = get_local_ip()
+    print(f"\n🌍 IP Local Detectado: {local_ip}")
 
-    # Dá um tempinho para o print não encavalar
-    time.sleep(1)
+    # 2. Atualiza o Frontend automaticamente
+    update_frontend_env(local_ip)
 
-    # Inicia o Backend na thread principal
-    run_backend()
+    print("\n" + "="*50)
+    print("🚀 BACKEND INICIANDO...")
+    print(f"📡 API Disponível em: http://{local_ip}:8000")
+    print(f"📄 Documentação:     http://{local_ip}:8000/docs")
+    print("="*50)
+    
+    print(f"\n💡 DICA: Para iniciar o Frontend, abra OUTRO terminal e rode:")
+    print(f"   cd kyrus-web")
+    print(f"   npm run dev")
+    print("\n" + "="*50 + "\n")
+
+    # 3. Inicia o Backend (Uvicorn)
+    # host="0.0.0.0" permite que outros PCs/Celulares acessem
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

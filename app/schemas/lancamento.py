@@ -1,84 +1,93 @@
 # app/schemas/lancamento.py
 from typing import Optional, List
 from decimal import Decimal
-import datetime
+from datetime import date
 from sqlmodel import SQLModel
+from .base_audit import AuditReadMixin
+from .anexo import AnexoRead 
 
-# Base comum
+# --- BASE (Campos que o Frontend ENVIA) ---
 class LancamentoBase(SQLModel):
     descricao: str
-    valor_previsto: float # Usamos float no schema para facilitar JSON, Decimal no model
-    valor_pago: float = 0.0
+    tipo: str # RECEITA, DESPESA
+    origem: str = "WEB"
+    ipp: bool = False
     
-    data_vencimento: datetime.date
-    data_competencia: Optional[datetime.date] = None
-    data_pagamento: Optional[datetime.date] = None
+    # Valores Monetários
+    valor_previsto: Decimal
+    valor_pago: Decimal = Decimal("0.00")
+    valor_juros: Decimal = Decimal("0.00")
+    valor_desconto: Decimal = Decimal("0.00")
+    valor_multa: Decimal = Decimal("0.00")
     
-    tipo: str # RECEITA ou DESPESA
-    status: str = "PENDENTE"
-    ipp: Optional[bool] = None
+    data_vencimento: date
+    data_competencia: date # Importante para relatórios contábeis (DRE)
+    data_pagamento: Optional[date] = None
     
-    # IDs de vínculo
-    plano_contas_id: int
+    observacao: Optional[str] = None
+    conciliado: bool = False
+    
+    # IDs (Foreign Keys)
+    # OBS: Removemos 'empresa_id' daqui. O Backend pega pelo Token.
+    plano_contas_id: int # Antigo categoria_id
     conta_id: Optional[int] = None
     entidade_id: Optional[int] = None
+    centro_custo_id: Optional[int] = None
     cartao_id: Optional[int] = None
-    
-    numero_parcela: Optional[str] = None
-    conciliado: bool = False
-    observacao: Optional[str] = None
-    centro_custo_id: Optional[int] = None 
 
-# Criação (Herda tudo da base)
+# --- CREATE (Herda da Base) ---
 class LancamentoCreate(LancamentoBase):
     pass
 
-# Leitura (Inclui ID e campos "virtuais" para o front-end)
-class LancamentoRead(LancamentoBase):
-    id: int
-    empresa_id: int
-    
-    # Campos que preencheremos via JOIN no CRUD
-    nome_entidade: Optional[str] = None 
-    nome_conta: Optional[str] = None 
-    nome_cartao: Optional[str] = None
-    nome_plano_contas: Optional[str] = None 
-    ipp: Optional[bool] = None
-
-# Atualização (Tudo opcional)
+# --- UPDATE (Tudo Opcional) ---
 class LancamentoUpdate(SQLModel):
     descricao: Optional[str] = None
-    valor_previsto: Optional[float] = None
-    valor_pago: Optional[float] = None
-    data_vencimento: Optional[datetime.date] = None
-    data_pagamento: Optional[datetime.date] = None
-    status: Optional[str] = None
+    tipo: Optional[str] = None
+    valor_previsto: Optional[Decimal] = None
+    valor_pago: Optional[Decimal] = None
+    valor_juros: Optional[Decimal] = None
+    valor_desconto: Optional[Decimal] = None
+    valor_multa: Optional[Decimal] = None
+    
+    data_pagamento: Optional[date] = None
+    data_vencimento: Optional[date] = None
+    data_competencia: Optional[date] = None
+    
     conta_id: Optional[int] = None
+    centro_custo_id: Optional[int] = None
     plano_contas_id: Optional[int] = None
     entidade_id: Optional[int] = None
+    
+    status: Optional[str] = None
+    observacao: Optional[str] = None
     conciliado: Optional[bool] = None
-    ipp: Optional[bool] = None
-    centro_custo_id: Optional[int] = None 
 
-# Schema Especial para Ações em Massa (Bulk)
+# --- READ (O que o Backend Devolve) ---
+class LancamentoRead(LancamentoBase, AuditReadMixin):
+    id: int
+    empresa_id: int # Aqui sim mostramos o ID da empresa para leitura interna
+    status: str 
+    anexos: List[AnexoRead] = []
+
+# --- SCHEMAS ESPECIAIS (BULK & TRANSFERÊNCIA) ---
+
 class BulkActionSchema(SQLModel):
     ids: List[int]
-    data_pagamento: Optional[datetime.date] = None
-    copiar_valor: bool = True
+    data_pagamento: Optional[date] = None
+    conta_id: Optional[int] = None 
+
+class BulkUpdateSchema(SQLModel):
+    ids: List[int]
     conta_id: Optional[int] = None
+    centro_custo_id: Optional[int] = None
+    plano_contas_id: Optional[int] = None
+    data_pagamento: Optional[date] = None
+    status: Optional[str] = None
 
-
-# Schema específico para Transferência
 class TransferenciaCreate(SQLModel):
     conta_origem_id: int
     conta_destino_id: int
     valor: Decimal
-    data_transferencia: datetime.date
+    data: date
+    plano_contas_id: Optional[int] = None # Padronizado (era categoria_id)
     observacao: Optional[str] = None
-    
-    # Tornamos opcionais para o front não precisar enviar obrigatóriamente
-    categoria_saida_id: Optional[int] = None 
-    categoria_entrada_id: Optional[int] = None
-
-    centro_custo_id: Optional[int] = None
-    efetivado: bool = True

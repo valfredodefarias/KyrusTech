@@ -18,3 +18,11 @@ psycopg2-binary
 # Armazenamento de Arquivos (AWS S3)
 boto3
 
+# Integrações Bancárias e Criptografia
+cryptography
+requests
+
+# Processamento de Arquivos
+openpyxl
+python-multipart
+

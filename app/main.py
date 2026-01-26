@@ -1,14 +1,22 @@
 # app/main.py
 
+import os # <--- Necessário para criar as pastas automaticamente
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.api import api_router
-from app.core.config import settings
-from app.db import base_class
+from app.core.config import settings, LOCAL_IP, FRONTEND_PORT, BACKEND_PORT
+
+# --- CORREÇÃO DO ERRO DE DIRETÓRIO ---
+# Verifica se as pastas existem. Se não, cria automaticamente.
+# Isso evita o "RuntimeError: Directory 'static' does not exist"
+if not os.path.exists("static/uploads"):
+    os.makedirs("static/uploads", exist_ok=True)
+    print("✅ Pastas 'static/uploads' criadas automaticamente.")
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
-# --- CONFIGURAÇÃO DO CORS CORRIGIDA ---
+# --- CONFIGURAÇÃO DO CORS COM IP DINÂMICO ---
 origins = [
     "http://localhost",
     "http://localhost:8080",
@@ -17,11 +25,12 @@ origins = [
     "http://127.0.0.1:5500",
     "http://127.0.0.1:5501",
     
-    # SEUS IPs DE REDE (Adicionei a vírgula que faltava aqui embaixo)
-    "http://192.168.0.39:5501",
-    "http://192.168.0.39:5500",
+    # IPs de rede detectados automaticamente
+    f"http://{LOCAL_IP}:{FRONTEND_PORT}",
+    f"http://{LOCAL_IP}:5500",
+    f"http://{LOCAL_IP}:{BACKEND_PORT}",
     
-    "*" # Libera geral (mas precisa dos IPs acima explicítos para Login funcionar)
+    "*" 
 ]
 
 app.add_middleware(
@@ -32,6 +41,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 # ---------------------------------------
+
+# --- SERVIR ARQUIVOS ESTÁTICOS (IMAGENS) ---
+# Agora é seguro montar, pois garantimos que a pasta existe acima.
+app.mount("/static", StaticFiles(directory="static"), name="static")
+# -------------------------------------------------
 
 @app.get("/", tags=["Root"])
 def read_root():

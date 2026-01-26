@@ -109,19 +109,19 @@
         import { initTheme } from './js/theme.js';
 
         // Inicialização
-        authGuard();
-        initTheme();
-        renderSidebar('home'); // Marca 'home' como ativo na sidebar
-        lucide.createIcons();
+        (async () => {
+            await authGuard();
+            initTheme();
+            await renderSidebar('home'); // Marca 'home' como ativo na sidebar
+            lucide.createIcons();
 
-        // Formata data atual
-        const opcoesData = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-        document.getElementById('dataAtual').innerText = new Date().toLocaleDateString('pt-BR', opcoesData);
+            // Formata data atual
+            const opcoesData = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('dataAtual').innerText = new Date().toLocaleDateString('pt-BR', opcoesData);
 
-        const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+            const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
-        // Lógica de Carregamento
-        window.onload = async () => {
+            // Lógica de Carregamento
             try {
                 // 1. Busca quem sou eu
                 const user = await apiFetch('/usuarios/me');
@@ -144,7 +144,7 @@
             } catch (error) {
                 console.error("Erro ao carregar home:", error);
             }
-        };
+        })();
 
         function renderizarContas(contas) {
             const grid = document.getElementById('gridContas');

@@ -13,7 +13,7 @@ Este projeto foi configurado com paridade de ambientes em mente, utilizando Dock
 
 2.  **Inicie o Banco de Dados com Docker:**
     ```bash
-    docker compose up -d
+docker compose up -d
     ```
     *(O `-d` roda em modo "detached", liberando seu terminal).*
 
@@ -43,4 +43,7 @@ Este projeto foi configurado com paridade de ambientes em mente, utilizando Dock
 ## Comandos Úteis do Docker
 - `docker compose up -d`: Inicia os serviços em segundo plano.
 - `docker compose down`: Para os serviços e remove os containers.
-- `docker compose logs -f db`: Vê os logs do banco de dados em tempo real.
+- `docker compose logs -f db`: Vê os logs do banco de dados em tempo real.    
+
+consultor@kyruserp.com
+Senha: consultor123                         

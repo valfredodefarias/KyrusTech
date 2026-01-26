@@ -246,10 +246,12 @@
             </div>
             <hr class="border-slate-100 dark:border-slate-700">
             <div class="space-y-4">
-                <!-- Filtro de Categoria -->
+                <!-- Filtro de Categoria (Múltipla Seleção) -->
                 <div>
                     <label class="label-senior">Categoria</label>
-                    <select id="filtroCategoria" onchange="aplicarFiltros()" class="input-senior cursor-pointer h-10"><option value="">Todas</option></select>
+                    <div id="filtroCategoriaContainer" class="max-h-48 overflow-y-auto custom-scrollbar border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-slate-50 dark:bg-slate-900/30 space-y-2">
+                        <!-- JS preenche aqui -->
+                    </div>
                 </div>
                 
                 <!-- NOVO LOCAL DO FILTRO DE CENTRO DE CUSTO (Ao lado do conceito de filtros) -->
@@ -551,7 +553,33 @@
             fill('filtroCentroCustoDrawer', centrosList); // Novo local do filtro
             fill('filtroConta', contasList); // Preenchido inicialmente com todas
             fill('filtroEntidade', entidadesList);
-            fill('filtroCategoria', categoriasList);
+            
+            // Categorias como checkboxes (múltipla seleção)
+            const catContainer = document.getElementById('filtroCategoriaContainer');
+            if(catContainer && categoriasList.length > 0) {
+                const rec = categoriasList.filter(c => c.tipo === 'R');
+                const desp = categoriasList.filter(c => c.tipo === 'D');
+                let html = '';
+                if(rec.length) {
+                    html += `<div class="text-xs font-bold text-emerald-600 uppercase mb-1">Receitas</div>`;
+                    html += rec.map(c => `
+                        <label class="flex items-center gap-2 text-sm cursor-pointer hover:bg-white dark:hover:bg-slate-800 p-1 rounded transition">
+                            <input type="checkbox" value="${c.id}" class="chk-categoria accent-emerald-500 w-4 h-4" onchange="aplicarFiltros()">
+                            <span>${c.nome}</span>
+                        </label>
+                    `).join('');
+                }
+                if(desp.length) {
+                    html += `<div class="text-xs font-bold text-red-600 uppercase mb-1 mt-3">Despesas</div>`;
+                    html += desp.map(c => `
+                        <label class="flex items-center gap-2 text-sm cursor-pointer hover:bg-white dark:hover:bg-slate-800 p-1 rounded transition">
+                            <input type="checkbox" value="${c.id}" class="chk-categoria accent-red-500 w-4 h-4" onchange="aplicarFiltros()">
+                            <span>${c.nome}</span>
+                        </label>
+                    `).join('');
+                }
+                catContainer.innerHTML = html;
+            }
             
             fill('centro_custo_id', centrosList);
             fill('entidade_id', entidadesList);
@@ -572,7 +600,9 @@
             const ccId = document.getElementById('filtroCentroCustoDrawer').value;
             const contaId = document.getElementById('filtroConta').value;
             const entId = document.getElementById('filtroEntidade').value;
-            const catId = document.getElementById('filtroCategoria').value;
+            
+            // Múltiplas categorias selecionadas
+            const categoriasSelecionadas = Array.from(document.querySelectorAll('.chk-categoria:checked')).map(cb => parseInt(cb.value));
             
             const verPago = document.getElementById('chkPago').checked;
             const verPendente = document.getElementById('chkPendente').checked;
@@ -585,7 +615,8 @@
             const valMax = parseFloat(document.getElementById('filtroValorMax').value);
 
             let qtdFiltros = 0;
-            if (ccId) qtdFiltros++; if (contaId) qtdFiltros++; if (entId) qtdFiltros++; if (catId) qtdFiltros++;
+            if (ccId) qtdFiltros++; if (contaId) qtdFiltros++; if (entId) qtdFiltros++; 
+            if (categoriasSelecionadas.length > 0) qtdFiltros++;
             if (!verPago) qtdFiltros++; if (!verPendente) qtdFiltros++; if (!verReceita) qtdFiltros++; if (!verDespesa) qtdFiltros++;
             if (dataInicio || dataFim) qtdFiltros++; if (!isNaN(valMin) || !isNaN(valMax)) qtdFiltros++;
 
@@ -621,7 +652,7 @@
                 if (ccId && String(l.centro_custo_id) !== String(ccId)) return false;
                 if (contaId && String(l.conta_id) !== String(contaId)) return false;
                 if (entId && String(l.entidade_id) !== String(entId)) return false;
-                if (catId && String(l.plano_contas_id) !== String(catId)) return false;
+                if (categoriasSelecionadas.length > 0 && !categoriasSelecionadas.includes(l.plano_contas_id)) return false;
 
                 if (l.status === 'PAGO' && !verPago) return false;
                 if (l.status !== 'PAGO' && !verPendente) return false;
@@ -646,7 +677,8 @@
         function limparFiltros() {
             document.getElementById('filtroCentroCustoDrawer').value="";
             document.getElementById('filtroConta').value=""; document.getElementById('filtroEntidade').value="";
-            document.getElementById('filtroCategoria').value=""; document.getElementById('filtroBusca').value="";
+            document.querySelectorAll('.chk-categoria').forEach(cb => cb.checked = false);
+            document.getElementById('filtroBusca').value="";
             document.getElementById('filtroDataInicio').value=""; document.getElementById('filtroDataFim').value="";
             document.getElementById('filtroValorMin').value=""; document.getElementById('filtroValorMax').value="";
             document.getElementById('chkPago').checked=true; document.getElementById('chkPendente').checked=true;
@@ -975,9 +1007,44 @@
         async function baixarEmMassa(modo) {
             const ids = Array.from(selectionMode);
             let d = new Date().toISOString().split('T')[0];
+            let contaId = null;
+            
             if(modo==='ONTEM') {
                 const dt = new Date(); dt.setDate(dt.getDate()-1); d = dt.toISOString().split('T')[0];
-            } else if(modo==='OUTRO') {
+            } else if(modo==='HOJE') {
+                // Mantém a data de hoje
+            }
+            
+            // Sempre pergunta sobre a conta bancária, exceto se for modo "OUTRO" (que já tem o formulário completo)
+            if(modo !== 'OUTRO') {
+                const dataLabel = modo === 'ONTEM' ? 'Ontem' : 'Hoje';
+                const { value: contaSelecionada } = await Swal.fire({
+                    title: 'Baixa em Massa',
+                    html: `
+                        <div class="mb-4">
+                            <label class="block text-left text-sm font-bold text-gray-700 mb-1">Data do Pagamento</label>
+                            <input type="date" id="swal-date" class="swal2-input" value="${d}" disabled style="background-color: #f3f4f6; color: #6b7280; cursor: not-allowed;">
+                            <small class="text-gray-500 text-xs mt-1 block">${dataLabel}</small>
+                        </div>
+                        
+                        <label class="block text-left text-sm font-bold text-gray-700 mb-1">Conta Bancária (Opcional)</label>
+                        <select id="swal-account" class="swal2-select">
+                            <option value="">Manter original</option>
+                            ${contasList.map(c => `<option value="${c.id}">${c.nome}</option>`).join('')}
+                        </select>
+                    `,
+                    focusConfirm: false,
+                    showCancelButton: true,
+                    confirmButtonText: 'Confirmar',
+                    preConfirm: () => {
+                        return document.getElementById('swal-account').value;
+                    }
+                });
+
+                if (contaSelecionada === undefined) return; // Usuário cancelou
+                contaId = contaSelecionada ? parseInt(contaSelecionada) : null;
+            } else {
+                // Modo "OUTRO" - formulário completo com data e conta
                 const { value: formValues } = await Swal.fire({
                     title: 'Baixa em Massa',
                     html: `
@@ -1002,7 +1069,7 @@
 
                 if (!formValues) return;
                 d = formValues[0];
-                var contaId = formValues[1] ? parseInt(formValues[1]) : null;
+                contaId = formValues[1] ? parseInt(formValues[1]) : null;
             }
 
             const payload = {

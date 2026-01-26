@@ -1,9 +1,11 @@
 # app/api/v1/endpoints/contas.py
 
 from typing import List, Optional
+from decimal import Decimal # <--- Importação vital para cálculos financeiros
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select, func, case
 from loguru import logger
+from pydantic import BaseModel
 
 from app.db.session import get_db
 from app.crud import crud_conta
@@ -15,7 +17,6 @@ from app.api.v1.deps import get_empresa_id_from_user
 router = APIRouter()
 
 # Schema para retorno do saldo
-from pydantic import BaseModel
 class ContaSaldo(ContaRead):
     saldo_atual: float
 
@@ -28,11 +29,12 @@ def read_all_contas(
     """
     Lista contas com SALDO CALCULADO (Inicial + Entradas - Saídas).
     """
+    # Lista todas as contas da empresa
     contas = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
     resultado = []
 
     for conta in contas:
-        # Calcula Receitas Pagas na conta
+        # 1. Calcula Receitas Pagas
         receitas = db.exec(
             select(func.sum(Lancamento.valor_pago))
             .where(
@@ -40,9 +42,9 @@ def read_all_contas(
                 Lancamento.status == 'PAGO',
                 Lancamento.tipo == 'RECEITA'
             )
-        ).one() or 0
+        ).one()
 
-        # Calcula Despesas Pagas na conta
+        # 2. Calcula Despesas Pagas
         despesas = db.exec(
             select(func.sum(Lancamento.valor_pago))
             .where(
@@ -50,11 +52,19 @@ def read_all_contas(
                 Lancamento.status == 'PAGO',
                 Lancamento.tipo == 'DESPESA'
             )
-        ).one() or 0
+        ).one()
 
-        # Saldo Final
-        saldo_real = conta.saldo_inicial + float(receitas) - float(despesas)
+        # --- CORREÇÃO DO ERRO DE TIPO ---
+        # Convertemos tudo para Decimal antes de somar.
+        # Usamos str() antes para garantir que a conversão seja exata.
+        val_receitas = Decimal(str(receitas)) if receitas is not None else Decimal("0.00")
+        val_despesas = Decimal(str(despesas)) if despesas is not None else Decimal("0.00")
+        val_inicial = Decimal(str(conta.saldo_inicial))
         
+        # Agora a matemática é segura: Decimal + Decimal - Decimal
+        saldo_real = val_inicial + val_receitas - val_despesas
+        # --------------------------------
+
         # Monta objeto de retorno
         conta_dict = conta.model_dump()
         conta_dict['saldo_atual'] = saldo_real

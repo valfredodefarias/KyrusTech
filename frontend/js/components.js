@@ -1,7 +1,20 @@
 import { logout } from './auth.js';
 import { toggleDarkMode } from './theme.js';
 
-export function renderSidebar(activePageId) {
+export async function renderSidebar(activePageId) {
+    // Carrega informações do usuário para verificar se é consultor
+    let isConsultor = false;
+    try {
+        const { apiFetch } = await import('./api.js');
+        const user = await apiFetch('/usuarios/me');
+        if (user && user.is_consultor) {
+            isConsultor = true;
+            window.currentUser = user; // Armazena para uso posterior
+        }
+    } catch (e) {
+        console.error('Erro ao verificar permissões:', e);
+    }
+    
     const sidebarHTML = `
     <aside class="w-64 h-screen bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 flex flex-col transition-all duration-300 fixed md:relative z-30 hidden md:flex">
         
@@ -26,6 +39,11 @@ export function renderSidebar(activePageId) {
             
             <div class="pt-4 pb-2 px-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Configuração</div>
             ${createMenuItem('configuracoes', 'Minha Empresa', 'settings', activePageId)}
+            ${createMenuItem('integracoes_bancarias', 'Integrações Bancárias', 'link', activePageId)}
+            ${isConsultor ? `
+                <div class="pt-4 pb-2 px-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Administração</div>
+                ${createMenuItem('consultor', 'Consultor Interno', 'shield-check', activePageId)}
+            ` : ''}
         </nav>
 
         <!-- Rodapé do Menu -->

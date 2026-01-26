@@ -93,6 +93,65 @@
                 </div>
             </div>
 
+            <!-- Seção de Importação Itaú -->
+            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-2 border-blue-200 dark:border-blue-800 rounded-xl p-6 shadow-lg">
+                <div class="flex items-start justify-between mb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-xl bg-blue-500 dark:bg-blue-600 flex items-center justify-center shadow-md">
+                            <i data-lucide="upload-cloud" class="w-6 h-6 text-white"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-900 dark:text-white">Importação Itaú</h3>
+                            <p class="text-sm text-slate-600 dark:text-slate-300">Importe extratos e relatórios de pagamentos do Itaú</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 uppercase tracking-wide">
+                            Conta Bancária de Destino
+                        </label>
+                        <select 
+                            id="selectContaItau"
+                            class="w-full px-4 py-3 border-2 border-blue-200 dark:border-blue-800 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
+                        >
+                            <option value="">Selecione uma conta...</option>
+                        </select>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Os lançamentos serão vinculados a esta conta</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 uppercase tracking-wide">
+                            Centro de Custo
+                        </label>
+                        <select 
+                            id="selectCentroCustoItau"
+                            class="w-full px-4 py-3 border-2 border-blue-200 dark:border-blue-800 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
+                        >
+                            <option value="">Selecione um centro de custo...</option>
+                        </select>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Busca lançamentos previstos neste centro de custo</p>
+                    </div>
+                </div>
+
+                <div class="flex gap-3">
+                    <button 
+                        onclick="abrirImportacaoItau()"
+                        class="flex-1 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-95"
+                    >
+                        <i data-lucide="file-text" class="w-5 h-5"></i>
+                        Importar Extrato (Recebimentos)
+                    </button>
+                    <button 
+                        onclick="abrirImportacaoItau('pagamentos')"
+                        class="flex-1 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-95"
+                    >
+                        <i data-lucide="file-check" class="w-5 h-5"></i>
+                        Importar Pagamentos (Despesas)
+                    </button>
+                </div>
+            </div>
+
             <div id="gridContas" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div class="col-span-full text-center py-10 text-slate-400">
                     <i data-lucide="loader-2" class="w-8 h-8 animate-spin mx-auto mb-2"></i>
@@ -224,6 +283,7 @@
                 
                 renderizarGrid();
                 popularSelectCentro();
+                popularSelectContaItau();
             } catch(e) { console.error(e); }
         }
 
@@ -393,7 +453,58 @@
             centrosCache.forEach(cc => {
                 sel.innerHTML += `<option value="${cc.id}">${cc.nome}</option>`;
             });
+            
+            // Popula também o select da importação Itaú
+            const selItau = document.getElementById('selectCentroCustoItau');
+            if (selItau) {
+                selItau.innerHTML = '<option value="">Selecione um centro de custo...</option>';
+                centrosCache.forEach(cc => {
+                    selItau.innerHTML += `<option value="${cc.id}">${cc.nome}</option>`;
+                });
+            }
         }
+
+        function popularSelectContaItau() {
+            const sel = document.getElementById('selectContaItau');
+            if (!sel) return;
+            
+            sel.innerHTML = '<option value="">Selecione uma conta...</option>';
+            contasCache.forEach(conta => {
+                const option = document.createElement('option');
+                option.value = conta.id;
+                option.textContent = `${conta.nome} (${conta.banco || conta.tipo})`;
+                sel.appendChild(option);
+            });
+        }
+
+        // Expõe função globalmente
+        window.abrirImportacaoItau = function(tipo = 'extrato') {
+            const contaId = document.getElementById('selectContaItau')?.value;
+            const centroCustoId = document.getElementById('selectCentroCustoItau')?.value;
+            
+            if (!contaId) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Conta não selecionada',
+                    text: 'Por favor, selecione uma conta bancária de destino antes de importar.',
+                    confirmButtonText: 'OK',
+                    confirmButtonColor: '#3b82f6'
+                });
+                return;
+            }
+            
+            // Redireciona para página de importação com parâmetros
+            const params = new URLSearchParams();
+            params.set('conta_id', contaId);
+            if (centroCustoId) {
+                params.set('centro_custo_id', centroCustoId);
+            }
+            if (tipo === 'pagamentos') {
+                params.set('tipo', 'pagamentos');
+            }
+            
+            window.location.href = `importacao_itau.html?${params.toString()}`;
+        };
     </script>
 </body>
 </html>

@@ -11,6 +11,8 @@ from app.models.entidade import Entidade
 from app.models.cartao import Cartao
 from app.models.centro_custo import CentroCusto
 from app.models.lancamento import Lancamento
+from app.models.integracao_bancaria import IntegracaoBancaria
+from app.models.mapeamento_categoria import MapeamentoCategoria
 
 class Base(SQLModel):
     pass

@@ -1,7 +1,10 @@
 // js/api.js
 
-// ADICIONE 'export' AQUI 👇
-export const API_BASE = 'http://192.168.0.39:8000/api/v1'; 
+// Importa configuração centralizada (gerada automaticamente)
+import { API_BASE_URL } from './config.js';
+
+// Mantém compatibilidade com código existente
+export const API_BASE = API_BASE_URL; 
 
 export async function apiFetch(endpoint, options = {}) {
     // ... (o resto do seu código continua igual)
@@ -19,8 +22,8 @@ export async function apiFetch(endpoint, options = {}) {
     // ... logs ...
 
     try {
-        // Usa a variável exportada
-        const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
+        // Usa a configuração centralizada
+        const res = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
         
         // ... tratamentos de erro ...
 

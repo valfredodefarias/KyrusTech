@@ -1,34 +1,31 @@
-# app/schemas/cartao.py
 from typing import Optional
+from decimal import Decimal
 from sqlmodel import SQLModel
+from .base_audit import AuditReadMixin
 
+# --- BASE ---
 class CartaoBase(SQLModel):
     nome_cartao: str
-    limite_total: float
+    limite_total: Decimal = Decimal("0.00") # <--- RENOMEADO PARA IGUALAR AO BANCO
     dia_fechamento: int
     dia_vencimento: int
-    status: str = "ATIVO"
-    id_conta_padrao: Optional[int] = None 
-    
-    # --- NOVO CAMPO ---
+    conta_pagamento_id: Optional[int] = None
+    empresa_id: int
     centro_custo_id: Optional[int] = None
 
+# --- CREATE ---
 class CartaoCreate(CartaoBase):
     pass
 
-class CartaoRead(CartaoBase):
-    id: int
-    empresa_id: int
-    # Opcional: Se quiser retornar o nome do centro de custo direto na leitura futuramente
-    # nome_centro_custo: Optional[str] = None 
-
+# --- UPDATE ---
 class CartaoUpdate(SQLModel):
     nome_cartao: Optional[str] = None
-    limite_total: Optional[float] = None
+    limite_total: Optional[Decimal] = None # <--- RENOMEADO
     dia_fechamento: Optional[int] = None
     dia_vencimento: Optional[int] = None
-    status: Optional[str] = None
-    id_conta_padrao: Optional[int] = None
-    
-    # --- NOVO CAMPO PARA EDIÇÃO ---
+    conta_pagamento_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
+
+# --- READ ---
+class CartaoRead(CartaoBase, AuditReadMixin):
+    id: int

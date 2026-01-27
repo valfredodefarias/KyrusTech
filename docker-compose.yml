@@ -10,7 +10,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
       - POSTGRES_DB=${POSTGRES_DB:-kyrus_db}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -46,20 +46,22 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./static:/app/static
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload=false
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
   frontend:
     build:
       context: ./kyrus-web
       dockerfile: Dockerfile
+      args:
+        # Isso "imprime" o IP dentro do código HTML/JS na hora de construir
+        VITE_API_URL: https://api.kyrustech.com.br/api/v1
     container_name: kyrustech_frontend
     restart: always
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
-    environment:
-      - VITE_API_URL=${VITE_API_URL:-http://localhost:8000/api/v1}
     depends_on:
       - backend
+    # IMPORTANTE: Não coloque "command" aqui. Deixe o Dockerfile usar o padrão "serve".
 
 volumes:
   postgres_data:

@@ -22,7 +22,8 @@ def create(db: Session, *, obj_in: ContaCreate, empresa_id: int) -> Conta:
 
 def update(db: Session, *, db_obj: Conta, obj_in: ContaUpdate) -> Conta:
     update_data = obj_in.model_dump(exclude_unset=True)
-    db_obj.sqlmodel_update(update_data)
+    for key, value in update_data.items():
+        setattr(db_obj, key, value)
     db.add(db_obj)
     db.commit()
     db.refresh(db_obj)

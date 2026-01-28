@@ -14,3 +14,4 @@ from app.models.integracao_bancaria import IntegracaoBancaria
 from app.models.mapeamento_categoria import MapeamentoCategoria
 from app.models.audit_log import AuditLog
 from app.models.base_audit import AuditMixin
+from app.models.todo_item import TodoItem

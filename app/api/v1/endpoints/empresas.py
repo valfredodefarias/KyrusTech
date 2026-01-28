@@ -28,7 +28,12 @@ def read_empresas(
     db: Session = Depends(get_db),
     current_user = Depends(get_consultor_user)
 ):
-    empresas = db.exec(select(Empresa).offset(skip).limit(limit)).all()
+    empresas = db.exec(
+        select(Empresa)
+        .where(Empresa.is_deleted == False)
+        .offset(skip)
+        .limit(limit)
+    ).all()
     return empresas
 
 # --- ROTA BLINDADA: CRIAR EMPRESA ---
@@ -61,8 +66,10 @@ def read_endpoint(
         raise HTTPException(status_code=403, detail="Você não tem permissão para ver esta empresa.")
         
     empresa = get_empresa(db, empresa_id)
-    if not empresa:
+    if not empresa or empresa.is_deleted:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    if not current_user.is_consultor and not empresa.is_active:
+        raise HTTPException(status_code=403, detail="Empresa desativada")
     return empresa
 
 # --- ROTA HÍBRIDA: ATUALIZAR DADOS ---
@@ -78,8 +85,10 @@ def update_endpoint(
          raise HTTPException(status_code=403, detail="Acesso negado")
 
     db_obj = get_empresa(db, empresa_id)
-    if not db_obj:
+    if not db_obj or db_obj.is_deleted:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    if not current_user.is_consultor and not db_obj.is_active:
+        raise HTTPException(status_code=403, detail="Empresa desativada")
         
     empresa = update_empresa(db=db, db_obj=db_obj, obj_in=empresa_in)
     logger.success(f"Empresa {empresa_id} atualizada")
@@ -109,7 +118,7 @@ def upload_logo(
          raise HTTPException(status_code=403, detail="Acesso negado")
 
     db_obj = get_empresa(db, empresa_id)
-    if not db_obj:
+    if not db_obj or db_obj.is_deleted:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
 
     # 2. Gera nome único para evitar cache do navegador (uuid)

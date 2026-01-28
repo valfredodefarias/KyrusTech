@@ -158,7 +158,7 @@ const DadosEmpresa = () => {
 
         {/* PERSONALIZAÇÃO VISUAL */}
         <div>
-          <label className="block text-xs font-bold text-white uppercase mb-4 flex items-center gap-2">
+          <label className="text-xs font-bold text-white uppercase mb-4 flex items-center gap-2">
             <Palette className="w-4 h-4 text-blue-500"/> Identidade Visual
           </label>
           <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-700 flex flex-col sm:flex-row items-center gap-6">

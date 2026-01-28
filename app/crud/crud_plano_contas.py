@@ -44,13 +44,77 @@ def delete(db: Session, *, id: int, empresa_id: int) -> Optional[PlanoContas]:
 
 # --- SUA FUNÇÃO DE SEED (Mantida intacta) ---
 
-def seed_plano_contas_padrao(db: Session, *, empresa_id: int):
+def seed_plano_contas_padrao(db: Session, *, empresa_id: int, tipo_pessoa: str = "PJ"):
     """
     Cria plano de contas padrão completo e profissional.
     Baseado em melhores práticas de gestão financeira empresarial.
     Estrutura hierárquica que permite personalização por empresa.
     """
-    plano_estrutura = {
+    if tipo_pessoa.upper() == "PF":
+        plano_estrutura = {
+            "1. RECEITAS": {
+                "tipo": "R",
+                "codigo": "1",
+                "permite_lancamentos": False,
+                "filhas": {
+                    "1.1 Renda Principal": {
+                        "tipo": "R",
+                        "codigo": "1.1",
+                        "permite_lancamentos": False,
+                        "filhas": [
+                            {"nome": "1.1.1 Salário", "tipo": "R", "codigo": "1.1.1"},
+                            {"nome": "1.1.2 Pró-labore", "tipo": "R", "codigo": "1.1.2"},
+                        ]
+                    },
+                    "1.2 Rendas Extras": {
+                        "tipo": "R",
+                        "codigo": "1.2",
+                        "permite_lancamentos": False,
+                        "filhas": [
+                            {"nome": "1.2.1 Freelance", "tipo": "R", "codigo": "1.2.1"},
+                            {"nome": "1.2.2 Rendimentos", "tipo": "R", "codigo": "1.2.2"},
+                        ]
+                    }
+                }
+            },
+            "2. DESPESAS": {
+                "tipo": "D",
+                "codigo": "2",
+                "permite_lancamentos": False,
+                "filhas": {
+                    "2.1 Moradia": {
+                        "tipo": "D",
+                        "codigo": "2.1",
+                        "permite_lancamentos": False,
+                        "filhas": [
+                            {"nome": "2.1.1 Aluguel", "tipo": "D", "codigo": "2.1.1"},
+                            {"nome": "2.1.2 Condomínio", "tipo": "D", "codigo": "2.1.2"},
+                            {"nome": "2.1.3 Água e Luz", "tipo": "D", "codigo": "2.1.3"},
+                        ]
+                    },
+                    "2.2 Alimentação": {
+                        "tipo": "D",
+                        "codigo": "2.2",
+                        "permite_lancamentos": False,
+                        "filhas": [
+                            {"nome": "2.2.1 Mercado", "tipo": "D", "codigo": "2.2.1"},
+                            {"nome": "2.2.2 Restaurantes", "tipo": "D", "codigo": "2.2.2"},
+                        ]
+                    },
+                    "2.3 Transporte": {
+                        "tipo": "D",
+                        "codigo": "2.3",
+                        "permite_lancamentos": False,
+                        "filhas": [
+                            {"nome": "2.3.1 Combustível", "tipo": "D", "codigo": "2.3.1"},
+                            {"nome": "2.3.2 Uber/Taxi", "tipo": "D", "codigo": "2.3.2"},
+                        ]
+                    }
+                }
+            }
+        }
+    else:
+        plano_estrutura = {
         "1. RECEITAS": {
             "tipo": "R",
             "codigo": "1",

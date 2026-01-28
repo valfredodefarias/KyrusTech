@@ -11,7 +11,7 @@ def create_empresa(db: Session, *, empresa_in: EmpresaCreate) -> Empresa:
     db.refresh(db_empresa)
     
     if db_empresa.id:
-        seed_plano_contas_padrao(db=db, empresa_id=db_empresa.id)
+        seed_plano_contas_padrao(db=db, empresa_id=db_empresa.id, tipo_pessoa=db_empresa.tipo_pessoa)
         db.commit()
         
     return db_empresa

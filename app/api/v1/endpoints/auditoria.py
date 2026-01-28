@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
-from sqlmodel import Session, select, func
+from sqlmodel import Session, select, func, col
 from sqlalchemy import or_
 
 from app.db.session import get_db
@@ -30,9 +30,9 @@ def listar_auditoria(
     filters = []
 
     if table_name:
-        filters.append(AuditLog.table_name.ilike(f"%{table_name}%"))
+        filters.append(col(AuditLog.table_name).ilike(f"%{table_name}%"))
     if action:
-        filters.append(AuditLog.action.ilike(f"%{action}%"))
+        filters.append(col(AuditLog.action).ilike(f"%{action}%"))
     if user_id:
         filters.append(AuditLog.user_id == user_id)
     if start:
@@ -42,16 +42,16 @@ def listar_auditoria(
     if q:
         filters.append(
             or_(
-                AuditLog.table_name.ilike(f"%{q}%"),
-                AuditLog.action.ilike(f"%{q}%"),
+                col(AuditLog.table_name).ilike(f"%{q}%"),
+                col(AuditLog.action).ilike(f"%{q}%"),
             )
         )
 
     if not current_user.is_consultor:
         users_subq = select(Usuario.id).where(Usuario.empresa_id == current_user.empresa_id)
-        filters.append(AuditLog.user_id.in_(users_subq))
+        filters.append(col(AuditLog.user_id).in_(users_subq))
 
-    base_query = select(AuditLog, Usuario.email).join(Usuario, AuditLog.user_id == Usuario.id, isouter=True)
+    base_query = select(AuditLog, Usuario.email).join(Usuario, col(AuditLog.user_id) == col(Usuario.id), isouter=True)
     if filters:
         base_query = base_query.where(*filters)
 
@@ -61,12 +61,14 @@ def listar_auditoria(
     total = db.exec(total_query).one()
 
     rows = db.exec(
-        base_query.order_by(AuditLog.created_at.desc()).offset(skip).limit(limit)
+        base_query.order_by(col(AuditLog.created_at).desc()).offset(skip).limit(limit)
     ).all()
 
     items: List[AuditLogItem] = []
     for row in rows:
         log = row[0]
+        if log.id is None:
+            continue
         email = row[1]
         items.append(
             AuditLogItem(

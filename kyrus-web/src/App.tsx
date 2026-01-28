@@ -6,6 +6,7 @@ import { Login } from './pages/Login';
 import { Home } from './pages/Home';
 import { Dashboard } from './pages/Dashboard';
 import { Consultor } from './pages/Consultor';  
+import { Tarefas } from './pages/Tarefas';
 import { CentroCusto } from './pages/CentroCusto';
 import { Contas } from './pages/Contas';
 import { Importacao } from './pages/Importacao';
@@ -35,6 +36,7 @@ function App() {
         <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
           <Route path="/home" element={<Home />} />
           <Route path="/consultor" element={<Consultor />} />
+          <Route path="/tarefas" element={<Tarefas />} />
           
           <Route path="/lancamentos" element={<Lancamentos />} />
           <Route path="/entidades" element={<Entidades />} />

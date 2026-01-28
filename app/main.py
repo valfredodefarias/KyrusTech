@@ -2,12 +2,13 @@
 
 import os
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from app.api.v1.api import api_router
 from app.core.config import settings
+from app.core.audit_context import set_audit_request, clear_audit_context
 
 # --- CRIAR DIRETÓRIOS NECESSÁRIOS ---
 os.makedirs("static/uploads", exist_ok=True)
@@ -34,6 +35,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def audit_context_middleware(request: Request, call_next):
+    client_host = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    set_audit_request(client_host, user_agent)
+    try:
+        response = await call_next(request)
+    finally:
+        clear_audit_context()
+    return response
 
 # --- SERVIR ARQUIVOS ESTÁTICOS ---
 app.mount("/static", StaticFiles(directory="static"), name="static")

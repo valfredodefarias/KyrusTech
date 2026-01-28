@@ -43,11 +43,9 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 font-sans">
       <div className="w-full max-w-sm p-8 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700">
         <div className="text-center mb-8">
-          <img
-            src="/kyrusnamegg.png"
-            alt="KyrusTech"
-            className="h-10 mx-auto"
-          />
+          <h1 className="text-3xl font-extrabold text-slate-800 dark:text-white tracking-tight">
+            Kyrus<span className="text-blue-600">TECH</span>
+          </h1>
           <p className="text-slate-400 text-sm mt-2">Acesse sua conta para continuar</p>
         </div>
 

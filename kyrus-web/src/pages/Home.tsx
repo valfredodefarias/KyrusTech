@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { 
   PlusCircle, BarChart2, Users, Landmark, 
-  CreditCard, Settings, Wallet, Banknote, Home as HomeIcon 
+  CreditCard, Settings, Wallet, Banknote, Home as HomeIcon,
+  ClipboardList, Circle, CheckCircle2, Play, Check
 } from 'lucide-react';
 
 interface ContaResumo {
@@ -26,11 +27,30 @@ interface EmpresaInfo {
   cor_primaria?: string; // Adicionado campo de cor
 }
 
+interface TodoItem {
+  id: number;
+  titulo: string;
+  descricao?: string | null;
+  status: 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDO' | string;
+  prioridade: 'BAIXA' | 'MEDIA' | 'ALTA' | string;
+  due_date?: string | null;
+  empresa_id?: number | null;
+  consultor_id?: number | null;
+}
+
 export function Home() {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
   const [contas, setContas] = useState<ContaResumo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [todoResumo, setTodoResumo] = useState({
+    amanha: 0,
+    semana: 0,
+    futuras: 0,
+    atrasadas: 0,
+    concluidas_atraso: 0
+  });
 
   useEffect(() => {
     async function loadData() {
@@ -45,6 +65,11 @@ export function Home() {
 
         const resContas = await api.get<ContaResumo[]>('/contas/');
         setContas(resContas.data);
+
+        const resTodos = await api.get<TodoItem[]>('/todos/me');
+        setTodos(resTodos.data);
+        const resResumo = await api.get('/todos/resumo');
+        setTodoResumo(resResumo.data);
 
       } catch (error) {
         console.error("Erro ao carregar home:", error);
@@ -68,6 +93,44 @@ export function Home() {
   const bgStyle = {
     background: `linear-gradient(135deg, ${primaryColor} 0%, ${adjustBrightness(primaryColor, -20)} 100%)`
   };
+
+  function getFullLogoUrl(url?: string | null) {
+    if (!url) return null;
+    if (url.startsWith('/static')) {
+      const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
+      return `${baseURL}${url}`;
+    }
+    return url;
+  }
+
+  function parseDateOnly(value?: string | null) {
+    if (!value) return null;
+    const datePart = value.slice(0, 10);
+    const [y, m, d] = datePart.split('-').map(Number);
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d);
+  }
+
+  function isOverdue(todo: TodoItem) {
+    const due = parseDateOnly(todo.due_date);
+    if (!due) return false;
+    const today = new Date();
+    due.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    return todo.status !== 'CONCLUIDO' && due < today;
+  }
+
+  async function iniciarTodo(todoId: number) {
+    await api.post(`/todos/${todoId}/iniciar`);
+    const resTodos = await api.get<TodoItem[]>('/todos/me');
+    setTodos(resTodos.data);
+  }
+
+  async function finalizarTodo(todoId: number) {
+    await api.post(`/todos/${todoId}/finalizar`);
+    const resTodos = await api.get<TodoItem[]>('/todos/me');
+    setTodos(resTodos.data);
+  }
 
   if (loading) {
     return <div className="p-10 text-center animate-pulse text-slate-500">Carregando painel...</div>;
@@ -111,6 +174,70 @@ export function Home() {
         </div>
       </div>
 
+      {/* Tarefas */}
+      <div>
+        <h3 className="font-bold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
+          <ClipboardList className="w-5 h-5 text-slate-400" /> Minhas Tarefas
+        </h3>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+            <p className="text-[11px] text-slate-500">Amanhã</p>
+            <p className="text-xl font-bold text-slate-800 dark:text-white">{todoResumo.amanha}</p>
+          </div>
+          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+            <p className="text-[11px] text-slate-500">Na semana</p>
+            <p className="text-xl font-bold text-slate-800 dark:text-white">{todoResumo.semana}</p>
+          </div>
+          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+            <p className="text-[11px] text-slate-500">Futuras</p>
+            <p className="text-xl font-bold text-slate-800 dark:text-white">{todoResumo.futuras}</p>
+          </div>
+          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+            <p className="text-[11px] text-slate-500">Atrasadas</p>
+            <p className="text-xl font-bold text-red-600">{todoResumo.atrasadas}</p>
+          </div>
+          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+            <p className="text-[11px] text-slate-500">Concl. em atraso</p>
+            <p className="text-xl font-bold text-amber-600">{todoResumo.concluidas_atraso}</p>
+          </div>
+        </div>
+
+        {todos.length === 0 ? (
+          <div className="text-sm text-slate-400 p-8 border border-dashed rounded-lg text-center bg-slate-50 dark:bg-slate-800/50">
+            Nenhuma tarefa atribuída.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {todos.filter(t => t.status !== 'CONCLUIDO').slice(0, 5).map(todo => (
+              <div key={todo.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  {todo.status === 'CONCLUIDO' ? <CheckCircle2 size={18} className="text-emerald-500" /> : <Circle size={18} className="text-slate-400" />}
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate" title={todo.titulo}>{todo.titulo}</p>
+                    <p className={`text-[11px] ${isOverdue(todo) ? 'text-red-600' : 'text-slate-400'}`}>
+                      {todo.due_date ? `Prazo: ${todo.due_date.slice(0, 10)}` : 'Sem prazo'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  {todo.status === 'PENDENTE' && (
+                    <button onClick={() => iniciarTodo(todo.id)} className="px-3 py-2 rounded-lg text-xs font-bold border border-blue-300 text-blue-600 hover:bg-blue-50 transition flex items-center gap-1">
+                      <Play size={14} /> Iniciar
+                    </button>
+                  )}
+                  {todo.status === 'EM_ANDAMENTO' && (
+                    <button onClick={() => finalizarTodo(todo.id)} className="px-3 py-2 rounded-lg text-xs font-bold border border-emerald-300 text-emerald-600 hover:bg-emerald-50 transition flex items-center gap-1">
+                      <Check size={14} /> Finalizar
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Resumo de Contas */}
       <div>
         <h3 className="font-bold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
@@ -130,7 +257,7 @@ export function Home() {
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 shrink-0 flex items-center justify-center overflow-hidden" style={{ color: primaryColor }}>
                     {c.logo_url ? (
-                      <img src={c.logo_url} alt={c.nome} className="w-full h-full object-cover" />
+                      <img src={getFullLogoUrl(c.logo_url) || ''} alt={c.nome} className="w-full h-full object-cover" />
                     ) : (
                       c.tipo === 'CAIXA' ? <Banknote size={20} /> : <Landmark size={20} />
                     )}

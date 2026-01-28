@@ -1,6 +1,7 @@
 from typing import Generator
 from sqlmodel import create_engine, Session, SQLModel
 from app.core.config import settings
+from app.db import audit  # noqa: F401
 
 # Garante que a URL seja uma string
 database_url = str(settings.DATABASE_URL)

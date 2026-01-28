@@ -32,7 +32,11 @@ export function Auditoria() {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
-    loadAuditoria();
+    const id = setTimeout(() => {
+      loadAuditoria();
+    }, 400);
+
+    return () => clearTimeout(id);
   }, [page, limit, tableName, action, userId, q, start, end]);
 
   async function loadAuditoria() {

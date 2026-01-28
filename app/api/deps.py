@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.db.session import get_session
 from app.enums import ConsultorRole
+from app.core.audit_context import set_audit_user
 from app.models.empresa import Empresa
 
 # Importação de fallback para o Usuario
@@ -43,7 +44,7 @@ def get_current_user(
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Usuário inativo")
-        
+    set_audit_user(user.id)
     return user
 
 # Funções auxiliares

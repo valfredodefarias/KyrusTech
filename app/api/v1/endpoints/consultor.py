@@ -3,19 +3,24 @@ Endpoints exclusivos para consultores internos.
 Consultores têm acesso a todas as empresas e podem trocar de contexto.
 Todas as operações são logadas para auditoria e segurança.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
+from sqlalchemy import or_
 from loguru import logger
-from typing import List
+from typing import List, Optional
 
 from app.db.session import get_db
 from app.models.empresa import Empresa
 from app.models.usuario import Usuario
 from app.models.consultor_empresa import ConsultorEmpresa
+from app.models.todo_item import TodoItem
 from app.api.v1.deps import get_consultor_user, get_current_active_user, get_super_consultor_user
 from app.schemas.empresa import EmpresaRead
+from app.schemas.todo import TodoCreate, TodoUpdate, TodoRead
 from app.enums import ConsultorRole
+from app.core.security import get_password_hash
+from app.crud.crud_consultor_empresa import tem_acesso
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -29,6 +34,11 @@ class RoleChangeRequest(BaseModel):
 class EmpresaContexto(BaseModel):
     """Schema para troca de contexto de empresa"""
     empresa_id: int
+
+
+class ResetPasswordRequest(BaseModel):
+    """Schema para redefinição de senha"""
+    new_password: str
 
 
 @router.get("/empresas", response_model=List[EmpresaRead])
@@ -46,7 +56,9 @@ def listar_todas_empresas(
     )
     
     try:
-        empresas = list(db.exec(select(Empresa)).all())
+        empresas = list(
+            db.exec(select(Empresa).where(Empresa.is_deleted == False)).all()
+        )
         logger.success(
             f"[CONSULTOR] {len(empresas)} empresas retornadas para {consultor.email}"
         )
@@ -76,13 +88,19 @@ def obter_empresa_detalhes(
     )
     
     empresa = db.get(Empresa, empresa_id)
-    if not empresa:
+    if not empresa or empresa.is_deleted:
         logger.warning(
             f"[CONSULTOR] Empresa ID {empresa_id} nao encontrada (consultor: {consultor.email})"
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Empresa não encontrada"
+        )
+
+    if not empresa.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Empresa desativada"
         )
     
     logger.success(
@@ -107,7 +125,7 @@ def trocar_contexto_empresa(
     
     # Verifica se a empresa existe
     empresa = db.get(Empresa, empresa_id)
-    if not empresa:
+    if not empresa or empresa.is_deleted:
         logger.warning(
             f"[CONSULTOR] Tentativa de trocar para empresa inexistente ID: {empresa_id} "
             f"(consultor: {consultor.email})"
@@ -115,6 +133,12 @@ def trocar_contexto_empresa(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Empresa não encontrada"
+        )
+
+    if not empresa.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Empresa desativada"
         )
     
     # Atualiza o contexto do consultor
@@ -153,7 +177,7 @@ def obter_contexto_atual(
     Retorna o contexto atual do consultor (empresa ativa).
     """
     empresa = db.get(Empresa, consultor.empresa_id)
-    if not empresa:
+    if not empresa or empresa.is_deleted or not empresa.is_active:
         logger.warning(
             f"[CONSULTOR] Empresa ID {consultor.empresa_id} nao encontrada para consultor {consultor.email}"
         )
@@ -199,7 +223,7 @@ def listar_acesso_empresas(
     result = []
     for acesso in acessos:
         empresa = db.get(Empresa, acesso.empresa_id)
-        if empresa:
+        if empresa and not empresa.is_deleted:
             result.append({
                 "acesso_id": acesso.id,
                 "empresa_id": empresa.id,
@@ -222,8 +246,11 @@ def adicionar_acesso_empresa(
     Adiciona acesso de um consultor a uma nova empresa.
     """
     empresa = db.get(Empresa, empresa_id)
-    if not empresa:
+    if not empresa or empresa.is_deleted:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    if not empresa.is_active:
+        raise HTTPException(status_code=403, detail="Empresa desativada")
     
     # Verifica se já tem acesso
     existe = db.exec(
@@ -305,7 +332,10 @@ def listar_consultores(
     Super consultor lista todos os consultores do sistema.
     """
     consultores = db.exec(
-        select(Usuario).where(Usuario.is_consultor == True)
+        select(Usuario).where(
+            Usuario.is_consultor == True,
+            Usuario.is_deleted == False
+        )
     ).all()
     
     result = []
@@ -355,7 +385,7 @@ def listar_empresas_consultor(
     result = []
     for acesso in acessos:
         empresa = db.get(Empresa, acesso.empresa_id)
-        if empresa:
+        if empresa and not empresa.is_deleted:
             result.append({
                 "acesso_id": acesso.id,
                 "empresa_id": empresa.id,
@@ -383,8 +413,11 @@ def super_adicionar_acesso_consultor(
         raise HTTPException(status_code=404, detail="Consultor não encontrado")
     
     empresa = db.get(Empresa, empresa_id)
-    if not empresa:
+    if not empresa or empresa.is_deleted:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    if not empresa.is_active:
+        raise HTTPException(status_code=403, detail="Empresa desativada")
     
     # Verifica se já tem acesso
     existe = db.exec(
@@ -497,3 +530,488 @@ def super_alterar_role_consultor(
         "consultor_id": consultor.id,
         "novo_role": novo_role
     }
+
+
+# ==========================================
+# SUPER CONSULTOR: EMPRESAS (DESATIVAR/ATIVAR/DELETAR)
+# ==========================================
+
+@router.post("/super/empresas/{empresa_id}/desativar")
+def super_desativar_empresa(
+    empresa_id: int,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    empresa = db.get(Empresa, empresa_id)
+    if not empresa or empresa.is_deleted:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    empresa.is_active = False
+    empresa.updated_by_id = super_consultor.id
+    db.add(empresa)
+    db.commit()
+
+    logger.warning(f"[SUPER] {super_consultor.email} desativou empresa {empresa_id}")
+    return {"mensagem": "Empresa desativada"}
+
+
+@router.post("/super/empresas/{empresa_id}/ativar")
+def super_ativar_empresa(
+    empresa_id: int,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    empresa = db.get(Empresa, empresa_id)
+    if not empresa or empresa.is_deleted:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    empresa.is_active = True
+    empresa.updated_by_id = super_consultor.id
+    db.add(empresa)
+    db.commit()
+
+    logger.warning(f"[SUPER] {super_consultor.email} ativou empresa {empresa_id}")
+    return {"mensagem": "Empresa ativada"}
+
+
+@router.delete("/super/empresas/{empresa_id}")
+def super_deletar_empresa(
+    empresa_id: int,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    empresa = db.get(Empresa, empresa_id)
+    if not empresa or empresa.is_deleted:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    empresa.is_active = False
+    empresa.soft_delete(super_consultor.id)
+    db.add(empresa)
+    db.commit()
+
+    logger.critical(f"[SUPER] {super_consultor.email} deletou empresa {empresa_id}")
+    return {"mensagem": "Empresa deletada"}
+
+
+# ==========================================
+# SUPER CONSULTOR: USUÁRIOS (DESATIVAR/ATIVAR/RESET/DELETAR)
+# ==========================================
+
+@router.get("/super/usuarios", response_model=List[dict])
+def listar_usuarios(
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    usuarios = db.exec(select(Usuario).where(Usuario.is_deleted == False)).all()
+    result: List[dict] = []
+    for user in usuarios:
+        empresa = db.get(Empresa, user.empresa_id) if user.empresa_id else None
+        result.append({
+            "id": user.id,
+            "nome": getattr(user, "nome", None),
+            "email": user.email,
+            "is_active": user.is_active,
+            "is_consultor": user.is_consultor,
+            "consultor_role": user.consultor_role,
+            "empresa_id": user.empresa_id,
+            "empresa_nome": empresa.nome_fantasia if empresa else None,
+        })
+
+    logger.info(f"[SUPER] {super_consultor.email} listou {len(result)} usuários")
+    return result
+
+
+@router.post("/super/usuarios/{user_id}/desativar")
+def super_desativar_usuario(
+    user_id: int,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    user = db.get(Usuario, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    if user.id == super_consultor.id:
+        raise HTTPException(status_code=400, detail="Não é possível desativar seu próprio usuário")
+
+    user.is_active = False
+    user.updated_by_id = super_consultor.id
+    db.add(user)
+    db.commit()
+
+    logger.warning(f"[SUPER] {super_consultor.email} desativou usuário {user.email}")
+    return {"mensagem": "Usuário desativado"}
+
+
+@router.post("/super/usuarios/{user_id}/ativar")
+def super_ativar_usuario(
+    user_id: int,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    user = db.get(Usuario, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    user.is_active = True
+    user.updated_by_id = super_consultor.id
+    db.add(user)
+    db.commit()
+
+    logger.warning(f"[SUPER] {super_consultor.email} ativou usuário {user.email}")
+    return {"mensagem": "Usuário ativado"}
+
+
+@router.post("/super/usuarios/{user_id}/reset-senha")
+def super_resetar_senha(
+    user_id: int,
+    payload: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    user = db.get(Usuario, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    user.hashed_password = get_password_hash(payload.new_password)
+    user.updated_by_id = super_consultor.id
+    db.add(user)
+    db.commit()
+
+    logger.warning(f"[SUPER] {super_consultor.email} redefiniu senha do usuário {user.email}")
+    return {"mensagem": "Senha redefinida"}
+
+
+@router.delete("/super/usuarios/{user_id}")
+def super_deletar_usuario(
+    user_id: int,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    user = db.get(Usuario, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    if user.id == super_consultor.id:
+        raise HTTPException(status_code=400, detail="Não é possível deletar seu próprio usuário")
+
+    user.is_active = False
+    user.soft_delete(super_consultor.id)
+    db.add(user)
+    db.commit()
+
+    logger.critical(f"[SUPER] {super_consultor.email} deletou usuário {user.email}")
+    return {"mensagem": "Usuário deletado"}
+
+
+# ==========================================
+# TODO LIST (CONSULTORES E EMPRESAS)
+# ==========================================
+
+@router.get("/todos", response_model=List[TodoRead])
+def listar_todos(
+    db: Session = Depends(get_db),
+    consultor: Usuario = Depends(get_consultor_user),
+    empresa_id: Optional[int] = None,
+    consultor_id: Optional[int] = None,
+    status: Optional[str] = None,
+    tipo_alvo: Optional[str] = None,
+):
+    query = select(TodoItem).where(TodoItem.is_deleted == False)
+
+    if empresa_id is not None:
+        if consultor.consultor_role != ConsultorRole.SUPER_CONSULTOR.value and not tem_acesso(db, consultor.id, empresa_id):
+            raise HTTPException(status_code=403, detail="Sem acesso à empresa informada")
+        query = query.where(TodoItem.empresa_id == empresa_id)
+
+    if consultor_id is not None:
+        if consultor.consultor_role != ConsultorRole.SUPER_CONSULTOR.value and consultor_id != consultor.id:
+            raise HTTPException(status_code=403, detail="Sem acesso ao consultor informado")
+        query = query.where(TodoItem.consultor_id == consultor_id)
+
+    if status:
+        query = query.where(TodoItem.status == status)
+
+    if tipo_alvo:
+        query = query.where(TodoItem.tipo_alvo == tipo_alvo)
+
+    if consultor.consultor_role != ConsultorRole.SUPER_CONSULTOR.value:
+        empresas_subq = select(ConsultorEmpresa.empresa_id).where(
+            ConsultorEmpresa.usuario_id == consultor.id,
+            ConsultorEmpresa.ativo == True
+        )
+        query = query.where(
+            or_(
+                TodoItem.consultor_id == consultor.id,
+                TodoItem.empresa_id.in_(empresas_subq)
+            )
+        )
+
+    return list(db.exec(query).all())
+
+
+@router.post("/todos", response_model=TodoRead, status_code=status.HTTP_201_CREATED)
+def criar_todo(
+    todo_in: TodoCreate,
+    db: Session = Depends(get_db),
+    consultor: Usuario = Depends(get_consultor_user),
+):
+    if todo_in.tipo_alvo not in ["EMPRESA", "CONSULTOR"]:
+        raise HTTPException(status_code=400, detail="tipo_alvo inválido")
+
+    if todo_in.periodicidade not in ["UNICA", "DIARIA", "SEMANAL"]:
+        raise HTTPException(status_code=400, detail="periodicidade inválida")
+
+    if todo_in.periodicidade != "UNICA" and not todo_in.end_date:
+        raise HTTPException(status_code=400, detail="end_date é obrigatório para tarefas recorrentes")
+
+    if todo_in.periodicidade == "SEMANAL" and not todo_in.dias_semana:
+        raise HTTPException(status_code=400, detail="dias_semana é obrigatório para periodicidade SEMANAL")
+
+    if todo_in.end_date and todo_in.due_date and todo_in.end_date < todo_in.due_date:
+        raise HTTPException(status_code=400, detail="end_date não pode ser menor que due_date")
+
+    if todo_in.tipo_alvo == "EMPRESA" and not todo_in.empresa_id:
+        raise HTTPException(status_code=400, detail="empresa_id é obrigatório para tipo_alvo EMPRESA")
+
+    if todo_in.tipo_alvo == "CONSULTOR" and not todo_in.consultor_id:
+        raise HTTPException(status_code=400, detail="consultor_id é obrigatório para tipo_alvo CONSULTOR")
+
+    if todo_in.empresa_id:
+        empresa = db.get(Empresa, todo_in.empresa_id)
+        if not empresa or empresa.is_deleted:
+            raise HTTPException(status_code=404, detail="Empresa não encontrada")
+        if consultor.consultor_role != ConsultorRole.SUPER_CONSULTOR.value and not tem_acesso(db, consultor.id, todo_in.empresa_id):
+            raise HTTPException(status_code=403, detail="Sem acesso à empresa informada")
+
+    if todo_in.consultor_id:
+        alvo = db.get(Usuario, todo_in.consultor_id)
+        if not alvo:
+            raise HTTPException(status_code=404, detail="Consultor não encontrado")
+        if consultor.consultor_role != ConsultorRole.SUPER_CONSULTOR.value and todo_in.consultor_id != consultor.id:
+            raise HTTPException(status_code=403, detail="Sem permissão para criar tarefa para outro consultor")
+
+    def normalize_date(dt: datetime) -> datetime:
+        return datetime(dt.year, dt.month, dt.day)
+
+    def get_weekday_code(d: datetime) -> str:
+        return ["SEG", "TER", "QUA", "QUI", "SEX", "SAB", "DOM"][d.weekday()]
+
+    occurrences: List[TodoItem] = []
+
+    if todo_in.due_date:
+        start = normalize_date(todo_in.due_date)
+    else:
+        start = normalize_date(datetime.now())
+
+    if todo_in.periodicidade == "UNICA":
+        todo = TodoItem.model_validate(todo_in)
+        todo.due_date = start
+        todo.created_by_id = consultor.id
+        occurrences.append(todo)
+    else:
+        end = normalize_date(todo_in.end_date) if todo_in.end_date else start
+        dias_semana = []
+        if todo_in.dias_semana:
+            dias_semana = [d.strip().upper() for d in todo_in.dias_semana.split(',') if d.strip()]
+        if todo_in.inclui_sabado and "SAB" not in dias_semana:
+            dias_semana.append("SAB")
+
+        current = start
+        while current <= end:
+            weekday_code = get_weekday_code(current)
+            if todo_in.periodicidade == "DIARIA":
+                if not todo_in.inclui_sabado and weekday_code == "SAB":
+                    current = current + timedelta(days=1)
+                    continue
+                todo = TodoItem.model_validate(todo_in)
+                todo.due_date = current
+                todo.created_by_id = consultor.id
+                occurrences.append(todo)
+            elif todo_in.periodicidade == "SEMANAL":
+                if weekday_code in dias_semana:
+                    todo = TodoItem.model_validate(todo_in)
+                    todo.due_date = current
+                    todo.created_by_id = consultor.id
+                    occurrences.append(todo)
+            current = current + timedelta(days=1)
+
+    for item in occurrences:
+        db.add(item)
+    db.commit()
+
+    logger.info(f"[CONSULTOR] {consultor.email} criou {len(occurrences)} tarefa(s)")
+    if len(occurrences) == 1:
+        db.refresh(occurrences[0])
+        return occurrences[0]
+
+    return occurrences[0]
+
+
+@router.patch("/todos/{todo_id}", response_model=TodoRead)
+def atualizar_todo(
+    todo_id: int,
+    todo_in: TodoUpdate,
+    db: Session = Depends(get_db),
+    consultor: Usuario = Depends(get_consultor_user),
+):
+    todo = db.get(TodoItem, todo_id)
+    if not todo or todo.is_deleted:
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
+
+    if consultor.consultor_role != ConsultorRole.SUPER_CONSULTOR.value:
+        if todo.consultor_id and todo.consultor_id != consultor.id:
+            raise HTTPException(status_code=403, detail="Sem permissão para alterar esta tarefa")
+        if todo.empresa_id and not tem_acesso(db, consultor.id, todo.empresa_id):
+            raise HTTPException(status_code=403, detail="Sem acesso à empresa desta tarefa")
+
+    data = todo_in.model_dump(exclude_unset=True)
+    for key, value in data.items():
+        setattr(todo, key, value)
+
+    todo.updated_by_id = consultor.id
+    db.add(todo)
+    db.commit()
+    db.refresh(todo)
+
+    return todo
+
+
+@router.delete("/todos/{todo_id}")
+def deletar_todo(
+    todo_id: int,
+    db: Session = Depends(get_db),
+    consultor: Usuario = Depends(get_consultor_user),
+):
+    todo = db.get(TodoItem, todo_id)
+    if not todo or todo.is_deleted:
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
+
+    if consultor.consultor_role != ConsultorRole.SUPER_CONSULTOR.value:
+        if todo.consultor_id and todo.consultor_id != consultor.id:
+            raise HTTPException(status_code=403, detail="Sem permissão para deletar esta tarefa")
+        if todo.empresa_id and not tem_acesso(db, consultor.id, todo.empresa_id):
+            raise HTTPException(status_code=403, detail="Sem acesso à empresa desta tarefa")
+
+    todo.soft_delete(consultor.id)
+    db.add(todo)
+    db.commit()
+
+    return {"mensagem": "Tarefa deletada"}
+
+
+@router.post("/todos/{todo_id}/iniciar", response_model=TodoRead)
+def iniciar_todo(
+    todo_id: int,
+    db: Session = Depends(get_db),
+    consultor: Usuario = Depends(get_consultor_user),
+):
+    todo = db.get(TodoItem, todo_id)
+    if not todo or todo.is_deleted:
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
+
+    if consultor.consultor_role != ConsultorRole.SUPER_CONSULTOR.value:
+        if todo.consultor_id and todo.consultor_id != consultor.id:
+            raise HTTPException(status_code=403, detail="Sem permissão para iniciar esta tarefa")
+        if todo.empresa_id and not tem_acesso(db, consultor.id, todo.empresa_id):
+            raise HTTPException(status_code=403, detail="Sem acesso à empresa desta tarefa")
+
+    todo.last_started_at = datetime.utcnow()
+    todo.status = "EM_ANDAMENTO"
+    todo.updated_by_id = consultor.id
+    db.add(todo)
+    db.commit()
+    db.refresh(todo)
+
+    return todo
+
+
+@router.post("/todos/{todo_id}/finalizar", response_model=TodoRead)
+def finalizar_todo(
+    todo_id: int,
+    db: Session = Depends(get_db),
+    consultor: Usuario = Depends(get_consultor_user),
+):
+    todo = db.get(TodoItem, todo_id)
+    if not todo or todo.is_deleted:
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
+
+    if consultor.consultor_role != ConsultorRole.SUPER_CONSULTOR.value:
+        if todo.consultor_id and todo.consultor_id != consultor.id:
+            raise HTTPException(status_code=403, detail="Sem permissão para finalizar esta tarefa")
+        if todo.empresa_id and not tem_acesso(db, consultor.id, todo.empresa_id):
+            raise HTTPException(status_code=403, detail="Sem acesso à empresa desta tarefa")
+
+    now = datetime.utcnow()
+    if todo.last_started_at:
+        delta = now - todo.last_started_at
+        todo.total_seconds = max(0, todo.total_seconds + int(delta.total_seconds()))
+
+    todo.finished_at = now
+    todo.status = "CONCLUIDO"
+    todo.updated_by_id = consultor.id
+    db.add(todo)
+    db.commit()
+    db.refresh(todo)
+
+    return todo
+
+
+@router.get("/todos/resumo", response_model=dict)
+def resumo_todos(
+    db: Session = Depends(get_db),
+    consultor: Usuario = Depends(get_consultor_user),
+):
+    base_query = select(TodoItem).where(TodoItem.is_deleted == False)
+
+    if consultor.consultor_role != ConsultorRole.SUPER_CONSULTOR.value:
+        empresas_subq = select(ConsultorEmpresa.empresa_id).where(
+            ConsultorEmpresa.usuario_id == consultor.id,
+            ConsultorEmpresa.ativo == True
+        )
+        base_query = base_query.where(
+            or_(
+                TodoItem.consultor_id == consultor.id,
+                TodoItem.empresa_id.in_(empresas_subq)
+            )
+        )
+
+    todos = list(db.exec(base_query).all())
+    today = datetime.now().date()
+    tomorrow = today + timedelta(days=1)
+    week_end = today + timedelta(days=7)
+
+    def is_overdue(t: TodoItem) -> bool:
+        return bool(t.due_date and t.due_date.date() < today and t.status != "CONCLUIDO")
+
+    def is_completed_late(t: TodoItem) -> bool:
+        return bool(
+            t.status == "CONCLUIDO"
+            and t.due_date
+            and t.finished_at
+            and t.finished_at.date() > t.due_date.date()
+        )
+
+    summary = {
+        "amanha": 0,
+        "semana": 0,
+        "futuras": 0,
+        "atrasadas": 0,
+        "concluidas_atraso": 0,
+    }
+
+    for t in todos:
+        if t.due_date:
+            due = t.due_date.date()
+            if t.status != "CONCLUIDO" and due == tomorrow:
+                summary["amanha"] += 1
+            if t.status != "CONCLUIDO" and today <= due <= week_end:
+                summary["semana"] += 1
+            if t.status != "CONCLUIDO" and due > week_end:
+                summary["futuras"] += 1
+        if is_overdue(t):
+            summary["atrasadas"] += 1
+        if is_completed_late(t):
+            summary["concluidas_atraso"] += 1
+
+    return summary

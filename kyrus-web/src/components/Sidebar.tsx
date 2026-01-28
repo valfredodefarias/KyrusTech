@@ -65,6 +65,9 @@ export function Sidebar() {
     { icon: Landmark, label: 'Contas Bancárias', path: '/contas' },
     { icon: CreditCard, label: 'Cartões', path: '/cartoes' },
     { icon: Layers, label: 'Centros de Custo', path: '/centro-custo' },
+
+    // --- TAREFAS ---
+    { icon: ClipboardList, label: 'Tarefas', path: '/tarefas' },
     
     // --- IMPORTAÇÃO ---
     { icon: Upload, label: 'Importação', path: '/importacao' },

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { 
-  Building2, Search, UserPlus, ArrowRightLeft, Briefcase, Upload, X, Loader2, Pencil, Users, Shield, Plus, Trash2, ChevronDown, ChevronUp
+  Building2, Search, UserPlus, ArrowRightLeft, Briefcase, Upload, X, Loader2, Pencil, Users, Shield, Plus, Trash2, ChevronDown, ChevronUp,
+  ClipboardList, CheckCircle2, Circle, KeyRound
 } from 'lucide-react';
 
 // --- TIPAGENS ---
@@ -12,6 +13,7 @@ interface Empresa {
   cnpj: string;
   logo_url?: string;
   cor_primaria?: string;
+  is_active?: boolean;
 }
 
 interface Consultor {
@@ -35,11 +37,56 @@ interface NovoUsuario {
   is_consultor: boolean;
 }
 
+interface UsuarioItem {
+  id: number;
+  nome?: string | null;
+  email: string;
+  is_active: boolean;
+  is_consultor: boolean;
+  consultor_role: string;
+  empresa_id?: number | null;
+  empresa_nome?: string | null;
+}
+
+interface TodoItem {
+  id: number;
+  titulo: string;
+  descricao?: string | null;
+  status: 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDO' | string;
+  prioridade: 'BAIXA' | 'MEDIA' | 'ALTA' | string;
+  due_date?: string | null;
+  periodicidade?: 'UNICA' | 'DIARIA' | 'SEMANAL' | string;
+  dias_semana?: string | null;
+  inclui_sabado?: boolean;
+  tipo_alvo: 'EMPRESA' | 'CONSULTOR' | string;
+  empresa_id?: number | null;
+  consultor_id?: number | null;
+  last_started_at?: string | null;
+  finished_at?: string | null;
+  total_seconds?: number;
+}
+
+interface TodoForm {
+  titulo: string;
+  descricao: string;
+  status: 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDO';
+  prioridade: 'BAIXA' | 'MEDIA' | 'ALTA';
+  due_date: string;
+  end_date: string;
+  periodicidade: 'UNICA' | 'DIARIA' | 'SEMANAL';
+  dias_semana: string[];
+  inclui_sabado: boolean;
+  tipo_alvo: 'EMPRESA' | 'CONSULTOR';
+  empresa_id: number;
+  consultor_id: number;
+}
+
 // Interface unificada para Criar ou Editar
 interface FormEmpresa {
   nome_fantasia: string;
   razao_social: string;
   cnpj: string;
+  tipo_pessoa: 'PF' | 'PJ';
   cor_primaria: string;
   logo_url: string; 
 }
@@ -96,7 +143,40 @@ export function Consultor() {
   const [consultorEmpresas, setConsultorEmpresas] = useState<ConsultorEmpresa[]>([]);
   const [loadingConsultorEmpresas, setLoadingConsultorEmpresas] = useState(false);
   const [expandedConsultorId, setExpandedConsultorId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<'empresas' | 'consultores'>('empresas');
+  const [activeTab, setActiveTab] = useState<'empresas' | 'consultores' | 'usuarios' | 'tarefas'>('empresas');
+
+  // Usuários
+  const [usuarios, setUsuarios] = useState<UsuarioItem[]>([]);
+  const [loadingUsuarios, setLoadingUsuarios] = useState(false);
+
+  // Tarefas
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [loadingTodos, setLoadingTodos] = useState(false);
+  const [todoResumo, setTodoResumo] = useState({
+    amanha: 0,
+    semana: 0,
+    futuras: 0,
+    atrasadas: 0,
+    concluidas_atraso: 0
+  });
+  const [todoForm, setTodoForm] = useState<TodoForm>({
+    titulo: '',
+    descricao: '',
+    status: 'PENDENTE',
+    prioridade: 'MEDIA',
+    due_date: '',
+    end_date: '',
+    periodicidade: 'UNICA',
+    dias_semana: [],
+    inclui_sabado: false,
+    tipo_alvo: 'EMPRESA',
+    empresa_id: 0,
+    consultor_id: 0
+  });
+
+  const [showTodoForm, setShowTodoForm] = useState(false);
+
+  const [currentUser, setCurrentUser] = useState<{ id: number; email: string; consultor_role: string } | null>(null);
 
   // States Formulários
   const [newUser, setNewUser] = useState<NovoUsuario>({
@@ -104,7 +184,7 @@ export function Consultor() {
   });
   
   const [formEmpresa, setFormEmpresa] = useState<FormEmpresa>({
-    nome_fantasia: '', razao_social: '', cnpj: '', cor_primaria: '#2563eb', logo_url: ''
+    nome_fantasia: '', razao_social: '', cnpj: '', tipo_pessoa: 'PJ', cor_primaria: '#2563eb', logo_url: ''
   });
   
   const [isEditing, setIsEditing] = useState(false);
@@ -120,10 +200,14 @@ export function Consultor() {
   async function verificarSuperConsultor() {
     try {
       const res = await api.get('/usuarios/me');
-      setIsSuperConsultor(res.data.consultor_role === 'SUPER_CONSULTOR');
-      if (res.data.consultor_role === 'SUPER_CONSULTOR') {
+      const isSuper = res.data.consultor_role === 'SUPER_CONSULTOR';
+      setCurrentUser({ id: res.data.id, email: res.data.email, consultor_role: res.data.consultor_role });
+      setIsSuperConsultor(isSuper);
+      if (isSuper) {
         carregarConsultores();
+        carregarUsuarios();
       }
+      carregarTodos();
     } catch (error) {
       console.error("Erro ao verificar role do usuário", error);
     }
@@ -156,6 +240,199 @@ export function Consultor() {
     }
   }
 
+  async function carregarUsuarios() {
+    try {
+      setLoadingUsuarios(true);
+      const res = await api.get('/consultor/super/usuarios');
+      setUsuarios(res.data);
+    } catch (error) {
+      console.error("Erro ao listar usuários", error);
+    } finally {
+      setLoadingUsuarios(false);
+    }
+  }
+
+  async function carregarTodos() {
+    try {
+      setLoadingTodos(true);
+      const res = await api.get('/consultor/todos');
+      setTodos(res.data);
+      const resumo = await api.get('/consultor/todos/resumo');
+      setTodoResumo(resumo.data);
+    } catch (error) {
+      console.error("Erro ao listar tarefas", error);
+    } finally {
+      setLoadingTodos(false);
+    }
+  }
+
+  async function desativarEmpresa(empresaId: number) {
+    try {
+      await api.post(`/consultor/super/empresas/${empresaId}/desativar`);
+      carregarEmpresas();
+    } catch (error) {
+      console.error("Erro ao desativar empresa", error);
+    }
+  }
+
+  async function ativarEmpresa(empresaId: number) {
+    try {
+      await api.post(`/consultor/super/empresas/${empresaId}/ativar`);
+      carregarEmpresas();
+    } catch (error) {
+      console.error("Erro ao ativar empresa", error);
+    }
+  }
+
+  async function deletarEmpresa(empresaId: number) {
+    try {
+      if (!window.confirm('Deseja realmente deletar esta empresa?')) return;
+      await api.delete(`/consultor/super/empresas/${empresaId}`);
+      carregarEmpresas();
+    } catch (error) {
+      console.error("Erro ao deletar empresa", error);
+    }
+  }
+
+  async function desativarUsuario(userId: number) {
+    try {
+      await api.post(`/consultor/super/usuarios/${userId}/desativar`);
+      carregarUsuarios();
+    } catch (error) {
+      console.error("Erro ao desativar usuário", error);
+    }
+  }
+
+  async function ativarUsuario(userId: number) {
+    try {
+      await api.post(`/consultor/super/usuarios/${userId}/ativar`);
+      carregarUsuarios();
+    } catch (error) {
+      console.error("Erro ao ativar usuário", error);
+    }
+  }
+
+  async function resetarSenhaUsuario(userId: number) {
+    const novaSenha = window.prompt('Digite a nova senha:');
+    if (!novaSenha) return;
+    try {
+      await api.post(`/consultor/super/usuarios/${userId}/reset-senha`, { new_password: novaSenha });
+      alert('Senha redefinida com sucesso');
+    } catch (error) {
+      console.error("Erro ao redefinir senha", error);
+      alert('Erro ao redefinir senha');
+    }
+  }
+
+  async function deletarUsuario(userId: number) {
+    try {
+      if (!window.confirm('Deseja realmente deletar este usuário?')) return;
+      await api.delete(`/consultor/super/usuarios/${userId}`);
+      carregarUsuarios();
+    } catch (error) {
+      console.error("Erro ao deletar usuário", error);
+    }
+  }
+
+  async function criarTodo(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      const payload: any = {
+        titulo: todoForm.titulo,
+        descricao: todoForm.descricao || null,
+        status: 'PENDENTE',
+        prioridade: todoForm.prioridade,
+        due_date: todoForm.due_date || null,
+        end_date: todoForm.periodicidade === 'UNICA' ? null : (todoForm.end_date || null),
+        periodicidade: todoForm.periodicidade,
+        dias_semana: todoForm.dias_semana.length ? todoForm.dias_semana.join(',') : null,
+        inclui_sabado: todoForm.inclui_sabado,
+        tipo_alvo: todoForm.tipo_alvo,
+        empresa_id: todoForm.tipo_alvo === 'EMPRESA' ? (todoForm.empresa_id || null) : null,
+        consultor_id: todoForm.tipo_alvo === 'CONSULTOR' ? (todoForm.consultor_id || (currentUser?.id ?? null)) : null
+      };
+      await api.post('/consultor/todos', payload);
+      setTodoForm({
+        titulo: '',
+        descricao: '',
+        status: 'PENDENTE',
+        prioridade: 'MEDIA',
+        due_date: '',
+        end_date: '',
+        periodicidade: 'UNICA',
+        dias_semana: [],
+        inclui_sabado: false,
+        tipo_alvo: 'EMPRESA',
+        empresa_id: 0,
+        consultor_id: 0
+      });
+      carregarTodos();
+    } catch (error) {
+      console.error("Erro ao criar tarefa", error);
+    }
+  }
+
+  async function iniciarTodo(todoId: number) {
+    try {
+      await api.post(`/consultor/todos/${todoId}/iniciar`);
+      carregarTodos();
+    } catch (error) {
+      console.error("Erro ao iniciar tarefa", error);
+    }
+  }
+
+  async function finalizarTodo(todoId: number) {
+    try {
+      await api.post(`/consultor/todos/${todoId}/finalizar`);
+      carregarTodos();
+    } catch (error) {
+      console.error("Erro ao finalizar tarefa", error);
+    }
+  }
+
+  async function deletarTodo(todoId: number) {
+    try {
+      await api.delete(`/consultor/todos/${todoId}`);
+      carregarTodos();
+    } catch (error) {
+      console.error("Erro ao deletar tarefa", error);
+    }
+  }
+
+  function formatDuration(totalSeconds?: number) {
+    const secs = Math.max(0, totalSeconds || 0);
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    return `${h}h ${m}m ${s}s`;
+  }
+
+  function parseDateOnly(value?: string | null) {
+    if (!value) return null;
+    const datePart = value.slice(0, 10);
+    const [y, m, d] = datePart.split('-').map(Number);
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d);
+  }
+
+  function isOverdue(todo: TodoItem) {
+    const due = parseDateOnly(todo.due_date);
+    if (!due) return false;
+    const today = new Date();
+    due.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    return todo.status !== 'CONCLUIDO' && due < today;
+  }
+
+  function isCompletedLate(todo: TodoItem) {
+    const due = parseDateOnly(todo.due_date);
+    const finished = parseDateOnly(todo.finished_at);
+    if (!due || !finished) return false;
+    due.setHours(0, 0, 0, 0);
+    finished.setHours(0, 0, 0, 0);
+    return todo.status === 'CONCLUIDO' && finished > due;
+  }
+
   // --- ABRIR MODAL (CRIAR OU EDITAR) ---
   function handleOpenEdit(emp: Empresa) {
     setIsEditing(true);
@@ -164,6 +441,7 @@ export function Consultor() {
       nome_fantasia: emp.nome_fantasia,
       razao_social: emp.razao_social || '',
       cnpj: emp.cnpj || '',
+      tipo_pessoa: (emp as any).tipo_pessoa || 'PJ',
       cor_primaria: emp.cor_primaria || '#2563eb',
       logo_url: emp.logo_url || ''
     });
@@ -181,7 +459,7 @@ export function Consultor() {
   function handleOpenCreate() {
     setIsEditing(false);
     setEditingId(null);
-    setFormEmpresa({ nome_fantasia: '', razao_social: '', cnpj: '', cor_primaria: '#2563eb', logo_url: '' });
+    setFormEmpresa({ nome_fantasia: '', razao_social: '', cnpj: '', tipo_pessoa: 'PJ', cor_primaria: '#2563eb', logo_url: '' });
     setPreviewUrl(null);
     setShowEmpresaModal(true);
   }
@@ -241,6 +519,7 @@ export function Consultor() {
       // Recarregar consultores se for super-consultor
       if (isSuperConsultor) {
         carregarConsultores();
+        carregarUsuarios();
       }
     } catch (error) {
       console.error(error);
@@ -349,6 +628,16 @@ export function Consultor() {
 
   if (loading) return <div className="p-8 text-center text-slate-500 animate-pulse">Carregando...</div>;
 
+  const canCreateTodo = (() => {
+    if (!todoForm.titulo.trim()) return false;
+    if (!todoForm.due_date) return false;
+    if (todoForm.periodicidade !== 'UNICA' && !todoForm.end_date) return false;
+    if (todoForm.periodicidade === 'SEMANAL' && todoForm.dias_semana.length === 0) return false;
+    if (todoForm.tipo_alvo === 'EMPRESA' && !todoForm.empresa_id) return false;
+    if (todoForm.tipo_alvo === 'CONSULTOR' && !(todoForm.consultor_id || currentUser?.id)) return false;
+    return true;
+  })();
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in pb-12">
       
@@ -371,23 +660,37 @@ export function Consultor() {
         </div>
       </div>
 
-      {/* TABS (mostrar se super-consultor) */}
-      {isSuperConsultor && (
-        <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 rounded-t-xl">
-          <button 
-            onClick={() => setActiveTab('empresas')}
-            className={`px-4 py-2 font-bold transition ${activeTab === 'empresas' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
-          >
-            <Building2 size={18} className="inline mr-2" /> Minhas Empresas
-          </button>
+      {/* TABS */}
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 rounded-t-xl">
+        <button 
+          onClick={() => setActiveTab('empresas')}
+          className={`px-4 py-2 font-bold transition ${activeTab === 'empresas' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+        >
+          <Building2 size={18} className="inline mr-2" /> Minhas Empresas
+        </button>
+        {isSuperConsultor && (
           <button 
             onClick={() => setActiveTab('consultores')}
             className={`px-4 py-2 font-bold transition ${activeTab === 'consultores' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
           >
             <Users size={18} className="inline mr-2" /> Gerenciar Consultores
           </button>
-        </div>
-      )}
+        )}
+        {isSuperConsultor && (
+          <button 
+            onClick={() => setActiveTab('usuarios')}
+            className={`px-4 py-2 font-bold transition ${activeTab === 'usuarios' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+          >
+            <Users size={18} className="inline mr-2" /> Usuários
+          </button>
+        )}
+        <button 
+          onClick={() => setActiveTab('tarefas')}
+          className={`px-4 py-2 font-bold transition ${activeTab === 'tarefas' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+        >
+          <ClipboardList size={18} className="inline mr-2" /> To-do
+        </button>
+      </div>
 
       {/* SEARCH */}
       {activeTab === 'empresas' && (
@@ -406,6 +709,7 @@ export function Consultor() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {empresasFiltradas.map(emp => {
           const cor = emp.cor_primaria || '#2563eb';
+          const isActive = emp.is_active !== false;
           return (
             <div key={emp.id} className="relative rounded-xl p-5 shadow-sm hover:shadow-xl transition-all duration-300 group border flex flex-col justify-between"
               style={{ background: `linear-gradient(145deg, ${cor}08 0%, ${cor}15 100%)`, borderColor: `${cor}30` }}>
@@ -414,6 +718,12 @@ export function Consultor() {
               <button onClick={() => handleOpenEdit(emp)} className="absolute top-3 right-3 p-2 rounded-full hover:bg-white/50 dark:hover:bg-black/20 text-slate-400 hover:text-blue-600 transition" title="Editar">
                 <Pencil size={16} />
               </button>
+
+              <span className={`absolute top-3 left-3 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+              }`}>
+                {isActive ? 'ATIVA' : 'INATIVA'}
+              </span>
 
               <div className="flex items-center gap-4 mb-6">
                 <AvatarEmpresa nome={emp.nome_fantasia} src={emp.logo_url} cor={cor} />
@@ -426,14 +736,35 @@ export function Consultor() {
                 </div>
               </div>
 
-              {/* Botão Acessar - Abre Modal de Confirmação */}
-              <button 
-                onClick={() => solicitarTroca(emp)}
-                className="w-full py-2.5 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-sm mt-auto active:scale-95"
-                style={{ backgroundColor: cor, color: '#fff' }}
-              >
-                <ArrowRightLeft size={16} /> Acessar Painel
-              </button>
+              <div className="flex gap-2 mt-auto">
+                <button 
+                  onClick={() => solicitarTroca(emp)}
+                  disabled={!isActive}
+                  className={`flex-1 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-sm active:scale-95 ${!isActive ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  style={{ backgroundColor: cor, color: '#fff' }}
+                >
+                  <ArrowRightLeft size={16} /> Acessar
+                </button>
+                {isSuperConsultor && (
+                  <button
+                    onClick={() => (isActive ? desativarEmpresa(emp.id) : ativarEmpresa(emp.id))}
+                    className={`px-3 py-2.5 rounded-lg text-xs font-bold border transition ${
+                      isActive ? 'border-red-300 text-red-600 hover:bg-red-50' : 'border-emerald-300 text-emerald-600 hover:bg-emerald-50'
+                    }`}
+                  >
+                    {isActive ? 'Desativar' : 'Ativar'}
+                  </button>
+                )}
+              </div>
+
+              {isSuperConsultor && (
+                <button
+                  onClick={() => deletarEmpresa(emp.id)}
+                  className="mt-2 w-full py-2 text-xs font-bold rounded-lg border border-red-300 text-red-600 hover:bg-red-50 transition flex items-center justify-center gap-1"
+                >
+                  <Trash2 size={14} /> Deletar
+                </button>
+              )}
             </div>
           );
         })}
@@ -547,6 +878,342 @@ export function Consultor() {
       </div>
       )}
 
+      {/* ABA USUÁRIOS (SUPER-CONSULTOR ONLY) */}
+      {activeTab === 'usuarios' && isSuperConsultor && (
+        <div className="space-y-4">
+          {loadingUsuarios ? (
+            <div className="p-6 text-center text-slate-500">Carregando usuários...</div>
+          ) : usuarios.length === 0 ? (
+            <div className="bg-slate-50 dark:bg-slate-700/30 border border-slate-200 dark:border-slate-700 rounded-xl p-8 text-center">
+              <Users size={32} className="mx-auto mb-2 text-slate-400" />
+              <p className="text-slate-500 dark:text-slate-400">Nenhum usuário encontrado</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {usuarios.map(user => {
+                const isSelf = currentUser?.id === user.id;
+                return (
+                  <div key={user.id} className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-slate-800 dark:text-white">{user.nome || user.email}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">{user.email}</p>
+                        <p className="text-xs text-slate-400">Empresa: {user.empresa_nome || '—'}</p>
+                      </div>
+                      <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${user.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                        {user.is_active ? 'ATIVO' : 'INATIVO'}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => user.is_active ? desativarUsuario(user.id) : ativarUsuario(user.id)}
+                        disabled={isSelf}
+                        className={`px-3 py-2 rounded-lg text-xs font-bold border transition ${user.is_active ? 'border-red-300 text-red-600 hover:bg-red-50' : 'border-emerald-300 text-emerald-600 hover:bg-emerald-50'} ${isSelf ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      >
+                        {user.is_active ? 'Desativar' : 'Ativar'}
+                      </button>
+                      <button
+                        onClick={() => resetarSenhaUsuario(user.id)}
+                        disabled={isSelf}
+                        className={`px-3 py-2 rounded-lg text-xs font-bold border border-blue-300 text-blue-600 hover:bg-blue-50 transition flex items-center gap-1 ${isSelf ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      >
+                        <KeyRound size={14} /> Redefinir Senha
+                      </button>
+                      <button
+                        onClick={() => deletarUsuario(user.id)}
+                        disabled={isSelf}
+                        className={`px-3 py-2 rounded-lg text-xs font-bold border border-red-300 text-red-600 hover:bg-red-50 transition flex items-center gap-1 ${isSelf ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      >
+                        <Trash2 size={14} /> Deletar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ABA TAREFAS */}
+      {activeTab === 'tarefas' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+              <p className="text-[11px] text-slate-500">Amanhã</p>
+              <p className="text-xl font-bold text-slate-800 dark:text-white">{todoResumo.amanha}</p>
+            </div>
+            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+              <p className="text-[11px] text-slate-500">Na semana</p>
+              <p className="text-xl font-bold text-slate-800 dark:text-white">{todoResumo.semana}</p>
+            </div>
+            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+              <p className="text-[11px] text-slate-500">Futuras</p>
+              <p className="text-xl font-bold text-slate-800 dark:text-white">{todoResumo.futuras}</p>
+            </div>
+            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+              <p className="text-[11px] text-slate-500">Atrasadas</p>
+              <p className="text-xl font-bold text-red-600">{todoResumo.atrasadas}</p>
+            </div>
+            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+              <p className="text-[11px] text-slate-500">Concl. em atraso</p>
+              <p className="text-xl font-bold text-amber-600">{todoResumo.concluidas_atraso}</p>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              onClick={() => setShowTodoForm(prev => !prev)}
+              className="px-4 py-2 rounded-lg font-bold text-sm bg-blue-600 text-white hover:bg-blue-700 transition flex items-center gap-2"
+            >
+              <Plus size={16} /> {showTodoForm ? 'Ocultar formulário' : 'Nova Tarefa'}
+            </button>
+          </div>
+
+          {showTodoForm && (
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
+              <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                <ClipboardList size={18} /> Nova Tarefa
+              </h3>
+              <form onSubmit={criarTodo} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Título</label>
+                  <input
+                    required
+                    type="text"
+                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent dark:text-white"
+                    value={todoForm.titulo}
+                    onChange={e => setTodoForm({ ...todoForm, titulo: e.target.value })}
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Descrição</label>
+                  <textarea
+                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent dark:text-white"
+                    value={todoForm.descricao}
+                    onChange={e => setTodoForm({ ...todoForm, descricao: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Tipo de Alvo</label>
+                  <select
+                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    value={todoForm.tipo_alvo}
+                    onChange={e => setTodoForm({ ...todoForm, tipo_alvo: e.target.value as TodoForm['tipo_alvo'] })}
+                  >
+                    <option value="EMPRESA">Empresa</option>
+                    <option value="CONSULTOR">Consultor</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Prioridade</label>
+                  <select
+                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    value={todoForm.prioridade}
+                    onChange={e => setTodoForm({ ...todoForm, prioridade: e.target.value as TodoForm['prioridade'] })}
+                  >
+                    <option value="BAIXA">Baixa</option>
+                    <option value="MEDIA">Média</option>
+                    <option value="ALTA">Alta</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Periodicidade</label>
+                  <select
+                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    value={todoForm.periodicidade}
+                    onChange={e => setTodoForm({ ...todoForm, periodicidade: e.target.value as TodoForm['periodicidade'] })}
+                  >
+                    <option value="UNICA">Única</option>
+                    <option value="DIARIA">Todo dia</option>
+                    <option value="SEMANAL">Semanal</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={todoForm.inclui_sabado}
+                    onChange={e => setTodoForm({ ...todoForm, inclui_sabado: e.target.checked })}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600"
+                  />
+                  <label className="text-sm text-slate-600 dark:text-slate-300">Inclui sábado?</label>
+                </div>
+                {todoForm.periodicidade === 'SEMANAL' && (
+                  <div className="md:col-span-2">
+                    <label className="text-xs font-bold uppercase text-slate-500 mb-2 block">Dias da semana</label>
+                    <div className="flex flex-wrap gap-2">
+                      {['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB', 'DOM'].map(dia => (
+                        <label key={dia} className={`px-3 py-1 rounded-full text-xs font-bold border cursor-pointer ${todoForm.dias_semana.includes(dia) ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                          <input
+                            type="checkbox"
+                            className="hidden"
+                            checked={todoForm.dias_semana.includes(dia)}
+                            onChange={e => {
+                              const next = e.target.checked
+                                ? [...todoForm.dias_semana, dia]
+                                : todoForm.dias_semana.filter(d => d !== dia);
+                              setTodoForm({ ...todoForm, dias_semana: next });
+                            }}
+                          />
+                          {dia}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {todoForm.tipo_alvo === 'EMPRESA' && (
+                  <div className="md:col-span-2">
+                    <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Empresa</label>
+                    <select
+                      className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                      value={todoForm.empresa_id}
+                      onChange={e => setTodoForm({ ...todoForm, empresa_id: Number(e.target.value) })}
+                    >
+                      <option value={0}>-- Selecione --</option>
+                      {empresas.map(emp => (
+                        <option key={emp.id} value={emp.id}>{emp.nome_fantasia}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {todoForm.tipo_alvo === 'CONSULTOR' && (
+                  <div className="md:col-span-2">
+                    <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Consultor</label>
+                    <select
+                      className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                      value={todoForm.consultor_id || currentUser?.id || 0}
+                      onChange={e => setTodoForm({ ...todoForm, consultor_id: Number(e.target.value) })}
+                      disabled={!isSuperConsultor}
+                    >
+                      <option value={currentUser?.id || 0}>{currentUser?.email || 'Eu'}</option>
+                      {isSuperConsultor && consultores.map(c => (
+                        <option key={c.id} value={c.id}>{c.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div>
+                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Prazo</label>
+                  <input
+                    type="date"
+                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent dark:text-white"
+                    value={todoForm.due_date}
+                    onChange={e => setTodoForm({ ...todoForm, due_date: e.target.value })}
+                  />
+                </div>
+                {todoForm.periodicidade !== 'UNICA' && (
+                  <div>
+                    <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Data Fim</label>
+                    <input
+                      type="date"
+                      className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent dark:text-white"
+                      value={todoForm.end_date}
+                      onChange={e => setTodoForm({ ...todoForm, end_date: e.target.value })}
+                    />
+                  </div>
+                )}
+                <div className="md:col-span-2">
+                  <button
+                    type="submit"
+                    disabled={!canCreateTodo}
+                    className={`w-full py-3 font-bold rounded-xl transition ${canCreateTodo ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-400 text-white cursor-not-allowed'}`}
+                  >
+                    Criar Tarefa
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
+            <h3 className="font-bold text-slate-800 dark:text-white mb-4">Lista de Tarefas</h3>
+            {loadingTodos ? (
+              <div className="text-center text-slate-500">Carregando tarefas...</div>
+            ) : todos.length === 0 ? (
+              <div className="text-center text-slate-500">Nenhuma tarefa encontrada</div>
+            ) : (
+              <div className="space-y-6">
+                {(["PENDENTE", "EM_ANDAMENTO", "CONCLUIDO"] as const).map(status => (
+                  <div key={status}>
+                    <p className="text-xs font-bold uppercase text-slate-500 mb-2">
+                      {status === 'PENDENTE' && 'Pendentes'}
+                      {status === 'EM_ANDAMENTO' && 'Em andamento'}
+                      {status === 'CONCLUIDO' && 'Concluídas'}
+                    </p>
+                    <div className="space-y-3">
+                      {todos.filter(t => t.status === status).length === 0 ? (
+                        <div className="text-xs text-slate-400">Nenhuma tarefa</div>
+                      ) : (
+                        todos.filter(t => t.status === status).map(todo => {
+                          const empresaNome = empresas.find(e => e.id === todo.empresa_id)?.nome_fantasia;
+                          const consultorNome = consultores.find(c => c.id === todo.consultor_id)?.nome || (todo.consultor_id === currentUser?.id ? 'Eu' : undefined);
+                          const atrasada = isOverdue(todo);
+                          const concluidaAtraso = isCompletedLate(todo);
+                          return (
+                            <div key={todo.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  {todo.status === 'CONCLUIDO' ? <CheckCircle2 size={18} className="text-emerald-500" /> : <Circle size={18} className="text-slate-400" />}
+                                  <p className="font-bold text-slate-800 dark:text-white">{todo.titulo}</p>
+                                  {atrasada && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">ATRASADA</span>}
+                                  {concluidaAtraso && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">CONCLUÍDA EM ATRASO</span>}
+                                </div>
+                                {todo.descricao && <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{todo.descricao}</p>}
+                                <p className="text-[11px] text-slate-400 mt-1">
+                                  {todo.tipo_alvo === 'EMPRESA'
+                                    ? `Empresa: ${empresaNome || `ID ${todo.empresa_id}`}`
+                                    : `Consultor: ${consultorNome || `ID ${todo.consultor_id}`}`}
+                                  {todo.due_date ? ` • Prazo: ${todo.due_date.slice(0, 10)}` : ''}
+                                </p>
+                                <p className="text-[11px] text-slate-400 mt-1">
+                                  {todo.periodicidade === 'DIARIA' && 'Periodicidade: todo dia'}
+                                  {todo.periodicidade === 'SEMANAL' && `Periodicidade: semanal (${todo.dias_semana || '-'})`}
+                                  {(!todo.periodicidade || todo.periodicidade === 'UNICA') && 'Periodicidade: única'}
+                                  {todo.inclui_sabado ? ' • Inclui sábado' : ''}
+                                </p>
+                                <p className="text-[11px] text-slate-400 mt-1">
+                                  Tempo: {formatDuration(todo.total_seconds)}
+                                  {todo.last_started_at && todo.status !== 'CONCLUIDO' ? ' • Em andamento' : ''}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {todo.status === 'PENDENTE' && (
+                                  <button
+                                    onClick={() => iniciarTodo(todo.id)}
+                                    className="px-3 py-2 rounded-lg text-xs font-bold border border-blue-300 text-blue-600 hover:bg-blue-50 transition"
+                                  >
+                                    Iniciar
+                                  </button>
+                                )}
+                                {todo.status === 'EM_ANDAMENTO' && (
+                                  <button
+                                    onClick={() => finalizarTodo(todo.id)}
+                                    className="px-3 py-2 rounded-lg text-xs font-bold border border-emerald-300 text-emerald-600 hover:bg-emerald-50 transition"
+                                  >
+                                    Finalizar
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => deletarTodo(todo.id)}
+                                  className="px-3 py-2 rounded-lg text-xs font-bold border border-red-300 text-red-600 hover:bg-red-50 transition flex items-center gap-1"
+                                >
+                                  <Trash2 size={14} /> Excluir
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* --- MODAL CONFIRMAÇÃO DE TROCA --- */}
       {showTrocaModal && targetEmpresa && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
@@ -607,6 +1274,17 @@ export function Consultor() {
                   <input type="text" className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent dark:text-white focus:border-blue-500 outline-none" value={formEmpresa.cnpj} onChange={e => setFormEmpresa({...formEmpresa, cnpj: e.target.value})} />
                 </div>
                 <div>
+                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Tipo</label>
+                  <select
+                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    value={formEmpresa.tipo_pessoa}
+                    onChange={e => setFormEmpresa({ ...formEmpresa, tipo_pessoa: e.target.value as 'PF' | 'PJ' })}
+                  >
+                    <option value="PF">Pessoa Física</option>
+                    <option value="PJ">Pessoa Jurídica</option>
+                  </select>
+                </div>
+                <div>
                   <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Cor da Marca</label>
                   <div className="flex h-10.5 border border-slate-300 dark:border-slate-600 rounded-lg overflow-hidden">
                       <input type="color" className="h-full w-12 cursor-pointer border-none p-0" value={formEmpresa.cor_primaria} onChange={e => setFormEmpresa({...formEmpresa, cor_primaria: e.target.value})} />
@@ -649,7 +1327,7 @@ export function Consultor() {
               </div>
               <div>
                 <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Vincular Empresa</label>
-                <select className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent dark:text-white" value={newUser.empresa_id} onChange={e => setNewUser({...newUser, empresa_id: Number(e.target.value)})} disabled={newUser.is_consultor}>
+                <select className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" value={newUser.empresa_id} onChange={e => setNewUser({...newUser, empresa_id: Number(e.target.value)})} disabled={newUser.is_consultor}>
                   <option value={0}>{newUser.is_consultor ? '-- Consultores acessam múltiplas empresas --' : '-- Selecione --'}</option>
                   {!newUser.is_consultor && empresas.map(emp => (<option key={emp.id} value={emp.id}>{emp.nome_fantasia}</option>))}
                 </select>

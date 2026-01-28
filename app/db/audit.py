@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import event
 from sqlalchemy.inspection import inspect
@@ -21,6 +22,8 @@ EXCLUDED_FIELDS = {
 def _serialize_value(value: Any) -> Any:
     if isinstance(value, (datetime, date)):
         return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
     return value
 
 

@@ -96,6 +96,22 @@ export function Contas() {
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
+  function getFullLogoUrl(url?: string | null) {
+    if (!url) return null;
+    if (url.startsWith('blob:') || url.startsWith('data:')) return url;
+    const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
+    if (url.startsWith('/static')) return `${baseURL}${url}`;
+    if (url.startsWith('http://') && url.includes('/static/')) {
+      try {
+        const path = new URL(url).pathname;
+        return `${baseURL}${path}`;
+      } catch {
+        return url;
+      }
+    }
+    return url;
+  }
+
   useEffect(() => {
     carregarDados();
     carregarTema();
@@ -400,7 +416,7 @@ export function Contas() {
                             style={{ backgroundColor: `${primaryColor}10`, color: primaryColor }} // 10% opacity
                           >
                             {c.logo_url ? (
-                              <img src={c.logo_url} alt={c.nome} className="w-full h-full object-cover" />
+                              <img src={getFullLogoUrl(c.logo_url) || ''} alt={c.nome} className="w-full h-full object-cover" />
                             ) : (
                               <IconComp className="w-5 h-5" />
                             )}
@@ -517,7 +533,7 @@ export function Contas() {
                   <div className="flex items-center gap-3">
                       <div className="w-16 h-16 rounded-lg bg-slate-100 dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 overflow-hidden flex items-center justify-center text-[10px] text-slate-400">
                           {logoPreview || form.logo_url ? (
-                            <img src={logoPreview || form.logo_url || ''} alt="Logo" className="w-full h-full object-cover" />
+                            <img src={getFullLogoUrl(logoPreview || form.logo_url || '') || ''} alt="Logo" className="w-full h-full object-cover" />
                           ) : (
                             'Sem logo'
                           )}

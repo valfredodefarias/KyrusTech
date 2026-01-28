@@ -668,14 +668,13 @@ export function Lancamentos() {
                                         </td>
                                         <td className={`p-4 text-right font-bold ${l.tipo==='RECEITA'?'text-emerald-400':'text-red-400'}`}>{BRL.format(l.valor_previsto)}</td>
                                         <td className="p-4 text-center w-24">
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${l.status==='PAGO'?'bg-emerald-900/20 text-emerald-400 border-emerald-900':'bg-slate-700/50 text-slate-400 border-slate-600'}`}>{l.status}</span>
+                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${l.status==='PAGO'?'bg-emerald-900/20 text-emerald-400 border-emerald-900':'bg-slate-700/50 text-slate-400 border-slate-600'}`}>{l.status}</span>
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
                           </table>
                       </div>
-                    </div>
                     </div>
                 </div>
             ))

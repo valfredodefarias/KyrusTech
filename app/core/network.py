@@ -6,6 +6,8 @@ import socket
 import logging
 from typing import Optional
 
+from app.core.config import settings
+
 # Configura logging básico se não estiver configurado
 logging.basicConfig(
     level=logging.INFO,
@@ -107,6 +109,8 @@ def get_backend_url(ip: Optional[str] = None, port: int = 8000) -> str:
     Returns:
         str: URL completa (ex: "http://192.168.0.39:8000")
     """
+    if settings.BACKEND_PUBLIC_URL:
+        return settings.BACKEND_PUBLIC_URL.rstrip("/")
     if ip is None:
         ip = get_local_ip()
     return f"http://{ip}:{port}"

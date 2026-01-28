@@ -95,10 +95,18 @@ def read_all_contas(
 
         # Monta objeto de retorno
         conta_dict = conta.model_dump()
-        # Garante URL completa da logo
-        if conta_dict.get("logo_url") and not str(conta_dict["logo_url"]).startswith("http"):
+        # Garante URL completa da logo (e normaliza URLs antigas http://IP)
+        logo_url = conta_dict.get("logo_url")
+        if logo_url:
             base = get_backend_url()
-            conta_dict["logo_url"] = f"{base}{conta_dict['logo_url']}" if conta_dict['logo_url'].startswith("/") else f"{base}/{conta_dict['logo_url']}"
+            if str(logo_url).startswith("/"):
+                conta_dict["logo_url"] = f"{base}{logo_url}"
+            elif str(logo_url).startswith("http://") and "/static/" in str(logo_url):
+                from urllib.parse import urlparse
+                path = urlparse(str(logo_url)).path
+                conta_dict["logo_url"] = f"{base}{path}"
+            elif not str(logo_url).startswith("http"):
+                conta_dict["logo_url"] = f"{base}/{logo_url}"
 
         conta_dict['saldo_atual'] = saldo_real
         resultado.append(conta_dict)

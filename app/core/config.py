@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "KyrusTech"
     ENVIRONMENT: str = "development" # "development", "production", "testing"
     API_V1_STR: str = "/api/v1"  # Prefixo das rotas da API
+    BACKEND_PUBLIC_URL: str | None = None  # Ex: "https://kyrustech.com.br"
     
     # --- SEGURANÇA ---
     SECRET_KEY: str = "change-me-in-production-env" # Default para dev, obrigatório em produção

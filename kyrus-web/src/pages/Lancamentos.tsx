@@ -557,8 +557,8 @@ export function Lancamentos() {
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 overflow-hidden relative">
       
       {/* 1. TOP HEADER */}
-      <header className="bg-slate-800 border-b border-slate-700 p-4 flex flex-col md:flex-row justify-between items-center gap-4 z-20 shadow-md">
-        <div className="flex items-center gap-3 w-full md:w-auto">
+      <header className="bg-slate-800 border-b border-slate-700 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-20 shadow-md">
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
           <div className="flex bg-slate-700 rounded-lg p-1 shadow-inner">
             <button onClick={()=>setMesAtual(new Date(mesAtual.setMonth(mesAtual.getMonth()-1)))} className="p-1.5 hover:bg-slate-600 rounded-md text-slate-300 transition-colors"><ChevronLeft className="w-4 h-4"/></button>
             <span className="w-32 text-center text-xs font-bold uppercase pt-1 text-white">{mesAtual.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</span>
@@ -568,12 +568,12 @@ export function Lancamentos() {
           <button onClick={syncCadastros} className="p-2 text-slate-400 hover:text-emerald-400 border border-slate-600 rounded-lg hover:border-emerald-500 transition-colors" title="Sincronizar cadastros"><Layers className="w-4 h-4"/></button>
         </div>
 
-        <div className="flex-1 w-full flex gap-2 items-center">
+        <div className="flex-1 w-full flex flex-col sm:flex-row gap-2 sm:items-center">
             <div className="relative flex-1">
                 <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500"/>
                 <input type="text" placeholder="Pesquisar..." className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-600 bg-slate-900 text-sm text-white focus:ring-2 focus:ring-blue-600 outline-none transition" value={filtroTexto} onChange={e=>setFiltroTexto(e.target.value)}/>
             </div>
-            <div className="w-48 hidden md:block">
+            <div className="w-full sm:w-48">
                 <select className="w-full p-2 rounded-lg border border-slate-600 bg-slate-900 text-sm text-white outline-none focus:border-blue-500" value={centroCustoFiltro} onChange={e=>setCentroCustoFiltro(e.target.value)}>
                     <option value="">Todos Centros</option>
                     {centros.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
@@ -581,22 +581,22 @@ export function Lancamentos() {
             </div>
         </div>
 
-        <div className="flex gap-2 w-full md:w-auto">
-          <button onClick={()=>setShowTransfer(true)} className="px-3 py-2 border border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-700 flex items-center gap-2 text-slate-300 transition-all"><ArrowRightLeft className="w-4 h-4"/> <span className="hidden lg:inline">Transf.</span></button>
-          <button onClick={()=>setShowFiltrosSidebar(true)} className={`px-3 py-2 border border-slate-600 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${showFiltrosSidebar ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-slate-700 text-slate-300'}`}><Filter className="w-4 h-4"/> <span className="hidden lg:inline">Filtros</span></button>
-          <button onClick={()=>openDrawer()} className="px-5 py-2 rounded-lg shadow-lg text-white font-bold text-sm flex gap-2 hover:brightness-110 transition bg-blue-600 hover:bg-blue-500"><Plus className="w-4 h-4"/> Novo</button>
+        <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+          <button onClick={()=>setShowTransfer(true)} className="px-3 py-2 border border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-700 flex items-center gap-2 text-slate-300 transition-all w-full sm:w-auto justify-center"><ArrowRightLeft className="w-4 h-4"/> <span className="hidden lg:inline">Transf.</span></button>
+          <button onClick={()=>setShowFiltrosSidebar(true)} className={`px-3 py-2 border border-slate-600 rounded-lg text-sm font-bold flex items-center gap-2 transition-all w-full sm:w-auto justify-center ${showFiltrosSidebar ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-slate-700 text-slate-300'}`}><Filter className="w-4 h-4"/> <span className="hidden lg:inline">Filtros</span></button>
+          <button onClick={()=>openDrawer()} className="px-5 py-2 rounded-lg shadow-lg text-white font-bold text-sm flex gap-2 hover:brightness-110 transition bg-blue-600 hover:bg-blue-500 w-full sm:w-auto justify-center"><Plus className="w-4 h-4"/> Novo</button>
         </div>
       </header>
 
       {/* 2. KPI SECTION */}
-      <div className="px-6 pt-6 pb-2 grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="px-4 sm:px-6 pt-6 pb-2 grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-600"><div className="text-emerald-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Receitas</p><p className="text-2xl font-black">{BRL.format(kpis.r)}</p></div><div className="p-2 bg-emerald-900/20 rounded-lg"><TrendingUp className="text-emerald-400 w-6 h-6"/></div></div>
         <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-600"><div className="text-red-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Despesas</p><p className="text-2xl font-black">{BRL.format(kpis.d)}</p></div><div className="p-2 bg-red-900/20 rounded-lg"><TrendingDown className="text-red-400 w-6 h-6"/></div></div>
         <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-600"><div className="text-blue-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Saldo</p><p className="text-2xl font-black">{BRL.format(kpis.s)}</p></div><div className="p-2 bg-blue-900/20 rounded-lg"><Wallet className="text-blue-400 w-6 h-6"/></div></div>
       </div>
 
       {/* 3. FILTROS RÁPIDOS */}
-      <div className="px-6 py-2 flex gap-2 overflow-x-auto custom-scrollbar pb-4">
+      <div className="px-4 sm:px-6 py-2 flex gap-2 overflow-x-auto custom-scrollbar pb-4">
          {[
              {id: null, label: 'Todos'}, 
              {id: 'HOJE', label: 'Vencem Hoje', icon: CalendarClock},
@@ -613,7 +613,7 @@ export function Lancamentos() {
       </div>
 
       {/* 4. LISTA AGRUPADA (COM DATA FIXA) */}
-      <div className="flex-1 px-6 pb-20 overflow-y-auto custom-scrollbar">
+      <div className="flex-1 px-4 sm:px-6 pb-20 overflow-y-auto custom-scrollbar">
         {grouped.sortedDates.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-slate-500 opacity-60">
                 <Search className="w-12 h-12 mb-2"/>
@@ -630,7 +630,8 @@ export function Lancamentos() {
                     </div>
 
                     <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-sm overflow-hidden">
-                      <table className="w-full text-left">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left">
                         <thead className="bg-slate-900/40 text-[11px] uppercase font-bold text-slate-500">
                           <tr>
                             <th className="p-3 w-10 text-center">Sel</th>
@@ -672,7 +673,9 @@ export function Lancamentos() {
                                     </tr>
                                 ))}
                             </tbody>
-                        </table>
+                          </table>
+                      </div>
+                    </div>
                     </div>
                 </div>
             ))

@@ -133,13 +133,13 @@ export function Tarefas() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 animate-fade-in pb-10">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
           <ClipboardList className="w-6 h-6 text-slate-400" /> Tarefas
         </h2>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
           <p className="text-[11px] text-slate-500">Amanhã</p>
           <p className="text-xl font-bold text-slate-800 dark:text-white">{resumo.amanha}</p>

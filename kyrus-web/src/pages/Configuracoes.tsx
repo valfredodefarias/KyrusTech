@@ -99,10 +99,10 @@ const DadosEmpresa = () => {
 
   return (
     <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4">
-      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-xl">
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 sm:p-8 shadow-xl">
         
         {/* CABEÇALHO COM LOGO (CROPADA/REDONDA) */}
-        <div className="flex flex-col md:flex-row items-center gap-8 mb-10 pb-10 border-b border-slate-700">
+        <div className="flex flex-col md:flex-row items-center gap-6 md:gap-8 mb-10 pb-10 border-b border-slate-700">
           
           {/* Container da Logo */}
           <div className="relative group">

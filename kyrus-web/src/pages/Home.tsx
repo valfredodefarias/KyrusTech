@@ -140,7 +140,7 @@ export function Home() {
     <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-10">
       
       {/* Header com Data */}
-      <header className="flex justify-between items-center mb-6">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
         <h2 className="text-xl font-bold flex items-center gap-2 text-slate-700 dark:text-white">
           <HomeIcon className="w-5 h-5" style={{ color: primaryColor }} /> Visão Geral
         </h2>
@@ -151,23 +151,23 @@ export function Home() {
 
       {/* Cartão de Boas Vindas (Hero) PERSONALIZAVEL */}
       <div 
-        className="rounded-2xl p-8 text-white shadow-xl relative overflow-hidden transition-colors duration-500"
+        className="rounded-2xl p-5 sm:p-8 text-white shadow-xl relative overflow-hidden transition-colors duration-500"
         style={bgStyle} // APLICA A COR DO BANCO AQUI
       >
         <div className="absolute right-0 top-0 h-full w-1/3 bg-white/10 skew-x-12 pointer-events-none"></div>
         <div className="relative z-10">
-          <h1 className="text-3xl font-extrabold mb-2 capitalize">Olá, {nomeUsuario}! 👋</h1>
-          <p className="text-white/90 text-lg flex items-center gap-2">
+          <h1 className="text-2xl sm:text-3xl font-extrabold mb-2 capitalize">Olá, {nomeUsuario}! 👋</h1>
+          <p className="text-white/90 text-base sm:text-lg flex items-center gap-2 flex-wrap">
             Você está gerenciando: 
             <strong className="bg-white/20 px-2 py-0.5 rounded backdrop-blur-sm">
               {empresa?.nome_fantasia || 'Sua Empresa'}
             </strong>
           </p>
-          <div className="mt-6 flex gap-3 flex-wrap">
-            <Link to="/lancamentos" className="bg-white text-slate-800 px-5 py-2.5 rounded-lg font-bold hover:bg-slate-50 transition shadow-sm flex items-center gap-2">
+          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+            <Link to="/lancamentos" className="bg-white text-slate-800 px-5 py-2.5 rounded-lg font-bold hover:bg-slate-50 transition shadow-sm flex items-center gap-2 w-full sm:w-auto justify-center">
               <PlusCircle size={18} style={{ color: primaryColor }} /> Novo Lançamento
             </Link>
-            <Link to="/dashboard" className="bg-black/20 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-black/30 transition flex items-center gap-2 border border-white/20">
+            <Link to="/dashboard" className="bg-black/20 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-black/30 transition flex items-center gap-2 border border-white/20 w-full sm:w-auto justify-center">
               <BarChart2 size={18} /> Ver Relatórios
             </Link>
           </div>
@@ -180,7 +180,7 @@ export function Home() {
           <ClipboardList className="w-5 h-5 text-slate-400" /> Minhas Tarefas
         </h3>
 
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
           <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
             <p className="text-[11px] text-slate-500">Amanhã</p>
             <p className="text-xl font-bold text-slate-800 dark:text-white">{todoResumo.amanha}</p>
@@ -210,7 +210,7 @@ export function Home() {
         ) : (
           <div className="space-y-3">
             {todos.filter(t => t.status !== 'CONCLUIDO').slice(0, 5).map(todo => (
-              <div key={todo.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between gap-4">
+              <div key={todo.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   {todo.status === 'CONCLUIDO' ? <CheckCircle2 size={18} className="text-emerald-500" /> : <Circle size={18} className="text-slate-400" />}
                   <div className="min-w-0">

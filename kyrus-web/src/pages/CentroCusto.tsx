@@ -147,7 +147,7 @@ export function CentroCusto() {
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in pb-12">
       
       {/* HEADER */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-800 p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
             <Layers className="text-(--color-primary)" /> Centros de Custo
@@ -157,7 +157,7 @@ export function CentroCusto() {
         
           <button 
            onClick={handleOpenCreate}
-           className="bg-(--color-primary) hover:opacity-90 text-white px-4 py-2.5 rounded-lg font-bold transition flex items-center gap-2 shadow-md active:scale-95"
+           className="bg-(--color-primary) hover:opacity-90 text-white px-4 py-2.5 rounded-lg font-bold transition flex items-center gap-2 shadow-md active:scale-95 w-full sm:w-auto justify-center"
         >
           <PlusCircle size={18} /> Novo Centro
         </button>

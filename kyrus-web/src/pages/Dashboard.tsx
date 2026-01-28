@@ -553,13 +553,13 @@ export function Dashboard() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900">
-      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-8 py-5 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm gap-4">
+      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-8 py-5 flex flex-col lg:flex-row lg:items-center justify-between shadow-sm gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">Dashboard</h2>
           <p className="text-sm text-slate-400">Relatórios interativos e conectados</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2">
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 w-full sm:w-auto">
             <select
               value={periodoTipo}
               onChange={(e) => setPeriodoTipo(e.target.value as any)}
@@ -570,7 +570,7 @@ export function Dashboard() {
               <option value="PERSONALIZADO">Período</option>
             </select>
           </div>
-          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2 bg-slate-100 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 w-full sm:w-auto">
             <CalendarRange className="w-4 h-4 text-slate-400" />
             {periodoTipo === 'MES' && (
               <input
@@ -591,7 +591,7 @@ export function Dashboard() {
               />
             )}
             {periodoTipo === 'PERSONALIZADO' && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="date"
                   value={periodoIni}
@@ -618,8 +618,8 @@ export function Dashboard() {
         </div>
       </header>
 
-      <div className="p-6 space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="p-4 sm:p-6 space-y-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <div>

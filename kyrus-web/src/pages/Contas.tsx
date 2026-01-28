@@ -280,12 +280,12 @@ export function Contas() {
     <div className="flex flex-col h-full relative overflow-hidden bg-slate-50 dark:bg-slate-900">
       
       {/* HEADER */}
-      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm z-20 gap-4">
+      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm z-20 gap-4">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-slate-800 dark:text-white">Contas Bancárias</h2>
           <p className="text-sm text-slate-400">Caixas, Bancos e Investimentos</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           <button 
             onClick={carregarDados}
             className="p-2 text-slate-400 transition border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 hover:brightness-95" 
@@ -305,7 +305,7 @@ export function Contas() {
       </header>
 
       {/* ÁREA DE CONTEÚDO */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6 pb-32">
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-6 pb-32">
         
         {/* CARD DE RESUMO */}
         <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between">
@@ -614,6 +614,7 @@ export function Contas() {
          </div>
 
          <div className="flex-1 overflow-y-auto p-0">
+            <div className="overflow-x-auto">
             <table className="w-full text-left">
                 <thead className="bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-500 uppercase sticky top-0">
                     <tr>
@@ -642,6 +643,7 @@ export function Contas() {
                     )}
                 </tbody>
             </table>
+            </div>
          </div>
 
          <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-center">

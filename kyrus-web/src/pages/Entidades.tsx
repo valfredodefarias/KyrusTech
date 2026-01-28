@@ -214,7 +214,7 @@ export function Entidades() {
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
       
       {/* HEADER */}
-      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-8 py-5 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm z-10 gap-4">
+      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-8 py-5 flex flex-col lg:flex-row lg:items-center justify-between shadow-sm z-10 gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white flex items-center gap-2">
             Entidades <span className="text-sm font-normal text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">{entidades.length}</span>
@@ -222,7 +222,7 @@ export function Entidades() {
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Gestão de Clientes e Fornecedores</p>
         </div>
         
-        <div className="flex gap-3 w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
           <div className="relative flex-1 sm:flex-none group">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
             <input 
@@ -246,9 +246,10 @@ export function Entidades() {
       </header>
 
       {/* LISTA */}
-      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-8 custom-scrollbar">
         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
               <tr>
                 <th className="p-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Entidade</th>
@@ -303,7 +304,8 @@ export function Entidades() {
                 ))
               )}
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
       </div>
 

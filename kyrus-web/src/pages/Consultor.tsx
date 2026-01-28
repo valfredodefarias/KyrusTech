@@ -642,7 +642,7 @@ export function Consultor() {
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in pb-12">
       
       {/* HEADER */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-800 p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
             <Briefcase className="text-blue-600" /> Área do Consultor
@@ -650,28 +650,28 @@ export function Consultor() {
           <p className="text-slate-500 dark:text-slate-400">Gerenciamento global de multi-empresas.</p>
         </div>
         
-        <div className="flex gap-3">
-          <button onClick={handleOpenCreate} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 transition flex items-center gap-2 shadow-md active:scale-95">
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+          <button onClick={handleOpenCreate} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 transition flex items-center gap-2 shadow-md active:scale-95 w-full sm:w-auto justify-center">
             <Building2 size={18} /> Nova Empresa
           </button>
-          <button onClick={() => setShowUserModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition flex items-center gap-2 shadow-md active:scale-95">
+          <button onClick={() => setShowUserModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition flex items-center gap-2 shadow-md active:scale-95 w-full sm:w-auto justify-center">
             <UserPlus size={18} /> Novo Usuário
           </button>
         </div>
       </div>
 
       {/* TABS */}
-      <div className="flex flex-wrap gap-2 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 rounded-t-xl">
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 sm:p-4 rounded-t-xl overflow-x-auto">
         <button 
           onClick={() => setActiveTab('empresas')}
-          className={`px-4 py-2 font-bold transition ${activeTab === 'empresas' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+          className={`px-4 py-2 font-bold transition whitespace-nowrap ${activeTab === 'empresas' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
         >
           <Building2 size={18} className="inline mr-2" /> Minhas Empresas
         </button>
         {isSuperConsultor && (
           <button 
             onClick={() => setActiveTab('consultores')}
-            className={`px-4 py-2 font-bold transition ${activeTab === 'consultores' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+            className={`px-4 py-2 font-bold transition whitespace-nowrap ${activeTab === 'consultores' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
           >
             <Users size={18} className="inline mr-2" /> Gerenciar Consultores
           </button>
@@ -679,14 +679,14 @@ export function Consultor() {
         {isSuperConsultor && (
           <button 
             onClick={() => setActiveTab('usuarios')}
-            className={`px-4 py-2 font-bold transition ${activeTab === 'usuarios' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+            className={`px-4 py-2 font-bold transition whitespace-nowrap ${activeTab === 'usuarios' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
           >
             <Users size={18} className="inline mr-2" /> Usuários
           </button>
         )}
         <button 
           onClick={() => setActiveTab('tarefas')}
-          className={`px-4 py-2 font-bold transition ${activeTab === 'tarefas' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+          className={`px-4 py-2 font-bold transition whitespace-nowrap ${activeTab === 'tarefas' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
         >
           <ClipboardList size={18} className="inline mr-2" /> To-do
         </button>

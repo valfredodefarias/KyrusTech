@@ -66,7 +66,9 @@ def create_lancamento(db: Session, *, obj_in: LancamentoCreate, empresa_id: int)
     # Aplica automações
     obj_in = _aplicar_regras_negocio(db, obj_in)
 
-    db_obj = Lancamento.model_validate(obj_in, update={"empresa_id": empresa_id})
+    data = obj_in.model_dump()
+    data["empresa_id"] = empresa_id
+    db_obj = Lancamento.model_validate(data)
     db.add(db_obj)
     db.commit()
     db.refresh(db_obj)

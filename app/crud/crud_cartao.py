@@ -13,7 +13,9 @@ def get_by_id(db: Session, *, id: int, empresa_id: int) -> Optional[Cartao]:
     return db.exec(statement).first()
 
 def create(db: Session, *, obj_in: CartaoCreate, empresa_id: int) -> Cartao:
-    db_obj = Cartao.model_validate(obj_in, update={"empresa_id": empresa_id})
+    data = obj_in.model_dump()
+    data["empresa_id"] = empresa_id
+    db_obj = Cartao.model_validate(data)
     db.add(db_obj)
     db.commit()
     db.refresh(db_obj)

@@ -30,9 +30,10 @@ def create(
     empresa_id: int
 ) -> CentroCusto:
     """Cria um novo centro de custo vinculado à empresa."""
-    # O update={"empresa_id": ...} garante que o ID da empresa seja injetado
-    # mesmo que não venha no corpo da requisição do front-end
-    db_obj = CentroCusto.model_validate(obj_in, update={"empresa_id": empresa_id})
+    # Injeta empresa_id no payload para evitar wrapper de update
+    data = obj_in.model_dump()
+    data["empresa_id"] = empresa_id
+    db_obj = CentroCusto.model_validate(data)
     
     db.add(db_obj)
     db.commit()

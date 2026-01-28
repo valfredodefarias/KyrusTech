@@ -19,7 +19,9 @@ def get_by_empresa(db: Session, *, empresa_id: int) -> List[PlanoContas]:
 
 def create(db: Session, *, obj_in: PlanoContasCreate, empresa_id: int) -> PlanoContas:
     """Cria uma nova categoria manualmente."""
-    db_obj = PlanoContas.model_validate(obj_in, update={"empresa_id": empresa_id})
+    data = obj_in.model_dump()
+    data["empresa_id"] = empresa_id
+    db_obj = PlanoContas.model_validate(data)
     db.add(db_obj)
     db.commit()
     db.refresh(db_obj)

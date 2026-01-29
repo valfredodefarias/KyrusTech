@@ -61,18 +61,28 @@ const MultiSelectDropdown = ({ options, selectedIds, onChange, label, placeholde
     return (
         <div className="relative w-full" ref={wrapperRef}>
             <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{label}</label>
-            <div onClick={() => setIsOpen(!isOpen)} className="w-full p-2.5 rounded-lg border border-slate-600 bg-slate-900 cursor-pointer flex justify-between items-center text-sm hover:border-blue-500 transition">
+            <div onClick={() => setIsOpen(!isOpen)} className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 cursor-pointer flex justify-between items-center text-sm hover:border-blue-500 transition shadow-sm">
                 <span className={selectedIds.size > 0 ? 'text-blue-400 font-bold' : 'text-slate-500'}>{selectedLabel}</span>
                 <ChevronDown className="w-4 h-4 text-slate-400"/>
             </div>
             {isOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-h-60 overflow-y-auto custom-scrollbar p-1 animate-in fade-in zoom-in-95">
-                    {options.map((opt: any) => (
-                        <div key={opt.id} onClick={() => toggleOption(opt.id)} className={`px-3 py-2 text-sm rounded cursor-pointer transition flex items-center justify-between ${selectedIds.has(opt.id) ? 'bg-blue-600/20 text-blue-300' : 'text-slate-300 hover:bg-slate-700'}`}>
-                            <span>{opt.nome || opt.label}</span>
-                            {selectedIds.has(opt.id) ? <CheckSquare className="w-4 h-4 text-blue-400"/> : <Square className="w-4 h-4 text-slate-600"/>}
+                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl shadow-2xl max-h-96 overflow-y-auto custom-scrollbar p-1 animate-in fade-in zoom-in-95">
+                    {options.map((opt: any) => {
+                      const isDisabled = opt.disabled || opt.eh_cabecalho || opt.permite_lancamentos === false;
+                      const tipo = String(opt.tipo || opt.grupo || opt.label || opt.nome || '').toUpperCase();
+                      const colorClass = tipo.startsWith('D') ? 'text-red-400' : tipo.startsWith('R') ? 'text-emerald-400' : '';
+                      const isSelected = selectedIds.has(opt.id);
+                      return (
+                        <div
+                          key={opt.id}
+                          onClick={() => { if (!isDisabled) toggleOption(opt.id); }}
+                          className={`px-3 py-2 text-sm rounded transition flex items-center justify-between ${isSelected ? 'bg-blue-600/20 text-blue-600 dark:text-blue-300' : `text-slate-600 dark:text-slate-300 ${colorClass}`} ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                        >
+                          <span>{opt.nome || opt.label}</span>
+                          {isSelected ? <CheckSquare className="w-4 h-4 text-blue-400"/> : <Square className="w-4 h-4 text-slate-600"/>}
                         </div>
-                    ))}
+                      );
+                    })}
                 </div>
             )}
         </div>
@@ -104,22 +114,22 @@ const SearchableSelect = ({ options, value, onChange, placeholder, label }: any)
       {label && <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{label}</label>}
       <div 
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full p-3 rounded-lg border border-slate-600 bg-slate-800 cursor-pointer flex justify-between items-center text-sm min-h-11.5 hover:border-blue-500 transition"
+        className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 cursor-pointer flex justify-between items-center text-sm min-h-11.5 hover:border-blue-500 transition shadow-sm"
       >
-        <span className={selectedOption ? 'text-white font-medium' : 'text-slate-500'}>
+        <span className={selectedOption ? 'text-slate-800 dark:text-white font-medium' : 'text-slate-500'}>
           {selectedOption ? selectedOption.label : placeholder}
         </span>
         <ChevronDown className="w-4 h-4 text-slate-400"/>
       </div>
 
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-h-60 flex flex-col animate-in fade-in zoom-in-95 duration-100">
-          <div className="p-2 border-b border-slate-700 sticky top-0 bg-slate-800 rounded-t-xl">
+        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl shadow-2xl max-h-96 flex flex-col animate-in fade-in zoom-in-95 duration-100">
+          <div className="p-2 border-b border-slate-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800 rounded-t-xl">
             <input 
               autoFocus
               type="text" 
               placeholder="Pesquisar..." 
-              className="w-full p-2 text-sm bg-slate-900 border border-slate-700 rounded-lg outline-none text-white focus:border-blue-500"
+              className="w-full p-2 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg outline-none text-slate-700 dark:text-white focus:border-blue-500"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -127,18 +137,25 @@ const SearchableSelect = ({ options, value, onChange, placeholder, label }: any)
           <div className="overflow-y-auto custom-scrollbar p-1">
             {filteredGroups.map((group: any, idx: number) => (
               <div key={idx} className="mb-2">
-                <div className="px-3 py-1.5 text-[10px] font-bold text-blue-400 uppercase tracking-wider bg-slate-700/30 rounded mb-1">
+                <div className="px-3 py-1.5 text-[10px] font-bold text-blue-300 uppercase tracking-wider bg-slate-700/30 rounded mb-1 pointer-events-none select-none">
                   {group.label}
                 </div>
                 {group.options.map((opt: any) => (
+                  (() => {
+                    const isDisabled = opt.disabled || opt.eh_cabecalho || opt.permite_lancamentos === false;
+                    const tipo = String(opt.tipo || opt.grupo || opt.label || '').toUpperCase();
+                    const colorClass = tipo.startsWith('D') ? 'text-red-400' : tipo.startsWith('R') ? 'text-emerald-400' : '';
+                    return (
                   <div 
                     key={opt.id}
-                    onClick={() => { onChange(opt.id); setIsOpen(false); setSearch(''); }}
-                    className={`px-3 py-2 text-sm rounded cursor-pointer transition flex items-center justify-between ${String(value) === String(opt.id) ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700'}`}
+                    onClick={() => { if (!isDisabled) { onChange(opt.id); setIsOpen(false); setSearch(''); } }}
+                    className={`px-3 py-2 text-sm rounded transition flex items-center justify-between ${String(value) === String(opt.id) ? 'bg-blue-600 text-white' : `text-slate-600 dark:text-slate-300 ${colorClass}`} ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700'}`}
                   >
                     {opt.label}
                     {String(value) === String(opt.id) && <Check className="w-3 h-3"/>}
                   </div>
+                    );
+                  })()
                 ))}
               </div>
             ))}
@@ -153,7 +170,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder, label }: any)
 const InputDark = (props: any) => (
   <div className="w-full">
     {props.label && <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{props.label}</label>}
-    <input {...props} className={`w-full p-3 rounded-lg border border-slate-600 bg-slate-800 text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed ${props.className || ''}`} />
+    <input {...props} className={`w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed ${props.className || ''}`} />
   </div>
 );
 
@@ -187,6 +204,7 @@ export function Lancamentos() {
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
+  const [didFallbackAll, setDidFallbackAll] = useState(false);
 
   // Barra/ações em lote
   const [showBulkPay, setShowBulkPay] = useState(false);
@@ -232,6 +250,30 @@ export function Lancamentos() {
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
+  const formatDateYMD = (date: Date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const computeCartaoVencimento = (purchaseDate?: string, cartaoId?: string) => {
+    if (!purchaseDate || !cartaoId) return null;
+    const cartao = cartoes.find(c => String(c.id) === String(cartaoId));
+    if (!cartao) return null;
+    const [y, m, d] = purchaseDate.split('-').map(Number);
+    if (!y || !m || !d) return null;
+
+    const fechamento = Number(cartao.dia_fechamento || 1);
+    const venc = Number(cartao.dia_vencimento || 10);
+    const statementOffset = d > fechamento ? 1 : 0;
+    const dueOffset = statementOffset + (venc <= fechamento ? 1 : 0);
+    const monthIndex = (m - 1) + dueOffset;
+    const daysInMonth = new Date(y, monthIndex + 1, 0).getDate();
+    const day = Math.min(venc, daysInMonth);
+    return formatDateYMD(new Date(y, monthIndex, day));
+  };
+
   // --- INIT ---
   useEffect(() => {
     const cor = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim();
@@ -249,6 +291,15 @@ export function Lancamentos() {
         loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
     }
   }, [mesAtual, filtrosAvancados.dataInicio, filtrosAvancados.dataFim]);
+
+  useEffect(() => {
+    if (centros.length === 1) {
+      const onlyId = String(centros[0].id);
+      setCentroCustoFiltro(prev => prev || onlyId);
+      setFormData(prev => prev.centro_custo_id ? prev : { ...prev, centro_custo_id: onlyId });
+      setTransferData(prev => prev.centro_custo_id ? prev : { ...prev, centro_custo_id: onlyId });
+    }
+  }, [centros]);
 
   async function loadAuxData() {
     if (auxLoadedRef.current) return;
@@ -274,7 +325,7 @@ export function Lancamentos() {
     }
   }
 
-  async function loadLancamentos(ini?: string, fim?: string, opts?: { force?: boolean }) {
+  async function loadLancamentos(ini?: string, fim?: string, opts?: { force?: boolean; skipFallback?: boolean }) {
     const key = `${ini || ''}|${fim || ''}`;
     if (!opts?.force && key === lastLancamentosKeyRef.current && lancamentos.length > 0) return;
     lastLancamentosKeyRef.current = key;
@@ -292,6 +343,12 @@ export function Lancamentos() {
       if(fim) params.data_fim = fim;
       const res = await api.get('/lancamentos/', { params, signal: controller.signal });
       setLancamentos(res.data);
+
+      const isEmpty = !res.data || res.data.length === 0;
+      if (!opts?.skipFallback && !opts?.force && isEmpty && ini && fim && !didFallbackAll && !filtroTexto && !filtroRapido && !centroCustoFiltro && filtrosAvancados.status.length === 0 && filtrosAvancados.contaIds.size === 0 && filtrosAvancados.categoriaIds.size === 0) {
+        setDidFallbackAll(true);
+        await loadLancamentos(undefined, undefined, { force: true, skipFallback: true });
+      }
     } catch(e: any) {
       if (e?.code === 'ERR_CANCELED') return;
       console.error(e);
@@ -492,6 +549,9 @@ export function Lancamentos() {
     if(!formData.descricao || !formData.valor_previsto || !formData.plano_contas_id) return alert("Preencha campos obrigatórios");
     setSaving(true);
     try {
+      const computedCardDue = formData.cartao_id ? computeCartaoVencimento(formData.data_vencimento, formData.cartao_id) : null;
+      const dataCompetencia = formData.cartao_id ? formData.data_vencimento : undefined;
+      const dataVencimento = computedCardDue || formData.data_vencimento;
       const payload = {
         ...formData,
         valor_previsto: parseFloat(formData.valor_previsto),
@@ -501,7 +561,9 @@ export function Lancamentos() {
         conta_id: formData.conta_id ? parseInt(formData.conta_id) : null,
         cartao_id: formData.cartao_id ? parseInt(formData.cartao_id) : null,
         valor_pago: formData.status==='PAGO' ? parseFloat(formData.valor_pago || formData.valor_previsto) : 0,
-        data_pagamento: formData.status==='PAGO' ? formData.data_pagamento : null
+        data_pagamento: formData.status==='PAGO' ? formData.data_pagamento : null,
+        data_competencia: dataCompetencia,
+        data_vencimento: dataVencimento
       };
 
       let id = formData.id;
@@ -549,32 +611,32 @@ export function Lancamentos() {
 
   // Normaliza o tipo da categoria para primeira letra (R/D) para lidar com dados "Receita/Despesa"
   const catOptions = [
-    { label: 'DESPESAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('D')).map(c=>({id:c.id, label:c.nome})) },
-    { label: 'RECEITAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('R')).map(c=>({id:c.id, label:c.nome})) }
+    { label: 'DESPESAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('D')).map(c=>({id:c.id, label:c.nome, tipo: c.tipo, grupo: 'DESPESAS', disabled: c.eh_cabecalho || c.permite_lancamentos === false, eh_cabecalho: c.eh_cabecalho, permite_lancamentos: c.permite_lancamentos})) },
+    { label: 'RECEITAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('R')).map(c=>({id:c.id, label:c.nome, tipo: c.tipo, grupo: 'RECEITAS', disabled: c.eh_cabecalho || c.permite_lancamentos === false, eh_cabecalho: c.eh_cabecalho, permite_lancamentos: c.permite_lancamentos})) }
   ];
 
   return (
-    <div className="flex flex-col h-full bg-slate-900 text-slate-100 overflow-hidden relative">
+    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 overflow-hidden relative">
       
       {/* 1. TOP HEADER */}
-      <header className="bg-slate-800 border-b border-slate-700 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-20 shadow-md">
+      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-20 shadow-md">
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-          <div className="flex bg-slate-700 rounded-lg p-1 shadow-inner">
-            <button onClick={()=>setMesAtual(new Date(mesAtual.setMonth(mesAtual.getMonth()-1)))} className="p-1.5 hover:bg-slate-600 rounded-md text-slate-300 transition-colors"><ChevronLeft className="w-4 h-4"/></button>
-            <span className="w-32 text-center text-xs font-bold uppercase pt-1 text-white">{mesAtual.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</span>
-            <button onClick={()=>setMesAtual(new Date(mesAtual.setMonth(mesAtual.getMonth()+1)))} className="p-1.5 hover:bg-slate-600 rounded-md text-slate-300 transition-colors"><ChevronRight className="w-4 h-4"/></button>
+          <div className="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1 shadow-inner border border-slate-200 dark:border-transparent">
+            <button onClick={()=>setMesAtual(new Date(mesAtual.setMonth(mesAtual.getMonth()-1)))} className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md text-slate-600 dark:text-slate-300 transition-colors"><ChevronLeft className="w-4 h-4"/></button>
+            <span className="w-32 text-center text-xs font-bold uppercase pt-1 text-slate-800 dark:text-white">{mesAtual.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</span>
+            <button onClick={()=>setMesAtual(new Date(mesAtual.setMonth(mesAtual.getMonth()+1)))} className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md text-slate-600 dark:text-slate-300 transition-colors"><ChevronRight className="w-4 h-4"/></button>
           </div>
-          <button onClick={()=>loadLancamentos(undefined, undefined, { force: true })} className="p-2 text-slate-400 hover:text-blue-400 border border-slate-600 rounded-lg hover:border-blue-500 transition-colors" title="Sincronizar lançamentos"><RefreshCw className={`w-4 h-4 ${loading?'animate-spin':''}`}/></button>
-          <button onClick={syncCadastros} className="p-2 text-slate-400 hover:text-emerald-400 border border-slate-600 rounded-lg hover:border-emerald-500 transition-colors" title="Sincronizar cadastros"><Layers className="w-4 h-4"/></button>
+          <button onClick={()=>loadLancamentos(undefined, undefined, { force: true })} className="p-2 text-slate-500 hover:text-blue-500 border border-slate-300 dark:border-slate-600 rounded-lg hover:border-blue-500 transition-colors" title="Sincronizar lançamentos"><RefreshCw className={`w-4 h-4 ${loading?'animate-spin':''}`}/></button>
+          <button onClick={syncCadastros} className="p-2 text-slate-500 hover:text-emerald-500 border border-slate-300 dark:border-slate-600 rounded-lg hover:border-emerald-500 transition-colors" title="Sincronizar cadastros"><Layers className="w-4 h-4"/></button>
         </div>
 
         <div className="flex-1 w-full flex flex-col sm:flex-row gap-2 sm:items-center">
             <div className="relative flex-1">
                 <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500"/>
-                <input type="text" placeholder="Pesquisar..." className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-600 bg-slate-900 text-sm text-white focus:ring-2 focus:ring-blue-600 outline-none transition" value={filtroTexto} onChange={e=>setFiltroTexto(e.target.value)}/>
+                <input type="text" placeholder="Pesquisar..." className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition" value={filtroTexto} onChange={e=>setFiltroTexto(e.target.value)}/>
             </div>
             <div className="w-full sm:w-48">
-                <select className="w-full p-2 rounded-lg border border-slate-600 bg-slate-900 text-sm text-white outline-none focus:border-blue-500" value={centroCustoFiltro} onChange={e=>setCentroCustoFiltro(e.target.value)}>
+                <select className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-white outline-none focus:border-blue-500" value={centroCustoFiltro} onChange={e=>setCentroCustoFiltro(e.target.value)}>
                     <option value="">Todos Centros</option>
                     {centros.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
                 </select>
@@ -582,17 +644,17 @@ export function Lancamentos() {
         </div>
 
         <div className="flex flex-wrap gap-2 w-full lg:w-auto">
-          <button onClick={()=>setShowTransfer(true)} className="px-3 py-2 border border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-700 flex items-center gap-2 text-slate-300 transition-all w-full sm:w-auto justify-center"><ArrowRightLeft className="w-4 h-4"/> <span className="hidden lg:inline">Transf.</span></button>
-          <button onClick={()=>setShowFiltrosSidebar(true)} className={`px-3 py-2 border border-slate-600 rounded-lg text-sm font-bold flex items-center gap-2 transition-all w-full sm:w-auto justify-center ${showFiltrosSidebar ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-slate-700 text-slate-300'}`}><Filter className="w-4 h-4"/> <span className="hidden lg:inline">Filtros</span></button>
+          <button onClick={()=>setShowTransfer(true)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-600 dark:text-slate-300 transition-all w-full sm:w-auto justify-center"><ArrowRightLeft className="w-4 h-4"/> <span className="hidden lg:inline">Transf.</span></button>
+          <button onClick={()=>setShowFiltrosSidebar(true)} className={`px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold flex items-center gap-2 transition-all w-full sm:w-auto justify-center ${showFiltrosSidebar ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'}`}><Filter className="w-4 h-4"/> <span className="hidden lg:inline">Filtros</span></button>
           <button onClick={()=>openDrawer()} className="px-5 py-2 rounded-lg shadow-lg text-white font-bold text-sm flex gap-2 hover:brightness-110 transition bg-blue-600 hover:bg-blue-500 w-full sm:w-auto justify-center"><Plus className="w-4 h-4"/> Novo</button>
         </div>
       </header>
 
       {/* 2. KPI SECTION */}
       <div className="px-4 sm:px-6 pt-6 pb-2 grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-600"><div className="text-emerald-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Receitas</p><p className="text-2xl font-black">{BRL.format(kpis.r)}</p></div><div className="p-2 bg-emerald-900/20 rounded-lg"><TrendingUp className="text-emerald-400 w-6 h-6"/></div></div>
-        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-600"><div className="text-red-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Despesas</p><p className="text-2xl font-black">{BRL.format(kpis.d)}</p></div><div className="p-2 bg-red-900/20 rounded-lg"><TrendingDown className="text-red-400 w-6 h-6"/></div></div>
-        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-600"><div className="text-blue-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Saldo</p><p className="text-2xl font-black">{BRL.format(kpis.s)}</p></div><div className="p-2 bg-blue-900/20 rounded-lg"><Wallet className="text-blue-400 w-6 h-6"/></div></div>
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className="text-emerald-600 dark:text-emerald-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Receitas</p><p className="text-2xl font-black">{BRL.format(kpis.r)}</p></div><div className="p-2 bg-emerald-500/10 dark:bg-emerald-900/20 rounded-lg"><TrendingUp className="text-emerald-600 dark:text-emerald-400 w-6 h-6"/></div></div>
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className="text-red-600 dark:text-red-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Despesas</p><p className="text-2xl font-black">{BRL.format(kpis.d)}</p></div><div className="p-2 bg-red-500/10 dark:bg-red-900/20 rounded-lg"><TrendingDown className="text-red-600 dark:text-red-400 w-6 h-6"/></div></div>
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className="text-blue-600 dark:text-blue-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Saldo</p><p className="text-2xl font-black">{BRL.format(kpis.s)}</p></div><div className="p-2 bg-blue-500/10 dark:bg-blue-900/20 rounded-lg"><Wallet className="text-blue-600 dark:text-blue-400 w-6 h-6"/></div></div>
       </div>
 
       {/* 3. FILTROS RÁPIDOS */}
@@ -606,7 +668,7 @@ export function Lancamentos() {
          ].map(f => (
              <button key={String(f.id)} onClick={()=>setFiltroRapido(f.id as any)} 
                 className={`px-3 py-1.5 rounded-full text-xs font-bold border transition flex items-center gap-1.5 whitespace-nowrap 
-                ${filtroRapido===f.id ? 'bg-blue-600 text-white border-blue-500 shadow-md' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}>
+                ${filtroRapido===f.id ? 'bg-blue-600 text-white border-blue-500 shadow-md' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
                 {f.icon && <f.icon className="w-3 h-3"/>} {f.label}
              </button>
          ))}
@@ -622,17 +684,17 @@ export function Lancamentos() {
         ) : (
             grouped.sortedDates.map(date => (
                 <div key={date} className="mb-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                    <div className="flex items-center gap-4 mb-2 sticky top-0 bg-slate-900/95 backdrop-blur-sm z-10 py-2 border-b border-slate-800">
-                        <div className="px-3 py-1 bg-slate-800 rounded-lg border border-slate-700 text-sm font-bold text-slate-300 flex items-center gap-2 shadow-sm">
+                    <div className="flex items-center gap-4 mb-2 sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm z-10 py-2 border-b border-slate-200 dark:border-slate-800">
+                      <div className="px-3 py-1 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-600 dark:text-slate-300 flex items-center gap-2 shadow-sm">
                             <Calendar className="w-4 h-4 text-blue-500"/>
                             {formatDateExtenso(date)}
                         </div>
                     </div>
 
-                    <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-sm overflow-hidden">
+                    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden">
                       <div className="overflow-x-auto">
                         <table className="w-full text-left">
-                        <thead className="bg-slate-900/40 text-[11px] uppercase font-bold text-slate-500">
+                        <thead className="bg-slate-50 dark:bg-slate-900/40 text-[11px] uppercase font-bold text-slate-500">
                           <tr>
                             <th className="p-3 w-10 text-center">Sel</th>
                             <th className="p-3 w-12 text-center">IPP</th>
@@ -642,33 +704,33 @@ export function Lancamentos() {
                             <th className="p-3 text-center w-24">Status</th>
                           </tr>
                         </thead>
-                        <tbody className="text-sm divide-y divide-slate-700">
+                        <tbody className="text-sm divide-y divide-slate-200 dark:divide-slate-700">
                           {grouped.groups[date].map(l => (
-                                    <tr key={l.id} onClick={() => openDrawer(l)} className={`hover:bg-slate-700/50 transition cursor-pointer group ${selectedIds.has(l.id)?'bg-blue-900/10':''}`}>
-                                        <td className="p-4 w-10 text-center" onClick={e=>e.stopPropagation()}><input type="checkbox" className="rounded border-slate-600 bg-slate-800 accent-blue-600 cursor-pointer" checked={selectedIds.has(l.id)} onChange={()=>{const s=new Set(selectedIds); if(s.has(l.id)) s.delete(l.id); else s.add(l.id); setSelectedIds(s)}}/></td>
+                                    <tr key={l.id} onClick={() => openDrawer(l)} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer group ${selectedIds.has(l.id)?'bg-blue-50 dark:bg-blue-900/10':''}`}>
+                                      <td className="p-4 w-10 text-center" onClick={e=>e.stopPropagation()}><input type="checkbox" className="rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 accent-blue-600 cursor-pointer" checked={selectedIds.has(l.id)} onChange={()=>{const s=new Set(selectedIds); if(s.has(l.id)) s.delete(l.id); else s.add(l.id); setSelectedIds(s)}}/></td>
                                         <td className="p-4 w-12 text-center" onClick={(e)=>e.stopPropagation()} onMouseDown={(e)=>e.stopPropagation()}>
                                           <button
                                             type="button"
                                             onMouseDown={(e)=>e.stopPropagation()}
                                             onClick={(e)=>{e.stopPropagation(); toggleIpp(l);}}
-                                            className={`w-7 h-7 rounded border flex items-center justify-center transition pointer-events-auto ${l.ipp?'bg-purple-600 border-purple-600 text-white':'border-slate-600 text-slate-500 hover:border-purple-400'}`}
+                                            className={`w-7 h-7 rounded border flex items-center justify-center transition pointer-events-auto ${l.ipp?'bg-purple-600 border-purple-600 text-white':'border-slate-300 dark:border-slate-600 text-slate-500 hover:border-purple-400'}`}
                                             title="Marcar como IPP"
                                             aria-pressed={l.ipp}
                                           >
                                             <Check className="w-3 h-3"/>
                                           </button>
                                         </td>
-                                        <td className="p-4 font-medium text-white">
+                                        <td className="p-4 font-medium text-slate-800 dark:text-white">
                                             <div className="flex items-center gap-2">{l.descricao} {l.anexos?.length > 0 && <Paperclip className="w-3 h-3 text-blue-400"/>}</div>
                                             {l.numero_parcela && <span className="text-[10px] text-slate-500">Parcela {l.numero_parcela}</span>}
                                         </td>
                                         <td className="p-4 text-xs hidden md:table-cell">
-                                            <div className="font-bold text-slate-300">{entidades.find(e=>e.id===l.entidade_id)?.nome || '-'}</div>
-                                            <div className="text-slate-500">{categorias.find(c=>c.id===l.plano_contas_id)?.nome}</div>
+                                          <div className="font-bold text-slate-700 dark:text-slate-300">{entidades.find(e=>e.id===l.entidade_id)?.nome || '-'}</div>
+                                          <div className="text-slate-500">{categorias.find(c=>c.id===l.plano_contas_id)?.nome}</div>
                                         </td>
                                         <td className={`p-4 text-right font-bold ${l.tipo==='RECEITA'?'text-emerald-400':'text-red-400'}`}>{BRL.format(l.valor_previsto)}</td>
                                         <td className="p-4 text-center w-24">
-                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${l.status==='PAGO'?'bg-emerald-900/20 text-emerald-400 border-emerald-900':'bg-slate-700/50 text-slate-400 border-slate-600'}`}>{l.status}</span>
+                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${l.status==='PAGO'?'bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900':'bg-slate-100 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600'}`}>{l.status}</span>
                                         </td>
                                     </tr>
                                 ))}
@@ -684,8 +746,8 @@ export function Lancamentos() {
       {/* Barra flutuante de ações em lote */}
       {selectedIds.size > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
-          <div className="pointer-events-auto flex items-center gap-3 px-4 py-2.5 rounded-full border border-slate-700/60 bg-slate-900/80 backdrop-blur-xl shadow-2xl">
-            <div className="px-3 py-1 rounded-full bg-blue-600/20 text-blue-300 text-xs font-bold border border-blue-500/30">
+          <div className="pointer-events-auto flex items-center gap-3 px-4 py-2.5 rounded-full border border-slate-200 dark:border-slate-700/60 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-2xl">
+            <div className="px-3 py-1 rounded-full bg-blue-600/20 text-blue-600 dark:text-blue-300 text-xs font-bold border border-blue-500/30">
               {selectedIds.size} selecionado(s)
             </div>
             <button onClick={()=>setShowBulkPay(true)} className="px-3 py-1.5 rounded-full bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-500 shadow flex items-center gap-1.5">
@@ -694,7 +756,7 @@ export function Lancamentos() {
             <button onClick={openBulkDelete} className="px-3 py-1.5 rounded-full bg-red-600 text-white text-xs font-bold hover:bg-red-500 shadow flex items-center gap-1.5">
               <Trash2 className="w-3.5 h-3.5"/> Apagar
             </button>
-            <button onClick={()=>setSelectedIds(new Set())} className="px-3 py-1.5 rounded-full bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 flex items-center gap-1.5">
+            <button onClick={()=>setSelectedIds(new Set())} className="px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center gap-1.5">
               <X className="w-3.5 h-3.5"/> Limpar
             </button>
           </div>
@@ -702,17 +764,17 @@ export function Lancamentos() {
       )}
 
       {/* --- SIDEBAR FILTROS (MULTI-SELECT + BOTOES CONTAS) --- */}
-      <div className={`fixed inset-y-0 right-0 w-80 bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-700 ${showFiltrosSidebar?'translate-x-0':'translate-x-full'}`}>
-        <div className="p-4 border-b border-slate-700 flex justify-between items-center"><h3 className="font-bold flex gap-2 text-white"><Filter className="w-4 h-4 text-blue-500"/> Filtros Avançados</h3><button onClick={()=>setShowFiltrosSidebar(false)}><X className="w-5 h-5 text-slate-400 hover:text-white"/></button></div>
+      <div className={`fixed inset-y-0 right-0 w-80 bg-white dark:bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 ${showFiltrosSidebar?'translate-x-0':'translate-x-full'}`}>
+        <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center"><h3 className="font-bold flex gap-2 text-slate-800 dark:text-white"><Filter className="w-4 h-4 text-blue-500"/> Filtros Avançados</h3><button onClick={()=>setShowFiltrosSidebar(false)}><X className="w-5 h-5 text-slate-400 hover:text-slate-700 dark:hover:text-white"/></button></div>
         <div className="p-4 space-y-6 overflow-y-auto h-[calc(100vh-60px)] custom-scrollbar">
            
            {/* Filtro Tipo */}
            <div>
-               <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Tipo de Lançamento</label>
+               <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Tipo de Lançamento</label>
                <div className="flex gap-2">
                    {['TODOS','RECEITA','DESPESA'].map(t => (
                        <button key={t} onClick={()=>setFiltrosAvancados(prev=>({...prev, tipo: t as any}))} 
-                        className={`flex-1 py-2 rounded-lg text-xs font-bold border transition ${filtrosAvancados.tipo===t ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-600 text-slate-400 hover:bg-slate-700'}`}>
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold border transition ${filtrosAvancados.tipo===t ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
                         {t}
                        </button>
                    ))}
@@ -720,16 +782,16 @@ export function Lancamentos() {
            </div>
 
            <div>
-               <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Período Personalizado</label>
+               <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Período Personalizado</label>
                <div className="grid grid-cols-2 gap-2">
-                   <input type="date" className="bg-slate-900 border border-slate-600 rounded p-2 text-xs text-white" value={filtrosAvancados.dataInicio} onChange={e=>setFiltrosAvancados({...filtrosAvancados, dataInicio:e.target.value})} />
-                   <input type="date" className="bg-slate-900 border border-slate-600 rounded p-2 text-xs text-white" value={filtrosAvancados.dataFim} onChange={e=>setFiltrosAvancados({...filtrosAvancados, dataFim:e.target.value})} />
+                   <input type="date" className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded p-2 text-xs text-slate-700 dark:text-white" value={filtrosAvancados.dataInicio} onChange={e=>setFiltrosAvancados({...filtrosAvancados, dataInicio:e.target.value})} />
+                   <input type="date" className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded p-2 text-xs text-slate-700 dark:text-white" value={filtrosAvancados.dataFim} onChange={e=>setFiltrosAvancados({...filtrosAvancados, dataFim:e.target.value})} />
                </div>
            </div>
 
            {/* Filtro Contas como Botões (Chips) */}
            <div>
-               <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Contas / Bancos</label>
+               <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Contas / Bancos</label>
                <div className="flex flex-wrap gap-2">
                    {contas.map(c => {
                        const active = filtrosAvancados.contaIds.has(c.id);
@@ -738,7 +800,7 @@ export function Lancamentos() {
                                const newSet = new Set(filtrosAvancados.contaIds);
                                if(active) newSet.delete(c.id); else newSet.add(c.id);
                                setFiltrosAvancados({...filtrosAvancados, contaIds:newSet});
-                           }} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1 ${active ? 'bg-emerald-600/20 text-emerald-400 border-emerald-600' : 'bg-slate-900 border-slate-600 text-slate-400 hover:bg-slate-700'}`}>
+                           }} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1 ${active ? 'bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border-emerald-600' : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
                                <Wallet className="w-3 h-3"/> {c.nome}
                            </button>
                        );
@@ -748,16 +810,16 @@ export function Lancamentos() {
 
            <MultiSelectDropdown label="Categorias" placeholder="Selecione categorias..." options={categorias} selectedIds={filtrosAvancados.categoriaIds} onChange={(s:any)=>setFiltrosAvancados({...filtrosAvancados, categoriaIds:s})} />
            
-           <button onClick={()=>{setFiltrosAvancados({tipo:'TODOS', status:[], contaIds:new Set(), categoriaIds:new Set(), dataInicio:'', dataFim:''}); setMesAtual(new Date());}} className="w-full py-2 border border-slate-600 rounded text-slate-300 hover:bg-slate-700 text-sm mt-4">Limpar Filtros</button>
+           <button onClick={()=>{setFiltrosAvancados({tipo:'TODOS', status:[], contaIds:new Set(), categoriaIds:new Set(), dataInicio:'', dataFim:''}); setMesAtual(new Date());}} className="w-full py-2 border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-sm mt-4">Limpar Filtros</button>
         </div>
       </div>
 
       {/* --- MODAL TRANSFERÊNCIA (COMPLETO) --- */}
       {showTransfer && (
         <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setShowTransfer(false)}></div>
-            <div className="relative bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-slate-700 animate-scale-in">
-                <h3 className="font-bold text-lg mb-4 text-white flex items-center gap-2"><ArrowRightLeft className="w-5 h-5 text-blue-500"/> Nova Transferência</h3>
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowTransfer(false)}></div>
+            <div className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-slate-200 dark:border-slate-700 animate-scale-in">
+              <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white flex items-center gap-2"><ArrowRightLeft className="w-5 h-5 text-blue-500"/> Nova Transferência</h3>
                 <div className="space-y-4">
                     <InputDark label="Valor (R$)" type="number" step="0.01" value={transferData.valor} onChange={(e:any)=>setTransferData({...transferData, valor:e.target.value})} />
                     <InputDark label="Data" type="date" value={transferData.data} onChange={(e:any)=>setTransferData({...transferData, data:e.target.value})} />
@@ -765,14 +827,14 @@ export function Lancamentos() {
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="text-xs font-bold text-slate-400 uppercase">De (Origem)</label>
-                            <select className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white text-sm" value={transferData.conta_origem_id} onChange={e=>setTransferData({...transferData, conta_origem_id:e.target.value})}>
+                            <select className="w-full p-2 rounded bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-white text-sm" value={transferData.conta_origem_id} onChange={e=>setTransferData({...transferData, conta_origem_id:e.target.value})}>
                                 <option value="">Selecione...</option>
                                 {contas.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
                             </select>
                         </div>
                         <div>
                             <label className="text-xs font-bold text-slate-400 uppercase">Para (Destino)</label>
-                            <select className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white text-sm" value={transferData.conta_destino_id} onChange={e=>setTransferData({...transferData, conta_destino_id:e.target.value})}>
+                            <select className="w-full p-2 rounded bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-white text-sm" value={transferData.conta_destino_id} onChange={e=>setTransferData({...transferData, conta_destino_id:e.target.value})}>
                                 <option value="">Selecione...</option>
                                 {contas.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
                             </select>
@@ -783,7 +845,7 @@ export function Lancamentos() {
                     
                     <div>
                         <label className="text-xs font-bold text-slate-400 uppercase mb-1">Centro de Custo</label>
-                        <select className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white text-sm" value={transferData.centro_custo_id} onChange={e=>setTransferData({...transferData, centro_custo_id:e.target.value})}>
+                        <select className="w-full p-2 rounded bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-white text-sm" value={transferData.centro_custo_id} onChange={e=>setTransferData({...transferData, centro_custo_id:e.target.value})}>
                             <option value="">Opcional</option>
                             {centros.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
                         </select>
@@ -792,7 +854,7 @@ export function Lancamentos() {
                     <InputDark label="Observação" value={transferData.observacao} onChange={(e:any)=>setTransferData({...transferData, observacao:e.target.value})} />
                 </div>
                 <div className="flex gap-2 mt-6">
-                    <button onClick={() => setShowTransfer(false)} className="flex-1 py-3 text-slate-400 font-bold hover:bg-slate-700 rounded-lg transition">Cancelar</button>
+                    <button onClick={() => setShowTransfer(false)} className="flex-1 py-3 text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition">Cancelar</button>
                     <button onClick={handleTransferencia} disabled={saving} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 shadow-lg transition">{saving?'Enviando...':'Confirmar'}</button>
                 </div>
             </div>
@@ -800,10 +862,10 @@ export function Lancamentos() {
       )}
 
       {/* DRAWER ENTIDADE */}
-      <div className={`fixed inset-y-0 right-0 w-80 bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-700 ${showEntityDrawer?'translate-x-0':'translate-x-full'}`}>
-        <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800">
-            <h3 className="font-bold text-white flex items-center gap-2"><User className="w-4 h-4 text-blue-500"/> Nova Entidade</h3>
-            <button onClick={()=>setShowEntityDrawer(false)}><X className="w-5 h-5 text-slate-400 hover:text-white"/></button>
+      <div className={`fixed inset-y-0 right-0 w-80 bg-white dark:bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 ${showEntityDrawer?'translate-x-0':'translate-x-full'}`}>
+        <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
+            <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><User className="w-4 h-4 text-blue-500"/> Nova Entidade</h3>
+            <button onClick={()=>setShowEntityDrawer(false)}><X className="w-5 h-5 text-slate-400 hover:text-slate-700 dark:hover:text-white"/></button>
         </div>
         <div className="p-6 space-y-4">
             <InputDark label="Nome da Entidade" autoFocus placeholder="Ex: Fornecedor ABC" value={newEntityData.nome} onChange={(e:any)=>setNewEntityData({...newEntityData, nome:e.target.value})} />
@@ -818,11 +880,11 @@ export function Lancamentos() {
       {/* DRAWER NOVO/EDITAR */}
       {showDrawer && (
         <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={()=>setShowDrawer(false)}></div>
-          <div className="relative w-full max-w-xl bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-700">
-            <div className="px-6 py-4 border-b border-slate-700 flex justify-between items-center bg-slate-800">
-              <h2 className="text-lg font-bold text-white">{isEditing?'Editar':'Novo'} Lançamento</h2>
-              <button onClick={()=>setShowDrawer(false)} className="p-2 hover:bg-slate-700 rounded-full text-slate-400"><X className="w-5 h-5"/></button>
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={()=>setShowDrawer(false)}></div>
+          <div className="relative w-full max-w-xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
+              <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing?'Editar':'Novo'} Lançamento</h2>
+              <button onClick={()=>setShowDrawer(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-400"><X className="w-5 h-5"/></button>
             </div>
             
             <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative">
@@ -830,15 +892,77 @@ export function Lancamentos() {
               {/* DESCRIÇÃO E VALORES */}
               <InputDark label="Descrição" autoFocus value={formData.descricao} onChange={(e:any)=>setFormData({...formData, descricao:e.target.value})} placeholder="Ex: Conta de Luz" />
               <div className="grid grid-cols-2 gap-4">
-                <InputDark label="Vencimento" type="date" value={formData.data_vencimento} onChange={(e:any)=>setFormData({...formData, data_vencimento:e.target.value})} />
+                <InputDark label={formData.cartao_id ? "Data da compra" : "Vencimento"} type="date" value={formData.data_vencimento} onChange={(e:any)=>setFormData({...formData, data_vencimento:e.target.value})} />
                 <InputDark label="Valor (R$)" type="number" step="0.01" className="font-bold text-lg text-blue-400" value={formData.valor_previsto} onChange={(e:any)=>setFormData({...formData, valor_previsto:e.target.value})} />
               </div>
 
+              {formData.cartao_id && formData.data_vencimento && (
+                <div className="text-xs text-slate-400">
+                  Vencimento da fatura: <strong className="text-blue-300">{computeCartaoVencimento(formData.data_vencimento, formData.cartao_id) || '—'}</strong>
+                </div>
+              )}
+
+              {/* PARCELAMENTO */}
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <label className="flex items-center gap-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 accent-blue-600"
+                    checked={formData.is_parcelado}
+                    onChange={e=>setFormData({...formData, is_parcelado:e.target.checked})}
+                  />
+                  <span className="text-sm font-bold text-slate-800 dark:text-white">Lançamento parcelado</span>
+                </label>
+
+                {formData.is_parcelado && (
+                  <div className="mt-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-4">
+                      <InputDark
+                        label="Qtd. de parcelas"
+                        type="number"
+                        min={2}
+                        value={formData.qtd_parcelas}
+                        onChange={(e:any)=>setFormData({...formData, qtd_parcelas: Math.max(2, Number(e.target.value) || 2)})}
+                      />
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Cálculo</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={()=>setFormData({...formData, modo_calculo: 'TOTAL'})}
+                            className={`py-2 rounded-lg text-xs font-bold border transition ${formData.modo_calculo==='TOTAL' ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                          >
+                            Total
+                          </button>
+                          <button
+                            type="button"
+                            onClick={()=>setFormData({...formData, modo_calculo: 'PARCELA'})}
+                            className={`py-2 rounded-lg text-xs font-bold border transition ${formData.modo_calculo==='PARCELA' ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                          >
+                            Por parcela
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {formData.valor_previsto && formData.qtd_parcelas && (
+                      <div className="text-xs text-slate-400">
+                        {formData.modo_calculo === 'TOTAL' ? (
+                          <>{formData.qtd_parcelas}x de <strong className="text-blue-300">{BRL.format(Number(formData.valor_previsto) / Number(formData.qtd_parcelas || 1))}</strong></>
+                        ) : (
+                          <>{formData.qtd_parcelas}x de <strong className="text-blue-300">{BRL.format(Number(formData.valor_previsto))}</strong> • Total {BRL.format(Number(formData.valor_previsto) * Number(formData.qtd_parcelas || 1))}</>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* PAGAMENTO */}
-              <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+              <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                 <label className="flex items-center gap-3 cursor-pointer select-none mb-3">
-                  <input type="checkbox" className="w-5 h-5 rounded border-slate-600 bg-slate-800 accent-blue-600" checked={formData.status==='PAGO'} onChange={e=>setFormData({...formData, status:e.target.checked?'PAGO':'PENDENTE'})}/>
-                  <span className="text-sm font-bold text-white">Já foi pago/recebido?</span>
+                  <input type="checkbox" className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 accent-blue-600" checked={formData.status==='PAGO'} onChange={e=>setFormData({...formData, status:e.target.checked?'PAGO':'PENDENTE'})}/>
+                  <span className="text-sm font-bold text-slate-800 dark:text-white">Já foi pago/recebido?</span>
                 </label>
                 {formData.status==='PAGO' && (
                   <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
@@ -859,7 +983,7 @@ export function Lancamentos() {
                     <label className="text-xs font-bold text-slate-400 uppercase">Entidade</label>
                     <button onClick={()=>setShowEntityDrawer(true)} className="text-[10px] text-blue-400 font-bold hover:text-blue-300 flex items-center gap-1"><Plus className="w-3 h-3"/> Nova</button>
                   </div>
-                  <select className="w-full p-3 rounded-lg border border-slate-600 bg-slate-800 text-white outline-none focus:border-blue-500 text-sm" value={formData.entidade_id} onChange={e=>{
+                  <select className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500 text-sm" value={formData.entidade_id} onChange={e=>{
                     const eid = e.target.value;
                     const last = lancamentos.find(l=>String(l.entidade_id)===eid);
                     setFormData((prev: any) => ({...prev, entidade_id:eid, plano_contas_id: last ? last.plano_contas_id : prev.plano_contas_id, tipo: last ? last.tipo : prev.tipo}));
@@ -874,21 +998,21 @@ export function Lancamentos() {
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Origem do Recurso</label>
                 <div className="mb-3">
-                    <select className="w-full p-2 text-xs rounded border border-slate-600 bg-slate-800 text-slate-300 outline-none" value={formData.centro_custo_id} onChange={e=>setFormData({...formData, centro_custo_id:e.target.value, conta_id: '', cartao_id: ''})}>
+                    <select className="w-full p-2 text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 outline-none" value={formData.centro_custo_id} onChange={e=>setFormData({...formData, centro_custo_id:e.target.value, conta_id: '', cartao_id: ''})}>
                         <option value="">Todos os Centros de Custo</option>
                         {centros.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
                     </select>
                 </div>
 
-                <div className="border border-slate-700 rounded-xl p-3 bg-slate-800/30 space-y-4">
+                <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-slate-50 dark:bg-slate-800/30 space-y-4">
                   {/* CONTAS */}
                   <div>
                     <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><Wallet className="w-3 h-3"/> Contas Bancárias</p>
                     <div className="grid grid-cols-2 gap-2">
                       {contas.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).length === 0 && <span className="text-xs text-slate-500 italic col-span-2">Nenhuma conta neste centro.</span>}
                       {contas.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).map(c=>(
-                        <div key={c.id} onClick={()=>toggleConta(c.id)} className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${formData.conta_id===c.id ? 'bg-blue-600 text-white border-blue-500 shadow-md' : 'bg-slate-800 border-slate-600 text-slate-300 hover:border-slate-500'}`}>
-                          <div className={`p-1 rounded ${formData.conta_id===c.id?'bg-white/20':'bg-slate-700 text-emerald-400'}`}><Wallet className="w-3 h-3"/></div> {c.nome}
+                        <div key={c.id} onClick={()=>toggleConta(c.id)} className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${formData.conta_id===c.id ? 'bg-blue-600 text-white border-blue-500 shadow-md' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-slate-400'}`}>
+                          <div className={`p-1 rounded ${formData.conta_id===c.id?'bg-white/20':'bg-slate-100 dark:bg-slate-700 text-emerald-500'}`}><Wallet className="w-3 h-3"/></div> {c.nome}
                         </div>
                       ))}
                     </div>
@@ -899,8 +1023,8 @@ export function Lancamentos() {
                     <div className="grid grid-cols-2 gap-2">
                       {cartoes.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).length === 0 && <span className="text-xs text-slate-500 italic col-span-2">Nenhum cartão neste centro.</span>}
                       {cartoes.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).map(c=>(
-                        <div key={c.id} onClick={()=>toggleCartao(c.id)} className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${formData.cartao_id===c.id ? 'bg-purple-600 text-white border-purple-500 shadow-md' : 'bg-slate-800 border-slate-600 text-slate-300 hover:border-slate-500'}`}>
-                          <div className={`p-1 rounded ${formData.cartao_id===c.id?'bg-white/20':'bg-slate-700 text-purple-400'}`}><CreditCard className="w-3 h-3"/></div> {c.nome_cartao}
+                        <div key={c.id} onClick={()=>toggleCartao(c.id)} className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${formData.cartao_id===c.id ? 'bg-purple-600 text-white border-purple-500 shadow-md' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-slate-400'}`}>
+                          <div className={`p-1 rounded ${formData.cartao_id===c.id?'bg-white/20':'bg-slate-100 dark:bg-slate-700 text-purple-500'}`}><CreditCard className="w-3 h-3"/></div> {c.nome_cartao}
                         </div>
                       ))}
                     </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../services/api';
 import { 
   Building2, Search, UserPlus, ArrowRightLeft, Briefcase, Upload, X, Loader2, Pencil, Users, Shield, Plus, Trash2, ChevronDown, ChevronUp,
@@ -159,6 +159,9 @@ export function Consultor() {
     atrasadas: 0,
     concluidas_atraso: 0
   });
+  const [todoFiltro, setTodoFiltro] = useState<'TODOS' | 'HOJE' | 'ATRASADAS' | 'SEMANA' | 'PERIODO'>('TODOS');
+  const [todoFiltroInicio, setTodoFiltroInicio] = useState('');
+  const [todoFiltroFim, setTodoFiltroFim] = useState('');
   const [todoForm, setTodoForm] = useState<TodoForm>({
     titulo: '',
     descricao: '',
@@ -173,6 +176,10 @@ export function Consultor() {
     empresa_id: 0,
     consultor_id: 0
   });
+
+  const [todoView, setTodoView] = useState<'CONSULTOR' | 'EMPRESA'>('CONSULTOR');
+  const [todoEmpresaId, setTodoEmpresaId] = useState<number | null>(null);
+  const [todoConsultorId, setTodoConsultorId] = useState<number | null>(null);
 
   const [showTodoForm, setShowTodoForm] = useState(false);
 
@@ -196,6 +203,10 @@ export function Consultor() {
     carregarEmpresas();
     verificarSuperConsultor();
   }, []);
+
+  useEffect(() => {
+    if (currentUser?.id && !todoConsultorId) setTodoConsultorId(currentUser.id);
+  }, [currentUser, todoConsultorId]);
 
   async function verificarSuperConsultor() {
     try {
@@ -337,13 +348,17 @@ export function Consultor() {
   async function criarTodo(e: React.FormEvent) {
     e.preventDefault();
     try {
+      const toIsoDateTime = (value: string) => {
+        if (!value) return null;
+        return value.includes('T') ? value : `${value}T00:00:00`;
+      };
       const payload: any = {
         titulo: todoForm.titulo,
         descricao: todoForm.descricao || null,
         status: 'PENDENTE',
         prioridade: todoForm.prioridade,
-        due_date: todoForm.due_date || null,
-        end_date: todoForm.periodicidade === 'UNICA' ? null : (todoForm.end_date || null),
+        due_date: toIsoDateTime(todoForm.due_date),
+        end_date: todoForm.periodicidade === 'UNICA' ? null : toIsoDateTime(todoForm.end_date),
         periodicidade: todoForm.periodicidade,
         dias_semana: todoForm.dias_semana.length ? todoForm.dias_semana.join(',') : null,
         inclui_sabado: todoForm.inclui_sabado,
@@ -390,6 +405,16 @@ export function Consultor() {
     }
   }
 
+  async function atualizarStatusTodo(todoId: number, status: TodoItem['status']) {
+    try {
+      setTodos(prev => prev.map(t => t.id === todoId ? { ...t, status } : t));
+      await api.patch(`/consultor/todos/${todoId}`, { status });
+    } catch (error) {
+      console.error("Erro ao atualizar status", error);
+      carregarTodos();
+    }
+  }
+
   async function deletarTodo(todoId: number) {
     try {
       await api.delete(`/consultor/todos/${todoId}`);
@@ -432,6 +457,60 @@ export function Consultor() {
     finished.setHours(0, 0, 0, 0);
     return todo.status === 'CONCLUIDO' && finished > due;
   }
+
+  function isSameDay(a: Date, b: Date) {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  }
+
+  const todosBase = useMemo(() => {
+    if (todoView === 'CONSULTOR') {
+      return todos.filter(t => t.tipo_alvo === 'CONSULTOR' && (!todoConsultorId || Number(t.consultor_id) === Number(todoConsultorId)));
+    }
+    return todos.filter(t => t.tipo_alvo === 'EMPRESA' && (!todoEmpresaId || Number(t.empresa_id) === Number(todoEmpresaId)));
+  }, [todos, todoView, todoConsultorId, todoEmpresaId]);
+
+  const empresasComAtividade = useMemo(() => {
+    const ids = new Set<number>();
+    todos.filter(t => t.tipo_alvo === 'EMPRESA' && t.empresa_id).forEach(t => ids.add(Number(t.empresa_id)));
+    return empresas.filter(e => ids.has(e.id));
+  }, [todos, empresas]);
+
+  const todosFiltrados = useMemo(() => {
+    if (todoFiltro === 'TODOS') return todosBase;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(today);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    return todosBase.filter(todo => {
+      const due = parseDateOnly(todo.due_date);
+      if (todoFiltro === 'ATRASADAS') return isOverdue(todo);
+      if (todoFiltro === 'HOJE') return due ? isSameDay(due, today) : false;
+      if (todoFiltro === 'SEMANA') return due ? (due >= today && due <= weekEnd) : false;
+      if (todoFiltro === 'PERIODO') {
+        if (!todoFiltroInicio || !todoFiltroFim) return true;
+        const start = parseDateOnly(todoFiltroInicio);
+        const end = parseDateOnly(todoFiltroFim);
+        if (!start || !end || !due) return false;
+        start.setHours(0, 0, 0, 0);
+        end.setHours(0, 0, 0, 0);
+        return due >= start && due <= end;
+      }
+      return true;
+    });
+  }, [todosBase, todoFiltro, todoFiltroInicio, todoFiltroFim]);
+
+  const produtividade = useMemo(() => {
+    const total = todosBase.length;
+    const concluidas = todosBase.filter(t => t.status === 'CONCLUIDO');
+    const concluidasCount = concluidas.length;
+    const noPrazo = concluidas.filter(t => !t.due_date).length;
+    const pontuais = concluidas.filter(t => !isCompletedLate(t)).length;
+    const totalSeconds = concluidas.reduce((acc, t) => acc + (t.total_seconds || 0), 0);
+    const avgSeconds = concluidasCount ? Math.round(totalSeconds / concluidasCount) : 0;
+    const conclusaoPct = total ? Math.round((concluidasCount / total) * 100) : 0;
+    const pontualidadePct = concluidasCount ? Math.round((pontuais / concluidasCount) * 100) : 0;
+    return { total, concluidasCount, conclusaoPct, pontualidadePct, avgSeconds, noPrazo };
+  }, [todosBase]);
 
   // --- ABRIR MODAL (CRIAR OU EDITAR) ---
   function handleOpenEdit(emp: Empresa) {
@@ -962,13 +1041,78 @@ export function Consultor() {
             </div>
           </div>
 
-          <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setTodoView('CONSULTOR')}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${todoView === 'CONSULTOR' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+              >
+                Consultor
+              </button>
+              <button
+                onClick={() => setTodoView('EMPRESA')}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${todoView === 'EMPRESA' ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+              >
+                Empresas
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {todoView === 'CONSULTOR' && (
+                <select
+                  value={todoConsultorId || ''}
+                  onChange={(e) => setTodoConsultorId(Number(e.target.value))}
+                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-100"
+                >
+                  <option value={currentUser?.id || ''}>Meu usuário</option>
+                  {isSuperConsultor && consultores.map(c => (
+                    <option key={c.id} value={c.id}>{c.nome}</option>
+                  ))}
+                </select>
+              )}
+              {todoView === 'EMPRESA' && (
+                <select
+                  value={todoEmpresaId || ''}
+                  onChange={(e) => setTodoEmpresaId(e.target.value ? Number(e.target.value) : null)}
+                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-100"
+                >
+                  <option value="">Todas empresas com atividade</option>
+                  {empresasComAtividade.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.nome_fantasia}</option>
+                  ))}
+                </select>
+              )}
+            </div>
             <button
               onClick={() => setShowTodoForm(prev => !prev)}
               className="px-4 py-2 rounded-lg font-bold text-sm bg-blue-600 text-white hover:bg-blue-700 transition flex items-center gap-2"
             >
               <Plus size={16} /> {showTodoForm ? 'Ocultar formulário' : 'Nova Tarefa'}
             </button>
+          </div>
+
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-800 dark:text-white">Produtividade</h3>
+              <span className="text-xs text-slate-400">{todoView === 'CONSULTOR' ? 'Consultor' : 'Empresas'}</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="text-[11px] text-slate-500">Conclusão</p>
+                <p className="text-xl font-bold text-indigo-600">{produtividade.conclusaoPct}%</p>
+              </div>
+              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="text-[11px] text-slate-500">Pontualidade</p>
+                <p className="text-xl font-bold text-emerald-600">{produtividade.pontualidadePct}%</p>
+              </div>
+              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="text-[11px] text-slate-500">Tempo médio</p>
+                <p className="text-xl font-bold text-slate-700 dark:text-white">{formatDuration(produtividade.avgSeconds)}</p>
+              </div>
+              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="text-[11px] text-slate-500">Sem prazo</p>
+                <p className="text-xl font-bold text-amber-600">{produtividade.noPrazo}</p>
+              </div>
+            </div>
           </div>
 
           {showTodoForm && (
@@ -1128,30 +1272,89 @@ export function Consultor() {
 
           <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
             <h3 className="font-bold text-slate-800 dark:text-white mb-4">Lista de Tarefas</h3>
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              {([
+                { key: 'TODOS', label: 'Todas' },
+                { key: 'HOJE', label: 'Hoje' },
+                { key: 'ATRASADAS', label: 'Atrasadas' },
+                { key: 'SEMANA', label: 'Próx. 7 dias' },
+                { key: 'PERIODO', label: 'Período' }
+              ] as const).map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => setTodoFiltro(f.key)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${todoFiltro === f.key ? 'bg-blue-600 text-white border-blue-500' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                >
+                  {f.label}
+                </button>
+              ))}
+              {todoFiltro === 'PERIODO' && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="date"
+                    value={todoFiltroInicio}
+                    onChange={(e) => setTodoFiltroInicio(e.target.value)}
+                    className="px-3 py-1.5 rounded-lg text-xs border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white"
+                  />
+                  <span className="text-xs text-slate-400">→</span>
+                  <input
+                    type="date"
+                    value={todoFiltroFim}
+                    onChange={(e) => setTodoFiltroFim(e.target.value)}
+                    className="px-3 py-1.5 rounded-lg text-xs border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white"
+                  />
+                </div>
+              )}
+            </div>
             {loadingTodos ? (
               <div className="text-center text-slate-500">Carregando tarefas...</div>
-            ) : todos.length === 0 ? (
-              <div className="text-center text-slate-500">Nenhuma tarefa encontrada</div>
             ) : (
-              <div className="space-y-6">
-                {(["PENDENTE", "EM_ANDAMENTO", "CONCLUIDO"] as const).map(status => (
-                  <div key={status}>
-                    <p className="text-xs font-bold uppercase text-slate-500 mb-2">
-                      {status === 'PENDENTE' && 'Pendentes'}
-                      {status === 'EM_ANDAMENTO' && 'Em andamento'}
-                      {status === 'CONCLUIDO' && 'Concluídas'}
-                    </p>
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                {([
+                  { key: 'PENDENTE', label: 'A iniciar' },
+                  { key: 'EM_ANDAMENTO', label: 'Em andamento' },
+                  { key: 'CONCLUIDO', label: 'Concluídas' },
+                  { key: 'CANCELADO', label: 'Canceladas' }
+                ] as const).map(col => (
+                  <div
+                    key={col.key}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      const id = Number(e.dataTransfer.getData('text/plain'));
+                      if (id) atualizarStatusTodo(id, col.key as TodoItem['status']);
+                    }}
+                    className="bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-700 p-3 min-h-50"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-xs font-bold uppercase text-slate-500">{col.label}</h4>
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                        {todosFiltrados.filter(t => t.status === col.key).length}
+                      </span>
+                    </div>
+
                     <div className="space-y-3">
-                      {todos.filter(t => t.status === status).length === 0 ? (
+                      {todosFiltrados.filter(t => t.status === col.key).length === 0 ? (
                         <div className="text-xs text-slate-400">Nenhuma tarefa</div>
                       ) : (
-                        todos.filter(t => t.status === status).map(todo => {
+                        todosFiltrados.filter(t => t.status === col.key).map(todo => {
                           const empresaNome = empresas.find(e => e.id === todo.empresa_id)?.nome_fantasia;
                           const consultorNome = consultores.find(c => c.id === todo.consultor_id)?.nome || (todo.consultor_id === currentUser?.id ? 'Eu' : undefined);
                           const atrasada = isOverdue(todo);
                           const concluidaAtraso = isCompletedLate(todo);
+                          const isLocked = todo.status === 'CONCLUIDO' || todo.status === 'CANCELADO';
                           return (
-                            <div key={todo.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <div
+                              key={todo.id}
+                              draggable={!isLocked}
+                              onDragStart={(e) => {
+                                if (isLocked) {
+                                  e.preventDefault();
+                                  return;
+                                }
+                                e.dataTransfer.setData('text/plain', String(todo.id));
+                              }}
+                              className={`bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-sm flex flex-col gap-3 ${isLocked ? 'cursor-not-allowed opacity-80' : 'cursor-move'}`}
+                            >
                               <div>
                                 <div className="flex items-center gap-2">
                                   {todo.status === 'CONCLUIDO' ? <CheckCircle2 size={18} className="text-emerald-500" /> : <Circle size={18} className="text-slate-400" />}
@@ -1166,40 +1369,40 @@ export function Consultor() {
                                     : `Consultor: ${consultorNome || `ID ${todo.consultor_id}`}`}
                                   {todo.due_date ? ` • Prazo: ${todo.due_date.slice(0, 10)}` : ''}
                                 </p>
-                                <p className="text-[11px] text-slate-400 mt-1">
-                                  {todo.periodicidade === 'DIARIA' && 'Periodicidade: todo dia'}
-                                  {todo.periodicidade === 'SEMANAL' && `Periodicidade: semanal (${todo.dias_semana || '-'})`}
-                                  {(!todo.periodicidade || todo.periodicidade === 'UNICA') && 'Periodicidade: única'}
-                                  {todo.inclui_sabado ? ' • Inclui sábado' : ''}
-                                </p>
-                                <p className="text-[11px] text-slate-400 mt-1">
-                                  Tempo: {formatDuration(todo.total_seconds)}
-                                  {todo.last_started_at && todo.status !== 'CONCLUIDO' ? ' • Em andamento' : ''}
-                                </p>
                               </div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-wrap gap-2">
                                 {todo.status === 'PENDENTE' && (
                                   <button
-                                    onClick={() => iniciarTodo(todo.id)}
-                                    className="px-3 py-2 rounded-lg text-xs font-bold border border-blue-300 text-blue-600 hover:bg-blue-50 transition"
+                                    onClick={() => atualizarStatusTodo(todo.id, 'EM_ANDAMENTO')}
+                                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-blue-300 text-blue-600 hover:bg-blue-50 transition"
                                   >
                                     Iniciar
                                   </button>
                                 )}
                                 {todo.status === 'EM_ANDAMENTO' && (
                                   <button
-                                    onClick={() => finalizarTodo(todo.id)}
-                                    className="px-3 py-2 rounded-lg text-xs font-bold border border-emerald-300 text-emerald-600 hover:bg-emerald-50 transition"
+                                    onClick={() => atualizarStatusTodo(todo.id, 'CONCLUIDO')}
+                                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-emerald-300 text-emerald-600 hover:bg-emerald-50 transition"
                                   >
-                                    Finalizar
+                                    Concluir
                                   </button>
                                 )}
-                                <button
-                                  onClick={() => deletarTodo(todo.id)}
-                                  className="px-3 py-2 rounded-lg text-xs font-bold border border-red-300 text-red-600 hover:bg-red-50 transition flex items-center gap-1"
-                                >
-                                  <Trash2 size={14} /> Excluir
-                                </button>
+                                {todo.status === 'EM_ANDAMENTO' && (
+                                  <button
+                                    onClick={() => atualizarStatusTodo(todo.id, 'CANCELADO')}
+                                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-amber-300 text-amber-600 hover:bg-amber-50 transition"
+                                  >
+                                    Cancelar
+                                  </button>
+                                )}
+                                {(todo.status === 'PENDENTE' || todo.status === 'CONCLUIDO' || todo.status === 'CANCELADO') && (
+                                  <button
+                                    onClick={() => deletarTodo(todo.id)}
+                                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-red-300 text-red-600 hover:bg-red-50 transition flex items-center gap-1"
+                                  >
+                                    <Trash2 size={12} /> Excluir
+                                  </button>
+                                )}
                               </div>
                             </div>
                           );

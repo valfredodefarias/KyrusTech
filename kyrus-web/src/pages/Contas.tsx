@@ -117,6 +117,14 @@ export function Contas() {
     carregarTema();
   }, []);
 
+  useEffect(() => {
+    if (centros.length === 1) {
+      const onlyId = String(centros[0].id);
+      setFilterCentroId(prev => prev || onlyId);
+      setForm(prev => prev.centro_custo_id ? prev : { ...prev, centro_custo_id: onlyId });
+    }
+  }, [centros]);
+
   // --- TEMA DINÂMICO ---
   async function carregarTema() {
     try {

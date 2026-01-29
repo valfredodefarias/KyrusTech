@@ -67,8 +67,11 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
+  const [lancamentosAno, setLancamentosAno] = useState<Lancamento[]>([]);
+  const [lancamentosAnoAnterior, setLancamentosAnoAnterior] = useState<Lancamento[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [centros, setCentros] = useState<CentroCusto[]>([]);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
 
   const [mes, setMes] = useState(() => new Date().toISOString().slice(0, 7));
   const [periodoTipo, setPeriodoTipo] = useState<'MES' | 'ANO' | 'PERSONALIZADO'>('MES');
@@ -79,6 +82,14 @@ export function Dashboard() {
   const [selectedCentro, setSelectedCentro] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [statusFiltro, setStatusFiltro] = useState<'TODOS' | 'PAGO' | 'PENDENTE'>('TODOS');
+  const [tipoFiltro, setTipoFiltro] = useState<'TODOS' | 'RECEITA' | 'DESPESA'>('TODOS');
+
+  useEffect(() => {
+    const handler = () => setIsDark(document.documentElement.classList.contains('dark'));
+    window.addEventListener('theme-change', handler);
+    return () => window.removeEventListener('theme-change', handler);
+  }, []);
 
   useEffect(() => {
     loadDashboard();
@@ -94,20 +105,32 @@ export function Dashboard() {
     try {
       let start: string;
       let end: string;
+      let yearBase: number;
       if (periodoTipo === 'ANO') {
         ({ start, end } = getYearRange(ano));
+        yearBase = ano;
       } else if (periodoTipo === 'PERSONALIZADO') {
         start = periodoIni;
         end = periodoFim;
+        yearBase = new Date(periodoIni).getFullYear();
       } else {
         ({ start, end } = getMonthRange(mes));
+        yearBase = Number(mes.slice(0, 4));
       }
+      const { start: startYear, end: endYear } = getYearRange(yearBase);
+      const { start: startPrev, end: endPrev } = getYearRange(yearBase - 1);
       const [rLanc, rCats, rCentros] = await Promise.all([
         api.get('/lancamentos/', { params: { limit: 5000, data_inicio: start, data_fim: end } }),
         api.get('/plano-contas/'),
         api.get('/centro-custo/')
       ]);
+      const [rLancAno, rLancAnoAnterior] = await Promise.all([
+        api.get('/lancamentos/', { params: { limit: 10000, data_inicio: startYear, data_fim: endYear } }),
+        api.get('/lancamentos/', { params: { limit: 10000, data_inicio: startPrev, data_fim: endPrev } })
+      ]);
       setLancamentos(rLanc.data || []);
+      setLancamentosAno(rLancAno.data || []);
+      setLancamentosAnoAnterior(rLancAnoAnterior.data || []);
       setCategorias(rCats.data || []);
       setCentros(rCentros.data || []);
     } catch (e) {
@@ -132,9 +155,34 @@ export function Dashboard() {
       if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
       if (selectedDate && toDateOnlyStr(l.data_vencimento) !== selectedDate) return false;
       if (!selectedDate && selectedMonth && !toDateOnlyStr(l.data_vencimento).startsWith(selectedMonth)) return false;
+      if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
+      if (tipoFiltro === 'RECEITA' && !isReceita(l.tipo)) return false;
+      if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
       return true;
     });
-  }, [lancamentos, selectedCategorias, selectedCentro, selectedDate, selectedMonth]);
+  }, [lancamentos, selectedCategorias, selectedCentro, selectedDate, selectedMonth, statusFiltro, tipoFiltro]);
+
+  const baseFilteredNoDate = useMemo(() => {
+    return lancamentosAno.filter(l => {
+      if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
+      if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
+      if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
+      if (tipoFiltro === 'RECEITA' && !isReceita(l.tipo)) return false;
+      if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
+      return true;
+    });
+  }, [lancamentosAno, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro]);
+
+  const baseFilteredAnoAnterior = useMemo(() => {
+    return lancamentosAnoAnterior.filter(l => {
+      if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
+      if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
+      if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
+      if (tipoFiltro === 'RECEITA' && !isReceita(l.tipo)) return false;
+      if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
+      return true;
+    });
+  }, [lancamentosAnoAnterior, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro]);
 
   const kpis = useMemo(() => {
     let receitas = 0; let despesas = 0; let pagos = 0; let pendentes = 0;
@@ -193,6 +241,107 @@ export function Dashboard() {
     return { labels, rec, desp, indexToDate: dates, mode: 'DAY' as const };
   }, [filteredLancamentos, mes, ano, periodoIni, periodoFim, periodoTipo]);
 
+  const resultadoMensal = useMemo(() => {
+    const map = new Map<string, { rec: number; desp: number }>();
+    filteredLancamentos.forEach(l => {
+      const date = toDateOnlyStr(l.data_vencimento);
+      if (!date) return;
+      const key = date.slice(0, 7);
+      if (!map.has(key)) map.set(key, { rec: 0, desp: 0 });
+      const val = Number(l.valor_previsto || 0);
+      const bucket = map.get(key)!;
+      if (isReceita(l.tipo)) bucket.rec += val;
+      else bucket.desp += val;
+    });
+    const keys = Array.from(map.keys()).sort();
+    const values = keys.map(k => {
+      const v = map.get(k)!;
+      return v.rec - v.desp;
+    });
+    return { keys, labels: keys.map(formatMonthLabel), values };
+  }, [filteredLancamentos]);
+
+  const resultadoMensalAno = useMemo(() => {
+    const yearBase = periodoTipo === 'ANO'
+      ? ano
+      : (periodoTipo === 'PERSONALIZADO' ? new Date(periodoIni).getFullYear() : Number(mes.slice(0, 4)));
+
+    const rec = Array(12).fill(0);
+    const desp = Array(12).fill(0);
+    baseFilteredNoDate.forEach(l => {
+      const d = parseDateLocal(l.data_vencimento);
+      if (!d || d.getFullYear() !== yearBase) return;
+      const idx = d.getMonth();
+      const val = Number(l.valor_previsto || 0);
+      if (isReceita(l.tipo)) rec[idx] += val; else desp[idx] += val;
+    });
+
+    const labels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    const values = rec.map((r, i) => r - desp[i]);
+    const margem = rec.map((r, i) => r > 0 ? Math.round(((r - desp[i]) / r) * 100) : 0);
+    return { year: yearBase, labels, rec, desp, values, margem };
+  }, [baseFilteredNoDate, periodoTipo, ano, periodoIni, mes]);
+
+  const resultadoMensalAnoAnterior = useMemo(() => {
+    const yearBase = periodoTipo === 'ANO'
+      ? ano - 1
+      : (periodoTipo === 'PERSONALIZADO' ? new Date(periodoIni).getFullYear() - 1 : Number(mes.slice(0, 4)) - 1);
+
+    const rec = Array(12).fill(0);
+    const desp = Array(12).fill(0);
+    baseFilteredAnoAnterior.forEach(l => {
+      const d = parseDateLocal(l.data_vencimento);
+      if (!d || d.getFullYear() !== yearBase) return;
+      const idx = d.getMonth();
+      const val = Number(l.valor_previsto || 0);
+      if (isReceita(l.tipo)) rec[idx] += val; else desp[idx] += val;
+    });
+
+    const labels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    const values = rec.map((r, i) => r - desp[i]);
+    return { year: yearBase, labels, values };
+  }, [baseFilteredAnoAnterior, periodoTipo, ano, periodoIni, mes]);
+
+  const sazonalidadeIndice = useMemo(() => {
+    const totalMes = resultadoMensalAno.rec.map((r, i) => r + resultadoMensalAno.desp[i]);
+    const avg = totalMes.reduce((acc, v) => acc + v, 0) / (totalMes.length || 1);
+    const values = totalMes.map(v => avg > 0 ? Math.round((v / avg) * 100) : 0);
+    return { labels: resultadoMensalAno.labels, values };
+  }, [resultadoMensalAno]);
+
+  const resultadoAcumulado = useMemo(() => {
+    const values = fluxoDiario.rec.map((rec, idx) => rec - (fluxoDiario.desp[idx] || 0));
+    const acum: number[] = [];
+    values.reduce((acc, v) => {
+      const next = acc + v;
+      acum.push(next);
+      return next;
+    }, 0);
+    return { labels: fluxoDiario.labels, values: acum };
+  }, [fluxoDiario]);
+
+  const acumuladoRecDesp = useMemo(() => {
+    const rec: number[] = [];
+    const desp: number[] = [];
+    fluxoDiario.rec.reduce((acc, v) => {
+      const next = acc + v;
+      rec.push(next);
+      return next;
+    }, 0);
+    fluxoDiario.desp.reduce((acc, v) => {
+      const next = acc + v;
+      desp.push(next);
+      return next;
+    }, 0);
+    return { labels: fluxoDiario.labels, rec, desp };
+  }, [fluxoDiario]);
+
+  const statusDistrib = useMemo(() => {
+    const pagos = filteredLancamentos.filter(l => isPago(l.status)).reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0);
+    const pendentes = filteredLancamentos.filter(l => !isPago(l.status)).reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0);
+    return { pagos, pendentes };
+  }, [filteredLancamentos]);
+
   const despesasPorCategoria = useMemo(() => {
     const map = new Map<number, number>();
     const base = lancamentos.filter(l => {
@@ -204,6 +353,32 @@ export function Dashboard() {
 
     base.forEach(l => {
       if (!isDespesa(l.tipo)) return;
+      const catId = Number(l.plano_contas_id);
+      if (!catId) return;
+      map.set(catId, (map.get(catId) || 0) + Number(l.valor_previsto || 0));
+    });
+    const rows = Array.from(map.entries()).map(([id, total]) => {
+      const cat = categorias.find(c => Number(c.id) === Number(id));
+      return { id, label: cat?.nome || `Categoria ${id}`, total };
+    }).sort((a, b) => b.total - a.total);
+
+    const top = rows.slice(0, 6);
+    const others = rows.slice(6).reduce((acc, r) => acc + r.total, 0);
+    if (others > 0) top.push({ id: -1, label: 'Outros', total: others });
+    return top;
+  }, [lancamentos, categorias, selectedCentro, selectedDate, selectedMonth]);
+
+  const receitasPorCategoria = useMemo(() => {
+    const map = new Map<number, number>();
+    const base = lancamentos.filter(l => {
+      if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
+      if (selectedDate && toDateOnlyStr(l.data_vencimento) !== selectedDate) return false;
+      if (!selectedDate && selectedMonth && !toDateOnlyStr(l.data_vencimento).startsWith(selectedMonth)) return false;
+      return true;
+    });
+
+    base.forEach(l => {
+      if (!isReceita(l.tipo)) return;
       const catId = Number(l.plano_contas_id);
       if (!catId) return;
       map.set(catId, (map.get(catId) || 0) + Number(l.valor_previsto || 0));
@@ -436,16 +611,16 @@ export function Dashboard() {
         strokeWidth: 0,
         hover: { size: 6 }
       },
-      grid: { borderColor: '#1f2a44' },
-      theme: { mode: 'dark' },
-      foreColor: '#cbd5f5',
+      grid: { borderColor: isDark ? '#1f2a44' : '#e2e8f0' },
+      theme: { mode: isDark ? 'dark' : 'light' },
+      foreColor: isDark ? '#cbd5f5' : '#475569',
       dataLabels: { enabled: false },
       stroke: { curve: 'smooth', width: 2 },
       colors: ['#10b981', '#ef4444'],
       fill: { type: 'gradient', gradient: { opacityFrom: 0.35, opacityTo: 0.05 } },
       xaxis: { categories: fluxoDiario.labels },
       yaxis: { labels: { formatter: (val: number) => BRL.format(val) } },
-      tooltip: { theme: 'dark', y: { formatter: (val: number) => BRL.format(val) } },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
       legend: { show: true }
     } as any
   };
@@ -470,11 +645,40 @@ export function Dashboard() {
           }
         }
       },
-      theme: { mode: 'dark' },
-      foreColor: '#cbd5f5',
+      theme: { mode: isDark ? 'dark' : 'light' },
+      foreColor: isDark ? '#cbd5f5' : '#475569',
       legend: { position: 'bottom' },
       dataLabels: { enabled: false },
-      tooltip: { theme: 'dark', y: { formatter: (val: number) => BRL.format(val) } },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
+      plotOptions: { pie: { donut: { size: '70%' } } }
+    } as any
+  };
+
+  const chartReceitasCategorias = {
+    series: receitasPorCategoria.map(r => r.total),
+    options: {
+      labels: receitasPorCategoria.map(r => r.label),
+      chart: {
+        type: 'donut',
+        height: 320,
+        events: {
+          dataPointSelection: (_: any, __: any, opts: any) => {
+            const idx = opts.dataPointIndex;
+            const item = receitasPorCategoria[idx];
+            if (!item || item.id === -1) return;
+            setSelectedCategorias(prev => {
+              const next = new Set(prev);
+              if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+              return next;
+            });
+          }
+        }
+      },
+      theme: { mode: isDark ? 'dark' : 'light' },
+      foreColor: isDark ? '#cbd5f5' : '#475569',
+      legend: { position: 'bottom' },
+      dataLabels: { enabled: false },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
       plotOptions: { pie: { donut: { size: '70%' } } }
     } as any
   };
@@ -494,12 +698,195 @@ export function Dashboard() {
           }
         }
       },
-      theme: { mode: 'dark' },
-      foreColor: '#cbd5f5',
+      theme: { mode: isDark ? 'dark' : 'light' },
+      foreColor: isDark ? '#cbd5f5' : '#475569',
       dataLabels: { enabled: false },
       xaxis: { categories: despesasPorCentro.map(r => r.label) },
-      tooltip: { theme: 'dark', y: { formatter: (val: number) => BRL.format(val) } },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
       colors: ['#6366f1']
+    } as any
+  };
+
+  const totalPrevisto = kpis.receitas + kpis.despesas;
+  const execucaoPct = totalPrevisto > 0 ? Math.round((kpis.pagos / totalPrevisto) * 100) : 0;
+  const pendentesPct = totalPrevisto > 0 ? Math.round((kpis.pendentes / totalPrevisto) * 100) : 0;
+  const mediaResultado = resultadoMensal.values.length
+    ? resultadoMensal.values.reduce((acc, v) => acc + v, 0) / resultadoMensal.values.length
+    : 0;
+
+  const chartProdutividade = {
+    series: [execucaoPct],
+    options: {
+      chart: { type: 'radialBar', height: 240 },
+      plotOptions: {
+        radialBar: {
+          hollow: { size: '62%' },
+          dataLabels: {
+            name: { show: true, color: '#94a3b8', fontSize: '11px' },
+            value: { show: true, fontSize: '22px', fontWeight: 700 }
+          }
+        }
+      },
+      labels: ['Execução'],
+      colors: ['#6366f1'],
+      theme: { mode: isDark ? 'dark' : 'light' }
+    } as any
+  };
+
+  const chartResultadoOperacional = {
+    series: [{ name: 'Resultado Operacional', data: resultadoMensalAno.values }],
+    options: {
+      chart: { type: 'bar', height: 320, toolbar: { show: false } },
+      theme: { mode: isDark ? 'dark' : 'light' },
+      foreColor: isDark ? '#cbd5f5' : '#475569',
+      dataLabels: { enabled: false },
+      xaxis: { categories: resultadoMensalAno.labels },
+      yaxis: { labels: { formatter: (val: number) => BRL.format(val) } },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
+      plotOptions: {
+        bar: {
+          borderRadius: 8,
+          columnWidth: '55%',
+          colors: {
+            ranges: [
+              { from: -999999999, to: -0.01, color: '#ef4444' },
+              { from: 0, to: 999999999, color: '#10b981' }
+            ]
+          }
+        }
+      },
+      grid: { borderColor: isDark ? '#1f2a44' : '#e2e8f0' }
+    } as any
+  };
+
+  const chartComparativoAno = {
+    series: [
+      { name: String(resultadoMensalAno.year), data: resultadoMensalAno.values },
+      { name: String(resultadoMensalAnoAnterior.year), data: resultadoMensalAnoAnterior.values }
+    ],
+    options: {
+      chart: { type: 'line', height: 280, toolbar: { show: false }, zoom: { enabled: true } },
+      theme: { mode: isDark ? 'dark' : 'light' },
+      foreColor: isDark ? '#cbd5f5' : '#475569',
+      dataLabels: { enabled: false },
+      stroke: { curve: 'smooth', width: 3 },
+      colors: ['#6366f1', '#f59e0b'],
+      xaxis: { categories: resultadoMensalAno.labels },
+      yaxis: { labels: { formatter: (val: number) => BRL.format(val) } },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
+      grid: { borderColor: isDark ? '#1f2a44' : '#e2e8f0' }
+    } as any
+  };
+
+  const chartSazonalidade = {
+    series: [{ name: 'Índice Sazonal (%)', data: sazonalidadeIndice.values }],
+    options: {
+      chart: { type: 'bar', height: 260, toolbar: { show: false } },
+      theme: { mode: isDark ? 'dark' : 'light' },
+      foreColor: isDark ? '#cbd5f5' : '#475569',
+      dataLabels: { enabled: false },
+      xaxis: { categories: sazonalidadeIndice.labels },
+      yaxis: { labels: { formatter: (val: number) => `${val}%` } },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => `${val}%` } },
+      plotOptions: { bar: { borderRadius: 8, columnWidth: '60%' } },
+      colors: ['#06b6d4'],
+      grid: { borderColor: isDark ? '#1f2a44' : '#e2e8f0' }
+    } as any
+  };
+
+  const cenarios = useMemo(() => {
+    const valores = resultadoMensalAno.values;
+    const media = valores.reduce((acc, v) => acc + v, 0) / (valores.length || 1);
+    const variancia = valores.reduce((acc, v) => acc + Math.pow(v - media, 2), 0) / (valores.length || 1);
+    const desvio = Math.sqrt(variancia);
+    return {
+      pessimista: kpis.saldo - desvio,
+      realista: kpis.saldo,
+      otimista: kpis.saldo + desvio
+    };
+  }, [resultadoMensalAno.values, kpis.saldo]);
+
+  const chartReceitasDespesasAno = {
+    series: [
+      { name: 'Receitas', data: resultadoMensalAno.rec },
+      { name: 'Despesas', data: resultadoMensalAno.desp }
+    ],
+    options: {
+      chart: { type: 'bar', height: 320, stacked: true, toolbar: { show: false } },
+      theme: { mode: isDark ? 'dark' : 'light' },
+      foreColor: isDark ? '#cbd5f5' : '#475569',
+      dataLabels: { enabled: false },
+      xaxis: { categories: resultadoMensalAno.labels },
+      yaxis: { labels: { formatter: (val: number) => BRL.format(val) } },
+      colors: ['#10b981', '#ef4444'],
+      legend: { position: 'top' },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
+      grid: { borderColor: isDark ? '#1f2a44' : '#e2e8f0' }
+    } as any
+  };
+
+  const chartMargemAno = {
+    series: [{ name: 'Margem Operacional %', data: resultadoMensalAno.margem }],
+    options: {
+      chart: { type: 'line', height: 280, toolbar: { show: false } },
+      theme: { mode: isDark ? 'dark' : 'light' },
+      foreColor: isDark ? '#cbd5f5' : '#475569',
+      dataLabels: { enabled: false },
+      stroke: { curve: 'smooth', width: 3 },
+      colors: ['#6366f1'],
+      xaxis: { categories: resultadoMensalAno.labels },
+      yaxis: { labels: { formatter: (val: number) => `${val}%` } },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => `${val}%` } },
+      grid: { borderColor: isDark ? '#1f2a44' : '#e2e8f0' }
+    } as any
+  };
+
+  const chartResultadoAcumulado = {
+    series: [{ name: 'Resultado Acumulado', data: resultadoAcumulado.values }],
+    options: {
+      chart: { type: 'line', height: 280, toolbar: { show: false }, animations: { enabled: true } },
+      theme: { mode: isDark ? 'dark' : 'light' },
+      foreColor: isDark ? '#cbd5f5' : '#475569',
+      dataLabels: { enabled: false },
+      stroke: { curve: 'smooth', width: 3 },
+      colors: ['#22c55e'],
+      xaxis: { categories: resultadoAcumulado.labels },
+      yaxis: { labels: { formatter: (val: number) => BRL.format(val) } },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
+      grid: { borderColor: isDark ? '#1f2a44' : '#e2e8f0' }
+    } as any
+  };
+
+  const chartAcumuladoRecDesp = {
+    series: [
+      { name: 'Receitas Acumuladas', data: acumuladoRecDesp.rec },
+      { name: 'Despesas Acumuladas', data: acumuladoRecDesp.desp }
+    ],
+    options: {
+      chart: { type: 'line', height: 280, toolbar: { show: false }, animations: { enabled: true } },
+      theme: { mode: isDark ? 'dark' : 'light' },
+      foreColor: isDark ? '#cbd5f5' : '#475569',
+      dataLabels: { enabled: false },
+      stroke: { curve: 'smooth', width: 3 },
+      colors: ['#10b981', '#ef4444'],
+      xaxis: { categories: acumuladoRecDesp.labels },
+      yaxis: { labels: { formatter: (val: number) => BRL.format(val) } },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
+      grid: { borderColor: isDark ? '#1f2a44' : '#e2e8f0' }
+    } as any
+  };
+
+  const chartStatus = {
+    series: [statusDistrib.pagos, statusDistrib.pendentes],
+    options: {
+      labels: ['Pagos', 'Pendentes'],
+      chart: { type: 'donut', height: 260 },
+      theme: { mode: isDark ? 'dark' : 'light' },
+      foreColor: isDark ? '#cbd5f5' : '#475569',
+      dataLabels: { enabled: false },
+      colors: ['#10b981', '#f59e0b'],
+      legend: { position: 'bottom' },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } }
     } as any
   };
 
@@ -545,7 +932,27 @@ export function Dashboard() {
           <X className="w-3 h-3" />
         </button>
       )}
-      {!selectedCategorias.size && !selectedCentro && !selectedDate && !selectedMonth && (
+      {statusFiltro !== 'TODOS' && (
+        <button
+          onClick={() => setStatusFiltro('TODOS')}
+          className="px-3 py-1 text-xs font-bold rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1"
+        >
+          <Filter className="w-3 h-3" />
+          {statusFiltro}
+          <X className="w-3 h-3" />
+        </button>
+      )}
+      {tipoFiltro !== 'TODOS' && (
+        <button
+          onClick={() => setTipoFiltro('TODOS')}
+          className="px-3 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1"
+        >
+          <TrendingUp className="w-3 h-3" />
+          {tipoFiltro}
+          <X className="w-3 h-3" />
+        </button>
+      )}
+      {!selectedCategorias.size && !selectedCentro && !selectedDate && !selectedMonth && statusFiltro === 'TODOS' && tipoFiltro === 'TODOS' && (
         <span className="text-xs text-slate-400">Clique nos gráficos para filtrar</span>
       )}
     </div>
@@ -620,7 +1027,7 @@ export function Dashboard() {
 
       <div className="p-4 sm:p-6 space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+          <div className="bg-white/80 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:shadow-md">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold text-slate-400 uppercase">Receitas</p>
@@ -631,7 +1038,7 @@ export function Dashboard() {
               </div>
             </div>
           </div>
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+          <div className="bg-white/80 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:shadow-md">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold text-slate-400 uppercase">Despesas</p>
@@ -642,7 +1049,7 @@ export function Dashboard() {
               </div>
             </div>
           </div>
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+          <div className="bg-white/80 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:shadow-md">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold text-slate-400 uppercase">Saldo</p>
@@ -653,7 +1060,7 @@ export function Dashboard() {
               </div>
             </div>
           </div>
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+          <div className="bg-white/80 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:shadow-md">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold text-slate-400 uppercase">Pagos</p>
@@ -661,6 +1068,61 @@ export function Dashboard() {
               </div>
               <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
                 <Filter className="w-5 h-5 text-indigo-600" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {([
+            { key: 'TODOS', label: 'Todos status' },
+            { key: 'PAGO', label: 'Pagos' },
+            { key: 'PENDENTE', label: 'Pendentes' }
+          ] as const).map(f => (
+            <button
+              key={f.key}
+              onClick={() => setStatusFiltro(f.key)}
+              className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${statusFiltro === f.key ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white/80 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+            >
+              {f.label}
+            </button>
+          ))}
+          {([
+            { key: 'TODOS', label: 'Todos tipos' },
+            { key: 'RECEITA', label: 'Receitas' },
+            { key: 'DESPESA', label: 'Despesas' }
+          ] as const).map(f => (
+            <button
+              key={f.key}
+              onClick={() => setTipoFiltro(f.key)}
+              className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${tipoFiltro === f.key ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-white/80 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="bg-white/80 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6 shadow-sm backdrop-blur">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-slate-700 dark:text-slate-200">Produtividade</h3>
+            <span className="text-xs text-slate-400">Eficiência de execução financeira</span>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-center">
+            <div className="lg:col-span-1">
+              <ReactApexChart type="radialBar" height={240} series={chartProdutividade.series} options={chartProdutividade.options} />
+            </div>
+            <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="text-xs text-slate-400">Execução</p>
+                <p className="text-xl font-bold text-indigo-600">{execucaoPct}%</p>
+              </div>
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="text-xs text-slate-400">Pendentes</p>
+                <p className="text-xl font-bold text-amber-600">{pendentesPct}%</p>
+              </div>
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="text-xs text-slate-400">Resultado no período</p>
+                <p className={`text-xl font-bold ${kpis.saldo >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{BRL.format(kpis.saldo)}</p>
               </div>
             </div>
           </div>
@@ -761,12 +1223,156 @@ export function Dashboard() {
               <span className="text-xs text-slate-400">Clique para filtrar</span>
             </div>
             {chartCategorias.series.length === 0 ? (
-              <div className="h-[320px] flex items-center justify-center text-sm text-slate-400">
+              <div className="h-80 flex items-center justify-center text-sm text-slate-400">
                 Sem dados de despesas no período.
               </div>
             ) : (
               <ReactApexChart type="donut" height={320} series={chartCategorias.series} options={chartCategorias.options} />
             )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas por Categoria</h3>
+              <span className="text-xs text-slate-400">Clique para filtrar</span>
+            </div>
+            {chartReceitasCategorias.series.length === 0 ? (
+              <div className="h-80 flex items-center justify-center text-sm text-slate-400">
+                Sem dados de receitas no período.
+              </div>
+            ) : (
+              <ReactApexChart type="donut" height={320} series={chartReceitasCategorias.series} options={chartReceitasCategorias.options} />
+            )}
+          </div>
+          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Acumulado: Receitas x Despesas</h3>
+              <span className="text-xs text-slate-400">Evolução no período</span>
+            </div>
+            <ReactApexChart type="line" height={280} series={chartAcumuladoRecDesp.series} options={chartAcumuladoRecDesp.options} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Operacional ({resultadoMensalAno.year})</h3>
+              <span className="text-xs text-slate-400">Jan → Dez</span>
+            </div>
+            {chartResultadoOperacional.series[0].data.length === 0 ? (
+              <div className="h-80 flex items-center justify-center text-sm text-slate-400">
+                Sem dados suficientes para o período.
+              </div>
+            ) : (
+              <ReactApexChart type="bar" height={320} series={chartResultadoOperacional.series} options={chartResultadoOperacional.options} />
+            )}
+          </div>
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Resumo Operacional</h3>
+              <span className="text-xs text-slate-400">Média mensal</span>
+            </div>
+            <div className="space-y-3">
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="text-xs text-slate-400">Média por mês</p>
+                <p className={`text-lg font-bold ${mediaResultado >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{BRL.format(mediaResultado)}</p>
+              </div>
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="text-xs text-slate-400">Melhor cenário</p>
+                <p className="text-lg font-bold text-emerald-600">
+                  {resultadoMensal.values.length ? BRL.format(Math.max(...resultadoMensal.values)) : '—'}
+                </p>
+              </div>
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="text-xs text-slate-400">Pior cenário</p>
+                <p className="text-lg font-bold text-red-500">
+                  {resultadoMensal.values.length ? BRL.format(Math.min(...resultadoMensal.values)) : '—'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas x Despesas ({resultadoMensalAno.year})</h3>
+              <span className="text-xs text-slate-400">Comparativo anual</span>
+            </div>
+            <ReactApexChart type="bar" height={320} series={chartReceitasDespesasAno.series} options={chartReceitasDespesasAno.options} />
+          </div>
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Margem Operacional</h3>
+              <span className="text-xs text-slate-400">% mês a mês</span>
+            </div>
+            <ReactApexChart type="line" height={280} series={chartMargemAno.series} options={chartMargemAno.options} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Comparativo Ano a Ano</h3>
+              <span className="text-xs text-slate-400">{resultadoMensalAnoAnterior.year} vs {resultadoMensalAno.year}</span>
+            </div>
+            <ReactApexChart type="line" height={280} series={chartComparativoAno.series} options={chartComparativoAno.options} />
+          </div>
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Sazonalidade</h3>
+              <span className="text-xs text-slate-400">Índice mensal</span>
+            </div>
+            <ReactApexChart type="bar" height={260} series={chartSazonalidade.series} options={chartSazonalidade.options} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Cenários</h3>
+              <span className="text-xs text-slate-400">Baseado na volatilidade</span>
+            </div>
+            <div className="space-y-3">
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="text-xs text-slate-400">Pessimista</p>
+                <p className="text-lg font-bold text-red-500">{BRL.format(cenarios.pessimista)}</p>
+              </div>
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="text-xs text-slate-400">Realista</p>
+                <p className="text-lg font-bold text-slate-800 dark:text-white">{BRL.format(cenarios.realista)}</p>
+              </div>
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="text-xs text-slate-400">Otimista</p>
+                <p className="text-lg font-bold text-emerald-600">{BRL.format(cenarios.otimista)}</p>
+              </div>
+            </div>
+          </div>
+          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Acumulado</h3>
+              <span className="text-xs text-slate-400">Evolução do caixa</span>
+            </div>
+            <ReactApexChart type="line" height={280} series={chartResultadoAcumulado.series} options={chartResultadoAcumulado.options} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Acumulado</h3>
+              <span className="text-xs text-slate-400">Evolução do caixa</span>
+            </div>
+            <ReactApexChart type="line" height={280} series={chartResultadoAcumulado.series} options={chartResultadoAcumulado.options} />
+          </div>
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Distribuição por Status</h3>
+              <span className="text-xs text-slate-400">Valor por status</span>
+            </div>
+            <ReactApexChart type="donut" height={260} series={chartStatus.series} options={chartStatus.options} />
           </div>
         </div>
 

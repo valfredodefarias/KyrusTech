@@ -96,9 +96,19 @@ export function Home() {
 
   function getFullLogoUrl(url?: string | null) {
     if (!url) return null;
+    if (url.startsWith('blob:') || url.startsWith('data:')) return url;
     if (url.startsWith('/static')) {
       const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
       return `${baseURL}${url}`;
+    }
+    if (url.startsWith('http://') && url.includes('/static/')) {
+      try {
+        const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
+        const path = new URL(url).pathname;
+        return `${baseURL}${path}`;
+      } catch {
+        return url;
+      }
     }
     return url;
   }

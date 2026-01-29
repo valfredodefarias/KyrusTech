@@ -15,6 +15,11 @@ interface AuditLogItem {
   created_at: string;
 }
 
+interface EmpresaInfo {
+  id: number;
+  nome_fantasia: string;
+}
+
 const formatDateTime = (iso: string) => new Date(iso).toLocaleString('pt-BR');
 
 export function Auditoria() {
@@ -23,6 +28,9 @@ export function Auditoria() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(50);
+  const [empresas, setEmpresas] = useState<EmpresaInfo[]>([]);
+  const [empresaId, setEmpresaId] = useState('');
+  const [isConsultor, setIsConsultor] = useState(false);
   const [tableName, setTableName] = useState('');
   const [action, setAction] = useState('');
   const [userId, setUserId] = useState('');
@@ -32,12 +40,31 @@ export function Auditoria() {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
+    async function loadBase() {
+      try {
+        const me = await api.get('/usuarios/me');
+        setIsConsultor(!!me.data.is_consultor);
+        if (me.data.empresa_id) {
+          setEmpresaId(String(me.data.empresa_id));
+        }
+        if (me.data.is_consultor) {
+          const resEmp = await api.get('/empresas/');
+          setEmpresas(resEmp.data || []);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    loadBase();
+  }, []);
+
+  useEffect(() => {
     const id = setTimeout(() => {
       loadAuditoria();
     }, 400);
 
     return () => clearTimeout(id);
-  }, [page, limit, tableName, action, userId, q, start, end]);
+  }, [page, limit, tableName, action, userId, empresaId, q, start, end]);
 
   async function loadAuditoria() {
     setLoading(true);
@@ -49,6 +76,7 @@ export function Auditoria() {
           table_name: tableName || undefined,
           action: action || undefined,
           user_id: userId ? Number(userId) : undefined,
+          empresa_id: empresaId ? Number(empresaId) : undefined,
           q: q || undefined,
           start: start || undefined,
           end: end || undefined
@@ -90,39 +118,50 @@ export function Auditoria() {
       </header>
 
       <div className="p-6 space-y-4">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-3">
           <div className="relative">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
             <input
               value={q}
               onChange={(e) => { setPage(0); setQ(e.target.value); }}
               placeholder="Pesquisar"
-              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
             />
           </div>
           <input
             value={tableName}
             onChange={(e) => { setPage(0); setTableName(e.target.value); }}
             placeholder="Tabela"
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
           />
           <input
             value={action}
             onChange={(e) => { setPage(0); setAction(e.target.value); }}
             placeholder="Ação"
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
           />
+          <select
+            value={empresaId}
+            onChange={(e) => { setPage(0); setEmpresaId(e.target.value); }}
+            disabled={!isConsultor}
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none disabled:opacity-60"
+          >
+            <option value="">Empresa</option>
+            {empresas.map(emp => (
+              <option key={emp.id} value={emp.id}>{emp.nome_fantasia}</option>
+            ))}
+          </select>
           <input
             value={userId}
             onChange={(e) => { setPage(0); setUserId(e.target.value); }}
             placeholder="User ID"
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
           />
           <input
             type="datetime-local"
             value={start}
             onChange={(e) => { setPage(0); setStart(e.target.value); }}
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
           />
           <input
             type="datetime-local"
@@ -141,24 +180,22 @@ export function Auditoria() {
                 <th className="py-2 text-left">Ação</th>
                 <th className="py-2 text-left">Tabela</th>
                 <th className="py-2 text-left">Registro</th>
-                <th className="py-2 text-left">IP</th>
                 <th className="py-2 text-left">Detalhes</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
               {loading ? (
-                <tr><td colSpan={7} className="py-6 text-center text-slate-400">Carregando...</td></tr>
+                <tr><td colSpan={6} className="py-6 text-center text-slate-400">Carregando...</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={7} className="py-6 text-center text-slate-400">Sem eventos encontrados.</td></tr>
+                <tr><td colSpan={6} className="py-6 text-center text-slate-400">Sem eventos encontrados.</td></tr>
               ) : (
                 items.map(item => (
                   <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40">
                     <td className="py-3 text-slate-500 font-mono">{formatDateTime(item.created_at)}</td>
-                    <td className="py-3 text-slate-700 dark:text-slate-100">{item.user_email || item.user_id || '-'}</td>
+                    <td className="py-3 text-slate-700 dark:text-slate-100">{item.user_email || item.user_id || 'Sistema (sem usuário)'}</td>
                     <td className="py-3 text-slate-700 dark:text-slate-100">{item.action}</td>
                     <td className="py-3 text-slate-700 dark:text-slate-100">{item.table_name}</td>
                     <td className="py-3 text-slate-700 dark:text-slate-100">#{item.record_id}</td>
-                    <td className="py-3 text-slate-500">{item.ip_address || '-'}</td>
                     <td className="py-3">
                       <button
                         onClick={() => toggleExpanded(item.id)}

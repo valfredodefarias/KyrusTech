@@ -23,6 +23,7 @@ def listar_auditoria(
     table_name: Optional[str] = None,
     action: Optional[str] = None,
     user_id: Optional[int] = None,
+    empresa_id: Optional[int] = None,
     q: Optional[str] = None,
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
@@ -47,8 +48,12 @@ def listar_auditoria(
             )
         )
 
+    empresa_filter = empresa_id
     if not current_user.is_consultor:
-        users_subq = select(Usuario.id).where(Usuario.empresa_id == current_user.empresa_id)
+        empresa_filter = current_user.empresa_id
+
+    if empresa_filter:
+        users_subq = select(Usuario.id).where(Usuario.empresa_id == empresa_filter)
         filters.append(col(AuditLog.user_id).in_(users_subq))
 
     base_query = select(AuditLog, Usuario.email).join(Usuario, col(AuditLog.user_id) == col(Usuario.id), isouter=True)

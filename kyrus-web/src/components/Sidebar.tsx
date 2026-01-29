@@ -3,7 +3,8 @@ import { NavLink } from 'react-router-dom';
 import { 
   Home, BarChart2, PlusCircle, Users, 
   Landmark, CreditCard, Settings, Link as LinkIcon, LogOut,
-  Briefcase, Layers, Upload, RefreshCw, ClipboardList, X
+  Briefcase, Layers, Upload, RefreshCw, ClipboardList, X,
+  ChevronsLeft, ChevronsRight, Sun, Moon
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { api } from '../services/api';
@@ -24,9 +25,13 @@ interface UserInfo {
 interface SidebarPanelProps {
   onNavigate?: () => void;
   showClose?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+  theme?: 'dark' | 'light';
+  onToggleTheme?: () => void;
 }
 
-function SidebarPanel({ onNavigate, showClose }: SidebarPanelProps) {
+function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, theme, onToggleTheme }: SidebarPanelProps) {
   const logout = useAuthStore((state) => state.logout);
   const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
   const [isConsultor, setIsConsultor] = useState(false);
@@ -122,7 +127,7 @@ function SidebarPanel({ onNavigate, showClose }: SidebarPanelProps) {
   return (
     <>
       {/* --- HEADER DA EMPRESA --- */}
-      <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center min-h-40 text-center gap-3 w-full relative">
+      <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center min-h-40 text-center gap-3 w-full relative">
         {showClose && (
           <button
             onClick={onNavigate}
@@ -132,9 +137,18 @@ function SidebarPanel({ onNavigate, showClose }: SidebarPanelProps) {
             <X size={18} />
           </button>
         )}
+        {!showClose && (
+          <button
+            onClick={onToggleCollapse}
+            className="absolute right-4 top-4 p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+            aria-label="Recolher menu"
+          >
+            {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
+          </button>
+        )}
         
         {/* LOGO EM BOLINHA (CROPADA PERFEITA) */}
-        <div className="w-20 h-20 rounded-full bg-white dark:bg-slate-700 flex items-center justify-center overflow-hidden border-4 border-slate-100 dark:border-slate-600 shadow-md shrink-0">
+        <div className={`w-16 h-16 ${collapsed ? 'w-12 h-12' : 'w-16 h-16'} rounded-full bg-white dark:bg-slate-700 flex items-center justify-center overflow-hidden border-4 border-slate-100 dark:border-slate-600 shadow-md shrink-0 transition-all`}>
             {logoSrc ? (
               <img 
                 src={logoSrc} 
@@ -155,6 +169,7 @@ function SidebarPanel({ onNavigate, showClose }: SidebarPanelProps) {
         </div>
 
         {/* NOME DA EMPRESA */}
+        {!collapsed && (
         <div className="w-full px-2">
             {empresa?.nome_fantasia ? (
                 <>
@@ -173,6 +188,7 @@ function SidebarPanel({ onNavigate, showClose }: SidebarPanelProps) {
                 />
             )}
         </div>
+        )}
 
       </div>
 
@@ -189,7 +205,7 @@ function SidebarPanel({ onNavigate, showClose }: SidebarPanelProps) {
               borderRight: `3px solid ${primaryColor}` 
             } : { borderRight: '3px solid transparent' }}
             className={({ isActive }) => `
-              flex items-center gap-3 px-4 py-3 rounded-l-xl transition-all font-medium text-sm group
+              flex items-center ${collapsed ? 'justify-center px-3' : 'gap-3 px-4'} py-3 rounded-l-xl transition-all font-medium text-sm group
               ${!isActive 
                 ? 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white hover:pl-5' 
                 : 'shadow-sm'}
@@ -200,42 +216,49 @@ function SidebarPanel({ onNavigate, showClose }: SidebarPanelProps) {
                 strokeWidth={2.5} 
                 className={`transition-transform group-hover:scale-110`}
             />
-            {item.label}
+            {!collapsed && item.label}
           </NavLink>
         ))}
       </nav>
 
       {/* --- FOOTER / SAIR --- */}
       <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+        <button
+          onClick={onToggleTheme}
+          className={`flex items-center gap-3 px-4 py-3 w-full text-left text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors font-bold text-sm mb-2 ${collapsed ? 'justify-center px-3' : ''}`}
+        >
+          {theme === 'dark' ? <Sun size={18} strokeWidth={2.5} /> : <Moon size={18} strokeWidth={2.5} />}
+          {!collapsed && (theme === 'dark' ? 'Tema Claro' : 'Tema Escuro')}
+        </button>
         <button 
             onClick={() => { handleSyncCadastros(); onNavigate?.(); }}
             disabled={syncing}
-            className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors font-bold text-sm mb-2 disabled:opacity-50"
+            className={`flex items-center gap-3 px-4 py-3 w-full text-left text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors font-bold text-sm mb-2 disabled:opacity-50 ${collapsed ? 'justify-center px-3' : ''}`}
         >
           <RefreshCw size={18} strokeWidth={2.5} className={syncing ? 'animate-spin' : ''} />
-          Sincronizar Cadastros
+          {!collapsed && 'Sincronizar Cadastros'}
         </button>
         <button 
             onClick={handleLogout} 
-            className="flex items-center gap-3 px-4 py-3 w-full text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors font-bold text-sm"
+            className={`flex items-center gap-3 px-4 py-3 w-full text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors font-bold text-sm ${collapsed ? 'justify-center px-3' : ''}`}
         >
           <LogOut size={18} strokeWidth={2.5} /> 
-          Sair do Sistema
+          {!collapsed && 'Sair do Sistema'}
         </button>
       </div>
     </>
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ collapsed, onToggleCollapse, theme, onToggleTheme }: { collapsed: boolean; onToggleCollapse: () => void; theme: 'dark' | 'light'; onToggleTheme: () => void; }) {
   return (
-    <aside className="w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 hidden md:flex flex-col h-screen sticky top-0 transition-all z-30 shadow-sm">
-      <SidebarPanel />
+    <aside className={`${collapsed ? 'w-20' : 'w-64'} bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 hidden md:flex flex-col h-screen sticky top-0 transition-all duration-300 z-30 shadow-sm`}> 
+      <SidebarPanel collapsed={collapsed} onToggleCollapse={onToggleCollapse} theme={theme} onToggleTheme={onToggleTheme} />
     </aside>
   );
 }
 
-export function MobileSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function MobileSidebar({ open, onClose, theme, onToggleTheme }: { open: boolean; onClose: () => void; theme: 'dark' | 'light'; onToggleTheme: () => void; }) {
   return (
     <div className={`fixed inset-0 z-40 md:hidden ${open ? '' : 'pointer-events-none'}`}>
       <div
@@ -245,7 +268,7 @@ export function MobileSidebar({ open, onClose }: { open: boolean; onClose: () =>
       <aside
         className={`absolute left-0 top-0 h-full w-72 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 shadow-xl transform transition-transform ${open ? 'translate-x-0' : '-translate-x-full'}`}
       >
-        <SidebarPanel onNavigate={onClose} showClose />
+        <SidebarPanel onNavigate={onClose} showClose collapsed={false} theme={theme} onToggleTheme={onToggleTheme} />
       </aside>
     </div>
   );

@@ -19,6 +19,8 @@ interface ContaResumo {
 interface UserInfo {
   email: string;
   empresa_id: number;
+  nome?: string | null;
+  foto_url?: string | null;
 }
 
 interface EmpresaInfo {
@@ -86,7 +88,7 @@ export function Home() {
   const getSaldo = (c: ContaResumo) => c.saldo_atual !== undefined ? Number(c.saldo_atual) : Number(c.saldo_inicial);
 
   const saldoTotal = contas.reduce((acc, c) => acc + getSaldo(c), 0);
-  const nomeUsuario = user?.email.split('@')[0] || 'Consultor';
+  const nomeUsuario = user?.nome || user?.email.split('@')[0] || 'Consultor';
   
   // Definição da Cor Dinâmica (Se não tiver no banco, usa azul padrão)
   const primaryColor = empresa?.cor_primaria || '#2563eb'; 
@@ -166,7 +168,18 @@ export function Home() {
       >
         <div className="absolute right-0 top-0 h-full w-1/3 bg-white/10 skew-x-12 pointer-events-none"></div>
         <div className="relative z-10">
-          <h1 className="text-2xl sm:text-3xl font-extrabold mb-2 capitalize">Olá, {nomeUsuario}! 👋</h1>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-full overflow-hidden bg-white/20 flex items-center justify-center">
+              {getFullLogoUrl(user?.foto_url || null) ? (
+                <img src={getFullLogoUrl(user?.foto_url || null) || ''} alt="Usuário" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xs font-bold text-white">
+                  {(user?.nome || user?.email || 'U').substring(0,2).toUpperCase()}
+                </span>
+              )}
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold capitalize">Olá, {nomeUsuario}! 👋</h1>
+          </div>
           <p className="text-white/90 text-base sm:text-lg flex items-center gap-2 flex-wrap">
             Você está gerenciando: 
             <strong className="bg-white/20 px-2 py-0.5 rounded backdrop-blur-sm">

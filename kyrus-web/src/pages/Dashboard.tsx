@@ -14,6 +14,8 @@ interface Lancamento {
   valor_pago: number;
   data_vencimento: string;
   data_pagamento?: string;
+  competencia?: string;
+  previsto?: boolean;
   tipo: 'RECEITA' | 'DESPESA' | string;
   status: 'PAGO' | 'PENDENTE' | 'EM ABERTO' | string;
   plano_contas_id?: number;
@@ -35,6 +37,12 @@ const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' 
 
 const toDateOnly = (d: Date) => d.toISOString().split('T')[0];
 const toDateOnlyStr = (s?: string) => (s ? s.split('T')[0] : '');
+const toCompetencia = (s?: string) => {
+  if (!s) return '';
+  const [y, m] = s.split('-');
+  if (!y || !m) return '';
+  return `${m}-${y}`;
+};
 const parseDateLocal = (s?: string) => {
   const raw = toDateOnlyStr(s);
   if (!raw) return null;
@@ -84,6 +92,8 @@ export function Dashboard() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [statusFiltro, setStatusFiltro] = useState<'TODOS' | 'PAGO' | 'PENDENTE'>('TODOS');
   const [tipoFiltro, setTipoFiltro] = useState<'TODOS' | 'RECEITA' | 'DESPESA'>('TODOS');
+  const [previstoFiltro, setPrevistoFiltro] = useState<'TODOS' | 'SIM' | 'NAO'>('TODOS');
+  const [competenciaFiltro, setCompetenciaFiltro] = useState('');
 
   useEffect(() => {
     const handler = () => setIsDark(document.documentElement.classList.contains('dark'));
@@ -151,6 +161,13 @@ export function Dashboard() {
 
   const filteredLancamentos = useMemo(() => {
     return lancamentos.filter(l => {
+      const isPrevisto = l.previsto !== false;
+      if (previstoFiltro === 'SIM' && !isPrevisto) return false;
+      if (previstoFiltro === 'NAO' && isPrevisto) return false;
+      if (competenciaFiltro) {
+        const comp = l.competencia || toCompetencia(l.data_vencimento);
+        if (comp !== competenciaFiltro) return false;
+      }
       if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
       if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
       if (selectedDate && toDateOnlyStr(l.data_vencimento) !== selectedDate) return false;
@@ -160,10 +177,17 @@ export function Dashboard() {
       if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
       return true;
     });
-  }, [lancamentos, selectedCategorias, selectedCentro, selectedDate, selectedMonth, statusFiltro, tipoFiltro]);
+  }, [lancamentos, selectedCategorias, selectedCentro, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro]);
 
   const baseFilteredNoDate = useMemo(() => {
     return lancamentosAno.filter(l => {
+      const isPrevisto = l.previsto !== false;
+      if (previstoFiltro === 'SIM' && !isPrevisto) return false;
+      if (previstoFiltro === 'NAO' && isPrevisto) return false;
+      if (competenciaFiltro) {
+        const comp = l.competencia || toCompetencia(l.data_vencimento);
+        if (comp !== competenciaFiltro) return false;
+      }
       if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
       if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
       if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
@@ -171,10 +195,17 @@ export function Dashboard() {
       if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
       return true;
     });
-  }, [lancamentosAno, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro]);
+  }, [lancamentosAno, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro]);
 
   const baseFilteredAnoAnterior = useMemo(() => {
     return lancamentosAnoAnterior.filter(l => {
+      const isPrevisto = l.previsto !== false;
+      if (previstoFiltro === 'SIM' && !isPrevisto) return false;
+      if (previstoFiltro === 'NAO' && isPrevisto) return false;
+      if (competenciaFiltro) {
+        const comp = l.competencia || toCompetencia(l.data_vencimento);
+        if (comp !== competenciaFiltro) return false;
+      }
       if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
       if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
       if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
@@ -182,7 +213,7 @@ export function Dashboard() {
       if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
       return true;
     });
-  }, [lancamentosAnoAnterior, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro]);
+  }, [lancamentosAnoAnterior, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro]);
 
   const kpis = useMemo(() => {
     let receitas = 0; let despesas = 0; let pagos = 0; let pendentes = 0;
@@ -952,7 +983,27 @@ export function Dashboard() {
           <X className="w-3 h-3" />
         </button>
       )}
-      {!selectedCategorias.size && !selectedCentro && !selectedDate && !selectedMonth && statusFiltro === 'TODOS' && tipoFiltro === 'TODOS' && (
+      {previstoFiltro !== 'TODOS' && (
+        <button
+          onClick={() => setPrevistoFiltro('TODOS')}
+          className="px-3 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-700 border border-amber-200 flex items-center gap-1"
+        >
+          <Filter className="w-3 h-3" />
+          Previsto: {previstoFiltro}
+          <X className="w-3 h-3" />
+        </button>
+      )}
+      {competenciaFiltro && (
+        <button
+          onClick={() => setCompetenciaFiltro('')}
+          className="px-3 py-1 text-xs font-bold rounded-full bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1"
+        >
+          <CalendarRange className="w-3 h-3" />
+          {competenciaFiltro}
+          <X className="w-3 h-3" />
+        </button>
+      )}
+      {!selectedCategorias.size && !selectedCentro && !selectedDate && !selectedMonth && statusFiltro === 'TODOS' && tipoFiltro === 'TODOS' && previstoFiltro === 'TODOS' && !competenciaFiltro && (
         <span className="text-xs text-slate-400">Clique nos gráficos para filtrar</span>
       )}
     </div>
@@ -1100,6 +1151,31 @@ export function Dashboard() {
               {f.label}
             </button>
           ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {([
+            { key: 'TODOS', label: 'Previsto (Todos)' },
+            { key: 'SIM', label: 'Previsto' },
+            { key: 'NAO', label: 'Não previsto' }
+          ] as const).map(f => (
+            <button
+              key={f.key}
+              onClick={() => setPrevistoFiltro(f.key)}
+              className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${previstoFiltro === f.key ? 'bg-amber-600 text-white border-amber-500' : 'bg-white/80 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+            >
+              {f.label}
+            </button>
+          ))}
+          <div className="flex items-center gap-2 bg-white/80 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1.5">
+            <CalendarRange className="w-4 h-4 text-slate-400" />
+            <input
+              value={competenciaFiltro}
+              onChange={(e) => setCompetenciaFiltro(e.target.value)}
+              placeholder="Competência MM-AAAA"
+              className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 outline-none w-36"
+            />
+          </div>
         </div>
 
         <div className="bg-white/80 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6 shadow-sm backdrop-blur">

@@ -46,6 +46,11 @@ kyrus-erp/
 │
 └── alembic/              ← Migrations do banco
     └── versions/
+
+---
+
+## ✅ Ambiente Python (Compatibilidade)
+Para dev local com Python 3.13, use os pins do requirements.txt (SQLAlchemy 2.0.46, Pydantic 2.12.x e psycopg2-binary 2.9.11) para evitar builds nativos.
 ```
 
 ---

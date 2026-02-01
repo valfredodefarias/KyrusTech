@@ -15,6 +15,7 @@ class Usuario(AuditMixin, SQLModel, table=True):
     nome: Optional[str] = Field(default=None, index=False)
     email: str = Field(unique=True, index=True)
     hashed_password: str
+    foto_url: Optional[str] = None
     
     is_active: bool = Field(default=True)
     is_consultor: bool = Field(default=False, description="Consultor Link Financeiro")

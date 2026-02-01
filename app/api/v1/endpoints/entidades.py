@@ -1,13 +1,14 @@
 # app/api/v1/endpoints/entidades.py
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 from loguru import logger # <-- Import do logger
 
 from app.db.session import get_db
-from app.schemas.entidade import EntidadeCreate, EntidadeRead, EntidadeUpdate
+from app.schemas.entidade import EntidadeCreate, EntidadeRead, EntidadeUpdate, EntidadeLookup
 from app.crud import crud_entidade
 from app.api.v1.deps import get_empresa_id_from_user
+from app.models.entidade import Entidade
 
 router = APIRouter()
 
@@ -19,6 +20,22 @@ def read_entidades(
 ):
     logger.info(f"Listando entidades para empresa ID: {empresa_id}")
     return crud_entidade.get_multi(db=db, empresa_id=empresa_id)
+
+
+@router.get("/lookup", response_model=List[EntidadeLookup])
+def read_entidades_lookup(
+    *,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Lista entidades em formato leve (lookup)."""
+    rows = db.exec(
+        select(Entidade.id, Entidade.nome, Entidade.tipo)
+        .where(Entidade.empresa_id == empresa_id)
+        .order_by(Entidade.nome)
+    ).all()
+
+    return [{"id": row[0], "nome": row[1], "tipo": row[2]} for row in rows]
 
 @router.post("/", response_model=EntidadeRead, status_code=201)
 def create_entidade(

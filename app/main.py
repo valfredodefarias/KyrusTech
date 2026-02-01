@@ -1,10 +1,12 @@
 # app/main.py
 
 import os
+import re
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from app.api.v1.api import api_router
 from app.core.config import settings
@@ -35,6 +37,40 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- COMPRESSÃO DE RESPOSTAS (JSON/HTML/JS/CSS) ---
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# --- CACHE PARA ARQUIVOS ESTÁTICOS E SPA ---
+_HASHED_ASSET_PATTERN = re.compile(r"\.[a-f0-9]{8,}\.")
+_CACHEABLE_EXTENSIONS = {
+    ".js", ".css", ".map", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+    ".webp", ".ico", ".woff", ".woff2", ".ttf", ".eot"
+}
+
+
+@app.middleware("http")
+async def cache_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+
+    path = request.url.path
+    content_type = response.headers.get("content-type", "")
+
+    if path.startswith("/api/"):
+        return response
+
+    if content_type.startswith("text/html"):
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    ext = os.path.splitext(path)[1].lower()
+    if path.startswith("/static/") or path.startswith("/assets/") or ext in _CACHEABLE_EXTENSIONS:
+        if _HASHED_ASSET_PATTERN.search(path):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "public, max-age=86400"
+
+    return response
 
 
 @app.middleware("http")

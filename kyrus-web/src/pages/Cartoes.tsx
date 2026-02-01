@@ -253,13 +253,13 @@ export function Cartoes() {
     try {
       console.log("⚡ Carregando dados de Cartões (Única Vez)...");
 
-            const [resC, resL, resCC, resConta, resCat] = await Promise.all([
-        api.get('/cartoes/'),
-        api.get('/lancamentos/', { params: { limit: 2000 } }),
-        api.get('/centro-custo/'),
-                api.get('/contas/'),
+                        const [resC, resL, resCC, resConta, resCat] = await Promise.all([
+                api.get('/cartoes/'),
+                api.get('/lancamentos/', { params: { limit: 2000 } }),
+                api.get('/centro-custo/'),
+                api.get('/contas/', { params: { include_saldo: false } }),
                 api.get('/plano-contas/')
-      ]);
+            ]);
 
       setCartoes(resC.data || []);
       setLancamentos(resL.data || []);

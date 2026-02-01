@@ -1001,6 +1001,8 @@ def resumo_todos(
     }
 
     for t in todos:
+        if t.is_deleted:
+            continue
         if t.due_date:
             due = t.due_date.date()
             if t.status != "CONCLUIDO" and due == tomorrow:

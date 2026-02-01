@@ -15,6 +15,7 @@ interface Anexo { id: number; nome_arquivo: string; url: string; tipo: string; }
 interface Lancamento {
   id: number; descricao: string; valor_previsto: number; valor_pago: number;
   data_vencimento: string; data_pagamento?: string; tipo: 'RECEITA' | 'DESPESA';
+  competencia?: string; previsto?: boolean;
   status: 'PAGO' | 'PENDENTE' | 'EM ABERTO'; ipp: boolean;
   plano_contas_id: number; entidade_id?: number; conta_id?: number;
   cartao_id?: number; centro_custo_id?: number; anexos: Anexo[];
@@ -231,7 +232,7 @@ export function Lancamentos() {
     id: null, descricao: '', valor_previsto: '', data_vencimento: '',
     tipo: 'DESPESA', plano_contas_id: '', centro_custo_id: '', entidade_id: '',
     conta_id: '', cartao_id: '', status: 'PENDENTE', 
-    valor_pago: '', data_pagamento: '', ipp: false,
+    valor_pago: '', data_pagamento: '', ipp: false, previsto: true, competencia: '',
     is_parcelado: false, qtd_parcelas: 2, modo_calculo: 'TOTAL', anexos: []
   });
 
@@ -244,8 +245,10 @@ export function Lancamentos() {
   const auxLoadedRef = useRef(false);
   const lancamentosAbortRef = useRef<AbortController | null>(null);
   const lastLancamentosKeyRef = useRef<string>('');
+  const autoPagamentoRef = useRef(true);
+  const autoCompetenciaRef = useRef(true);
 
-  const fetchEntidades = useLookupStore((state) => state.fetchEntidades);
+  const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -255,6 +258,13 @@ export function Lancamentos() {
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
+  };
+
+  const formatCompetencia = (ymd?: string) => {
+    if (!ymd) return '';
+    const [y, m] = ymd.split('-');
+    if (!y || !m) return '';
+    return `${m}-${y}`;
   };
 
   const computeCartaoVencimento = (purchaseDate?: string, cartaoId?: string) => {
@@ -305,7 +315,11 @@ export function Lancamentos() {
     if (auxLoadedRef.current) return;
     try {
       const [rC, rCt, rCC, rE, rCat] = await Promise.all([
-        api.get('/contas/'), api.get('/cartoes/'), api.get('/centro-custo/'), fetchEntidades(), fetchPlanoContas()
+        api.get('/contas/', { params: { include_saldo: false } }),
+        api.get('/cartoes/'),
+        api.get('/centro-custo/'),
+        fetchEntidadesLookup(),
+        fetchPlanoContas()
       ]);
       setContas(rC.data); setCartoes(rCt.data); setCentros(rCC.data); setEntidades(rE); setCategorias(rCat);
       auxLoadedRef.current = true;
@@ -315,7 +329,7 @@ export function Lancamentos() {
   async function syncCadastros() {
     try {
       const [rE, rCat] = await Promise.all([
-        fetchEntidades(true),
+        fetchEntidadesLookup(true),
         fetchPlanoContas(true)
       ]);
       setEntidades(rE);
@@ -487,24 +501,69 @@ export function Lancamentos() {
   const toggleCartao = (id: number) => {
     setFormData((prev: any) => ({ ...prev, cartao_id: prev.cartao_id === id ? '' : id, conta_id: '' }));
   };
+
+  const handleVencimentoChange = (value: string) => {
+    setFormData((prev: any) => {
+      const next = { ...prev, data_vencimento: value };
+      const prevCompetencia = formatCompetencia(prev.data_vencimento);
+      const nextCompetencia = formatCompetencia(value);
+      if (autoCompetenciaRef.current || !prev.competencia || prev.competencia === prevCompetencia) {
+        next.competencia = nextCompetencia;
+        autoCompetenciaRef.current = true;
+      }
+      if (prev.status === 'PAGO' && (autoPagamentoRef.current || !prev.data_pagamento || prev.data_pagamento === prev.data_vencimento)) {
+        next.data_pagamento = value;
+        autoPagamentoRef.current = true;
+      }
+      return next;
+    });
+  };
+
+  const handleCompetenciaChange = (value: string) => {
+    autoCompetenciaRef.current = false;
+    setFormData((prev: any) => ({ ...prev, competencia: value }));
+  };
+
+  const handleStatusPagoChange = (checked: boolean) => {
+    setFormData((prev: any) => {
+      const next = { ...prev, status: checked ? 'PAGO' : 'PENDENTE' };
+      if (checked && (autoPagamentoRef.current || !prev.data_pagamento)) {
+        next.data_pagamento = prev.data_vencimento;
+        autoPagamentoRef.current = true;
+      }
+      return next;
+    });
+  };
+
+  const handleDataPagamentoChange = (value: string) => {
+    autoPagamentoRef.current = false;
+    setFormData((prev: any) => ({ ...prev, data_pagamento: value }));
+  };
   
   function openDrawer(l?: Lancamento) {
     if(l) {
       setIsEditing(true);
+      autoPagamentoRef.current = !l.data_pagamento;
+      autoCompetenciaRef.current = !l.competencia;
       setFormData({
         ...l, 
         conta_id: l.conta_id||'', cartao_id: l.cartao_id||'', centro_custo_id: l.centro_custo_id||'', entidade_id: l.entidade_id||'',
         plano_contas_id: l.plano_contas_id, valor_previsto: l.valor_previsto, 
-        valor_pago: l.valor_pago||l.valor_previsto, data_pagamento: l.data_pagamento||l.data_vencimento
+        valor_pago: l.valor_pago||l.valor_previsto, data_pagamento: l.data_pagamento||l.data_vencimento,
+        previsto: l.previsto ?? true,
+        competencia: l.competencia || formatCompetencia(l.data_vencimento)
       });
     } else {
       setIsEditing(false);
+      autoPagamentoRef.current = true;
+      autoCompetenciaRef.current = true;
       setFormData({
         id: null, descricao: '', valor_previsto: '', data_vencimento: new Date().toISOString().split('T')[0],
         tipo: 'DESPESA', plano_contas_id: '', 
         centro_custo_id: centroCustoFiltro || '', 
         entidade_id: '', conta_id: '', cartao_id: '',
-        status: 'PENDENTE', valor_pago: '', data_pagamento: new Date().toISOString().split('T')[0], ipp: false, 
+        status: 'PENDENTE', valor_pago: '', data_pagamento: new Date().toISOString().split('T')[0], ipp: false, previsto: true,
+        competencia: formatCompetencia(new Date().toISOString().split('T')[0]),
         is_parcelado: false, qtd_parcelas: 2, modo_calculo: 'TOTAL', anexos: []
       });
     }
@@ -563,7 +622,9 @@ export function Lancamentos() {
         valor_pago: formData.status==='PAGO' ? parseFloat(formData.valor_pago || formData.valor_previsto) : 0,
         data_pagamento: formData.status==='PAGO' ? formData.data_pagamento : null,
         data_competencia: dataCompetencia,
-        data_vencimento: dataVencimento
+        data_vencimento: dataVencimento,
+        competencia: formData.competencia || formatCompetencia(dataVencimento),
+        previsto: formData.previsto ?? true
       };
 
       let id = formData.id;
@@ -577,6 +638,7 @@ export function Lancamentos() {
           const dt = new Date(ano, (mes-1)+i, dia);
           lista.push({
             ...payload, valor_previsto: val, data_vencimento: dt.toISOString().split('T')[0],
+            competencia: formatCompetencia(dt.toISOString().split('T')[0]),
             descricao: `${payload.descricao} (${i+1}/${qtd})`, numero_parcela: i+1,
             status: (i===0 && payload.status==='PAGO') ? 'PAGO' : 'PENDENTE',
             valor_pago: (i===0 && payload.status==='PAGO') ? payload.valor_pago : 0
@@ -892,8 +954,16 @@ export function Lancamentos() {
               {/* DESCRIÇÃO E VALORES */}
               <InputDark label="Descrição" autoFocus value={formData.descricao} onChange={(e:any)=>setFormData({...formData, descricao:e.target.value})} placeholder="Ex: Conta de Luz" />
               <div className="grid grid-cols-2 gap-4">
-                <InputDark label={formData.cartao_id ? "Data da compra" : "Vencimento"} type="date" value={formData.data_vencimento} onChange={(e:any)=>setFormData({...formData, data_vencimento:e.target.value})} />
+                <InputDark label={formData.cartao_id ? "Data da compra" : "Vencimento"} type="date" value={formData.data_vencimento} onChange={(e:any)=>handleVencimentoChange(e.target.value)} />
                 <InputDark label="Valor (R$)" type="number" step="0.01" className="font-bold text-lg text-blue-400" value={formData.valor_previsto} onChange={(e:any)=>setFormData({...formData, valor_previsto:e.target.value})} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <InputDark label="Competência (MM-AAAA)" placeholder="02-2026" value={formData.competencia} onChange={(e:any)=>handleCompetenciaChange(e.target.value)} />
+                <label className="flex items-center gap-3 cursor-pointer select-none mt-6">
+                  <input type="checkbox" className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 accent-emerald-600" checked={formData.previsto} onChange={e=>setFormData({...formData, previsto:e.target.checked})}/>
+                  <span className="text-sm font-bold text-slate-800 dark:text-white">Previsto</span>
+                </label>
               </div>
 
               {formData.cartao_id && formData.data_vencimento && (
@@ -961,12 +1031,12 @@ export function Lancamentos() {
               {/* PAGAMENTO */}
               <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                 <label className="flex items-center gap-3 cursor-pointer select-none mb-3">
-                  <input type="checkbox" className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 accent-blue-600" checked={formData.status==='PAGO'} onChange={e=>setFormData({...formData, status:e.target.checked?'PAGO':'PENDENTE'})}/>
+                  <input type="checkbox" className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 accent-blue-600" checked={formData.status==='PAGO'} onChange={e=>handleStatusPagoChange(e.target.checked)}/>
                   <span className="text-sm font-bold text-slate-800 dark:text-white">Já foi pago/recebido?</span>
                 </label>
                 {formData.status==='PAGO' && (
                   <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
-                    <InputDark label="Data da Baixa" type="date" value={formData.data_pagamento} onChange={(e:any)=>setFormData({...formData, data_pagamento:e.target.value})} />
+                    <InputDark label="Data da Baixa" type="date" value={formData.data_pagamento} onChange={(e:any)=>handleDataPagamentoChange(e.target.value)} />
                     <InputDark label="Valor Pago (R$)" type="number" step="0.01" className="text-emerald-400 font-bold" value={formData.valor_pago} onChange={(e:any)=>setFormData({...formData, valor_pago:e.target.value})} />
                   </div>
                 )}

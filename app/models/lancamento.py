@@ -27,6 +27,7 @@ class Lancamento(AuditMixin, SQLModel, table=True):
     status: str = Field(default="EM ABERTO", index=True) 
     origem: str = Field(default="WEB", index=True)
     ipp: bool = Field(default=False)
+    previsto: bool = Field(default=True, index=True)
     
     # --- Valores ---
     valor_previsto: Decimal = Field(max_digits=12, decimal_places=2)
@@ -39,6 +40,7 @@ class Lancamento(AuditMixin, SQLModel, table=True):
     data_vencimento: datetime.date = Field(index=True)
     data_pagamento: Optional[datetime.date] = None 
     data_competencia: datetime.date = Field(index=True)
+    competencia: Optional[str] = Field(default=None, index=True)
     
     # --- Detalhes ---
     numero_parcela: Optional[int] = Field(default=None)

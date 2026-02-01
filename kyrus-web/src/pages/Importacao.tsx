@@ -610,9 +610,10 @@ export function Importacao() {
   const [mapContas, setMapContas] = useState<Record<string, string>>({});
   const [mapCentros, setMapCentros] = useState<Record<string, string>>({});
   const [mapEntidades, setMapEntidades] = useState<Record<string, string>>({});
-    const fetchEntidades = useLookupStore((state) => state.fetchEntidades);
+    const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
     const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
     const setEntidadesCache = useLookupStore((state) => state.setEntidades);
+    const setEntidadesLookup = useLookupStore((state) => state.setEntidadesLookup);
     const setPlanoContasCache = useLookupStore((state) => state.setPlanoContas);
   
     const [modalOpen, setModalOpen] = useState(false);
@@ -626,9 +627,12 @@ export function Importacao() {
 
   async function carregarDadosIniciais() {
     try {
-      const [rContas, rCats, rCentros, rEnt] = await Promise.all([
-                    api.get('/contas/'), fetchPlanoContas(), api.get('/centro-custo/'), fetchEntidades()
-      ]);
+            const [rContas, rCats, rCentros, rEnt] = await Promise.all([
+                api.get('/contas/', { params: { include_saldo: false } }),
+                fetchPlanoContas(),
+                api.get('/centro-custo/'),
+                fetchEntidadesLookup()
+            ]);
             setSistemaData({ contas: rContas.data || [], categorias: rCats || [], centros: rCentros.data || [], entidades: rEnt || [] });
     } catch (error) { console.error("Erro dados iniciais", error); setFeedback({ type: 'error', message: 'Falha ao carregar dados.' }); }
   }
@@ -678,11 +682,12 @@ export function Importacao() {
           } else if (modalType === 'ENTIDADE') {
               res = await api.post('/entidades/', { nome: modalValue, tipo: 'AMBOS' });
               newItem = res.data;
-              setSistemaData(prev => {
-                const next = [...prev.entidades, newItem];
-                setEntidadesCache(next);
-                return { ...prev, entidades: next };
-              });
+                            setSistemaData(prev => {
+                                const next = [...prev.entidades, newItem];
+                                setEntidadesCache(next);
+                                setEntidadesLookup(next);
+                                return { ...prev, entidades: next };
+                            });
               setMapEntidades(prev => ({...prev, [modalPendingKey]: newItem.id}));
           } else if (modalType === 'CONTA') {
               res = await api.post('/contas/', { nome: modalValue, tipo: 'CORRENTE' });
@@ -735,6 +740,7 @@ export function Importacao() {
                                     setSistemaData(prev => {
                                         const next = [...prev.entidades, res.data];
                                         setEntidadesCache(next);
+                                        setEntidadesLookup(next);
                                         return { ...prev, entidades: next };
                                     });
                   setMapEntidades(prev => ({ ...prev, [res.name]: res.data.id }));

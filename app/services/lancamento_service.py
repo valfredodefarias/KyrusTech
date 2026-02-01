@@ -1,6 +1,7 @@
 # app/services/lancamento_service.py
 
 from datetime import datetime, date
+import re
 from decimal import Decimal
 from typing import List, Optional
 from sqlmodel import Session, select, func, asc, desc, col 
@@ -25,6 +26,13 @@ class LancamentoService:
     def __init__(self, session: Session):
         self.session = session
 
+    def _format_competencia(self, dt: date) -> str:
+        return f"{dt.month:02d}-{dt.year}"
+
+    def _validate_competencia(self, value: str) -> None:
+        if not re.match(r"^(0[1-9]|1[0-2])-\d{4}$", value or ""):
+            raise HTTPException(status_code=400, detail="competencia inválida. Use MM-AAAA.")
+
     def _aplicar_regras_negocio(self, lancamento: Lancamento):
         """
         Centraliza a lógica:
@@ -46,8 +54,16 @@ class LancamentoService:
     def create(self, dados: LancamentoCreate, empresa_id: int, user_id: int) -> Lancamento:
         # Converte para dict para ajustar campos opcionais antes de instanciar o modelo
         payload = dados.model_dump()
+        payload.setdefault("previsto", True)
         if not payload.get("data_competencia"):
             payload["data_competencia"] = payload.get("data_vencimento")
+        if not payload.get("competencia") and payload.get("data_vencimento"):
+            payload["competencia"] = self._format_competencia(payload["data_vencimento"])
+        if payload.get("competencia"):
+            self._validate_competencia(payload["competencia"])
+
+        if payload.get("status") == "PAGO" and not payload.get("data_pagamento"):
+            payload["data_pagamento"] = payload.get("data_vencimento")
 
         db_lancamento = Lancamento(**payload)
         db_lancamento.empresa_id = empresa_id
@@ -91,12 +107,21 @@ class LancamentoService:
     def update(self, lancamento_id: int, dados_atualizacao: LancamentoUpdate, empresa_id: int, user_id: int) -> Lancamento:
         db_lancamento = self.get_by_id(lancamento_id, empresa_id)
         dados_dict = dados_atualizacao.dict(exclude_unset=True)
+
+        if "competencia" in dados_dict:
+            self._validate_competencia(dados_dict["competencia"])
+
+        if "data_vencimento" in dados_dict and "competencia" not in dados_dict:
+            dados_dict["competencia"] = self._format_competencia(dados_dict["data_vencimento"])
         
         for key, value in dados_dict.items():
             setattr(db_lancamento, key, value)
 
         # Reaplica regras (caso a data de pagamento tenha mudado ou sido removida)
         if "data_pagamento" in dados_dict:
+            self._aplicar_regras_negocio(db_lancamento)
+        elif dados_dict.get("status") == "PAGO" and not db_lancamento.data_pagamento:
+            db_lancamento.data_pagamento = db_lancamento.data_vencimento
             self._aplicar_regras_negocio(db_lancamento)
 
         db_lancamento.updated_by_id = user_id
@@ -134,8 +159,16 @@ class LancamentoService:
         novos_objetos = []
         for dados in lista_dados:
             payload = dados.model_dump()
+            payload.setdefault("previsto", True)
             if not payload.get("data_competencia"):
                 payload["data_competencia"] = payload.get("data_vencimento")
+            if not payload.get("competencia") and payload.get("data_vencimento"):
+                payload["competencia"] = self._format_competencia(payload["data_vencimento"])
+            if payload.get("competencia"):
+                self._validate_competencia(payload["competencia"])
+
+            if payload.get("status") == "PAGO" and not payload.get("data_pagamento"):
+                payload["data_pagamento"] = payload.get("data_vencimento")
 
             obj = Lancamento(**payload)
             obj.empresa_id = empresa_id
@@ -198,6 +231,8 @@ class LancamentoService:
         sucesso = 0
         erros = []
         dados_dict = payload.dict(exclude={"ids"}, exclude_unset=True)
+        if "competencia" in dados_dict:
+            self._validate_competencia(dados_dict["competencia"])
 
         for lanc in lancamentos:
             try:
@@ -205,7 +240,10 @@ class LancamentoService:
                     setattr(lanc, key, value)
                 
                 # Reaplica regra se mudou data
-                if "data_pagamento" in dados_dict:
+                 if "data_pagamento" in dados_dict:
+                     self._aplicar_regras_negocio(lanc)
+                 elif dados_dict.get("status") == "PAGO" and not lanc.data_pagamento:
+                     lanc.data_pagamento = lanc.data_vencimento
                      self._aplicar_regras_negocio(lanc)
 
                 lanc.updated_by_id = user_id
@@ -246,6 +284,8 @@ class LancamentoService:
             data_vencimento=dados.data,
             data_pagamento=dados.data,
             data_competencia=dados.data,
+            competencia=self._format_competencia(dados.data),
+            previsto=True,
             conta_id=dados.conta_origem_id,
             status="PAGO",
             origem="TRANSFERENCIA",
@@ -263,6 +303,8 @@ class LancamentoService:
             data_vencimento=dados.data,
             data_pagamento=dados.data,
             data_competencia=dados.data,
+            competencia=self._format_competencia(dados.data),
+            previsto=True,
             conta_id=dados.conta_destino_id,
             status="PAGO",
             origem="TRANSFERENCIA",

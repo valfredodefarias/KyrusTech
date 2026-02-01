@@ -20,14 +20,24 @@ interface Empresa {
   logo_url?: string;
 }
 
+interface UserInfo {
+  id: number;
+  email: string;
+  nome?: string | null;
+  foto_url?: string | null;
+}
+
 // --- SUB-COMPONENTE: DADOS DA EMPRESA ---
 const DadosEmpresa = () => {
   const [empresa, setEmpresa] = useState<Empresa | null>(null);
+  const [user, setUser] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [cor, setCor] = useState('#2563eb');
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [userPhotoFile, setUserPhotoFile] = useState<File | null>(null);
+  const [userPhotoPreview, setUserPhotoPreview] = useState<string | null>(null);
 
   useEffect(() => { loadEmpresa(); }, []);
 
@@ -40,11 +50,24 @@ const DadosEmpresa = () => {
     }
   }, [logoFile]);
 
+  useEffect(() => {
+    if (userPhotoFile) {
+      const url = URL.createObjectURL(userPhotoFile);
+      setUserPhotoPreview(url);
+      return () => URL.revokeObjectURL(url);
+    }
+  }, [userPhotoFile]);
+
   async function loadEmpresa() {
     try {
-      const { data: user } = await api.get('/usuarios/me');
-      if (user.empresa_id) {
-        const { data: emp } = await api.get(`/empresas/${user.empresa_id}`);
+      const { data: userData } = await api.get<UserInfo & { empresa_id?: number }>('/usuarios/me');
+      setUser(userData);
+      if (userData.foto_url) {
+        const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
+        setUserPhotoPreview(userData.foto_url.startsWith('http') ? userData.foto_url : `${baseURL}${userData.foto_url}`);
+      }
+      if (userData.empresa_id) {
+        const { data: emp } = await api.get(`/empresas/${userData.empresa_id}`);
         setEmpresa(emp);
         if (emp.cor_primaria) setCor(emp.cor_primaria);
         
@@ -64,10 +87,34 @@ const DadosEmpresa = () => {
     }
   };
 
+  const handleUserPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setUserPhotoFile(e.target.files[0]);
+    }
+  };
+
+  async function handleRemoveUserPhoto() {
+    try {
+      await api.delete('/usuarios/me/foto');
+      setUserPhotoFile(null);
+      setUserPhotoPreview(null);
+      setUser(prev => prev ? { ...prev, foto_url: null } : prev);
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao remover foto.');
+    }
+  }
+
   async function handleSave() {
     if (!empresa) return;
     setSaving(true);
     try {
+       if (userPhotoFile) {
+         const fdUser = new FormData();
+         fdUser.append('file', userPhotoFile);
+         const { data } = await api.post('/usuarios/me/foto', fdUser);
+         setUser(data);
+       }
         // 1. Upload da Logo (se houve alteração)
         if (logoFile) {
              const fdLogo = new FormData();
@@ -140,6 +187,43 @@ const DadosEmpresa = () => {
                     <Check className="w-3 h-3"/> CONTA ATIVA
                 </span>
             </div>
+          </div>
+        </div>
+
+        {/* FOTO DO USUÁRIO */}
+        <div className="mb-10">
+          <label className="text-xs font-bold text-white uppercase mb-4 flex items-center gap-2">
+            <Camera className="w-4 h-4 text-blue-500"/> Minha Foto
+          </label>
+          <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-700 flex flex-col sm:flex-row items-center gap-6">
+            <div className="relative group">
+              <div className="w-24 h-24 rounded-full bg-slate-800 flex items-center justify-center overflow-hidden border-4 border-slate-700 shadow-xl">
+                {userPhotoPreview ? (
+                  <img src={userPhotoPreview} className="w-full h-full object-cover" alt="Foto do usuário" />
+                ) : (
+                  <span className="text-xl font-bold text-slate-400 bg-slate-800 w-full h-full flex items-center justify-center">
+                    {(user?.nome || user?.email || 'U').substring(0,2).toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full cursor-pointer shadow-lg transition-transform hover:scale-110 border-4 border-slate-800">
+                <Camera className="w-4 h-4"/>
+                <input type="file" accept="image/*" className="hidden" onChange={handleUserPhotoChange}/>
+              </label>
+            </div>
+            <div className="flex-1 text-center sm:text-left">
+              <p className="text-white font-bold mb-1">{user?.nome || user?.email}</p>
+              <p className="text-sm text-slate-400">Sua foto aparece na sidebar e nos dashboards.</p>
+            </div>
+            {userPhotoPreview && (
+              <button
+                type="button"
+                onClick={handleRemoveUserPhoto}
+                className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-600 text-slate-300 hover:bg-slate-700 transition"
+              >
+                Remover
+              </button>
+            )}
           </div>
         </div>
 

@@ -12,6 +12,7 @@ class LancamentoBase(SQLModel):
     tipo: str # RECEITA, DESPESA
     origem: str = "WEB"
     ipp: bool = False
+    previsto: bool = True
     
     # Valores Monetários
     valor_previsto: Decimal
@@ -22,6 +23,7 @@ class LancamentoBase(SQLModel):
     
     data_vencimento: date
     data_competencia: Optional[date] = None
+    competencia: Optional[str] = None
     # Regra de Negócio: Se vier Nulo, é considerado EM ABERTO
     data_pagamento: Optional[date] = None
     
@@ -48,6 +50,7 @@ class LancamentoUpdate(SQLModel):
     descricao: Optional[str] = None
     tipo: Optional[str] = None
     ipp: Optional[bool] = None
+    previsto: Optional[bool] = None
     valor_previsto: Optional[Decimal] = None
     valor_pago: Optional[Decimal] = None
     valor_juros: Optional[Decimal] = None
@@ -57,6 +60,7 @@ class LancamentoUpdate(SQLModel):
     data_pagamento: Optional[date] = None
     data_vencimento: Optional[date] = None
     data_competencia: Optional[date] = None
+    competencia: Optional[str] = None
     
     conta_id: Optional[int] = None
     centro_custo_id: Optional[int] = None

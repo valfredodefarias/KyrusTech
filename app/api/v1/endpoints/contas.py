@@ -40,7 +40,8 @@ class LancamentoExtratoOut(BaseModel):
 def read_all_contas(
     *,
     db: Session = Depends(get_db), 
-    empresa_id: int = Depends(get_empresa_id_from_user)
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    include_saldo: bool = True,
 ):
     """
     Lista contas com SALDO CALCULADO (Inicial + Entradas - Saídas).
@@ -49,48 +50,54 @@ def read_all_contas(
     contas = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
     resultado = []
 
-    # Agrega receitas e despesas por conta em uma única query (evita N+1)
-    saldo_query = (
-        select(
-            Lancamento.conta_id,
-            func.sum(
-                case(
-                    (Lancamento.tipo == "RECEITA", Lancamento.valor_pago),
-                    else_=0,
-                )
-            ).label("receitas"),
-            func.sum(
-                case(
-                    (Lancamento.tipo == "DESPESA", Lancamento.valor_pago),
-                    else_=0,
-                )
-            ).label("despesas"),
-        )
-        .where(
-            Lancamento.empresa_id == empresa_id,
-            Lancamento.status == "PAGO",
-            Lancamento.conta_id.is_not(None),
-        )
-        .group_by(Lancamento.conta_id)
-    )
+    base = get_backend_url()
 
-    saldos_por_conta = {
-        row[0]: (row[1], row[2])
-        for row in db.exec(saldo_query).all()
-    }
+    # Agrega receitas e despesas por conta em uma única query (evita N+1)
+    saldos_por_conta = {}
+    if include_saldo:
+        saldo_query = (
+            select(
+                Lancamento.conta_id,
+                func.sum(
+                    case(
+                        (Lancamento.tipo == "RECEITA", Lancamento.valor_pago),
+                        else_=0,
+                    )
+                ).label("receitas"),
+                func.sum(
+                    case(
+                        (Lancamento.tipo == "DESPESA", Lancamento.valor_pago),
+                        else_=0,
+                    )
+                ).label("despesas"),
+            )
+            .where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.status == "PAGO",
+                Lancamento.conta_id.is_not(None),
+            )
+            .group_by(Lancamento.conta_id)
+        )
+
+        saldos_por_conta = {
+            row[0]: (row[1], row[2])
+            for row in db.exec(saldo_query).all()
+        }
 
     for conta in contas:
-        receitas, despesas = saldos_por_conta.get(conta.id, (0, 0))
+        receitas, despesas = saldos_por_conta.get(conta.id, (0, 0)) if include_saldo else (0, 0)
 
         # --- CORREÇÃO DO ERRO DE TIPO ---
         # Convertemos tudo para Decimal antes de somar.
         # Usamos str() antes para garantir que a conversão seja exata.
-        val_receitas = Decimal(str(receitas)) if receitas is not None else Decimal("0.00")
-        val_despesas = Decimal(str(despesas)) if despesas is not None else Decimal("0.00")
         val_inicial = Decimal(str(conta.saldo_inicial))
-        
-        # Agora a matemática é segura: Decimal + Decimal - Decimal
-        saldo_real = val_inicial + val_receitas - val_despesas
+        if include_saldo:
+            val_receitas = Decimal(str(receitas)) if receitas is not None else Decimal("0.00")
+            val_despesas = Decimal(str(despesas)) if despesas is not None else Decimal("0.00")
+            # Agora a matemática é segura: Decimal + Decimal - Decimal
+            saldo_real = val_inicial + val_receitas - val_despesas
+        else:
+            saldo_real = val_inicial
         # --------------------------------
 
         # Monta objeto de retorno
@@ -98,7 +105,6 @@ def read_all_contas(
         # Garante URL completa da logo (e normaliza URLs antigas http://IP)
         logo_url = conta_dict.get("logo_url")
         if logo_url:
-            base = get_backend_url()
             if str(logo_url).startswith("/"):
                 conta_dict["logo_url"] = f"{base}{logo_url}"
             elif str(logo_url).startswith("http://") and "/static/" in str(logo_url):

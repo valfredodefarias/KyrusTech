@@ -25,3 +25,9 @@ class EntidadeUpdate(SQLModel):
 class EntidadeRead(EntidadeBase, AuditReadMixin):
     id: int
     empresa_id: int
+
+
+class EntidadeLookup(SQLModel):
+    id: int
+    nome: str
+    tipo: str = "AMBOS"

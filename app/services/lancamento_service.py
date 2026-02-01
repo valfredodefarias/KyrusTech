@@ -240,11 +240,11 @@ class LancamentoService:
                     setattr(lanc, key, value)
                 
                 # Reaplica regra se mudou data
-                 if "data_pagamento" in dados_dict:
-                     self._aplicar_regras_negocio(lanc)
-                 elif dados_dict.get("status") == "PAGO" and not lanc.data_pagamento:
-                     lanc.data_pagamento = lanc.data_vencimento
-                     self._aplicar_regras_negocio(lanc)
+                if "data_pagamento" in dados_dict:
+                    self._aplicar_regras_negocio(lanc)
+                elif dados_dict.get("status") == "PAGO" and not lanc.data_pagamento:
+                    lanc.data_pagamento = lanc.data_vencimento
+                    self._aplicar_regras_negocio(lanc)
 
                 lanc.updated_by_id = user_id
                 self.session.add(lanc)

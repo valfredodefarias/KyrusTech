@@ -296,7 +296,7 @@ export function Lancamentos() {
     if (centros.length === 1) {
       const onlyId = String(centros[0].id);
       setCentroCustoFiltro(prev => prev || onlyId);
-      setFormData(prev => prev.centro_custo_id ? prev : { ...prev, centro_custo_id: onlyId });
+      setFormData((prev: typeof formData) => prev.centro_custo_id ? prev : { ...prev, centro_custo_id: onlyId });
       setTransferData(prev => prev.centro_custo_id ? prev : { ...prev, centro_custo_id: onlyId });
     }
   }, [centros]);

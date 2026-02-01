@@ -1,7 +1,7 @@
 import pandas as pd
 import io
 import json
-from typing import List, Optional, Any
+from typing import List, Optional, Any, cast, Tuple
 from datetime import date
 from decimal import Decimal
 
@@ -39,6 +39,14 @@ router = APIRouter()
 def get_service(session: Session = Depends(get_db)) -> LancamentoService:
     return LancamentoService(session)
 
+def require_empresa_user(current_user: Usuario) -> Tuple[int, int]:
+    if current_user.empresa_id is None or current_user.id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuário sem empresa ou identificação válida."
+        )
+    return current_user.empresa_id, current_user.id
+
 # ==========================================
 # CRUD BÁSICO
 # ==========================================
@@ -53,7 +61,7 @@ def listar_lancamentos(
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """Lista lançamentos com paginação."""
-    query = select(Lancamento).options(selectinload(Lancamento.anexos)).where(
+    query = select(Lancamento).options(selectinload(cast(Any, Lancamento.anexos))).where(
         Lancamento.empresa_id == empresa_id,
         Lancamento.is_deleted == False
     )
@@ -62,25 +70,29 @@ def listar_lancamentos(
     if data_fim:
         query = query.where(Lancamento.data_vencimento <= data_fim)
 
-    query = query.order_by(Lancamento.data_vencimento.asc()).offset(skip).limit(limit)
+    query = query.order_by(col(Lancamento.data_vencimento).asc()).offset(skip).limit(limit)
     
     return db.exec(query).all()
 
 @router.post("/", response_model=LancamentoRead, status_code=status.HTTP_201_CREATED)
 def criar_lancamento(lancamento_in: LancamentoCreate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    return service.create(dados=lancamento_in, empresa_id=current_user.empresa_id, user_id=current_user.id)
+    empresa_id, user_id = require_empresa_user(current_user)
+    return service.create(dados=lancamento_in, empresa_id=empresa_id, user_id=user_id)
 
 @router.get("/{lancamento_id}", response_model=LancamentoRead)
 def obter_lancamento(lancamento_id: int, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    return service.get_by_id(lancamento_id, current_user.empresa_id)
+    empresa_id, _ = require_empresa_user(current_user)
+    return service.get_by_id(lancamento_id, empresa_id)
 
 @router.put("/{lancamento_id}", response_model=LancamentoRead)
 def atualizar_lancamento(lancamento_id: int, lancamento_in: LancamentoUpdate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    return service.update(lancamento_id=lancamento_id, dados_atualizacao=lancamento_in, empresa_id=current_user.empresa_id, user_id=current_user.id)
+    empresa_id, user_id = require_empresa_user(current_user)
+    return service.update(lancamento_id=lancamento_id, dados_atualizacao=lancamento_in, empresa_id=empresa_id, user_id=user_id)
 
 @router.delete("/{lancamento_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deletar_lancamento(lancamento_id: int, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    service.delete(lancamento_id, current_user.empresa_id, current_user.id)
+    empresa_id, user_id = require_empresa_user(current_user)
+    service.delete(lancamento_id, empresa_id, user_id)
 
 # ==========================================
 # AÇÕES EM MASSA (BULK)
@@ -88,21 +100,30 @@ def deletar_lancamento(lancamento_id: int, service: LancamentoService = Depends(
 
 @router.post("/bulk", response_model=List[LancamentoRead], status_code=status.HTTP_201_CREATED)
 def criar_multiplos(lista_in: List[LancamentoCreate], service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    return service.criar_em_massa(lista_in, current_user.empresa_id, current_user.id)
+    empresa_id, user_id = require_empresa_user(current_user)
+    return service.criar_em_massa(lista_in, empresa_id, user_id)
 
 @router.post("/bulk-delete")
 def deletar_multiplos(payload: BulkActionSchema, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    service.deletar_em_massa(payload.ids, current_user.empresa_id, current_user.id)
+    empresa_id, user_id = require_empresa_user(current_user)
+    service.deletar_em_massa(payload.ids, empresa_id, user_id)
     return {"msg": "Lançamentos deletados com sucesso"}
 
 @router.post("/bulk-pay")
 def baixar_multiplos(payload: BulkActionSchema, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    atualizados = service.baixar_em_massa(ids=payload.ids, data_pagamento=payload.data_pagamento, conta_id=payload.conta_id, empresa_id=current_user.empresa_id, user_id=current_user.id)
+    empresa_id, user_id = require_empresa_user(current_user)
+    if payload.data_pagamento is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Data de pagamento é obrigatória."
+        )
+    atualizados = service.baixar_em_massa(ids=payload.ids, data_pagamento=payload.data_pagamento, conta_id=payload.conta_id, empresa_id=empresa_id, user_id=user_id)
     return {"msg": f"{atualizados} lançamentos baixados com sucesso"}
 
 @router.post("/bulk-update")
 def atualizar_multiplos(payload: BulkUpdateSchema, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    return service.atualizar_em_massa(payload=payload, empresa_id=current_user.empresa_id, user_id=current_user.id)
+    empresa_id, user_id = require_empresa_user(current_user)
+    return service.atualizar_em_massa(payload=payload, empresa_id=empresa_id, user_id=user_id)
 
 # ==========================================
 # AÇÕES ESPECIAIS E ANEXOS
@@ -110,15 +131,22 @@ def atualizar_multiplos(payload: BulkUpdateSchema, service: LancamentoService = 
 
 @router.post("/transferir")
 def transferir_valores(transf_in: TransferenciaCreate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    return service.transferir(transf_in, current_user.empresa_id, current_user.id)
+    empresa_id, user_id = require_empresa_user(current_user)
+    return service.transferir(transf_in, empresa_id, user_id)
 
 @router.post("/{lancamento_id}/anexos", response_model=List[AnexoRead])
 def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo: str = Query("OUTROS"), service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     anexos_criados = []
+    empresa_id, user_id = require_empresa_user(current_user)
     for file in files:
-        url_fake = f"https://storage.kyrus.com/{current_user.empresa_id}/{lancamento_id}/{file.filename}"
-        dados = AnexoCreate(nome_arquivo=file.filename, url=url_fake, tipo=tipo, tamanho_bytes=file.size, content_type=file.content_type, lancamento_id=lancamento_id, empresa_id=current_user.empresa_id)
-        anexos_criados.append(service.adicionar_anexo(lancamento_id, dados, current_user.empresa_id, current_user.id))
+        if not file.filename:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Arquivo inválido: nome do arquivo ausente."
+            )
+        url_fake = f"https://storage.kyrus.com/{empresa_id}/{lancamento_id}/{file.filename}"
+        dados = AnexoCreate(nome_arquivo=file.filename, url=url_fake, tipo=tipo, tamanho_bytes=file.size, content_type=file.content_type, lancamento_id=lancamento_id, empresa_id=empresa_id)
+        anexos_criados.append(service.adicionar_anexo(lancamento_id, dados, empresa_id, user_id))
     return anexos_criados
 
 # ==========================================
@@ -142,20 +170,21 @@ def download_modelo_importacao():
 
 @router.post("/importar/analisar")
 def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    empresa_id, _ = require_empresa_user(current_user)
     df = pd.read_excel(io.BytesIO(file.file.read()))
     df.columns = [str(c).upper().strip() for c in df.columns]
     col_conta = encontrar_coluna(df, ["CONTA", "BANCO"])
     col_cat = encontrar_coluna(df, ["CATEGORIA", "PLANO DE CONTAS"])
     col_centro = encontrar_coluna(df, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO"])
     col_entidade = encontrar_coluna(df, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
-    sist_contas = session.exec(select(Conta).where(Conta.empresa_id == current_user.empresa_id)).all()
-    sist_cats = session.exec(select(PlanoContas).where(PlanoContas.empresa_id == current_user.empresa_id)).all()
-    sist_centros = session.exec(select(CentroCusto).where(CentroCusto.empresa_id == current_user.empresa_id)).all()
-    sist_entidades = session.exec(select(Entidade).where(Entidade.empresa_id == current_user.empresa_id)).all()
-    nomes_contas = {c.nome.upper().strip(): c.id for c in sist_contas}
-    nomes_cats = {c.nome.upper().strip(): c.id for c in sist_cats}
-    nomes_centros = {c.nome.upper().strip(): c.id for c in sist_centros}
-    nomes_entidades = {c.nome.upper().strip(): c.id for c in sist_entidades}
+    sist_contas = session.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
+    sist_cats = session.exec(select(PlanoContas).where(PlanoContas.empresa_id == empresa_id)).all()
+    sist_centros = session.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).all()
+    sist_entidades = session.exec(select(Entidade).where(Entidade.empresa_id == empresa_id)).all()
+    nomes_contas = {c.nome.upper().strip(): c.id for c in sist_contas if c.id is not None}
+    nomes_cats = {c.nome.upper().strip(): c.id for c in sist_cats if c.id is not None}
+    nomes_centros = {c.nome.upper().strip(): c.id for c in sist_centros if c.id is not None}
+    nomes_entidades = {e.nome.upper().strip(): e.id for e in sist_entidades if e.id is not None}
     conflitos = {
         "contas": [c for c in df[col_conta].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_contas] if col_conta else [],
         "categorias": [c for c in df[col_cat].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_cats] if col_cat else [],
@@ -194,7 +223,7 @@ async def importar_executar(
     Endpoint para importação de lançamentos com mapeamento de categorias.
     Recebe arquivo XLSX e JSON com mapeamento de categorias/entidades/contas/centros.
     """
-    if not file.filename.endswith(('.xlsx', '.xls')):
+    if not file.filename or not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Arquivo deve ser XLSX ou XLS"
@@ -203,17 +232,17 @@ async def importar_executar(
     try:
         # Parse do mapeamento
         mapeamento = json.loads(mapeamento_json)
-        map_categorias = {str(k).upper().strip(): v for k, v in mapeamento.get('map_categorias', {}).items()}
-        map_contas = {str(k).upper().strip(): v for k, v in mapeamento.get('map_contas', {}).items()}
-        map_centros = {str(k).upper().strip(): v for k, v in mapeamento.get('map_centros', {}).items()}
-        map_entidades = {str(k).upper().strip(): v for k, v in mapeamento.get('map_entidades', {}).items()}
+        map_categorias = {str(k).upper().strip(): v for k, v in mapeamento.get('map_categorias', {}).items() if v is not None}
+        map_contas = {str(k).upper().strip(): v for k, v in mapeamento.get('map_contas', {}).items() if v is not None}
+        map_centros = {str(k).upper().strip(): v for k, v in mapeamento.get('map_centros', {}).items() if v is not None}
+        map_entidades = {str(k).upper().strip(): v for k, v in mapeamento.get('map_entidades', {}).items() if v is not None}
         
         # Lê o arquivo
         conteudo = await file.read()
         df = pd.read_excel(io.BytesIO(conteudo))
         df.columns = [str(c).upper().strip() for c in df.columns]
         
-        empresa_id = current_user.empresa_id
+        empresa_id, _ = require_empresa_user(current_user)
         erros = []
         importados = 0
         
@@ -230,13 +259,13 @@ async def importar_executar(
 
         # Caches do sistema
         cats_query = db.exec(select(PlanoContas).where(PlanoContas.empresa_id == empresa_id)).all()
-        cache_tipos = {c.id: c.tipo for c in cats_query}
-        nomes_cats_sist = {c.nome.strip().upper(): c.id for c in cats_query}
-        nomes_contas_sist = {c.nome.strip().upper(): c.id for c in db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()}
-        nomes_centros_sist = {c.nome.strip().upper(): c.id for c in db.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).all()}
-        nomes_entidades_sist = {e.nome.strip().upper(): e.id for e in db.exec(select(Entidade).where(Entidade.empresa_id == empresa_id)).all()}
+        cache_tipos = {c.id: c.tipo for c in cats_query if c.id is not None}
+        nomes_cats_sist: dict[str, int] = {c.nome.strip().upper(): int(c.id) for c in cats_query if c.id is not None}
+        nomes_contas_sist: dict[str, int] = {c.nome.strip().upper(): int(c.id) for c in db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all() if c.id is not None}
+        nomes_centros_sist: dict[str, int] = {c.nome.strip().upper(): int(c.id) for c in db.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).all() if c.id is not None}
+        nomes_entidades_sist: dict[str, int] = {e.nome.strip().upper(): int(e.id) for e in db.exec(select(Entidade).where(Entidade.empresa_id == empresa_id)).all() if e.id is not None}
 
-        for idx, row in df.iterrows():
+        for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
             try:
                 if col_venc and pd.isna(row[col_venc]):
                     continue
@@ -256,9 +285,9 @@ async def importar_executar(
                 # Mapeia para IDs usando mapeamento
                 plano_contas_id = None
                 cat_key = categoria_nome.upper().strip()
-                if cat_key in map_categorias:
+                if cat_key in map_categorias and map_categorias[cat_key] is not None:
                     plano_contas_id = int(map_categorias[cat_key])
-                elif cat_key in nomes_cats_sist:
+                elif cat_key in nomes_cats_sist and nomes_cats_sist[cat_key] is not None:
                     plano_contas_id = int(nomes_cats_sist[cat_key])
                 else:
                     # Busca categoria no sistema ou cria "A Categorizar"
@@ -272,6 +301,7 @@ async def importar_executar(
                     if not categoria:
                         categoria = PlanoContas(
                             nome="A Categorizar",
+                            codigo=None,
                             tipo=("R" if tipo == "RECEITA" else "D"),
                             empresa_id=empresa_id,
                             permite_lancamentos=True
@@ -280,7 +310,7 @@ async def importar_executar(
                         db.flush()
                     plano_contas_id = categoria.id
 
-                if not tipo:
+                if not tipo and plano_contas_id is not None:
                     tipo = "RECEITA" if cache_tipos.get(int(plano_contas_id)) == "R" else "DESPESA"
                 
                 # Mapeia entidade
@@ -288,15 +318,17 @@ async def importar_executar(
                 entidade_id = None
                 ent_key = entidade_nome.upper().strip() if entidade_nome else ""
                 if ent_key:
-                    if ent_key in map_entidades:
+                    if ent_key in map_entidades and map_entidades[ent_key] is not None:
                         entidade_id = int(map_entidades[ent_key])
-                    elif ent_key in nomes_entidades_sist:
+                    elif ent_key in nomes_entidades_sist and nomes_entidades_sist[ent_key] is not None:
                         entidade_id = int(nomes_entidades_sist[ent_key])
                     else:
-                        nova_ent = Entidade(nome=entidade_nome, tipo="AMBOS", status="ATIVO", empresa_id=empresa_id)
+                        nova_ent = Entidade(nome=entidade_nome, tipo="AMBOS", cpf_cnpj=None, status="ATIVO", empresa_id=empresa_id)
                         db.add(nova_ent)
                         db.flush()
-                        entidade_id = nova_ent.id
+                        if nova_ent.id is None:
+                            raise Exception("Falha ao criar entidade")
+                        entidade_id = int(nova_ent.id)
                         nomes_entidades_sist[ent_key] = entidade_id
                 
                 # Mapeia conta
@@ -304,9 +336,9 @@ async def importar_executar(
                 conta_id = None
                 conta_key = conta_nome.upper().strip() if conta_nome else ""
                 if conta_key:
-                    if conta_key in map_contas:
+                    if conta_key in map_contas and map_contas[conta_key] is not None:
                         conta_id = int(map_contas[conta_key])
-                    elif conta_key in nomes_contas_sist:
+                    elif conta_key in nomes_contas_sist and nomes_contas_sist[conta_key] is not None:
                         conta_id = int(nomes_contas_sist[conta_key])
                 
                 # Mapeia centro de custo
@@ -314,15 +346,17 @@ async def importar_executar(
                 centro_custo_id = None
                 centro_key = centro_nome.upper().strip() if centro_nome else ""
                 if centro_key:
-                    if centro_key in map_centros:
+                    if centro_key in map_centros and map_centros[centro_key] is not None:
                         centro_custo_id = int(map_centros[centro_key])
-                    elif centro_key in nomes_centros_sist:
+                    elif centro_key in nomes_centros_sist and nomes_centros_sist[centro_key] is not None:
                         centro_custo_id = int(nomes_centros_sist[centro_key])
                     else:
                         novo_centro = CentroCusto(nome=centro_nome, empresa_id=empresa_id)
                         db.add(novo_centro)
                         db.flush()
-                        centro_custo_id = novo_centro.id
+                        if novo_centro.id is None:
+                            raise Exception("Falha ao criar centro de custo")
+                        centro_custo_id = int(novo_centro.id)
                         nomes_centros_sist[centro_key] = centro_custo_id
                 
                 # Parse da data
@@ -353,8 +387,8 @@ async def importar_executar(
                 importados += 1
                 
             except Exception as e:
-                logger.error(f"Erro na linha {idx+2}: {e}")
-                erros.append(f"Linha {idx+2}: {str(e)}")
+                logger.error(f"Erro na linha {row_idx}: {e}")
+                erros.append(f"Linha {row_idx}: {str(e)}")
         
         db.commit()
         

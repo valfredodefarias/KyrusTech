@@ -387,24 +387,6 @@ export function Consultor() {
     }
   }
 
-  async function iniciarTodo(todoId: number) {
-    try {
-      await api.post(`/consultor/todos/${todoId}/iniciar`);
-      carregarTodos();
-    } catch (error) {
-      console.error("Erro ao iniciar tarefa", error);
-    }
-  }
-
-  async function finalizarTodo(todoId: number) {
-    try {
-      await api.post(`/consultor/todos/${todoId}/finalizar`);
-      carregarTodos();
-    } catch (error) {
-      console.error("Erro ao finalizar tarefa", error);
-    }
-  }
-
   async function atualizarStatusTodo(todoId: number, status: TodoItem['status']) {
     try {
       setTodos(prev => prev.map(t => t.id === todoId ? { ...t, status } : t));

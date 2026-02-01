@@ -30,10 +30,15 @@ cors_origins = (
     else []
 )
 
+if settings.BACKEND_PUBLIC_URL and settings.BACKEND_PUBLIC_URL not in cors_origins:
+    cors_origins.append(settings.BACKEND_PUBLIC_URL)
+
+allow_credentials = "*" not in cors_origins
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=True,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

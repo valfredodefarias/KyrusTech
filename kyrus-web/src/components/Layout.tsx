@@ -10,6 +10,7 @@ export function Layout() {
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.body.classList.toggle('dark', theme === 'dark');
     localStorage.setItem('theme', theme);
     window.dispatchEvent(new Event('theme-change'));
   }, [theme]);

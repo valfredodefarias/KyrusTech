@@ -1,33 +1,10 @@
 version: '3.8'
 
 services:
-  db:
-    image: postgres:15-alpine
-    container_name: kyrustech_db_prod
-    restart: always
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-kyrus_user}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
-      - POSTGRES_DB=${POSTGRES_DB:-kyrus_db}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kyrus_user}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - kyrustech_network
-    profiles:
-      - prod
-
   backend:
     build: .
     container_name: kyrustech_backend_prod
     restart: always
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
       - PROJECT_NAME=${PROJECT_NAME:-KyrusTech}
       - ENVIRONMENT=${ENVIRONMENT:-production}
@@ -35,7 +12,7 @@ services:
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
       - ALGORITHM=${ALGORITHM:-HS256}
       - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-*}
-      - POSTGRES_SERVER=db
+      - POSTGRES_SERVER=${POSTGRES_SERVER}
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - POSTGRES_USER=${POSTGRES_USER:-kyrus_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
@@ -75,5 +52,4 @@ networks:
   kyrustech_network:
     driver: bridge
 
-volumes:
-  postgres_data:
+volumes: {}

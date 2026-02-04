@@ -1,31 +1,10 @@
 version: '3.8'
 
 services:
-  db:
-    image: postgres:15-alpine
-    container_name: kyruserp_db
-    restart: unless-stopped
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-kyrus_user}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
-      - POSTGRES_DB=${POSTGRES_DB:-kyrus_db}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kyrus_user}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   app:
     image: ghcr.io/kcirus/kyrustech:kyruserp-${TAG:-1.0.0}
     container_name: kyruserp_all
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
       - PROJECT_NAME=${PROJECT_NAME:-KyrusERP}
       - ENVIRONMENT=${ENVIRONMENT:-production}
@@ -33,7 +12,7 @@ services:
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
       - ALGORITHM=${ALGORITHM:-HS256}
       - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-*}
-      - POSTGRES_SERVER=${POSTGRES_SERVER:-db}
+      - POSTGRES_SERVER=${POSTGRES_SERVER}
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - POSTGRES_USER=${POSTGRES_USER:-kyrus_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
@@ -61,5 +40,4 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     command: --label-enable
 
-volumes:
-  postgres_data:
+volumes: {}

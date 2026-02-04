@@ -7,6 +7,8 @@ from datetime import datetime, date
 from decimal import Decimal
 from loguru import logger
 import re
+import hashlib
+import json
 from openpyxl import load_workbook
 from io import BytesIO
 
@@ -33,27 +35,84 @@ def limpar_valor_monetario(valor_str: str) -> Decimal:
         return Decimal("0")
 
 
-def parsear_data(data_str: str) -> Optional[date]:
+def parsear_data_hora(data_str: str) -> Tuple[Optional[date], Optional[datetime]]:
     """
-    Parseia data em vários formatos.
+    Parseia data e hora em vários formatos.
     """
     if not data_str:
-        return None
+        return None, None
+
+    if isinstance(data_str, datetime):
+        return data_str.date(), data_str
+
+    if isinstance(data_str, date):
+        return data_str, None
     
-    formatos = [
+    formatos_hora = [
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+    ]
+
+    valor = str(data_str).strip()
+    for fmt in formatos_hora:
+        try:
+            data_hora = datetime.strptime(valor, fmt)
+            return data_hora.date(), data_hora
+        except:
+            continue
+
+    formatos_data = [
         "%d/%m/%Y",
         "%d-%m-%Y",
         "%Y-%m-%d",
         "%d/%m/%y",
     ]
     
-    for fmt in formatos:
+    for fmt in formatos_data:
         try:
-            return datetime.strptime(str(data_str).strip(), fmt).date()
+            return datetime.strptime(valor, fmt).date(), None
         except:
             continue
     
-    return None
+    return None, None
+
+
+def parsear_data(data_str: str) -> Optional[date]:
+    """
+    Parseia data em vários formatos.
+    """
+    data, _ = parsear_data_hora(data_str)
+    return data
+
+
+def _normalizar_texto(texto: Optional[str]) -> str:
+    if not texto:
+        return ""
+    return re.sub(r"\s+", " ", str(texto).strip().lower())
+
+
+def _limpar_cpf_cnpj(cpf_cnpj: Optional[str]) -> str:
+    return re.sub(r"[^0-9]", "", cpf_cnpj or "")
+
+
+def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None) -> str:
+    payload = {
+        "origem": lancamento.get("origem"),
+        "tipo": lancamento.get("tipo"),
+        "data": str(lancamento.get("data") or ""),
+        "data_hora": lancamento.get("data_hora"),
+        "valor": str(lancamento.get("valor") or ""),
+        "descricao": _normalizar_texto(lancamento.get("descricao")),
+        "razao_social": _normalizar_texto(lancamento.get("razao_social")),
+        "cpf_cnpj": _limpar_cpf_cnpj(lancamento.get("cpf_cnpj")),
+        "referencia": _normalizar_texto(lancamento.get("referencia")),
+        "linha_arquivo": lancamento.get("linha_arquivo"),
+        "conta_id": conta_id or lancamento.get("conta_id"),
+    }
+    payload_str = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload_str.encode("utf-8")).hexdigest()
 
 
 def processar_extrato_itau(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
@@ -128,7 +187,7 @@ def processar_extrato_itau(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
         if not descricao or descricao == "None":
             continue
         
-        data_lancamento = parsear_data(data_str)
+        data_lancamento, data_hora = parsear_data_hora(data_str)
         if not data_lancamento:
             logger.warning(f"Data inválida na linha {row_idx}: {data_str}")
             continue
@@ -148,6 +207,7 @@ def processar_extrato_itau(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
             "data": data_lancamento,  # Data do lançamento (usada como padrão)
             "data_pagamento": data_lancamento.isoformat() if data_lancamento else None,
             "data_vencimento": data_lancamento.isoformat() if data_lancamento else None,  # Mesma data (já foi realizado)
+            "data_hora": data_hora.isoformat() if data_hora else None,
             "descricao": descricao,
             "razao_social": razao_social,
             "cpf_cnpj": cpf_cnpj,
@@ -237,7 +297,7 @@ def processar_relatorio_pagamentos_itau(arquivo_bytes: bytes, empresa_id: int) -
         if not favorecido or favorecido == "None":
             continue
         
-        data_pagamento = parsear_data(data_str)
+        data_pagamento, data_hora = parsear_data_hora(data_str)
         if not data_pagamento:
             logger.warning(f"Data inválida na linha {row_idx}: {data_str}")
             continue
@@ -260,9 +320,11 @@ def processar_relatorio_pagamentos_itau(arquivo_bytes: bytes, empresa_id: int) -
             "data": data_pagamento,  # Data de pagamento (usada como padrão)
             "data_pagamento": data_pagamento.isoformat() if data_pagamento else None,
             "data_vencimento": data_vencimento.isoformat() if data_vencimento else data_pagamento.isoformat(),  # Usa data de pagamento como fallback
+            "data_hora": data_hora.isoformat() if data_hora else None,
             "descricao": descricao,
             "razao_social": favorecido,
             "cpf_cnpj": cpf_cnpj,
+            "referencia": referencia,
             "valor": valor,
             "valor_pago": valor,  # Para pagamentos, valor pago = valor
             "valor_previsto": valor,  # Valor previsto também é o mesmo
@@ -281,49 +343,30 @@ def verificar_duplicata(
     db: Session,
     lancamento: Dict,
     empresa_id: int,
-    tolerancia_dias: int = 0
+    conta_id: Optional[int] = None
 ) -> Optional[Lancamento]:
     """
-    Verifica se já existe um lançamento similar (mesmo dia, descrição e valor).
+    Verifica duplicidade usando fingerprint import_hash.
     Retorna o lançamento existente se encontrar, None caso contrário.
     """
-    data_lancamento = lancamento["data"]
-    descricao = lancamento["descricao"]
-    valor = lancamento["valor"]
-    
-    # Busca lançamentos no mesmo dia (com tolerância)
-    data_inicio = data_lancamento
-    data_fim = data_lancamento
-    
-    if tolerancia_dias > 0:
-        from datetime import timedelta
-        data_inicio = data_lancamento - timedelta(days=tolerancia_dias)
-        data_fim = data_lancamento + timedelta(days=tolerancia_dias)
-    
-    # Busca lançamentos similares
-    lancamentos_similares = db.exec(
+    import_hash = lancamento.get("import_hash") or gerar_import_hash(lancamento, conta_id=conta_id)
+    if not import_hash:
+        return None
+
+    return db.exec(
         select(Lancamento).where(
             Lancamento.empresa_id == empresa_id,
-            Lancamento.data_vencimento >= data_inicio,
-            Lancamento.data_vencimento <= data_fim,
-            Lancamento.descricao.ilike(f"%{descricao[:30]}%"),  # Primeiros 30 caracteres
-            Lancamento.valor_previsto == valor
+            Lancamento.import_hash == import_hash
         )
-    ).all()
-    
-    # Verifica se algum é realmente duplicata (mesma origem)
-    for lanc_existente in lancamentos_similares:
-        if lanc_existente.origem in ["ITAU_EXTRATO", "ITAU_PAGAMENTOS"]:
-            return lanc_existente
-    
-    return None
+    ).first()
 
 
 def buscar_lancamento_previsto_mesmo_dia_valor(
     db: Session,
     lancamento: Dict,
     empresa_id: int,
-    centro_custo_id: Optional[int] = None
+    centro_custo_id: Optional[int] = None,
+    tolerancia_valor: Decimal = Decimal("1.00")
 ) -> Optional[Lancamento]:
     """
     Busca lançamento previsto no mesmo dia e com mesmo valor.
@@ -331,12 +374,15 @@ def buscar_lancamento_previsto_mesmo_dia_valor(
     Caso contrário, busca em geral (todos os centros de custo).
     """
     data_lancamento = lancamento["data"]
-    valor = lancamento["valor"]
+    valor = Decimal(str(lancamento["valor"]))
+    valor_min = valor - tolerancia_valor
+    valor_max = valor + tolerancia_valor
     
     query = select(Lancamento).where(
         Lancamento.empresa_id == empresa_id,
         Lancamento.data_vencimento == data_lancamento,
-        Lancamento.valor_previsto == valor,
+        Lancamento.valor_previsto >= valor_min,
+        Lancamento.valor_previsto <= valor_max,
         Lancamento.status == "PENDENTE"
     )
     
@@ -354,7 +400,8 @@ def buscar_lancamento_atrasado_mesmo_valor(
     lancamento: Dict,
     empresa_id: int,
     centro_custo_id: Optional[int] = None,
-    dias_tolerancia: int = 30
+    dias_tolerancia: int = 30,
+    tolerancia_valor: Decimal = Decimal("1.00")
 ) -> List[Lancamento]:
     """
     Busca lançamentos em atraso com mesmo valor.
@@ -364,14 +411,17 @@ def buscar_lancamento_atrasado_mesmo_valor(
     from datetime import timedelta
     
     data_lancamento = lancamento["data"]
-    valor = lancamento["valor"]
+    valor = Decimal(str(lancamento["valor"]))
+    valor_min = valor - tolerancia_valor
+    valor_max = valor + tolerancia_valor
     data_limite = data_lancamento - timedelta(days=dias_tolerancia)
     
     query = select(Lancamento).where(
         Lancamento.empresa_id == empresa_id,
         Lancamento.data_vencimento < data_lancamento,
         Lancamento.data_vencimento >= data_limite,
-        Lancamento.valor_previsto == valor,
+        Lancamento.valor_previsto >= valor_min,
+        Lancamento.valor_previsto <= valor_max,
         Lancamento.status == "PENDENTE"
     )
     

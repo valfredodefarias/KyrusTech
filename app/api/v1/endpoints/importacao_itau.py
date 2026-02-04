@@ -15,9 +15,12 @@ from app.services.integracao_itau import (
     verificar_duplicata,
     buscar_lancamento_previsto_mesmo_dia_valor,
     buscar_lancamento_atrasado_mesmo_valor,
-    criar_entidade_se_nao_existir
+    criar_entidade_se_nao_existir,
+    gerar_import_hash
 )
 from app.models.lancamento import Lancamento
+from app.models.conta import Conta
+from app.models.centro_custo import CentroCusto
 from app.models.plano_contas import PlanoContas
 from sqlmodel import select
 from pydantic import BaseModel
@@ -28,13 +31,16 @@ router = APIRouter()
 class LancamentoImportado(BaseModel):
     """Schema para lançamento importado do arquivo"""
     data: str
+    data_hora: Optional[str] = None
     descricao: str
     razao_social: str
     cpf_cnpj: str
+    referencia: Optional[str] = None
     valor: float
     tipo: str
     origem: str
     linha_arquivo: int
+    import_hash: Optional[str] = None
     # Campos de matching
     lancamento_previsto_id: Optional[int] = None
     lancamentos_atrasados_ids: List[int] = []
@@ -73,6 +79,8 @@ async def upload_extrato(
         )
     
     try:
+        conta, centro_custo_id_resolvido = _resolver_conta_e_centro(db, empresa_id, conta_id)
+
         conteudo = await arquivo.read()
         lancamentos_raw = processar_extrato_itau(conteudo, empresa_id)
         
@@ -83,8 +91,13 @@ async def upload_extrato(
         atrasados = 0
         
         for lanc_raw in lancamentos_raw:
+            # Adiciona conta e centro de custo derivados da conta
+            lanc_raw["conta_id"] = conta.id
+            lanc_raw["centro_custo_id"] = centro_custo_id_resolvido
+            lanc_raw["import_hash"] = gerar_import_hash(lanc_raw, conta_id=conta.id)
+
             # Verifica duplicata
-            duplicata = verificar_duplicata(db, lanc_raw, empresa_id)
+            duplicata = verificar_duplicata(db, lanc_raw, empresa_id, conta_id=conta.id)
             if duplicata:
                 duplicatas += 1
                 lanc_raw["duplicata_id"] = duplicata.id
@@ -92,7 +105,7 @@ async def upload_extrato(
             
             # Busca lançamento previsto (considerando centro de custo se fornecido)
             lanc_previsto = buscar_lancamento_previsto_mesmo_dia_valor(
-                db, lanc_raw, empresa_id, centro_custo_id=centro_custo_id
+                db, lanc_raw, empresa_id, centro_custo_id=centro_custo_id_resolvido
             )
             if lanc_previsto:
                 previstos += 1
@@ -101,7 +114,7 @@ async def upload_extrato(
             
             # Busca lançamentos atrasados (considerando centro de custo se fornecido)
             lancs_atrasados = buscar_lancamento_atrasado_mesmo_valor(
-                db, lanc_raw, empresa_id, centro_custo_id=centro_custo_id
+                db, lanc_raw, empresa_id, centro_custo_id=centro_custo_id_resolvido
             )
             if lancs_atrasados:
                 atrasados += 1
@@ -115,12 +128,6 @@ async def upload_extrato(
                 empresa_id
             )
             lanc_raw["entidade_id"] = entidade_id
-            
-            # Adiciona conta_id e centro_custo_id aos dados do lançamento
-            if conta_id:
-                lanc_raw["conta_id"] = conta_id
-            if centro_custo_id:
-                lanc_raw["centro_custo_id"] = centro_custo_id
             
             lancamentos_processados.append(LancamentoImportado(**lanc_raw))
         
@@ -159,6 +166,8 @@ async def upload_pagamentos(
         )
     
     try:
+        conta, centro_custo_id_resolvido = _resolver_conta_e_centro(db, empresa_id, conta_id)
+
         conteudo = await arquivo.read()
         lancamentos_raw = processar_relatorio_pagamentos_itau(conteudo, empresa_id)
         
@@ -169,8 +178,13 @@ async def upload_pagamentos(
         atrasados = 0
         
         for lanc_raw in lancamentos_raw:
+            # Adiciona conta e centro de custo derivados da conta
+            lanc_raw["conta_id"] = conta.id
+            lanc_raw["centro_custo_id"] = centro_custo_id_resolvido
+            lanc_raw["import_hash"] = gerar_import_hash(lanc_raw, conta_id=conta.id)
+
             # Verifica duplicata
-            duplicata = verificar_duplicata(db, lanc_raw, empresa_id)
+            duplicata = verificar_duplicata(db, lanc_raw, empresa_id, conta_id=conta.id)
             if duplicata:
                 duplicatas += 1
                 lanc_raw["duplicata_id"] = duplicata.id
@@ -178,7 +192,7 @@ async def upload_pagamentos(
             
             # Busca lançamento previsto (considerando centro de custo se fornecido)
             lanc_previsto = buscar_lancamento_previsto_mesmo_dia_valor(
-                db, lanc_raw, empresa_id, centro_custo_id=centro_custo_id
+                db, lanc_raw, empresa_id, centro_custo_id=centro_custo_id_resolvido
             )
             if lanc_previsto:
                 previstos += 1
@@ -187,7 +201,7 @@ async def upload_pagamentos(
             
             # Busca lançamentos atrasados (considerando centro de custo se fornecido)
             lancs_atrasados = buscar_lancamento_atrasado_mesmo_valor(
-                db, lanc_raw, empresa_id, centro_custo_id=centro_custo_id
+                db, lanc_raw, empresa_id, centro_custo_id=centro_custo_id_resolvido
             )
             if lancs_atrasados:
                 atrasados += 1
@@ -201,12 +215,6 @@ async def upload_pagamentos(
                 empresa_id
             )
             lanc_raw["entidade_id"] = entidade_id
-            
-            # Adiciona conta_id e centro_custo_id aos dados do lançamento
-            if conta_id:
-                lanc_raw["conta_id"] = conta_id
-            if centro_custo_id:
-                lanc_raw["centro_custo_id"] = centro_custo_id
             
             lancamentos_processados.append(LancamentoImportado(**lanc_raw))
         
@@ -246,6 +254,11 @@ async def confirmar_lancamentos(
     lancamentos_atualizados = 0
     erros = []
     
+    conta_resolvida = None
+    centro_custo_resolvido = None
+    if request.conta_id:
+        conta_resolvida, centro_custo_resolvido = _resolver_conta_e_centro(db, empresa_id, request.conta_id)
+
     for lanc_data in request.lancamentos:
         try:
             # Se tem duplicata, pula
@@ -281,10 +294,12 @@ async def confirmar_lancamentos(
                     if lanc_data.get("entidade_id"):
                         lanc_existente.entidade_id = lanc_data["entidade_id"]
                     # Atualiza conta e centro de custo se fornecidos
-                    if request.conta_id:
-                        lanc_existente.conta_id = request.conta_id
-                    if request.centro_custo_id:
-                        lanc_existente.centro_custo_id = request.centro_custo_id
+                    if conta_resolvida:
+                        lanc_existente.conta_id = conta_resolvida.id
+                    if centro_custo_resolvido:
+                        lanc_existente.centro_custo_id = centro_custo_resolvido
+                    if lanc_data.get("import_hash") and not lanc_existente.import_hash:
+                        lanc_existente.import_hash = lanc_data["import_hash"]
                     db.add(lanc_existente)
                     lancamentos_atualizados += 1
                     continue
@@ -306,9 +321,11 @@ async def confirmar_lancamentos(
                         if lanc_data.get("plano_contas_id"):
                             lanc_atrasado.plano_contas_id = lanc_data["plano_contas_id"]
                         if request.conta_id:
-                            lanc_atrasado.conta_id = request.conta_id
-                        if request.centro_custo_id:
-                            lanc_atrasado.centro_custo_id = request.centro_custo_id
+                            lanc_atrasado.conta_id = conta_resolvida.id if conta_resolvida else request.conta_id
+                        if centro_custo_resolvido:
+                            lanc_atrasado.centro_custo_id = centro_custo_resolvido
+                        if lanc_data.get("import_hash") and not lanc_atrasado.import_hash:
+                            lanc_atrasado.import_hash = lanc_data["import_hash"]
                         db.add(lanc_atrasado)
                         lancamentos_atualizados += 1
                 
@@ -389,8 +406,9 @@ async def confirmar_lancamentos(
                 empresa_id=empresa_id,
                 plano_contas_id=plano_contas_id,
                 entidade_id=lanc_data.get("entidade_id"),
-                conta_id=lanc_data.get("conta_id") or request.conta_id,  # Prioriza conta do lançamento
-                centro_custo_id=lanc_data.get("centro_custo_id") or request.centro_custo_id,  # Prioriza centro de custo do lançamento
+                conta_id=(conta_resolvida.id if conta_resolvida else lanc_data.get("conta_id") or request.conta_id),
+                centro_custo_id=(centro_custo_resolvido or lanc_data.get("centro_custo_id") or request.centro_custo_id),
+                import_hash=lanc_data.get("import_hash"),
                 ipp=False
             )
             
@@ -409,6 +427,43 @@ async def confirmar_lancamentos(
         "lancamentos_atualizados": lancamentos_atualizados,
         "erros": erros
     }
+
+
+def _resolver_conta_e_centro(db: Session, empresa_id: int, conta_id: Optional[int]) -> tuple[Conta, int]:
+    if not conta_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Selecione uma conta vinculada ao Itaú para importar."
+        )
+
+    conta = db.exec(
+        select(Conta).where(
+            Conta.id == conta_id,
+            Conta.empresa_id == empresa_id
+        )
+    ).first()
+
+    if not conta:
+        raise HTTPException(status_code=404, detail="Conta não encontrada")
+
+    centro_custo_id = conta.centro_custo_id
+    if not centro_custo_id:
+        centros = db.exec(
+            select(CentroCusto.id).where(CentroCusto.empresa_id == empresa_id)
+        ).all()
+        if len(centros) == 1:
+            centro_custo_id = centros[0]
+            conta.centro_custo_id = centro_custo_id
+            db.add(conta)
+            db.commit()
+            db.refresh(conta)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Conta precisa estar vinculada a um centro de custo."
+            )
+
+    return conta, centro_custo_id
 
 
 

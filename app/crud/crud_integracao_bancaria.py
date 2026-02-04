@@ -58,6 +58,8 @@ def create(db: Session, *, obj_in: IntegracaoBancariaCreate, empresa_id: int) ->
         intervalo_sincronizacao_minutos=obj_in.intervalo_sincronizacao_minutos,
         categoria_padrao_id=obj_in.categoria_padrao_id,
         usar_categoria_a_categorizar=obj_in.usar_categoria_a_categorizar,
+        conta_id=obj_in.conta_id,
+        centro_custo_id=obj_in.centro_custo_id,
         empresa_id=empresa_id,
         updated_at=datetime.utcnow()
     )

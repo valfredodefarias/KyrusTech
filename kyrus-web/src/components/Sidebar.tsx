@@ -89,7 +89,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
     { icon: ClipboardList, label: 'Auditoria', path: '/auditoria' },
     
     // --- SISTEMA ---
-    { icon: LinkIcon, label: 'Integrações', path: '/integracoes' },
+    { icon: LinkIcon, label: 'Integrações', path: '/integracoes/asaas' },
     { icon: Settings, label: 'Configurações', path: '/config' },
   ];
 

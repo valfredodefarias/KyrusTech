@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { 
   Landmark, RefreshCw, Plus, Edit2, Trash2, ChevronRight, X, Check, Loader2, 
-  Banknote, TrendingUp, AlertTriangle, Filter, Search
+  Banknote, TrendingUp, AlertTriangle, Filter, Search, Settings
 } from 'lucide-react';
 
 // --- TIPAGENS ---
@@ -10,12 +11,16 @@ interface Conta {
   id: number;
   nome: string;
   banco?: string;
+  agencia?: string | null;
+  conta_numero?: string | null;
+  conta_digito?: string | null;
   logo_url?: string | null;
   tipo: 'CORRENTE' | 'POUPANCA' | 'CAIXA' | 'INVESTIMENTO';
   saldo_inicial: number;
   saldo_atual: number;
   centro_custo_id?: number;
   status: 'ATIVO' | 'INATIVO';
+  tipo_integracao?: string | null;
 }
 
 interface CentroCusto {
@@ -34,11 +39,15 @@ interface LancamentoExtrato {
 interface FormConta {
   nome: string;
   banco: string;
+  agencia?: string | null;
+  conta_numero?: string | null;
+  conta_digito?: string | null;
   tipo: string;
   saldo_inicial: string; 
   centro_custo_id: string;
   status: string;
   logo_url?: string | null;
+  tipo_integracao?: string | null;
 }
 
 interface UserData {
@@ -50,6 +59,27 @@ interface EmpresaData {
 }
 
 export function Contas() {
+  const navigate = useNavigate();
+  const bancosEspeciais = [
+    {
+      id: 'MANUAL',
+      label: 'Nenhum',
+      value: 'MANUAL',
+      logo: null
+    },
+    {
+      id: 'ITAU',
+      label: 'Itaú',
+      value: 'ITAU',
+      logo: '/itau.png'
+    },
+    {
+      id: 'ASAAS',
+      label: 'Asaas',
+      value: 'ASAAS',
+      logo: '/asaas-acelerados.png'
+    }
+  ];
   const [loading, setLoading] = useState(true);
   const [contas, setContas] = useState<Conta[]>([]);
   const [centros, setCentros] = useState<CentroCusto[]>([]);
@@ -88,10 +118,14 @@ export function Contas() {
   const [form, setForm] = useState<FormConta>({
     nome: '',
     banco: '',
+    agencia: '',
+    conta_numero: '',
+    conta_digito: '',
     tipo: 'CORRENTE',
     saldo_inicial: '',
     centro_custo_id: '',
-    status: 'ATIVO'
+    status: 'ATIVO',
+    tipo_integracao: 'MANUAL'
   });
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -164,7 +198,7 @@ export function Contas() {
   function handleOpenCreate() {
     setIsEditing(false);
     setEditingId(null);
-    setForm({ nome: '', banco: '', tipo: 'CORRENTE', saldo_inicial: '', centro_custo_id: '', status: 'ATIVO', logo_url: null });
+    setForm({ nome: '', banco: '', agencia: '', conta_numero: '', conta_digito: '', tipo: 'CORRENTE', saldo_inicial: '', centro_custo_id: '', status: 'ATIVO', logo_url: null, tipo_integracao: 'MANUAL' });
     setLogoFile(null);
     setLogoPreview('');
     setLogoRemoved(false);
@@ -177,11 +211,15 @@ export function Contas() {
     setForm({
       nome: conta.nome,
       banco: conta.banco || '',
+      agencia: conta.agencia || '',
+      conta_numero: conta.conta_numero || '',
+      conta_digito: conta.conta_digito || '',
       tipo: conta.tipo,
       saldo_inicial: String(conta.saldo_inicial || 0),
       centro_custo_id: conta.centro_custo_id ? String(conta.centro_custo_id) : '',
       status: conta.status,
-      logo_url: conta.logo_url || null
+      logo_url: conta.logo_url || null,
+      tipo_integracao: conta.tipo_integracao || 'MANUAL'
     });
     setLogoPreview(conta.logo_url || '');
     setLogoFile(null);
@@ -437,6 +475,15 @@ export function Contas() {
                         
                         {/* Ações (aparecem no hover) */}
                         <div className="opacity-0 group-hover:opacity-100 transition flex gap-1">
+                            {c.tipo_integracao === 'ASAAS' && (
+                              <button
+                                onClick={() => navigate(`/integracoes/asaas?conta_id=${c.id}`)}
+                                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded text-slate-500"
+                                title="Configurar integração Asaas"
+                              >
+                                <Settings className="w-4 h-4" />
+                              </button>
+                            )}
                             <button onClick={() => handleOpenEdit(c)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded" style={{ color: primaryColor }}>
                                 <Edit2 className="w-4 h-4" />
                             </button>
@@ -532,6 +579,74 @@ export function Contas() {
                         placeholder="Ex: Nubank" 
                         value={form.banco}
                         onChange={e => setForm({...form, banco: e.target.value})}
+                      />
+                  </div>
+              </div>
+
+              <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Bancos Especiais</label>
+                  <div className="grid grid-cols-3 gap-3">
+                      {bancosEspeciais.map(banco => {
+                        const selected = (form.tipo_integracao || 'MANUAL') === banco.value;
+                        return (
+                          <button
+                            key={banco.id}
+                            type="button"
+                            onClick={() => setForm({ ...form, tipo_integracao: banco.value })}
+                            className={`rounded-lg border px-3 py-3 text-left transition flex flex-col gap-2 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center overflow-hidden shadow-sm">
+                                {banco.logo ? (
+                                  <img src={banco.logo} alt={banco.label} className="w-full h-full object-cover rounded-full" />
+                                ) : (
+                                  <span className="text-[12px] text-slate-500">—</span>
+                                )}
+                              </div>
+                              <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{banco.label}</div>
+                            </div>
+                            <div className={`text-[10px] uppercase font-bold ${selected ? 'text-blue-600 dark:text-blue-300' : 'text-slate-400'}`}>
+                              {selected ? 'Selecionado' : 'Selecionar'}
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">Selecione Itaú para aparecer em Bancos Especiais.</p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                  <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Agência</label>
+                      <input 
+                        type="text" 
+                        className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
+                        style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                        placeholder="Ex: 1234" 
+                        value={form.agencia || ''}
+                        onChange={e => setForm({...form, agencia: e.target.value})}
+                      />
+                  </div>
+                  <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta</label>
+                      <input 
+                        type="text" 
+                        className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
+                        style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                        placeholder="Ex: 56789" 
+                        value={form.conta_numero || ''}
+                        onChange={e => setForm({...form, conta_numero: e.target.value})}
+                      />
+                  </div>
+                  <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Dígito</label>
+                      <input 
+                        type="text" 
+                        className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
+                        style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                        placeholder="Ex: 0" 
+                        value={form.conta_digito || ''}
+                        onChange={e => setForm({...form, conta_digito: e.target.value})}
                       />
                   </div>
               </div>

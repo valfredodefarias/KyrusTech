@@ -110,27 +110,27 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
                         <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 uppercase tracking-wide">
-                            Conta Bancária de Destino
+                            Bancos Especiais
                         </label>
                         <select 
                             id="selectContaItau"
                             class="w-full px-4 py-3 border-2 border-blue-200 dark:border-blue-800 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
                         >
-                            <option value="">Selecione uma conta...</option>
+                            <option value="">Selecione uma conta especial...</option>
                         </select>
                         <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Os lançamentos serão vinculados a esta conta</p>
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 uppercase tracking-wide">
-                            Centro de Custo
+                            Centro de Custo (automático)
                         </label>
-                        <select 
+                        <div 
                             id="selectCentroCustoItau"
-                            class="w-full px-4 py-3 border-2 border-blue-200 dark:border-blue-800 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
+                            class="w-full px-4 py-3 border-2 border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
                         >
-                            <option value="">Selecione um centro de custo...</option>
-                        </select>
-                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Busca lançamentos previstos neste centro de custo</p>
+                            Selecione uma conta especial...
+                        </div>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Vinculado à conta escolhida</p>
                     </div>
                 </div>
 
@@ -192,6 +192,21 @@
                 <div>
                     <label class="label-senior">Banco (Instituição)</label>
                     <input type="text" id="banco" class="input-senior" placeholder="Ex: Nubank">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-4">
+                <div>
+                    <label class="label-senior">Agência</label>
+                    <input type="text" id="agencia" class="input-senior" placeholder="Ex: 1234">
+                </div>
+                <div>
+                    <label class="label-senior">Conta</label>
+                    <input type="text" id="conta_numero" class="input-senior" placeholder="Ex: 56789">
+                </div>
+                <div>
+                    <label class="label-senior">Dígito</label>
+                    <input type="text" id="conta_digito" class="input-senior" placeholder="Ex: 0">
                 </div>
             </div>
 
@@ -311,6 +326,10 @@
                 if(c.tipo === 'CAIXA') icon = 'banknote';
                 if(c.tipo === 'INVESTIMENTO') icon = 'trending-up';
 
+                const agencia = c.agencia ? `Ag ${c.agencia}` : '';
+                const contaNum = c.conta_numero ? `Cc ${c.conta_numero}${c.conta_digito ? '-' + c.conta_digito : ''}` : '';
+                const contaInfo = [agencia, contaNum].filter(Boolean).join(' / ');
+
                 const html = `
                 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5 relative group conta-card">
                     <div class="flex justify-between items-start mb-4">
@@ -321,6 +340,7 @@
                             <div>
                                 <h3 class="font-bold text-slate-700 dark:text-slate-200 leading-tight">${c.nome}</h3>
                                 <p class="text-[10px] uppercase font-bold text-slate-400 mt-0.5">${c.banco || c.tipo}</p>
+                                ${contaInfo ? `<p class="text-[10px] text-slate-400 mt-0.5">${contaInfo}</p>` : ''}
                             </div>
                         </div>
                         <div class="opacity-0 group-hover:opacity-100 transition flex gap-1">
@@ -387,6 +407,9 @@
             document.getElementById('drawerTitulo').innerText = 'Nova Conta';
             document.getElementById('nome').value = '';
             document.getElementById('banco').value = '';
+            document.getElementById('agencia').value = '';
+            document.getElementById('conta_numero').value = '';
+            document.getElementById('conta_digito').value = '';
             document.getElementById('saldo_inicial').value = '';
             
             document.getElementById('drawerOverlay').classList.add('overlay-open');
@@ -401,6 +424,9 @@
             document.getElementById('drawerTitulo').innerText = 'Editar Conta';
             document.getElementById('nome').value = c.nome;
             document.getElementById('banco').value = c.banco;
+            document.getElementById('agencia').value = c.agencia || '';
+            document.getElementById('conta_numero').value = c.conta_numero || '';
+            document.getElementById('conta_digito').value = c.conta_digito || '';
             document.getElementById('tipo').value = c.tipo;
             document.getElementById('saldo_inicial').value = c.saldo_inicial;
             document.getElementById('centro_custo_id').value = c.centro_custo_id || '';
@@ -415,6 +441,9 @@
             const payload = {
                 nome: document.getElementById('nome').value,
                 banco: document.getElementById('banco').value,
+                agencia: document.getElementById('agencia').value || null,
+                conta_numero: document.getElementById('conta_numero').value || null,
+                conta_digito: document.getElementById('conta_digito').value || null,
                 tipo: document.getElementById('tipo').value,
                 saldo_inicial: parseFloat(document.getElementById('saldo_inicial').value) || 0,
                 centro_custo_id: parseInt(document.getElementById('centro_custo_id').value) || null,
@@ -453,14 +482,8 @@
             centrosCache.forEach(cc => {
                 sel.innerHTML += `<option value="${cc.id}">${cc.nome}</option>`;
             });
-            
-            // Popula também o select da importação Itaú
-            const selItau = document.getElementById('selectCentroCustoItau');
-            if (selItau) {
-                selItau.innerHTML = '<option value="">Selecione um centro de custo...</option>';
-                centrosCache.forEach(cc => {
-                    selItau.innerHTML += `<option value="${cc.id}">${cc.nome}</option>`;
-                });
+            if (centrosCache.length === 1) {
+                sel.value = centrosCache[0].id;
             }
         }
 
@@ -468,25 +491,43 @@
             const sel = document.getElementById('selectContaItau');
             if (!sel) return;
             
-            sel.innerHTML = '<option value="">Selecione uma conta...</option>';
-            contasCache.forEach(conta => {
+            sel.innerHTML = '<option value="">Selecione uma conta especial...</option>';
+            const contasEspeciais = contasCache.filter(conta => conta.tipo_integracao && conta.tipo_integracao !== 'MANUAL');
+            contasEspeciais.forEach(conta => {
+                const agencia = conta.agencia ? `Ag ${conta.agencia}` : 'Ag -';
+                const contaNumero = conta.conta_numero ? `Cc ${conta.conta_numero}${conta.conta_digito ? '-' + conta.conta_digito : ''}` : 'Cc -';
                 const option = document.createElement('option');
                 option.value = conta.id;
-                option.textContent = `${conta.nome} (${conta.banco || conta.tipo})`;
+                option.textContent = `${conta.nome} (${conta.banco || conta.tipo}) - ${agencia} / ${contaNumero}`;
                 sel.appendChild(option);
             });
+            sel.addEventListener('change', atualizarCentroItauInfo);
+            atualizarCentroItauInfo();
+        }
+
+        function atualizarCentroItauInfo() {
+            const sel = document.getElementById('selectContaItau');
+            const container = document.getElementById('selectCentroCustoItau');
+            if (!sel || !container) return;
+            const contaId = sel.value ? parseInt(sel.value) : null;
+            const conta = contasCache.find(c => c.id === contaId);
+            if (!conta || !conta.centro_custo_id) {
+                container.textContent = 'Centro de custo não definido';
+                return;
+            }
+            const centro = centrosCache.find(cc => cc.id === conta.centro_custo_id);
+            container.textContent = centro ? centro.nome : 'Centro de custo não definido';
         }
 
         // Expõe função globalmente
         window.abrirImportacaoItau = function(tipo = 'extrato') {
             const contaId = document.getElementById('selectContaItau')?.value;
-            const centroCustoId = document.getElementById('selectCentroCustoItau')?.value;
             
             if (!contaId) {
                 Swal.fire({
                     icon: 'warning',
                     title: 'Conta não selecionada',
-                    text: 'Por favor, selecione uma conta bancária de destino antes de importar.',
+                    text: 'Por favor, selecione uma conta especial antes de importar.',
                     confirmButtonText: 'OK',
                     confirmButtonColor: '#3b82f6'
                 });
@@ -496,9 +537,6 @@
             // Redireciona para página de importação com parâmetros
             const params = new URLSearchParams();
             params.set('conta_id', contaId);
-            if (centroCustoId) {
-                params.set('centro_custo_id', centroCustoId);
-            }
             if (tipo === 'pagamentos') {
                 params.set('tipo', 'pagamentos');
             }

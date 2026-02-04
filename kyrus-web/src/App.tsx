@@ -15,6 +15,7 @@ import { Entidades } from './pages/Entidades';
 import { Cartoes } from './pages/Cartoes';
 import { Configuracoes } from './pages/Configuracoes'; // <--- NOVO IMPORT
 import { Auditoria } from './pages/Auditoria';
+import { IntegracaoAsaas } from './pages/IntegracaoAsaas';
 
 // Components & Store
 import { Layout } from './components/Layout';
@@ -53,7 +54,8 @@ function App() {
           {/* Placeholder para Dashboard */}
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/auditoria" element={<Auditoria />} />
-          <Route path="/integracoes" element={<div>Em breve: Integrações</div>} />
+          <Route path="/integracoes" element={<Navigate to="/integracoes/asaas" replace />} />
+          <Route path="/integracoes/asaas" element={<IntegracaoAsaas />} />
         </Route>
 
         {/* Fallback: Qualquer rota desconhecida vai para Home */}

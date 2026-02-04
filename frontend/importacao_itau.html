@@ -122,13 +122,13 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                            Conta Bancária (opcional)
+                            Bancos Especiais
                         </label>
                         <select 
                             id="selectContaImportacao"
                             class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary"
                         >
-                            <option value="">Nenhuma conta selecionada</option>
+                            <option value="">Selecione uma conta especial</option>
                         </select>
                         <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
                             Lançamentos serão vinculados a esta conta
@@ -136,16 +136,16 @@
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                            Centro de Custo (opcional)
+                            Centro de Custo (automático)
                         </label>
-                        <select 
+                        <div 
                             id="selectCentroCustoImportacao"
-                            class="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary"
+                            class="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                         >
-                            <option value="">Nenhum centro de custo</option>
-                        </select>
+                            Selecione uma conta especial...
+                        </div>
                         <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                            Centro de custo padrão para os lançamentos
+                            Centro de custo vinculado à conta selecionada
                         </p>
                     </div>
                 </div>
@@ -268,16 +268,15 @@
             await renderSidebar('contas');
             lucide.createIcons();
 
-            // Lê parâmetros da URL (conta_id, centro_custo_id e tipo)
+            // Lê parâmetros da URL (conta_id e tipo)
             const urlParams = new URLSearchParams(window.location.search);
             const contaIdParam = urlParams.get('conta_id');
-            const centroCustoIdParam = urlParams.get('centro_custo_id');
             const tipoParam = urlParams.get('tipo');
 
             await Promise.all([
                 carregarCategorias(),
                 carregarContas(contaIdParam),
-                carregarCentrosCusto(centroCustoIdParam)
+                carregarCentrosCusto()
             ]);
 
             // Se veio com tipo específico, mostra apenas aquele tipo
@@ -301,38 +300,47 @@
             try {
                 contas = await apiFetch('/contas/');
                 const select = document.getElementById('selectContaImportacao');
-                select.innerHTML = '<option value="">Nenhuma conta selecionada</option>';
-                contas.forEach(conta => {
+                select.innerHTML = '<option value="">Selecione uma conta especial</option>';
+                const contasEspeciais = (contas || []).filter(conta => conta.tipo_integracao && conta.tipo_integracao !== 'MANUAL');
+                contasEspeciais.forEach(conta => {
+                    const agencia = conta.agencia ? `Ag ${conta.agencia}` : 'Ag -';
+                    const contaNumero = conta.conta_numero ? `Cc ${conta.conta_numero}${conta.conta_digito ? '-' + conta.conta_digito : ''}` : 'Cc -';
                     const option = document.createElement('option');
                     option.value = conta.id;
-                    option.textContent = `${conta.nome} (${conta.tipo})`;
+                    option.textContent = `${conta.nome} (${conta.banco || conta.tipo}) - ${agencia} / ${contaNumero}`;
                     if (contaIdPreSelecionada && conta.id == contaIdPreSelecionada) {
                         option.selected = true;
                     }
                     select.appendChild(option);
                 });
+                select.addEventListener('change', atualizarCentroCustoImportacao);
+                atualizarCentroCustoImportacao();
             } catch (error) {
                 console.error('Erro ao carregar contas:', error);
             }
         }
 
-        async function carregarCentrosCusto(centroCustoIdPreSelecionado = null) {
+        async function carregarCentrosCusto() {
             try {
                 centrosCusto = await apiFetch('/centro_custo/');
-                const select = document.getElementById('selectCentroCustoImportacao');
-                select.innerHTML = '<option value="">Nenhum centro de custo</option>';
-                centrosCusto.forEach(centro => {
-                    const option = document.createElement('option');
-                    option.value = centro.id;
-                    option.textContent = centro.nome;
-                    if (centroCustoIdPreSelecionado && centro.id == centroCustoIdPreSelecionado) {
-                        option.selected = true;
-                    }
-                    select.appendChild(option);
-                });
+                atualizarCentroCustoImportacao();
             } catch (error) {
                 console.error('Erro ao carregar centros de custo:', error);
             }
+        }
+
+        function atualizarCentroCustoImportacao() {
+            const selectConta = document.getElementById('selectContaImportacao');
+            const container = document.getElementById('selectCentroCustoImportacao');
+            if (!selectConta || !container) return;
+            const contaId = selectConta.value ? parseInt(selectConta.value) : null;
+            const conta = (contas || []).find(c => c.id === contaId);
+            if (!conta || !conta.centro_custo_id) {
+                container.textContent = 'Centro de custo não definido';
+                return;
+            }
+            const centro = (centrosCusto || []).find(cc => cc.id === conta.centro_custo_id);
+            container.textContent = centro ? centro.nome : 'Centro de custo não definido';
         }
 
         window.uploadExtrato = async function(event) {
@@ -360,9 +368,11 @@
                 const formData = new FormData();
                 formData.append('arquivo', file);
                 
-                // Adiciona conta_id e centro_custo_id como query parameters
+                // Adiciona conta_id como query parameter
                 const contaId = document.getElementById('selectContaImportacao').value;
-                const centroCustoId = document.getElementById('selectCentroCustoImportacao').value;
+                if (!contaId) {
+                    throw new Error('Selecione uma conta especial antes de importar.');
+                }
                 
                 const token = localStorage.getItem('token');
                 const { API_BASE_URL } = await import('./js/config.js');
@@ -371,9 +381,6 @@
                 const params = new URLSearchParams();
                 if (contaId) {
                     params.append('conta_id', contaId);
-                }
-                if (centroCustoId) {
-                    params.append('centro_custo_id', centroCustoId);
                 }
                 if (params.toString()) {
                     url += '?' + params.toString();
@@ -394,7 +401,8 @@
 
                 const resultado = await response.json();
                 lancamentosProcessados = resultado.lancamentos || [];
-                
+                autoPreencherReceitas(lancamentosProcessados);
+
                 atualizarEstatisticas(resultado);
                 renderizarLancamentos(lancamentosProcessados);
                 
@@ -417,6 +425,20 @@
             document.getElementById('statPrevistos').textContent = resultado.lancamentos_previstos_encontrados || 0;
             document.getElementById('statAtrasados').textContent = resultado.lancamentos_atrasados_encontrados || 0;
             document.getElementById('totalLancamentos').textContent = `${lancamentosProcessados.length} lançamentos para categorizar`;
+        }
+
+        function autoPreencherReceitas(lancamentos) {
+            if (!Array.isArray(lancamentos) || categorias.length === 0) return;
+            const categoriasReceita = categorias.filter(c => (c.tipo === 'R' || c.tipo === 'RECEITA') && !/categorizar/i.test(c.nome || ''));
+
+            lancamentos.forEach(lanc => {
+                if (lanc.plano_contas_id || lanc.tipo !== 'RECEITA') return;
+                const descricao = (lanc.descricao || '').toLowerCase();
+                const match = categoriasReceita.find(cat => descricao.includes((cat.nome || '').toLowerCase()));
+                if (match) {
+                    lanc.plano_contas_id = match.id;
+                }
+            });
         }
 
         function renderizarLancamentos(lancamentos) {
@@ -713,14 +735,12 @@
 
             try {
                 const contaId = document.getElementById('selectContaImportacao').value || null;
-                const centroCustoId = document.getElementById('selectCentroCustoImportacao').value || null;
                 
                 const resultado = await apiFetch('/importacao-itau/confirmar-lancamentos', {
                     method: 'POST',
                     body: JSON.stringify({
                         lancamentos: lancamentosProcessados,
-                        conta_id: contaId ? parseInt(contaId) : null,
-                        centro_custo_id: centroCustoId ? parseInt(centroCustoId) : null
+                        conta_id: contaId ? parseInt(contaId) : null
                     })
                 });
 

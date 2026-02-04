@@ -20,7 +20,8 @@ export function Layout() {
   }, [sidebarCollapsed]);
 
   return (
-    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900 font-sans text-slate-800 dark:text-slate-200">
+    <div className={theme === 'dark' ? 'dark' : ''}>
+      <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900 font-sans text-slate-800 dark:text-slate-200">
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
@@ -46,6 +47,7 @@ export function Layout() {
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
           <Outlet />
         </main>
+      </div>
       </div>
     </div>
   );

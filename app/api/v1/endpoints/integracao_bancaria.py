@@ -21,6 +21,10 @@ from app.schemas.integracao_bancaria import (
 from app.models.mapeamento_categoria import MapeamentoCategoria
 from app.models.plano_contas import PlanoContas
 from sqlmodel import select
+from app.services.integracao_asaas import (
+    buscar_cobrancas_asaas,
+    buscar_assinaturas_asaas
+)
 
 router = APIRouter()
 
@@ -76,6 +80,12 @@ def criar_integracao(
             detail=f"Tipo inválido. Tipos válidos: {', '.join(tipos_validos)}"
         )
     
+    if integracao_in.tipo.upper() == "ASAAS" and integracao_in.ambiente.upper() != "PRODUCAO":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Integrações Asaas só são permitidas em PRODUCAO."
+        )
+
     integracao = crud_integracao_bancaria.create(
         db=db,
         obj_in=integracao_in,
@@ -104,6 +114,12 @@ def atualizar_integracao(
             detail="Integração não encontrada"
         )
     
+    if integracao.tipo.upper() == "ASAAS" and integracao_in.ambiente and integracao_in.ambiente.upper() != "PRODUCAO":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Integrações Asaas só são permitidas em PRODUCAO."
+        )
+
     integracao = crud_integracao_bancaria.update(
         db=db,
         db_obj=integracao,
@@ -363,6 +379,59 @@ def listar_tipos_asaas(
                 tipo["categoria_mapeada"] = plano_contas.nome if plano_contas else None
     
     return tipos_asaas
+
+
+@router.get("/{integracao_id}/asaas/cobrancas")
+def listar_cobrancas_asaas(
+    integracao_id: int,
+    status: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    integracao = crud_integracao_bancaria.get(db=db, id=integracao_id, empresa_id=empresa_id)
+    if not integracao:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+    if integracao.tipo.upper() != "ASAAS":
+        raise HTTPException(status_code=400, detail="Esta integração não é do tipo Asaas")
+    return buscar_cobrancas_asaas(db, integracao=integracao, status=status, limit=limit)
+
+
+@router.get("/{integracao_id}/asaas/assinaturas")
+def listar_assinaturas_asaas(
+    integracao_id: int,
+    status: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    integracao = crud_integracao_bancaria.get(db=db, id=integracao_id, empresa_id=empresa_id)
+    if not integracao:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+    if integracao.tipo.upper() != "ASAAS":
+        raise HTTPException(status_code=400, detail="Esta integração não é do tipo Asaas")
+    return buscar_assinaturas_asaas(db, integracao=integracao, status=status, limit=limit)
+
+
+@router.get("/{integracao_id}/asaas/contas-receber")
+def listar_contas_receber_asaas(
+    integracao_id: int,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    integracao = crud_integracao_bancaria.get(db=db, id=integracao_id, empresa_id=empresa_id)
+    if not integracao:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+    if integracao.tipo.upper() != "ASAAS":
+        raise HTTPException(status_code=400, detail="Esta integração não é do tipo Asaas")
+
+    abertas = buscar_cobrancas_asaas(db, integracao=integracao, status="PENDING", limit=limit)
+    atrasadas = buscar_cobrancas_asaas(db, integracao=integracao, status="OVERDUE", limit=limit)
+    return {
+        "abertas": abertas,
+        "atrasadas": atrasadas
+    }
 
 
 

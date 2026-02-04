@@ -1,8 +1,9 @@
 # app/models/integracao_bancaria.py
 
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, List
 from sqlmodel import Field, Relationship, SQLModel
 from .base_audit import AuditMixin # <--- Auditoria
+from datetime import datetime
 
 if TYPE_CHECKING:
     from .empresa import Empresa
@@ -16,7 +17,7 @@ class IntegracaoBancaria(AuditMixin, SQLModel, table=True):
     
     # Identificação
     nome: str = Field(description="Nome amigável, ex: 'Asaas Principal'")
-    provedor: str = Field(index=True) # Ex: "ASAAS", "ITAU", "NUBANK"
+    tipo: str = Field(index=True) # Ex: "ASAAS", "ITAU", "NUBANK"
     ambiente: str = Field(default="PRODUCAO") # "PRODUCAO" ou "SANDBOX"
     
     # --- SEGURANÇA (O Cofre) ---
@@ -31,14 +32,19 @@ class IntegracaoBancaria(AuditMixin, SQLModel, table=True):
     
     # Automação
     sincronizar_automaticamente: bool = Field(default=True)
+    intervalo_sincronizacao_minutos: int = Field(default=60)
+    ultima_sincronizacao: Optional[datetime] = None
+    proxima_sincronizacao: Optional[datetime] = None
+    categoria_padrao_id: Optional[int] = Field(default=None, foreign_key="plano_contas.id")
+    usar_categoria_a_categorizar: bool = Field(default=True)
     ativo: bool = Field(default=True)
     
     # Vínculos
     empresa_id: int = Field(foreign_key="empresas.id", index=True)
-    conta_id: int = Field(foreign_key="contas.id", unique=True, index=True) 
-    # ^ unique=True pois uma conta bancária só deve ter UMA integração ativa de cada vez
+    conta_id: Optional[int] = Field(default=None, foreign_key="contas.id", index=True)
+    centro_custo_id: Optional[int] = Field(default=None, foreign_key="centros_custo.id")
     
     # Relacionamentos
     empresa: "Empresa" = Relationship(back_populates="integracoes_bancarias")
-    conta: "Conta" = Relationship(back_populates="integracao")
-    mapeamentos_categoria: list["MapeamentoCategoria"] = Relationship(back_populates="integracao")
+    conta: Optional["Conta"] = Relationship(back_populates="integracao")
+    mapeamentos_categoria: List["MapeamentoCategoria"] = Relationship(back_populates="integracao")

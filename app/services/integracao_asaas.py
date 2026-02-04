@@ -200,6 +200,64 @@ def buscar_recebimentos_asaas(
         raise
 
 
+def buscar_cobrancas_asaas(
+    db: Session,
+    integracao: IntegracaoBancaria,
+    status: Optional[str] = None,
+    limit: int = 50
+) -> List[Dict]:
+    """
+    Busca cobranças (payments) no Asaas.
+    """
+    token = get_token_decrypted(db, integracao=integracao)
+    base_url = get_asaas_base_url(integracao.ambiente)
+    headers = {
+        "access_token": token,
+        "Content-Type": "application/json"
+    }
+
+    params: Dict[str, str | int] = {"limit": limit}
+    if status:
+        params["status"] = status
+
+    url = f"{base_url}/payments"
+    logger.info(f"Buscando cobranças do Asaas: {url}")
+
+    response = requests.get(url, headers=headers, params=params, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("data", [])
+
+
+def buscar_assinaturas_asaas(
+    db: Session,
+    integracao: IntegracaoBancaria,
+    status: Optional[str] = None,
+    limit: int = 50
+) -> List[Dict]:
+    """
+    Busca assinaturas no Asaas.
+    """
+    token = get_token_decrypted(db, integracao=integracao)
+    base_url = get_asaas_base_url(integracao.ambiente)
+    headers = {
+        "access_token": token,
+        "Content-Type": "application/json"
+    }
+
+    params: Dict[str, str | int] = {"limit": limit}
+    if status:
+        params["status"] = status
+
+    url = f"{base_url}/subscriptions"
+    logger.info(f"Buscando assinaturas do Asaas: {url}")
+
+    response = requests.get(url, headers=headers, params=params, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("data", [])
+
+
 def converter_pagamento_asaas_para_lancamento(
     db: Session,
     pagamento_asaas: Dict,

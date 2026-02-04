@@ -47,6 +47,7 @@ class Lancamento(AuditMixin, SQLModel, table=True):
     id_parcelamento: Optional[str] = None
     observacao: Optional[str] = None
     conciliado: bool = Field(default=False)
+    import_hash: Optional[str] = Field(default=None, index=True)
 
     # --- Chaves Estrangeiras ---
     empresa_id: int = Field(foreign_key="empresas.id", index=True)

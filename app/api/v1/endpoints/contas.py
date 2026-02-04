@@ -16,6 +16,7 @@ from app.crud import crud_conta
 from app.schemas.conta import ContaCreate, ContaRead, ContaUpdate
 from app.schemas.lancamento import LancamentoRead
 from app.models.conta import Conta
+from app.models.centro_custo import CentroCusto
 from app.models.lancamento import Lancamento
 from app.api.v1.deps import get_empresa_id_from_user
 from app.core.network import get_backend_url
@@ -168,6 +169,10 @@ def create_conta(
     conta_in: ContaCreate, 
     empresa_id: int = Depends(get_empresa_id_from_user)
 ):
+    conta_data = conta_in.model_dump()
+    if conta_data.get("centro_custo_id") is None:
+        conta_data["centro_custo_id"] = _resolver_centro_custo_id(db, empresa_id)
+    conta_in = ContaCreate(**conta_data)
     return crud_conta.create(db=db, obj_in=conta_in, empresa_id=empresa_id)
 
 @router.patch("/{conta_id}", response_model=ContaRead)
@@ -181,7 +186,25 @@ def update_conta(
     db_obj = crud_conta.get_by_id(db=db, id=conta_id, empresa_id=empresa_id)
     if not db_obj:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
+    update_data = conta_in.model_dump(exclude_unset=True)
+    if "centro_custo_id" in update_data and update_data.get("centro_custo_id") is None:
+        update_data["centro_custo_id"] = _resolver_centro_custo_id(db, empresa_id)
+    elif "centro_custo_id" not in update_data and db_obj.centro_custo_id is None:
+        update_data["centro_custo_id"] = _resolver_centro_custo_id(db, empresa_id)
+    conta_in = ContaUpdate(**update_data)
     return crud_conta.update(db=db, db_obj=db_obj, obj_in=conta_in)
+
+
+def _resolver_centro_custo_id(db: Session, empresa_id: int) -> int:
+    centros = db.exec(
+        select(CentroCusto.id).where(CentroCusto.empresa_id == empresa_id)
+    ).all()
+    if len(centros) == 1:
+        return centros[0]
+    raise HTTPException(
+        status_code=400,
+        detail="Conta deve estar vinculada a um centro de custo."
+    )
 
 @router.delete("/{conta_id}")
 def delete_conta(

@@ -33,6 +33,11 @@ interface CentroCusto {
   nome: string;
 }
 
+interface TodoItem {
+  id: number;
+  status: 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDO' | 'CANCELADO' | string;
+}
+
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
 const toDateOnly = (d: Date) => d.toISOString().split('T')[0];
@@ -79,6 +84,7 @@ export function Dashboard() {
   const [lancamentosAnoAnterior, setLancamentosAnoAnterior] = useState<Lancamento[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [centros, setCentros] = useState<CentroCusto[]>([]);
+  const [todos, setTodos] = useState<TodoItem[]>([]);
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
 
   const [mes, setMes] = useState(() => new Date().toISOString().slice(0, 7));
@@ -129,10 +135,11 @@ export function Dashboard() {
       }
       const { start: startYear, end: endYear } = getYearRange(yearBase);
       const { start: startPrev, end: endPrev } = getYearRange(yearBase - 1);
-      const [rLanc, rCats, rCentros] = await Promise.all([
+      const [rLanc, rCats, rCentros, rTodos] = await Promise.all([
         api.get('/lancamentos/', { params: { limit: 5000, data_inicio: start, data_fim: end } }),
         api.get('/plano-contas/'),
-        api.get('/centro-custo/')
+        api.get('/centro-custo/'),
+        api.get('/todos/me')
       ]);
       const [rLancAno, rLancAnoAnterior] = await Promise.all([
         api.get('/lancamentos/', { params: { limit: 10000, data_inicio: startYear, data_fim: endYear } }),
@@ -143,6 +150,7 @@ export function Dashboard() {
       setLancamentosAnoAnterior(rLancAnoAnterior.data || []);
       setCategorias(rCats.data || []);
       setCentros(rCentros.data || []);
+      setTodos(rTodos.data || []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -740,7 +748,12 @@ export function Dashboard() {
 
   const totalPrevisto = kpis.receitas + kpis.despesas;
   const execucaoPct = totalPrevisto > 0 ? Math.round((kpis.pagos / totalPrevisto) * 100) : 0;
-  const pendentesPct = totalPrevisto > 0 ? Math.round((kpis.pendentes / totalPrevisto) * 100) : 0;
+  const todoPendentesPct = useMemo(() => {
+    const total = todos.length;
+    if (!total) return 0;
+    const pendentes = todos.filter(t => t.status !== 'CONCLUIDO' && t.status !== 'CANCELADO').length;
+    return Math.round((pendentes / total) * 100);
+  }, [todos]);
   const mediaResultado = resultadoMensal.values.length
     ? resultadoMensal.values.reduce((acc, v) => acc + v, 0) / resultadoMensal.values.length
     : 0;
@@ -1193,8 +1206,8 @@ export function Dashboard() {
                 <p className="text-xl font-bold text-indigo-600">{execucaoPct}%</p>
               </div>
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                <p className="text-xs text-slate-400">Pendentes</p>
-                <p className="text-xl font-bold text-amber-600">{pendentesPct}%</p>
+                <p className="text-xs text-slate-400">Tarefas pendentes</p>
+                <p className="text-xl font-bold text-amber-600">{todoPendentesPct}%</p>
               </div>
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                 <p className="text-xs text-slate-400">Resultado no período</p>

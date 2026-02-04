@@ -57,6 +57,7 @@ def listar_lancamentos(
     limit: int = 100,
     data_inicio: Optional[date] = Query(None),
     data_fim: Optional[date] = Query(None),
+    conta_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
@@ -69,6 +70,8 @@ def listar_lancamentos(
         query = query.where(Lancamento.data_vencimento >= data_inicio)
     if data_fim:
         query = query.where(Lancamento.data_vencimento <= data_fim)
+    if conta_id:
+        query = query.where(Lancamento.conta_id == conta_id)
 
     query = query.order_by(col(Lancamento.data_vencimento).asc()).offset(skip).limit(limit)
     

@@ -152,13 +152,6 @@ export function Consultor() {
   // Tarefas
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [loadingTodos, setLoadingTodos] = useState(false);
-  const [todoResumo, setTodoResumo] = useState({
-    amanha: 0,
-    semana: 0,
-    futuras: 0,
-    atrasadas: 0,
-    concluidas_atraso: 0
-  });
   const [todoFiltro, setTodoFiltro] = useState<'TODOS' | 'HOJE' | 'ATRASADAS' | 'SEMANA' | 'PERIODO'>('TODOS');
   const [todoFiltroInicio, setTodoFiltroInicio] = useState('');
   const [todoFiltroFim, setTodoFiltroFim] = useState('');
@@ -268,8 +261,6 @@ export function Consultor() {
       setLoadingTodos(true);
       const res = await api.get('/consultor/todos');
       setTodos(res.data);
-      const resumo = await api.get('/consultor/todos/resumo');
-      setTodoResumo(resumo.data);
     } catch (error) {
       console.error("Erro ao listar tarefas", error);
     } finally {
@@ -480,6 +471,37 @@ export function Consultor() {
       return true;
     });
   }, [todosBase, todoFiltro, todoFiltroInicio, todoFiltroFim]);
+
+  const todoResumo = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const weekEnd = new Date(today);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+
+    const summary = {
+      amanha: 0,
+      semana: 0,
+      futuras: 0,
+      atrasadas: 0,
+      concluidas_atraso: 0
+    };
+
+    const list = todosBase;
+    list.forEach(t => {
+      const due = parseDateOnly(t.due_date);
+      if (t.status !== 'CONCLUIDO' && t.status !== 'CANCELADO') {
+        if (due && isSameDay(due, tomorrow)) summary.amanha += 1;
+        if (due && due >= today && due <= weekEnd) summary.semana += 1;
+        if (due && due > weekEnd) summary.futuras += 1;
+        if (isOverdue(t)) summary.atrasadas += 1;
+      }
+      if (isCompletedLate(t)) summary.concluidas_atraso += 1;
+    });
+
+    return summary;
+  }, [todosBase]);
 
   const produtividade = useMemo(() => {
     const total = todosBase.length;

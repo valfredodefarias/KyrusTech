@@ -46,13 +46,6 @@ export function Home() {
   const [contas, setContas] = useState<ContaResumo[]>([]);
   const [loading, setLoading] = useState(true);
   const [todos, setTodos] = useState<TodoItem[]>([]);
-  const [todoResumo, setTodoResumo] = useState({
-    amanha: 0,
-    semana: 0,
-    futuras: 0,
-    atrasadas: 0,
-    concluidas_atraso: 0
-  });
 
   useEffect(() => {
     async function loadData() {
@@ -70,8 +63,6 @@ export function Home() {
 
         const resTodos = await api.get<TodoItem[]>('/todos/me');
         setTodos(resTodos.data);
-        const resResumo = await api.get('/todos/resumo');
-        setTodoResumo(resResumo.data);
 
       } catch (error) {
         console.error("Erro ao carregar home:", error);
@@ -131,6 +122,39 @@ export function Home() {
     today.setHours(0, 0, 0, 0);
     return todo.status !== 'CONCLUIDO' && due < today;
   }
+
+  const todoResumo = (() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const weekEnd = new Date(today);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+
+    const summary = {
+      amanha: 0,
+      semana: 0,
+      futuras: 0,
+      atrasadas: 0,
+      concluidas_atraso: 0
+    };
+
+    todos.forEach(t => {
+      const due = parseDateOnly(t.due_date);
+      if (t.status !== 'CONCLUIDO') {
+        if (due && due.getTime() === tomorrow.getTime()) summary.amanha += 1;
+        if (due && due >= today && due <= weekEnd) summary.semana += 1;
+        if (due && due > weekEnd) summary.futuras += 1;
+        if (isOverdue(t)) summary.atrasadas += 1;
+      }
+      const finished = parseDateOnly((t as any).finished_at);
+      if (t.status === 'CONCLUIDO' && due && finished && finished > due) {
+        summary.concluidas_atraso += 1;
+      }
+    });
+
+    return summary;
+  })();
 
   async function iniciarTodo(todoId: number) {
     await api.post(`/todos/${todoId}/iniciar`);

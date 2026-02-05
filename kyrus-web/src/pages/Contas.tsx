@@ -623,7 +623,7 @@ export function Contas() {
                 </button>
                 {extratoConta?.tipo_integracao === 'ITAU' && extratoContaId && (
                   <button
-                    onClick={() => window.location.href = `/importacao_itau.html?conta_id=${extratoContaId}&tipo=extrato`}
+                    onClick={() => window.location.href = `/importacao_itau?conta_id=${extratoContaId}&tipo=extrato`}
                     className="px-4 py-2 rounded-lg text-white font-bold text-sm"
                     style={{ backgroundColor: primaryColor }}
                   >

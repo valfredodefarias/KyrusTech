@@ -1118,11 +1118,14 @@ export function Lancamentos() {
                     </div>
                 )}
 
-                <div className="border-2 border-dashed border-slate-600 rounded-xl p-6 text-center hover:border-blue-500 relative cursor-pointer bg-slate-800/30 hover:bg-slate-800 transition group">
+                <div className="border-2 border-dashed border-slate-600 rounded-2xl p-8 text-center hover:border-blue-500 relative cursor-pointer bg-slate-800/40 hover:bg-slate-800 transition group shadow-sm">
                   <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.xls,.xlsx,.ppt,.pptx" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={e=>setFilesToUpload(e.target.files)}/>
-                  <UploadCloud className="w-8 h-8 mx-auto text-slate-500 mb-2 group-hover:text-blue-500 transition-colors"/>
-                  <p className="text-sm font-medium text-slate-400">Arraste ou clique para anexar</p>
-                  <p className="text-[10px] text-slate-500 mt-1">PDF, Imagens, Excel, PowerPoint</p>
+                  <UploadCloud className="w-10 h-10 mx-auto text-slate-500 mb-3 group-hover:text-blue-500 transition-colors"/>
+                  <p className="text-base font-semibold text-slate-300">Arraste ou clique para anexar</p>
+                  <p className="text-xs text-slate-500 mt-1">PDF, Imagens, Excel, PowerPoint</p>
+                  <div className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-full bg-slate-700 text-slate-100 text-sm font-bold group-hover:bg-blue-600 transition-colors">
+                    Selecionar arquivos
+                  </div>
                   {filesToUpload && <p className="text-xs text-blue-400 font-bold mt-2">{filesToUpload.length} novos arquivos</p>}
                 </div>
               </div>

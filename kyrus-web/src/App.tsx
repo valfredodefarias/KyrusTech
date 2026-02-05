@@ -16,6 +16,7 @@ import { Cartoes } from './pages/Cartoes';
 import { Configuracoes } from './pages/Configuracoes'; // <--- NOVO IMPORT
 import { Auditoria } from './pages/Auditoria';
 import { IntegracaoAsaas } from './pages/IntegracaoAsaas';
+import { ImportacaoItau } from './pages/ImportacaoItau';
 
 // Components & Store
 import { Layout } from './components/Layout';
@@ -50,7 +51,7 @@ function App() {
           {/* Sistema */}
           <Route path="/config" element={<Configuracoes />} /> {/* <--- NOVA ROTA */}
           <Route path="/importacao" element={<Importacao />} /> {/* Mantido para acesso direto se precisar */}
-          <Route path="/importacao_itau" element={<Importacao />} />
+          <Route path="/importacao_itau" element={<ImportacaoItau />} />
           
           {/* Placeholder para Dashboard */}
           <Route path="/dashboard" element={<Dashboard />} />

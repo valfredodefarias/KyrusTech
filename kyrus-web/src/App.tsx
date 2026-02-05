@@ -50,6 +50,7 @@ function App() {
           {/* Sistema */}
           <Route path="/config" element={<Configuracoes />} /> {/* <--- NOVA ROTA */}
           <Route path="/importacao" element={<Importacao />} /> {/* Mantido para acesso direto se precisar */}
+          <Route path="/importacao_itau" element={<Importacao />} />
           
           {/* Placeholder para Dashboard */}
           <Route path="/dashboard" element={<Dashboard />} />

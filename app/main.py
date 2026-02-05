@@ -119,12 +119,16 @@ async def serve_spa(full_path: str):
     Isso permite que o Vue Router funcione corretamente.
     """
     frontend_dist = Path("../kyrus-web/dist")
+    legacy_frontend = Path("../frontend")
     
     # Se for um arquivo com extensão conhecida, tenta servir
     if "." in full_path and not full_path.endswith("/"):
         file_path = frontend_dist / full_path
         if file_path.exists():
             return FileResponse(file_path)
+        legacy_path = legacy_frontend / full_path
+        if legacy_path.exists():
+            return FileResponse(legacy_path)
     
     # Caso contrário, redireciona para index.html (SPA)
     index_path = frontend_dist / "index.html"

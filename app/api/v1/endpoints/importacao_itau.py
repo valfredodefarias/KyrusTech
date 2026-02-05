@@ -1,6 +1,7 @@
 """
 Endpoints para importação de arquivos do Itaú.
 """
+from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from sqlmodel import Session
 from loguru import logger
@@ -26,6 +27,17 @@ from sqlmodel import select
 from pydantic import BaseModel
 
 router = APIRouter()
+
+
+def _serializar_lancamento(lanc_raw: Dict) -> Dict:
+    payload = dict(lanc_raw)
+    data_val = payload.get("data")
+    if isinstance(data_val, date):
+        payload["data"] = data_val.isoformat()
+    data_hora_val = payload.get("data_hora")
+    if isinstance(data_hora_val, datetime):
+        payload["data_hora"] = data_hora_val.isoformat()
+    return payload
 
 
 class LancamentoImportado(BaseModel):
@@ -129,7 +141,7 @@ async def upload_extrato(
             )
             lanc_raw["entidade_id"] = entidade_id
             
-            lancamentos_processados.append(LancamentoImportado(**lanc_raw))
+            lancamentos_processados.append(LancamentoImportado(**_serializar_lancamento(lanc_raw)))
         
         return ProcessarArquivoResponse(
             lancamentos=lancamentos_processados,
@@ -216,7 +228,7 @@ async def upload_pagamentos(
             )
             lanc_raw["entidade_id"] = entidade_id
             
-            lancamentos_processados.append(LancamentoImportado(**lanc_raw))
+            lancamentos_processados.append(LancamentoImportado(**_serializar_lancamento(lanc_raw)))
         
         return ProcessarArquivoResponse(
             lancamentos=lancamentos_processados,

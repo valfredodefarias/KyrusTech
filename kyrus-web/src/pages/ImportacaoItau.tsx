@@ -87,14 +87,8 @@ export function ImportacaoItau() {
 
   useEffect(() => {
     const contaParam = searchParams.get('conta_id');
-    const tipoParam = searchParams.get('tipo');
     if (contaParam && !Number.isNaN(Number(contaParam))) {
       setContaId(Number(contaParam));
-    }
-    if (tipoParam === 'pagamentos') {
-      setTipoArquivo('pagamentos');
-    } else if (tipoParam === 'extrato') {
-      setTipoArquivo('extrato');
     }
   }, [searchParams]);
 
@@ -269,34 +263,16 @@ export function ImportacaoItau() {
           <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
             <div>
               <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta ItaU</label>
-              <select
-                value={contaId}
-                onChange={(e) => setContaId(e.target.value ? Number(e.target.value) : '')}
-                className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm"
-              >
-                <option value="">Selecione...</option>
-                {contas.map((conta) => (
-                  <option key={conta.id} value={conta.id}>
-                    {conta.nome} {conta.banco ? `(${conta.banco})` : ''}
-                  </option>
-                ))}
-              </select>
-              {contaSelecionada && (
-                <p className="text-[11px] text-slate-400 mt-1">Conta: {contaSelecionada.nome}</p>
+              <div className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-sm">
+                {contaSelecionada ? (
+                  <span>{contaSelecionada.nome} {contaSelecionada.banco ? `(${contaSelecionada.banco})` : ''}</span>
+                ) : (
+                  <span className="text-slate-400">Conta nao selecionada</span>
+                )}
+              </div>
+              {!contaSelecionada && (
+                <p className="text-[11px] text-amber-500 mt-1">Abra esta pagina a partir do banco ItaU para preencher a conta automaticamente.</p>
               )}
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Tipo de arquivo</label>
-              <select
-                value={tipoArquivo}
-                onChange={(e) => setTipoArquivo(e.target.value as 'auto' | 'extrato' | 'pagamentos')}
-                className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm"
-              >
-                <option value="auto">Detectar automaticamente</option>
-                <option value="extrato">Extrato (recebimentos)</option>
-                <option value="pagamentos">Relatorio de pagamentos</option>
-              </select>
             </div>
 
             <div>
@@ -312,7 +288,7 @@ export function ImportacaoItau() {
 
             <button
               onClick={handleUpload}
-              disabled={loading}
+              disabled={loading || !contaId}
               className="w-full py-2.5 rounded-lg bg-blue-600 text-white font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}

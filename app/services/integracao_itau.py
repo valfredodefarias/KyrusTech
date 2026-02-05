@@ -9,6 +9,7 @@ from loguru import logger
 import re
 import hashlib
 import json
+import unicodedata
 from openpyxl import load_workbook
 from io import BytesIO
 
@@ -93,6 +94,26 @@ def _normalizar_texto(texto: Optional[str]) -> str:
     return re.sub(r"\s+", " ", str(texto).strip().lower())
 
 
+def _normalizar_cabecalho(texto: Optional[str]) -> str:
+    if not texto:
+        return ""
+    valor = unicodedata.normalize("NFKD", str(texto))
+    valor = "".join([c for c in valor if not unicodedata.combining(c)])
+    valor = re.sub(r"\s+", " ", valor)
+    return valor.strip().lower()
+
+
+def _encontrar_cabecalho(ws, pistas_list: List[List[str]], linhas_max: int = 40) -> Optional[int]:
+    for idx, row in enumerate(ws.iter_rows(values_only=True), 1):
+        if idx > linhas_max:
+            break
+        linha_texto = " ".join([_normalizar_cabecalho(cell) for cell in row if cell is not None])
+        for pistas in pistas_list:
+            if all(pista in linha_texto for pista in pistas):
+                return idx
+    return None
+
+
 def _limpar_cpf_cnpj(cpf_cnpj: Optional[str]) -> str:
     return re.sub(r"[^0-9]", "", cpf_cnpj or "")
 
@@ -129,11 +150,14 @@ def processar_extrato_itau(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
     lancamentos = []
     
     # Procura pela linha de cabeçalho
-    linha_cabecalho = None
-    for idx, row in enumerate(ws.iter_rows(values_only=True), 1):
-        if row and any(cell and "Data" in str(cell) for cell in row):
-            linha_cabecalho = idx
-            break
+    linha_cabecalho = _encontrar_cabecalho(
+        ws,
+        [
+            ["data", "lancamento"],
+            ["data", "lançamento"],
+            ["data", "valor"],
+        ]
+    )
     
     if not linha_cabecalho:
         raise ValueError("Não foi possível encontrar o cabeçalho do extrato")
@@ -239,11 +263,16 @@ def processar_relatorio_pagamentos_itau(arquivo_bytes: bytes, empresa_id: int) -
     lancamentos = []
     
     # Procura pela linha de cabeçalho
-    linha_cabecalho = None
-    for idx, row in enumerate(ws.iter_rows(values_only=True), 1):
-        if row and any(cell and ("favorecido" in str(cell).lower() or "beneficiário" in str(cell).lower()) for cell in row):
-            linha_cabecalho = idx
-            break
+    linha_cabecalho = _encontrar_cabecalho(
+        ws,
+        [
+            ["data", "pagamento", "valor"],
+            ["data", "pagamentos", "valor"],
+            ["data do pagamento", "valor"],
+            ["favorecido", "data", "valor"],
+            ["beneficiario", "data", "valor"],
+        ]
+    )
     
     if not linha_cabecalho:
         raise ValueError("Não foi possível encontrar o cabeçalho do relatório de pagamentos")
@@ -262,7 +291,7 @@ def processar_relatorio_pagamentos_itau(arquivo_bytes: bytes, empresa_id: int) -
     for i, cell in enumerate(cabecalho):
         if not cell:
             continue
-        cell_str = str(cell).upper()
+        cell_str = _normalizar_cabecalho(cell).upper()
         if "FAVORECIDO" in cell_str or "BENEFICIÁRIO" in cell_str or "BENEFICIARIO" in cell_str:
             idx_favorecido = i
         elif "CPF" in cell_str or "CNPJ" in cell_str:

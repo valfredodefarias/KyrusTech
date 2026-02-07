@@ -85,7 +85,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
     { icon: ClipboardList, label: 'Tarefas', path: '/tarefas' },
     
     // --- IMPORTAÇÃO ---
-    { icon: Upload, label: 'Importação', path: '/importacao' },
+    { icon: Upload, label: 'Importação OFX', path: '/importacao_ofx' },
     { icon: ClipboardList, label: 'Auditoria', path: '/auditoria' },
     
     // --- SISTEMA ---

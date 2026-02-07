@@ -17,6 +17,7 @@ import { Configuracoes } from './pages/Configuracoes'; // <--- NOVO IMPORT
 import { Auditoria } from './pages/Auditoria';
 import { IntegracaoAsaas } from './pages/IntegracaoAsaas';
 import { ImportacaoItau } from './pages/ImportacaoItau';
+import { ImportacaoOfx } from './pages/ImportacaoOfx';
 
 // Components & Store
 import { Layout } from './components/Layout';
@@ -52,6 +53,7 @@ function App() {
           <Route path="/config" element={<Configuracoes />} /> {/* <--- NOVA ROTA */}
           <Route path="/importacao" element={<Importacao />} /> {/* Mantido para acesso direto se precisar */}
           <Route path="/importacao_itau" element={<ImportacaoItau />} />
+          <Route path="/importacao_ofx" element={<ImportacaoOfx />} />
           
           {/* Placeholder para Dashboard */}
           <Route path="/dashboard" element={<Dashboard />} />

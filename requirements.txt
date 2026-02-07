@@ -28,5 +28,6 @@ requests==2.31.0
 
 # Processamento de Arquivos
 openpyxl==3.1.2
+ofxparse==0.21
 
 xlsxwriter==3.2.0

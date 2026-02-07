@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     integracao_bancaria,
     anexos,
     importacao_itau,  # <--- IMPORTAÇÃO DO ENDPOINT DE IMPORTAÇÃO
+    importacao_ofx,
     auditoria,
     todos
 )
@@ -46,3 +47,4 @@ api_router.include_router(anexos.router, prefix="/anexos", tags=["Anexos"])
 
 # --- IMPORTAÇÃO DE ARQUIVOS BANCÁRIOS ---
 api_router.include_router(importacao_itau.router, prefix="/importacao", tags=["Importação Itaú"])
+api_router.include_router(importacao_ofx.router, prefix="/importacao", tags=["Importação OFX"])

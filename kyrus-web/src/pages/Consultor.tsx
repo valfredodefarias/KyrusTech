@@ -1477,8 +1477,8 @@ export function Consultor() {
                   <input type="text" className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent dark:text-white focus:border-blue-500 outline-none" value={formEmpresa.razao_social} onChange={e => setFormEmpresa({...formEmpresa, razao_social: e.target.value})} />
                 </div>
                 <div>
-                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">CNPJ</label>
-                  <input type="text" className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent dark:text-white focus:border-blue-500 outline-none" value={formEmpresa.cnpj} onChange={e => setFormEmpresa({...formEmpresa, cnpj: e.target.value})} />
+                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">{formEmpresa.tipo_pessoa === 'PF' ? 'CPF' : 'CNPJ'}</label>
+                  <input type="text" placeholder={formEmpresa.tipo_pessoa === 'PF' ? '000.000.000-00' : '00.000.000/0000-00'} className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent dark:text-white focus:border-blue-500 outline-none" value={formEmpresa.cnpj} onChange={e => setFormEmpresa({...formEmpresa, cnpj: e.target.value})} />
                 </div>
                 <div>
                   <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Tipo</label>

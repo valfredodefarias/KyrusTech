@@ -7,7 +7,8 @@ import {
   TrendingUp, TrendingDown, AlertCircle, CheckCircle2, 
   Trash2, Check, X, UploadCloud, FileText, Loader2, 
   CalendarClock, User, ChevronDown, Save, Paperclip, Download,
-  Image as ImageIcon, FileSpreadsheet, Presentation, LayoutGrid, CheckSquare, Square
+  Image as ImageIcon, FileSpreadsheet, Presentation, LayoutGrid, CheckSquare, Square,
+  Landmark, Info
 } from 'lucide-react';
 
 // --- INTERFACES ---
@@ -20,6 +21,12 @@ interface Lancamento {
   plano_contas_id: number; entidade_id?: number; conta_id?: number;
   cartao_id?: number; centro_custo_id?: number; anexos: Anexo[];
   numero_parcela?: number;
+}
+
+interface ToastItem {
+  id: number;
+  type: 'success' | 'error' | 'info';
+  message: string;
 }
 
 // --- UTILS (CORREÇÃO DE DATA) ---
@@ -298,6 +305,12 @@ export function Lancamentos() {
   // Barra/ações em lote
   const [showBulkPay, setShowBulkPay] = useState(false);
   const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [resumoTopoModo, setResumoTopoModo] = useState<'KPIS' | 'BANCOS'>(() => {
+    const saved = localStorage.getItem('lancamentos.resumoTopoModo');
+    return saved === 'BANCOS' ? 'BANCOS' : 'KPIS';
+  });
+  const [bancosRetratilFechado, setBancosRetratilFechado] = useState(false);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [deleteStep, setDeleteStep] = useState(1);
   const [deletePhrase, setDeletePhrase] = useState('');
   const [deleteReason, setDeleteReason] = useState('');
@@ -341,6 +354,35 @@ export function Lancamentos() {
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
+  const pushToast = (type: ToastItem['type'], message: string) => {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts(prev => [...prev, { id, type, message }]);
+    window.setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3500);
+  };
+
+  const getFullLogoUrl = (url?: string | null) => {
+    if (!url) return null;
+    if (url.startsWith('blob:') || url.startsWith('data:')) return url;
+    const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
+    if (url.startsWith('/static')) return `${baseURL}${url}`;
+    if (url.startsWith('http://') && url.includes('/static/')) {
+      try {
+        const path = new URL(url).pathname;
+        return `${baseURL}${path}`;
+      } catch {
+        return url;
+      }
+    }
+    return url;
+  };
+
+  const getContaSaldo = (conta: any) => {
+    const saldo = Number(conta?.saldo_atual ?? conta?.saldo ?? conta?.saldo_disponivel ?? conta?.saldo_inicial ?? 0);
+    return Number.isFinite(saldo) ? saldo : 0;
+  };
+
   const formatDateYMD = (date: Date) => {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -363,6 +405,15 @@ export function Lancamentos() {
   const refreshLancamentosVisiveis = async () => {
     const { ini, fim } = getVisibleRange();
     await loadLancamentos(ini, fim, { force: true, skipFallback: true });
+  };
+
+  const refreshContasComSaldo = async () => {
+    try {
+      const rC = await api.get('/contas/', { params: { include_saldo: true } });
+      setContas(rC.data || []);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const formatCompetencia = (ymd?: string) => {
@@ -396,6 +447,10 @@ export function Lancamentos() {
     loadAuxData();
   }, []);
 
+  useEffect(() => {
+    localStorage.setItem('lancamentos.resumoTopoModo', resumoTopoModo);
+  }, [resumoTopoModo]);
+
   useEffect(() => { 
     if(!filtrosAvancados.dataInicio && !filtrosAvancados.dataFim) {
         const ano = mesAtual.getFullYear(); const mes = mesAtual.getMonth() + 1;
@@ -420,7 +475,7 @@ export function Lancamentos() {
     if (auxLoadedRef.current) return;
     try {
       const [rC, rCt, rCC, rE, rCat] = await Promise.all([
-        api.get('/contas/', { params: { include_saldo: false } }),
+        api.get('/contas/', { params: { include_saldo: true } }),
         api.get('/cartoes/'),
         api.get('/centro-custo/'),
         fetchEntidadesLookup(),
@@ -433,14 +488,18 @@ export function Lancamentos() {
 
   async function syncCadastros() {
     try {
-      const [rE, rCat] = await Promise.all([
+      const [rE, rCat, rC] = await Promise.all([
         fetchEntidadesLookup(true),
-        fetchPlanoContas(true)
+        fetchPlanoContas(true),
+        api.get('/contas/', { params: { include_saldo: true } })
       ]);
       setEntidades(rE);
       setCategorias(rCat);
+      setContas(rC.data || []);
+      pushToast('success', 'Cadastros e saldos sincronizados.');
     } catch (e) {
       console.error(e);
+      pushToast('error', 'Erro ao sincronizar cadastros.');
     }
   }
 
@@ -489,14 +548,14 @@ export function Lancamentos() {
       console.error(e);
       // Reverte se falhar
       setLancamentos(prev => prev.map(item => item.id === l.id ? { ...item, ipp: l.ipp } : item));
-      alert('Não foi possível marcar/desmarcar IPP');
+      pushToast('error', 'Não foi possível marcar/desmarcar IPP.');
     }
   }
 
   async function handleBulkPay() {
     if (selectedIds.size === 0) return;
     if (!bulkPayData.conta_id) {
-      alert('Selecione uma conta para baixar em lote');
+      pushToast('info', 'Selecione uma conta para baixar em lote.');
       return;
     }
     setSaving(true);
@@ -510,9 +569,11 @@ export function Lancamentos() {
       setShowBulkPay(false);
       setSelectedIds(new Set());
       await refreshLancamentosVisiveis();
+      await refreshContasComSaldo();
+      pushToast('success', 'Baixa em lote concluída.');
     } catch (e) {
       console.error(e);
-      alert('Erro ao baixar em lote');
+      pushToast('error', 'Erro ao baixar em lote.');
     } finally {
       setSaving(false);
     }
@@ -533,9 +594,11 @@ export function Lancamentos() {
       setShowBulkDelete(false);
       setSelectedIds(new Set());
       await refreshLancamentosVisiveis();
+      await refreshContasComSaldo();
+      pushToast('success', 'Lançamentos apagados com sucesso.');
     } catch (e) {
       console.error(e);
-      alert('Erro ao apagar em lote');
+      pushToast('error', 'Erro ao apagar em lote.');
     } finally {
       setSaving(false);
     }
@@ -573,6 +636,10 @@ export function Lancamentos() {
   const contasFiltradas = useMemo(() => {
     return contas.filter(c => !centroCustoFiltro || String(c.centro_custo_id) === String(centroCustoFiltro));
   }, [contas, centroCustoFiltro]);
+
+  const saldoContasTotal = useMemo(() => {
+    return contasFiltradas.reduce((acc, conta) => acc + getContaSaldo(conta), 0);
+  }, [contasFiltradas]);
 
   useEffect(() => {
     if (bulkPayData.conta_id && !contasFiltradas.some(c => String(c.id) === String(bulkPayData.conta_id))) {
@@ -642,6 +709,9 @@ export function Lancamentos() {
         next.data_pagamento = prev.data_vencimento;
         autoPagamentoRef.current = true;
       }
+      if (checked && (!prev.valor_pago || Number(prev.valor_pago) === 0)) {
+        next.valor_pago = prev.valor_previsto;
+      }
       return next;
     });
   };
@@ -684,7 +754,10 @@ export function Lancamentos() {
 
   // --- FUNÇÃO RECUPERADA (FIX) ---
   async function handleCreateEntity() {
-    if(!newEntityData.nome) return alert("Digite o nome");
+    if(!newEntityData.nome) {
+      pushToast('info', 'Digite o nome da entidade.');
+      return;
+    }
     setSaving(true);
     try {
       const res = await api.post('/entidades/', {
@@ -695,11 +768,17 @@ export function Lancamentos() {
       setFormData((prev:any) => ({...prev, entidade_id: res.data.id}));
       setShowEntityDrawer(false); 
       setNewEntityData({ nome: '', tipo: 'AMBOS' });
-    } catch(e) { alert("Erro ao criar entidade"); } finally { setSaving(false); }
+      pushToast('success', 'Entidade criada com sucesso.');
+    } catch(e) {
+      pushToast('error', 'Erro ao criar entidade.');
+    } finally { setSaving(false); }
   }
 
   async function handleTransferencia() {
-    if(!transferData.valor || !transferData.conta_origem_id || !transferData.conta_destino_id) return alert("Preencha campos obrigatórios.");
+    if(!transferData.valor || !transferData.conta_origem_id || !transferData.conta_destino_id) {
+      pushToast('info', 'Preencha os campos obrigatórios da transferência.');
+      return;
+    }
     setSaving(true);
     try {
         await api.post('/lancamentos/transferir', {
@@ -708,15 +787,21 @@ export function Lancamentos() {
             plano_contas_id: transferData.plano_contas_id ? parseInt(transferData.plano_contas_id) : null,
             centro_custo_id: transferData.centro_custo_id ? parseInt(transferData.centro_custo_id) : null
         });
-        alert("Transferência realizada!");
+        pushToast('success', 'Transferência realizada com sucesso!');
         setShowTransfer(false);
-        loadLancamentos(undefined, undefined, { force: true });
-    } catch(e) { alert("Erro na transferência."); } finally { setSaving(false); }
+        await loadLancamentos(undefined, undefined, { force: true });
+        await refreshContasComSaldo();
+    } catch(e) {
+      pushToast('error', 'Erro na transferência.');
+    } finally { setSaving(false); }
   }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    if(!formData.descricao || !formData.valor_previsto || !formData.plano_contas_id) return alert("Preencha campos obrigatórios");
+    if(!formData.descricao || !formData.valor_previsto || !formData.plano_contas_id) {
+      pushToast('info', 'Preencha os campos obrigatórios.');
+      return;
+    }
     setSaving(true);
     try {
       const computedCardDue = formData.cartao_id ? computeCartaoVencimento(formData.data_vencimento, formData.cartao_id) : null;
@@ -770,7 +855,11 @@ export function Lancamentos() {
       // Recarrega inteligente
       if(filtrosAvancados.dataInicio) loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { force: true });
       else { const ano = mesAtual.getFullYear(); const mes = mesAtual.getMonth() + 1; loadLancamentos(new Date(ano, mes-1, 1).toISOString().split('T')[0], new Date(ano, mes, 0).toISOString().split('T')[0], { force: true }); }
-    } catch(e) { alert("Erro ao salvar"); } finally { setSaving(false); }
+      await refreshContasComSaldo();
+      pushToast('success', isEditing ? 'Lançamento atualizado com sucesso.' : 'Lançamento salvo com sucesso.');
+    } catch(e) {
+      pushToast('error', 'Erro ao salvar lançamento.');
+    } finally { setSaving(false); }
   }
 
   // --- RENDER HELPERS ---
@@ -823,12 +912,88 @@ export function Lancamentos() {
         </div>
       </header>
 
-      {/* 2. KPI SECTION */}
-      <div className="px-4 sm:px-6 pt-6 pb-2 grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className="text-emerald-600 dark:text-emerald-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Receitas</p><p className="text-2xl font-black">{BRL.format(kpis.r)}</p></div><div className="p-2 bg-emerald-500/10 dark:bg-emerald-900/20 rounded-lg"><TrendingUp className="text-emerald-600 dark:text-emerald-400 w-6 h-6"/></div></div>
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className="text-red-600 dark:text-red-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Despesas</p><p className="text-2xl font-black">{BRL.format(kpis.d)}</p></div><div className="p-2 bg-red-500/10 dark:bg-red-900/20 rounded-lg"><TrendingDown className="text-red-600 dark:text-red-400 w-6 h-6"/></div></div>
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className="text-blue-600 dark:text-blue-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Saldo</p><p className="text-2xl font-black">{BRL.format(kpis.s)}</p></div><div className="p-2 bg-blue-500/10 dark:bg-blue-900/20 rounded-lg"><Wallet className="text-blue-600 dark:text-blue-400 w-6 h-6"/></div></div>
+      <div className="px-4 sm:px-6 pt-4 flex justify-end">
+        <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 shadow-sm">
+          <button
+            onClick={() => setResumoTopoModo('KPIS')}
+            className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${resumoTopoModo === 'KPIS' ? 'bg-blue-600 text-white' : 'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+          >
+            KPIs
+          </button>
+          <button
+            onClick={() => setResumoTopoModo('BANCOS')}
+            className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${resumoTopoModo === 'BANCOS' ? 'bg-emerald-600 text-white' : 'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+          >
+            Bancos e Saldos
+          </button>
+        </div>
       </div>
+
+      {/* 2. KPI SECTION */}
+      {resumoTopoModo === 'KPIS' ? (
+        <div className="px-4 sm:px-6 pt-6 pb-2 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className="text-emerald-600 dark:text-emerald-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Receitas</p><p className="text-2xl font-black">{BRL.format(kpis.r)}</p></div><div className="p-2 bg-emerald-500/10 dark:bg-emerald-900/20 rounded-lg"><TrendingUp className="text-emerald-600 dark:text-emerald-400 w-6 h-6"/></div></div>
+          <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className="text-red-600 dark:text-red-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Despesas</p><p className="text-2xl font-black">{BRL.format(kpis.d)}</p></div><div className="p-2 bg-red-500/10 dark:bg-red-900/20 rounded-lg"><TrendingDown className="text-red-600 dark:text-red-400 w-6 h-6"/></div></div>
+          <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className="text-blue-600 dark:text-blue-400"><p className="text-[10px] font-bold uppercase mb-1 opacity-70">Saldo</p><p className="text-2xl font-black">{BRL.format(kpis.s)}</p></div><div className="p-2 bg-blue-500/10 dark:bg-blue-900/20 rounded-lg"><Wallet className="text-blue-600 dark:text-blue-400 w-6 h-6"/></div></div>
+        </div>
+      ) : (
+        <div className="px-4 sm:px-6 pt-6 pb-2">
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+            <div className="p-4 flex items-center justify-between border-b border-slate-200 dark:border-slate-700">
+              <div>
+                <p className="text-[10px] font-bold uppercase opacity-70 text-slate-500 dark:text-slate-400">Bancos</p>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Saldos por conta (atualizados)</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className={`px-2.5 py-1 rounded-full text-xs font-bold border ${saldoContasTotal >= 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800' : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800'}`}>
+                  Total: {BRL.format(saldoContasTotal)}
+                </div>
+                <button
+                  onClick={() => setBancosRetratilFechado(prev => !prev)}
+                  className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+                  title={bancosRetratilFechado ? 'Expandir' : 'Recolher'}
+                >
+                  <ChevronDown className={`w-4 h-4 transition-transform ${bancosRetratilFechado ? '-rotate-90' : 'rotate-0'}`} />
+                </button>
+              </div>
+            </div>
+
+            {!bancosRetratilFechado && (
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {contasFiltradas.length === 0 ? (
+                  <div className="col-span-full p-4 rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-sm text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                    <Landmark className="w-4 h-4" />
+                    Nenhuma conta bancária encontrada para os filtros atuais.
+                  </div>
+                ) : (
+                  contasFiltradas.map((conta) => {
+                    const saldo = getContaSaldo(conta);
+                    const logo = getFullLogoUrl(conta.logo_url);
+                    return (
+                      <div key={conta.id} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex items-center justify-center shrink-0">
+                          {logo ? (
+                            <img src={logo} alt={conta.nome} className="w-full h-full object-cover" />
+                          ) : (
+                            <Wallet className="w-4 h-4 text-slate-400" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-bold text-slate-700 dark:text-slate-100 truncate">{conta.nome}</p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{conta.banco || conta.tipo || 'Conta bancária'}</p>
+                        </div>
+                        <div className={`text-sm font-black ${saldo >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {BRL.format(saldo)}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 3. FILTROS RÁPIDOS */}
       <div className="px-4 sm:px-6 py-2 flex gap-2 overflow-x-auto custom-scrollbar pb-4">
@@ -1381,6 +1546,27 @@ export function Lancamentos() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {toasts.length > 0 && (
+        <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`px-4 py-3 rounded-xl shadow-xl border text-sm font-semibold flex items-center gap-2 ${toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-300' : toast.type === 'error' ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/30 dark:border-red-800 dark:text-red-300' : 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-300'}`}
+            >
+              {toast.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : toast.type === 'error' ? <AlertCircle className="w-4 h-4" /> : <Info className="w-4 h-4" />}
+              <span className="flex-1">{toast.message}</span>
+              <button
+                onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+                className="opacity-70 hover:opacity-100"
+                aria-label="Fechar notificação"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
 

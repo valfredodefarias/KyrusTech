@@ -197,6 +197,40 @@ const InputDark = (props: any) => (
   </div>
 );
 
+const ToggleSimNao = ({
+  label,
+  value,
+  onChange,
+  yesLabel = 'Sim',
+  noLabel = 'Não'
+}: {
+  label: string;
+  value: boolean;
+  onChange: (next: boolean) => void;
+  yesLabel?: string;
+  noLabel?: string;
+}) => (
+  <div>
+    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">{label}</label>
+    <div className="grid grid-cols-2 gap-2">
+      <button
+        type="button"
+        onClick={() => onChange(true)}
+        className={`py-2.5 rounded-lg text-sm font-bold border transition ${value ? 'bg-blue-600 text-white border-blue-600 shadow' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+      >
+        {yesLabel}
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange(false)}
+        className={`py-2.5 rounded-lg text-sm font-bold border transition ${!value ? 'bg-slate-700 dark:bg-slate-600 text-white border-slate-700 dark:border-slate-600 shadow' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+      >
+        {noLabel}
+      </button>
+    </div>
+  </div>
+);
+
 const buildExcludedCategoriaIds = (categorias: any[]) => {
   const filhosPorPai = new Map<number, number[]>();
   const excluidas = new Set<number>();
@@ -818,7 +852,7 @@ export function Lancamentos() {
                         <table className="w-full text-left">
                         <thead className="bg-slate-50 dark:bg-slate-900/40 text-[11px] uppercase font-bold text-slate-500">
                           <tr>
-                            <th className="p-3 w-10 text-center">Sel</th>
+                            <th className="p-3 w-14 text-center">Sel</th>
                             <th className="p-3 w-12 text-center">IPP</th>
                             <th className="p-3">Descrição</th>
                             <th className="p-3 hidden md:table-cell">Entidade / Categoria</th>
@@ -832,8 +866,21 @@ export function Lancamentos() {
                                     const pago = String(l.status).toUpperCase() === 'PAGO';
                                     const statusLabel = pago ? 'PAGO' : atrasado ? 'ATRASADO' : l.status;
                                     return (
-                                    <tr key={l.id} onClick={() => openDrawer(l)} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer group ${selectedIds.has(l.id)?'bg-blue-50 dark:bg-blue-900/10': pago ? 'bg-emerald-50/40 dark:bg-emerald-900/10' : atrasado ? 'bg-red-50/40 dark:bg-red-900/10' : ''}`}>
-                                      <td className="p-4 w-10 text-center" onClick={e=>e.stopPropagation()}><input type="checkbox" className="rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 accent-blue-600 cursor-pointer" checked={selectedIds.has(l.id)} onChange={()=>{const s=new Set(selectedIds); if(s.has(l.id)) s.delete(l.id); else s.add(l.id); setSelectedIds(s)}}/></td>
+                                    <tr key={l.id} onClick={() => openDrawer(l)} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer group ${selectedIds.has(l.id)?'bg-blue-100/70 dark:bg-blue-900/20': pago ? 'bg-emerald-100/60 dark:bg-emerald-900/20' : atrasado ? 'bg-red-100/75 dark:bg-red-900/30' : ''}`}>
+                                      <td className="p-4 w-14 text-center" onClick={e=>e.stopPropagation()}>
+                                        <button
+                                          type="button"
+                                          aria-label="Selecionar lançamento"
+                                          onClick={() => {
+                                            const s = new Set(selectedIds);
+                                            if (s.has(l.id)) s.delete(l.id); else s.add(l.id);
+                                            setSelectedIds(s);
+                                          }}
+                                          className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all ${selectedIds.has(l.id) ? 'bg-blue-600 border-blue-600 text-white shadow' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-400 hover:border-blue-500 hover:text-blue-500'}`}
+                                        >
+                                          <Check className={`w-4 h-4 ${selectedIds.has(l.id) ? 'opacity-100' : 'opacity-0'}`} />
+                                        </button>
+                                      </td>
                                         <td className="p-4 w-12 text-center" onClick={(e)=>e.stopPropagation()} onMouseDown={(e)=>e.stopPropagation()}>
                                           <button
                                             type="button"
@@ -1024,10 +1071,7 @@ export function Lancamentos() {
 
               <div className="grid grid-cols-2 gap-4">
                 <InputDark label="Competência (MM-AAAA)" placeholder="02-2026" value={formData.competencia} onChange={(e:any)=>handleCompetenciaChange(e.target.value)} />
-                <label className="flex items-center gap-3 cursor-pointer select-none mt-6">
-                  <input type="checkbox" className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 accent-emerald-600" checked={formData.previsto} onChange={e=>setFormData({...formData, previsto:e.target.checked})}/>
-                  <span className="text-sm font-bold text-slate-800 dark:text-white">Previsto</span>
-                </label>
+                <ToggleSimNao label="Previsto" value={!!formData.previsto} onChange={(next)=>setFormData({...formData, previsto: next})} />
               </div>
 
               {formData.cartao_id && formData.data_vencimento && (
@@ -1038,15 +1082,11 @@ export function Lancamentos() {
 
               {/* PARCELAMENTO */}
               <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                <label className="flex items-center gap-3 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 accent-blue-600"
-                    checked={formData.is_parcelado}
-                    onChange={e=>setFormData({...formData, is_parcelado:e.target.checked})}
-                  />
-                  <span className="text-sm font-bold text-slate-800 dark:text-white">Lançamento parcelado</span>
-                </label>
+                <ToggleSimNao
+                  label="Lançamento parcelado"
+                  value={!!formData.is_parcelado}
+                  onChange={(next)=>setFormData({...formData, is_parcelado: next})}
+                />
 
                 {formData.is_parcelado && (
                   <div className="mt-4 space-y-3">
@@ -1094,12 +1134,13 @@ export function Lancamentos() {
 
               {/* PAGAMENTO */}
               <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                <label className="flex items-center gap-3 cursor-pointer select-none mb-3">
-                  <input type="checkbox" className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 accent-blue-600" checked={formData.status==='PAGO'} onChange={e=>handleStatusPagoChange(e.target.checked)}/>
-                  <span className="text-sm font-bold text-slate-800 dark:text-white">Já foi pago/recebido?</span>
-                </label>
+                <ToggleSimNao
+                  label="Já foi pago/recebido?"
+                  value={formData.status==='PAGO'}
+                  onChange={handleStatusPagoChange}
+                />
                 {formData.status==='PAGO' && (
-                  <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
+                  <div className="grid grid-cols-2 gap-4 mt-3 animate-in fade-in slide-in-from-top-2">
                     <InputDark label="Data da Baixa" type="date" value={formData.data_pagamento} onChange={(e:any)=>handleDataPagamentoChange(e.target.value)} />
                     <InputDark label="Valor Pago (R$)" type="number" step="0.01" className="text-emerald-400 font-bold" value={formData.valor_pago} onChange={(e:any)=>setFormData({...formData, valor_pago:e.target.value})} />
                   </div>

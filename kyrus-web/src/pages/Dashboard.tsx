@@ -134,6 +134,7 @@ export function Dashboard() {
   const [tipoFiltro, setTipoFiltro] = useState<'TODOS' | 'RECEITA' | 'DESPESA'>('TODOS');
   const [previstoFiltro, setPrevistoFiltro] = useState<'TODOS' | 'SIM' | 'NAO'>('TODOS');
   const [competenciaFiltro, setCompetenciaFiltro] = useState('');
+  const [filtroHojeAtivo, setFiltroHojeAtivo] = useState(false);
 
   useEffect(() => {
     const handler = () => setIsDark(document.documentElement.classList.contains('dark'));
@@ -204,9 +205,11 @@ export function Dashboard() {
   }
 
   const filteredLancamentos = useMemo(() => {
+    const hoje = toDateOnly(new Date());
     return lancamentos.filter(l => {
       if ((l.origem || '').toUpperCase() === 'TRANSFERENCIA') return false;
       if (categoriasExcluidasResultado.has(Number(l.plano_contas_id))) return false;
+      if (filtroHojeAtivo && toDateOnlyStr(l.data_vencimento) !== hoje) return false;
       const isPrevisto = l.previsto !== false;
       if (previstoFiltro === 'SIM' && !isPrevisto) return false;
       if (previstoFiltro === 'NAO' && isPrevisto) return false;
@@ -223,12 +226,14 @@ export function Dashboard() {
       if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
       return true;
     });
-  }, [lancamentos, categoriasExcluidasResultado, selectedCategorias, selectedCentro, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro]);
+  }, [lancamentos, categoriasExcluidasResultado, selectedCategorias, selectedCentro, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo]);
 
   const baseFilteredNoDate = useMemo(() => {
+    const hoje = toDateOnly(new Date());
     return lancamentosAno.filter(l => {
       if ((l.origem || '').toUpperCase() === 'TRANSFERENCIA') return false;
       if (categoriasExcluidasResultado.has(Number(l.plano_contas_id))) return false;
+      if (filtroHojeAtivo && toDateOnlyStr(l.data_vencimento) !== hoje) return false;
       const isPrevisto = l.previsto !== false;
       if (previstoFiltro === 'SIM' && !isPrevisto) return false;
       if (previstoFiltro === 'NAO' && isPrevisto) return false;
@@ -243,12 +248,14 @@ export function Dashboard() {
       if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
       return true;
     });
-  }, [lancamentosAno, categoriasExcluidasResultado, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro]);
+  }, [lancamentosAno, categoriasExcluidasResultado, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo]);
 
   const baseFilteredAnoAnterior = useMemo(() => {
+    const hoje = toDateOnly(new Date());
     return lancamentosAnoAnterior.filter(l => {
       if ((l.origem || '').toUpperCase() === 'TRANSFERENCIA') return false;
       if (categoriasExcluidasResultado.has(Number(l.plano_contas_id))) return false;
+      if (filtroHojeAtivo && toDateOnlyStr(l.data_vencimento) !== hoje) return false;
       const isPrevisto = l.previsto !== false;
       if (previstoFiltro === 'SIM' && !isPrevisto) return false;
       if (previstoFiltro === 'NAO' && isPrevisto) return false;
@@ -263,7 +270,7 @@ export function Dashboard() {
       if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
       return true;
     });
-  }, [lancamentosAnoAnterior, categoriasExcluidasResultado, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro]);
+  }, [lancamentosAnoAnterior, categoriasExcluidasResultado, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo]);
 
   const kpis = useMemo(() => {
     let receitas = 0; let despesas = 0; let pagos = 0; let pendentes = 0;
@@ -529,6 +536,18 @@ export function Dashboard() {
       receber: calc(isReceita)
     };
   }, [filteredLancamentos, mes, ano, periodoIni, periodoFim, periodoTipo, selectedDate]);
+
+  const lancamentosContasDetalhe = useMemo(() => {
+    const sorted = [...filteredLancamentos].sort((a, b) => {
+      const da = parseDateLocal(a.data_vencimento)?.getTime() || 0;
+      const db = parseDateLocal(b.data_vencimento)?.getTime() || 0;
+      return db - da;
+    });
+    return {
+      pagar: sorted.filter((l) => isDespesa(l.tipo)).slice(0, 20),
+      receber: sorted.filter((l) => isReceita(l.tipo)).slice(0, 20),
+    };
+  }, [filteredLancamentos]);
 
   const categoriaLancamentos = useMemo(() => {
     if (selectedCategorias.size === 0) return [] as Lancamento[];
@@ -1058,7 +1077,17 @@ export function Dashboard() {
           <X className="w-3 h-3" />
         </button>
       )}
-      {!selectedCategorias.size && !selectedCentro && !selectedDate && !selectedMonth && statusFiltro === 'TODOS' && tipoFiltro === 'TODOS' && previstoFiltro === 'TODOS' && !competenciaFiltro && (
+      {filtroHojeAtivo && (
+        <button
+          onClick={() => setFiltroHojeAtivo(false)}
+          className="px-3 py-1 text-xs font-bold rounded-full bg-cyan-100 text-cyan-700 border border-cyan-200 flex items-center gap-1"
+        >
+          <CalendarRange className="w-3 h-3" />
+          Hoje
+          <X className="w-3 h-3" />
+        </button>
+      )}
+      {!selectedCategorias.size && !selectedCentro && !selectedDate && !selectedMonth && statusFiltro === 'TODOS' && tipoFiltro === 'TODOS' && previstoFiltro === 'TODOS' && !competenciaFiltro && !filtroHojeAtivo && (
         <span className="text-xs text-slate-400">Clique nos gráficos para filtrar</span>
       )}
     </div>
@@ -1181,14 +1210,21 @@ export function Dashboard() {
 
         <div className="flex flex-wrap items-center gap-2">
           {([
+            { key: 'HOJE', label: 'Hoje' },
             { key: 'TODOS', label: 'Todos status' },
             { key: 'PAGO', label: 'Pagos' },
             { key: 'PENDENTE', label: 'Pendentes' }
           ] as const).map(f => (
             <button
               key={f.key}
-              onClick={() => setStatusFiltro(f.key)}
-              className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${statusFiltro === f.key ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white/80 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+              onClick={() => {
+                if (f.key === 'HOJE') {
+                  setFiltroHojeAtivo((prev) => !prev);
+                } else {
+                  setStatusFiltro(f.key);
+                }
+              }}
+              className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${f.key === 'HOJE' ? (filtroHojeAtivo ? 'bg-cyan-600 text-white border-cyan-500' : 'bg-white/80 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700') : (statusFiltro === f.key ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white/80 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700')}`}
             >
               {f.label}
             </button>
@@ -1331,6 +1367,74 @@ export function Dashboard() {
                 <p className="text-xs text-slate-400">Em aberto</p>
                 <p className="font-bold text-amber-600">{BRL.format(contasHoje.receber.emAberto)}</p>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Lançamentos • Contas a Pagar</h3>
+              <span className="text-xs text-slate-400">{lancamentosContasDetalhe.pagar.length} item(ns)</span>
+            </div>
+            <div className="overflow-auto max-h-80 rounded-xl border border-slate-200 dark:border-slate-700">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-900/40 text-slate-500 text-xs uppercase">
+                  <tr>
+                    <th className="p-2 text-left">Descrição</th>
+                    <th className="p-2 text-left">Venc.</th>
+                    <th className="p-2 text-left">Status</th>
+                    <th className="p-2 text-right">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lancamentosContasDetalhe.pagar.length === 0 ? (
+                    <tr><td className="p-3 text-slate-400" colSpan={4}>Sem lançamentos de contas a pagar no filtro atual.</td></tr>
+                  ) : (
+                    lancamentosContasDetalhe.pagar.map((l) => (
+                      <tr key={`pagar-${l.id}`} className="border-t border-slate-100 dark:border-slate-700">
+                        <td className="p-2 text-slate-700 dark:text-slate-200">{l.descricao}</td>
+                        <td className="p-2 text-slate-500">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td>
+                        <td className="p-2"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${isPago(l.status) ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'}`}>{l.status}</span></td>
+                        <td className="p-2 text-right font-bold text-red-500">{BRL.format(Number(l.valor_previsto || 0))}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Lançamentos • Contas a Receber</h3>
+              <span className="text-xs text-slate-400">{lancamentosContasDetalhe.receber.length} item(ns)</span>
+            </div>
+            <div className="overflow-auto max-h-80 rounded-xl border border-slate-200 dark:border-slate-700">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-900/40 text-slate-500 text-xs uppercase">
+                  <tr>
+                    <th className="p-2 text-left">Descrição</th>
+                    <th className="p-2 text-left">Venc.</th>
+                    <th className="p-2 text-left">Status</th>
+                    <th className="p-2 text-right">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lancamentosContasDetalhe.receber.length === 0 ? (
+                    <tr><td className="p-3 text-slate-400" colSpan={4}>Sem lançamentos de contas a receber no filtro atual.</td></tr>
+                  ) : (
+                    lancamentosContasDetalhe.receber.map((l) => (
+                      <tr key={`receber-${l.id}`} className="border-t border-slate-100 dark:border-slate-700">
+                        <td className="p-2 text-slate-700 dark:text-slate-200">{l.descricao}</td>
+                        <td className="p-2 text-slate-500">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td>
+                        <td className="p-2"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${isPago(l.status) ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'}`}>{l.status}</span></td>
+                        <td className="p-2 text-right font-bold text-emerald-600">{BRL.format(Number(l.valor_previsto || 0))}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

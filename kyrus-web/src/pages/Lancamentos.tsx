@@ -348,6 +348,23 @@ export function Lancamentos() {
     return `${y}-${m}-${d}`;
   };
 
+  const getVisibleRange = () => {
+    if (filtrosAvancados.dataInicio && filtrosAvancados.dataFim) {
+      return { ini: filtrosAvancados.dataInicio, fim: filtrosAvancados.dataFim };
+    }
+    const ano = mesAtual.getFullYear();
+    const mes = mesAtual.getMonth() + 1;
+    return {
+      ini: new Date(ano, mes - 1, 1).toISOString().split('T')[0],
+      fim: new Date(ano, mes, 0).toISOString().split('T')[0],
+    };
+  };
+
+  const refreshLancamentosVisiveis = async () => {
+    const { ini, fim } = getVisibleRange();
+    await loadLancamentos(ini, fim, { force: true, skipFallback: true });
+  };
+
   const formatCompetencia = (ymd?: string) => {
     if (!ymd) return '';
     const [y, m] = ymd.split('-');
@@ -492,7 +509,7 @@ export function Lancamentos() {
       });
       setShowBulkPay(false);
       setSelectedIds(new Set());
-      loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { force: true });
+      await refreshLancamentosVisiveis();
     } catch (e) {
       console.error(e);
       alert('Erro ao baixar em lote');
@@ -515,7 +532,7 @@ export function Lancamentos() {
       await api.post('/lancamentos/bulk-delete', { ids: Array.from(selectedIds) });
       setShowBulkDelete(false);
       setSelectedIds(new Set());
-      loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { force: true });
+      await refreshLancamentosVisiveis();
     } catch (e) {
       console.error(e);
       alert('Erro ao apagar em lote');
@@ -852,7 +869,7 @@ export function Lancamentos() {
                         <table className="w-full text-left">
                         <thead className="bg-slate-50 dark:bg-slate-900/40 text-[11px] uppercase font-bold text-slate-500">
                           <tr>
-                            <th className="p-3 w-14 text-center">Sel</th>
+                            <th className="p-3 w-12 text-center">Sel</th>
                             <th className="p-3 w-12 text-center">IPP</th>
                             <th className="p-3">Descrição</th>
                             <th className="p-3 hidden md:table-cell">Entidade / Categoria</th>
@@ -867,7 +884,7 @@ export function Lancamentos() {
                                     const statusLabel = pago ? 'PAGO' : atrasado ? 'ATRASADO' : l.status;
                                     return (
                                     <tr key={l.id} onClick={() => openDrawer(l)} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer group ${selectedIds.has(l.id)?'bg-blue-100/80 dark:bg-blue-900/25': pago ? 'bg-emerald-100/70 dark:bg-emerald-900/25' : atrasado ? 'bg-red-200/80 dark:bg-red-900/40' : ''}`}>
-                                      <td className="p-4 w-14 text-center" onClick={e=>e.stopPropagation()}>
+                                      <td className="p-4 w-12 text-center" onClick={e=>e.stopPropagation()}>
                                         <button
                                           type="button"
                                           aria-label="Selecionar lançamento"
@@ -876,9 +893,9 @@ export function Lancamentos() {
                                             if (s.has(l.id)) s.delete(l.id); else s.add(l.id);
                                             setSelectedIds(s);
                                           }}
-                                          className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center transition-all ${selectedIds.has(l.id) ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-900/20 scale-105' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-400 hover:border-blue-500 hover:text-blue-500 hover:scale-105'}`}
+                                          className={`w-7 h-7 rounded border flex items-center justify-center transition pointer-events-auto ${selectedIds.has(l.id) ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 dark:border-slate-600 text-slate-500 hover:border-blue-400'}`}
                                         >
-                                          <Check className={`w-5 h-5 ${selectedIds.has(l.id) ? 'opacity-100' : 'opacity-0'}`} />
+                                          <Check className={`w-3 h-3 ${selectedIds.has(l.id) ? 'opacity-100' : 'opacity-0'}`} />
                                         </button>
                                       </td>
                                         <td className="p-4 w-12 text-center" onClick={(e)=>e.stopPropagation()} onMouseDown={(e)=>e.stopPropagation()}>

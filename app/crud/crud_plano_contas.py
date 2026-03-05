@@ -7,6 +7,14 @@ from app.models.plano_contas import PlanoContas
 from app.schemas.plano_contas import PlanoContasCreate, PlanoContasUpdate
 
 
+def _apply_model_update(db_obj, update_data: dict) -> None:
+    if hasattr(db_obj, "sqlmodel_update"):
+        db_obj.sqlmodel_update(update_data)
+        return
+    for campo, valor in update_data.items():
+        setattr(db_obj, campo, valor)
+
+
 def _normalizar_tipo_plano(tipo: Optional[str], default: str = "D") -> str:
     valor = (tipo or "").strip().upper()
     if valor.startswith("R"):
@@ -53,7 +61,7 @@ def update(db: Session, *, db_obj: PlanoContas, obj_in: PlanoContasUpdate) -> Pl
         update_data.pop("codigo")
     if "tipo" in update_data and update_data["tipo"] is not None:
         update_data["tipo"] = _normalizar_tipo_plano(update_data["tipo"], default=db_obj.tipo)
-    db_obj.sqlmodel_update(update_data)
+    _apply_model_update(db_obj, update_data)
     db.add(db_obj)
     db.commit()
     db.refresh(db_obj)

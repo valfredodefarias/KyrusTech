@@ -4,6 +4,14 @@ from sqlmodel import Session, select
 from app.models.entidade import Entidade
 from app.schemas.entidade import EntidadeCreate, EntidadeUpdate
 
+
+def _apply_model_update(db_obj, update_data: dict) -> None:
+    if hasattr(db_obj, "sqlmodel_update"):
+        db_obj.sqlmodel_update(update_data)
+        return
+    for campo, valor in update_data.items():
+        setattr(db_obj, campo, valor)
+
 def get_multi(db: Session, *, empresa_id: int) -> List[Entidade]:
     statement = select(Entidade).where(Entidade.empresa_id == empresa_id).order_by(Entidade.nome)
     return list(db.exec(statement).all())
@@ -26,7 +34,7 @@ def update(db: Session, *, id: int, obj_in: EntidadeUpdate, empresa_id: int) -> 
     if not db_obj:
         return None
     update_data = obj_in.model_dump(exclude_unset=True)
-    db_obj.sqlmodel_update(update_data)
+    _apply_model_update(db_obj, update_data)
     db.add(db_obj)
     db.commit()
     db.refresh(db_obj)

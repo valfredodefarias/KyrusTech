@@ -146,15 +146,15 @@ const DadosEmpresa = () => {
 
   return (
     <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4">
-      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 sm:p-8 shadow-xl">
+      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 sm:p-8 shadow-xl">
         
         {/* CABEÇALHO COM LOGO (CROPADA/REDONDA) */}
-        <div className="flex flex-col md:flex-row items-center gap-6 md:gap-8 mb-10 pb-10 border-b border-slate-700">
+        <div className="flex flex-col md:flex-row items-center gap-6 md:gap-8 mb-10 pb-10 border-b border-slate-200 dark:border-slate-700">
           
           {/* Container da Logo */}
           <div className="relative group">
             {/* A classe overflow-hidden corta o que passar da borda redonda */}
-            <div className="w-32 h-32 rounded-full bg-white flex items-center justify-center overflow-hidden border-4 border-slate-700 shadow-xl group-hover:border-blue-500 transition-colors">
+            <div className="w-32 h-32 rounded-full bg-white dark:bg-slate-700 flex items-center justify-center overflow-hidden border-4 border-slate-200 dark:border-slate-700 shadow-xl group-hover:border-blue-500 transition-colors">
                 {previewUrl ? (
                     // object-cover: A imagem dá zoom para preencher tudo (sem bordas brancas quadradas)
                     <img 
@@ -164,21 +164,21 @@ const DadosEmpresa = () => {
                     />
                 ) : (
                     // Fallback se não tiver logo: Iniciais
-                    <span className="text-4xl font-bold text-slate-400 bg-slate-100 w-full h-full flex items-center justify-center">
+                    <span className="text-4xl font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 w-full h-full flex items-center justify-center">
                         {empresa.nome_fantasia.substring(0,2).toUpperCase()}
                     </span>
                 )}
             </div>
             
             {/* Botão Flutuante de Upload */}
-            <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-full cursor-pointer shadow-lg transition-transform hover:scale-110 border-4 border-slate-800 z-10">
+            <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-full cursor-pointer shadow-lg transition-transform hover:scale-110 border-4 border-white dark:border-slate-800 z-10">
                 <Camera className="w-5 h-5"/>
                 <input type="file" accept="image/*" className="hidden" onChange={handleLogoChange}/>
             </label>
           </div>
           
           <div className="text-center md:text-left">
-            <h2 className="text-3xl font-bold text-white mb-2">{empresa.nome_fantasia}</h2>
+            <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">{empresa.nome_fantasia}</h2>
             <div className="flex flex-col md:flex-row gap-3 items-center">
                 <p className="text-slate-400 font-mono bg-slate-900/50 px-3 py-1 rounded-lg inline-block border border-slate-700">
                     {empresa.cnpj}
@@ -192,34 +192,34 @@ const DadosEmpresa = () => {
 
         {/* FOTO DO USUÁRIO */}
         <div className="mb-10">
-          <label className="text-xs font-bold text-white uppercase mb-4 flex items-center gap-2">
+          <label className="text-xs font-bold text-slate-700 dark:text-white uppercase mb-4 flex items-center gap-2">
             <Camera className="w-4 h-4 text-blue-500"/> Minha Foto
           </label>
-          <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-700 flex flex-col sm:flex-row items-center gap-6">
+          <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center gap-6">
             <div className="relative group">
-              <div className="w-24 h-24 rounded-full bg-slate-800 flex items-center justify-center overflow-hidden border-4 border-slate-700 shadow-xl">
+              <div className="w-24 h-24 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center overflow-hidden border-4 border-slate-200 dark:border-slate-700 shadow-xl">
                 {userPhotoPreview ? (
                   <img src={userPhotoPreview} className="w-full h-full object-cover" alt="Foto do usuário" />
                 ) : (
-                  <span className="text-xl font-bold text-slate-400 bg-slate-800 w-full h-full flex items-center justify-center">
+                  <span className="text-xl font-bold text-slate-400 bg-slate-200 dark:bg-slate-800 w-full h-full flex items-center justify-center">
                     {(user?.nome || user?.email || 'U').substring(0,2).toUpperCase()}
                   </span>
                 )}
               </div>
-              <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full cursor-pointer shadow-lg transition-transform hover:scale-110 border-4 border-slate-800">
+              <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full cursor-pointer shadow-lg transition-transform hover:scale-110 border-4 border-white dark:border-slate-800">
                 <Camera className="w-4 h-4"/>
                 <input type="file" accept="image/*" className="hidden" onChange={handleUserPhotoChange}/>
               </label>
             </div>
             <div className="flex-1 text-center sm:text-left">
-              <p className="text-white font-bold mb-1">{user?.nome || user?.email}</p>
+              <p className="text-slate-900 dark:text-white font-bold mb-1">{user?.nome || user?.email}</p>
               <p className="text-sm text-slate-400">Sua foto aparece na sidebar e nos dashboards.</p>
             </div>
             {userPhotoPreview && (
               <button
                 type="button"
                 onClick={handleRemoveUserPhoto}
-                className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-600 text-slate-300 hover:bg-slate-700 transition"
+                className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
               >
                 Remover
               </button>
@@ -231,21 +231,21 @@ const DadosEmpresa = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Razão Social</label>
-            <input disabled value={empresa.razao_social} className="w-full p-4 rounded-xl bg-slate-900 border border-slate-700 text-slate-400 font-medium cursor-not-allowed opacity-70" />
+            <input disabled value={empresa.razao_social} className="w-full p-4 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 font-medium cursor-not-allowed opacity-70" />
             <p className="text-[10px] text-slate-500 mt-2 flex items-center gap-1"><AlertCircle className="w-3 h-3"/> Dados fiscais são protegidos.</p>
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">CNPJ</label>
-            <input disabled value={empresa.cnpj} className="w-full p-4 rounded-xl bg-slate-900 border border-slate-700 text-slate-400 font-mono cursor-not-allowed opacity-70" />
+            <input disabled value={empresa.cnpj} className="w-full p-4 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 font-mono cursor-not-allowed opacity-70" />
           </div>
         </div>
 
         {/* PERSONALIZAÇÃO VISUAL */}
         <div>
-          <label className="text-xs font-bold text-white uppercase mb-4 flex items-center gap-2">
+          <label className="text-xs font-bold text-slate-700 dark:text-white uppercase mb-4 flex items-center gap-2">
             <Palette className="w-4 h-4 text-blue-500"/> Identidade Visual
           </label>
-          <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-700 flex flex-col sm:flex-row items-center gap-6">
+          <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center gap-6">
             <div className="relative group cursor-pointer">
                 <input 
                   type="color" 
@@ -254,12 +254,12 @@ const DadosEmpresa = () => {
                   className="w-20 h-20 rounded-xl cursor-pointer bg-transparent border-0 p-0 overflow-hidden" 
                 />
                 {/* Overlay visual para indicar clique */}
-                <div className="absolute inset-0 pointer-events-none rounded-xl border border-slate-600 shadow-inner group-hover:border-white/50 transition-colors"></div>
+                <div className="absolute inset-0 pointer-events-none rounded-xl border border-slate-300 dark:border-slate-600 shadow-inner group-hover:border-slate-600 dark:group-hover:border-white/50 transition-colors"></div>
             </div>
             <div className="flex-1 text-center sm:text-left">
-              <p className="text-white font-bold mb-1">Cor Primária</p>
+              <p className="text-slate-900 dark:text-white font-bold mb-1">Cor Primária</p>
               <p className="text-sm text-slate-400 mb-2">Esta cor define a "alma" do seu ERP (botões, menus e destaques).</p>
-              <p className="text-xs font-mono text-slate-500 bg-slate-800 px-2 py-1 rounded inline-block">{cor.toUpperCase()}</p>
+              <p className="text-xs font-mono text-slate-500 bg-slate-200 dark:bg-slate-800 px-2 py-1 rounded inline-block">{cor.toUpperCase()}</p>
             </div>
             {/* Botão de Demonstração */}
             <button className="px-6 py-3 rounded-xl text-white font-bold text-sm shadow-lg transition-transform hover:scale-105 active:scale-95" style={{ backgroundColor: cor }}>
@@ -269,7 +269,7 @@ const DadosEmpresa = () => {
         </div>
 
         {/* BOTÃO SALVAR */}
-        <div className="mt-10 pt-6 border-t border-slate-700 flex justify-end">
+        <div className="mt-10 pt-6 border-t border-slate-200 dark:border-slate-700 flex justify-end">
           <button 
             onClick={handleSave} 
             disabled={saving} 
@@ -316,18 +316,18 @@ const GestaoPlanoContas = () => {
     <div className="max-w-6xl mx-auto animate-in fade-in">
         <div className="mb-8 flex flex-col md:flex-row md:justify-between md:items-end gap-4">
             <div>
-                <h2 className="text-2xl font-bold text-white">Plano de Contas</h2>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Plano de Contas</h2>
                 <p className="text-slate-400 mt-1">Estruture suas receitas e despesas hierarquicamente.</p>
             </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => loadCats(true)}
-              className="text-xs bg-slate-800/50 hover:bg-slate-800 text-slate-300 px-3 py-2 rounded-lg border border-slate-700 flex items-center gap-2 transition"
+              className="text-xs bg-slate-100 dark:bg-slate-800/50 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center gap-2 transition"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Sincronizar
             </button>
-            <div className="text-xs text-slate-400 bg-slate-800/50 px-4 py-2 rounded-lg border border-slate-700 flex items-center gap-2">
+            <div className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/50 px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center gap-2">
               <Layers className="w-4 h-4 text-blue-500"/>
               Arraste para organizar • Solte sobre outro para criar subgrupo
             </div>
@@ -348,19 +348,19 @@ export function Configuracoes() {
   const getTabClass = (tab: string) => `
     flex-1 py-4 text-sm font-bold border-b-2 transition-all flex items-center justify-center gap-2 cursor-pointer select-none
     ${activeTab === tab 
-      ? 'border-blue-500 text-blue-400 bg-slate-800/50' 
-      : 'border-transparent text-slate-500 hover:text-slate-200 hover:bg-slate-800/30'}
+      ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-slate-100 dark:bg-slate-800/50' 
+      : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30'}
   `;
 
   return (
-    <div className="flex flex-col h-full bg-slate-900 text-slate-100 overflow-y-auto custom-scrollbar">
+    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 overflow-y-auto custom-scrollbar">
       
       {/* HEADER FIXO COM TABS */}
-      <div className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur-sm border-b border-slate-700 px-6 pt-6">
-        <h1 className="text-3xl font-bold text-white mb-6">Configurações</h1>
+      <div className="sticky top-0 z-30 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700 px-6 pt-6">
+        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-6">Configurações</h1>
         
         {/* TAB NAVIGATION */}
-        <div className="flex w-full max-w-4xl border-b border-slate-800">
+        <div className="flex w-full max-w-4xl border-b border-slate-200 dark:border-slate-800">
             <button onClick={() => setActiveTab('EMPRESA')} className={getTabClass('EMPRESA')}>
                 <Building2 className="w-4 h-4"/> Minha Empresa
             </button>

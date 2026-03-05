@@ -48,9 +48,9 @@ const StepBadge = ({ num, current, label }: { num: number, current: number, labe
     const active = num === current;
     const done = num < current;
     return (
-        <div className={`flex items-center gap-2 ${active ? 'text-white' : done ? 'text-emerald-500' : 'text-slate-500'}`}>
+        <div className={`flex items-center gap-2 ${active ? 'text-slate-900 dark:text-white' : done ? 'text-emerald-500' : 'text-slate-500'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all
-                ${active ? 'border-blue-500 bg-blue-500 text-white' : done ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-600 bg-slate-800'}`}>
+                ${active ? 'border-blue-500 bg-blue-500 text-white' : done ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'}`}>
                 {done ? <Check className="w-4 h-4"/> : num}
             </div>
             <span className="text-sm font-bold hidden sm:block">{label}</span>
@@ -89,14 +89,14 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
     return (
         <div className="relative w-full" ref={wrapperRef}>
             <div 
-                className={`flex items-center justify-between w-full p-3 rounded-lg border bg-slate-800 text-white text-sm cursor-pointer transition
-                ${isOpen ? 'ring-2 ring-blue-500 border-transparent' : !value ? 'border-red-500/30' : 'border-slate-600 hover:border-slate-500'}`}
+                className={`flex items-center justify-between w-full p-3 rounded-lg border bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm cursor-pointer transition
+                ${isOpen ? 'ring-2 ring-blue-500 border-transparent' : !value ? 'border-red-500/30' : 'border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500'}`}
                 onClick={() => setIsOpen(!isOpen)}
             >
                 {isOpen ? (
                     <input 
                         autoFocus
-                        className="bg-transparent outline-none w-full text-white placeholder-slate-500"
+                        className="bg-transparent outline-none w-full text-slate-800 dark:text-white placeholder-slate-500"
                         placeholder="Digite para buscar..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
@@ -111,7 +111,7 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
             </div>
 
             {isOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95">
+                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95">
                     {filteredOptions.length === 0 ? (
                         <div className="p-3 text-slate-500 text-center text-xs italic">Nenhum item encontrado.</div>
                     ) : (
@@ -119,7 +119,7 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
                             <div 
                                 key={opt.id}
                                 className={`p-3 text-sm cursor-pointer hover:bg-blue-600 hover:text-white transition flex justify-between items-center
-                                    ${String(opt.id) === String(value) ? 'bg-blue-500/20 text-blue-200' : 'text-slate-300'}`}
+                                    ${String(opt.id) === String(value) ? 'bg-blue-500/20 text-blue-700 dark:text-blue-200' : 'text-slate-700 dark:text-slate-300'}`}
                                 onClick={() => { onChange(opt.id); setIsOpen(false); setSearch(opt.nome); }}
                             >
                                 <span>{opt.codigo ? <span className="font-mono opacity-70 mr-2">{opt.codigo}</span> : ''}{opt.nome}</span>
@@ -150,30 +150,30 @@ const DraggableTreeItem = ({ item, depth = 0, inheritedExcluded = false, onDragS
                 onDragOver={(e) => { 
                     e.preventDefault(); 
                     e.stopPropagation();
-                    e.currentTarget.style.backgroundColor = '#1e293b'; 
+                    e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.08)'; 
                     e.currentTarget.style.borderColor = '#3b82f6';
                 }} 
                 onDragLeave={(e) => { 
                     e.currentTarget.style.backgroundColor = 'transparent';
-                    e.currentTarget.style.borderColor = 'rgba(51, 65, 85, 0.5)'; 
+                    e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.5)'; 
                 }} 
                 onDrop={(e) => { 
                     e.preventDefault(); 
                     e.stopPropagation(); 
                     e.currentTarget.style.backgroundColor = 'transparent';
-                    e.currentTarget.style.borderColor = 'rgba(51, 65, 85, 0.5)';
+                    e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.5)';
                     onDrop(item.id); 
                 }}
-                className={`group relative flex items-center p-2 mb-1 bg-slate-800 border border-slate-700/50 rounded-lg hover:border-slate-600 transition-all`}
+                className={`group relative flex items-center p-2 mb-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:border-slate-300 dark:hover:border-slate-600 transition-all`}
                 style={{ marginLeft: `${depth * 20}px` }}
             >
                 {/* Handle */}
-                <div className="cursor-grab p-1 text-slate-600 hover:text-slate-400 mr-1">
+                <div className="cursor-grab p-1 text-slate-500 dark:text-slate-600 hover:text-slate-700 dark:hover:text-slate-400 mr-1">
                     <GripVertical size={14} />
                 </div>
 
                 {/* Toggle */}
-                <button onClick={(e) => { e.stopPropagation(); onToggle(item.id); }} className="p-1 mr-1 text-slate-500 hover:text-white w-6 flex justify-center">
+                <button onClick={(e) => { e.stopPropagation(); onToggle(item.id); }} className="p-1 mr-1 text-slate-500 hover:text-slate-900 dark:hover:text-white w-6 flex justify-center">
                     {hasChildren ? (isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}
                 </button>
 
@@ -186,7 +186,7 @@ const DraggableTreeItem = ({ item, depth = 0, inheritedExcluded = false, onDragS
                     ) : (
                         <span className="text-[10px] font-bold text-orange-500 bg-orange-900/20 px-1.5 py-0.5 rounded border border-orange-900/30">Novo</span>
                     )}
-                    <span className="text-sm font-medium text-slate-200 truncate">{item.nome}</span>
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{item.nome}</span>
                     {effectiveExcluded && (
                         <span
                             className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${inheritedOnly ? 'text-amber-300 bg-amber-900/20 border-amber-900/40' : 'text-red-300 bg-red-900/20 border-red-900/40'}`}
@@ -199,15 +199,15 @@ const DraggableTreeItem = ({ item, depth = 0, inheritedExcluded = false, onDragS
 
                 {/* Actions */}
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={(e) => { e.stopPropagation(); onEdit(item); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-700 rounded"><Edit2 size={12}/></button>
-                    <button onClick={(e) => { e.stopPropagation(); onDelete(item.id); }} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded"><Trash2 size={12}/></button>
+                    <button onClick={(e) => { e.stopPropagation(); onEdit(item); }} className="p-1.5 text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><Edit2 size={12}/></button>
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(item.id); }} className="p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><Trash2 size={12}/></button>
                 </div>
             </div>
 
             {/* Render Children Recursively */}
             {isExpanded && hasChildren && (
                 <div className="relative">
-                    <div className="absolute left-2.75 top-0 bottom-2 w-px bg-slate-700/50" style={{ left: `${(depth * 20) + 11}px` }}></div>
+                    <div className="absolute left-2.75 top-0 bottom-2 w-px bg-slate-300 dark:bg-slate-700/50" style={{ left: `${(depth * 20) + 11}px` }}></div>
                     {item.children.map((child: any) => (
                         <DraggableTreeItem 
                             key={child.id} 
@@ -486,16 +486,16 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
           
           {/* RECEITAS */}
           <div 
-            className="flex flex-col bg-slate-900/50 border border-slate-700/50 rounded-xl p-4 min-h-125"
+            className="flex flex-col bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/50 rounded-xl p-4 min-h-125"
             onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.05)'; }}
             onDragLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
             onDrop={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'transparent'; handleDrop('ROOT_R'); }}
           >
-              <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-700">
+              <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-200 dark:border-slate-700">
                   <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
                       <TrendingUp className="w-4 h-4"/> RECEITAS
                   </h3>
-                  <span className="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-500">{receitasTree.length} Raízes</span>
+                  <span className="text-xs bg-white dark:bg-slate-800 px-2 py-0.5 rounded text-slate-500 border border-slate-200 dark:border-slate-700">{receitasTree.length} Raízes</span>
               </div>
               <div className="flex-1 space-y-1">
                   {receitasTree.length === 0 ? (
@@ -520,16 +520,16 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
 
           {/* DESPESAS */}
           <div 
-            className="flex flex-col bg-slate-900/50 border border-slate-700/50 rounded-xl p-4 min-h-125"
+            className="flex flex-col bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/50 rounded-xl p-4 min-h-125"
             onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.05)'; }}
             onDragLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
             onDrop={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'transparent'; handleDrop('ROOT_D'); }}
           >
-              <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-700">
+              <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-200 dark:border-slate-700">
                   <h3 className="text-sm font-bold text-red-400 flex items-center gap-2">
                       <TrendingDown className="w-4 h-4"/> DESPESAS
                   </h3>
-                  <span className="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-500">{despesasTree.length} Raízes</span>
+                  <span className="text-xs bg-white dark:bg-slate-800 px-2 py-0.5 rounded text-slate-500 border border-slate-200 dark:border-slate-700">{despesasTree.length} Raízes</span>
               </div>
               <div className="flex-1 space-y-1">
                   {despesasTree.length === 0 ? (
@@ -556,33 +556,33 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
 
       {/* MODAL */}
       {modalOpen && (
-          <div className="fixed inset-0 z-80 flex items-center justify-center bg-slate-900/80 p-4 backdrop-blur-sm">
-              <div className="bg-slate-800 p-6 rounded-xl w-full max-w-sm border border-slate-700 shadow-2xl animate-scale-in">
-                  <h3 className="font-bold text-white mb-4 text-lg">{modalMode === 'CREATE' ? 'Nova Categoria' : 'Editar Categoria'}</h3>
+          <div className="fixed inset-0 z-80 flex items-center justify-center bg-slate-900/50 dark:bg-slate-900/80 p-4 backdrop-blur-sm">
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-xl w-full max-w-sm border border-slate-200 dark:border-slate-700 shadow-2xl animate-scale-in">
+                  <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-lg">{modalMode === 'CREATE' ? 'Nova Categoria' : 'Editar Categoria'}</h3>
                   <div className="space-y-4">
                       <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Nome</label>
-                        <input autoFocus value={formData.nome} onChange={(e:any)=>setFormData({...formData, nome:e.target.value})} className="w-full p-3 rounded-lg border border-slate-600 bg-slate-900 text-white outline-none focus:border-blue-500" />
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome</label>
+                        <input autoFocus value={formData.nome} onChange={(e:any)=>setFormData({...formData, nome:e.target.value})} className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-white outline-none focus:border-blue-500" />
                       </div>
                       
                       {modalMode === 'EDIT' && (
                           <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Código (Calculado automaticamente)</label>
-                            <input disabled value={formData.codigo} className="w-full p-3 rounded-lg border border-slate-700 bg-slate-900/50 text-slate-500 font-mono cursor-not-allowed" />
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Código (Calculado automaticamente)</label>
+                            <input disabled value={formData.codigo} className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900/50 text-slate-500 font-mono cursor-not-allowed" />
                           </div>
                       )}
                       
                       {modalMode === 'CREATE' && (
                           <div>
-                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Tipo</label>
-                              <select className="w-full p-3 bg-slate-900 border border-slate-600 rounded-lg text-white" value={formData.tipo} onChange={e=>setFormData({...formData, tipo:e.target.value})}>
+                              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tipo</label>
+                              <select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white" value={formData.tipo} onChange={e=>setFormData({...formData, tipo:e.target.value})}>
                                   <option value="R">Receita</option>
                                   <option value="D">Despesa</option>
                               </select>
                           </div>
                       )}
 
-                                            <label className="flex items-center gap-2 text-sm text-slate-300">
+                                            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                                                 <input
                                                     type="checkbox"
                                                     checked={formData.considerar_nos_resultados}
@@ -592,8 +592,8 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
                                                 Considerar nos resultados (KPIs/Dashboard)
                                             </label>
                       
-                      <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-700">
-                          <button onClick={()=>setModalOpen(false)} className="px-4 py-2 text-slate-400 hover:bg-slate-700 rounded-lg font-bold">Cancelar</button>
+                      <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
+                          <button onClick={()=>setModalOpen(false)} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold">Cancelar</button>
                           <button onClick={handleSaveModal} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold shadow-lg">Salvar</button>
                       </div>
                   </div>
@@ -606,12 +606,12 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
 
 // --- RESTO DO CÓDIGO DA PÁGINA (MANTIDO) ---
 const MappingRow = ({ label, original, value, options, onChange, onCreate, typeLabel, icon: Icon }: any) => (
-    <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 flex flex-col md:flex-row gap-4 items-center animate-in fade-in group hover:border-slate-600 transition">
+    <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row gap-4 items-center animate-in fade-in group hover:border-slate-300 dark:hover:border-slate-600 transition">
         <div className="flex-1 w-full min-w-0">
             <p className="text-[10px] text-slate-500 uppercase font-bold mb-1 flex items-center gap-1 group-hover:text-slate-400 transition">
                 <FileSpreadsheet className="w-3 h-3"/> {label || 'No Arquivo'}
             </p>
-            <div className="p-3 bg-slate-800/50 border border-slate-700 rounded-lg text-white font-mono text-sm truncate" title={original}>
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-white font-mono text-sm truncate" title={original}>
                 {original}
             </div>
         </div>
@@ -816,11 +816,11 @@ export function Importacao() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-900 text-slate-100 overflow-y-auto custom-scrollbar p-6 pb-32">
+    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 overflow-y-auto custom-scrollbar p-6 pb-32">
       <div className="max-w-5xl mx-auto w-full mb-8">
         <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
-            <div><h1 className="text-2xl font-bold flex items-center gap-2 text-white"><UploadCloud className="w-8 h-8 text-blue-500" />Importação Inteligente</h1><p className="text-slate-400 mt-1">Concilie dados externos com seu sistema.</p></div>
-            <div className="flex items-center gap-2 bg-slate-800 p-3 rounded-xl border border-slate-700 shadow-sm">
+            <div><h1 className="text-2xl font-bold flex items-center gap-2 text-slate-900 dark:text-white"><UploadCloud className="w-8 h-8 text-blue-500" />Importação Inteligente</h1><p className="text-slate-500 dark:text-slate-400 mt-1">Concilie dados externos com seu sistema.</p></div>
+            <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
                 <StepBadge num={1} current={step} label="Upload" /><StepBadge num={2} current={step} label="Classificação" /><StepBadge num={3} current={step} label="Origem" /><StepBadge num={4} current={step} label="Conclusão" />
             </div>
         </div>
@@ -833,14 +833,14 @@ export function Importacao() {
         
         {/* STEP 1: UPLOAD */}
         {step === 1 && (
-            <div className="bg-slate-800 p-10 rounded-2xl border border-slate-700 flex flex-col items-center justify-center min-h-100 border-dashed relative hover:border-blue-500/50 transition-colors">
+            <div className="bg-white dark:bg-slate-800 p-10 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center min-h-100 border-dashed relative hover:border-blue-500/50 transition-colors">
                 <input type="file" accept=".xlsx,.xls" onChange={e=>setFile(e.target.files?.[0]||null)} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10" />
                 <div className="text-center space-y-4 pointer-events-none">
                     <div className="w-24 h-24 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse-slow"><FileSpreadsheet className="w-12 h-12 text-blue-500"/></div>
-                    {file ? (<div className="animate-in fade-in zoom-in-95"><h3 className="text-2xl font-bold text-white mb-1">{file.name}</h3><p className="text-emerald-400 font-mono text-sm">{(file.size/1024).toFixed(1)} KB • Pronto para envio</p></div>) : (<div><h3 className="text-2xl font-bold text-white mb-2">Arraste ou clique para selecionar</h3><p className="text-slate-400">Suporta arquivos Excel (.xlsx, .xls)</p></div>)}
+                    {file ? (<div className="animate-in fade-in zoom-in-95"><h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">{file.name}</h3><p className="text-emerald-400 font-mono text-sm">{(file.size/1024).toFixed(1)} KB • Pronto para envio</p></div>) : (<div><h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Arraste ou clique para selecionar</h3><p className="text-slate-500 dark:text-slate-400">Suporta arquivos Excel (.xlsx, .xls)</p></div>)}
                 </div>
                 <div className="mt-10 z-20 flex gap-4">
-                    <button onClick={handleDownloadModelo} className="px-5 py-2.5 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-700 hover:text-white font-bold flex gap-2 items-center transition"><Download className="w-4 h-4"/> Baixar Modelo</button>
+                    <button onClick={handleDownloadModelo} className="px-5 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white font-bold flex gap-2 items-center transition"><Download className="w-4 h-4"/> Baixar Modelo</button>
                     <button onClick={handleAnalise} disabled={!file||loading} className="px-8 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg shadow-blue-900/20 flex gap-2 items-center disabled:opacity-50 disabled:cursor-not-allowed transition hover:scale-105 active:scale-95">{loading ? <Loader2 className="animate-spin w-5 h-5"/> : <ArrowRight className="w-5 h-5"/>} Continuar</button>
                 </div>
             </div>
@@ -856,21 +856,21 @@ export function Importacao() {
                 {/* CATEGORIAS CONFLITANTES */}
                 <div>
                     <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-lg font-bold text-white flex items-center gap-2"><Tag className="text-blue-500"/> Categorias Encontradas ({conflitos.categorias.length})</h3>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2"><Tag className="text-blue-500"/> Categorias Encontradas ({conflitos.categorias.length})</h3>
                         {conflitos.categorias.length > 0 && (
                             <button onClick={() => handleBulkCreate('CATEGORIA')} disabled={!!bulkLoading} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 shadow transition disabled:opacity-50">
                                 {bulkLoading === 'CATEGORIA' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3"/>} Resolver Tudo
                             </button>
                         )}
                     </div>
-                    {conflitos.categorias.length === 0 && <div className="p-4 bg-slate-800/50 border border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Tudo certo! Todas as categorias do arquivo já existem.</div>}
+                    {conflitos.categorias.length === 0 && <div className="p-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Tudo certo! Todas as categorias do arquivo já existem.</div>}
                     <div className="space-y-3">{conflitos.categorias.map(k => (<MappingRow key={k} original={k} value={mapCategorias[k]} options={sistemaData.categorias} onChange={(v:string)=>setMapCategorias(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('CATEGORIA', k)} typeLabel="Categoria" icon={Tag} />))}</div>
                 </div>
 
                 {/* ENTIDADES */}
                 <div>
                     <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-lg font-bold text-white flex items-center gap-2"><Users className="text-purple-500"/> Entidades Encontradas ({conflitos.entidades.length})</h3>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2"><Users className="text-purple-500"/> Entidades Encontradas ({conflitos.entidades.length})</h3>
                         {conflitos.entidades.length > 0 && (
                             <button onClick={() => handleBulkCreate('ENTIDADE')} disabled={!!bulkLoading} className="text-xs bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 shadow transition disabled:opacity-50">
                                 {bulkLoading === 'ENTIDADE' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3"/>} Criar Todas
@@ -878,13 +878,13 @@ export function Importacao() {
                         )}
                     </div>
                     {conflitos.entidades.length === 0 ? (
-                        <div className="p-4 bg-slate-800/50 border border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Nenhuma entidade nova detectada.</div>
+                        <div className="p-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Nenhuma entidade nova detectada.</div>
                     ) : (
                         <div className="space-y-3">{conflitos.entidades.map(k => (<MappingRow key={k} original={k} value={mapEntidades[k]} options={sistemaData.entidades} onChange={(v:string)=>setMapEntidades(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('ENTIDADE', k)} typeLabel="Entidade" icon={Users} />))}</div>
                     )}
                 </div>
 
-                <div className="flex justify-between pt-6 border-t border-slate-800"><button onClick={()=>setStep(1)} className="px-6 py-3 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={()=>setStep(3)} className="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition">Próximo <ArrowRight className="w-4 h-4"/></button></div>
+                <div className="flex justify-between pt-6 border-t border-slate-200 dark:border-slate-800"><button onClick={()=>setStep(1)} className="px-6 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={()=>setStep(3)} className="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition">Próximo <ArrowRight className="w-4 h-4"/></button></div>
             </div>
         )}
 
@@ -895,21 +895,21 @@ export function Importacao() {
                 {/* CONTAS */}
                 <div>
                     <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-lg font-bold text-white flex items-center gap-2"><Wallet className="text-emerald-500"/> Contas Bancárias ({conflitos.contas.length})</h3>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2"><Wallet className="text-emerald-500"/> Contas Bancárias ({conflitos.contas.length})</h3>
                         {conflitos.contas.length > 0 && (
                             <button onClick={() => handleBulkCreate('CONTA')} disabled={!!bulkLoading} className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 shadow transition disabled:opacity-50">
                                 {bulkLoading === 'CONTA' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3"/>} Criar Todas
                             </button>
                         )}
                     </div>
-                    {conflitos.contas.length === 0 && <div className="p-4 bg-slate-800/50 border border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Tudo certo com as contas.</div>}
+                    {conflitos.contas.length === 0 && <div className="p-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Tudo certo com as contas.</div>}
                     <div className="space-y-3">{conflitos.contas.map(k => (<MappingRow key={k} original={k} value={mapContas[k]} options={sistemaData.contas} onChange={(v:string)=>setMapContas(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('CONTA', k)} typeLabel="Conta" icon={Wallet} />))}</div>
                 </div>
 
                 {/* CENTROS */}
                 <div>
                     <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-lg font-bold text-white flex items-center gap-2"><Layers className="text-orange-500"/> Centros de Custo ({conflitos.centros.length})</h3>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2"><Layers className="text-orange-500"/> Centros de Custo ({conflitos.centros.length})</h3>
                         {conflitos.centros.length > 0 && (
                             <button onClick={() => handleBulkCreate('CENTRO')} disabled={!!bulkLoading} className="text-xs bg-orange-600 hover:bg-orange-500 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 shadow transition disabled:opacity-50">
                                 {bulkLoading === 'CENTRO' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3"/>} Criar Todas
@@ -919,18 +919,18 @@ export function Importacao() {
                     <div className="space-y-3">{conflitos.centros.map(k => (<MappingRow key={k} original={k} value={mapCentros[k]} options={sistemaData.centros} onChange={(v:string)=>setMapCentros(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('CENTRO', k)} typeLabel="Centro" icon={Layers} />))}</div>
                 </div>
 
-                <div className="flex justify-between pt-6 border-t border-slate-800"><button onClick={()=>setStep(2)} className="px-6 py-3 border border-slate-600 rounded-xl text-slate-300 hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={handleExecutar} disabled={loading} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition disabled:opacity-50">{loading ? <Loader2 className="animate-spin w-5 h-5"/> : <CheckCircle className="w-5 h-5"/>} Confirmar Importação</button></div>
+                <div className="flex justify-between pt-6 border-t border-slate-200 dark:border-slate-800"><button onClick={()=>setStep(2)} className="px-6 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={handleExecutar} disabled={loading} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition disabled:opacity-50">{loading ? <Loader2 className="animate-spin w-5 h-5"/> : <CheckCircle className="w-5 h-5"/>} Confirmar Importação</button></div>
             </div>
         )}
       </div>
 
       {modalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
-              <div className="bg-slate-800 border border-slate-700 p-6 rounded-2xl shadow-2xl w-full max-w-sm animate-scale-in">
-                  <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-blue-500"/> Criar {modalType}</h3>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-slate-900/80 backdrop-blur-sm p-4">
+              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6 rounded-2xl shadow-2xl w-full max-w-sm animate-scale-in">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-blue-500"/> Criar {modalType}</h3>
                   <div className="space-y-4">
-                      <div><label className="text-xs font-bold text-slate-400 uppercase">Nome</label><input autoFocus type="text" className="w-full p-3 bg-slate-900 border border-slate-600 rounded-lg text-white mt-1 outline-none focus:border-blue-500 transition" value={modalValue} onChange={e=>setModalValue(e.target.value)} /></div>
-                      <div className="flex gap-2 justify-end mt-4"><button onClick={()=>setModalOpen(false)} className="px-4 py-2 text-slate-400 hover:bg-slate-700 rounded-lg font-bold transition">Cancelar</button><button onClick={handleQuickCreate} disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex gap-2 items-center transition shadow-lg">{loading ? <Loader2 className="animate-spin w-4 h-4"/> : 'Criar'}</button></div>
+                      <div><label className="text-xs font-bold text-slate-500 uppercase">Nome</label><input autoFocus type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={modalValue} onChange={e=>setModalValue(e.target.value)} /></div>
+                      <div className="flex gap-2 justify-end mt-4"><button onClick={()=>setModalOpen(false)} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold transition">Cancelar</button><button onClick={handleQuickCreate} disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex gap-2 items-center transition shadow-lg">{loading ? <Loader2 className="animate-spin w-4 h-4"/> : 'Criar'}</button></div>
                   </div>
               </div>
           </div>

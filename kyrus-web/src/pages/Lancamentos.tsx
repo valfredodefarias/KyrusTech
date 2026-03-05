@@ -36,6 +36,20 @@ const formatDateExtenso = (dateString: string) => {
     return date.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'long' });
 };
 
+const getTodayLocalYmd = () => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const isLancamentoAtrasado = (l: Lancamento) => {
+  if (String(l.status).toUpperCase() === 'PAGO') return false;
+  if (!l.data_vencimento) return false;
+  return l.data_vencimento < getTodayLocalYmd();
+};
+
 // --- COMPONENTES UI REUTILIZÁVEIS ---
 
 // 1. MultiSelect Dropdown
@@ -96,6 +110,14 @@ const SearchableSelect = ({ options, value, onChange, placeholder, label }: any)
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const selectedOption = options.flatMap((g:any) => g.options).find((o:any) => String(o.id) === String(value));
+  const selectedTipo = String(selectedOption?.tipo || selectedOption?.grupo || '').toUpperCase();
+  const selectedColorClass = !selectedOption
+    ? 'text-slate-500'
+    : selectedTipo.startsWith('D')
+      ? 'text-red-600 dark:text-red-400 font-medium'
+      : selectedTipo.startsWith('R')
+        ? 'text-emerald-600 dark:text-emerald-400 font-medium'
+        : 'text-slate-800 dark:text-white font-medium';
 
   useEffect(() => {
     function handleClickOutside(event: any) {
@@ -117,7 +139,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder, label }: any)
         onClick={() => setIsOpen(!isOpen)}
         className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 cursor-pointer flex justify-between items-center text-sm min-h-11.5 hover:border-blue-500 transition shadow-sm"
       >
-        <span className={selectedOption ? 'text-slate-800 dark:text-white font-medium' : 'text-slate-500'}>
+        <span className={selectedColorClass}>
           {selectedOption ? selectedOption.label : placeholder}
         </span>
         <ChevronDown className="w-4 h-4 text-slate-400"/>
@@ -478,10 +500,10 @@ export function Lancamentos() {
       if (centroCustoFiltro && String(l.centro_custo_id) !== centroCustoFiltro) return false;
 
       // 3. Filtros Rápidos
-      const hoje = new Date().toISOString().split('T')[0];
+      const hoje = getTodayLocalYmd();
       if (filtroRapido === 'HOJE' && l.data_vencimento !== hoje) return false;
       if (filtroRapido === 'IPP' && !l.ipp) return false;
-      if (filtroRapido === 'ATRASADO' && (l.status === 'PAGO' || l.data_vencimento >= hoje)) return false;
+      if (filtroRapido === 'ATRASADO' && !isLancamentoAtrasado(l)) return false;
       if (filtroRapido === 'EM_ABERTO' && l.status === 'PAGO') return false;
 
       // 4. Filtros Avançados
@@ -805,8 +827,12 @@ export function Lancamentos() {
                           </tr>
                         </thead>
                         <tbody className="text-sm divide-y divide-slate-200 dark:divide-slate-700">
-                          {grouped.groups[date].map(l => (
-                                    <tr key={l.id} onClick={() => openDrawer(l)} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer group ${selectedIds.has(l.id)?'bg-blue-50 dark:bg-blue-900/10':''}`}>
+                          {grouped.groups[date].map(l => {
+                                    const atrasado = isLancamentoAtrasado(l);
+                                    const pago = String(l.status).toUpperCase() === 'PAGO';
+                                    const statusLabel = pago ? 'PAGO' : atrasado ? 'ATRASADO' : l.status;
+                                    return (
+                                    <tr key={l.id} onClick={() => openDrawer(l)} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer group ${selectedIds.has(l.id)?'bg-blue-50 dark:bg-blue-900/10': pago ? 'bg-emerald-50/40 dark:bg-emerald-900/10' : atrasado ? 'bg-red-50/40 dark:bg-red-900/10' : ''}`}>
                                       <td className="p-4 w-10 text-center" onClick={e=>e.stopPropagation()}><input type="checkbox" className="rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 accent-blue-600 cursor-pointer" checked={selectedIds.has(l.id)} onChange={()=>{const s=new Set(selectedIds); if(s.has(l.id)) s.delete(l.id); else s.add(l.id); setSelectedIds(s)}}/></td>
                                         <td className="p-4 w-12 text-center" onClick={(e)=>e.stopPropagation()} onMouseDown={(e)=>e.stopPropagation()}>
                                           <button
@@ -830,10 +856,10 @@ export function Lancamentos() {
                                         </td>
                                         <td className={`p-4 text-right font-bold ${l.tipo==='RECEITA'?'text-emerald-400':'text-red-400'}`}>{BRL.format(l.valor_previsto)}</td>
                                         <td className="p-4 text-center w-24">
-                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${l.status==='PAGO'?'bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900':'bg-slate-100 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600'}`}>{l.status}</span>
+                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${pago?'bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900': atrasado ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900' : 'bg-slate-100 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600'}`}>{statusLabel}</span>
                                         </td>
                                     </tr>
-                                ))}
+                                )})}
                             </tbody>
                           </table>
                       </div>

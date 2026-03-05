@@ -216,14 +216,14 @@ const ToggleSimNao = ({
       <button
         type="button"
         onClick={() => onChange(true)}
-        className={`py-2.5 rounded-lg text-sm font-bold border transition ${value ? 'bg-blue-600 text-white border-blue-600 shadow' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+        className={`py-3 rounded-lg text-sm font-bold border transition ${value ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-900/20' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
       >
         {yesLabel}
       </button>
       <button
         type="button"
         onClick={() => onChange(false)}
-        className={`py-2.5 rounded-lg text-sm font-bold border transition ${!value ? 'bg-slate-700 dark:bg-slate-600 text-white border-slate-700 dark:border-slate-600 shadow' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+        className={`py-3 rounded-lg text-sm font-bold border transition ${!value ? 'bg-rose-600 text-white border-rose-600 shadow-lg shadow-rose-900/20' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
       >
         {noLabel}
       </button>
@@ -866,7 +866,7 @@ export function Lancamentos() {
                                     const pago = String(l.status).toUpperCase() === 'PAGO';
                                     const statusLabel = pago ? 'PAGO' : atrasado ? 'ATRASADO' : l.status;
                                     return (
-                                    <tr key={l.id} onClick={() => openDrawer(l)} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer group ${selectedIds.has(l.id)?'bg-blue-100/70 dark:bg-blue-900/20': pago ? 'bg-emerald-100/60 dark:bg-emerald-900/20' : atrasado ? 'bg-red-100/75 dark:bg-red-900/30' : ''}`}>
+                                    <tr key={l.id} onClick={() => openDrawer(l)} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer group ${selectedIds.has(l.id)?'bg-blue-100/80 dark:bg-blue-900/25': pago ? 'bg-emerald-100/70 dark:bg-emerald-900/25' : atrasado ? 'bg-red-200/80 dark:bg-red-900/40' : ''}`}>
                                       <td className="p-4 w-14 text-center" onClick={e=>e.stopPropagation()}>
                                         <button
                                           type="button"
@@ -876,9 +876,9 @@ export function Lancamentos() {
                                             if (s.has(l.id)) s.delete(l.id); else s.add(l.id);
                                             setSelectedIds(s);
                                           }}
-                                          className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all ${selectedIds.has(l.id) ? 'bg-blue-600 border-blue-600 text-white shadow' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-400 hover:border-blue-500 hover:text-blue-500'}`}
+                                          className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center transition-all ${selectedIds.has(l.id) ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-900/20 scale-105' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-400 hover:border-blue-500 hover:text-blue-500 hover:scale-105'}`}
                                         >
-                                          <Check className={`w-4 h-4 ${selectedIds.has(l.id) ? 'opacity-100' : 'opacity-0'}`} />
+                                          <Check className={`w-5 h-5 ${selectedIds.has(l.id) ? 'opacity-100' : 'opacity-0'}`} />
                                         </button>
                                       </td>
                                         <td className="p-4 w-12 text-center" onClick={(e)=>e.stopPropagation()} onMouseDown={(e)=>e.stopPropagation()}>
@@ -903,7 +903,7 @@ export function Lancamentos() {
                                         </td>
                                         <td className={`p-4 text-right font-bold ${l.tipo==='RECEITA'?'text-emerald-400':'text-red-400'}`}>{BRL.format(l.valor_previsto)}</td>
                                         <td className="p-4 text-center w-24">
-                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${pago?'bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900': atrasado ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900' : 'bg-slate-100 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600'}`}>{statusLabel}</span>
+                                          <span className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border ${pago?'bg-emerald-200/90 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800': atrasado ? 'bg-red-200/90 dark:bg-red-900/35 text-red-700 dark:text-red-300 border-red-300 dark:border-red-800' : 'bg-slate-100 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600'}`}>{statusLabel}</span>
                                         </td>
                                     </tr>
                                 )})}

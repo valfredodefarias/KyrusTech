@@ -28,8 +28,8 @@ def setup_inicial():
         session.add(admin)
         
         # 3. Plano de Contas básico para o Importador não quebrar
-        p1 = PlanoContas(nome="VENDAS", tipo="RECEITA", empresa_id=nova_empresa.id)
-        p2 = PlanoContas(nome="FORNECEDORES", tipo="DESPESA", empresa_id=nova_empresa.id)
+        p1 = PlanoContas(nome="Vendas", tipo="R", codigo="1.1", empresa_id=nova_empresa.id)
+        p2 = PlanoContas(nome="Fornecedores", tipo="D", codigo="2.1", empresa_id=nova_empresa.id)
         session.add_all([p1, p2])
         
         session.commit()

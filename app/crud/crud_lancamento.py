@@ -12,6 +12,10 @@ from app.models.cartao import Cartao
 from app.models.plano_contas import PlanoContas
 from app.schemas.lancamento import LancamentoCreate, LancamentoRead, LancamentoUpdate, TransferenciaCreate
 
+
+def _categoria_eh_receita(tipo_categoria: Optional[str]) -> bool:
+    return (tipo_categoria or "").strip().upper().startswith("R")
+
 # --- HELPER: REGRAS DE NEGÓCIO ---
 def _aplicar_regras_negocio(db: Session, obj_in):
     """Define Tipo e Status automaticamente."""
@@ -20,7 +24,7 @@ def _aplicar_regras_negocio(db: Session, obj_in):
     if hasattr(obj_in, 'plano_contas_id') and obj_in.plano_contas_id:
         categoria = db.get(PlanoContas, obj_in.plano_contas_id)
         if categoria:
-            obj_in.tipo = "RECEITA" if categoria.tipo == 'R' else "DESPESA"
+            obj_in.tipo = "RECEITA" if _categoria_eh_receita(categoria.tipo) else "DESPESA"
 
     # 2. Regra do Status baseada na Data de Pagamento
     if obj_in.data_pagamento:
@@ -94,7 +98,8 @@ def update_lancamento(db: Session, *, id: int, obj_in: LancamentoUpdate, empresa
     # Se trocou categoria, atualiza tipo
     if 'plano_contas_id' in dados_update:
         cat = db.get(PlanoContas, db_obj.plano_contas_id)
-        if cat: db_obj.tipo = "RECEITA" if cat.tipo == 'R' else "DESPESA"
+        if cat:
+            db_obj.tipo = "RECEITA" if _categoria_eh_receita(cat.tipo) else "DESPESA"
 
     db.add(db_obj)
     db.commit()

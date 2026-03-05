@@ -175,6 +175,38 @@ const InputDark = (props: any) => (
   </div>
 );
 
+const buildExcludedCategoriaIds = (categorias: any[]) => {
+  const filhosPorPai = new Map<number, number[]>();
+  const excluidas = new Set<number>();
+
+  categorias.forEach((cat: any) => {
+    const catId = Number(cat.id);
+    const parentId = Number(cat.conta_pai_id);
+    if (Number.isFinite(parentId) && parentId > 0) {
+      const filhos = filhosPorPai.get(parentId) || [];
+      filhos.push(catId);
+      filhosPorPai.set(parentId, filhos);
+    }
+    if (cat.considerar_nos_resultados === false) {
+      excluidas.add(catId);
+    }
+  });
+
+  const fila = Array.from(excluidas);
+  while (fila.length > 0) {
+    const atual = fila.shift()!;
+    const filhos = filhosPorPai.get(atual) || [];
+    filhos.forEach((filhoId) => {
+      if (!excluidas.has(filhoId)) {
+        excluidas.add(filhoId);
+        fila.push(filhoId);
+      }
+    });
+  }
+
+  return excluidas;
+};
+
 export function Lancamentos() {
   // --- DADOS ---
   const [loading, setLoading] = useState(true);
@@ -479,18 +511,24 @@ export function Lancamentos() {
   const { grouped, kpis } = useMemo(() => {
     const groups: Record<string, Lancamento[]> = {};
     let r = 0, d = 0;
+    const categoriasExcluidasResultado = buildExcludedCategoriaIds(categorias);
 
     filteredList.forEach(l => {
       if (!groups[l.data_vencimento]) groups[l.data_vencimento] = [];
       groups[l.data_vencimento].push(l);
-      if(l.tipo==='RECEITA') r += Number(l.valor_previsto); else d += Number(l.valor_previsto);
+      const origem = String((l as any).origem || '').toUpperCase();
+      const contaNosResultados = !categoriasExcluidasResultado.has(Number(l.plano_contas_id));
+      if (origem !== 'TRANSFERENCIA' && contaNosResultados) {
+        if (l.tipo === 'RECEITA') r += Number(l.valor_previsto);
+        else d += Number(l.valor_previsto);
+      }
     });
 
     const sortedDates = Object.keys(groups).sort((a, b) => a.localeCompare(b));
     sortedDates.forEach(date => groups[date].sort((a, b) => b.valor_previsto - a.valor_previsto));
 
     return { grouped: { groups, sortedDates }, kpis: { r, d, s: r-d } };
-  }, [filteredList]);
+  }, [filteredList, categorias]);
 
   // --- ACTIONS ---
 
@@ -1046,7 +1084,8 @@ export function Lancamentos() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <SearchableSelect label="Categoria" placeholder="Selecione..." options={catOptions} value={formData.plano_contas_id} onChange={(id:any)=>{
                    const cat = categorias.find(c=>String(c.id)===String(id));
-                   setFormData({...formData, plano_contas_id:id, tipo: cat?.tipo==='R'?'RECEITA':'DESPESA'});
+                   const tipoCat = String(cat?.tipo || '').trim().toUpperCase();
+                   setFormData({...formData, plano_contas_id:id, tipo: tipoCat.startsWith('R') ? 'RECEITA' : 'DESPESA'});
                 }} />
                 <div>
                   <div className="flex justify-between items-center mb-1">

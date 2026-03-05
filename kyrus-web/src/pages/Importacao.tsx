@@ -15,9 +15,12 @@ interface ItemSistema {
     nome: string; 
     tipo?: string; 
     codigo?: string; 
+    considerar_nos_resultados?: boolean;
     conta_pai_id?: number | null; 
     children?: ItemSistema[];     
 } 
+
+const normalizeTipo = (tipo?: string) => ((tipo || '').trim().toUpperCase().startsWith('R') ? 'R' : 'D');
 
 interface SistemaData {
   contas: ItemSistema[];
@@ -132,9 +135,12 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
 
 // --- ÁRVORE DRAGGABLE ---
 
-const DraggableTreeItem = ({ item, depth = 0, onDragStart, onDrop, onEdit, onDelete, onToggle, expandedIds }: any) => {
+const DraggableTreeItem = ({ item, depth = 0, inheritedExcluded = false, onDragStart, onDrop, onEdit, onDelete, onToggle, expandedIds }: any) => {
     const isExpanded = expandedIds.has(item.id);
     const hasChildren = item.children && item.children.length > 0;
+    const ownExcluded = item.considerar_nos_resultados === false;
+    const effectiveExcluded = inheritedExcluded || ownExcluded;
+    const inheritedOnly = inheritedExcluded && !ownExcluded;
 
     return (
         <div className="select-none">
@@ -181,6 +187,14 @@ const DraggableTreeItem = ({ item, depth = 0, onDragStart, onDrop, onEdit, onDel
                         <span className="text-[10px] font-bold text-orange-500 bg-orange-900/20 px-1.5 py-0.5 rounded border border-orange-900/30">Novo</span>
                     )}
                     <span className="text-sm font-medium text-slate-200 truncate">{item.nome}</span>
+                    {effectiveExcluded && (
+                        <span
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${inheritedOnly ? 'text-amber-300 bg-amber-900/20 border-amber-900/40' : 'text-red-300 bg-red-900/20 border-red-900/40'}`}
+                            title={inheritedOnly ? 'Fora dos resultados por herança da categoria pai' : 'Marcado para não considerar nos resultados'}
+                        >
+                            {inheritedOnly ? 'Fora (herdado)' : 'Fora do resultado'}
+                        </span>
+                    )}
                 </div>
 
                 {/* Actions */}
@@ -199,6 +213,7 @@ const DraggableTreeItem = ({ item, depth = 0, onDragStart, onDrop, onEdit, onDel
                             key={child.id} 
                             item={child} 
                             depth={depth + 1} 
+                            inheritedExcluded={effectiveExcluded}
                             onDragStart={onDragStart}
                             onDrop={onDrop}
                             onEdit={onEdit}
@@ -225,7 +240,7 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
   // CRUD States
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'CREATE'|'EDIT'>('CREATE');
-  const [formData, setFormData] = useState({ id: 0, nome: '', codigo: '', tipo: 'D' });
+    const [formData, setFormData] = useState({ id: 0, nome: '', codigo: '', tipo: 'D', considerar_nos_resultados: true });
 
   // --- ALGORITMO DE RECALCULO DE CÓDIGOS ---
   // Esta função mágica recebe a lista plana desordenada, remonta a árvore visual
@@ -259,11 +274,11 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
       };
 
       // 3. Aplica nas Receitas (Prefixo 1)
-      const receitas = roots.filter(r => r.tipo === 'R' || r.tipo === 'RECEITA');
+    const receitas = roots.filter(r => normalizeTipo(r.tipo) === 'R');
       traverseAndCode(receitas, '1');
 
       // 4. Aplica nas Despesas (Prefixo 2)
-      const despesas = roots.filter(r => r.tipo === 'D' || r.tipo === 'DESPESA');
+    const despesas = roots.filter(r => normalizeTipo(r.tipo) === 'D');
       traverseAndCode(despesas, '2');
 
       // 5. Devolve lista plana atualizada
@@ -312,8 +327,8 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
   };
 
   const { roots } = buildRenderTree(localList);
-  const receitasTree = roots.filter(c => (c.tipo === 'R' || c.tipo === 'RECEITA'));
-  const despesasTree = roots.filter(c => (c.tipo === 'D' || c.tipo === 'DESPESA'));
+    const receitasTree = roots.filter(c => normalizeTipo(c.tipo) === 'R');
+    const despesasTree = roots.filter(c => normalizeTipo(c.tipo) === 'D');
 
   // --- DRAG HANDLERS ---
   const handleDragStart = (e: React.DragEvent, item: ItemSistema) => {
@@ -347,16 +362,16 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
       // 2. Atualiza pai e tipo
       if (targetId === 'ROOT_R') {
           item.conta_pai_id = null;
-          item.tipo = 'RECEITA';
+          item.tipo = 'R';
           newList.unshift(item); // Adiciona no topo das receitas
       } else if (targetId === 'ROOT_D') {
           item.conta_pai_id = null;
-          item.tipo = 'DESPESA';
+          item.tipo = 'D';
           newList.push(item); // Adiciona no fim das despesas
       } else {
           item.conta_pai_id = targetId;
           const parent = localList.find(i => i.id === targetId);
-          if (parent) item.tipo = parent.tipo;
+          if (parent) item.tipo = normalizeTipo(parent.tipo);
           
           // Lógica simples: adiciona ao final da lista para ser reprocessado pelo recalcCodes
           // O recalcCodes vai colocar ele como filho do targetId corretamente na árvore
@@ -380,7 +395,7 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
             id: item.id,
             codigo: item.codigo, 
             conta_pai_id: item.conta_pai_id,
-            tipo: item.tipo
+            tipo: normalizeTipo(item.tipo)
         }));
 
         await api.post('/plano-contas/reordenar', payload);
@@ -416,15 +431,27 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
   const handleSaveModal = async () => {
       try {
           if (modalMode === 'CREATE') {
-              const res = await api.post('/plano-contas/', { nome: formData.nome, tipo: formData.tipo, permite_lancamentos: true });
+                            const res = await api.post('/plano-contas/', {
+                                nome: formData.nome,
+                                tipo: normalizeTipo(formData.tipo),
+                                permite_lancamentos: true,
+                                considerar_nos_resultados: formData.considerar_nos_resultados,
+                            });
               // Adiciona e recalcula
               const newList = [...localList, res.data];
               const reindexed = recalcCodes(newList);
               setLocalList(reindexed);
               setHasChanges(true); // Marca como alterado para forçar salvar a ordem nova
           } else {
-              await api.patch(`/plano-contas/${formData.id}`, { nome: formData.nome, codigo: formData.codigo });
-              onUpdateList(localList.map(c => c.id === formData.id ? {...c, nome: formData.nome, codigo: formData.codigo} : c));
+                            await api.patch(`/plano-contas/${formData.id}`, {
+                                nome: formData.nome,
+                                considerar_nos_resultados: formData.considerar_nos_resultados,
+                            });
+                            onUpdateList(localList.map(c => c.id === formData.id ? {
+                                ...c,
+                                nome: formData.nome,
+                                considerar_nos_resultados: formData.considerar_nos_resultados,
+                            } : c));
           }
           setModalOpen(false);
       } catch(e) { alert("Erro ao salvar"); }
@@ -435,7 +462,7 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
       
       {/* HEADER ACTIONS */}
       <div className="flex justify-between items-center mb-6">
-          <button onClick={() => { setModalMode('CREATE'); setFormData({id:0, nome:'', codigo:'', tipo:'D'}); setModalOpen(true); }} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg font-bold flex items-center gap-2 transition shadow-lg">
+          <button onClick={() => { setModalMode('CREATE'); setFormData({id:0, nome:'', codigo:'', tipo:'D', considerar_nos_resultados:true}); setModalOpen(true); }} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg font-bold flex items-center gap-2 transition shadow-lg">
               <Plus className="w-4 h-4"/> Nova Categoria
           </button>
 
@@ -478,9 +505,10 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
                           <DraggableTreeItem 
                              key={item.id} 
                              item={item} 
+                                      inheritedExcluded={false}
                              onDragStart={handleDragStart} 
                              onDrop={handleDrop}
-                             onEdit={(i:any)=>{ setModalMode('EDIT'); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo}); setModalOpen(true); }}
+                             onEdit={(i:any)=>{ setModalMode('EDIT'); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, considerar_nos_resultados: i.considerar_nos_resultados !== false}); setModalOpen(true); }}
                              onDelete={handleDelete}
                              onToggle={handleToggle}
                              expandedIds={expandedIds}
@@ -511,9 +539,10 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
                           <DraggableTreeItem 
                              key={item.id} 
                              item={item} 
+                                      inheritedExcluded={false}
                              onDragStart={handleDragStart} 
                              onDrop={handleDrop}
-                             onEdit={(i:any)=>{ setModalMode('EDIT'); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo}); setModalOpen(true); }}
+                             onEdit={(i:any)=>{ setModalMode('EDIT'); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, considerar_nos_resultados: i.considerar_nos_resultados !== false}); setModalOpen(true); }}
                              onDelete={handleDelete}
                              onToggle={handleToggle}
                              expandedIds={expandedIds}
@@ -552,6 +581,16 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
                               </select>
                           </div>
                       )}
+
+                                            <label className="flex items-center gap-2 text-sm text-slate-300">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={formData.considerar_nos_resultados}
+                                                    onChange={(e:any)=>setFormData({...formData, considerar_nos_resultados: e.target.checked})}
+                                                    className="accent-emerald-500"
+                                                />
+                                                Considerar nos resultados (KPIs/Dashboard)
+                                            </label>
                       
                       <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-700">
                           <button onClick={()=>setModalOpen(false)} className="px-4 py-2 text-slate-400 hover:bg-slate-700 rounded-lg font-bold">Cancelar</button>
@@ -670,8 +709,8 @@ export function Importacao() {
       try {
           let res: any; let newItem: any;
           if(modalType === 'CATEGORIA') {
-              const tipo = modalValue.startsWith('1') ? 'R' : 'D';
-              res = await api.post('/plano-contas/', { nome: modalValue, tipo: tipo, permite_lancamentos: true }); 
+              const tipo = (modalValue || '').trim().toUpperCase().startsWith('R') ? 'R' : 'D';
+              res = await api.post('/plano-contas/', { nome: modalValue, tipo: tipo, permite_lancamentos: true, considerar_nos_resultados: true }); 
               newItem = res.data;
               setSistemaData(prev => {
                 const next = [...prev.categorias, newItem];
@@ -716,8 +755,8 @@ export function Importacao() {
       try {
           const promises = missingList.map(name => {
               if (type === 'CATEGORIA') {
-                  const tipo = name.trim().startsWith('1') ? 'R' : 'D';
-                  return api.post('/plano-contas/', { nome: name, tipo, permite_lancamentos: true }).then(r => ({ name, data: r.data }));
+                  const tipo = (name || '').trim().toUpperCase().startsWith('R') ? 'R' : 'D';
+                  return api.post('/plano-contas/', { nome: name, tipo, permite_lancamentos: true, considerar_nos_resultados: true }).then(r => ({ name, data: r.data }));
               }
               if (type === 'ENTIDADE') return api.post('/entidades/', { nome: name, tipo: 'AMBOS' }).then(r => ({ name, data: r.data }));
               if (type === 'CONTA') return api.post('/contas/', { nome: name, tipo: 'CORRENTE' }).then(r => ({ name, data: r.data }));

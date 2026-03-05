@@ -16,6 +16,7 @@ interface Lancamento {
   data_pagamento?: string;
   competencia?: string;
   previsto?: boolean;
+  origem?: string;
   tipo: 'RECEITA' | 'DESPESA' | string;
   status: 'PAGO' | 'PENDENTE' | 'EM ABERTO' | string;
   plano_contas_id?: number;
@@ -26,6 +27,7 @@ interface Categoria {
   id: number;
   nome: string;
   tipo: string;
+  considerar_nos_resultados?: boolean;
 }
 
 interface CentroCusto {
@@ -58,6 +60,38 @@ const formatMonthLabel = (ym: string) => new Date(`${ym}-01T00:00:00`).toLocaleD
 const isReceita = (tipo?: string) => (tipo || '').toUpperCase().startsWith('R');
 const isDespesa = (tipo?: string) => (tipo || '').toUpperCase().startsWith('D');
 const isPago = (status?: string) => (status || '').toUpperCase() === 'PAGO';
+
+const buildExcludedCategoriaIds = (categorias: Categoria[]) => {
+  const filhosPorPai = new Map<number, number[]>();
+  const excluidas = new Set<number>();
+
+  categorias.forEach((cat) => {
+    const catId = Number(cat.id);
+    const parentId = Number((cat as any).conta_pai_id);
+    if (Number.isFinite(parentId) && parentId > 0) {
+      const filhos = filhosPorPai.get(parentId) || [];
+      filhos.push(catId);
+      filhosPorPai.set(parentId, filhos);
+    }
+    if (cat.considerar_nos_resultados === false) {
+      excluidas.add(catId);
+    }
+  });
+
+  const fila = Array.from(excluidas);
+  while (fila.length > 0) {
+    const atual = fila.shift()!;
+    const filhos = filhosPorPai.get(atual) || [];
+    filhos.forEach((filhoId) => {
+      if (!excluidas.has(filhoId)) {
+        excluidas.add(filhoId);
+        fila.push(filhoId);
+      }
+    });
+  }
+
+  return excluidas;
+};
 
 function getMonthRange(yyyymm: string) {
   const [yearStr, monthStr] = yyyymm.split('-');
@@ -106,6 +140,8 @@ export function Dashboard() {
     window.addEventListener('theme-change', handler);
     return () => window.removeEventListener('theme-change', handler);
   }, []);
+
+  const categoriasExcluidasResultado = useMemo(() => buildExcludedCategoriaIds(categorias), [categorias]);
 
   useEffect(() => {
     loadDashboard();
@@ -169,6 +205,8 @@ export function Dashboard() {
 
   const filteredLancamentos = useMemo(() => {
     return lancamentos.filter(l => {
+      if ((l.origem || '').toUpperCase() === 'TRANSFERENCIA') return false;
+      if (categoriasExcluidasResultado.has(Number(l.plano_contas_id))) return false;
       const isPrevisto = l.previsto !== false;
       if (previstoFiltro === 'SIM' && !isPrevisto) return false;
       if (previstoFiltro === 'NAO' && isPrevisto) return false;
@@ -185,10 +223,12 @@ export function Dashboard() {
       if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
       return true;
     });
-  }, [lancamentos, selectedCategorias, selectedCentro, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro]);
+  }, [lancamentos, categoriasExcluidasResultado, selectedCategorias, selectedCentro, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro]);
 
   const baseFilteredNoDate = useMemo(() => {
     return lancamentosAno.filter(l => {
+      if ((l.origem || '').toUpperCase() === 'TRANSFERENCIA') return false;
+      if (categoriasExcluidasResultado.has(Number(l.plano_contas_id))) return false;
       const isPrevisto = l.previsto !== false;
       if (previstoFiltro === 'SIM' && !isPrevisto) return false;
       if (previstoFiltro === 'NAO' && isPrevisto) return false;
@@ -203,10 +243,12 @@ export function Dashboard() {
       if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
       return true;
     });
-  }, [lancamentosAno, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro]);
+  }, [lancamentosAno, categoriasExcluidasResultado, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro]);
 
   const baseFilteredAnoAnterior = useMemo(() => {
     return lancamentosAnoAnterior.filter(l => {
+      if ((l.origem || '').toUpperCase() === 'TRANSFERENCIA') return false;
+      if (categoriasExcluidasResultado.has(Number(l.plano_contas_id))) return false;
       const isPrevisto = l.previsto !== false;
       if (previstoFiltro === 'SIM' && !isPrevisto) return false;
       if (previstoFiltro === 'NAO' && isPrevisto) return false;
@@ -221,7 +263,7 @@ export function Dashboard() {
       if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
       return true;
     });
-  }, [lancamentosAnoAnterior, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro]);
+  }, [lancamentosAnoAnterior, categoriasExcluidasResultado, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro]);
 
   const kpis = useMemo(() => {
     let receitas = 0; let despesas = 0; let pagos = 0; let pendentes = 0;

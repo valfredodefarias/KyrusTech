@@ -1,9 +1,27 @@
 # app/crud/crud_plano_contas.py
 
+import re
 from typing import List, Optional
 from sqlmodel import Session, select
 from app.models.plano_contas import PlanoContas
 from app.schemas.plano_contas import PlanoContasCreate, PlanoContasUpdate
+
+
+def _normalizar_tipo_plano(tipo: Optional[str], default: str = "D") -> str:
+    valor = (tipo or "").strip().upper()
+    if valor.startswith("R"):
+        return "R"
+    if valor.startswith("D"):
+        return "D"
+    return default
+
+
+def _strip_codigo_prefixo(nome: str) -> str:
+    texto = (nome or "").strip()
+    match = re.match(r"^\s*\d+(?:\.\d+)*\.?\s+(.+)$", texto)
+    if match:
+        return match.group(1).strip()
+    return texto
 
 # --- FUNÇÕES BÁSICAS DE CRUD (Faltavam estas) ---
 
@@ -20,6 +38,7 @@ def get_by_empresa(db: Session, *, empresa_id: int) -> List[PlanoContas]:
 def create(db: Session, *, obj_in: PlanoContasCreate, empresa_id: int) -> PlanoContas:
     """Cria uma nova categoria manualmente."""
     data = obj_in.model_dump()
+    data["tipo"] = _normalizar_tipo_plano(data.get("tipo"), default="D")
     data["empresa_id"] = empresa_id
     db_obj = PlanoContas.model_validate(data)
     db.add(db_obj)
@@ -30,6 +49,10 @@ def create(db: Session, *, obj_in: PlanoContasCreate, empresa_id: int) -> PlanoC
 def update(db: Session, *, db_obj: PlanoContas, obj_in: PlanoContasUpdate) -> PlanoContas:
     """Atualiza uma categoria existente."""
     update_data = obj_in.model_dump(exclude_unset=True)
+    if "codigo" in update_data and isinstance(update_data["codigo"], str) and not update_data["codigo"].strip():
+        update_data.pop("codigo")
+    if "tipo" in update_data and update_data["tipo"] is not None:
+        update_data["tipo"] = _normalizar_tipo_plano(update_data["tipo"], default=db_obj.tipo)
     db_obj.sqlmodel_update(update_data)
     db.add(db_obj)
     db.commit()
@@ -358,12 +381,13 @@ def seed_plano_contas_padrao(db: Session, *, empresa_id: int, tipo_pessoa: str =
             # Lista de contas folha (sem subcontas)
             for item in estrutura:
                 nc = PlanoContas(
-                    nome=item["nome"],
-                    tipo=item["tipo"],
+                    nome=_strip_codigo_prefixo(item["nome"]),
+                    tipo=_normalizar_tipo_plano(item["tipo"], default="D"),
                     codigo=item.get("codigo"),
                     empresa_id=empresa_id,
                     conta_pai_id=conta_pai_id,
-                    permite_lancamentos=True
+                    permite_lancamentos=True,
+                    considerar_nos_resultados=True
                 )
                 db.add(nc)
             return
@@ -376,12 +400,13 @@ def seed_plano_contas_padrao(db: Session, *, empresa_id: int, tipo_pessoa: str =
                 permite_lanc = dados.get("permite_lancamentos", not tem_filhas)
                 
                 nc = PlanoContas(
-                    nome=nome,
-                    tipo=dados["tipo"],
+                    nome=_strip_codigo_prefixo(nome),
+                    tipo=_normalizar_tipo_plano(dados["tipo"], default="D"),
                     codigo=dados.get("codigo"),
                     empresa_id=empresa_id,
                     conta_pai_id=conta_pai_id,
-                    permite_lancamentos=permite_lanc
+                    permite_lancamentos=permite_lanc,
+                    considerar_nos_resultados=True
                 )
                 db.add(nc)
                 db.flush()  # Flush para obter o ID antes de criar as filhas

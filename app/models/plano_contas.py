@@ -30,6 +30,7 @@ class PlanoContas(AuditMixin, SQLModel, table=True):
     eh_divida: bool = Field(default=False) 
     
     permite_lancamentos: bool = Field(default=True)
+    considerar_nos_resultados: bool = Field(default=True)
     
     # Hierarquia (Auto-relacionamento)
     conta_pai_id: Optional[int] = Field(default=None, foreign_key="plano_contas.id")

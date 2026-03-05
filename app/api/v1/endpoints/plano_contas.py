@@ -15,6 +15,15 @@ from app.api.v1.deps import get_empresa_id_from_user
 
 router = APIRouter()
 
+
+def _normalizar_tipo_plano(tipo: str) -> str:
+    valor = (tipo or "").strip().upper()
+    if valor.startswith("R"):
+        return "R"
+    if valor.startswith("D"):
+        return "D"
+    return "D"
+
 # --- SCHEMA LOCAL PARA REORDENAÇÃO ---
 class ReordenacaoItem(BaseModel):
     id: int
@@ -82,17 +91,32 @@ def reordenar_plano_contas(
         for item in itens:
             if item.id in conta_map:
                 conta_db = conta_map[item.id]
+                novo_tipo = _normalizar_tipo_plano(item.tipo)
                 
                 # Só atualiza se mudou algo (performance)
                 if (conta_db.codigo != item.codigo or 
                     conta_db.conta_pai_id != item.conta_pai_id or
-                    conta_db.tipo != item.tipo):
+                    conta_db.tipo != novo_tipo):
+                    tipo_alterado = conta_db.tipo != novo_tipo
                     
                     conta_db.codigo = item.codigo
                     conta_db.conta_pai_id = item.conta_pai_id
-                    conta_db.tipo = item.tipo
+                    conta_db.tipo = novo_tipo
                     
                     db.add(conta_db)
+
+                    if tipo_alterado:
+                        novo_tipo_lanc = "RECEITA" if novo_tipo == "R" else "DESPESA"
+                        lancamentos_categoria = db.exec(
+                            select(Lancamento).where(
+                                Lancamento.empresa_id == empresa_id,
+                                Lancamento.plano_contas_id == conta_db.id
+                            )
+                        ).all()
+                        for lanc in lancamentos_categoria:
+                            lanc.tipo = novo_tipo_lanc
+                            db.add(lanc)
+
                     updates += 1
         
         db.commit()

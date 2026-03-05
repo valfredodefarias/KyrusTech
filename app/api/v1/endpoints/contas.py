@@ -18,6 +18,7 @@ from app.schemas.lancamento import LancamentoRead
 from app.models.conta import Conta
 from app.models.centro_custo import CentroCusto
 from app.models.lancamento import Lancamento
+from app.models.plano_contas import PlanoContas
 from app.api.v1.deps import get_empresa_id_from_user
 from app.core.network import get_backend_url
 
@@ -36,6 +37,34 @@ class LancamentoExtratoOut(BaseModel):
     descricao: str
     valor_pago: Decimal
     tipo: str
+
+
+def _categorias_excluidas_resultado(db: Session, empresa_id: int) -> set[int]:
+    categorias = db.exec(
+        select(PlanoContas.id, PlanoContas.conta_pai_id, PlanoContas.considerar_nos_resultados)
+        .where(PlanoContas.empresa_id == empresa_id)
+    ).all()
+
+    filhos_por_pai: dict[int, list[int]] = {}
+    excluidas: set[int] = set()
+
+    for cat_id, conta_pai_id, considerar in categorias:
+        if cat_id is None:
+            continue
+        if conta_pai_id is not None:
+            filhos_por_pai.setdefault(int(conta_pai_id), []).append(int(cat_id))
+        if considerar is False:
+            excluidas.add(int(cat_id))
+
+    fila = list(excluidas)
+    while fila:
+        atual = fila.pop(0)
+        for filho_id in filhos_por_pai.get(atual, []):
+            if filho_id not in excluidas:
+                excluidas.add(filho_id)
+                fila.append(filho_id)
+
+    return excluidas
 
 @router.get("/", response_model=List[ContaSaldo])
 def read_all_contas(
@@ -56,6 +85,8 @@ def read_all_contas(
     # Agrega receitas e despesas por conta em uma única query (evita N+1)
     saldos_por_conta = {}
     if include_saldo:
+        categorias_excluidas = _categorias_excluidas_resultado(db, empresa_id)
+
         saldo_query = (
             select(
                 Lancamento.conta_id,
@@ -72,13 +103,18 @@ def read_all_contas(
                     )
                 ).label("despesas"),
             )
+            .join(PlanoContas, PlanoContas.id == Lancamento.plano_contas_id)
             .where(
                 Lancamento.empresa_id == empresa_id,
                 Lancamento.status == "PAGO",
                 Lancamento.conta_id.is_not(None),
+                Lancamento.origem != "TRANSFERENCIA",
             )
             .group_by(Lancamento.conta_id)
         )
+
+        if categorias_excluidas:
+            saldo_query = saldo_query.where(~Lancamento.plano_contas_id.in_(categorias_excluidas))
 
         saldos_por_conta = {
             row[0]: (row[1], row[2])

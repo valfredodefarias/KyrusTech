@@ -1,5 +1,6 @@
 # app/api/v1/endpoints/auditoria.py
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, select, func, col
@@ -12,6 +13,20 @@ from app.models.usuario import Usuario
 from app.schemas.audit_log import AuditLogItem, AuditLogList
 
 router = APIRouter()
+
+BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def _br_local_to_utc_naive(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=BRAZIL_TZ)
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _utc_to_brazil(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(BRAZIL_TZ)
 
 @router.get("/", response_model=AuditLogList)
 def listar_auditoria(
@@ -37,9 +52,9 @@ def listar_auditoria(
     if user_id:
         filters.append(AuditLog.user_id == user_id)
     if start:
-        filters.append(AuditLog.created_at >= start)
+        filters.append(AuditLog.created_at >= _br_local_to_utc_naive(start))
     if end:
-        filters.append(AuditLog.created_at <= end)
+        filters.append(AuditLog.created_at <= _br_local_to_utc_naive(end))
     if q:
         filters.append(
             or_(
@@ -86,7 +101,7 @@ def listar_auditoria(
                 user_email=email,
                 ip_address=log.ip_address,
                 user_agent=log.user_agent,
-                created_at=log.created_at,
+                created_at=_utc_to_brazil(log.created_at),
             )
         )
 

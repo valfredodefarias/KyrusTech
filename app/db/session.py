@@ -1,4 +1,5 @@
 from typing import Generator
+from fastapi import Request
 from sqlmodel import create_engine, Session, SQLModel
 from app.core.config import settings
 from app.db import audit  # noqa: F401
@@ -22,13 +23,17 @@ def init_db():
     SQLModel.metadata.create_all(engine)
 
 # --- FUNÇÃO PRINCIPAL ---
-def get_db() -> Generator[Session, None, None]:
+def get_db(request: Request) -> Generator[Session, None, None]:
     """
     Dependência para injetar a sessão do banco em endpoints FastAPI.
     Abre a sessão, entrega para o endpoint e fecha automaticamente.
     """
     with Session(engine) as session:
         try:
+            client_host = request.client.host if request.client else None
+            user_agent = request.headers.get("user-agent")
+            session.info["audit_ip_address"] = client_host
+            session.info["audit_user_agent"] = user_agent
             yield session
         except Exception:
             session.rollback()

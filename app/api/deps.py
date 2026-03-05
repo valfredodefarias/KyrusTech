@@ -45,6 +45,7 @@ def get_current_user(
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Usuário inativo")
     set_audit_user(user.id)
+    session.info["audit_user_id"] = user.id
     return user
 
 # Funções auxiliares

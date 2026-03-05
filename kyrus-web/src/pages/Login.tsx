@@ -65,7 +65,7 @@ export function Login() {
             </div>
           </div>
           {error && <p className="text-center text-sm text-red-500 font-bold animate-pulse">{error}</p>}
-          <button type="submit" disabled={loading} className="w-full py-3 px-4 bg-primary hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition transform active:scale-95 flex justify-center items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">
+          <button type="submit" disabled={loading} className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition transform active:scale-95 flex justify-center items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">
             {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Carregando...</> : <><ArrowRight className="w-4 h-4" /> Entrar</>}
           </button>
         </form>

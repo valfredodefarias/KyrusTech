@@ -112,6 +112,10 @@ def write_audit_logs(session: OrmSession, flush_context) -> None:  # type: ignor
     if not entries:
         return
 
+    audit_user_id = session.info.get("audit_user_id", get_audit_user())
+    audit_ip_address = session.info.get("audit_ip_address", get_audit_ip())
+    audit_user_agent = session.info.get("audit_user_agent", get_audit_user_agent())
+
     session.info["audit_in_progress"] = True
     try:
         for entry in entries:
@@ -124,9 +128,9 @@ def write_audit_logs(session: OrmSession, flush_context) -> None:  # type: ignor
                 record_id=record_id,
                 action=entry["action"],
                 changes=entry.get("changes") or None,
-                user_id=get_audit_user(),
-                ip_address=get_audit_ip(),
-                user_agent=get_audit_user_agent(),
+                user_id=audit_user_id,
+                ip_address=audit_ip_address,
+                user_agent=audit_user_agent,
             )
             session.add(log)
     finally:

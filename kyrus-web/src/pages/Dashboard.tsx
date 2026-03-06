@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../services/api';
+import { AiAssistente } from '../components/AiAssistente';
 import ReactApexChart from 'react-apexcharts';
 import ExcelJS from 'exceljs';
 import {
@@ -282,6 +283,29 @@ export function Dashboard() {
     });
     return { receitas, despesas, saldo: receitas - despesas, pagos, pendentes };
   }, [filteredLancamentos]);
+
+  const aiContexto = useMemo(() => {
+    return {
+      periodo: { tipo: periodoTipo, mes, ano, inicio: periodoIni, fim: periodoFim },
+      filtros: {
+        status: statusFiltro,
+        tipo: tipoFiltro,
+        previsto: previstoFiltro,
+        competencia: competenciaFiltro,
+        hoje: filtroHojeAtivo,
+        categoriasSelecionadas: Array.from(selectedCategorias),
+        centroCustoSelecionado: selectedCentro,
+      },
+      metricas: {
+        totalLancamentosFiltrados: filteredLancamentos.length,
+        receitas: kpis.receitas,
+        despesas: kpis.despesas,
+        saldo: kpis.saldo,
+        pagos: kpis.pagos,
+        pendentes: kpis.pendentes,
+      },
+    };
+  }, [periodoTipo, mes, ano, periodoIni, periodoFim, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, selectedCategorias, selectedCentro, filteredLancamentos.length, kpis]);
 
   const fluxoDiario = useMemo(() => {
     if (periodoTipo === 'ANO') {
@@ -1844,6 +1868,17 @@ export function Dashboard() {
           </div>
         )}
       </div>
+
+      <AiAssistente
+        tela="dashboard"
+        contexto={aiContexto}
+        titulo="Assistente do Dashboard"
+        sugestoes={[
+          'Quais indicadores merecem atencao imediata?',
+          'O que explica meu saldo no periodo?',
+          'Quais acoes priorizar para melhorar o resultado?',
+        ]}
+      />
     </div>
   );
 }

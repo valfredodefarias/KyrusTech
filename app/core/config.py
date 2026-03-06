@@ -22,6 +22,17 @@ class Settings(BaseSettings):
     # No .env use: BACKEND_CORS_ORIGINS=http://localhost:5501,http://meuapp.com
     BACKEND_CORS_ORIGINS: Union[List[str], str] = "*"
 
+    # --- IA ASSISTENTE ---
+    AI_PROVIDER: str = "gemini"  # gemini | openai
+    AI_TIMEOUT_SECONDS: int = 30
+
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL: str = "gemini-1.5-flash"
+
+    OPENAI_API_KEY: str | None = None
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    OPENAI_TIMEOUT_SECONDS: int = 30  # Compat legado
+
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:

@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../services/api';
+import { AiAssistente } from '../components/AiAssistente';
 import { useLookupStore } from '../store/lookupStore';
 import { 
   Plus, Search, Filter, RefreshCw, ChevronLeft, ChevronRight, 
@@ -682,6 +683,35 @@ export function Lancamentos() {
 
     return { grouped: { groups, sortedDates }, kpis: { r, d, s: r-d } };
   }, [filteredList, categorias]);
+
+  const aiContexto = useMemo(() => {
+    return {
+      mesReferencia: mesAtual.toISOString().slice(0, 7),
+      filtros: {
+        texto: filtroTexto,
+        centroCusto: centroCustoFiltro || null,
+        filtroRapido,
+        tipo: filtrosAvancados.tipo,
+        contasSelecionadas: Array.from(filtrosAvancados.contaIds),
+        categoriasSelecionadas: Array.from(filtrosAvancados.categoriaIds),
+      },
+      metricas: {
+        totalFiltrado: filteredList.length,
+        totalDiasComLancamento: grouped.sortedDates.length,
+        receitas: kpis.r,
+        despesas: kpis.d,
+        saldo: kpis.s,
+      },
+      lookups: {
+        categorias: categorias.slice(0, 200).map((c: any) => ({ id: c.id, nome: c.nome, tipo: c.tipo })),
+        contas: contas.slice(0, 120).map((c: any) => ({ id: c.id, nome: c.nome })),
+        centros: centros.slice(0, 120).map((c: any) => ({ id: c.id, nome: c.nome })),
+        entidades: entidades.slice(0, 200).map((e: any) => ({ id: e.id, nome: e.nome })),
+        cartoes: cartoes.slice(0, 120).map((c: any) => ({ id: c.id, nome: c.nome_cartao })),
+      },
+      extratoContaAtivaId: contaExtratoAtivaId,
+    };
+  }, [mesAtual, filtroTexto, centroCustoFiltro, filtroRapido, filtrosAvancados, filteredList.length, grouped.sortedDates.length, kpis, categorias, contas, centros, entidades, cartoes, contaExtratoAtivaId]);
 
   // --- ACTIONS ---
 
@@ -1584,7 +1614,7 @@ export function Lancamentos() {
       )}
 
       {toasts.length > 0 && (
-        <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
+        <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
           {toasts.map((toast) => (
             <div
               key={toast.id}
@@ -1603,6 +1633,17 @@ export function Lancamentos() {
           ))}
         </div>
       )}
+
+      <AiAssistente
+        tela="lancamentos"
+        contexto={aiContexto}
+        titulo="Assistente de Lancamentos"
+        sugestoes={[
+          'O que os lancamentos deste mes mostram?',
+          'Como reduzir pendencias e atrasos?',
+          'Qual filtro usar para investigar melhor o resultado?',
+        ]}
+      />
 
     </div>
   );

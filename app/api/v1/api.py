@@ -16,7 +16,8 @@ from app.api.v1.endpoints import (
     importacao_itau,  # <--- IMPORTAÇÃO DO ENDPOINT DE IMPORTAÇÃO
     importacao_ofx,
     auditoria,
-    todos
+    todos,
+    ai_assistente,
 )
 
 api_router = APIRouter()
@@ -48,3 +49,6 @@ api_router.include_router(anexos.router, prefix="/anexos", tags=["Anexos"])
 # --- IMPORTAÇÃO DE ARQUIVOS BANCÁRIOS ---
 api_router.include_router(importacao_itau.router, prefix="/importacao", tags=["Importação Itaú"])
 api_router.include_router(importacao_ofx.router, prefix="/importacao", tags=["Importação OFX"])
+
+# --- IA ---
+api_router.include_router(ai_assistente.router, prefix="/ai", tags=["Assistente IA"])

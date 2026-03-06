@@ -9,6 +9,7 @@ from typing import Any, Dict, Literal, Optional
 import requests
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from loguru import logger
 from sqlmodel import Session, select
 
 from app.api.v1.deps import get_current_user, get_empresa_id_from_user
@@ -442,7 +443,10 @@ def perguntar_assistente(
             )
         except HTTPException:
             raise
-        except requests.HTTPError:
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else "unknown"
+            body = (exc.response.text[:1000] if exc.response is not None and exc.response.text else "")
+            logger.error(f"Falha no provedor IA (planejamento). status={status_code} body={body}")
             raise HTTPException(status_code=502, detail="Falha ao consultar o provedor de IA.")
         except requests.RequestException:
             raise HTTPException(status_code=502, detail="Falha de rede ao consultar o provedor de IA.")
@@ -463,7 +467,10 @@ def perguntar_assistente(
         if _contains_forbidden_response(content):
             return AssistenteResponse(resposta=SAFE_REFUSAL_MESSAGE, modelo="policy-local")
         return AssistenteResponse(resposta=content, modelo=modelo)
-    except requests.HTTPError:
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else "unknown"
+        body = (exc.response.text[:1000] if exc.response is not None and exc.response.text else "")
+        logger.error(f"Falha no provedor IA (analise). status={status_code} body={body}")
         raise HTTPException(status_code=502, detail="Falha ao consultar o provedor de IA.")
     except requests.RequestException:
         raise HTTPException(status_code=502, detail="Falha de rede ao consultar o provedor de IA.")

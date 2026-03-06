@@ -37,17 +37,25 @@ class Settings(BaseSettings):
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
         if isinstance(v, str):
-            if v == "*":
+            raw = v.strip()
+
+            # Aceita valores entre aspas no .env ("..." ou '...').
+            if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+                raw = raw[1:-1].strip()
+
+            if raw == "*":
                 return ["*"]
-            if v.startswith("["):
+            if raw.startswith("["):
                 try:
                     # Permite lista JSON no .env
-                    return json.loads(v)
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        return [str(i).strip().rstrip("/") for i in parsed]
                 except Exception:
                     pass
-            return [i.strip() for i in v.split(",")]
+            return [i.strip().rstrip("/") for i in raw.split(",") if i.strip()]
         elif isinstance(v, list):
-            return v
+            return [str(i).strip().rstrip("/") for i in v if str(i).strip()]
         raise ValueError(v)
 
     # --- BANCO DE DADOS (POSTGRES) ---

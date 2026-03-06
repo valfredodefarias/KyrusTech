@@ -30,8 +30,11 @@ cors_origins = (
     else []
 )
 
+if "*" not in cors_origins:
+    cors_origins = [str(origin).strip().rstrip("/") for origin in cors_origins if str(origin).strip()]
+
 if settings.BACKEND_PUBLIC_URL and settings.BACKEND_PUBLIC_URL not in cors_origins:
-    cors_origins.append(settings.BACKEND_PUBLIC_URL)
+    cors_origins.append(settings.BACKEND_PUBLIC_URL.rstrip("/"))
 
 allow_credentials = "*" not in cors_origins
 

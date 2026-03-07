@@ -3,6 +3,7 @@ from typing import List, Optional
 from sqlmodel import Session, select
 from app.models.entidade import Entidade
 from app.schemas.entidade import EntidadeCreate, EntidadeUpdate
+from app.crud.crud_centro_custo import ensure_centro_custo_principal
 
 
 def _apply_model_update(db_obj, update_data: dict) -> None:
@@ -27,6 +28,12 @@ def create(db: Session, *, obj_in: EntidadeCreate, empresa_id: int) -> Entidade:
     db.add(db_obj)
     db.commit()
     db.refresh(db_obj)
+
+    # Quando a entidade for pessoa fisica, garante o centro padrao da empresa.
+    tipo = str(db_obj.tipo or "").strip().upper()
+    if tipo in {"PESSOA_FISICA", "PF"}:
+        ensure_centro_custo_principal(db=db, empresa_id=empresa_id)
+
     return db_obj
 
 def update(db: Session, *, id: int, obj_in: EntidadeUpdate, empresa_id: int) -> Optional[Entidade]:

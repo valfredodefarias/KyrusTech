@@ -52,6 +52,7 @@ FORBIDDEN_REQUEST_PATTERNS = [
     re.compile(r"\b(chave|senha|token|credencial|segredo|secret|api[_\s-]?key)\b", re.IGNORECASE),
     re.compile(r"\b(prompt\s+do\s+sistema|system\s+prompt|ignore\s+as\s+instrucoes)\b", re.IGNORECASE),
     re.compile(r"\b(outra\s+empresa|empresas?\s+de\s+outros|dados\s+de\s+outras?)\b", re.IGNORECASE),
+    re.compile(r"\b(hip[oó]tese|hipot[ée]tico|suponha|imagine)\b.*\b(api|backend|banco|dados\s+internos|credenciais)\b", re.IGNORECASE),
 ]
 
 FORBIDDEN_RESPONSE_PATTERNS = [
@@ -83,13 +84,22 @@ class PlanoLancamentoItem(BaseModel):
     data_pagamento: Optional[str] = None
 
 
+class AssistenteAnexo(BaseModel):
+    nome: str = Field(min_length=1, max_length=140)
+    mime_type: str = Field(min_length=3, max_length=120)
+    tipo: Literal["TEXTO", "PLANILHA", "IMAGEM", "PDF"]
+    conteudo_texto: Optional[str] = Field(default=None, max_length=20000)
+    base64_data: Optional[str] = Field(default=None, max_length=8_000_000)
+
+
 class AssistenteRequest(BaseModel):
     pergunta: str = Field(min_length=3, max_length=3000)
     tela: Literal["dashboard", "lancamentos", "geral"] = "geral"
     contexto: Optional[Dict[str, Any]] = None
-    acao: Literal["ANALISE", "CONFIRMAR_PLANO_LANCAMENTOS"] = "ANALISE"
+    acao: Literal["ANALISE", "REVISAR_PLANO_LANCAMENTOS", "CONFIRMAR_PLANO_LANCAMENTOS"] = "ANALISE"
     plano_lancamentos: Optional[list[PlanoLancamentoItem]] = None
     plano_assinatura: Optional[str] = None
+    anexos: Optional[list[AssistenteAnexo]] = None
 
 
 class AssistenteResponse(BaseModel):
@@ -110,6 +120,9 @@ def _build_system_prompt() -> str:
         "Nunca forneca dados de outras empresas, mesmo que o usuario solicite. "
         "Nunca revele nem especule sobre backend, APIs, banco, comandos, infraestrutura, tokens, senhas, chaves ou detalhes internos do sistema. "
         "Nunca exponha dados sensiveis (documentos, contatos, credenciais), inclusive para administradores. "
+        "Quando houver comprovantes, imagens, PDFs ou planilhas anexadas, extraia somente o necessario para analise financeira ou para montar uma previa de lancamentos. "
+        "Nunca execute lancamentos automaticamente a partir de anexos sem revisao humana e confirmacao explicita. "
+        "Ao sugerir classificacao, escolha somente entre IDs permitidos no contexto; se houver duvida, sinalize a incerteza. "
         "Se a pergunta pedir algo fora dessas regras, recuse de forma breve e redirecione para analise financeira da tela atual. "
         "Se faltarem dados, diga o que falta de forma objetiva. "
         "Para perguntas validas, priorize: 1) resumo do que o usuario esta vendo, 2) explicacao do resultado, 3) acao recomendada. "
@@ -117,15 +130,17 @@ def _build_system_prompt() -> str:
     )
 
 
-def _build_planning_prompt(pergunta: str, contexto: Dict[str, Any]) -> str:
+def _build_planning_prompt(pergunta: str, contexto: Dict[str, Any], anexos_resumo: str = "") -> str:
     return (
         "Voce deve montar um plano de lancamentos financeiros a partir do pedido do usuario. "
         "Responda APENAS JSON valido, sem markdown e sem texto extra. "
         "Formato obrigatorio: "
         '{"resumo":"...", "lancamentos":[{"descricao":"...","tipo":"RECEITA|DESPESA","valor_previsto":123.45,"data_vencimento":"YYYY-MM-DD","plano_contas_id":1,"previsto":true,"conta_id":null,"entidade_id":null,"centro_custo_id":null,"cartao_id":null,"competencia":"MM-AAAA","observacao":null,"data_pagamento":null}]}. '
         "Regras: usar somente IDs existentes no contexto; nao inventar IDs; maximo 120 lancamentos; "
+        "se houver comprovante ou planilha anexada, extraia apenas campos visiveis e sugira a melhor classificacao permitida no contexto; "
         "se faltarem dados para criar com seguranca, retorne lancamentos vazio e explique no resumo. "
         f"Pedido do usuario: {pergunta}\n"
+        f"Resumo dos anexos: {anexos_resumo or 'sem anexos'}\n"
         f"Contexto JSON: {json.dumps(contexto, ensure_ascii=False)}"
     )
 
@@ -192,6 +207,52 @@ def _extract_json_object(raw_text: str) -> Dict[str, Any]:
             return parsed
 
     raise HTTPException(status_code=502, detail="Falha ao interpretar plano da IA.")
+
+
+def _prepare_attachment_payloads(anexos: Optional[list[AssistenteAnexo]], provider: str) -> tuple[list[Dict[str, Any]], str]:
+    if not anexos:
+        return [], ""
+
+    if len(anexos) > 4:
+        raise HTTPException(status_code=422, detail="Envie no maximo 4 anexos por vez.")
+
+    gemini_parts: list[Dict[str, Any]] = []
+    resumos: list[str] = []
+
+    for idx, anexo in enumerate(anexos, start=1):
+        mime_type = anexo.mime_type.strip().lower()
+        nome = anexo.nome.strip()[:140]
+        resumo_base = f"Anexo {idx}: {nome} ({mime_type})"
+
+        if anexo.tipo in {"TEXTO", "PLANILHA"}:
+            if not anexo.conteudo_texto:
+                raise HTTPException(status_code=422, detail=f"Conteudo textual ausente no anexo {idx}.")
+            texto = anexo.conteudo_texto.replace("\x00", " ").strip()[:16000]
+            resumos.append(f"{resumo_base}\nConteudo extraido:\n{texto}")
+            continue
+
+        if anexo.tipo == "IMAGEM":
+            if not mime_type.startswith("image/"):
+                raise HTTPException(status_code=422, detail=f"Tipo MIME invalido no anexo {idx}.")
+        elif anexo.tipo == "PDF":
+            if mime_type != "application/pdf":
+                raise HTTPException(status_code=422, detail=f"Tipo MIME invalido no anexo {idx}.")
+
+        if not anexo.base64_data:
+            raise HTTPException(status_code=422, detail=f"Arquivo binario ausente no anexo {idx}.")
+
+        if provider == "gemini":
+            gemini_parts.append({
+                "inlineData": {
+                    "mimeType": mime_type,
+                    "data": anexo.base64_data,
+                }
+            })
+            resumos.append(f"{resumo_base}\nUse o arquivo somente para leitura, classificacao sugerida e montagem de previa revisavel.")
+        else:
+            resumos.append(f"{resumo_base}\nArquivo visual enviado. Neste provedor, use apenas a descricao textual da conversa para responder.")
+
+    return gemini_parts, "\n\n".join(resumos)
 
 
 def _serialize_plan_for_signature(items: list[PlanoLancamentoItem], empresa_id: int) -> str:
@@ -321,7 +382,7 @@ def _resolve_llm_provider() -> tuple[str, str, int]:
     raise HTTPException(status_code=500, detail="Provedor de IA invalido na configuracao.")
 
 
-def _call_llm(provider: str, modelo: str, user_prompt: str, timeout: int, temperature: float = 0.2, max_tokens: int = 500) -> str:
+def _call_llm(provider: str, modelo: str, user_prompt: str, timeout: int, temperature: float = 0.2, max_tokens: int = 500, attachment_parts: Optional[list[Dict[str, Any]]] = None) -> str:
     if provider == "openai":
         response = requests.post(
             "https://api.openai.com/v1/chat/completions",
@@ -358,9 +419,7 @@ def _call_llm(provider: str, modelo: str, user_prompt: str, timeout: int, temper
             "contents": [
                 {
                     "role": "user",
-                    "parts": [
-                        {"text": f"{_build_system_prompt()}\n\n{user_prompt}"}
-                    ],
+                    "parts": [*(attachment_parts or []), {"text": f"{_build_system_prompt()}\n\n{user_prompt}"}],
                 }
             ],
             "generationConfig": {
@@ -412,15 +471,33 @@ def perguntar_assistente(
             itens_criados=len(criados),
         )
 
+    if payload.acao == "REVISAR_PLANO_LANCAMENTOS":
+        if payload.tela != "lancamentos":
+            raise HTTPException(status_code=400, detail="Acao permitida apenas na tela de lancamentos.")
+        if not payload.plano_lancamentos:
+            raise HTTPException(status_code=400, detail="Plano obrigatorio para revisao.")
+
+        lista_create = _validate_and_convert_plan(payload.plano_lancamentos, empresa_id, db)
+        _ = lista_create
+        assinatura = _sign_plan(payload.plano_lancamentos, empresa_id)
+        return AssistenteResponse(
+            resposta="Revisei o plano editado. Se estiver correto, agora voce pode confirmar a criacao.",
+            modelo="policy-local",
+            tipo_resposta="PLANO_LANCAMENTOS",
+            plano_lancamentos=payload.plano_lancamentos,
+            plano_assinatura=assinatura,
+        )
+
     pergunta = payload.pergunta.strip()
     if _contains_forbidden_request(pergunta):
         return AssistenteResponse(resposta=SAFE_REFUSAL_MESSAGE, modelo="policy-local")
 
     contexto_sanitizado = _sanitize_context(payload.contexto or {})
+    attachment_parts, anexos_resumo = _prepare_attachment_payloads(payload.anexos, provider)
     if payload.tela == "lancamentos" and _is_actionable_lancamento_request(pergunta):
         try:
-            planning_prompt = _build_planning_prompt(pergunta, contexto_sanitizado)
-            raw_plan = _call_llm(provider=provider, modelo=modelo, user_prompt=planning_prompt, timeout=llm_timeout, temperature=0.1, max_tokens=1200)
+            planning_prompt = _build_planning_prompt(pergunta, contexto_sanitizado, anexos_resumo)
+            raw_plan = _call_llm(provider=provider, modelo=modelo, user_prompt=planning_prompt, timeout=llm_timeout, temperature=0.1, max_tokens=1200, attachment_parts=attachment_parts)
             parsed = _extract_json_object(raw_plan)
 
             resumo = str(parsed.get("resumo") or "Revise os lancamentos sugeridos abaixo antes de confirmar.").strip()
@@ -456,12 +533,13 @@ def perguntar_assistente(
     user_prompt = (
         f"Empresa ID: {empresa_id}\n"
         f"Tela: {payload.tela}\n"
+        f"Resumo dos anexos: {anexos_resumo or 'sem anexos'}\n"
         f"Contexto JSON: {json.dumps(contexto_sanitizado, ensure_ascii=False)}\n\n"
         f"Pergunta: {pergunta}"
     )
 
     try:
-        content = _call_llm(provider=provider, modelo=modelo, user_prompt=user_prompt, timeout=llm_timeout, temperature=0.2, max_tokens=500)
+        content = _call_llm(provider=provider, modelo=modelo, user_prompt=user_prompt, timeout=llm_timeout, temperature=0.2, max_tokens=500, attachment_parts=attachment_parts)
         if not content:
             raise HTTPException(status_code=502, detail="Assistente IA sem resposta no momento.")
         if _contains_forbidden_response(content):

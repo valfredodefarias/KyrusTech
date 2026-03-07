@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { Sidebar, MobileSidebar } from './Sidebar';
 
 export function Layout() {
+  const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('theme') as 'dark' | 'light') || 'light');
+  const isLancamentosRoute = location.pathname.startsWith('/lancamentos');
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -18,6 +20,31 @@ export function Layout() {
   useEffect(() => {
     localStorage.setItem('sidebarCollapsed', sidebarCollapsed ? '1' : '0');
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    const handleSidebarCommand = (event: Event) => {
+      const customEvent = event as CustomEvent<{ collapsed?: boolean }>;
+      if (typeof customEvent.detail?.collapsed === 'boolean') {
+        setSidebarCollapsed(customEvent.detail.collapsed);
+        return;
+      }
+      setSidebarCollapsed((prev) => !prev);
+    };
+
+    window.addEventListener('kyrus:sidebar-toggle', handleSidebarCommand as EventListener);
+    return () => window.removeEventListener('kyrus:sidebar-toggle', handleSidebarCommand as EventListener);
+  }, []);
+
+  useEffect(() => {
+    if (!isLancamentosRoute || sidebarCollapsed) return;
+    if (window.innerWidth < 1024) return;
+
+    const timer = window.setTimeout(() => {
+      setSidebarCollapsed(true);
+    }, 3200);
+
+    return () => window.clearTimeout(timer);
+  }, [isLancamentosRoute, sidebarCollapsed]);
 
   return (
     <div className={theme === 'dark' ? 'dark' : ''}>
@@ -44,7 +71,7 @@ export function Layout() {
           <div className="w-8" />
         </header>
         {/* 'Outlet' é onde a página (Home, Dashboard) vai aparecer */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-8">
+        <main className={isLancamentosRoute ? 'flex-1 overflow-y-auto p-0' : 'flex-1 overflow-y-auto p-4 md:p-8'}>
           <Outlet />
         </main>
       </div>

@@ -301,6 +301,7 @@ export function Lancamentos() {
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
+  const [filtrosRailCollapsed, setFiltrosRailCollapsed] = useState(() => localStorage.getItem('lancamentos.filtrosRailCollapsed') === '1');
   const [didFallbackAll, setDidFallbackAll] = useState(false);
 
   // Barra/ações em lote
@@ -355,6 +356,10 @@ export function Lancamentos() {
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  useEffect(() => {
+    localStorage.setItem('lancamentos.filtrosRailCollapsed', filtrosRailCollapsed ? '1' : '0');
+  }, [filtrosRailCollapsed]);
 
   const pushToast = (type: ToastItem['type'], message: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
@@ -759,6 +764,41 @@ export function Lancamentos() {
     });
   };
 
+  const handleValorPrevistoChange = (value: string) => {
+    setFormData((prev: any) => {
+      const next = { ...prev, valor_previsto: value };
+      const valorPagoAtual = Number(prev.valor_pago || 0);
+      const valorPrevistoAnterior = Number(prev.valor_previsto || 0);
+
+      if (
+        prev.status === 'PAGO' &&
+        (!prev.valor_pago || valorPagoAtual === 0 || valorPagoAtual === valorPrevistoAnterior)
+      ) {
+        next.valor_pago = value;
+      }
+
+      return next;
+    });
+  };
+
+  const handleValorPagoChange = (value: string) => {
+    autoPagamentoRef.current = false;
+    setFormData((prev: any) => ({ ...prev, valor_pago: value }));
+  };
+
+  const resetFiltros = () => {
+    setFiltrosAvancados({ tipo: 'TODOS', status: [], contaIds: new Set(), categoriaIds: new Set(), dataInicio: '', dataFim: '' });
+    setFiltroTexto('');
+    setCentroCustoFiltro('');
+    setFiltroRapido(null);
+    setContaExtratoAtivaId(null);
+    setMesAtual(new Date());
+  };
+
+  const toggleMainSidebar = () => {
+    window.dispatchEvent(new CustomEvent('kyrus:sidebar-toggle'));
+  };
+
   const handleDataPagamentoChange = (value: string) => {
     autoPagamentoRef.current = false;
     setFormData((prev: any) => ({ ...prev, data_pagamento: value }));
@@ -920,8 +960,221 @@ export function Lancamentos() {
     { label: 'RECEITAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('R')).map(c=>({id:c.id, label:c.nome, tipo: c.tipo, grupo: 'RECEITAS', disabled: c.eh_cabecalho || c.permite_lancamentos === false, eh_cabecalho: c.eh_cabecalho, permite_lancamentos: c.permite_lancamentos})) }
   ];
 
+  const quickFilterOptions = [
+    {id: null, label: 'Todos'},
+    {id: 'HOJE', label: 'Vencem Hoje', icon: CalendarClock},
+    {id: 'ATRASADO', label: 'Atrasados', icon: AlertCircle},
+    {id: 'IPP', label: 'IPP', icon: LayoutGrid},
+    {id: 'EM_ABERTO', label: 'Em Aberto', icon: Layers}
+  ];
+
+  const filtrosAtivosCount = [
+    filtroTexto ? 1 : 0,
+    centroCustoFiltro ? 1 : 0,
+    filtroRapido ? 1 : 0,
+    filtrosAvancados.tipo !== 'TODOS' ? 1 : 0,
+    filtrosAvancados.dataInicio || filtrosAvancados.dataFim ? 1 : 0,
+    filtrosAvancados.contaIds.size > 0 ? 1 : 0,
+    filtrosAvancados.categoriaIds.size > 0 ? 1 : 0,
+    contaExtratoAtivaId !== null ? 1 : 0,
+  ].filter(Boolean).length;
+
+  const kpiCards = [
+    { label: 'Receitas', value: BRL.format(kpis.r), tone: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10 dark:bg-emerald-900/20', icon: TrendingUp },
+    { label: 'Despesas', value: BRL.format(kpis.d), tone: 'text-red-600 dark:text-red-400', bg: 'bg-red-500/10 dark:bg-red-900/20', icon: TrendingDown },
+    { label: 'Saldo', value: BRL.format(kpis.s), tone: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-500/10 dark:bg-blue-900/20', icon: Wallet },
+  ];
+
   return (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 overflow-hidden relative">
+    <div className="flex h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 overflow-hidden relative">
+      <aside className={`hidden xl:flex h-full shrink-0 flex-col border-r border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-950/80 backdrop-blur-xl transition-all duration-300 ${filtrosRailCollapsed ? 'w-24' : 'w-90'}`}>
+        <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 p-3">
+          {!filtrosRailCollapsed && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-400">Console</p>
+              <h2 className="text-sm font-black text-slate-800 dark:text-slate-100">Filtros e contexto</h2>
+            </div>
+          )}
+          <div className={`flex items-center gap-2 ${filtrosRailCollapsed ? 'w-full flex-col' : ''}`}>
+            <button
+              type="button"
+              onClick={toggleMainSidebar}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+              title="Recolher ou expandir menu principal"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setFiltrosRailCollapsed((prev) => !prev)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+              title={filtrosRailCollapsed ? 'Expandir barra lateral da tela' : 'Retrair barra lateral da tela'}
+            >
+              {filtrosRailCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+
+        {filtrosRailCollapsed ? (
+          <div className="flex flex-1 flex-col items-center gap-3 px-3 py-4">
+            <button type="button" onClick={() => setResumoTopoModo('KPIS')} className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition ${resumoTopoModo === 'KPIS' ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300' : 'border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`} title="KPIs"><TrendingUp className="h-4 w-4" /></button>
+            <button type="button" onClick={() => setResumoTopoModo('BANCOS')} className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition ${resumoTopoModo === 'BANCOS' ? 'border-emerald-500 bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300' : 'border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`} title="Bancos"><Landmark className="h-4 w-4" /></button>
+            <button type="button" onClick={() => setFiltroRapido('ATRASADO')} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800" title="Atrasados"><AlertCircle className="h-4 w-4" /></button>
+            <div className="mt-2 flex w-full flex-col items-center gap-2 rounded-2xl border border-dashed border-slate-200 px-2 py-3 text-center dark:border-slate-700">
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Ativos</span>
+              <span className="text-lg font-black text-slate-700 dark:text-slate-200">{filtrosAtivosCount}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 space-y-5 overflow-y-auto p-4 custom-scrollbar">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
+              <div className="relative mb-3">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <input type="text" placeholder="Buscar descrição ou valor" className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" value={filtroTexto} onChange={e=>setFiltroTexto(e.target.value)} />
+              </div>
+              <select className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" value={centroCustoFiltro} onChange={e=>setCentroCustoFiltro(e.target.value)}>
+                <option value="">Todos os centros de custo</option>
+                {centros.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
+              </select>
+            </div>
+
+            <section className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Filtros rápidos</p>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-300">{filteredList.length} itens</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {quickFilterOptions.map((f) => (
+                  <button key={String(f.id)} onClick={()=>setFiltroRapido(f.id as any)} className={`rounded-full border px-3 py-1.5 text-xs font-bold transition flex items-center gap-1.5 ${filtroRapido===f.id ? 'bg-blue-600 text-white border-blue-500 shadow-md' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+                    {f.icon && <f.icon className="w-3 h-3"/>}
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              {contaExtratoAtivaId !== null && (
+                <button onClick={() => setContaExtratoAtivaId(null)} className="flex w-full items-center justify-between rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-left text-xs font-bold text-cyan-700 dark:border-cyan-800 dark:bg-cyan-900/20 dark:text-cyan-300">
+                  <span>Extrato filtrado: {contas.find(c => Number(c.id) === contaExtratoAtivaId)?.nome || `Conta ${contaExtratoAtivaId}`}</span>
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
+              <div className="mb-3 inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-950">
+                <button onClick={() => setResumoTopoModo('KPIS')} className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${resumoTopoModo === 'KPIS' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}>KPIs</button>
+                <button onClick={() => setResumoTopoModo('BANCOS')} className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${resumoTopoModo === 'BANCOS' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}>Bancos</button>
+              </div>
+
+              {resumoTopoModo === 'KPIS' ? (
+                <div className="space-y-2.5">
+                  {kpiCards.map((card) => (
+                    <div key={card.label} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/80">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">{card.label}</p>
+                        <p className={`text-lg font-black ${card.tone}`}>{card.value}</p>
+                      </div>
+                      <div className={`rounded-xl p-2 ${card.bg}`}><card.icon className={`h-4 w-4 ${card.tone}`} /></div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between pb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Saldos por banco</span>
+                    <button onClick={() => setBancosRetratilFechado(prev => !prev)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800" title={bancosRetratilFechado ? 'Expandir' : 'Recolher'}>
+                      <ChevronDown className={`h-4 w-4 transition-transform ${bancosRetratilFechado ? '-rotate-90' : ''}`} />
+                    </button>
+                  </div>
+                  {!bancosRetratilFechado && (
+                    <>
+                      <div className={`rounded-xl border px-3 py-2 text-xs font-bold ${saldoContasTotal >= 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300' : 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300'}`}>
+                        Total em bancos: {BRL.format(saldoContasTotal)}
+                      </div>
+                      <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                        {contasFiltradas.length === 0 ? (
+                          <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">Nenhuma conta encontrada para os filtros atuais.</div>
+                        ) : (
+                          contasFiltradas.map((conta) => {
+                            const saldo = getContaSaldo(conta);
+                            const logo = getFullLogoUrl(conta.logo_url);
+                            const ativo = Number(conta.id) === contaExtratoAtivaId;
+                            return (
+                              <button key={conta.id} type="button" onClick={() => {
+                                setContaExtratoAtivaId((prev) => {
+                                  if (prev === Number(conta.id)) return null;
+                                  setFiltroRapido(null);
+                                  return Number(conta.id);
+                                });
+                              }} className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${ativo ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-200 bg-slate-50 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950/80 dark:hover:border-slate-700'}`}>
+                                <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                                  {logo ? <img src={logo} alt={conta.nome} className="h-full w-full object-cover" /> : <Wallet className="h-4 w-4 text-slate-400" />}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-bold text-slate-700 dark:text-slate-100">{conta.nome}</p>
+                                  <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{conta.banco || conta.tipo || 'Conta bancária'}</p>
+                                </div>
+                                <div className={`text-sm font-black ${saldo >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{BRL.format(saldo)}</div>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
+              <div className="mb-3 flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Filtros avançados</p>
+                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{filtrosAtivosCount} ativo(s)</p>
+                </div>
+                <button onClick={resetFiltros} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Limpar</button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase text-slate-400">Tipo de lançamento</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {['TODOS','RECEITA','DESPESA'].map(t => (
+                      <button key={t} onClick={()=>setFiltrosAvancados(prev=>({...prev, tipo: t as any}))} className={`rounded-xl border px-2 py-2 text-xs font-bold transition ${filtrosAvancados.tipo===t ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'}`}>{t}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" className="rounded-xl border border-slate-300 bg-white p-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-white" value={filtrosAvancados.dataInicio} onChange={e=>setFiltrosAvancados({...filtrosAvancados, dataInicio:e.target.value})} />
+                  <input type="date" className="rounded-xl border border-slate-300 bg-white p-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-white" value={filtrosAvancados.dataFim} onChange={e=>setFiltrosAvancados({...filtrosAvancados, dataFim:e.target.value})} />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase text-slate-400">Contas e bancos</label>
+                  <div className="flex flex-wrap gap-2">
+                    {contas.map(c => {
+                      const active = filtrosAvancados.contaIds.has(c.id);
+                      return (
+                        <button key={c.id} onClick={()=>{
+                          const newSet = new Set(filtrosAvancados.contaIds);
+                          if(active) newSet.delete(c.id); else newSet.add(c.id);
+                          setFiltrosAvancados({...filtrosAvancados, contaIds:newSet});
+                        }} className={`rounded-full border px-3 py-1.5 text-xs font-bold transition flex items-center gap-1 ${active ? 'border-emerald-600 bg-emerald-600/15 text-emerald-600 dark:text-emerald-400' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-800'}`}>
+                          <Wallet className="w-3 h-3"/> {c.nome}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <MultiSelectDropdown label="Categorias" placeholder="Selecione categorias..." options={categorias} selectedIds={filtrosAvancados.categoriaIds} onChange={(s:any)=>setFiltrosAvancados({...filtrosAvancados, categoriaIds:s})} />
+              </div>
+            </section>
+          </div>
+        )}
+      </aside>
+
+      <div className="min-w-0 flex-1 flex flex-col h-full overflow-hidden">
       
       {/* 1. TOP HEADER */}
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-20 shadow-md">
@@ -935,7 +1188,7 @@ export function Lancamentos() {
           <button onClick={syncCadastros} className="p-2 text-slate-500 hover:text-emerald-500 border border-slate-300 dark:border-slate-600 rounded-lg hover:border-emerald-500 transition-colors" title="Sincronizar cadastros"><Layers className="w-4 h-4"/></button>
         </div>
 
-        <div className="flex-1 w-full flex flex-col sm:flex-row gap-2 sm:items-center">
+        <div className="flex-1 w-full flex flex-col sm:flex-row gap-2 sm:items-center xl:hidden">
             <div className="relative flex-1">
                 <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500"/>
                 <input type="text" placeholder="Pesquisar..." className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition" value={filtroTexto} onChange={e=>setFiltroTexto(e.target.value)}/>
@@ -950,20 +1203,15 @@ export function Lancamentos() {
 
         <div className="flex flex-wrap gap-2 w-full lg:w-auto">
           <button onClick={()=>setShowTransfer(true)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-600 dark:text-slate-300 transition-all w-full sm:w-auto justify-center"><ArrowRightLeft className="w-4 h-4"/> <span className="hidden lg:inline">Transf.</span></button>
-          <button onClick={()=>setShowFiltrosSidebar(true)} className={`px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold flex items-center gap-2 transition-all w-full sm:w-auto justify-center ${showFiltrosSidebar ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'}`}><Filter className="w-4 h-4"/> <span className="hidden lg:inline">Filtros</span></button>
+          <button onClick={() => setFiltrosRailCollapsed((prev) => !prev)} className="hidden xl:flex px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-bold items-center gap-2 transition-all justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"><Filter className="w-4 h-4"/> Painel</button>
+          <button onClick={()=>setShowFiltrosSidebar(true)} className={`xl:hidden px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold flex items-center gap-2 transition-all w-full sm:w-auto justify-center ${showFiltrosSidebar ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'}`}><Filter className="w-4 h-4"/> <span className="hidden lg:inline">Filtros</span></button>
           <button onClick={()=>openDrawer()} className="px-5 py-2 rounded-lg shadow-lg text-white font-bold text-sm flex gap-2 hover:brightness-110 transition bg-blue-600 hover:bg-blue-500 w-full sm:w-auto justify-center"><Plus className="w-4 h-4"/> Novo</button>
         </div>
       </header>
 
-      <div className="px-4 sm:px-6 pt-3 pb-2 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+      <div className="px-4 sm:px-6 pt-3 pb-2 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 xl:hidden">
         <div className="flex gap-2 overflow-x-auto custom-scrollbar">
-          {[
-            {id: null, label: 'Todos'},
-            {id: 'HOJE', label: 'Vencem Hoje', icon: CalendarClock},
-            {id: 'ATRASADO', label: 'Atrasados', icon: AlertCircle},
-            {id: 'IPP', label: 'IPP', icon: LayoutGrid},
-            {id: 'EM_ABERTO', label: 'Em Aberto', icon: Layers}
-          ].map(f => (
+          {quickFilterOptions.map(f => (
             <button key={String(f.id)} onClick={()=>setFiltroRapido(f.id as any)}
               className={`px-3 py-1.5 rounded-full text-xs font-bold border transition flex items-center gap-1.5 whitespace-nowrap
               ${filtroRapido===f.id ? 'bg-blue-600 text-white border-blue-500 shadow-md' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
@@ -998,11 +1246,12 @@ export function Lancamentos() {
       </div>
 
       {/* 2. KPI SECTION */}
+      <div className="xl:hidden">
       {resumoTopoModo === 'KPIS' ? (
         <div className="px-4 sm:px-6 pt-2 pb-1 grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className="text-emerald-600 dark:text-emerald-400"><p className="text-[10px] font-bold uppercase mb-0.5 opacity-70">Receitas</p><p className="text-xl font-black">{BRL.format(kpis.r)}</p></div><div className="p-1.5 bg-emerald-500/10 dark:bg-emerald-900/20 rounded-lg"><TrendingUp className="text-emerald-600 dark:text-emerald-400 w-5 h-5"/></div></div>
-          <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className="text-red-600 dark:text-red-400"><p className="text-[10px] font-bold uppercase mb-0.5 opacity-70">Despesas</p><p className="text-xl font-black">{BRL.format(kpis.d)}</p></div><div className="p-1.5 bg-red-500/10 dark:bg-red-900/20 rounded-lg"><TrendingDown className="text-red-600 dark:text-red-400 w-5 h-5"/></div></div>
-          <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className="text-blue-600 dark:text-blue-400"><p className="text-[10px] font-bold uppercase mb-0.5 opacity-70">Saldo</p><p className="text-xl font-black">{BRL.format(kpis.s)}</p></div><div className="p-1.5 bg-blue-500/10 dark:bg-blue-900/20 rounded-lg"><Wallet className="text-blue-600 dark:text-blue-400 w-5 h-5"/></div></div>
+          {kpiCards.map((card) => (
+            <div key={card.label} className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className={card.tone}><p className="text-[10px] font-bold uppercase mb-0.5 opacity-70">{card.label}</p><p className="text-xl font-black">{card.value}</p></div><div className={`p-1.5 rounded-lg ${card.bg}`}><card.icon className={`w-5 h-5 ${card.tone}`}/></div></div>
+          ))}
         </div>
       ) : (
         <div className="px-4 sm:px-6 pt-2 pb-1">
@@ -1075,6 +1324,7 @@ export function Lancamentos() {
           </div>
         </div>
       )}
+      </div>
 
       {/* 4. LISTA AGRUPADA (COM DATA FIXA) */}
       <div className="flex-1 px-4 sm:px-6 pb-20 overflow-y-auto custom-scrollbar">
@@ -1162,6 +1412,8 @@ export function Lancamentos() {
         )}
       </div>
 
+      </div>
+
       {/* Barra flutuante de ações em lote */}
       {selectedIds.size > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
@@ -1183,7 +1435,7 @@ export function Lancamentos() {
       )}
 
       {/* --- SIDEBAR FILTROS (MULTI-SELECT + BOTOES CONTAS) --- */}
-      <div className={`fixed inset-y-0 right-0 w-80 bg-white dark:bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 ${showFiltrosSidebar?'translate-x-0':'translate-x-full'}`}>
+      <div className={`fixed inset-y-0 right-0 w-80 bg-white dark:bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 xl:hidden ${showFiltrosSidebar?'translate-x-0':'translate-x-full'}`}>
         <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center"><h3 className="font-bold flex gap-2 text-slate-800 dark:text-white"><Filter className="w-4 h-4 text-blue-500"/> Filtros Avançados</h3><button onClick={()=>setShowFiltrosSidebar(false)}><X className="w-5 h-5 text-slate-400 hover:text-slate-700 dark:hover:text-white"/></button></div>
         <div className="p-4 space-y-6 overflow-y-auto h-[calc(100vh-60px)] custom-scrollbar">
            
@@ -1229,7 +1481,7 @@ export function Lancamentos() {
 
            <MultiSelectDropdown label="Categorias" placeholder="Selecione categorias..." options={categorias} selectedIds={filtrosAvancados.categoriaIds} onChange={(s:any)=>setFiltrosAvancados({...filtrosAvancados, categoriaIds:s})} />
            
-           <button onClick={()=>{setFiltrosAvancados({tipo:'TODOS', status:[], contaIds:new Set(), categoriaIds:new Set(), dataInicio:'', dataFim:''}); setMesAtual(new Date());}} className="w-full py-2 border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-sm mt-4">Limpar Filtros</button>
+           <button onClick={resetFiltros} className="w-full py-2 border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-sm mt-4">Limpar Filtros</button>
         </div>
       </div>
 
@@ -1312,7 +1564,7 @@ export function Lancamentos() {
               <InputDark label="Descrição" autoFocus value={formData.descricao} onChange={(e:any)=>setFormData({...formData, descricao:e.target.value})} placeholder="Ex: Conta de Luz" />
               <div className="grid grid-cols-2 gap-4">
                 <InputDark label={formData.cartao_id ? "Data da compra" : "Vencimento"} type="date" value={formData.data_vencimento} onChange={(e:any)=>handleVencimentoChange(e.target.value)} />
-                <InputDark label="Valor (R$)" type="number" step="0.01" className="font-bold text-lg text-blue-400" value={formData.valor_previsto} onChange={(e:any)=>setFormData({...formData, valor_previsto:e.target.value})} />
+                <InputDark label="Valor (R$)" type="number" step="0.01" className="font-bold text-lg text-blue-400" value={formData.valor_previsto} onChange={(e:any)=>handleValorPrevistoChange(e.target.value)} />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -1388,7 +1640,7 @@ export function Lancamentos() {
                 {formData.status==='PAGO' && (
                   <div className="grid grid-cols-2 gap-4 mt-3 animate-in fade-in slide-in-from-top-2">
                     <InputDark label="Data da Baixa" type="date" value={formData.data_pagamento} onChange={(e:any)=>handleDataPagamentoChange(e.target.value)} />
-                    <InputDark label="Valor Pago (R$)" type="number" step="0.01" className="text-emerald-400 font-bold" value={formData.valor_pago} onChange={(e:any)=>setFormData({...formData, valor_pago:e.target.value})} />
+                    <InputDark label="Valor Pago (R$)" type="number" step="0.01" className="text-emerald-400 font-bold" value={formData.valor_pago} onChange={(e:any)=>handleValorPagoChange(e.target.value)} />
                   </div>
                 )}
               </div>
@@ -1638,9 +1890,17 @@ export function Lancamentos() {
         tela="lancamentos"
         contexto={aiContexto}
         titulo="Assistente de Lancamentos"
+        lookups={{
+          categorias: categorias.slice(0, 200).map((item: any) => ({ id: item.id, nome: item.nome, tipo: item.tipo })),
+          contas: contas.slice(0, 120).map((item: any) => ({ id: item.id, nome: item.nome })),
+          centros: centros.slice(0, 120).map((item: any) => ({ id: item.id, nome: item.nome })),
+          entidades: entidades.slice(0, 200).map((item: any) => ({ id: item.id, nome: item.nome })),
+          cartoes: cartoes.slice(0, 120).map((item: any) => ({ id: item.id, nome: item.nome_cartao })),
+        }}
         sugestoes={[
           'O que os lancamentos deste mes mostram?',
           'Como reduzir pendencias e atrasos?',
+          'Leia este comprovante e sugira a classificacao.',
           'Qual filtro usar para investigar melhor o resultado?',
         ]}
       />

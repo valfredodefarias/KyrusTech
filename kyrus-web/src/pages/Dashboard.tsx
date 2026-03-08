@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from 'react';
+import { useEffect, useMemo, useRef, useState, type Ref } from 'react';
 import GridLayout from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -7,7 +7,7 @@ import { useAssistentePage } from '../components/AssistentePageContext';
 import { AsyncApexChart } from '../components/AsyncApexChart';
 import {
   TrendingUp, TrendingDown, Wallet, RefreshCw, Filter,
-  CalendarRange, Layers, Building2, List, X, Landmark,
+  CalendarRange, Layers, Building2, X, Landmark,
   Sparkles, Download, Search, Activity, Settings2,
   LayoutGrid, Plus, Pencil, Trash2, Eye, EyeOff, GripVertical
 } from 'lucide-react';
@@ -308,62 +308,62 @@ const DASHBOARD_CUSTOM_WIDGET_TEMPLATES: DashboardCustomWidgetTemplate[] = [
 ];
 
 const DEFAULT_DASHBOARD_WIDGETS: DashboardWidgetConfig[] = [
-  { id: 'heatmap_calendar', visible: true, size: 'lg' },
-  { id: 'executive_readings', visible: true, size: 'sm' },
-  { id: 'productivity', visible: true, size: 'full' },
-  { id: 'contas_pagar', visible: true, size: 'md' },
-  { id: 'contas_receber', visible: true, size: 'md' },
-  { id: 'lancamentos_pagar', visible: true, size: 'lg', autoHeight: true, autoWidth: true },
-  { id: 'lancamentos_receber', visible: true, size: 'lg', autoHeight: true, autoWidth: true },
-  { id: 'fluxo', visible: true, size: 'full' },
-  { id: 'despesas_categoria', visible: true, size: 'full' },
-  { id: 'receitas_categoria', visible: true, size: 'sm' },
-  { id: 'acumulado_rec_desp', visible: true, size: 'lg' },
-  { id: 'resultado_operacional', visible: true, size: 'lg' },
-  { id: 'resumo_operacional', visible: true, size: 'sm' },
-  { id: 'receitas_despesas_ano', visible: true, size: 'lg' },
-  { id: 'margem_operacional', visible: true, size: 'sm' },
-  { id: 'comparativo_ano', visible: true, size: 'lg' },
-  { id: 'sazonalidade', visible: true, size: 'sm' },
-  { id: 'cenarios', visible: true, size: 'sm' },
-  { id: 'resultado_acumulado', visible: true, size: 'lg' },
-  { id: 'pulso_acumulado', visible: true, size: 'lg' },
-  { id: 'status', visible: true, size: 'sm' },
-  { id: 'despesas_centro', visible: true, size: 'sm' },
-  { id: 'ultimos_lancamentos', visible: true, size: 'lg', autoHeight: true, autoWidth: true },
-  { id: 'gastos_categoria_lista', visible: true, size: 'sm', autoHeight: true },
-  { id: 'lancamentos_categoria', visible: true, size: 'lg', autoHeight: true, autoWidth: true },
-  { id: 'base_analitica', visible: true, size: 'full', autoHeight: true, autoWidth: true },
-  { id: 'lancamentos_dia', visible: true, size: 'full', autoHeight: true, autoWidth: true },
+  { id: 'heatmap_calendar', visible: true, size: 'lg', x: 0, y: 0, w: 8, h: 6 },
+  { id: 'executive_readings', visible: true, size: 'sm', x: 8, y: 0, w: 4, h: 6 },
+  { id: 'productivity', visible: true, size: 'full', x: 0, y: 6, w: 12, h: 6 },
+  { id: 'lancamentos_dia', visible: true, size: 'full', x: 0, y: 12, w: 12, h: 4, autoHeight: true, autoWidth: false },
+  { id: 'contas_pagar', visible: true, size: 'md', x: 0, y: 16, w: 6, h: 4 },
+  { id: 'contas_receber', visible: true, size: 'md', x: 6, y: 16, w: 6, h: 4 },
+  { id: 'lancamentos_pagar', visible: true, size: 'md', x: 0, y: 20, w: 6, h: 6, autoHeight: true, autoWidth: false },
+  { id: 'lancamentos_receber', visible: true, size: 'md', x: 6, y: 20, w: 6, h: 6, autoHeight: true, autoWidth: false },
+  { id: 'fluxo', visible: true, size: 'full', x: 0, y: 26, w: 12, h: 6 },
+  { id: 'despesas_categoria', visible: true, size: 'lg', x: 0, y: 32, w: 8, h: 7 },
+  { id: 'receitas_categoria', visible: true, size: 'sm', x: 8, y: 32, w: 4, h: 7 },
+  { id: 'resultado_operacional', visible: true, size: 'lg', x: 0, y: 39, w: 8, h: 5 },
+  { id: 'resumo_operacional', visible: true, size: 'sm', x: 8, y: 39, w: 4, h: 5 },
+  { id: 'receitas_despesas_ano', visible: true, size: 'lg', x: 0, y: 44, w: 8, h: 5 },
+  { id: 'margem_operacional', visible: true, size: 'sm', x: 8, y: 44, w: 4, h: 5 },
+  { id: 'comparativo_ano', visible: true, size: 'lg', x: 0, y: 49, w: 8, h: 5 },
+  { id: 'sazonalidade', visible: true, size: 'sm', x: 8, y: 49, w: 4, h: 5 },
+  { id: 'resultado_acumulado', visible: true, size: 'lg', x: 0, y: 54, w: 8, h: 5 },
+  { id: 'cenarios', visible: true, size: 'sm', x: 8, y: 54, w: 4, h: 5 },
+  { id: 'acumulado_rec_desp', visible: true, size: 'lg', x: 0, y: 59, w: 8, h: 5 },
+  { id: 'pulso_acumulado', visible: true, size: 'sm', x: 8, y: 59, w: 4, h: 6 },
+  { id: 'despesas_centro', visible: true, size: 'md', x: 0, y: 65, w: 6, h: 6 },
+  { id: 'status', visible: true, size: 'md', x: 6, y: 65, w: 6, h: 4 },
+  { id: 'gastos_categoria_lista', visible: true, size: 'sm', x: 0, y: 71, w: 4, h: 5, autoHeight: true },
+  { id: 'ultimos_lancamentos', visible: true, size: 'lg', x: 4, y: 71, w: 8, h: 6, autoHeight: true, autoWidth: false },
+  { id: 'lancamentos_categoria', visible: true, size: 'full', x: 0, y: 77, w: 12, h: 6, autoHeight: true, autoWidth: false },
+  { id: 'base_analitica', visible: true, size: 'full', x: 0, y: 83, w: 12, h: 10, autoHeight: true, autoWidth: false },
 ];
 
 const DASHBOARD_WIDGET_HEIGHTS: Record<string, number> = {
-  heatmap_calendar: 5,
-  executive_readings: 4,
-  productivity: 4,
+  heatmap_calendar: 6,
+  executive_readings: 6,
+  productivity: 6,
   contas_pagar: 3,
   contas_receber: 3,
-  lancamentos_pagar: 4,
-  lancamentos_receber: 4,
+  lancamentos_pagar: 6,
+  lancamentos_receber: 6,
   fluxo: 4,
   despesas_categoria: 5,
-  receitas_categoria: 4,
+  receitas_categoria: 7,
   acumulado_rec_desp: 4,
   resultado_operacional: 4,
-  resumo_operacional: 4,
+  resumo_operacional: 5,
   receitas_despesas_ano: 4,
   margem_operacional: 4,
   comparativo_ano: 4,
   sazonalidade: 4,
   cenarios: 4,
   resultado_acumulado: 4,
-  pulso_acumulado: 4,
-  status: 3,
-  despesas_centro: 4,
-  ultimos_lancamentos: 4,
+  pulso_acumulado: 6,
+  status: 4,
+  despesas_centro: 6,
+  ultimos_lancamentos: 6,
   gastos_categoria_lista: 4,
-  lancamentos_categoria: 4,
-  base_analitica: 6,
+  lancamentos_categoria: 6,
+  base_analitica: 10,
   lancamentos_dia: 4,
 };
 
@@ -548,10 +548,6 @@ function getDashboardActiveViewStorageKey(empresaId?: number | null) {
 
 function getDashboardViewsCacheKey(empresaId?: number | null) {
   return `${DASHBOARD_VIEWS_CACHE_KEY_PREFIX}-${empresaId || 'unknown'}`;
-}
-
-function getGridHeightForRows(rows: number) {
-  return rows * DASHBOARD_GRID_ROW_HEIGHT + Math.max(0, rows - 1) * DASHBOARD_GRID_MARGIN;
 }
 
 function getRowsForPixelHeight(pixels: number) {
@@ -953,7 +949,7 @@ export function Dashboard() {
   const [financeDrilldown, setFinanceDrilldown] = useState<FinanceDrilldown>(null);
   const [visibleKpiMeaning, setVisibleKpiMeaning] = useState<KpiTooltipState | null>(null);
   const [showDashboardFiltersSidebar, setShowDashboardFiltersSidebar] = useState(false);
-  const [dashboardFiltersRailCollapsed, setDashboardFiltersRailCollapsed] = useState(true);
+  const [dashboardFiltersRailCollapsed, setDashboardFiltersRailCollapsed] = useState(false);
   const [dashboardViews, setDashboardViews] = useState<DashboardView[]>([createDefaultDashboardView()]);
   const [dashboardViewsEmpresaId, setDashboardViewsEmpresaId] = useState<number | null>(null);
   const [activeDashboardViewId, setActiveDashboardViewId] = useState('default');
@@ -981,8 +977,17 @@ export function Dashboard() {
     };
 
     updateWidth();
+    const resizeObserver = typeof ResizeObserver !== 'undefined' && dashboardGridRef.current
+      ? new ResizeObserver(() => updateWidth())
+      : null;
+    if (resizeObserver && dashboardGridRef.current) {
+      resizeObserver.observe(dashboardGridRef.current);
+    }
     window.addEventListener('resize', updateWidth);
-    return () => window.removeEventListener('resize', updateWidth);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', updateWidth);
+    };
   }, []);
 
   useEffect(() => {
@@ -1099,6 +1104,8 @@ export function Dashboard() {
         widgets: view.widgets.map((widget) => {
           const nextLayout = layoutMap.get(widget.id);
           if (!nextLayout) return widget;
+          const manuallyMoved = widget.x !== nextLayout.x || widget.y !== nextLayout.y;
+          const manuallyResized = widget.w !== nextLayout.w || widget.h !== nextLayout.h;
           return {
             ...widget,
             x: nextLayout.x,
@@ -1106,6 +1113,8 @@ export function Dashboard() {
             w: nextLayout.w,
             h: nextLayout.h,
             size: getWidgetSizeFromWidth(nextLayout.w),
+            autoWidth: widget.autoWidth && (manuallyMoved || manuallyResized) ? false : widget.autoWidth,
+            autoHeight: widget.autoHeight && manuallyResized ? false : widget.autoHeight,
           };
         }),
       };
@@ -2225,33 +2234,33 @@ export function Dashboard() {
     contas_pagar: { w: 6, h: 4 },
     contas_receber: { w: 6, h: 4 },
     lancamentos_pagar: {
-      w: lancamentosContasDetalhe.pagar.length > 4 ? 12 : 8,
-      h: getRowsForPixelHeight(132 + Math.max(4, Math.min(10, lancamentosContasDetalhe.pagar.length || 1)) * 42),
+      w: 6,
+      h: getRowsForPixelHeight(132 + Math.max(4, lancamentosContasDetalhe.pagar.length || 1) * 42),
     },
     lancamentos_receber: {
-      w: lancamentosContasDetalhe.receber.length > 4 ? 12 : 8,
-      h: getRowsForPixelHeight(132 + Math.max(4, Math.min(10, lancamentosContasDetalhe.receber.length || 1)) * 42),
+      w: 6,
+      h: getRowsForPixelHeight(132 + Math.max(4, lancamentosContasDetalhe.receber.length || 1) * 42),
     },
     fluxo: { w: 12, h: 6 },
-    despesas_categoria: { w: 12, h: 7 },
-    receitas_categoria: { w: 8, h: 6 },
+    despesas_categoria: { w: 8, h: 7 },
+    receitas_categoria: { w: 4, h: 7 },
     acumulado_rec_desp: { w: 8, h: 5 },
     resultado_operacional: { w: 8, h: 5 },
-    resumo_operacional: { w: 4, h: 6 },
+    resumo_operacional: { w: 4, h: 5 },
     receitas_despesas_ano: { w: 8, h: 5 },
     margem_operacional: { w: 4, h: 5 },
     comparativo_ano: { w: 8, h: 5 },
     sazonalidade: { w: 4, h: 5 },
     cenarios: { w: 4, h: 5 },
     resultado_acumulado: { w: 8, h: 5 },
-    pulso_acumulado: { w: 8, h: 6 },
-    status: { w: 4, h: 4 },
+    pulso_acumulado: { w: 4, h: 6 },
+    status: { w: 6, h: 4 },
     despesas_centro: { w: 6, h: 6 },
-    ultimos_lancamentos: { w: topLancamentos.length > 6 ? 12 : 8, h: getRowsForPixelHeight(128 + Math.max(4, Math.min(10, topLancamentos.length || 1)) * 42) },
+    ultimos_lancamentos: { w: 8, h: getRowsForPixelHeight(128 + Math.max(4, topLancamentos.length || 1) * 42) },
     gastos_categoria_lista: { w: 4, h: Math.max(4, Math.min(9, 4 + Math.ceil(categoriasList.length / 4))) },
-    lancamentos_categoria: { w: selectedCategorias.size > 0 ? 12 : 8, h: getRowsForPixelHeight(160 + Math.max(4, Math.min(10, categoriaLancamentos.length || 1)) * 42) },
-    base_analitica: { w: 12, h: getRowsForPixelHeight(236 + Math.max(6, Math.min(12, linhasAnaliticas.length || 1)) * 44) },
-    lancamentos_dia: { w: selectedDate ? 12 : 8, h: selectedDate ? getRowsForPixelHeight(128 + Math.max(4, Math.min(10, diaLancamentos.length || 1)) * 42) : 4 },
+    lancamentos_categoria: { w: 12, h: getRowsForPixelHeight(160 + Math.max(4, categoriaLancamentos.length || 1) * 42) },
+    base_analitica: { w: 12, h: getRowsForPixelHeight(236 + Math.max(6, Math.min(60, linhasAnaliticas.length || 1)) * 44) },
+    lancamentos_dia: { w: 12, h: selectedDate ? getRowsForPixelHeight(128 + Math.max(4, diaLancamentos.length || 1) * 42) : 4 },
     ...Object.fromEntries(
       activeDashboardWidgets
         .filter((widget) => widget.customDefinition)
@@ -2270,25 +2279,6 @@ export function Dashboard() {
   const getResolvedWidgetHeight = (widget: DashboardWidgetConfig) => {
     const autoHeight = widget.autoHeight ? widgetAutoMetrics[widget.id].h : widget.h ?? getWidgetDefaultHeight(widget);
     return Math.max(3, autoHeight);
-  };
-
-  const getScrollableWidgetBodyStyle = (
-    widgetId: DashboardWidgetId,
-    chromeHeight = 150,
-    minHeight = 220,
-  ): CSSProperties => {
-    const widget = activeDashboardWidgets.find((item) => item.id === widgetId);
-    if (!widget) return { minHeight };
-
-    const resolvedHeight = getResolvedWidgetHeight(widget);
-    const totalHeight = getGridHeightForRows(resolvedHeight);
-    const editToolbarHeight = dashboardEditMode ? 64 : 0;
-    const usableHeight = Math.max(minHeight, totalHeight - chromeHeight - editToolbarHeight);
-
-    return {
-      minHeight,
-      maxHeight: usableHeight,
-    };
   };
 
   const getWidgetResizeHandles = (widget: DashboardWidgetConfig): DashboardResizeHandle[] => {
@@ -3463,7 +3453,7 @@ export function Dashboard() {
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Lancamentos • Contas a Pagar</h3>
               <span className="text-xs text-slate-400">{lancamentosContasDetalhe.pagar.length} item(ns){financeDrilldown?.startsWith('PAGAR') ? ' no recorte ativo' : ''}</span>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-slate-200 dark:border-slate-700" style={getScrollableWidgetBodyStyle('lancamentos_pagar', 132, 220)}>
+            <div className="min-h-0 flex-1 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
               <table className="w-full text-sm"><thead className="bg-slate-50 dark:bg-slate-900/40 text-slate-500 text-xs uppercase"><tr><th className="p-2 text-left">Descricao</th><th className="p-2 text-left">Venc.</th><th className="p-2 text-left">Status</th><th className="p-2 text-right">Valor</th></tr></thead><tbody>{lancamentosContasDetalhe.pagar.length === 0 ? (<tr><td className="p-3 text-slate-400" colSpan={4}>Sem lancamentos de contas a pagar no filtro atual.</td></tr>) : (lancamentosContasDetalhe.pagar.map((l) => (<tr key={`pagar-${l.id}`} className="border-t border-slate-100 dark:border-slate-700"><td className="p-2 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className="p-2 text-slate-500">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="p-2"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${isPago(l.status) ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'}`}>{l.status}</span></td><td className="p-2 text-right font-bold text-red-500">{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table>
             </div>
           </div>
@@ -3475,7 +3465,7 @@ export function Dashboard() {
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Lancamentos • Contas a Receber</h3>
               <span className="text-xs text-slate-400">{lancamentosContasDetalhe.receber.length} item(ns){financeDrilldown?.startsWith('RECEBER') ? ' no recorte ativo' : ''}</span>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-slate-200 dark:border-slate-700" style={getScrollableWidgetBodyStyle('lancamentos_receber', 132, 220)}>
+            <div className="min-h-0 flex-1 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
               <table className="w-full text-sm"><thead className="bg-slate-50 dark:bg-slate-900/40 text-slate-500 text-xs uppercase"><tr><th className="p-2 text-left">Descricao</th><th className="p-2 text-left">Venc.</th><th className="p-2 text-left">Status</th><th className="p-2 text-right">Valor</th></tr></thead><tbody>{lancamentosContasDetalhe.receber.length === 0 ? (<tr><td className="p-3 text-slate-400" colSpan={4}>Sem lancamentos de contas a receber no filtro atual.</td></tr>) : (lancamentosContasDetalhe.receber.map((l) => (<tr key={`receber-${l.id}`} className="border-t border-slate-100 dark:border-slate-700"><td className="p-2 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className="p-2 text-slate-500">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="p-2"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${isPago(l.status) ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'}`}>{l.status}</span></td><td className="p-2 text-right font-bold text-emerald-600">{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table>
             </div>
           </div>
@@ -3615,7 +3605,7 @@ export function Dashboard() {
         return (
           <div className={`${DASHBOARD_SECTION_CLASS} flex h-full flex-col`} onMouseEnter={(event) => scheduleKpiMeaning('ULTIMOS_LANCAMENTOS', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Ultimos Lancamentos</h3><div className="flex items-center gap-2"><span className="text-xs text-slate-400">Atualiza com filtros</span><button onClick={() => exportUltimosLancamentos('csv')} className="px-2 py-1 text-[11px] font-bold rounded border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40">CSV</button><button onClick={() => exportUltimosLancamentos('xlsx')} className="px-2 py-1 text-[11px] font-bold rounded border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40">XLSX</button></div></div>
-            <div className="min-h-0 flex-1 overflow-auto" style={getScrollableWidgetBodyStyle('ultimos_lancamentos', 128, 220)}><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{loading ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Carregando...</td></tr>) : topLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos no periodo.</td></tr>) : (topLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${String(l.tipo).toUpperCase().startsWith('R') ? 'text-emerald-600' : 'text-red-500'}`}>{String(l.tipo).toUpperCase().startsWith('D') ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
+            <div className="min-h-0 flex-1 overflow-x-auto"><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{loading ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Carregando...</td></tr>) : topLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos no periodo.</td></tr>) : (topLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${String(l.tipo).toUpperCase().startsWith('R') ? 'text-emerald-600' : 'text-red-500'}`}>{String(l.tipo).toUpperCase().startsWith('D') ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
           </div>
         );
       case 'gastos_categoria_lista':
@@ -3630,23 +3620,22 @@ export function Dashboard() {
           <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Lancamentos da Categoria</h3><span className="text-xs text-slate-400">Mostra quando categoria esta selecionada</span></div>
             <div className="flex items-center justify-between mb-3"><span className="text-xs text-slate-400">Exportacao inclui filtros atuais</span><div className="flex items-center gap-2"><button onClick={() => exportLancamentos(filteredLancamentos, 'csv', `lancamentos_${mes}`)} className="px-3 py-1 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40">Exportar CSV</button><button onClick={() => exportLancamentos(filteredLancamentos, 'xlsx', `lancamentos_${mes}`)} className="px-3 py-1 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40">Exportar XLSX</button></div></div>
-            <div className="min-h-0 flex-1 overflow-auto" style={getScrollableWidgetBodyStyle('lancamentos_categoria', 160, 220)}><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{selectedCategorias.size === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Selecione uma ou mais categorias para ver os lancamentos.</td></tr>) : categoriaLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos para esta categoria.</td></tr>) : (categoriaLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${isReceita(l.tipo) ? 'text-emerald-600' : 'text-red-500'}`}>{isDespesa(l.tipo) ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
+            <div className="min-h-0 flex-1 overflow-x-auto"><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{selectedCategorias.size === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Selecione uma ou mais categorias para ver os lancamentos.</td></tr>) : categoriaLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos para esta categoria.</td></tr>) : (categoriaLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${isReceita(l.tipo) ? 'text-emerald-600' : 'text-red-500'}`}>{isDespesa(l.tipo) ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
           </div>
         );
       case 'base_analitica':
         return (
-          <div className="flex h-full flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Base analitica final</p><h3 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">Resultado consolidado dos lancamentos filtrados</h3><p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-300">Ideal para analise fina, conferencia antes de conciliacao e exportacao do financeiro conforme o recorte que voce montou no dashboard.</p></div><div className="flex flex-wrap items-center gap-2"><button onClick={() => exportLancamentos(linhasAnaliticas, 'csv', `analise_financeira_${mes}`)} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/40"><Download className="h-4 w-4" />Exportar CSV</button><button onClick={() => exportLancamentos(linhasAnaliticas, 'xlsx', `analise_financeira_${mes}`)} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/40"><Download className="h-4 w-4" />Exportar XLSX</button></div></div>
             <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto]"><label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-700"><Search className="h-4 w-4 text-slate-400" /><input value={analysisQuery} onChange={(e) => setAnalysisQuery(e.target.value)} placeholder="Buscar por descricao, categoria, centro, conta, banco ou status" className="w-full bg-transparent outline-none text-slate-700 dark:text-slate-100" /></label><div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Linhas</p><p className="mt-2 text-xl font-black text-slate-900 dark:text-white">{linhasAnaliticas.length}</p></div><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Receitas operacionais</p><p className="mt-2 text-xl font-black text-emerald-600">{BRL.format(linhasAnaliticasResumo.receitasOperacionais)}</p></div><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Despesas operacionais</p><p className="mt-2 text-xl font-black text-rose-500">{BRL.format(linhasAnaliticasResumo.despesasOperacionais)}</p></div><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Nao operacionais</p><p className={`mt-2 text-xl font-black ${linhasAnaliticasResumo.movimentosNaoOperacionais >= 0 ? 'text-sky-600' : 'text-amber-600'}`}>{BRL.format(linhasAnaliticasResumo.movimentosNaoOperacionais)}</p></div><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Saldo consolidado</p><p className={`mt-2 text-xl font-black ${linhasAnaliticasResumo.saldoConsolidado >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>{BRL.format(linhasAnaliticasResumo.saldoConsolidado)}</p></div></div></div>
-            <div className="mt-5 min-h-0 flex-1 overflow-auto rounded-3xl border border-slate-200 dark:border-slate-700" style={getScrollableWidgetBodyStyle('base_analitica', 236, 260)}><table className="min-w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.16em] text-slate-400 dark:bg-slate-900/50"><tr><th className="px-4 py-3">Data</th><th className="px-4 py-3">Descricao</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Centro</th><th className="px-4 py-3">Conta</th><th className="px-4 py-3">Banco</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{linhasAnaliticas.length === 0 ? (<tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">Nenhum lancamento encontrado para os filtros e a busca informada.</td></tr>) : (linhasAnaliticas.slice(0, 120).map((lancamento) => (<tr key={`analitico-${lancamento.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/30"><td className="px-4 py-3 font-mono text-slate-500">{parseDateLocal(lancamento.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="px-4 py-3 text-slate-700 dark:text-slate-100">{lancamento.descricao}</td><td className="px-4 py-3 text-slate-500"><div className="flex flex-wrap items-center gap-2"><span>{lancamento.categoriaNome}</span>{lancamento.naoOperacional && (<span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">Nao operacional</span>)}</div></td><td className="px-4 py-3 text-slate-500">{lancamento.centroNome}</td><td className="px-4 py-3 text-slate-500">{lancamento.contaNome}</td><td className="px-4 py-3 text-slate-500">{lancamento.bancoNome}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${isPago(lancamento.status) ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}`}>{lancamento.status}</span></td><td className={`px-4 py-3 text-right font-bold ${isReceita(lancamento.tipo) ? 'text-emerald-600' : 'text-rose-500'}`}>{isDespesa(lancamento.tipo) ? '-' : ''}{BRL.format(Number(lancamento.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
-            {linhasAnaliticas.length > 120 && <p className="mt-3 text-xs text-slate-400">Mostrando os 120 lancamentos mais recentes. A exportacao leva todas as linhas filtradas.</p>}
+            <div className="mt-5 overflow-x-auto rounded-3xl border border-slate-200 dark:border-slate-700"><table className="min-w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.16em] text-slate-400 dark:bg-slate-900/50"><tr><th className="px-4 py-3">Data</th><th className="px-4 py-3">Descricao</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Centro</th><th className="px-4 py-3">Conta</th><th className="px-4 py-3">Banco</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{linhasAnaliticas.length === 0 ? (<tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">Nenhum lancamento encontrado para os filtros e a busca informada.</td></tr>) : (linhasAnaliticas.map((lancamento) => (<tr key={`analitico-${lancamento.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/30"><td className="px-4 py-3 font-mono text-slate-500">{parseDateLocal(lancamento.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="px-4 py-3 text-slate-700 dark:text-slate-100">{lancamento.descricao}</td><td className="px-4 py-3 text-slate-500"><div className="flex flex-wrap items-center gap-2"><span>{lancamento.categoriaNome}</span>{lancamento.naoOperacional && (<span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">Nao operacional</span>)}</div></td><td className="px-4 py-3 text-slate-500">{lancamento.centroNome}</td><td className="px-4 py-3 text-slate-500">{lancamento.contaNome}</td><td className="px-4 py-3 text-slate-500">{lancamento.bancoNome}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${isPago(lancamento.status) ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}`}>{lancamento.status}</span></td><td className={`px-4 py-3 text-right font-bold ${isReceita(lancamento.tipo) ? 'text-emerald-600' : 'text-rose-500'}`}>{isDespesa(lancamento.tipo) ? '-' : ''}{BRL.format(Number(lancamento.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
           </div>
         );
       case 'lancamentos_dia':
         return selectedDate ? (
           <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Lancamentos do Dia {parseDateLocal(selectedDate)?.toLocaleDateString('pt-BR')}</h3><span className="text-xs text-slate-400">Vencimento no dia selecionado</span></div>
-            <div className="min-h-0 flex-1 overflow-auto" style={getScrollableWidgetBodyStyle('lancamentos_dia', 128, 220)}><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{diaLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos para este dia.</td></tr>) : (diaLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${isReceita(l.tipo) ? 'text-emerald-600' : 'text-red-500'}`}>{isDespesa(l.tipo) ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
+            <div className="min-h-0 flex-1 overflow-x-auto"><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{diaLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos para este dia.</td></tr>) : (diaLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${isReceita(l.tipo) ? 'text-emerald-600' : 'text-red-500'}`}>{isDespesa(l.tipo) ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
           </div>
         ) : (
           <div className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-6 text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900/30">Selecione um dia no heatmap ou nos graficos temporais para abrir os lancamentos detalhados.</div>
@@ -3683,6 +3672,19 @@ export function Dashboard() {
         .dashboard-grid .dashboard-resize-handle-nw { top: -8px; left: -8px; }
         .dashboard-grid .dashboard-resize-handle-se { right: -8px; bottom: -8px; }
         .dashboard-grid .dashboard-resize-handle-sw { left: -8px; bottom: -8px; }
+        .dashboard-grid.is-editing {
+          background-image:
+            linear-gradient(to right, rgba(14, 165, 233, 0.12) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(14, 165, 233, 0.12) 1px, transparent 1px),
+            radial-gradient(circle at top, rgba(14, 165, 233, 0.08), transparent 42%);
+          background-repeat: repeat, repeat, no-repeat;
+        }
+        .dark .dashboard-grid.is-editing {
+          background-image:
+            linear-gradient(to right, rgba(56, 189, 248, 0.16) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(56, 189, 248, 0.16) 1px, transparent 1px),
+            radial-gradient(circle at top, rgba(14, 165, 233, 0.14), transparent 42%);
+        }
       `}</style>
       <header className="border-b border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 px-4 sm:px-8 py-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
@@ -3791,7 +3793,7 @@ export function Dashboard() {
             className={`xl:hidden inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition ${showDashboardFiltersSidebar ? 'border-sky-500 bg-sky-600 text-white' : 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700'}`}
           >
             <Filter className="h-4 w-4" />
-            Filtros
+            Painel lateral
             {dashboardActiveFiltersCount > 0 && <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px]">{dashboardActiveFiltersCount}</span>}
           </button>
           <button
@@ -3800,7 +3802,7 @@ export function Dashboard() {
             className={`hidden xl:inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition ${!dashboardFiltersRailCollapsed ? 'border-sky-500 bg-sky-600 text-white' : 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700'}`}
           >
             <Filter className="h-4 w-4" />
-            {dashboardFiltersRailCollapsed ? 'Abrir filtros' : 'Fechar filtros'}
+            {dashboardFiltersRailCollapsed ? 'Abrir painel' : 'Recolher painel'}
             {dashboardActiveFiltersCount > 0 && <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px]">{dashboardActiveFiltersCount}</span>}
           </button>
           <button
@@ -3821,11 +3823,11 @@ export function Dashboard() {
         </div>
       </header>
 
-      <div className="p-4 sm:p-6 space-y-6">
+      <div className={`space-y-6 p-4 transition-[padding] duration-300 sm:p-6 ${dashboardFiltersRailCollapsed ? 'xl:pl-6' : 'xl:pl-96'}`}>
         <section className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.22),transparent_38%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.22),transparent_28%),linear-gradient(135deg,#ffffff_0%,#f8fafc_48%,#ecfeff_100%)] p-6 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.16),transparent_38%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.14),transparent_28%),linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(15,23,42,0.95)_48%,rgba(8,47,73,0.92)_100%)]">
           <div className="absolute -right-10 -top-12 h-40 w-40 rounded-full bg-emerald-400/10 blur-3xl" />
           <div className="absolute -bottom-16 left-10 h-44 w-44 rounded-full bg-sky-400/10 blur-3xl" />
-          <div className="relative grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
+          <div className="relative grid grid-cols-1 gap-6 xl:grid-cols-[1.7fr_0.95fr]">
             <div className="space-y-5">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="space-y-2">
@@ -3849,7 +3851,20 @@ export function Dashboard() {
                 </div>
               </div>
 
-              {dashboardEditMode && <p className="text-sm text-slate-600 dark:text-slate-300">Escolha a vista no topo, arraste os cards pela faixa pontilhada e use os pontos azuis para redimensionar. Os toggles de largura e altura automáticas ficam no canto de cada widget.</p>}
+              {dashboardEditMode && <p className="text-sm text-slate-600 dark:text-slate-300">Arraste os widgets pela faixa pontilhada, use a malha azul como guia e note que qualquer ajuste manual fixa a largura e a altura para evitar reposicionamentos inesperados depois do refresh.</p>}
+
+              {dashboardActiveFiltersCount > 0 && (
+                <div className="rounded-2xl border border-white/70 bg-white/75 p-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Recorte ativo</p>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-300">Os filtros continuam presos na lateral, mas o resumo do recorte fica visível aqui.</p>
+                    </div>
+                    <span className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-bold text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">{dashboardActiveFiltersCount} ativo(s)</span>
+                  </div>
+                  {selectedChips}
+                </div>
+              )}
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 {sinaisExecutivos.slice(0, 3).map((sinal) => (
@@ -3871,24 +3886,19 @@ export function Dashboard() {
               <div className="rounded-2xl border border-white/70 bg-white/75 p-5 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Pulsos rápidos</p>
-                    <h4 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Indicadores que merecem atenção</h4>
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Modo de uso</p>
+                    <h4 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Como o novo layout responde</h4>
                   </div>
                   <Activity className="h-5 w-5 text-sky-500" />
                 </div>
                 <div className="mt-4 space-y-3">
-                  {sinaisExecutivos.slice(3).map((sinal) => (
-                    <div
-                      key={sinal.key}
-                      className="relative rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 dark:border-slate-700 dark:bg-slate-950/40"
-                      onMouseEnter={(event) => scheduleKpiMeaning(sinal.key, event.currentTarget)}
-                      onMouseLeave={hideKpiMeaning}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-bold text-slate-700 dark:text-slate-100">{sinal.titulo}</p>
-                        <span className={`text-sm font-black ${sinal.destaque}`}>{sinal.valor}</span>
-                      </div>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-300">{sinal.apoio}</p>
+                  {[
+                    'Mapa de calor e leitura executiva ficam na primeira linha da grade, exatamente lado a lado.',
+                    'Produtividade, lançamentos do dia, pagar e receber agora entram só na grade configurável, sem duplicação fora dela.',
+                    'Resultado consolidado cresce com a quantidade de linhas e prioriza rolagem da página em vez de uma tabela comprimida.',
+                  ].map((item) => (
+                    <div key={item} className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-200">
+                      {item}
                     </div>
                   ))}
                 </div>
@@ -3930,25 +3940,6 @@ export function Dashboard() {
             </div>
           </div>
         </section>
-
-        <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-slate-500">
-              <List className="w-4 h-4" />
-              <span className="text-xs font-bold uppercase">Filtros Ativos</span>
-            </div>
-            {dashboardActiveFiltersCount > 0 && (
-              <button
-                type="button"
-                onClick={clearAllDashboardFilters}
-                className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                Limpar tudo
-              </button>
-            )}
-          </div>
-          <div className="mt-3">{selectedChips}</div>
-        </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
@@ -4028,139 +4019,6 @@ export function Dashboard() {
               <p className="mt-3 text-xs font-semibold text-slate-400">Clique para cruzar o dashboard por este KPI</p>
             </button>
           ))}
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.5fr_1fr]">
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Heatmaps reativos</p>
-                <h3 className="mt-1 text-xl font-bold text-slate-900 dark:text-white">Mapa de calor por receita e despesa</h3>
-              </div>
-              <span className="rounded-full border border-slate-200 px-3 py-1 text-xs font-bold text-slate-500 dark:border-slate-700 dark:text-slate-300">{heatmapCalendario.monthLabel}</span>
-            </div>
-            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-              {([
-                { key: 'receita', label: 'Receitas', max: heatmapCalendario.maxReceita },
-                { key: 'despesa', label: 'Despesas', max: heatmapCalendario.maxDespesa },
-              ] as const).map((mapa) => (
-                <div key={mapa.key} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <h4 className={`text-sm font-bold ${mapa.key === 'receita' ? 'text-emerald-600' : 'text-rose-500'}`}>{mapa.label}</h4>
-                    <span className="text-xs text-slate-400">Clique para abrir o dia</span>
-                  </div>
-                  <div className="grid grid-cols-7 gap-2 text-center text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">
-                    {heatmapCalendario.weekLabels.map((label) => <div key={label}>{label}</div>)}
-                  </div>
-                  <div className="mt-2 space-y-2">
-                    {heatmapCalendario.weeks.map((week) => (
-                      <div key={week.label} className="grid grid-cols-7 gap-2">
-                        {week.cells.map((cell) => {
-                          const amount = mapa.key === 'receita' ? cell.receita : cell.despesa;
-                          const ratio = mapa.max > 0 ? amount / mapa.max : 0;
-                          return (
-                            <button
-                              key={`${mapa.key}-${cell.date}`}
-                              onClick={() => cell.isCurrentMonth && setSelectedDate((prev) => prev === cell.date ? null : cell.date)}
-                              className={`aspect-square rounded-2xl border text-[11px] font-bold transition hover:-translate-y-0.5 ${cell.isCurrentMonth ? getHeatCellClass(ratio, mapa.key) : 'border-slate-100 bg-slate-50 text-slate-300 dark:border-slate-800 dark:bg-slate-900/20 dark:text-slate-600'} ${selectedDate === cell.date ? 'ring-2 ring-sky-400 ring-offset-2 ring-offset-white dark:ring-offset-slate-800' : ''}`}
-                              title={`${parseDateLocal(cell.date)?.toLocaleDateString('pt-BR')} • ${BRL.format(amount)}`}
-                            >
-                              {cell.dayLabel}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Conexão dos painéis</p>
-                <h3 className="mt-1 text-xl font-bold text-slate-900 dark:text-white">Leituras executivas do recorte</h3>
-              </div>
-              <Sparkles className="h-5 w-5 text-amber-500" />
-            </div>
-            <div className="mt-5 space-y-3">
-              <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Saldo atual</p>
-                <p className={`mt-2 text-3xl font-black ${operationalKpis.saldo >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>{BRL.format(operationalKpis.saldo)}</p>
-                <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">O saldo reage ao período, tipo, centro, categoria, conta e cortes vindos dos gráficos.</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-bold text-slate-700 dark:text-slate-100">Mix financeiro</p>
-                  <span className="text-xs text-slate-400">Receita {mixFinanceiro.receitaPct.toFixed(1)}% x despesa {mixFinanceiro.despesaPct.toFixed(1)}%</span>
-                </div>
-                <div className="mt-3 flex h-4 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
-                  <div
-                    className="h-full bg-emerald-500 transition-all duration-500"
-                    style={{ width: `${mixFinanceiro.receitaPct}%` }}
-                    title={`Receitas ${mixFinanceiro.receitaPct.toFixed(1)}%`}
-                  />
-                  <div
-                    className="h-full bg-rose-500 transition-all duration-500"
-                    style={{ width: `${mixFinanceiro.despesaPct}%` }}
-                    title={`Despesas ${mixFinanceiro.despesaPct.toFixed(1)}%`}
-                  />
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-                  <div className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Receitas: {BRL.format(operationalKpis.receitas)} ({mixFinanceiro.receitaPct.toFixed(1)}%)</div>
-                  <div className="rounded-xl bg-rose-50 px-3 py-2 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">Despesas: {BRL.format(operationalKpis.despesas)} ({mixFinanceiro.despesaPct.toFixed(1)}%)</div>
-                </div>
-              </div>
-              <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
-                <p className="text-sm font-bold text-slate-700 dark:text-slate-100">Preparação para exportação</p>
-                <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">A base do fim da página replica exatamente estes filtros. Você pode buscar um termo e baixar CSV/XLSX do resultado consolidado.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className={`${INTERACTIVE_PANEL_CLASS} bg-white/80 backdrop-blur`} onMouseEnter={(event) => scheduleKpiMeaning('PRODUTIVIDADE', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-slate-700 dark:text-slate-200">Produtividade</h3>
-            <span className="text-xs text-slate-400">Eficiência de execução financeira</span>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-center">
-            <div className="lg:col-span-1 rounded-3xl border border-slate-200 bg-slate-50/80 p-5 dark:border-slate-700 dark:bg-slate-900/40">
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Leitura rápida</p>
-              <p className="mt-3 text-3xl font-black text-slate-900 dark:text-white">{execucaoPct}%</p>
-              <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">Quanto do financeiro já saiu do planejado e virou execução dentro do recorte atual.</p>
-            </div>
-            <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                <p className="text-xs text-slate-400">Execução</p>
-                <p className="text-xl font-bold text-indigo-600">{execucaoPct}%</p>
-              </div>
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                <p className="text-xs text-slate-400">Tarefas pendentes</p>
-                <p className="text-xl font-bold text-amber-600">{todoPendentesPct}%</p>
-              </div>
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                <p className="text-xs text-slate-400">Resultado no período</p>
-                <p className={`text-xl font-bold ${operationalKpis.saldo >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{BRL.format(operationalKpis.saldo)}</p>
-              </div>
-            </div>
-          </div>
-          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
-            {produtividadeIndicadores.map((item) => (
-              <div key={item.key} className="rounded-2xl border border-slate-200 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/40">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-bold text-slate-700 dark:text-slate-100">{item.label}</p>
-                  <span className="text-sm font-black text-slate-900 dark:text-white">{item.valor}</span>
-                </div>
-                <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                  <div className={`h-full ${item.tone}`} style={{ width: `${Math.max(6, Math.min(100, item.percentual))}%` }} />
-                </div>
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">{item.apoio}</p>
-              </div>
-            ))}
-          </div>
         </div>
 
         {dashboardEditMode && hiddenDashboardWidgets.length > 0 && (
@@ -4433,21 +4291,53 @@ export function Dashboard() {
             type="button"
             aria-label="Fechar filtros"
             onClick={() => setShowDashboardFiltersSidebar(false)}
-            className="fixed inset-0 z-[65] bg-slate-950/40 backdrop-blur-sm xl:hidden"
+            className="fixed inset-0 z-65 bg-slate-950/40 backdrop-blur-sm xl:hidden"
           />
         )}
 
-        <div className={`fixed inset-y-0 right-0 z-[70] w-full max-w-sm transform border-l border-slate-200 bg-white shadow-2xl transition-transform duration-300 dark:border-slate-700 dark:bg-slate-900 xl:hidden ${showDashboardFiltersSidebar ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className={`fixed inset-y-0 left-0 z-70 w-full max-w-sm transform border-r border-slate-200 bg-white shadow-2xl transition-transform duration-300 dark:border-slate-700 dark:bg-slate-900 xl:hidden ${showDashboardFiltersSidebar ? 'translate-x-0' : '-translate-x-full'}`}>
           {dashboardFiltersSidebarContent}
         </div>
 
-        <div className={`pointer-events-none fixed bottom-4 right-4 top-24 z-[60] hidden w-[360px] transition-all duration-300 xl:block ${dashboardFiltersRailCollapsed ? 'translate-x-[110%] opacity-0' : 'translate-x-0 opacity-100'}`}>
-          <div className="pointer-events-auto flex h-full flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-            {dashboardFiltersSidebarContent}
+        <div className={`pointer-events-none fixed bottom-4 left-4 top-24 z-60 hidden transition-all duration-300 xl:block ${dashboardFiltersRailCollapsed ? 'w-22' : 'w-90'}`}>
+          <div className="pointer-events-auto flex h-full overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            {dashboardFiltersRailCollapsed ? (
+              <div className="flex h-full w-full flex-col items-center justify-between px-3 py-4">
+                <button
+                  type="button"
+                  onClick={() => setDashboardFiltersRailCollapsed(false)}
+                  className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 text-sky-700 transition hover:bg-sky-100 dark:border-sky-900 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20"
+                  title="Expandir painel de filtros"
+                >
+                  <Filter className="h-5 w-5" />
+                </button>
+                <div className="flex flex-col items-center gap-3">
+                  <div className="rounded-full bg-sky-100 px-3 py-1 text-xs font-bold text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">{dashboardActiveFiltersCount}</div>
+                  <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400 [writing-mode:vertical-rl]">Filtros</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearAllDashboardFilters}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  title="Limpar filtros"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              dashboardFiltersSidebarContent
+            )}
           </div>
         </div>
 
-        <div ref={dashboardGridRef} className="dashboard-grid rounded-4xl border border-slate-200/80 bg-white/70 p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+        <div
+          ref={dashboardGridRef}
+          className={`dashboard-grid rounded-4xl border border-slate-200/80 bg-white/70 p-2 shadow-sm transition-[margin] duration-300 dark:border-slate-700 dark:bg-slate-900/40 ${dashboardEditMode ? 'is-editing' : ''} ${dashboardFiltersRailCollapsed ? 'xl:ml-6' : 'xl:ml-96'}`}
+          style={dashboardEditMode ? {
+            backgroundSize: `${Math.max(96, Math.floor(dashboardGridWidth / Math.max(dashboardGridCols, 1)) + DASHBOARD_GRID_MARGIN)}px 100%, 100% ${DASHBOARD_GRID_ROW_HEIGHT + DASHBOARD_GRID_MARGIN}px, auto`,
+            backgroundPosition: '0 0, 0 0, center top',
+          } : undefined}
+        >
           <GridLayout
             className="layout"
             layout={dashboardLayouts}
@@ -4543,7 +4433,7 @@ export function Dashboard() {
         </div>
 
         {selectedDate && !activeDashboardWidgets.some((widget) => widget.id === 'lancamentos_dia' && widget.visible) && (
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-[margin] duration-300 dark:border-slate-700 dark:bg-slate-800 ${dashboardFiltersRailCollapsed ? 'xl:ml-6' : 'xl:ml-96'}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Lançamentos do Dia {parseDateLocal(selectedDate)?.toLocaleDateString('pt-BR')}</h3>
               <span className="text-xs text-slate-400">Vencimento no dia selecionado</span>

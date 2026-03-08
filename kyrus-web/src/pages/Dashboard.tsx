@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from 'react';
-import GridLayout, { type Layout } from 'react-grid-layout';
+import GridLayout from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { api } from '../services/api';
@@ -164,7 +164,21 @@ interface DashboardCustomWidgetTemplate {
 }
 
 type DashboardWidgetSize = 'sm' | 'md' | 'lg' | 'full';
-type DashboardGridLayout = Layout;
+type DashboardResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+interface DashboardGridItem {
+  i: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  minW?: number;
+  minH?: number;
+  isResizable?: boolean;
+  resizeHandles?: DashboardResizeHandle[];
+}
+
+type DashboardGridLayout = DashboardGridItem[];
 
 interface DashboardWidgetConfig {
   id: DashboardWidgetId;
@@ -194,6 +208,7 @@ const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' 
 const INTERACTIVE_PANEL_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.1),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
 const DASHBOARD_SECTION_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.96))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
 const DASHBOARD_ACTIVE_VIEW_STORAGE_KEY_PREFIX = 'kyrus-dashboard-active-view-v1';
+const DASHBOARD_VIEWS_CACHE_KEY_PREFIX = 'kyrus-dashboard-views-cache-v1';
 const DASHBOARD_GRID_COLUMNS = 12;
 const DASHBOARD_GRID_ROW_HEIGHT = 92;
 const DASHBOARD_GRID_MARGIN = 24;
@@ -506,7 +521,13 @@ function normalizeDashboardWidgets(widgets?: DashboardWidgetConfig[]) {
       customDefinition: normalizeCustomWidgetDefinition(widget.customDefinition),
     }));
 
-  return buildSequentialWidgetLayout([...normalizedDefaults, ...normalizedCustom]);
+  const combined = [...normalizedDefaults, ...normalizedCustom];
+  const hasSavedLayout = combined.some((widget) => widget.x !== undefined || widget.y !== undefined || widget.w !== undefined || widget.h !== undefined);
+  return hasSavedLayout ? combined.map((widget) => ({
+    ...widget,
+    w: Math.min(DASHBOARD_GRID_COLUMNS, widget.w ?? getWidgetWidthFromSize(widget.size)),
+    h: Math.max(3, widget.h ?? getWidgetDefaultHeight(widget)),
+  })) : buildSequentialWidgetLayout(combined);
 }
 
 function normalizeDashboardViews(views?: DashboardView[]) {
@@ -523,6 +544,84 @@ function normalizeDashboardViews(views?: DashboardView[]) {
 
 function getDashboardActiveViewStorageKey(empresaId?: number | null) {
   return `${DASHBOARD_ACTIVE_VIEW_STORAGE_KEY_PREFIX}-${empresaId || 'unknown'}`;
+}
+
+function getDashboardViewsCacheKey(empresaId?: number | null) {
+  return `${DASHBOARD_VIEWS_CACHE_KEY_PREFIX}-${empresaId || 'unknown'}`;
+}
+
+function getGridHeightForRows(rows: number) {
+  return rows * DASHBOARD_GRID_ROW_HEIGHT + Math.max(0, rows - 1) * DASHBOARD_GRID_MARGIN;
+}
+
+function getRowsForPixelHeight(pixels: number) {
+  return Math.max(3, Math.ceil((pixels + DASHBOARD_GRID_MARGIN) / (DASHBOARD_GRID_ROW_HEIGHT + DASHBOARD_GRID_MARGIN)));
+}
+
+function optimizeVisibleLayout(layout: readonly DashboardGridItem[]) {
+  const sorted = [...layout].sort((left, right) => {
+    if (left.y !== right.y) return left.y - right.y;
+    if (left.x !== right.x) return left.x - right.x;
+    return left.i.localeCompare(right.i);
+  });
+
+  const positioned: DashboardGridLayout = [];
+  const occupied = new Set<string>();
+
+  const canPlace = (x: number, y: number, w: number, h: number) => {
+    if (x + w > DASHBOARD_GRID_COLUMNS) return false;
+    for (let row = y; row < y + h; row += 1) {
+      for (let col = x; col < x + w; col += 1) {
+        if (occupied.has(`${col}:${row}`)) return false;
+      }
+    }
+    return true;
+  };
+
+  const occupy = (x: number, y: number, w: number, h: number) => {
+    for (let row = y; row < y + h; row += 1) {
+      for (let col = x; col < x + w; col += 1) {
+        occupied.add(`${col}:${row}`);
+      }
+    }
+  };
+
+  sorted.forEach((item) => {
+    const width = Math.max(2, Math.min(DASHBOARD_GRID_COLUMNS, item.w));
+    const height = Math.max(3, item.h);
+    let nextY = 0;
+    let placed = false;
+
+    while (!placed) {
+      for (let nextX = 0; nextX <= DASHBOARD_GRID_COLUMNS - width; nextX += 1) {
+        if (!canPlace(nextX, nextY, width, height)) continue;
+        const positionedItem = { ...item, x: nextX, y: nextY, w: width, h: height };
+        positioned.push(positionedItem);
+        occupy(nextX, nextY, width, height);
+        placed = true;
+        break;
+      }
+      if (!placed) nextY += 1;
+    }
+  });
+
+  const rows = new Map<number, DashboardGridLayout>();
+  positioned.forEach((item) => {
+    const rowItems = rows.get(item.y) || [];
+    rowItems.push(item);
+    rows.set(item.y, rowItems);
+  });
+
+  rows.forEach((rowItems) => {
+    rowItems.sort((left, right) => left.x - right.x);
+    const usedWidth = rowItems.reduce((sum, item) => sum + item.w, 0);
+    const freeWidth = DASHBOARD_GRID_COLUMNS - usedWidth;
+    if (freeWidth <= 0 || rowItems.length === 0) return;
+    const candidate = [...rowItems].reverse().find((item) => item.w >= 4) || rowItems[rowItems.length - 1];
+    candidate.w = Math.min(DASHBOARD_GRID_COLUMNS - candidate.x, candidate.w + freeWidth);
+  });
+
+  return positioned;
 }
 
 const FINANCE_DRILLDOWN_LABELS: Record<Exclude<FinanceDrilldown, null>, string> = {
@@ -902,7 +1001,17 @@ export function Dashboard() {
       try {
         const { data } = await api.get<DashboardViewsApiResponse>('/dashboard-views/');
         if (!isMounted) return;
-        const normalizedViews = normalizeDashboardViews(data.views);
+        const cacheKey = getDashboardViewsCacheKey(data.empresa_id);
+        const cachedViewsRaw = localStorage.getItem(cacheKey);
+        let cachedViews: DashboardView[] | null = null;
+        if (cachedViewsRaw) {
+          try {
+            cachedViews = normalizeDashboardViews(JSON.parse(cachedViewsRaw) as DashboardView[]);
+          } catch {
+            localStorage.removeItem(cacheKey);
+          }
+        }
+        const normalizedViews = cachedViews && cachedViews.length > 0 ? cachedViews : normalizeDashboardViews(data.views);
         const storageKey = getDashboardActiveViewStorageKey(data.empresa_id);
         const storedActiveViewId = localStorage.getItem(storageKey);
         const nextActiveViewId = normalizedViews.some((view) => view.id === storedActiveViewId)
@@ -937,6 +1046,7 @@ export function Dashboard() {
 
   useEffect(() => {
     if (!dashboardViewsLoadedRef.current || !dashboardViewsEmpresaId) return;
+    localStorage.setItem(getDashboardViewsCacheKey(dashboardViewsEmpresaId), JSON.stringify(dashboardViews));
     if (dashboardViewsSaveTimerRef.current) {
       window.clearTimeout(dashboardViewsSaveTimerRef.current);
     }
@@ -978,9 +1088,10 @@ export function Dashboard() {
     }));
   };
 
-  const updateActiveWidgetLayout = (layout: DashboardGridLayout) => {
+  const updateActiveWidgetLayout = (layout: readonly DashboardGridItem[]) => {
+    const optimizedLayout = optimizeVisibleLayout([...layout]);
     updateActiveDashboardView((view) => {
-      const layoutMap = new Map(layout.map((item) => [item.i, item] as const));
+      const layoutMap = new Map(optimizedLayout.map((item) => [item.i, item] as const));
       return {
         ...view,
         widgets: view.widgets.map((widget) => {
@@ -996,6 +1107,28 @@ export function Dashboard() {
           };
         }),
       };
+    });
+  };
+
+  const flushDashboardViewsSave = () => {
+    if (!dashboardViewsEmpresaId) return;
+    localStorage.setItem(getDashboardViewsCacheKey(dashboardViewsEmpresaId), JSON.stringify(dashboardViews));
+    api.put('/dashboard-views/', { views: dashboardViews }).catch(() => {
+      // Mantemos cache local como fallback se o backend não responder.
+    });
+  };
+
+  const toggleDashboardEditMode = () => {
+    setDashboardEditMode((prev) => {
+      const next = !prev;
+      if (prev && !next) {
+        if (dashboardViewsSaveTimerRef.current) {
+          window.clearTimeout(dashboardViewsSaveTimerRef.current);
+          dashboardViewsSaveTimerRef.current = null;
+        }
+        window.setTimeout(() => flushDashboardViewsSave(), 0);
+      }
+      return next;
     });
   };
 
@@ -2056,13 +2189,20 @@ export function Dashboard() {
   };
 
   const widgetAutoMetrics = useMemo<Record<DashboardWidgetId, { w: number; h: number }>>(() => ({
+    // Heights below are derived from the card chrome plus a bounded number of visible table rows.
     heatmap_calendar: { w: 8, h: Math.max(6, Math.min(9, heatmapCalendario.weeks.length + 2)) },
     executive_readings: { w: 4, h: 6 },
     productivity: { w: 12, h: 6 },
     contas_pagar: { w: 6, h: 4 },
     contas_receber: { w: 6, h: 4 },
-    lancamentos_pagar: { w: lancamentosContasDetalhe.pagar.length > 4 ? 12 : 8, h: Math.max(5, Math.min(20, 5 + Math.ceil(lancamentosContasDetalhe.pagar.length / 2))) },
-    lancamentos_receber: { w: lancamentosContasDetalhe.receber.length > 4 ? 12 : 8, h: Math.max(5, Math.min(20, 5 + Math.ceil(lancamentosContasDetalhe.receber.length / 2))) },
+    lancamentos_pagar: {
+      w: lancamentosContasDetalhe.pagar.length > 4 ? 12 : 8,
+      h: getRowsForPixelHeight(132 + Math.max(4, Math.min(10, lancamentosContasDetalhe.pagar.length || 1)) * 42),
+    },
+    lancamentos_receber: {
+      w: lancamentosContasDetalhe.receber.length > 4 ? 12 : 8,
+      h: getRowsForPixelHeight(132 + Math.max(4, Math.min(10, lancamentosContasDetalhe.receber.length || 1)) * 42),
+    },
     fluxo: { w: 12, h: 6 },
     despesas_categoria: { w: 12, h: 7 },
     receitas_categoria: { w: 8, h: 6 },
@@ -2078,11 +2218,11 @@ export function Dashboard() {
     pulso_acumulado: { w: 8, h: 6 },
     status: { w: 4, h: 4 },
     despesas_centro: { w: 6, h: 6 },
-    ultimos_lancamentos: { w: topLancamentos.length > 6 ? 12 : 8, h: Math.max(5, Math.min(18, 5 + Math.ceil(topLancamentos.length / 2))) },
+    ultimos_lancamentos: { w: topLancamentos.length > 6 ? 12 : 8, h: getRowsForPixelHeight(128 + Math.max(4, Math.min(10, topLancamentos.length || 1)) * 42) },
     gastos_categoria_lista: { w: 4, h: Math.max(4, Math.min(9, 4 + Math.ceil(categoriasList.length / 4))) },
-    lancamentos_categoria: { w: selectedCategorias.size > 0 ? 12 : 8, h: Math.max(5, Math.min(18, 5 + Math.ceil(categoriaLancamentos.length / 2))) },
-    base_analitica: { w: 12, h: Math.max(8, Math.min(16, 8 + Math.ceil(linhasAnaliticas.length / 10))) },
-    lancamentos_dia: { w: selectedDate ? 12 : 8, h: selectedDate ? Math.max(5, Math.min(18, 5 + Math.ceil(diaLancamentos.length / 2))) : 4 },
+    lancamentos_categoria: { w: selectedCategorias.size > 0 ? 12 : 8, h: getRowsForPixelHeight(160 + Math.max(4, Math.min(10, categoriaLancamentos.length || 1)) * 42) },
+    base_analitica: { w: 12, h: getRowsForPixelHeight(236 + Math.max(6, Math.min(12, linhasAnaliticas.length || 1)) * 44) },
+    lancamentos_dia: { w: selectedDate ? 12 : 8, h: selectedDate ? getRowsForPixelHeight(128 + Math.max(4, Math.min(10, diaLancamentos.length || 1)) * 42) : 4 },
     ...Object.fromEntries(
       activeDashboardWidgets
         .filter((widget) => widget.customDefinition)
@@ -2112,7 +2252,7 @@ export function Dashboard() {
     if (!widget) return { minHeight };
 
     const resolvedHeight = getResolvedWidgetHeight(widget);
-    const totalHeight = resolvedHeight * DASHBOARD_GRID_ROW_HEIGHT + Math.max(0, resolvedHeight - 1) * DASHBOARD_GRID_MARGIN;
+    const totalHeight = getGridHeightForRows(resolvedHeight);
     const editToolbarHeight = dashboardEditMode ? 64 : 0;
     const usableHeight = Math.max(minHeight, totalHeight - chromeHeight - editToolbarHeight);
 
@@ -2122,12 +2262,12 @@ export function Dashboard() {
     };
   };
 
-  const getWidgetResizeHandles = (widget: DashboardWidgetConfig) => {
-    if (!dashboardEditMode) return [] as Array<'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'>;
-    if (widget.autoWidth && widget.autoHeight) return [] as Array<'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'>;
-    if (widget.autoWidth) return ['n', 's'] as Array<'n' | 's'>;
-    if (widget.autoHeight) return ['e', 'w'] as Array<'e' | 'w'>;
-    return ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as Array<'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'>;
+  const getWidgetResizeHandles = (widget: DashboardWidgetConfig): DashboardResizeHandle[] => {
+    if (!dashboardEditMode) return [];
+    if (widget.autoWidth && widget.autoHeight) return [];
+    if (widget.autoWidth) return ['n', 's'];
+    if (widget.autoHeight) return ['e', 'w'];
+    return ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
   };
 
   const dashboardLayouts = useMemo<DashboardGridLayout>(() => {
@@ -2146,7 +2286,7 @@ export function Dashboard() {
         minH: 3,
         isResizable: resizeHandles.length > 0,
         resizeHandles,
-      };
+      } satisfies DashboardGridItem;
     });
   }, [dashboardEditMode, dashboardGridCols, visibleDashboardWidgets, widgetAutoMetrics]);
 
@@ -3421,7 +3561,7 @@ export function Dashboard() {
           </div>
           <button
             type="button"
-            onClick={() => setDashboardEditMode((prev) => !prev)}
+            onClick={toggleDashboardEditMode}
             className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition ${dashboardEditMode ? 'border-sky-400 bg-sky-50 text-sky-700 dark:border-sky-500 dark:bg-sky-500/10 dark:text-sky-300' : 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700'}`}
           >
             <Settings2 className="h-4 w-4" />
@@ -3868,7 +4008,8 @@ export function Dashboard() {
 
         {customWidgetModalOpen && (
           <div className="fixed inset-0 z-120 flex items-center justify-center bg-slate-950/50 px-4 py-8 backdrop-blur-sm">
-            <div className="w-full max-w-3xl rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+              <div className="border-b border-slate-200 px-6 py-5 dark:border-slate-700">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.16em] text-sky-500">Construtor de widgets</p>
@@ -3883,8 +4024,11 @@ export function Dashboard() {
                   <X className="h-4 w-4" />
                 </button>
               </div>
+              </div>
 
-              <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-950/40">
+              <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+              <div className="min-h-0 overflow-y-auto px-6 py-6">
+              <div className="rounded-3xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-950/40">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Templates rápidos</p>
@@ -4071,9 +4215,11 @@ export function Dashboard() {
                   {editingCustomWidgetId ? 'Salvar widget' : 'Criar widget'}
                 </button>
               </div>
+              </div>
 
+              <div className="min-h-0 border-t border-slate-200 bg-slate-50/70 px-6 py-6 dark:border-slate-700 dark:bg-slate-950/30 xl:border-l xl:border-t-0">
               {customWidgetPreviewDefinition && customWidgetPreviewDataset && (
-                <div className="mt-6 border-t border-slate-200 pt-6 dark:border-slate-700">
+                <div className="flex h-full flex-col" style={{ minHeight: 420 }}>
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
                       <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Prévia em tempo real</p>
@@ -4083,7 +4229,7 @@ export function Dashboard() {
                       {customWidgetPreviewDefinition.kind === 'kpi' ? 'KPI' : 'Gráfico'}
                     </span>
                   </div>
-                  <div className="rounded-4xl bg-slate-50 p-2 dark:bg-slate-950/40">
+                  <div className="flex-1 rounded-4xl bg-white p-2 shadow-sm dark:bg-slate-900/80">
                     {renderCustomDashboardWidget({
                       id: editingCustomWidgetId || 'custom_widget_preview',
                       visible: true,
@@ -4095,6 +4241,8 @@ export function Dashboard() {
                   </div>
                 </div>
               )}
+              </div>
+              </div>
             </div>
           </div>
         )}
@@ -4118,8 +4266,8 @@ export function Dashboard() {
               handles: ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'],
               handleComponent: renderResizeHandle,
             }}
-            onDragStop={(layout: DashboardGridLayout) => updateActiveWidgetLayout(layout)}
-            onResizeStop={(layout: DashboardGridLayout) => updateActiveWidgetLayout(layout)}
+            onDragStop={(layout) => updateActiveWidgetLayout(layout as readonly DashboardGridItem[])}
+            onResizeStop={(layout) => updateActiveWidgetLayout(layout as readonly DashboardGridItem[])}
           >
             {visibleDashboardWidgets.map((widget) => (
               <div key={widget.id} className={`dashboard-grid-item overflow-visible ${dashboardEditMode ? 'is-editing' : ''}`}>

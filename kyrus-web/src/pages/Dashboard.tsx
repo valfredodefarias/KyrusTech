@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { useAssistentePage } from '../components/AssistentePageContext';
-import ReactApexChart from 'react-apexcharts';
+import { AsyncApexChart } from '../components/AsyncApexChart';
 import {
   TrendingUp, TrendingDown, Wallet, RefreshCw, Filter,
   CalendarRange, Layers, Building2, List, X, Landmark,
@@ -104,8 +104,6 @@ type KpiTooltipState = {
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const INTERACTIVE_PANEL_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.1),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
 const DASHBOARD_SECTION_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.96))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
-const DESPESA_MOSAIC_TONES = ['from-rose-500 to-rose-400', 'from-orange-500 to-amber-400', 'from-fuchsia-500 to-pink-500', 'from-red-500 to-orange-500', 'from-rose-400 to-red-300', 'from-orange-400 to-yellow-300'];
-const RECEITA_MOSAIC_TONES = ['from-emerald-500 to-teal-400', 'from-sky-500 to-cyan-400', 'from-lime-500 to-emerald-400', 'from-teal-500 to-cyan-500', 'from-blue-500 to-sky-400', 'from-green-400 to-emerald-300'];
 const FINANCE_DRILLDOWN_LABELS: Record<Exclude<FinanceDrilldown, null>, string> = {
   PAGAR_HOJE: 'Contas a pagar hoje',
   PAGAR_AMANHA: 'Contas a pagar amanha',
@@ -119,12 +117,6 @@ const FINANCE_DRILLDOWN_LABELS: Record<Exclude<FinanceDrilldown, null>, string> 
   RECEBER_REALIZADAS: 'Contas a receber realizadas',
   RECEBER_ABERTO: 'Contas a receber em aberto',
   RECEBER_TOTAL: 'Total contas a receber',
-};
-
-const getMosaicSpanClass = (index: number, total: number) => {
-  if (index === 0) return 'col-span-2 row-span-2 min-h-[12rem]';
-  if (index === 1 && total > 3) return 'col-span-1 row-span-2 min-h-[12rem]';
-  return 'col-span-1 row-span-1 min-h-[8.5rem]';
 };
 
 const DASHBOARD_HELP: Record<DashboardHelpKey, { titulo: string; significado: string; calculo: string; utilidade: string }> = {
@@ -444,6 +436,50 @@ export function Dashboard() {
 
   const categoriasExcluidasResultado = useMemo(() => buildExcludedCategoriaIds(categorias), [categorias]);
 
+  const matchesDashboardFilters = (l: Lancamento, includeOperational = false) => {
+    const hoje = toDateOnly(new Date());
+    if ((l.origem || '').toUpperCase() === 'TRANSFERENCIA') return false;
+    if (includeOperational && categoriasExcluidasResultado.has(Number(l.plano_contas_id))) return false;
+    if (filtroHojeAtivo && toDateOnlyStr(l.data_vencimento) !== hoje) return false;
+    const isPrevisto = l.previsto !== false;
+    if (previstoFiltro === 'SIM' && !isPrevisto) return false;
+    if (previstoFiltro === 'NAO' && isPrevisto) return false;
+    if (competenciaFiltro) {
+      const comp = l.competencia || toCompetencia(l.data_vencimento);
+      if (comp !== competenciaFiltro) return false;
+    }
+    if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
+    if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
+    if (selectedConta && Number((l as any).conta_id) !== Number(selectedConta)) return false;
+    if (selectedDate && toDateOnlyStr(l.data_vencimento) !== selectedDate) return false;
+    if (!selectedDate && selectedMonth && !toDateOnlyStr(l.data_vencimento).startsWith(selectedMonth)) return false;
+    if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
+    if (tipoFiltro === 'RECEITA' && !isReceita(l.tipo)) return false;
+    if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
+    return true;
+  };
+
+  const matchesDashboardFiltersNoDate = (l: Lancamento, includeOperational = false) => {
+    const hoje = toDateOnly(new Date());
+    if ((l.origem || '').toUpperCase() === 'TRANSFERENCIA') return false;
+    if (includeOperational && categoriasExcluidasResultado.has(Number(l.plano_contas_id))) return false;
+    if (filtroHojeAtivo && toDateOnlyStr(l.data_vencimento) !== hoje) return false;
+    const isPrevisto = l.previsto !== false;
+    if (previstoFiltro === 'SIM' && !isPrevisto) return false;
+    if (previstoFiltro === 'NAO' && isPrevisto) return false;
+    if (competenciaFiltro) {
+      const comp = l.competencia || toCompetencia(l.data_vencimento);
+      if (comp !== competenciaFiltro) return false;
+    }
+    if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
+    if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
+    if (selectedConta && Number((l as any).conta_id) !== Number(selectedConta)) return false;
+    if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
+    if (tipoFiltro === 'RECEITA' && !isReceita(l.tipo)) return false;
+    if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
+    return true;
+  };
+
   useEffect(() => {
     loadDashboard();
   }, [mes, ano, periodoIni, periodoFim, periodoTipo]);
@@ -567,75 +603,20 @@ export function Dashboard() {
   };
 
   const filteredLancamentos = useMemo(() => {
-    const hoje = toDateOnly(new Date());
-    return lancamentos.filter(l => {
-      if ((l.origem || '').toUpperCase() === 'TRANSFERENCIA') return false;
-      if (categoriasExcluidasResultado.has(Number(l.plano_contas_id))) return false;
-      if (filtroHojeAtivo && toDateOnlyStr(l.data_vencimento) !== hoje) return false;
-      const isPrevisto = l.previsto !== false;
-      if (previstoFiltro === 'SIM' && !isPrevisto) return false;
-      if (previstoFiltro === 'NAO' && isPrevisto) return false;
-      if (competenciaFiltro) {
-        const comp = l.competencia || toCompetencia(l.data_vencimento);
-        if (comp !== competenciaFiltro) return false;
-      }
-      if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
-      if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
-      if (selectedConta && Number((l as any).conta_id) !== Number(selectedConta)) return false;
-      if (selectedDate && toDateOnlyStr(l.data_vencimento) !== selectedDate) return false;
-      if (!selectedDate && selectedMonth && !toDateOnlyStr(l.data_vencimento).startsWith(selectedMonth)) return false;
-      if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
-      if (tipoFiltro === 'RECEITA' && !isReceita(l.tipo)) return false;
-      if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
-      return true;
-    });
-  }, [lancamentos, categoriasExcluidasResultado, selectedCategorias, selectedCentro, selectedConta, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo]);
+    return lancamentos.filter((l) => matchesDashboardFilters(l, false));
+  }, [lancamentos, selectedCategorias, selectedCentro, selectedConta, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, categoriasExcluidasResultado]);
 
-  const baseFilteredNoDate = useMemo(() => {
-    const hoje = toDateOnly(new Date());
-    return lancamentosAno.filter(l => {
-      if ((l.origem || '').toUpperCase() === 'TRANSFERENCIA') return false;
-      if (categoriasExcluidasResultado.has(Number(l.plano_contas_id))) return false;
-      if (filtroHojeAtivo && toDateOnlyStr(l.data_vencimento) !== hoje) return false;
-      const isPrevisto = l.previsto !== false;
-      if (previstoFiltro === 'SIM' && !isPrevisto) return false;
-      if (previstoFiltro === 'NAO' && isPrevisto) return false;
-      if (competenciaFiltro) {
-        const comp = l.competencia || toCompetencia(l.data_vencimento);
-        if (comp !== competenciaFiltro) return false;
-      }
-      if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
-      if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
-      if (selectedConta && Number((l as any).conta_id) !== Number(selectedConta)) return false;
-      if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
-      if (tipoFiltro === 'RECEITA' && !isReceita(l.tipo)) return false;
-      if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
-      return true;
-    });
-  }, [lancamentosAno, categoriasExcluidasResultado, selectedCategorias, selectedCentro, selectedConta, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo]);
+  const operationalFilteredLancamentos = useMemo(() => {
+    return lancamentos.filter((l) => matchesDashboardFilters(l, true));
+  }, [lancamentos, selectedCategorias, selectedCentro, selectedConta, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, categoriasExcluidasResultado]);
 
-  const baseFilteredAnoAnterior = useMemo(() => {
-    const hoje = toDateOnly(new Date());
-    return lancamentosAnoAnterior.filter(l => {
-      if ((l.origem || '').toUpperCase() === 'TRANSFERENCIA') return false;
-      if (categoriasExcluidasResultado.has(Number(l.plano_contas_id))) return false;
-      if (filtroHojeAtivo && toDateOnlyStr(l.data_vencimento) !== hoje) return false;
-      const isPrevisto = l.previsto !== false;
-      if (previstoFiltro === 'SIM' && !isPrevisto) return false;
-      if (previstoFiltro === 'NAO' && isPrevisto) return false;
-      if (competenciaFiltro) {
-        const comp = l.competencia || toCompetencia(l.data_vencimento);
-        if (comp !== competenciaFiltro) return false;
-      }
-      if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
-      if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
-      if (selectedConta && Number((l as any).conta_id) !== Number(selectedConta)) return false;
-      if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
-      if (tipoFiltro === 'RECEITA' && !isReceita(l.tipo)) return false;
-      if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
-      return true;
-    });
-  }, [lancamentosAnoAnterior, categoriasExcluidasResultado, selectedCategorias, selectedCentro, selectedConta, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo]);
+  const operationalBaseFilteredNoDate = useMemo(() => {
+    return lancamentosAno.filter((l) => matchesDashboardFiltersNoDate(l, true));
+  }, [lancamentosAno, selectedCategorias, selectedCentro, selectedConta, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, categoriasExcluidasResultado]);
+
+  const operationalBaseFilteredAnoAnterior = useMemo(() => {
+    return lancamentosAnoAnterior.filter((l) => matchesDashboardFiltersNoDate(l, true));
+  }, [lancamentosAnoAnterior, selectedCategorias, selectedCentro, selectedConta, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, categoriasExcluidasResultado]);
 
   const kpis = useMemo(() => {
     let receitas = 0; let despesas = 0; let pagos = 0; let pendentes = 0;
@@ -647,6 +628,17 @@ export function Dashboard() {
     });
     return { receitas, despesas, saldo: receitas - despesas, pagos, pendentes };
   }, [filteredLancamentos]);
+
+  const operationalKpis = useMemo(() => {
+    let receitas = 0; let despesas = 0; let pagos = 0; let pendentes = 0;
+    operationalFilteredLancamentos.forEach(l => {
+      const val = Number(l.valor_previsto || 0);
+      if (isReceita(l.tipo)) receitas += val;
+      else despesas += val;
+      if (isPago(l.status)) pagos += val; else pendentes += val;
+    });
+    return { receitas, despesas, saldo: receitas - despesas, pagos, pendentes };
+  }, [operationalFilteredLancamentos]);
 
   const categoriaPorId = useMemo(() => new Map(categorias.map((categoria) => [Number(categoria.id), categoria.nome])), [categorias]);
   const centroPorId = useMemo(() => new Map(centros.map((centro) => [Number(centro.id), centro.nome])), [centros]);
@@ -674,14 +666,22 @@ export function Dashboard() {
         pagos: kpis.pagos,
         pendentes: kpis.pendentes,
       },
+      metricas_operacionais: {
+        totalLancamentosOperacionais: operationalFilteredLancamentos.length,
+        receitas: operationalKpis.receitas,
+        despesas: operationalKpis.despesas,
+        saldo: operationalKpis.saldo,
+        pagos: operationalKpis.pagos,
+        pendentes: operationalKpis.pendentes,
+      },
     };
-  }, [periodoTipo, mes, ano, periodoIni, periodoFim, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, selectedCategorias, selectedCentro, selectedConta, financeDrilldown, filteredLancamentos.length, kpis]);
+  }, [periodoTipo, mes, ano, periodoIni, periodoFim, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, selectedCategorias, selectedCentro, selectedConta, financeDrilldown, filteredLancamentos.length, kpis, operationalFilteredLancamentos.length, operationalKpis]);
 
   const fluxoDiario = useMemo(() => {
     if (periodoTipo === 'ANO') {
       const rec: number[] = Array(12).fill(0);
       const desp: number[] = Array(12).fill(0);
-      filteredLancamentos.forEach(l => {
+      operationalFilteredLancamentos.forEach(l => {
         const d = parseDateLocal(l.data_vencimento);
         if (!d) return;
         const idx = d.getMonth();
@@ -721,11 +721,11 @@ export function Dashboard() {
 
     const labels = dates.map(d => d.split('-')[2]);
     return { labels, rec, desp, indexToDate: dates, mode: 'DAY' as const };
-  }, [filteredLancamentos, mes, ano, periodoIni, periodoFim, periodoTipo]);
+  }, [operationalFilteredLancamentos, mes, ano, periodoIni, periodoFim, periodoTipo]);
 
   const resultadoMensal = useMemo(() => {
     const map = new Map<string, { rec: number; desp: number }>();
-    filteredLancamentos.forEach(l => {
+    operationalFilteredLancamentos.forEach(l => {
       const date = toDateOnlyStr(l.data_vencimento);
       if (!date) return;
       const key = date.slice(0, 7);
@@ -741,7 +741,7 @@ export function Dashboard() {
       return v.rec - v.desp;
     });
     return { keys, labels: keys.map(formatMonthLabel), values };
-  }, [filteredLancamentos]);
+  }, [operationalFilteredLancamentos]);
 
   const resultadoMensalAno = useMemo(() => {
     const yearBase = periodoTipo === 'ANO'
@@ -750,7 +750,7 @@ export function Dashboard() {
 
     const rec = Array(12).fill(0);
     const desp = Array(12).fill(0);
-    baseFilteredNoDate.forEach(l => {
+    operationalBaseFilteredNoDate.forEach(l => {
       const d = parseDateLocal(l.data_vencimento);
       if (!d || d.getFullYear() !== yearBase) return;
       const idx = d.getMonth();
@@ -762,7 +762,7 @@ export function Dashboard() {
     const values = rec.map((r, i) => r - desp[i]);
     const margem = rec.map((r, i) => r > 0 ? Math.round(((r - desp[i]) / r) * 100) : 0);
     return { year: yearBase, labels, rec, desp, values, margem };
-  }, [baseFilteredNoDate, periodoTipo, ano, periodoIni, mes]);
+  }, [operationalBaseFilteredNoDate, periodoTipo, ano, periodoIni, mes]);
 
   const resultadoMensalAnoAnterior = useMemo(() => {
     const yearBase = periodoTipo === 'ANO'
@@ -771,7 +771,7 @@ export function Dashboard() {
 
     const rec = Array(12).fill(0);
     const desp = Array(12).fill(0);
-    baseFilteredAnoAnterior.forEach(l => {
+    operationalBaseFilteredAnoAnterior.forEach(l => {
       const d = parseDateLocal(l.data_vencimento);
       if (!d || d.getFullYear() !== yearBase) return;
       const idx = d.getMonth();
@@ -782,7 +782,7 @@ export function Dashboard() {
     const labels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     const values = rec.map((r, i) => r - desp[i]);
     return { year: yearBase, labels, values };
-  }, [baseFilteredAnoAnterior, periodoTipo, ano, periodoIni, mes]);
+  }, [operationalBaseFilteredAnoAnterior, periodoTipo, ano, periodoIni, mes]);
 
   const sazonalidadeIndice = useMemo(() => {
     const totalMes = resultadoMensalAno.rec.map((r, i) => r + resultadoMensalAno.desp[i]);
@@ -819,21 +819,14 @@ export function Dashboard() {
   }, [fluxoDiario]);
 
   const statusDistrib = useMemo(() => {
-    const pagos = filteredLancamentos.filter(l => isPago(l.status)).reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0);
-    const pendentes = filteredLancamentos.filter(l => !isPago(l.status)).reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0);
+    const pagos = operationalFilteredLancamentos.filter(l => isPago(l.status)).reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0);
+    const pendentes = operationalFilteredLancamentos.filter(l => !isPago(l.status)).reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0);
     return { pagos, pendentes };
-  }, [filteredLancamentos]);
+  }, [operationalFilteredLancamentos]);
 
   const despesasPorCategoria = useMemo(() => {
     const map = new Map<number, number>();
-    const base = lancamentos.filter(l => {
-      if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
-      if (selectedDate && toDateOnlyStr(l.data_vencimento) !== selectedDate) return false;
-      if (!selectedDate && selectedMonth && !toDateOnlyStr(l.data_vencimento).startsWith(selectedMonth)) return false;
-      return true;
-    });
-
-    base.forEach(l => {
+    operationalFilteredLancamentos.forEach(l => {
       if (!isDespesa(l.tipo)) return;
       const catId = Number(l.plano_contas_id);
       if (!catId) return;
@@ -848,18 +841,11 @@ export function Dashboard() {
     const others = rows.slice(6).reduce((acc, r) => acc + r.total, 0);
     if (others > 0) top.push({ id: -1, label: 'Outros', total: others });
     return top;
-  }, [lancamentos, categorias, selectedCentro, selectedDate, selectedMonth]);
+  }, [operationalFilteredLancamentos, categorias]);
 
   const receitasPorCategoria = useMemo(() => {
     const map = new Map<number, number>();
-    const base = lancamentos.filter(l => {
-      if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
-      if (selectedDate && toDateOnlyStr(l.data_vencimento) !== selectedDate) return false;
-      if (!selectedDate && selectedMonth && !toDateOnlyStr(l.data_vencimento).startsWith(selectedMonth)) return false;
-      return true;
-    });
-
-    base.forEach(l => {
+    operationalFilteredLancamentos.forEach(l => {
       if (!isReceita(l.tipo)) return;
       const catId = Number(l.plano_contas_id);
       if (!catId) return;
@@ -874,11 +860,11 @@ export function Dashboard() {
     const others = rows.slice(6).reduce((acc, r) => acc + r.total, 0);
     if (others > 0) top.push({ id: -1, label: 'Outros', total: others });
     return top;
-  }, [lancamentos, categorias, selectedCentro, selectedDate, selectedMonth]);
+  }, [operationalFilteredLancamentos, categorias]);
 
   const despesasPorCentro = useMemo(() => {
     const map = new Map<number, number>();
-    filteredLancamentos.forEach(l => {
+    operationalFilteredLancamentos.forEach(l => {
       if (!isDespesa(l.tipo)) return;
       const ccId = Number(l.centro_custo_id);
       if (!ccId) return;
@@ -889,7 +875,7 @@ export function Dashboard() {
       return { id, label: cc?.nome || `Centro ${id}`, total };
     }).sort((a, b) => b.total - a.total);
     return rows.slice(0, 8);
-  }, [filteredLancamentos, centros]);
+  }, [operationalFilteredLancamentos, centros]);
 
   const contasHoje = useMemo(() => {
     const hoje = toDateOnly(new Date());
@@ -905,7 +891,7 @@ export function Dashboard() {
       ({ start, end } = getMonthRange(mes));
     }
 
-    const base = filteredLancamentos.filter(l => l.data_vencimento && l.data_vencimento >= start && l.data_vencimento <= end);
+    const base = operationalFilteredLancamentos.filter(l => l.data_vencimento && l.data_vencimento >= start && l.data_vencimento <= end);
 
     const calc = (tipoCheck: (t?: string) => boolean) => {
       const hojeList = base.filter(l => l.data_vencimento === hoje && tipoCheck(l.tipo) && !isPago(l.status));
@@ -929,7 +915,7 @@ export function Dashboard() {
       pagar: calc(isDespesa),
       receber: calc(isReceita)
     };
-  }, [filteredLancamentos, mes, ano, periodoIni, periodoFim, periodoTipo, selectedDate]);
+  }, [operationalFilteredLancamentos, mes, ano, periodoIni, periodoFim, periodoTipo, selectedDate]);
 
   const lancamentosContasDetalhe = useMemo(() => {
     const sorted = [...filteredLancamentos].sort((a, b) => {
@@ -1079,19 +1065,19 @@ export function Dashboard() {
       .slice(0, 6);
   }, [filteredLancamentos, contaPorId]);
 
-  const margemPercentual = kpis.receitas > 0 ? (kpis.saldo / kpis.receitas) * 100 : 0;
-  const ticketMedio = filteredLancamentos.length > 0 ? (kpis.receitas + kpis.despesas) / filteredLancamentos.length : 0;
-  const coberturaPagamentos = kpis.despesas > 0 ? (kpis.pagos / kpis.despesas) * 100 : 0;
+  const margemPercentual = operationalKpis.receitas > 0 ? (operationalKpis.saldo / operationalKpis.receitas) * 100 : 0;
+  const ticketMedio = operationalFilteredLancamentos.length > 0 ? (operationalKpis.receitas + operationalKpis.despesas) / operationalFilteredLancamentos.length : 0;
+  const coberturaPagamentos = operationalKpis.despesas > 0 ? (operationalKpis.pagos / operationalKpis.despesas) * 100 : 0;
   const mixFinanceiro = useMemo(() => {
-    const total = kpis.receitas + kpis.despesas;
+    const total = operationalKpis.receitas + operationalKpis.despesas;
     if (total <= 0) {
       return { receitaPct: 50, despesaPct: 50 };
     }
     return {
-      receitaPct: (kpis.receitas / total) * 100,
-      despesaPct: (kpis.despesas / total) * 100,
+      receitaPct: (operationalKpis.receitas / total) * 100,
+      despesaPct: (operationalKpis.despesas / total) * 100,
     };
-  }, [kpis.despesas, kpis.receitas]);
+  }, [operationalKpis.despesas, operationalKpis.receitas]);
 
   const sinaisExecutivos = useMemo(() => {
     const receitaDominante = receitasPorCategoria[0];
@@ -1354,10 +1340,10 @@ export function Dashboard() {
   };
 
   const chartCategorias = {
-    series: [{ name: 'Despesas', data: despesasPorCategoria.map(r => r.total) }],
+    series: [{ name: 'Despesas Operacionais', data: despesasPorCategoria.map(r => ({ x: r.label, y: r.total })) }],
     options: {
       chart: {
-        type: 'bar',
+        type: 'treemap',
         height: 320,
         events: {
           dataPointSelection: (_: any, __: any, opts: any) => {
@@ -1376,18 +1362,17 @@ export function Dashboard() {
       foreColor: isDark ? '#cbd5f5' : '#475569',
       legend: { show: false },
       dataLabels: { enabled: false },
-      plotOptions: { bar: { horizontal: true, borderRadius: 10, barHeight: '72%', distributed: true } },
-      xaxis: { categories: despesasPorCategoria.map(r => r.label), labels: { formatter: (val: number) => BRL.format(val) } },
+      plotOptions: { treemap: { distributed: true, enableShades: true, shadeIntensity: 0.18, borderRadius: 8 } },
       tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
       colors: ['#ef4444', '#f97316', '#f59e0b', '#fb7185', '#e11d48', '#c2410c', '#a855f7']
     } as any
   };
 
   const chartReceitasCategorias = {
-    series: [{ name: 'Receitas', data: receitasPorCategoria.map(r => r.total) }],
+    series: [{ name: 'Receitas Operacionais', data: receitasPorCategoria.map(r => ({ x: r.label, y: r.total })) }],
     options: {
       chart: {
-        type: 'bar',
+        type: 'treemap',
         height: 320,
         events: {
           dataPointSelection: (_: any, __: any, opts: any) => {
@@ -1406,8 +1391,7 @@ export function Dashboard() {
       foreColor: isDark ? '#cbd5f5' : '#475569',
       legend: { show: false },
       dataLabels: { enabled: false },
-      plotOptions: { bar: { horizontal: true, borderRadius: 10, barHeight: '72%', distributed: true } },
-      xaxis: { categories: receitasPorCategoria.map(r => r.label), labels: { formatter: (val: number) => BRL.format(val) } },
+      plotOptions: { treemap: { distributed: true, enableShades: true, shadeIntensity: 0.18, borderRadius: 8 } },
       tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
       colors: ['#10b981', '#14b8a6', '#22c55e', '#06b6d4', '#0ea5e9', '#84cc16', '#3b82f6']
     } as any
@@ -2400,108 +2384,46 @@ export function Dashboard() {
                 {periodoTipo === 'ANO' ? 'Interativo por mês' : 'Interativo por dia'}
               </span>
             </div>
-            <ReactApexChart type="area" height={320} series={chartFluxo.series} options={chartFluxo.options} />
+            <AsyncApexChart type="area" height={320} series={chartFluxo.series} options={chartFluxo.options} />
           </div>
 
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('DESPESAS_CATEGORIA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Despesas por Categoria</h3>
-              <span className="text-xs text-slate-400">Clique para filtrar</span>
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Despesas Operacionais por Categoria</h3>
+              <span className="text-xs text-slate-400">Treemap proporcional • clique para filtrar</span>
             </div>
             {chartCategorias.series.length === 0 ? (
               <div className="h-80 flex items-center justify-center text-sm text-slate-400">
                 Sem dados de despesas no período.
               </div>
             ) : (
-              <div className="grid auto-rows-[5.5rem] grid-cols-2 gap-3">
-                {despesasPorCategoria.map((item, index) => {
-                  const total = despesasPorCategoria.reduce((acc, row) => acc + row.total, 0);
-                  const percent = total > 0 ? (item.total / total) * 100 : 0;
-                  return (
-                    <button
-                      key={`despesa-mosaico-${item.id}`}
-                      type="button"
-                      onClick={() => {
-                        if (item.id === -1) return;
-                        setSelectedCategorias((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
-                          return next;
-                        });
-                      }}
-                      className={`${getMosaicSpanClass(index, despesasPorCategoria.length)} relative overflow-hidden rounded-3xl bg-linear-to-br ${DESPESA_MOSAIC_TONES[index % DESPESA_MOSAIC_TONES.length]} p-4 text-left text-white shadow-lg shadow-rose-950/10 transition hover:-translate-y-1`}
-                    >
-                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.22),transparent_30%)]" />
-                      <div className="relative flex h-full flex-col justify-between">
-                        <div>
-                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-white/75">{percent.toFixed(1)}%</p>
-                          <h4 className="mt-2 text-lg font-black leading-tight">{item.label}</h4>
-                        </div>
-                        <div>
-                          <p className="text-xl font-black">{BRL.format(item.total)}</p>
-                          <p className="mt-1 text-xs text-white/80">Clique para filtrar esta categoria</p>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+              <AsyncApexChart type="treemap" height={320} series={chartCategorias.series} options={chartCategorias.options} />
             )}
+            <p className="mt-3 text-xs text-slate-400">Categorias não operacionais continuam visíveis nos lançamentos e no consolidado, mas ficam fora desta leitura operacional.</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RECEITAS_CATEGORIA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas por Categoria</h3>
-              <span className="text-xs text-slate-400">Clique para filtrar</span>
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas Operacionais por Categoria</h3>
+              <span className="text-xs text-slate-400">Treemap proporcional • clique para filtrar</span>
             </div>
             {chartReceitasCategorias.series.length === 0 ? (
               <div className="h-80 flex items-center justify-center text-sm text-slate-400">
                 Sem dados de receitas no período.
               </div>
             ) : (
-              <div className="grid auto-rows-[5.5rem] grid-cols-2 gap-3">
-                {receitasPorCategoria.map((item, index) => {
-                  const total = receitasPorCategoria.reduce((acc, row) => acc + row.total, 0);
-                  const percent = total > 0 ? (item.total / total) * 100 : 0;
-                  return (
-                    <button
-                      key={`receita-mosaico-${item.id}`}
-                      type="button"
-                      onClick={() => {
-                        if (item.id === -1) return;
-                        setSelectedCategorias((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
-                          return next;
-                        });
-                      }}
-                      className={`${getMosaicSpanClass(index, receitasPorCategoria.length)} relative overflow-hidden rounded-3xl bg-linear-to-br ${RECEITA_MOSAIC_TONES[index % RECEITA_MOSAIC_TONES.length]} p-4 text-left text-white shadow-lg shadow-emerald-950/10 transition hover:-translate-y-1`}
-                    >
-                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.22),transparent_30%)]" />
-                      <div className="relative flex h-full flex-col justify-between">
-                        <div>
-                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-white/75">{percent.toFixed(1)}%</p>
-                          <h4 className="mt-2 text-lg font-black leading-tight">{item.label}</h4>
-                        </div>
-                        <div>
-                          <p className="text-xl font-black">{BRL.format(item.total)}</p>
-                          <p className="mt-1 text-xs text-white/80">Clique para filtrar esta categoria</p>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+              <AsyncApexChart type="treemap" height={320} series={chartReceitasCategorias.series} options={chartReceitasCategorias.options} />
             )}
+            <p className="mt-3 text-xs text-slate-400">O maior motor de receita agora considera apenas categorias operacionais marcadas para resultado.</p>
           </div>
           <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('ACUMULADO_REC_DESP', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Acumulado: Receitas x Despesas</h3>
               <span className="text-xs text-slate-400">Evolução no período</span>
             </div>
-            <ReactApexChart type="line" height={280} series={chartAcumuladoRecDesp.series} options={chartAcumuladoRecDesp.options} />
+            <AsyncApexChart type="line" height={280} series={chartAcumuladoRecDesp.series} options={chartAcumuladoRecDesp.options} />
           </div>
         </div>
 
@@ -2516,7 +2438,7 @@ export function Dashboard() {
                 Sem dados suficientes para o período.
               </div>
             ) : (
-              <ReactApexChart type="bar" height={320} series={chartResultadoOperacional.series} options={chartResultadoOperacional.options} />
+              <AsyncApexChart type="bar" height={320} series={chartResultadoOperacional.series} options={chartResultadoOperacional.options} />
             )}
           </div>
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RESUMO_OPERACIONAL', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
@@ -2551,14 +2473,14 @@ export function Dashboard() {
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas x Despesas ({resultadoMensalAno.year})</h3>
               <span className="text-xs text-slate-400">Comparativo anual</span>
             </div>
-            <ReactApexChart type="bar" height={320} series={chartReceitasDespesasAno.series} options={chartReceitasDespesasAno.options} />
+            <AsyncApexChart type="bar" height={320} series={chartReceitasDespesasAno.series} options={chartReceitasDespesasAno.options} />
           </div>
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('MARGEM_OPERACIONAL_PAINEL', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Margem Operacional</h3>
               <span className="text-xs text-slate-400">% mês a mês</span>
             </div>
-            <ReactApexChart type="line" height={280} series={chartMargemAno.series} options={chartMargemAno.options} />
+            <AsyncApexChart type="line" height={280} series={chartMargemAno.series} options={chartMargemAno.options} />
           </div>
         </div>
 
@@ -2568,14 +2490,14 @@ export function Dashboard() {
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Comparativo Ano a Ano</h3>
               <span className="text-xs text-slate-400">{resultadoMensalAnoAnterior.year} vs {resultadoMensalAno.year}</span>
             </div>
-            <ReactApexChart type="line" height={280} series={chartComparativoAno.series} options={chartComparativoAno.options} />
+            <AsyncApexChart type="line" height={280} series={chartComparativoAno.series} options={chartComparativoAno.options} />
           </div>
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('SAZONALIDADE', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Sazonalidade</h3>
               <span className="text-xs text-slate-400">Índice mensal</span>
             </div>
-            <ReactApexChart type="bar" height={260} series={chartSazonalidade.series} options={chartSazonalidade.options} />
+            <AsyncApexChart type="bar" height={260} series={chartSazonalidade.series} options={chartSazonalidade.options} />
           </div>
         </div>
 
@@ -2605,7 +2527,7 @@ export function Dashboard() {
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Acumulado</h3>
               <span className="text-xs text-slate-400">Evolução do caixa</span>
             </div>
-            <ReactApexChart type="line" height={280} series={chartResultadoAcumulado.series} options={chartResultadoAcumulado.options} />
+            <AsyncApexChart type="line" height={280} series={chartResultadoAcumulado.series} options={chartResultadoAcumulado.options} />
           </div>
         </div>
 
@@ -2639,7 +2561,7 @@ export function Dashboard() {
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Distribuição por Status</h3>
               <span className="text-xs text-slate-400">Valor por status</span>
             </div>
-            <ReactApexChart type="bar" height={220} series={chartStatus.series} options={chartStatus.options} />
+            <AsyncApexChart type="bar" height={220} series={chartStatus.series} options={chartStatus.options} />
           </div>
         </div>
 
@@ -2649,7 +2571,7 @@ export function Dashboard() {
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Despesas por Centro</h3>
               <span className="text-xs text-slate-400">Clique para filtrar</span>
             </div>
-            <ReactApexChart type="bar" height={320} series={chartCentros.series} options={chartCentros.options} />
+            <AsyncApexChart type="bar" height={320} series={chartCentros.series} options={chartCentros.options} />
           </div>
 
           <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('ULTIMOS_LANCAMENTOS', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>

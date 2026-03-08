@@ -3,12 +3,11 @@ import { NavLink } from 'react-router-dom';
 import { 
   Home, BarChart2, PlusCircle, Users, 
   Landmark, CreditCard, Settings, LogOut,
-  Briefcase, RefreshCw, X,
+  Briefcase, X,
   ChevronsLeft, ChevronsRight, Sun, Moon
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { api } from '../services/api';
-import { useLookupStore } from '../store/lookupStore';
 
 // --- TIPAGEM ---
 interface EmpresaInfo {
@@ -39,9 +38,6 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
   const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
   const [isConsultor, setIsConsultor] = useState(false);
   const [user, setUser] = useState<UserInfo | null>(null);
-  const fetchEntidades = useLookupStore((state) => state.fetchEntidades);
-  const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
-  const [syncing, setSyncing] = useState(false);
 
   // --- CARREGAMENTO DE DADOS ---
   useEffect(() => {
@@ -98,17 +94,6 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
 
   const logoSrc = getLogoUrl(empresa?.logo_url);
   const userFotoSrc = getLogoUrl(user?.foto_url || undefined);
-
-  const handleSyncCadastros = async () => {
-    setSyncing(true);
-    try {
-      await Promise.all([fetchEntidades(true), fetchPlanoContas(true)]);
-    } catch (error) {
-      console.error('Erro ao sincronizar cadastros', error);
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const handleLogout = () => {
     logout();
@@ -215,22 +200,22 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
               };
             }}
             className={({ isActive }) => `
-              flex items-center ${collapsed ? 'justify-center px-1.5 rounded-2xl' : 'gap-3 px-4 rounded-l-xl'} ${collapsed ? 'py-2.5' : 'py-3'} transition-all duration-300 font-medium text-sm group
+              grid items-center ${collapsed ? 'grid-cols-[2.25rem] px-2.5 rounded-2xl' : 'grid-cols-[2.25rem_minmax(0,1fr)] px-3 rounded-l-xl'} py-2.5 transition-all duration-300 font-medium text-sm group
               ${!isActive 
                 ? collapsed
                   ? 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white hover:-translate-y-0.5'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white hover:pl-5'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white'
                 : 'shadow-sm'}
             `}
           >
-            <span className={`flex ${collapsed ? 'h-10 w-10' : 'h-11 w-11'} shrink-0 items-center justify-center rounded-2xl border transition-all ${collapsed ? 'border-slate-200 bg-slate-50 shadow-sm dark:border-slate-700 dark:bg-slate-900/70' : 'border-transparent'} group-hover:border-slate-200 group-hover:bg-white/80 dark:group-hover:border-slate-600 dark:group-hover:bg-slate-800/80`}>
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all ${collapsed ? 'border-slate-200 bg-slate-50 shadow-sm dark:border-slate-700 dark:bg-slate-900/70' : 'border-transparent'} group-hover:border-slate-200 group-hover:bg-white/80 dark:group-hover:border-slate-600 dark:group-hover:bg-slate-800/80`}>
               <item.icon 
-                  size={18} 
-                  strokeWidth={2.6} 
+                  size={16} 
+                  strokeWidth={2.35} 
                   className="transition-transform"
               />
             </span>
-            {!collapsed && item.label}
+            {!collapsed && <span className="truncate">{item.label}</span>}
           </NavLink>
         ))}
       </nav>
@@ -255,9 +240,9 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
           </div>
         ) : (
           <div className="mb-3 flex justify-center">
-            <div title={user?.nome || user?.email || 'Usuário'} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/90 text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200">
+            <div title={user?.nome || user?.email || 'Usuário'} className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white/90 text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200">
               {userFotoSrc ? (
-                <img src={userFotoSrc} alt="Usuário" className="h-full w-full object-cover" />
+                <img src={userFotoSrc} alt="Usuário" className="h-full w-full rounded-full object-cover" />
               ) : (
                 <span className="text-xs font-bold">
                   {(user?.nome || user?.email || 'U').substring(0, 2).toUpperCase()}
@@ -269,27 +254,22 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
         <button
           onClick={onToggleTheme}
           title={collapsed ? (theme === 'dark' ? 'Tema Claro' : 'Tema Escuro') : undefined}
-          className={`flex items-center gap-3 px-4 py-3 w-full text-left text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors font-bold text-sm mb-2 ${collapsed ? 'justify-center px-3' : ''}`}
+          className={`grid items-center ${collapsed ? 'grid-cols-[2.25rem] px-2.5' : 'grid-cols-[2.25rem_minmax(0,1fr)] px-3'} py-2.5 w-full text-left text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors font-bold text-sm mb-2`}
         >
-          {theme === 'dark' ? <Sun size={18} strokeWidth={2.5} /> : <Moon size={18} strokeWidth={2.5} />}
-          {!collapsed && (theme === 'dark' ? 'Tema Claro' : 'Tema Escuro')}
-        </button>
-        <button 
-            onClick={() => { handleSyncCadastros(); onNavigate?.(); }}
-            disabled={syncing}
-            title={collapsed ? 'Sincronizar Cadastros' : undefined}
-            className={`flex items-center gap-3 px-4 py-3 w-full text-left text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors font-bold text-sm mb-2 disabled:opacity-50 ${collapsed ? 'justify-center px-3' : ''}`}
-        >
-          <RefreshCw size={18} strokeWidth={2.5} className={syncing ? 'animate-spin' : ''} />
-          {!collapsed && 'Sincronizar Cadastros'}
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white/80 dark:border-slate-700 dark:bg-slate-900/70">
+            {theme === 'dark' ? <Sun size={16} strokeWidth={2.35} /> : <Moon size={16} strokeWidth={2.35} />}
+          </span>
+          {!collapsed && <span className="truncate">{theme === 'dark' ? 'Tema Claro' : 'Tema Escuro'}</span>}
         </button>
         <button 
             onClick={handleLogout} 
             title={collapsed ? 'Sair do Sistema' : undefined}
-            className={`flex items-center gap-3 px-4 py-3 w-full text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors font-bold text-sm ${collapsed ? 'justify-center px-3' : ''}`}
+            className={`grid items-center ${collapsed ? 'grid-cols-[2.25rem] px-2.5' : 'grid-cols-[2.25rem_minmax(0,1fr)] px-3'} py-2.5 w-full text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors font-bold text-sm`}
         >
-          <LogOut size={18} strokeWidth={2.5} /> 
-          {!collapsed && 'Sair do Sistema'}
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-red-200 bg-red-50/80 dark:border-red-900/60 dark:bg-red-950/30">
+            <LogOut size={16} strokeWidth={2.35} />
+          </span>
+          {!collapsed && <span className="truncate">Sair do Sistema</span>}
         </button>
       </div>
     </>
@@ -298,7 +278,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
 
 export function Sidebar({ collapsed, onToggleCollapse, onMouseEnter, onMouseLeave, theme, onToggleTheme }: { collapsed: boolean; onToggleCollapse: () => void; onMouseEnter?: () => void; onMouseLeave?: () => void; theme: 'dark' | 'light'; onToggleTheme: () => void; }) {
   return (
-    <aside onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className={`${collapsed ? 'w-20' : 'w-60'} bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] dark:bg-[linear-gradient(180deg,#0f172a_0%,#111c34_100%)] border-r border-slate-200/80 dark:border-slate-700 hidden md:flex flex-col h-screen sticky top-0 transition-all duration-300 z-30 shadow-sm overflow-hidden`}> 
+    <aside onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className={`${collapsed ? 'w-[4.75rem]' : 'w-60'} bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] dark:bg-[linear-gradient(180deg,#0f172a_0%,#111c34_100%)] border-r border-slate-200/80 dark:border-slate-700 hidden md:flex flex-col h-screen sticky top-0 transition-all duration-300 z-30 shadow-sm overflow-hidden`}> 
       <SidebarPanel collapsed={collapsed} onToggleCollapse={onToggleCollapse} theme={theme} onToggleTheme={onToggleTheme} />
     </aside>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Ref } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from 'react';
 import GridLayout, { type Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -196,6 +196,11 @@ const DASHBOARD_SECTION_CLASS = 'group relative overflow-hidden rounded-[28px] b
 const DASHBOARD_ACTIVE_VIEW_STORAGE_KEY_PREFIX = 'kyrus-dashboard-active-view-v1';
 const DASHBOARD_GRID_COLUMNS = 12;
 const DASHBOARD_GRID_ROW_HEIGHT = 92;
+const DASHBOARD_GRID_MARGIN = 24;
+
+type DashboardCustomWidgetKpiDataset = { total: number; count: number };
+type DashboardCustomWidgetChartDataset = Array<{ label: string; value: number }>;
+type DashboardCustomWidgetDataset = DashboardCustomWidgetKpiDataset | DashboardCustomWidgetChartDataset;
 
 const DEFAULT_CUSTOM_WIDGET_DEFINITION: DashboardCustomWidgetDefinition = {
   kind: 'kpi',
@@ -2056,8 +2061,8 @@ export function Dashboard() {
     productivity: { w: 12, h: 6 },
     contas_pagar: { w: 6, h: 4 },
     contas_receber: { w: 6, h: 4 },
-    lancamentos_pagar: { w: lancamentosContasDetalhe.pagar.length > 4 ? 12 : 8, h: Math.max(5, Math.min(12, 5 + Math.ceil(lancamentosContasDetalhe.pagar.length / 3))) },
-    lancamentos_receber: { w: lancamentosContasDetalhe.receber.length > 4 ? 12 : 8, h: Math.max(5, Math.min(12, 5 + Math.ceil(lancamentosContasDetalhe.receber.length / 3))) },
+    lancamentos_pagar: { w: lancamentosContasDetalhe.pagar.length > 4 ? 12 : 8, h: Math.max(5, Math.min(20, 5 + Math.ceil(lancamentosContasDetalhe.pagar.length / 2))) },
+    lancamentos_receber: { w: lancamentosContasDetalhe.receber.length > 4 ? 12 : 8, h: Math.max(5, Math.min(20, 5 + Math.ceil(lancamentosContasDetalhe.receber.length / 2))) },
     fluxo: { w: 12, h: 6 },
     despesas_categoria: { w: 12, h: 7 },
     receitas_categoria: { w: 8, h: 6 },
@@ -2073,11 +2078,11 @@ export function Dashboard() {
     pulso_acumulado: { w: 8, h: 6 },
     status: { w: 4, h: 4 },
     despesas_centro: { w: 6, h: 6 },
-    ultimos_lancamentos: { w: topLancamentos.length > 6 ? 12 : 8, h: Math.max(5, Math.min(11, 5 + Math.ceil(topLancamentos.length / 3))) },
+    ultimos_lancamentos: { w: topLancamentos.length > 6 ? 12 : 8, h: Math.max(5, Math.min(18, 5 + Math.ceil(topLancamentos.length / 2))) },
     gastos_categoria_lista: { w: 4, h: Math.max(4, Math.min(9, 4 + Math.ceil(categoriasList.length / 4))) },
-    lancamentos_categoria: { w: selectedCategorias.size > 0 ? 12 : 8, h: Math.max(5, Math.min(11, 5 + Math.ceil(categoriaLancamentos.length / 3))) },
+    lancamentos_categoria: { w: selectedCategorias.size > 0 ? 12 : 8, h: Math.max(5, Math.min(18, 5 + Math.ceil(categoriaLancamentos.length / 2))) },
     base_analitica: { w: 12, h: Math.max(8, Math.min(16, 8 + Math.ceil(linhasAnaliticas.length / 10))) },
-    lancamentos_dia: { w: selectedDate ? 12 : 8, h: selectedDate ? Math.max(5, Math.min(11, 5 + Math.ceil(diaLancamentos.length / 3))) : 4 },
+    lancamentos_dia: { w: selectedDate ? 12 : 8, h: selectedDate ? Math.max(5, Math.min(18, 5 + Math.ceil(diaLancamentos.length / 2))) : 4 },
     ...Object.fromEntries(
       activeDashboardWidgets
         .filter((widget) => widget.customDefinition)
@@ -2096,6 +2101,25 @@ export function Dashboard() {
   const getResolvedWidgetHeight = (widget: DashboardWidgetConfig) => {
     const autoHeight = widget.autoHeight ? widgetAutoMetrics[widget.id].h : widget.h ?? getWidgetDefaultHeight(widget);
     return Math.max(3, autoHeight);
+  };
+
+  const getScrollableWidgetBodyStyle = (
+    widgetId: DashboardWidgetId,
+    chromeHeight = 150,
+    minHeight = 220,
+  ): CSSProperties => {
+    const widget = activeDashboardWidgets.find((item) => item.id === widgetId);
+    if (!widget) return { minHeight };
+
+    const resolvedHeight = getResolvedWidgetHeight(widget);
+    const totalHeight = resolvedHeight * DASHBOARD_GRID_ROW_HEIGHT + Math.max(0, resolvedHeight - 1) * DASHBOARD_GRID_MARGIN;
+    const editToolbarHeight = dashboardEditMode ? 64 : 0;
+    const usableHeight = Math.max(minHeight, totalHeight - chromeHeight - editToolbarHeight);
+
+    return {
+      minHeight,
+      maxHeight: usableHeight,
+    };
   };
 
   const getWidgetResizeHandles = (widget: DashboardWidgetConfig) => {
@@ -2133,7 +2157,7 @@ export function Dashboard() {
     />
   );
 
-  const customWidgetSeries = useMemo(() => {
+  const getCustomWidgetDataset = (definition: DashboardCustomWidgetDefinition): DashboardCustomWidgetDataset => {
     const buildLabel = (lancamento: Lancamento, groupBy: DashboardCustomGroupBy) => {
       if (groupBy === 'categoria') return categoriaPorId.get(Number(lancamento.plano_contas_id)) || 'Sem categoria';
       if (groupBy === 'centro_custo') return centroPorId.get(Number(lancamento.centro_custo_id)) || 'Sem centro';
@@ -2175,84 +2199,90 @@ export function Dashboard() {
       return bucket.metricTotal;
     };
 
-    const datasetForDefinition = (definition: DashboardCustomWidgetDefinition) => {
-      const scoped = filteredLancamentos.filter((lancamento) => {
-        if (definition.scope === 'receitas') return isReceita(lancamento.tipo);
-        if (definition.scope === 'despesas') return isDespesa(lancamento.tipo);
-        return true;
-      });
+    const scoped = filteredLancamentos.filter((lancamento) => {
+      if (definition.scope === 'receitas') return isReceita(lancamento.tipo);
+      if (definition.scope === 'despesas') return isDespesa(lancamento.tipo);
+      return true;
+    });
 
-      const populateBucket = (bucket: ReturnType<typeof createBucket>, lancamento: Lancamento) => {
-        const previsto = Number(lancamento.valor_previsto || 0);
-        const pago = Number(lancamento.valor_pago || 0);
-        if (isReceita(lancamento.tipo)) {
-          bucket.receitasPrevisto += previsto;
-          bucket.receitasPago += pago;
-        } else if (isDespesa(lancamento.tipo)) {
-          bucket.despesasPrevisto += previsto;
-          bucket.despesasPago += pago;
-        }
-        bucket.pagamentos += pago;
-        bucket.lancamentos += 1;
-        bucket.metricTotal += aggregateMetricValue(definition, lancamento);
-      };
-
-      if (definition.kind === 'kpi') {
-        const bucket = createBucket();
-        scoped.forEach((lancamento) => populateBucket(bucket, lancamento));
-        return {
-          total: resolveBucketValue(definition, bucket),
-          count: bucket.lancamentos,
-        };
+    const populateBucket = (bucket: ReturnType<typeof createBucket>, lancamento: Lancamento) => {
+      const previsto = Number(lancamento.valor_previsto || 0);
+      const pago = Number(lancamento.valor_pago || 0);
+      if (isReceita(lancamento.tipo)) {
+        bucket.receitasPrevisto += previsto;
+        bucket.receitasPago += pago;
+      } else if (isDespesa(lancamento.tipo)) {
+        bucket.despesasPrevisto += previsto;
+        bucket.despesasPago += pago;
       }
-
-      const buckets = new Map<string, ReturnType<typeof createBucket>>();
-      scoped.forEach((lancamento) => {
-        const label = buildLabel(lancamento, definition.groupBy || 'categoria');
-        const current = buckets.get(label) || createBucket();
-        populateBucket(current, lancamento);
-        buckets.set(label, current);
-      });
-
-      const rows = Array.from(buckets.entries()).map(([label, bucket]) => ({
-        label,
-        value: resolveBucketValue(definition, bucket),
-      }));
-
-      rows.sort((a, b) => b.value - a.value);
-      return rows.slice(0, definition.limit || 8);
+      bucket.pagamentos += pago;
+      bucket.lancamentos += 1;
+      bucket.metricTotal += aggregateMetricValue(definition, lancamento);
     };
 
+    if (definition.kind === 'kpi') {
+      const bucket = createBucket();
+      scoped.forEach((lancamento) => populateBucket(bucket, lancamento));
+      return {
+        total: resolveBucketValue(definition, bucket),
+        count: bucket.lancamentos,
+      };
+    }
+
+    const buckets = new Map<string, ReturnType<typeof createBucket>>();
+    scoped.forEach((lancamento) => {
+      const label = buildLabel(lancamento, definition.groupBy || 'categoria');
+      const current = buckets.get(label) || createBucket();
+      populateBucket(current, lancamento);
+      buckets.set(label, current);
+    });
+
+    const rows = Array.from(buckets.entries()).map(([label, bucket]) => ({
+      label,
+      value: resolveBucketValue(definition, bucket),
+    }));
+
+    rows.sort((a, b) => b.value - a.value);
+    return rows.slice(0, definition.limit || 8);
+  };
+
+  const customWidgetSeries = useMemo(() => {
     return Object.fromEntries(
       activeDashboardWidgets
         .filter((widget) => widget.customDefinition)
-        .map((widget) => [widget.id, datasetForDefinition(widget.customDefinition!)])
-    ) as Record<string, { total: number; count: number } | Array<{ label: string; value: number }>>;
+        .map((widget) => [widget.id, getCustomWidgetDataset(widget.customDefinition!)])
+    ) as Record<string, DashboardCustomWidgetDataset>;
   }, [activeDashboardWidgets, categoriaPorId, centroPorId, contaPorId, filteredLancamentos]);
 
-  const renderCustomDashboardWidget = (widget: DashboardWidgetConfig) => {
+  const customWidgetPreviewDefinition = normalizeCustomWidgetDefinition(customWidgetDraft);
+  const customWidgetPreviewDataset = useMemo<DashboardCustomWidgetDataset | null>(() => {
+    if (!customWidgetModalOpen || !customWidgetPreviewDefinition) return null;
+    return getCustomWidgetDataset(customWidgetPreviewDefinition);
+  }, [categoriaPorId, centroPorId, contaPorId, customWidgetModalOpen, customWidgetPreviewDefinition, filteredLancamentos]);
+
+  const renderCustomDashboardWidget = (widget: DashboardWidgetConfig, datasetOverride?: DashboardCustomWidgetDataset | null) => {
     const definition = widget.customDefinition;
     if (!definition) return null;
 
     if (definition.kind === 'kpi') {
-      const dataset = customWidgetSeries[widget.id] as { total: number; count: number } | undefined;
+      const dataset = (datasetOverride || customWidgetSeries[widget.id]) as DashboardCustomWidgetKpiDataset | undefined;
       const value = dataset?.total || 0;
       const formulaLabel = getCustomWidgetFormulaLabel(definition.formula);
       const isPercentFormula = definition.formula === 'margem_percentual' || definition.formula === 'cobertura_pagamentos';
       return (
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div className="flex h-full flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">KPI customizado</p>
           <h3 className="mt-2 text-xl font-bold text-slate-900 dark:text-white">{definition.title}</h3>
           {definition.description && <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">{definition.description}</p>}
           <p className="mt-5 text-4xl font-black" style={{ color: definition.color || '#0ea5e9' }}>
             {isPercentFormula ? `${value.toFixed(1)}%` : definition.metricField === 'count' && !definition.formula ? Math.round(value).toLocaleString('pt-BR') : BRL.format(value)}
           </p>
-          <p className="mt-3 text-xs text-slate-400">{formulaLabel || `${definition.aggregation.toUpperCase()} de ${getCustomMetricLabel(definition)}`} com filtros atuais da empresa.</p>
+          <p className="text-xs text-slate-400" style={{ marginTop: 'auto', paddingTop: 12 }}>{formulaLabel || `${definition.aggregation.toUpperCase()} de ${getCustomMetricLabel(definition)}`} com filtros atuais da empresa.</p>
         </div>
       );
     }
 
-    const dataset = (customWidgetSeries[widget.id] as Array<{ label: string; value: number }> | undefined) || [];
+    const dataset = ((datasetOverride || customWidgetSeries[widget.id]) as DashboardCustomWidgetChartDataset | undefined) || [];
     const isPercentFormula = definition.formula === 'margem_percentual' || definition.formula === 'cobertura_pagamentos';
     const chartSeries = [{
       name: definition.title,
@@ -2275,7 +2305,7 @@ export function Dashboard() {
     };
 
     return (
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="flex h-full flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Gráfico customizado</p>
@@ -2285,9 +2315,9 @@ export function Dashboard() {
         </div>
         {definition.description && <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">{definition.description}</p>}
         {dataset.length === 0 ? (
-          <div className="mt-6 flex h-56 items-center justify-center rounded-2xl border border-dashed border-slate-300 text-sm text-slate-400 dark:border-slate-700">Sem dados para os filtros atuais.</div>
+          <div className="mt-6 flex flex-1 items-center justify-center rounded-2xl border border-dashed border-slate-300 text-sm text-slate-400 dark:border-slate-700" style={{ minHeight: 260 }}>Sem dados para os filtros atuais.</div>
         ) : (
-          <div className="mt-4">
+          <div className="mt-4 flex-1">
             <AsyncApexChart type={definition.chartType || 'bar'} height={320} series={chartSeries} options={chartOptions} />
           </div>
         )}
@@ -3062,24 +3092,24 @@ export function Dashboard() {
         );
       case 'lancamentos_pagar':
         return (
-          <div className={INTERACTIVE_PANEL_CLASS}>
+          <div className={`${INTERACTIVE_PANEL_CLASS} flex h-full flex-col`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Lancamentos • Contas a Pagar</h3>
               <span className="text-xs text-slate-400">{lancamentosContasDetalhe.pagar.length} item(ns){financeDrilldown?.startsWith('PAGAR') ? ' no recorte ativo' : ''}</span>
             </div>
-            <div className="overflow-auto max-h-80 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-slate-200 dark:border-slate-700" style={getScrollableWidgetBodyStyle('lancamentos_pagar', 132, 220)}>
               <table className="w-full text-sm"><thead className="bg-slate-50 dark:bg-slate-900/40 text-slate-500 text-xs uppercase"><tr><th className="p-2 text-left">Descricao</th><th className="p-2 text-left">Venc.</th><th className="p-2 text-left">Status</th><th className="p-2 text-right">Valor</th></tr></thead><tbody>{lancamentosContasDetalhe.pagar.length === 0 ? (<tr><td className="p-3 text-slate-400" colSpan={4}>Sem lancamentos de contas a pagar no filtro atual.</td></tr>) : (lancamentosContasDetalhe.pagar.map((l) => (<tr key={`pagar-${l.id}`} className="border-t border-slate-100 dark:border-slate-700"><td className="p-2 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className="p-2 text-slate-500">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="p-2"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${isPago(l.status) ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'}`}>{l.status}</span></td><td className="p-2 text-right font-bold text-red-500">{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table>
             </div>
           </div>
         );
       case 'lancamentos_receber':
         return (
-          <div className={INTERACTIVE_PANEL_CLASS}>
+          <div className={`${INTERACTIVE_PANEL_CLASS} flex h-full flex-col`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Lancamentos • Contas a Receber</h3>
               <span className="text-xs text-slate-400">{lancamentosContasDetalhe.receber.length} item(ns){financeDrilldown?.startsWith('RECEBER') ? ' no recorte ativo' : ''}</span>
             </div>
-            <div className="overflow-auto max-h-80 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-slate-200 dark:border-slate-700" style={getScrollableWidgetBodyStyle('lancamentos_receber', 132, 220)}>
               <table className="w-full text-sm"><thead className="bg-slate-50 dark:bg-slate-900/40 text-slate-500 text-xs uppercase"><tr><th className="p-2 text-left">Descricao</th><th className="p-2 text-left">Venc.</th><th className="p-2 text-left">Status</th><th className="p-2 text-right">Valor</th></tr></thead><tbody>{lancamentosContasDetalhe.receber.length === 0 ? (<tr><td className="p-3 text-slate-400" colSpan={4}>Sem lancamentos de contas a receber no filtro atual.</td></tr>) : (lancamentosContasDetalhe.receber.map((l) => (<tr key={`receber-${l.id}`} className="border-t border-slate-100 dark:border-slate-700"><td className="p-2 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className="p-2 text-slate-500">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="p-2"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${isPago(l.status) ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'}`}>{l.status}</span></td><td className="p-2 text-right font-bold text-emerald-600">{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table>
             </div>
           </div>
@@ -3217,9 +3247,9 @@ export function Dashboard() {
         );
       case 'ultimos_lancamentos':
         return (
-          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('ULTIMOS_LANCAMENTOS', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+          <div className={`${DASHBOARD_SECTION_CLASS} flex h-full flex-col`} onMouseEnter={(event) => scheduleKpiMeaning('ULTIMOS_LANCAMENTOS', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Ultimos Lancamentos</h3><div className="flex items-center gap-2"><span className="text-xs text-slate-400">Atualiza com filtros</span><button onClick={() => exportUltimosLancamentos('csv')} className="px-2 py-1 text-[11px] font-bold rounded border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40">CSV</button><button onClick={() => exportUltimosLancamentos('xlsx')} className="px-2 py-1 text-[11px] font-bold rounded border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40">XLSX</button></div></div>
-            <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{loading ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Carregando...</td></tr>) : topLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos no periodo.</td></tr>) : (topLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${String(l.tipo).toUpperCase().startsWith('R') ? 'text-emerald-600' : 'text-red-500'}`}>{String(l.tipo).toUpperCase().startsWith('D') ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
+            <div className="min-h-0 flex-1 overflow-auto" style={getScrollableWidgetBodyStyle('ultimos_lancamentos', 128, 220)}><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{loading ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Carregando...</td></tr>) : topLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos no periodo.</td></tr>) : (topLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${String(l.tipo).toUpperCase().startsWith('R') ? 'text-emerald-600' : 'text-red-500'}`}>{String(l.tipo).toUpperCase().startsWith('D') ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
           </div>
         );
       case 'gastos_categoria_lista':
@@ -3231,26 +3261,26 @@ export function Dashboard() {
         );
       case 'lancamentos_categoria':
         return (
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Lancamentos da Categoria</h3><span className="text-xs text-slate-400">Mostra quando categoria esta selecionada</span></div>
             <div className="flex items-center justify-between mb-3"><span className="text-xs text-slate-400">Exportacao inclui filtros atuais</span><div className="flex items-center gap-2"><button onClick={() => exportLancamentos(filteredLancamentos, 'csv', `lancamentos_${mes}`)} className="px-3 py-1 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40">Exportar CSV</button><button onClick={() => exportLancamentos(filteredLancamentos, 'xlsx', `lancamentos_${mes}`)} className="px-3 py-1 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40">Exportar XLSX</button></div></div>
-            <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{selectedCategorias.size === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Selecione uma ou mais categorias para ver os lancamentos.</td></tr>) : categoriaLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos para esta categoria.</td></tr>) : (categoriaLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${isReceita(l.tipo) ? 'text-emerald-600' : 'text-red-500'}`}>{isDespesa(l.tipo) ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
+            <div className="min-h-0 flex-1 overflow-auto" style={getScrollableWidgetBodyStyle('lancamentos_categoria', 160, 220)}><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{selectedCategorias.size === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Selecione uma ou mais categorias para ver os lancamentos.</td></tr>) : categoriaLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos para esta categoria.</td></tr>) : (categoriaLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${isReceita(l.tipo) ? 'text-emerald-600' : 'text-red-500'}`}>{isDespesa(l.tipo) ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
           </div>
         );
       case 'base_analitica':
         return (
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <div className="flex h-full flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Base analitica final</p><h3 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">Resultado consolidado dos lancamentos filtrados</h3><p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-300">Ideal para analise fina, conferencia antes de conciliacao e exportacao do financeiro conforme o recorte que voce montou no dashboard.</p></div><div className="flex flex-wrap items-center gap-2"><button onClick={() => exportLancamentos(linhasAnaliticas, 'csv', `analise_financeira_${mes}`)} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/40"><Download className="h-4 w-4" />Exportar CSV</button><button onClick={() => exportLancamentos(linhasAnaliticas, 'xlsx', `analise_financeira_${mes}`)} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/40"><Download className="h-4 w-4" />Exportar XLSX</button></div></div>
             <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto]"><label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-700"><Search className="h-4 w-4 text-slate-400" /><input value={analysisQuery} onChange={(e) => setAnalysisQuery(e.target.value)} placeholder="Buscar por descricao, categoria, centro, conta, banco ou status" className="w-full bg-transparent outline-none text-slate-700 dark:text-slate-100" /></label><div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Linhas</p><p className="mt-2 text-xl font-black text-slate-900 dark:text-white">{linhasAnaliticas.length}</p></div><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Receitas operacionais</p><p className="mt-2 text-xl font-black text-emerald-600">{BRL.format(linhasAnaliticasResumo.receitasOperacionais)}</p></div><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Despesas operacionais</p><p className="mt-2 text-xl font-black text-rose-500">{BRL.format(linhasAnaliticasResumo.despesasOperacionais)}</p></div><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Nao operacionais</p><p className={`mt-2 text-xl font-black ${linhasAnaliticasResumo.movimentosNaoOperacionais >= 0 ? 'text-sky-600' : 'text-amber-600'}`}>{BRL.format(linhasAnaliticasResumo.movimentosNaoOperacionais)}</p></div><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Saldo consolidado</p><p className={`mt-2 text-xl font-black ${linhasAnaliticasResumo.saldoConsolidado >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>{BRL.format(linhasAnaliticasResumo.saldoConsolidado)}</p></div></div></div>
-            <div className="mt-5 overflow-x-auto rounded-3xl border border-slate-200 dark:border-slate-700"><table className="min-w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.16em] text-slate-400 dark:bg-slate-900/50"><tr><th className="px-4 py-3">Data</th><th className="px-4 py-3">Descricao</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Centro</th><th className="px-4 py-3">Conta</th><th className="px-4 py-3">Banco</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{linhasAnaliticas.length === 0 ? (<tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">Nenhum lancamento encontrado para os filtros e a busca informada.</td></tr>) : (linhasAnaliticas.slice(0, 120).map((lancamento) => (<tr key={`analitico-${lancamento.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/30"><td className="px-4 py-3 font-mono text-slate-500">{parseDateLocal(lancamento.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="px-4 py-3 text-slate-700 dark:text-slate-100">{lancamento.descricao}</td><td className="px-4 py-3 text-slate-500"><div className="flex flex-wrap items-center gap-2"><span>{lancamento.categoriaNome}</span>{lancamento.naoOperacional && (<span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">Nao operacional</span>)}</div></td><td className="px-4 py-3 text-slate-500">{lancamento.centroNome}</td><td className="px-4 py-3 text-slate-500">{lancamento.contaNome}</td><td className="px-4 py-3 text-slate-500">{lancamento.bancoNome}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${isPago(lancamento.status) ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}`}>{lancamento.status}</span></td><td className={`px-4 py-3 text-right font-bold ${isReceita(lancamento.tipo) ? 'text-emerald-600' : 'text-rose-500'}`}>{isDespesa(lancamento.tipo) ? '-' : ''}{BRL.format(Number(lancamento.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
+            <div className="mt-5 min-h-0 flex-1 overflow-auto rounded-3xl border border-slate-200 dark:border-slate-700" style={getScrollableWidgetBodyStyle('base_analitica', 236, 260)}><table className="min-w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.16em] text-slate-400 dark:bg-slate-900/50"><tr><th className="px-4 py-3">Data</th><th className="px-4 py-3">Descricao</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Centro</th><th className="px-4 py-3">Conta</th><th className="px-4 py-3">Banco</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{linhasAnaliticas.length === 0 ? (<tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">Nenhum lancamento encontrado para os filtros e a busca informada.</td></tr>) : (linhasAnaliticas.slice(0, 120).map((lancamento) => (<tr key={`analitico-${lancamento.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/30"><td className="px-4 py-3 font-mono text-slate-500">{parseDateLocal(lancamento.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="px-4 py-3 text-slate-700 dark:text-slate-100">{lancamento.descricao}</td><td className="px-4 py-3 text-slate-500"><div className="flex flex-wrap items-center gap-2"><span>{lancamento.categoriaNome}</span>{lancamento.naoOperacional && (<span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">Nao operacional</span>)}</div></td><td className="px-4 py-3 text-slate-500">{lancamento.centroNome}</td><td className="px-4 py-3 text-slate-500">{lancamento.contaNome}</td><td className="px-4 py-3 text-slate-500">{lancamento.bancoNome}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${isPago(lancamento.status) ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}`}>{lancamento.status}</span></td><td className={`px-4 py-3 text-right font-bold ${isReceita(lancamento.tipo) ? 'text-emerald-600' : 'text-rose-500'}`}>{isDespesa(lancamento.tipo) ? '-' : ''}{BRL.format(Number(lancamento.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
             {linhasAnaliticas.length > 120 && <p className="mt-3 text-xs text-slate-400">Mostrando os 120 lancamentos mais recentes. A exportacao leva todas as linhas filtradas.</p>}
           </div>
         );
       case 'lancamentos_dia':
         return selectedDate ? (
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Lancamentos do Dia {parseDateLocal(selectedDate)?.toLocaleDateString('pt-BR')}</h3><span className="text-xs text-slate-400">Vencimento no dia selecionado</span></div>
-            <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{diaLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos para este dia.</td></tr>) : (diaLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${isReceita(l.tipo) ? 'text-emerald-600' : 'text-red-500'}`}>{isDespesa(l.tipo) ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
+            <div className="min-h-0 flex-1 overflow-auto" style={getScrollableWidgetBodyStyle('lancamentos_dia', 128, 220)}><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{diaLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos para este dia.</td></tr>) : (diaLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${isReceita(l.tipo) ? 'text-emerald-600' : 'text-red-500'}`}>{isDespesa(l.tipo) ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
           </div>
         ) : (
           <div className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-6 text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900/30">Selecione um dia no heatmap ou nos graficos temporais para abrir os lancamentos detalhados.</div>
@@ -4041,6 +4071,30 @@ export function Dashboard() {
                   {editingCustomWidgetId ? 'Salvar widget' : 'Criar widget'}
                 </button>
               </div>
+
+              {customWidgetPreviewDefinition && customWidgetPreviewDataset && (
+                <div className="mt-6 border-t border-slate-200 pt-6 dark:border-slate-700">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Prévia em tempo real</p>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-300">A prévia já usa os filtros atuais do dashboard e muda enquanto você ajusta o widget.</p>
+                    </div>
+                    <span className="rounded-full border border-slate-200 px-3 py-1 text-xs font-bold text-slate-500 dark:border-slate-700 dark:text-slate-300">
+                      {customWidgetPreviewDefinition.kind === 'kpi' ? 'KPI' : 'Gráfico'}
+                    </span>
+                  </div>
+                  <div className="rounded-4xl bg-slate-50 p-2 dark:bg-slate-950/40">
+                    {renderCustomDashboardWidget({
+                      id: editingCustomWidgetId || 'custom_widget_preview',
+                      visible: true,
+                      size: customWidgetPreviewDefinition.kind === 'kpi' ? 'sm' : 'lg',
+                      autoHeight: true,
+                      autoWidth: customWidgetPreviewDefinition.kind === 'chart',
+                      customDefinition: customWidgetPreviewDefinition,
+                    }, customWidgetPreviewDataset)}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -13,7 +13,9 @@ class DashboardViewConfig(AuditMixin, SQLModel, table=True):
     __tablename__ = "dashboard_view_configs"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    empresa_id: int = Field(foreign_key="empresas.id", index=True, unique=True)
+    empresa_id: Optional[int] = Field(default=None, foreign_key="empresas.id", index=True, unique=True)
+    scope: str = Field(default="empresa", index=True, max_length=32)
+    config_key: str = Field(index=True, unique=True, max_length=120)
     views: Any = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
 
     empresa: Optional["Empresa"] = Relationship(back_populates="dashboard_view_config")

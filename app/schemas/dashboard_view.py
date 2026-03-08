@@ -28,16 +28,18 @@ class DashboardViewPayload(SQLModel):
 
 
 class DashboardViewsUpdate(SQLModel):
-    views: List[DashboardViewPayload]
+    views: List[DashboardViewPayload] = []
+    default_view: Optional[DashboardViewPayload] = None
+    update_default: bool = False
 
     @field_validator("views")
     @classmethod
     def validate_views(cls, value: List[DashboardViewPayload]) -> List[DashboardViewPayload]:
-        if not value:
-            raise ValueError("Ao menos uma vista deve ser enviada")
-        return value
+        return value or []
 
 
 class DashboardViewsResponse(SQLModel):
     empresa_id: int
-    views: List[Any]
+    default_view: Optional[Any] = None
+    views: List[Any] = []
+    can_manage_default: bool = False

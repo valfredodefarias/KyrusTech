@@ -197,11 +197,15 @@ interface DashboardView {
   id: string;
   name: string;
   widgets: DashboardWidgetConfig[];
+  isDefault?: boolean;
+  source?: 'global' | 'empresa';
 }
 
 interface DashboardViewsApiResponse {
   empresa_id: number;
+  default_view?: DashboardView | null;
   views: DashboardView[];
+  can_manage_default: boolean;
 }
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -212,6 +216,7 @@ const DASHBOARD_VIEWS_CACHE_KEY_PREFIX = 'kyrus-dashboard-views-cache-v1';
 const DASHBOARD_GRID_COLUMNS = 12;
 const DASHBOARD_GRID_ROW_HEIGHT = 92;
 const DASHBOARD_GRID_MARGIN = 24;
+const DEFAULT_DASHBOARD_VIEW_ID = 'default';
 
 type DashboardCustomWidgetKpiDataset = { total: number; count: number };
 type DashboardCustomWidgetChartDataset = Array<{ label: string; value: number }>;
@@ -399,9 +404,19 @@ const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
 
 function createDefaultDashboardView(): DashboardView {
   return {
-    id: 'default',
+    id: DEFAULT_DASHBOARD_VIEW_ID,
     name: 'Padrao',
     widgets: normalizeDashboardWidgets(DEFAULT_DASHBOARD_WIDGETS),
+    isDefault: true,
+    source: 'global',
+  };
+}
+
+function cloneDashboardView(view: DashboardView, patch?: Partial<DashboardView>): DashboardView {
+  return {
+    ...view,
+    ...patch,
+    widgets: normalizeDashboardWidgets((patch?.widgets || view.widgets).map((widget) => ({ ...widget }))),
   };
 }
 
@@ -531,15 +546,26 @@ function normalizeDashboardWidgets(widgets?: DashboardWidgetConfig[]) {
 }
 
 function normalizeDashboardViews(views?: DashboardView[]) {
-  if (!Array.isArray(views) || views.length === 0) {
-    return [createDefaultDashboardView()];
-  }
+  if (!Array.isArray(views) || views.length === 0) return [];
 
   return views.map((view, index) => ({
     id: String(view.id || `view-${Date.now()}-${index}`),
     name: String(view.name || `Vista ${index + 1}`),
     widgets: normalizeDashboardWidgets(view.widgets),
+    isDefault: false,
+    source: 'empresa' as const,
   }));
+}
+
+function normalizeDefaultDashboardView(view?: DashboardView | null) {
+  if (!view) return createDefaultDashboardView();
+
+  return cloneDashboardView(view, {
+    id: DEFAULT_DASHBOARD_VIEW_ID,
+    name: String(view.name || 'Padrao'),
+    isDefault: true,
+    source: 'global',
+  });
 }
 
 function getDashboardActiveViewStorageKey(empresaId?: number | null) {
@@ -950,9 +976,11 @@ export function Dashboard() {
   const [visibleKpiMeaning, setVisibleKpiMeaning] = useState<KpiTooltipState | null>(null);
   const [showDashboardFiltersSidebar, setShowDashboardFiltersSidebar] = useState(false);
   const [dashboardFiltersRailCollapsed, setDashboardFiltersRailCollapsed] = useState(false);
-  const [dashboardViews, setDashboardViews] = useState<DashboardView[]>([createDefaultDashboardView()]);
+  const [defaultDashboardView, setDefaultDashboardView] = useState<DashboardView>(createDefaultDashboardView());
+  const [dashboardViews, setDashboardViews] = useState<DashboardView[]>([]);
   const [dashboardViewsEmpresaId, setDashboardViewsEmpresaId] = useState<number | null>(null);
-  const [activeDashboardViewId, setActiveDashboardViewId] = useState('default');
+  const [canManageGlobalDefault, setCanManageGlobalDefault] = useState(false);
+  const [activeDashboardViewId, setActiveDashboardViewId] = useState(DEFAULT_DASHBOARD_VIEW_ID);
   const [dashboardEditMode, setDashboardEditMode] = useState(false);
   const [dashboardGridWidth, setDashboardGridWidth] = useState(1200);
   const [customWidgetDraft, setCustomWidgetDraft] = useState<DashboardCustomWidgetDefinition>(DEFAULT_CUSTOM_WIDGET_DEFINITION);
@@ -1019,19 +1047,25 @@ export function Dashboard() {
           }
         }
         const normalizedViews = cachedViews && cachedViews.length > 0 ? cachedViews : normalizeDashboardViews(data.views);
+        const normalizedDefaultView = normalizeDefaultDashboardView(data.default_view);
         const storageKey = getDashboardActiveViewStorageKey(data.empresa_id);
         const storedActiveViewId = localStorage.getItem(storageKey);
-        const nextActiveViewId = normalizedViews.some((view) => view.id === storedActiveViewId)
+        const availableViews = [normalizedDefaultView, ...normalizedViews];
+        const nextActiveViewId = availableViews.some((view) => view.id === storedActiveViewId)
           ? String(storedActiveViewId)
-          : normalizedViews[0]?.id || 'default';
+          : normalizedDefaultView.id;
 
+        setDefaultDashboardView(normalizedDefaultView);
         setDashboardViews(normalizedViews);
         setDashboardViewsEmpresaId(data.empresa_id);
+        setCanManageGlobalDefault(Boolean(data.can_manage_default));
         setActiveDashboardViewId(nextActiveViewId);
       } catch {
         if (!isMounted) return;
-        setDashboardViews([createDefaultDashboardView()]);
-        setActiveDashboardViewId('default');
+        setDefaultDashboardView(createDefaultDashboardView());
+        setDashboardViews([]);
+        setCanManageGlobalDefault(false);
+        setActiveDashboardViewId(DEFAULT_DASHBOARD_VIEW_ID);
       } finally {
         if (isMounted) {
           dashboardViewsLoadedRef.current = true;
@@ -1065,15 +1099,39 @@ export function Dashboard() {
     }, 350);
   }, [dashboardViews, dashboardViewsEmpresaId]);
 
+  const allDashboardViews = useMemo(() => [defaultDashboardView, ...dashboardViews], [dashboardViews, defaultDashboardView]);
+
   const activeDashboardView = useMemo(() => {
-    return dashboardViews.find((view) => view.id === activeDashboardViewId) || dashboardViews[0] || createDefaultDashboardView();
-  }, [activeDashboardViewId, dashboardViews]);
+    return allDashboardViews.find((view) => view.id === activeDashboardViewId) || defaultDashboardView;
+  }, [activeDashboardViewId, allDashboardViews, defaultDashboardView]);
+
+  const activeDashboardViewIsDefault = activeDashboardView?.id === DEFAULT_DASHBOARD_VIEW_ID;
 
   const activeDashboardWidgets = activeDashboardView?.widgets || DEFAULT_DASHBOARD_WIDGETS;
 
+  const createEditableDashboardView = (sourceView?: DashboardView, name?: string): DashboardView => {
+    const baseView = sourceView || activeDashboardView || defaultDashboardView;
+    return cloneDashboardView(baseView, {
+      id: `view-${Date.now()}`,
+      name: name?.trim() || `Vista ${dashboardViews.length + 1}`,
+      isDefault: false,
+      source: 'empresa',
+    });
+  };
+
   const updateActiveDashboardView = (updater: (view: DashboardView) => DashboardView) => {
+    if (activeDashboardViewIsDefault) {
+      const nextView = cloneDashboardView(updater(createEditableDashboardView(activeDashboardView)), {
+        isDefault: false,
+        source: 'empresa',
+      });
+      setDashboardViews((prev) => [...prev, nextView]);
+      setActiveDashboardViewId(nextView.id);
+      return;
+    }
+
     setDashboardViews((prev) => {
-      const current = prev.find((view) => view.id === activeDashboardViewId) || createDefaultDashboardView();
+      const current = prev.find((view) => view.id === activeDashboardViewId) || createEditableDashboardView();
       const next = updater({ ...current, widgets: normalizeDashboardWidgets(current.widgets).map((widget) => ({ ...widget })) });
       const exists = prev.some((view) => view.id === next.id);
       if (!exists) return [...prev, { ...next, widgets: normalizeDashboardWidgets(next.widgets) }];
@@ -1144,15 +1202,30 @@ export function Dashboard() {
   };
 
   const createDashboardViewFromCurrent = () => {
-    const nextId = `view-${Date.now()}`;
-    const nextView: DashboardView = {
-      id: nextId,
-      name: `Vista ${dashboardViews.length + 1}`,
-      widgets: activeDashboardWidgets.map((widget) => ({ ...widget })),
-    };
+    const nextView = createEditableDashboardView(activeDashboardView);
     setDashboardViews((prev) => [...prev, nextView]);
-    setActiveDashboardViewId(nextId);
+    setActiveDashboardViewId(nextView.id);
     setDashboardEditMode(true);
+  };
+
+  const publishCurrentViewAsGlobalDefault = async () => {
+    if (!canManageGlobalDefault || !dashboardViewsEmpresaId || !activeDashboardView) return;
+    const normalizedDefaultView = cloneDashboardView(activeDashboardView, {
+      id: DEFAULT_DASHBOARD_VIEW_ID,
+      name: 'Padrao',
+      isDefault: true,
+      source: 'global',
+    });
+    setDefaultDashboardView(normalizedDefaultView);
+    try {
+      await api.put('/dashboard-views/', {
+        views: dashboardViews,
+        default_view: normalizedDefaultView,
+        update_default: true,
+      });
+    } catch {
+      // O estado local permanece para evitar perder o trabalho do super consultor.
+    }
   };
 
   const openCreateCustomWidgetModal = (template?: DashboardCustomWidgetTemplate) => {
@@ -1228,6 +1301,10 @@ export function Dashboard() {
   };
 
   const resetActiveDashboardView = () => {
+    if (activeDashboardViewIsDefault) {
+      setActiveDashboardViewId(DEFAULT_DASHBOARD_VIEW_ID);
+      return;
+    }
     updateActiveDashboardView((view) => ({
       ...view,
       widgets: DEFAULT_DASHBOARD_WIDGETS.map((widget) => ({ ...widget })),
@@ -1235,15 +1312,14 @@ export function Dashboard() {
   };
 
   const deleteActiveDashboardView = () => {
-    if (activeDashboardViewId === 'default') {
-      resetActiveDashboardView();
+    if (activeDashboardViewIsDefault) {
       return;
     }
     setDashboardViews((prev) => {
       const filtered = prev.filter((view) => view.id !== activeDashboardViewId);
-      return filtered.length ? filtered : [createDefaultDashboardView()];
+      return filtered;
     });
-    setActiveDashboardViewId('default');
+    setActiveDashboardViewId(DEFAULT_DASHBOARD_VIEW_ID);
   };
 
   const visibleDashboardWidgets = useMemo(
@@ -2133,23 +2209,25 @@ export function Dashboard() {
   };
 
   const renameActiveDashboardView = () => {
-    const suggestedName = activeDashboardView?.name || 'Nova vista';
+    const suggestedName = activeDashboardViewIsDefault ? `Vista ${dashboardViews.length + 1}` : (activeDashboardView?.name || 'Nova vista');
     const nextName = window.prompt('Nome da vista', suggestedName);
     if (nextName === null) return;
     const normalizedName = nextName.trim();
     if (!normalizedName) return;
+    if (activeDashboardViewIsDefault) {
+      const nextView = createEditableDashboardView(activeDashboardView, normalizedName);
+      setDashboardViews((prev) => [...prev, nextView]);
+      setActiveDashboardViewId(nextView.id);
+      return;
+    }
     updateActiveDashboardView((view) => ({ ...view, name: normalizedName }));
   };
 
-  const cycleWidgetWidth = (widgetId: DashboardWidgetId) => {
-    const widget = activeDashboardWidgets.find((item) => item.id === widgetId);
-    if (!widget || widget.autoWidth) return;
-    const sizes: DashboardWidgetSize[] = ['sm', 'md', 'lg', 'full'];
-    const currentIndex = sizes.indexOf(widget.size);
-    const nextSize = sizes[(currentIndex + 1) % sizes.length];
+  const setWidgetSize = (widgetId: DashboardWidgetId, size: DashboardWidgetSize) => {
     updateActiveWidget(widgetId, {
-      size: nextSize,
-      w: getWidgetWidthFromSize(nextSize),
+      size,
+      autoWidth: false,
+      w: getWidgetWidthFromSize(size),
     });
   };
 
@@ -2157,6 +2235,49 @@ export function Dashboard() {
     const widget = activeDashboardWidgets.find((item) => item.id === widgetId);
     if (!widget) return;
     updateActiveWidget(widgetId, { visible: !widget.visible });
+  };
+
+  const moveWidgetVertically = (widgetId: DashboardWidgetId, direction: -1 | 1) => {
+    const orderedWidgets = [...visibleDashboardWidgets].sort((left, right) => {
+      const leftY = left.y ?? 0;
+      const rightY = right.y ?? 0;
+      if (leftY !== rightY) return leftY - rightY;
+      return (left.x ?? 0) - (right.x ?? 0);
+    });
+    const currentIndex = orderedWidgets.findIndex((widget) => widget.id === widgetId);
+    if (currentIndex === -1) return;
+
+    const targetIndex = currentIndex + direction;
+    if (targetIndex < 0 || targetIndex >= orderedWidgets.length) return;
+
+    const currentWidget = orderedWidgets[currentIndex];
+    const targetWidget = orderedWidgets[targetIndex];
+    updateActiveDashboardView((view) => ({
+      ...view,
+      widgets: view.widgets.map((widget) => {
+        if (widget.id === currentWidget.id) {
+          return {
+            ...widget,
+            x: targetWidget.x,
+            y: targetWidget.y,
+            w: targetWidget.w,
+            h: targetWidget.h,
+            size: getWidgetSizeFromWidth(targetWidget.w ?? getWidgetWidthFromSize(targetWidget.size)),
+          };
+        }
+        if (widget.id === targetWidget.id) {
+          return {
+            ...widget,
+            x: currentWidget.x,
+            y: currentWidget.y,
+            w: currentWidget.w,
+            h: currentWidget.h,
+            size: getWidgetSizeFromWidth(currentWidget.w ?? getWidgetWidthFromSize(currentWidget.size)),
+          };
+        }
+        return widget;
+      }),
+    }));
   };
 
   const toggleWidgetAutoHeight = (widgetId: DashboardWidgetId) => {
@@ -3108,6 +3229,14 @@ export function Dashboard() {
           )}
           <button
             type="button"
+            onClick={() => setDashboardFiltersRailCollapsed(true)}
+            className="hidden rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 xl:inline-flex"
+            title="Recolher painel de filtros"
+          >
+            <Filter className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
             onClick={() => setShowDashboardFiltersSidebar(false)}
             className="xl:hidden rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
@@ -3748,8 +3877,8 @@ export function Dashboard() {
               onChange={(e) => setActiveDashboardViewId(e.target.value)}
               className="w-full bg-transparent text-sm font-bold text-slate-900 dark:text-white outline-none [&>option]:text-slate-900 [&>option]:bg-white dark:[&>option]:text-slate-100 dark:[&>option]:bg-slate-800"
             >
-              {dashboardViews.map((view) => (
-                <option key={view.id} value={view.id}>{view.name}</option>
+              {allDashboardViews.map((view) => (
+                <option key={view.id} value={view.id}>{view.isDefault ? `${view.name} • Global` : view.name}</option>
               ))}
             </select>
           </div>
@@ -3766,17 +3895,27 @@ export function Dashboard() {
               type="button"
               onClick={renameActiveDashboardView}
               className="rounded-md p-2 text-slate-500 transition hover:bg-white hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
-              title="Renomear vista"
+              title={activeDashboardViewIsDefault ? 'Criar uma nova vista a partir do padrão' : 'Renomear vista'}
             >
               <Pencil className="h-4 w-4" />
             </button>
             <button
               type="button"
               onClick={deleteActiveDashboardView}
-              className="rounded-md p-2 text-rose-500 transition hover:bg-white hover:text-rose-600 dark:text-rose-300 dark:hover:bg-slate-800"
-              title={activeDashboardViewId === 'default' ? 'Restaurar vista padrão' : 'Excluir vista atual'}
+              disabled={activeDashboardViewIsDefault}
+              className="rounded-md p-2 text-rose-500 transition hover:bg-white hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-rose-300 dark:hover:bg-slate-800"
+              title={activeDashboardViewIsDefault ? 'O padrão global não pode ser excluído pela empresa' : 'Excluir vista atual'}
             >
               <Trash2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={resetActiveDashboardView}
+              disabled={activeDashboardViewIsDefault}
+              className="rounded-md p-2 text-slate-500 transition hover:bg-white hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+              title={activeDashboardViewIsDefault ? 'O padrão global já é a base imutável' : 'Restaurar esta vista para o layout padrão'}
+            >
+              <RefreshCw className="h-4 w-4" />
             </button>
             <button
               type="button"
@@ -3787,6 +3926,17 @@ export function Dashboard() {
               <Activity className="h-4 w-4" />
             </button>
           </div>
+          {canManageGlobalDefault && (
+            <button
+              type="button"
+              onClick={publishCurrentViewAsGlobalDefault}
+              className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+              title="Aplicar a vista atual como novo dashboard padrão global"
+            >
+              <Sparkles className="h-4 w-4" />
+              Atualizar padrão global
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setShowDashboardFiltersSidebar(true)}
@@ -3823,7 +3973,43 @@ export function Dashboard() {
         </div>
       </header>
 
-      <div className={`space-y-6 p-4 transition-[padding] duration-300 sm:p-6 ${dashboardFiltersRailCollapsed ? 'xl:pl-6' : 'xl:pl-96'}`}>
+      <div className="p-4 sm:p-6">
+        <div
+          className="items-start gap-6 xl:grid"
+          style={{ gridTemplateColumns: dashboardFiltersRailCollapsed ? '88px minmax(0, 1fr)' : '360px minmax(0, 1fr)' }}
+        >
+        <aside className="sticky top-6 hidden xl:block">
+          <div className="flex max-h-[calc(100vh-3rem)] min-h-160 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            {dashboardFiltersRailCollapsed ? (
+              <div className="flex h-full w-full flex-col items-center justify-between px-3 py-4">
+                <button
+                  type="button"
+                  onClick={() => setDashboardFiltersRailCollapsed(false)}
+                  className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 text-sky-700 transition hover:bg-sky-100 dark:border-sky-900 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20"
+                  title="Expandir painel de filtros"
+                >
+                  <Filter className="h-5 w-5" />
+                </button>
+                <div className="flex flex-col items-center gap-3">
+                  <div className="rounded-full bg-sky-100 px-3 py-1 text-xs font-bold text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">{dashboardActiveFiltersCount}</div>
+                  <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400 [writing-mode:vertical-rl]">Filtros</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearAllDashboardFilters}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  title="Limpar filtros"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              dashboardFiltersSidebarContent
+            )}
+          </div>
+        </aside>
+
+        <div className="min-w-0 space-y-6">
         <section className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.22),transparent_38%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.22),transparent_28%),linear-gradient(135deg,#ffffff_0%,#f8fafc_48%,#ecfeff_100%)] p-6 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.16),transparent_38%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.14),transparent_28%),linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(15,23,42,0.95)_48%,rgba(8,47,73,0.92)_100%)]">
           <div className="absolute -right-10 -top-12 h-40 w-40 rounded-full bg-emerald-400/10 blur-3xl" />
           <div className="absolute -bottom-16 left-10 h-44 w-44 rounded-full bg-sky-400/10 blur-3xl" />
@@ -4299,40 +4485,9 @@ export function Dashboard() {
           {dashboardFiltersSidebarContent}
         </div>
 
-        <div className={`pointer-events-none fixed bottom-4 left-4 top-24 z-60 hidden transition-all duration-300 xl:block ${dashboardFiltersRailCollapsed ? 'w-22' : 'w-90'}`}>
-          <div className="pointer-events-auto flex h-full overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-            {dashboardFiltersRailCollapsed ? (
-              <div className="flex h-full w-full flex-col items-center justify-between px-3 py-4">
-                <button
-                  type="button"
-                  onClick={() => setDashboardFiltersRailCollapsed(false)}
-                  className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 text-sky-700 transition hover:bg-sky-100 dark:border-sky-900 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20"
-                  title="Expandir painel de filtros"
-                >
-                  <Filter className="h-5 w-5" />
-                </button>
-                <div className="flex flex-col items-center gap-3">
-                  <div className="rounded-full bg-sky-100 px-3 py-1 text-xs font-bold text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">{dashboardActiveFiltersCount}</div>
-                  <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400 [writing-mode:vertical-rl]">Filtros</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={clearAllDashboardFilters}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                  title="Limpar filtros"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ) : (
-              dashboardFiltersSidebarContent
-            )}
-          </div>
-        </div>
-
         <div
           ref={dashboardGridRef}
-          className={`dashboard-grid rounded-4xl border border-slate-200/80 bg-white/70 p-2 shadow-sm transition-[margin] duration-300 dark:border-slate-700 dark:bg-slate-900/40 ${dashboardEditMode ? 'is-editing' : ''} ${dashboardFiltersRailCollapsed ? 'xl:ml-6' : 'xl:ml-96'}`}
+          className={`dashboard-grid rounded-4xl border border-slate-200/80 bg-white/70 p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900/40 ${dashboardEditMode ? 'is-editing' : ''}`}
           style={dashboardEditMode ? {
             backgroundSize: `${Math.max(96, Math.floor(dashboardGridWidth / Math.max(dashboardGridCols, 1)) + DASHBOARD_GRID_MARGIN)}px 100%, 100% ${DASHBOARD_GRID_ROW_HEIGHT + DASHBOARD_GRID_MARGIN}px, auto`,
             backgroundPosition: '0 0, 0 0, center top',
@@ -4371,6 +4526,22 @@ export function Dashboard() {
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
+                          onClick={() => moveWidgetVertically(widget.id, -1)}
+                          className="rounded-xl border border-sky-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-sky-700 transition hover:bg-sky-100 dark:border-sky-800 dark:bg-slate-900/60 dark:text-sky-300 dark:hover:bg-slate-800"
+                          title="Mover widget para cima"
+                        >
+                          Subir
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveWidgetVertically(widget.id, 1)}
+                          className="rounded-xl border border-sky-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-sky-700 transition hover:bg-sky-100 dark:border-sky-800 dark:bg-slate-900/60 dark:text-sky-300 dark:hover:bg-slate-800"
+                          title="Mover widget para baixo"
+                        >
+                          Descer
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => toggleWidgetVisibility(widget.id)}
                           className="inline-flex items-center gap-1 rounded-xl border border-sky-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-sky-700 transition hover:bg-sky-100 dark:border-sky-800 dark:bg-slate-900/60 dark:text-sky-300 dark:hover:bg-slate-800"
                           title={widget.visible ? 'Ocultar widget' : 'Mostrar widget'}
@@ -4393,15 +4564,18 @@ export function Dashboard() {
                         >
                           A auto
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => cycleWidgetWidth(widget.id)}
-                          disabled={Boolean(widget.autoWidth)}
-                          className="rounded-xl border border-sky-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-45 dark:border-sky-800 dark:bg-slate-900/60 dark:text-sky-300 dark:hover:bg-slate-800"
-                          title="Ciclar largura manual"
-                        >
-                          {widget.size.toUpperCase()}
-                        </button>
+                        {(['sm', 'md', 'lg', 'full'] as const).map((size) => (
+                          <button
+                            key={`${widget.id}-${size}`}
+                            type="button"
+                            onClick={() => setWidgetSize(widget.id, size)}
+                            disabled={Boolean(widget.autoWidth)}
+                            className={`rounded-xl border px-2.5 py-1.5 text-[11px] font-bold transition disabled:cursor-not-allowed disabled:opacity-45 ${widget.size === size && !widget.autoWidth ? 'border-sky-300 bg-sky-100 text-sky-800 dark:border-sky-700 dark:bg-sky-500/20 dark:text-sky-200' : 'border-sky-200 bg-white text-sky-700 hover:bg-sky-100 dark:border-sky-800 dark:bg-slate-900/60 dark:text-sky-300 dark:hover:bg-slate-800'}`}
+                            title={`Definir tamanho ${size.toUpperCase()}`}
+                          >
+                            {size.toUpperCase()}
+                          </button>
+                        ))}
                         {widget.customDefinition && (
                           <button
                             type="button"
@@ -4433,7 +4607,7 @@ export function Dashboard() {
         </div>
 
         {selectedDate && !activeDashboardWidgets.some((widget) => widget.id === 'lancamentos_dia' && widget.visible) && (
-          <div className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-[margin] duration-300 dark:border-slate-700 dark:bg-slate-800 ${dashboardFiltersRailCollapsed ? 'xl:ml-6' : 'xl:ml-96'}`}>
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Lançamentos do Dia {parseDateLocal(selectedDate)?.toLocaleDateString('pt-BR')}</h3>
               <span className="text-xs text-slate-400">Vencimento no dia selecionado</span>
@@ -4466,6 +4640,8 @@ export function Dashboard() {
             </div>
           </div>
         )}
+        </div>
+        </div>
       </div>
 
       {visibleKpiMeaning && (

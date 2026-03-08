@@ -115,9 +115,7 @@ function LayoutShell() {
     if (sidebarHoverTimerRef.current) {
       window.clearTimeout(sidebarHoverTimerRef.current);
     }
-    sidebarHoverTimerRef.current = window.setTimeout(() => {
-      setSidebarCollapsed(false);
-    }, 1000);
+    setSidebarCollapsed(false);
   };
 
   const handleSidebarMouseLeave = () => {

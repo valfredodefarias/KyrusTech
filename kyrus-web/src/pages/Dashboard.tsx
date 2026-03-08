@@ -412,6 +412,7 @@ export function Dashboard() {
   const [periodoIni, setPeriodoIni] = useState(() => new Date().toISOString().split('T')[0]);
   const [periodoFim, setPeriodoFim] = useState(() => new Date().toISOString().split('T')[0]);
   const [selectedCategorias, setSelectedCategorias] = useState<Set<number>>(new Set());
+  const [includeNaoOperacionaisCategorias, setIncludeNaoOperacionaisCategorias] = useState(false);
   const [selectedCentro, setSelectedCentro] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
@@ -832,9 +833,13 @@ export function Dashboard() {
     return { pagos, pendentes, atrasados };
   }, [hojeIso, operationalFilteredLancamentos]);
 
+  const categoryChartLancamentos = useMemo(() => {
+    return includeNaoOperacionaisCategorias ? filteredLancamentos : operationalFilteredLancamentos;
+  }, [filteredLancamentos, includeNaoOperacionaisCategorias, operationalFilteredLancamentos]);
+
   const despesasPorCategoria = useMemo(() => {
     const map = new Map<number, number>();
-    operationalFilteredLancamentos.forEach(l => {
+    categoryChartLancamentos.forEach(l => {
       if (!isDespesa(l.tipo)) return;
       const catId = Number(l.plano_contas_id);
       if (!catId) return;
@@ -845,15 +850,15 @@ export function Dashboard() {
       return { id, label: cat?.nome || `Categoria ${id}`, total };
     }).sort((a, b) => b.total - a.total);
 
-    const top = rows.slice(0, 6);
-    const others = rows.slice(6).reduce((acc, r) => acc + r.total, 0);
+    const top = rows.slice(0, 12);
+    const others = rows.slice(12).reduce((acc, r) => acc + r.total, 0);
     if (others > 0) top.push({ id: -1, label: 'Outros', total: others });
     return top;
-  }, [operationalFilteredLancamentos, categorias]);
+  }, [categoryChartLancamentos, categorias]);
 
   const receitasPorCategoria = useMemo(() => {
     const map = new Map<number, number>();
-    operationalFilteredLancamentos.forEach(l => {
+    categoryChartLancamentos.forEach(l => {
       if (!isReceita(l.tipo)) return;
       const catId = Number(l.plano_contas_id);
       if (!catId) return;
@@ -864,11 +869,11 @@ export function Dashboard() {
       return { id, label: cat?.nome || `Categoria ${id}`, total };
     }).sort((a, b) => b.total - a.total);
 
-    const top = rows.slice(0, 6);
-    const others = rows.slice(6).reduce((acc, r) => acc + r.total, 0);
+    const top = rows.slice(0, 8);
+    const others = rows.slice(8).reduce((acc, r) => acc + r.total, 0);
     if (others > 0) top.push({ id: -1, label: 'Outros', total: others });
     return top;
-  }, [operationalFilteredLancamentos, categorias]);
+  }, [categoryChartLancamentos, categorias]);
 
   const despesasTreemapData = useMemo(() => despesasPorCategoria.map(r => ({ x: r.label, y: r.total })), [despesasPorCategoria]);
   const receitasTreemapData = useMemo(() => receitasPorCategoria.map(r => ({ x: r.label, y: r.total })), [receitasPorCategoria]);
@@ -1209,9 +1214,9 @@ export function Dashboard() {
         resultado_acumulado_final: resultadoAcumulado.values.at(-1) || 0,
       },
       cenarios: {
-        pessimista: kpis.saldo - desvioAno,
-        realista: kpis.saldo,
-        otimista: kpis.saldo + desvioAno,
+        pessimista: operationalKpis.saldo - desvioAno,
+        realista: operationalKpis.saldo,
+        otimista: operationalKpis.saldo + desvioAno,
       },
       contas_a_pagar: contasHoje.pagar,
       contas_a_receber: contasHoje.receber,
@@ -1227,7 +1232,7 @@ export function Dashboard() {
         resultado_anterior: resultadoMensalAnoAnterior.values.reduce((acc, value) => acc + value, 0),
       },
     };
-  }, [contasHoje, despesasPorCategoria, despesasPorCentro, kpis.saldo, receitasPorCategoria, resultadoAcumulado.values, resultadoMensal, resultadoMensalAno, resultadoMensalAnoAnterior, statusDistrib, topLancamentos]);
+  }, [contasHoje, despesasPorCategoria, despesasPorCentro, operationalKpis.saldo, receitasPorCategoria, resultadoAcumulado.values, resultadoMensal, resultadoMensalAno, resultadoMensalAnoAnterior, statusDistrib, topLancamentos]);
 
   const exportRows = (rows: Lancamento[]) => rows.map((l) => ({
       data_vencimento: l.data_vencimento,
@@ -1481,8 +1486,8 @@ export function Dashboard() {
     } as any
   };
 
-  const totalPrevisto = kpis.receitas + kpis.despesas;
-  const execucaoPct = totalPrevisto > 0 ? Math.round((kpis.pagos / totalPrevisto) * 100) : 0;
+  const totalPrevisto = operationalKpis.receitas + operationalKpis.despesas;
+  const execucaoPct = totalPrevisto > 0 ? Math.round((operationalKpis.pagos / totalPrevisto) * 100) : 0;
   const todoPendentesPct = useMemo(() => {
     const total = todos.length;
     if (!total) return 0;
@@ -1566,11 +1571,11 @@ export function Dashboard() {
     const variancia = valores.reduce((acc, v) => acc + Math.pow(v - media, 2), 0) / (valores.length || 1);
     const desvio = Math.sqrt(variancia);
     return {
-      pessimista: kpis.saldo - desvio,
-      realista: kpis.saldo,
-      otimista: kpis.saldo + desvio
+      pessimista: operationalKpis.saldo - desvio,
+      realista: operationalKpis.saldo,
+      otimista: operationalKpis.saldo + desvio
     };
-  }, [resultadoMensalAno.values, kpis.saldo]);
+  }, [resultadoMensalAno.values, operationalKpis.saldo]);
 
   const resultadoAcumuladoSnapshot = useMemo(() => {
     if (!resultadoAcumulado.values.length) {
@@ -2020,7 +2025,7 @@ export function Dashboard() {
             {
               key: 'RECEITAS' as const,
               label: 'Receitas',
-              value: BRL.format(kpis.receitas),
+              value: BRL.format(operationalKpis.receitas),
               icon: TrendingUp,
               iconWrap: 'bg-emerald-100 dark:bg-emerald-900/30',
               iconTone: 'text-emerald-600',
@@ -2031,7 +2036,7 @@ export function Dashboard() {
             {
               key: 'DESPESAS' as const,
               label: 'Despesas',
-              value: BRL.format(kpis.despesas),
+              value: BRL.format(operationalKpis.despesas),
               icon: TrendingDown,
               iconWrap: 'bg-rose-100 dark:bg-rose-900/30',
               iconTone: 'text-rose-500',
@@ -2042,7 +2047,7 @@ export function Dashboard() {
             {
               key: 'SALDO' as const,
               label: 'Saldo',
-              value: BRL.format(kpis.saldo),
+              value: BRL.format(operationalKpis.saldo),
               icon: Wallet,
               iconWrap: 'bg-slate-100 dark:bg-slate-700/50',
               iconTone: 'text-slate-600 dark:text-slate-200',
@@ -2062,7 +2067,7 @@ export function Dashboard() {
             {
               key: 'PAGOS' as const,
               label: 'Pagos',
-              value: BRL.format(kpis.pagos),
+              value: BRL.format(operationalKpis.pagos),
               icon: Filter,
               iconWrap: 'bg-indigo-100 dark:bg-indigo-900/30',
               iconTone: 'text-indigo-600',
@@ -2084,7 +2089,7 @@ export function Dashboard() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-bold uppercase text-slate-400">{card.label}</p>
-                  <p className={`text-2xl font-black ${card.label === 'Saldo' && kpis.saldo < 0 ? 'text-rose-500' : card.iconTone}`}>{card.value}</p>
+                  <p className={`text-2xl font-black ${card.label === 'Saldo' && operationalKpis.saldo < 0 ? 'text-rose-500' : card.iconTone}`}>{card.value}</p>
                 </div>
                 <div className={`rounded-lg p-2 ${card.iconWrap}`}>
                   <card.icon className={`h-5 w-5 ${card.iconTone}`} />
@@ -2227,7 +2232,7 @@ export function Dashboard() {
             <div className="mt-5 space-y-3">
               <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Saldo atual</p>
-                <p className={`mt-2 text-3xl font-black ${kpis.saldo >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>{BRL.format(kpis.saldo)}</p>
+                <p className={`mt-2 text-3xl font-black ${operationalKpis.saldo >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>{BRL.format(operationalKpis.saldo)}</p>
                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">O saldo reage ao período, tipo, centro, categoria, conta e cortes vindos dos gráficos.</p>
               </div>
               <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
@@ -2248,8 +2253,8 @@ export function Dashboard() {
                   />
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-                  <div className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Receitas: {BRL.format(kpis.receitas)} ({mixFinanceiro.receitaPct.toFixed(1)}%)</div>
-                  <div className="rounded-xl bg-rose-50 px-3 py-2 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">Despesas: {BRL.format(kpis.despesas)} ({mixFinanceiro.despesaPct.toFixed(1)}%)</div>
+                  <div className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Receitas: {BRL.format(operationalKpis.receitas)} ({mixFinanceiro.receitaPct.toFixed(1)}%)</div>
+                  <div className="rounded-xl bg-rose-50 px-3 py-2 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">Despesas: {BRL.format(operationalKpis.despesas)} ({mixFinanceiro.despesaPct.toFixed(1)}%)</div>
                 </div>
               </div>
               <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
@@ -2282,7 +2287,7 @@ export function Dashboard() {
               </div>
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                 <p className="text-xs text-slate-400">Resultado no período</p>
-                <p className={`text-xl font-bold ${kpis.saldo >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{BRL.format(kpis.saldo)}</p>
+                <p className={`text-xl font-bold ${operationalKpis.saldo >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{BRL.format(operationalKpis.saldo)}</p>
               </div>
             </div>
           </div>
@@ -2446,8 +2451,8 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('FLUXO_CAIXA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+        <div className="grid grid-cols-1 gap-6">
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('FLUXO_CAIXA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">
                 {periodoTipo === 'ANO' ? 'Fluxo de Caixa Mensal' : 'Fluxo de Caixa Diário'}
@@ -2458,27 +2463,38 @@ export function Dashboard() {
             </div>
             <AsyncApexChart type="area" height={320} series={chartFluxo.series} options={chartFluxo.options} />
           </div>
+        </div>
 
+        <div className="grid grid-cols-1 gap-6">
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('DESPESAS_CATEGORIA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Despesas Operacionais por Categoria</h3>
-              <span className="text-xs text-slate-400">Treemap proporcional • clique para filtrar</span>
+            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h3 className="font-bold text-slate-700 dark:text-slate-200">{includeNaoOperacionaisCategorias ? 'Despesas por Categoria' : 'Despesas Operacionais por Categoria'}</h3>
+                <span className="text-xs text-slate-400">Treemap proporcional • clique para filtrar</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIncludeNaoOperacionaisCategorias((prev) => !prev)}
+                className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-bold transition ${includeNaoOperacionaisCategorias ? 'border-sky-400 bg-sky-50 text-sky-700 dark:border-sky-500 dark:bg-sky-500/10 dark:text-sky-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/70'}`}
+              >
+                {includeNaoOperacionaisCategorias ? 'Ocultar não operacionais' : 'Incluir não operacionais'}
+              </button>
             </div>
             {chartCategorias.series.length === 0 ? (
-              <div className="h-80 flex items-center justify-center text-sm text-slate-400">
+              <div className="h-96 flex items-center justify-center text-sm text-slate-400">
                 Sem dados de despesas no período.
               </div>
             ) : (
-              <AsyncApexChart type="treemap" height={320} series={chartCategorias.series} options={chartCategorias.options} />
+              <AsyncApexChart type="treemap" height={420} series={chartCategorias.series} options={chartCategorias.options} />
             )}
-            <p className="mt-3 text-xs text-slate-400">Categorias não operacionais continuam visíveis nos lançamentos e no consolidado, mas ficam fora desta leitura operacional.</p>
+            <p className="mt-3 text-xs text-slate-400">{includeNaoOperacionaisCategorias ? 'Visualização ampliada: categorias não operacionais entram apenas neste treemap para comparação visual, sem alterar os KPIs operacionais do dashboard.' : 'Categorias não operacionais continuam visíveis nos lançamentos e no consolidado, mas ficam fora desta leitura operacional.'}</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RECEITAS_CATEGORIA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas Operacionais por Categoria</h3>
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">{includeNaoOperacionaisCategorias ? 'Receitas por Categoria' : 'Receitas Operacionais por Categoria'}</h3>
               <span className="text-xs text-slate-400">Treemap proporcional • clique para filtrar</span>
             </div>
             {chartReceitasCategorias.series.length === 0 ? (
@@ -2488,7 +2504,7 @@ export function Dashboard() {
             ) : (
               <AsyncApexChart type="treemap" height={320} series={chartReceitasCategorias.series} options={chartReceitasCategorias.options} />
             )}
-            <p className="mt-3 text-xs text-slate-400">O maior motor de receita agora considera apenas categorias operacionais marcadas para resultado.</p>
+            <p className="mt-3 text-xs text-slate-400">{includeNaoOperacionaisCategorias ? 'Ao incluir não operacionais, este painel vira uma visão comparativa ampliada por categoria.' : 'O maior motor de receita agora considera apenas categorias operacionais marcadas para resultado.'}</p>
           </div>
           <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('ACUMULADO_REC_DESP', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">

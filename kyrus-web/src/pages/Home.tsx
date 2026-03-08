@@ -4,7 +4,8 @@ import { api } from '../services/api';
 import { 
   PlusCircle, BarChart2, Users, Landmark, 
   CreditCard, Settings, Wallet, Banknote, Home as HomeIcon,
-  ClipboardList, Circle, CheckCircle2, Play, Check
+  ClipboardList, Circle, CheckCircle2, Play, Check,
+  Activity, ArrowRight, Building2, FileCog, Link as LinkIcon, ShieldCheck
 } from 'lucide-react';
 
 interface ContaResumo {
@@ -38,6 +39,15 @@ interface TodoItem {
   due_date?: string | null;
   empresa_id?: number | null;
   consultor_id?: number | null;
+}
+
+interface AtalhoCardProps {
+  to: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  label: string;
+  description: string;
+  colorClass: string;
+  bgClass: string;
 }
 
 export function Home() {
@@ -156,6 +166,61 @@ export function Home() {
     return summary;
   })();
 
+  const tarefasPendentes = todos.filter((t) => t.status !== 'CONCLUIDO').length;
+  const tarefasEmAndamento = todos.filter((t) => t.status === 'EM_ANDAMENTO').length;
+  const contasPositivas = contas.filter((conta) => getSaldo(conta) >= 0).length;
+  const contasNegativas = contas.filter((conta) => getSaldo(conta) < 0).length;
+  const operationalShortcuts: AtalhoCardProps[] = [
+    {
+      to: '/dashboard',
+      icon: Activity,
+      label: 'Relatórios e KPIs',
+      description: 'Abrir leitura financeira detalhada e indicadores interativos.',
+      colorClass: 'text-cyan-600',
+      bgClass: 'bg-cyan-100 dark:bg-cyan-500/10',
+    },
+    {
+      to: '/tarefas',
+      icon: ClipboardList,
+      label: 'Tarefas',
+      description: 'Gerenciar pendências, execução e acompanhamento operacional.',
+      colorClass: 'text-indigo-600',
+      bgClass: 'bg-indigo-100 dark:bg-indigo-500/10',
+    },
+    {
+      to: '/centro-custo',
+      icon: Building2,
+      label: 'Centros de Custo',
+      description: 'Organizar estrutura analítica e responsabilização do gasto.',
+      colorClass: 'text-amber-600',
+      bgClass: 'bg-amber-100 dark:bg-amber-500/10',
+    },
+    {
+      to: '/auditoria',
+      icon: ShieldCheck,
+      label: 'Auditoria',
+      description: 'Ver trilha de ações e mudanças relevantes no sistema.',
+      colorClass: 'text-rose-600',
+      bgClass: 'bg-rose-100 dark:bg-rose-500/10',
+    },
+    {
+      to: '/importacao',
+      icon: FileCog,
+      label: 'Importações',
+      description: 'Trazer dados externos e revisar processamento financeiro.',
+      colorClass: 'text-emerald-600',
+      bgClass: 'bg-emerald-100 dark:bg-emerald-500/10',
+    },
+    {
+      to: '/integracoes/asaas',
+      icon: LinkIcon,
+      label: 'Integrações',
+      description: 'Configurar conexões e automações com serviços externos.',
+      colorClass: 'text-violet-600',
+      bgClass: 'bg-violet-100 dark:bg-violet-500/10',
+    },
+  ];
+
   async function iniciarTodo(todoId: number) {
     await api.post(`/todos/${todoId}/iniciar`);
     const resTodos = await api.get<TodoItem[]>('/todos/me');
@@ -173,10 +238,10 @@ export function Home() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-10">
+    <div className="mx-auto max-w-7xl space-y-8 animate-fade-in pb-10">
       
       {/* Header com Data */}
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
+      <header className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-bold flex items-center gap-2 text-slate-700 dark:text-white">
           <HomeIcon className="w-5 h-5" style={{ color: primaryColor }} /> Visão Geral
         </h2>
@@ -187,12 +252,13 @@ export function Home() {
 
       {/* Cartão de Boas Vindas (Hero) PERSONALIZAVEL */}
       <div 
-        className="rounded-2xl p-5 sm:p-8 text-white shadow-xl relative overflow-hidden transition-colors duration-500"
+        className="relative overflow-hidden rounded-[30px] p-6 text-white shadow-2xl shadow-slate-900/10 transition-colors duration-500 sm:p-8"
         style={bgStyle} // APLICA A COR DO BANCO AQUI
       >
-        <div className="absolute right-0 top-0 h-full w-1/3 bg-white/10 skew-x-12 pointer-events-none"></div>
+        <div className="pointer-events-none absolute -right-6 top-0 h-full w-1/3 skew-x-12 bg-white/10"></div>
+        <div className="pointer-events-none absolute -bottom-10 left-8 h-32 w-32 rounded-full bg-white/10 blur-2xl"></div>
         <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-2">
+          <div className="mb-2 flex items-center gap-3">
             <div className="w-10 h-10 rounded-full overflow-hidden bg-white/20 flex items-center justify-center">
               {getFullLogoUrl(user?.foto_url || null) ? (
                 <img src={getFullLogoUrl(user?.foto_url || null) || ''} alt="Usuário" className="w-full h-full object-cover" />
@@ -202,15 +268,24 @@ export function Home() {
                 </span>
               )}
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold capitalize">Olá, {nomeUsuario}! 👋</h1>
+            <h1 className="text-2xl font-extrabold capitalize sm:text-3xl">Olá, {nomeUsuario}!</h1>
           </div>
-          <p className="text-white/90 text-base sm:text-lg flex items-center gap-2 flex-wrap">
+          <p className="flex flex-wrap items-center gap-2 text-base text-white/90 sm:text-lg">
             Você está gerenciando: 
             <strong className="bg-white/20 px-2 py-0.5 rounded backdrop-blur-sm">
               {empresa?.nome_fantasia || 'Sua Empresa'}
             </strong>
           </p>
-          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-white/80">
+            Esta página agora concentra entrada rápida para operação, governança e acompanhamento financeiro. O objetivo é reduzir navegação lateral e te colocar mais rápido no que exige ação.
+          </p>
+          <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <HeroMetric label="Saldo consolidado" value={BRL.format(saldoTotal)} tone="text-white" />
+            <HeroMetric label="Contas ativas" value={String(contas.length)} tone="text-white" />
+            <HeroMetric label="Pendências" value={String(tarefasPendentes)} tone="text-white" />
+            <HeroMetric label="Em andamento" value={String(tarefasEmAndamento)} tone="text-white" />
+          </div>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link to="/lancamentos" className="bg-white text-slate-800 px-5 py-2.5 rounded-lg font-bold hover:bg-slate-50 transition shadow-sm flex items-center gap-2 w-full sm:w-auto justify-center">
               <PlusCircle size={18} style={{ color: primaryColor }} /> Novo Lançamento
             </Link>
@@ -221,30 +296,57 @@ export function Home() {
         </div>
       </div>
 
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <SummaryPanel title="Caixa em observação" value={BRL.format(saldoTotal)} support={`${contasPositivas} conta(s) positiva(s) e ${contasNegativas} em pressão`} tone={saldoTotal >= 0 ? 'emerald' : 'rose'} />
+        <SummaryPanel title="Tarefas abertas" value={String(tarefasPendentes)} support={`${todoResumo.atrasadas} atrasada(s) e ${todoResumo.amanha} para amanhã`} tone={todoResumo.atrasadas > 0 ? 'amber' : 'indigo'} />
+        <SummaryPanel title="Carteira bancária" value={String(contas.length)} support="Contas correntes, caixas e saldos em uso" tone="cyan" />
+        <SummaryPanel title="Cadência operacional" value={String(todoResumo.semana)} support="Entregas previstas nos próximos 7 dias" tone="violet" />
+      </section>
+
+      <section className="rounded-[30px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.08),transparent_35%),linear-gradient(135deg,#ffffff_0%,#f8fafc_100%)] p-6 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.10),transparent_35%),linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(15,23,42,0.92)_100%)]">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Central de operação</p>
+            <h3 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">Áreas que saíram do sidebar ficam acessíveis daqui</h3>
+            <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-300">Tarefas, auditoria, importações, integrações e centros de custo continuam a um clique, mas agora agrupados dentro da Visão Geral.</p>
+          </div>
+          <Link to="/dashboard" className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800">
+            Ver análise completa
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {operationalShortcuts.map((shortcut) => (
+            <AtalhoCard key={shortcut.to} {...shortcut} />
+          ))}
+        </div>
+      </section>
+
       {/* Tarefas */}
-      <div>
-        <h3 className="font-bold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
+      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <h3 className="mb-4 flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200">
           <ClipboardList className="w-5 h-5 text-slate-400" /> Minhas Tarefas
         </h3>
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
-          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 text-center dark:border-slate-700 dark:bg-slate-900/40">
             <p className="text-[11px] text-slate-500">Amanhã</p>
             <p className="text-xl font-bold text-slate-800 dark:text-white">{todoResumo.amanha}</p>
           </div>
-          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 text-center dark:border-slate-700 dark:bg-slate-900/40">
             <p className="text-[11px] text-slate-500">Na semana</p>
             <p className="text-xl font-bold text-slate-800 dark:text-white">{todoResumo.semana}</p>
           </div>
-          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 text-center dark:border-slate-700 dark:bg-slate-900/40">
             <p className="text-[11px] text-slate-500">Futuras</p>
             <p className="text-xl font-bold text-slate-800 dark:text-white">{todoResumo.futuras}</p>
           </div>
-          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 text-center dark:border-slate-700 dark:bg-slate-900/40">
             <p className="text-[11px] text-slate-500">Atrasadas</p>
             <p className="text-xl font-bold text-red-600">{todoResumo.atrasadas}</p>
           </div>
-          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 text-center dark:border-slate-700 dark:bg-slate-900/40">
             <p className="text-[11px] text-slate-500">Concl. em atraso</p>
             <p className="text-xl font-bold text-amber-600">{todoResumo.concluidas_atraso}</p>
           </div>
@@ -257,7 +359,7 @@ export function Home() {
         ) : (
           <div className="space-y-3">
             {todos.filter(t => t.status !== 'CONCLUIDO').slice(0, 5).map(todo => (
-              <div key={todo.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div key={todo.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900/40 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   {todo.status === 'CONCLUIDO' ? <CheckCircle2 size={18} className="text-emerald-500" /> : <Circle size={18} className="text-slate-400" />}
                   <div className="min-w-0">
@@ -286,19 +388,19 @@ export function Home() {
       </div>
 
       {/* Resumo de Contas */}
-      <div>
-        <h3 className="font-bold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
+      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <h3 className="mb-4 flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200">
           <Wallet className="w-5 h-5 text-slate-400" /> Suas Contas
         </h3>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
           {contas.length === 0 ? (
             <div className="col-span-3 text-sm text-slate-400 p-8 border border-dashed rounded-lg text-center bg-slate-50 dark:bg-slate-800/50">
               Nenhuma conta cadastrada. <Link to="/contas" className="text-blue-500 hover:underline">Cadastrar agora</Link>
             </div>
           ) : (
             contas.map(c => (
-              <div key={c.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between hover:shadow-md transition gap-4">
+              <div key={c.id} className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900/40">
                 
                 {/* LADO ESQUERDO: ÍCONE E NOME */}
                 <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -327,7 +429,7 @@ export function Home() {
         </div>
 
         {/* Totalizador */}
-        <div className="mt-4 p-4 bg-slate-100 dark:bg-slate-800/50 rounded-xl flex justify-between items-center border border-slate-200 dark:border-slate-700">
+        <div className="mt-4 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-700 dark:bg-slate-800/50">
           <span className="text-sm font-bold text-slate-500 uppercase">Saldo Total Disponível</span>
           <span className="text-xl font-extrabold text-slate-800 dark:text-white">
             {BRL.format(saldoTotal)}
@@ -336,12 +438,12 @@ export function Home() {
       </div>
 
       {/* Atalhos Rápidos */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <AtalhoCard to="/entidades" icon={Users} label="Clientes" colorClass="text-green-600" bgClass="bg-green-100" />
-        <AtalhoCard to="/contas" icon={Landmark} label="Contas" colorClass="text-purple-600" bgClass="bg-purple-100" />
-        <AtalhoCard to="/cartoes" icon={CreditCard} label="Cartões" colorClass="text-orange-600" bgClass="bg-orange-100" />
-        <AtalhoCard to="/config" icon={Settings} label="Configuração" colorClass="text-slate-600" bgClass="bg-slate-100" />
-      </div>
+      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <AtalhoCard to="/entidades" icon={Users} label="Clientes" description="Abrir cadastro e relacionamento com interessados." colorClass="text-green-600" bgClass="bg-green-100 dark:bg-green-500/10" />
+        <AtalhoCard to="/contas" icon={Landmark} label="Contas" description="Gerenciar bancos, caixas e estrutura financeira." colorClass="text-purple-600" bgClass="bg-purple-100 dark:bg-purple-500/10" />
+        <AtalhoCard to="/cartoes" icon={CreditCard} label="Cartões" description="Controlar faturas, limites e lançamentos vinculados." colorClass="text-orange-600" bgClass="bg-orange-100 dark:bg-orange-500/10" />
+        <AtalhoCard to="/config" icon={Settings} label="Configuração" description="Ajustar preferências, empresa e comportamento do sistema." colorClass="text-slate-600" bgClass="bg-slate-100 dark:bg-slate-700/60" />
+      </section>
     </div>
   );
 }
@@ -365,13 +467,49 @@ function adjustBrightness(col: string, amt: number) {
     return (usePound?"#":"") + (g | (b << 8) | (r << 16)).toString(16);
 }
 
-function AtalhoCard({ to, icon: Icon, label, colorClass, bgClass }: any) {
+function HeroMetric({ label, value, tone }: { label: string; value: string; tone: string }) {
   return (
-    <Link to={to} className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-slate-400 hover:shadow-md transition group text-center block">
-      <div className={`w-10 h-10 mx-auto ${bgClass} ${colorClass} dark:bg-opacity-20 rounded-full flex items-center justify-center mb-2 group-hover:scale-110 transition`}>
-        <Icon size={20} />
+    <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-sm">
+      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-white/70">{label}</p>
+      <p className={`mt-2 text-xl font-black ${tone}`}>{value}</p>
+    </div>
+  );
+}
+
+function SummaryPanel({ title, value, support, tone }: { title: string; value: string; support: string; tone: 'emerald' | 'rose' | 'amber' | 'indigo' | 'cyan' | 'violet' }) {
+  const toneMap = {
+    emerald: 'text-emerald-600 bg-emerald-100 dark:bg-emerald-500/10',
+    rose: 'text-rose-500 bg-rose-100 dark:bg-rose-500/10',
+    amber: 'text-amber-600 bg-amber-100 dark:bg-amber-500/10',
+    indigo: 'text-indigo-600 bg-indigo-100 dark:bg-indigo-500/10',
+    cyan: 'text-cyan-600 bg-cyan-100 dark:bg-cyan-500/10',
+    violet: 'text-violet-600 bg-violet-100 dark:bg-violet-500/10',
+  } as const;
+
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-800">
+      <div className={`inline-flex rounded-2xl px-3 py-2 text-xs font-bold ${toneMap[tone]}`}>
+        {title}
       </div>
-      <span className="font-bold text-slate-600 dark:text-slate-300 text-sm">{label}</span>
+      <p className="mt-4 text-3xl font-black text-slate-900 dark:text-white">{value}</p>
+      <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">{support}</p>
+    </div>
+  );
+}
+
+function AtalhoCard({ to, icon: Icon, label, description, colorClass, bgClass }: AtalhoCardProps) {
+  return (
+    <Link to={to} className="group block rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600 dark:hover:shadow-black/20">
+      <div className="flex items-start justify-between gap-3">
+        <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${bgClass} ${colorClass} transition group-hover:scale-110`}>
+          <Icon size={22} />
+        </div>
+        <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500 dark:text-slate-600 dark:group-hover:text-slate-300" />
+      </div>
+      <div className="mt-5">
+        <p className="text-base font-black text-slate-800 dark:text-white">{label}</p>
+        <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-300">{description}</p>
+      </div>
     </Link>
   );
 }

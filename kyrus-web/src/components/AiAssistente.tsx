@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
-import ExcelJS from 'exceljs';
 import { Bot, FileSpreadsheet, FileText, Image as ImageIcon, Loader2, Maximize2, Minimize2, Paperclip, PencilLine, Send, Sparkles, Trash2, User2, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -118,6 +117,7 @@ const extractSpreadsheetText = async (file: File) => {
   }
 
   if (ext === 'xlsx') {
+    const ExcelJS = (await import('exceljs')).default;
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(await file.arrayBuffer());
     const lines: string[] = [];

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
-import ExcelJS from 'exceljs';
 import { 
   Building2, UploadCloud, Layers, Save, Loader2, 
   Palette, Check, AlertCircle, Camera, RefreshCw,
@@ -467,6 +466,7 @@ const ExportacaoFinanceira = () => {
         return;
       }
 
+      const ExcelJS = (await import('exceljs')).default;
       const workbook = new ExcelJS.Workbook();
       const sheet = workbook.addWorksheet('Financeiro');
       sheet.columns = [

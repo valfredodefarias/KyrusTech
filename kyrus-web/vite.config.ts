@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
+const hasPackage = (id: string, pkg: string) => id.includes(`/node_modules/${pkg}/`) || id.includes(`\\node_modules\\${pkg}\\`)
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -16,9 +18,14 @@ export default defineConfig({
     minify: 'terser',
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          ui: ['lucide-react', 'tailwind-merge', 'clsx'],
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (hasPackage(id, 'exceljs')) return 'exports';
+            if (hasPackage(id, 'react-markdown') || hasPackage(id, 'remark-gfm')) return 'markdown';
+            if (hasPackage(id, 'react') || hasPackage(id, 'react-dom') || hasPackage(id, 'react-router-dom')) return 'vendor';
+            if (hasPackage(id, 'axios') || hasPackage(id, 'zustand')) return 'core';
+            if (hasPackage(id, 'lucide-react') || hasPackage(id, 'tailwind-merge') || hasPackage(id, 'clsx')) return 'ui';
+          }
         },
       },
     },

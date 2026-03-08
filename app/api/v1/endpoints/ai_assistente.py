@@ -435,6 +435,205 @@ def _sanitize_attachment_text(text: str) -> str:
     return sanitized
 
 
+def _to_float(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _format_brl(value: Any) -> str:
+    amount = _to_float(value)
+    signal = "-" if amount < 0 else ""
+    absolute = abs(amount)
+    formatted = f"{absolute:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    return f"{signal}R$ {formatted}"
+
+
+def _format_pct(value: Any) -> str:
+    return f"{_to_float(value):.1f}".replace(".", ",") + "%"
+
+
+def _top_labels(rows: Any, key_name: str, limit: int = 3) -> list[str]:
+    if not isinstance(rows, list):
+        return []
+    labels: list[str] = []
+    for row in rows[:limit]:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get(key_name) or "").strip()
+        total = _format_brl(row.get("total") or 0)
+        if label:
+            labels.append(f"{label} ({total})")
+    return labels
+
+
+def _as_dict(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _build_dashboard_fact_sheet(contexto: Dict[str, Any]) -> str:
+    metricas = _as_dict(contexto.get("metricas"))
+    resumo = _as_dict(contexto.get("resumo_executivo"))
+    periodo = _as_dict(contexto.get("periodo"))
+    filtros = _as_dict(contexto.get("filtros"))
+    cenarios = _as_dict(resumo.get("cenarios"))
+    variacao = _as_dict(resumo.get("variacao_ano_contra_ano"))
+    contas_pagar = _as_dict(resumo.get("contas_a_pagar"))
+    contas_receber = _as_dict(resumo.get("contas_a_receber"))
+
+    parts = [
+        "Fatos concretos do dashboard:",
+        f"- Periodo: tipo={periodo.get('tipo')}, mes={periodo.get('mes')}, ano={periodo.get('ano')}, inicio={periodo.get('inicio')}, fim={periodo.get('fim')}",
+        f"- Filtros: status={filtros.get('status')}, tipo={filtros.get('tipo')}, previsto={filtros.get('previsto')}, competencia={filtros.get('competencia')}, hoje={filtros.get('hoje')}",
+        f"- Lancamentos filtrados: {int(_to_float(metricas.get('totalLancamentosFiltrados') or 0))}",
+        f"- Receitas: {_format_brl(metricas.get('receitas'))}",
+        f"- Despesas: {_format_brl(metricas.get('despesas'))}",
+        f"- Saldo: {_format_brl(metricas.get('saldo'))}",
+        f"- Pagos: {_format_brl(metricas.get('pagos'))}",
+        f"- Pendentes: {_format_brl(metricas.get('pendentes'))}",
+        f"- Cenario pessimista: {_format_brl(cenarios.get('pessimista'))}; realista: {_format_brl(cenarios.get('realista'))}; otimista: {_format_brl(cenarios.get('otimista'))}",
+        f"- Contas a pagar: hoje={_format_brl(contas_pagar.get('hoje'))}, amanha={_format_brl(contas_pagar.get('amanha'))}, atrasadas={_format_brl(contas_pagar.get('atrasadas'))}, em aberto={_format_brl(contas_pagar.get('emAberto'))}",
+        f"- Contas a receber: hoje={_format_brl(contas_receber.get('hoje'))}, amanha={_format_brl(contas_receber.get('amanha'))}, atrasadas={_format_brl(contas_receber.get('atrasadas'))}, em aberto={_format_brl(contas_receber.get('emAberto'))}",
+        f"- Ano contra ano: atual={_format_brl(variacao.get('resultado_atual'))}, anterior={_format_brl(variacao.get('resultado_anterior'))}",
+    ]
+
+    top_despesas = _top_labels(resumo.get("top_despesas_categoria"), "categoria")
+    top_receitas = _top_labels(resumo.get("top_receitas_categoria"), "categoria")
+    top_centros = _top_labels(resumo.get("top_centros_custo"), "centro")
+    if top_despesas:
+        parts.append("- Top despesas: " + "; ".join(top_despesas))
+    if top_receitas:
+        parts.append("- Top receitas: " + "; ".join(top_receitas))
+    if top_centros:
+        parts.append("- Top centros de custo: " + "; ".join(top_centros))
+
+    return "\n".join(parts)
+
+
+def _build_dashboard_local_analysis(contexto: Dict[str, Any]) -> str:
+    metricas = _as_dict(contexto.get("metricas"))
+    resumo = _as_dict(contexto.get("resumo_executivo"))
+    sinais_raw = contexto.get("sinais_executivos")
+    sinais: list[Any] = sinais_raw if isinstance(sinais_raw, list) else []
+    receitas = _to_float(metricas.get("receitas"))
+    despesas = _to_float(metricas.get("despesas"))
+    saldo = _to_float(metricas.get("saldo"))
+    pagos = _to_float(metricas.get("pagos"))
+    pendentes = _to_float(metricas.get("pendentes"))
+    lancamentos = int(_to_float(metricas.get("totalLancamentosFiltrados")))
+    margem = (saldo / receitas * 100) if receitas > 0 else 0.0
+    execucao = (pagos / max(1.0, receitas + despesas)) * 100
+
+    top_despesas = _top_labels(resumo.get("top_despesas_categoria"), "categoria")
+    top_receitas = _top_labels(resumo.get("top_receitas_categoria"), "categoria")
+    top_centros = _top_labels(resumo.get("top_centros_custo"), "centro")
+    contas_pagar = _as_dict(resumo.get("contas_a_pagar"))
+    contas_receber = _as_dict(resumo.get("contas_a_receber"))
+    variacao = _as_dict(resumo.get("variacao_ano_contra_ano"))
+    atual = _to_float(variacao.get("resultado_atual"))
+    anterior = _to_float(variacao.get("resultado_anterior"))
+    delta_ano = atual - anterior
+
+    summary_line = (
+        f"O dashboard mostra {lancamentos} lancamento(s) no recorte, com receitas de {_format_brl(receitas)}, "
+        f"despesas de {_format_brl(despesas)} e saldo de {_format_brl(saldo)}."
+    )
+    cash_pressure = _to_float(contas_pagar.get("atrasadas")) + _to_float(contas_pagar.get("emAberto"))
+    inflow_pressure = _to_float(contas_receber.get("atrasadas")) + _to_float(contas_receber.get("emAberto"))
+
+    positive_points = []
+    if saldo >= 0:
+        positive_points.append(f"Saldo positivo no recorte ({_format_brl(saldo)}).")
+    if execucao >= 50:
+        positive_points.append(f"Boa execucao financeira: {_format_pct(execucao)} do volume ja passou por pagamento/baixa.")
+    if top_receitas:
+        positive_points.append("Motores de receita mais relevantes: " + "; ".join(top_receitas) + ".")
+
+    alert_points = []
+    if saldo < 0:
+        alert_points.append(f"Saldo negativo de {_format_brl(saldo)}, indicando compressao de caixa no recorte.")
+    if cash_pressure > 0:
+        alert_points.append(f"Existe pressao em contas a pagar: atrasadas + em aberto somam {_format_brl(cash_pressure)}.")
+    if inflow_pressure > 0:
+        alert_points.append(f"Ha valor relevante ainda a receber: atrasadas + em aberto somam {_format_brl(inflow_pressure)}.")
+    if top_despesas:
+        alert_points.append("Principais focos de despesa: " + "; ".join(top_despesas) + ".")
+
+    causes = []
+    if despesas > receitas:
+        causes.append("As despesas estao acima das receitas no recorte, o que derruba a margem operacional.")
+    if delta_ano < 0:
+        causes.append(f"O ano atual esta abaixo do ano anterior em {_format_brl(abs(delta_ano))}, sugerindo desaceleracao ou aumento de custo.")
+    if top_centros:
+        causes.append("Centros de custo com maior peso no resultado: " + "; ".join(top_centros) + ".")
+
+    immediate_actions = []
+    if cash_pressure > 0:
+        immediate_actions.append("Atacar primeiro os itens vencidos e em aberto de contas a pagar para reduzir friccao e multa operacional.")
+    if inflow_pressure > 0:
+        immediate_actions.append("Cobrar recebimentos atrasados e antecipar conciliacao das entradas previstas para proteger caixa de curto prazo.")
+    if top_despesas:
+        immediate_actions.append("Revisar as maiores categorias de despesa e cortar ou renegociar o que nao sustenta margem.")
+
+    structural_actions = [
+        "Transformar as categorias e centros de maior impacto em rotinas mensais de acompanhamento com meta e dono definido.",
+        "Usar o heatmap e os cards reativos para abrir dias/meses criticos e confirmar se a concentracao esta vindo de poucos eventos ou de recorrencia estrutural.",
+        "Separar claramente caixa realizado versus previsto para melhorar previsibilidade e leitura de execucao.",
+    ]
+
+    signal_lines = []
+    for item in sinais[:3]:
+        if isinstance(item, dict):
+            titulo = str(item.get("titulo") or "").strip()
+            valor = str(item.get("valor") or "").strip()
+            apoio = str(item.get("apoio") or "").strip()
+            if titulo and valor:
+                signal_lines.append(f"- {titulo}: {valor}. {apoio}".strip())
+
+    sections = [
+        "## Resumo executivo",
+        summary_line,
+        f"A margem estimada no recorte esta em {_format_pct(margem)} e a execucao financeira em {_format_pct(execucao)}.",
+        "## O que esta funcionando",
+        "\n".join(f"- {item}" for item in (positive_points or ["Ainda nao ha um bloco forte de sinais positivos alem do que o recorte mostra em caixa e execucao."])),
+        "## Principais alertas",
+        "\n".join(f"- {item}" for item in (alert_points or ["O principal alerta e monitorar variacao de margem e acúmulo de pendencias para nao perder previsibilidade."])),
+        "## Causas provaveis",
+        "\n".join(f"- {item}" for item in (causes or ["O resultado parece depender principalmente da combinacao entre mix de categorias, timing de pagamento e peso dos centros de custo."])),
+        "## Impacto em caixa e resultado",
+        f"- Caixa: pagar atrasado/em aberto em {_format_brl(cash_pressure)} contra receber atrasado/em aberto em {_format_brl(inflow_pressure)}.",
+        f"- Resultado: ano atual em {_format_brl(atual)} versus {_format_brl(anterior)} no ano anterior.",
+        "## Acoes imediatas",
+        "\n".join(f"- {item}" for item in (immediate_actions or ["Abrir os cards interativos de pagar/receber para atacar primeiro o volume vencido e em aberto."])),
+        "## Acoes estruturais",
+        "\n".join(f"- {item}" for item in structural_actions),
+    ]
+
+    if signal_lines:
+        sections.extend([
+            "## Sinais executivos do recorte",
+            "\n".join(signal_lines),
+        ])
+
+    sections.extend([
+        "## Perguntas que faltam responder",
+        "- As maiores despesas estao ligadas a crescimento, ineficiencia ou concentracao de um unico fornecedor?",
+        "- O atraso em recebimentos e recorrente ou pontual neste periodo?",
+        "- O peso dos centros de custo mais caros esta gerando retorno proporcional em receita ou margem?",
+    ])
+    return "\n\n".join(section for section in sections if section.strip())
+
+
+def _looks_like_dashboard_placeholder(text: str) -> bool:
+    normalized = _normalize_request_text(text)
+    if len(normalized) < 240 and re.search(r"\b(vou|farei|posso|consigo|irei)\b", normalized) and re.search(r"\b(analise|analisar|explicar|avaliar)\b", normalized):
+        return True
+    if len(normalized) < 320 and "resumo executivo" not in normalized and not re.search(r"\d", text):
+        return True
+    return False
+
+
 def _build_analysis_prompt(
     pergunta: str,
     tela: str,
@@ -443,13 +642,16 @@ def _build_analysis_prompt(
     dashboard_consulting: bool,
 ) -> str:
     if dashboard_consulting:
+        dashboard_fact_sheet = _build_dashboard_fact_sheet(contexto)
         return (
             f"Tela: {tela}\n"
             "Modo consultoria dashboard: sim\n"
             f"Resumo dos anexos: {anexos_resumo or 'sem anexos'}\n"
             "Instrucoes de resposta: entregue uma analise executiva detalhada, em Markdown simples, com estas secoes quando houver dados: "
             "Resumo executivo, O que esta funcionando, Principais alertas, Causas provaveis, Impacto em caixa e resultado, Acoes imediatas, Acoes estruturais, Oportunidades de ganho, Perguntas que faltam responder. "
-            "Sempre priorize explicacao de negocio, leitura financeira e recomendacoes praticas. Nao mostre IDs nem campos tecnicos.\n"
+            "Sempre priorize explicacao de negocio, leitura financeira e recomendacoes praticas. Nao mostre IDs nem campos tecnicos. "
+            "Nao responda que vai analisar depois: entregue a leitura agora com base nos fatos abaixo.\n"
+            f"{dashboard_fact_sheet}\n"
             f"Contexto JSON: {json.dumps(contexto, ensure_ascii=False)}\n\n"
             f"Pergunta: {pergunta}"
         )
@@ -1200,6 +1402,8 @@ def perguntar_assistente(
         content = _call_llm(provider=provider, modelo=modelo, user_prompt=user_prompt, timeout=llm_timeout, temperature=0.15, max_tokens=1200, attachment_parts=attachment_parts)
         if not content:
             raise HTTPException(status_code=502, detail="Assistente IA sem resposta no momento.")
+        if dashboard_consulting and _looks_like_dashboard_placeholder(content):
+            content = _build_dashboard_local_analysis(contexto_analise)
         content = _sanitize_assistant_response(content)
         if _contains_forbidden_response(content):
             return AssistenteResponse(resposta=SAFE_REFUSAL_MESSAGE, modelo="policy-local")

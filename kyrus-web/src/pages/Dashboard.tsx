@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import ReactApexChart from 'react-apexcharts';
-import ExcelJS from 'exceljs';
 import {
   TrendingUp, TrendingDown, Wallet, RefreshCw, Filter,
   CalendarRange, Layers, Building2, List, X, Landmark,
@@ -49,7 +48,96 @@ interface TodoItem {
   status: 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDO' | 'CANCELADO' | string;
 }
 
+type FinanceDrilldown =
+  | 'PAGAR_HOJE'
+  | 'PAGAR_AMANHA'
+  | 'PAGAR_ATRASADAS'
+  | 'PAGAR_REALIZADAS'
+  | 'PAGAR_ABERTO'
+  | 'PAGAR_TOTAL'
+  | 'RECEBER_HOJE'
+  | 'RECEBER_AMANHA'
+  | 'RECEBER_ATRASADAS'
+  | 'RECEBER_REALIZADAS'
+  | 'RECEBER_ABERTO'
+  | 'RECEBER_TOTAL'
+  | null;
+
+type KpiMeaningKey =
+  | 'RECEITAS'
+  | 'DESPESAS'
+  | 'SALDO'
+  | 'PAGOS'
+  | 'MARGEM_CORRENTE'
+  | 'TICKET_MEDIO'
+  | 'COBERTURA_FINANCEIRA'
+  | 'MAIOR_PRESSAO'
+  | 'MAIOR_MOTOR_RECEITA';
+
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const INTERACTIVE_PANEL_CLASS = 'group relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-800 dark:hover:shadow-black/20';
+const FINANCE_DRILLDOWN_LABELS: Record<Exclude<FinanceDrilldown, null>, string> = {
+  PAGAR_HOJE: 'Contas a pagar hoje',
+  PAGAR_AMANHA: 'Contas a pagar amanha',
+  PAGAR_ATRASADAS: 'Contas a pagar atrasadas',
+  PAGAR_REALIZADAS: 'Contas a pagar realizadas',
+  PAGAR_ABERTO: 'Contas a pagar em aberto',
+  PAGAR_TOTAL: 'Total contas a pagar',
+  RECEBER_HOJE: 'Contas a receber hoje',
+  RECEBER_AMANHA: 'Contas a receber amanha',
+  RECEBER_ATRASADAS: 'Contas a receber atrasadas',
+  RECEBER_REALIZADAS: 'Contas a receber realizadas',
+  RECEBER_ABERTO: 'Contas a receber em aberto',
+  RECEBER_TOTAL: 'Total contas a receber',
+};
+
+const KPI_MEANINGS: Record<KpiMeaningKey, { titulo: string; significado: string; utilidade: string }> = {
+  RECEITAS: {
+    titulo: 'Receitas',
+    significado: 'Soma de todas as entradas filtradas no recorte atual.',
+    utilidade: 'Mostra o tamanho da geração de caixa e permite comparar rapidamente contra despesas e saldo.'
+  },
+  DESPESAS: {
+    titulo: 'Despesas',
+    significado: 'Soma de todas as saídas filtradas no recorte atual.',
+    utilidade: 'Ajuda a localizar pressão de custo e entender quanto da operação está consumindo caixa.'
+  },
+  SALDO: {
+    titulo: 'Saldo',
+    significado: 'Diferença entre receitas e despesas dentro do recorte analisado.',
+    utilidade: 'Resume se o período está gerando ou destruindo caixa após todos os filtros aplicados.'
+  },
+  PAGOS: {
+    titulo: 'Pagos',
+    significado: 'Total financeiro já executado com status pago.',
+    utilidade: 'Mede o quanto do planejamento virou execução real e ajuda a comparar previsto contra realizado.'
+  },
+  MARGEM_CORRENTE: {
+    titulo: 'Margem corrente',
+    significado: 'Percentual do saldo sobre a receita no período filtrado.',
+    utilidade: 'Indica se a operação está preservando resultado depois de absorver as despesas.'
+  },
+  TICKET_MEDIO: {
+    titulo: 'Ticket médio',
+    significado: 'Valor médio por lançamento dentro do recorte atual.',
+    utilidade: 'Ajuda a distinguir volume operacional de concentração em poucos lançamentos grandes.'
+  },
+  COBERTURA_FINANCEIRA: {
+    titulo: 'Cobertura financeira',
+    significado: 'Percentual das despesas do recorte que já encontra cobertura no valor executado/pago.',
+    utilidade: 'Mostra quão protegido o caixa está para sustentar as saídas já mapeadas. Se cair, o risco operacional sobe.'
+  },
+  MAIOR_PRESSAO: {
+    titulo: 'Maior pressão',
+    significado: 'Categoria de despesa mais pesada no recorte atual.',
+    utilidade: 'Aponta onde vale agir primeiro para renegociar, cortar ou redistribuir esforço financeiro.'
+  },
+  MAIOR_MOTOR_RECEITA: {
+    titulo: 'Maior motor de receita',
+    significado: 'Categoria que mais impulsiona entradas no recorte atual.',
+    utilidade: 'Mostra a alavanca comercial ou operacional mais relevante para proteger crescimento.'
+  }
+};
 
 const toDateOnly = (d: Date) => d.toISOString().split('T')[0];
 const toDateOnlyStr = (s?: string) => (s ? s.split('T')[0] : '');
@@ -165,11 +253,22 @@ export function Dashboard() {
   const [filtroHojeAtivo, setFiltroHojeAtivo] = useState(false);
   const [selectedConta, setSelectedConta] = useState<number | null>(null);
   const [analysisQuery, setAnalysisQuery] = useState('');
+  const [financeDrilldown, setFinanceDrilldown] = useState<FinanceDrilldown>(null);
+  const [visibleKpiMeaning, setVisibleKpiMeaning] = useState<KpiMeaningKey | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const handler = () => setIsDark(document.documentElement.classList.contains('dark'));
     window.addEventListener('theme-change', handler);
     return () => window.removeEventListener('theme-change', handler);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) {
+        window.clearTimeout(hoverTimerRef.current);
+      }
+    };
   }, []);
 
   const categoriasExcluidasResultado = useMemo(() => buildExcludedCategoriaIds(categorias), [categorias]);
@@ -181,6 +280,7 @@ export function Dashboard() {
   useEffect(() => {
     setSelectedDate(null);
     setSelectedMonth(null);
+    setFinanceDrilldown(null);
   }, [mes, ano, periodoIni, periodoFim, periodoTipo]);
 
   async function loadDashboard() {
@@ -235,6 +335,61 @@ export function Dashboard() {
       setSyncing(false);
     }
   }
+
+  const hojeIso = toDateOnly(new Date());
+  const amanhaIso = toDateOnly(new Date(Date.now() + 24 * 60 * 60 * 1000));
+
+  const toggleFinanceDrilldown = (next: Exclude<FinanceDrilldown, null>) => {
+    setFinanceDrilldown((prev) => prev === next ? null : next);
+  };
+
+  const scheduleKpiMeaning = (key: KpiMeaningKey) => {
+    if (hoverTimerRef.current) {
+      window.clearTimeout(hoverTimerRef.current);
+    }
+    hoverTimerRef.current = window.setTimeout(() => {
+      setVisibleKpiMeaning(key);
+    }, 650);
+  };
+
+  const hideKpiMeaning = () => {
+    if (hoverTimerRef.current) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setVisibleKpiMeaning(null);
+  };
+
+  const matchesFinanceDrilldown = (lancamento: Lancamento, scope: 'PAGAR' | 'RECEBER') => {
+    if (scope === 'PAGAR' && !isDespesa(lancamento.tipo)) return false;
+    if (scope === 'RECEBER' && !isReceita(lancamento.tipo)) return false;
+    if (!financeDrilldown || !financeDrilldown.startsWith(scope)) return true;
+
+    const vencimento = toDateOnlyStr(lancamento.data_vencimento);
+    const pago = isPago(lancamento.status);
+
+    switch (financeDrilldown) {
+      case 'PAGAR_HOJE':
+      case 'RECEBER_HOJE':
+        return !pago && vencimento === hojeIso;
+      case 'PAGAR_AMANHA':
+      case 'RECEBER_AMANHA':
+        return !pago && vencimento === amanhaIso;
+      case 'PAGAR_ATRASADAS':
+      case 'RECEBER_ATRASADAS':
+        return !pago && vencimento < hojeIso;
+      case 'PAGAR_REALIZADAS':
+      case 'RECEBER_REALIZADAS':
+        return pago;
+      case 'PAGAR_ABERTO':
+      case 'RECEBER_ABERTO':
+        return !pago;
+      case 'PAGAR_TOTAL':
+      case 'RECEBER_TOTAL':
+      default:
+        return true;
+    }
+  };
 
   const filteredLancamentos = useMemo(() => {
     const hoje = toDateOnly(new Date());
@@ -334,6 +489,7 @@ export function Dashboard() {
         categoriasSelecionadas: Array.from(selectedCategorias),
         centroCustoSelecionado: selectedCentro,
         contaSelecionada: selectedConta,
+        drilldownFinanceiro: financeDrilldown,
       },
       metricas: {
         totalLancamentosFiltrados: filteredLancamentos.length,
@@ -344,7 +500,7 @@ export function Dashboard() {
         pendentes: kpis.pendentes,
       },
     };
-  }, [periodoTipo, mes, ano, periodoIni, periodoFim, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, selectedCategorias, selectedCentro, selectedConta, filteredLancamentos.length, kpis]);
+  }, [periodoTipo, mes, ano, periodoIni, periodoFim, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, selectedCategorias, selectedCentro, selectedConta, financeDrilldown, filteredLancamentos.length, kpis]);
 
   const fluxoDiario = useMemo(() => {
     if (periodoTipo === 'ANO') {
@@ -607,10 +763,10 @@ export function Dashboard() {
       return db - da;
     });
     return {
-      pagar: sorted.filter((l) => isDespesa(l.tipo)).slice(0, 20),
-      receber: sorted.filter((l) => isReceita(l.tipo)).slice(0, 20),
+      pagar: sorted.filter((l) => matchesFinanceDrilldown(l, 'PAGAR')).slice(0, 20),
+      receber: sorted.filter((l) => matchesFinanceDrilldown(l, 'RECEBER')).slice(0, 20),
     };
-  }, [filteredLancamentos]);
+  }, [filteredLancamentos, financeDrilldown]);
 
   const categoriaLancamentos = useMemo(() => {
     if (selectedCategorias.size === 0) return [] as Lancamento[];
@@ -751,36 +907,51 @@ export function Dashboard() {
   const margemPercentual = kpis.receitas > 0 ? (kpis.saldo / kpis.receitas) * 100 : 0;
   const ticketMedio = filteredLancamentos.length > 0 ? (kpis.receitas + kpis.despesas) / filteredLancamentos.length : 0;
   const coberturaPagamentos = kpis.despesas > 0 ? (kpis.pagos / kpis.despesas) * 100 : 0;
+  const mixFinanceiro = useMemo(() => {
+    const total = kpis.receitas + kpis.despesas;
+    if (total <= 0) {
+      return { receitaPct: 50, despesaPct: 50 };
+    }
+    return {
+      receitaPct: (kpis.receitas / total) * 100,
+      despesaPct: (kpis.despesas / total) * 100,
+    };
+  }, [kpis.despesas, kpis.receitas]);
 
   const sinaisExecutivos = useMemo(() => {
     const receitaDominante = receitasPorCategoria[0];
     const despesaDominante = despesasPorCategoria[0];
     return [
       {
+        key: 'MARGEM_CORRENTE' as const,
         titulo: 'Margem corrente',
         valor: `${margemPercentual.toFixed(1)}%`,
         apoio: margemPercentual >= 0 ? 'Resultado operacional saudável no recorte.' : 'Despesas comprimindo o caixa no recorte.',
         destaque: margemPercentual >= 0 ? 'text-emerald-600' : 'text-rose-500',
       },
       {
+        key: 'TICKET_MEDIO' as const,
         titulo: 'Ticket médio',
         valor: BRL.format(ticketMedio),
         apoio: `${filteredLancamentos.length} lançamentos considerados após os filtros.`,
         destaque: 'text-slate-900 dark:text-white',
       },
       {
+        key: 'COBERTURA_FINANCEIRA' as const,
         titulo: 'Cobertura financeira',
         valor: `${coberturaPagamentos.toFixed(1)}%`,
         apoio: 'Percentual do valor filtrado já executado/pago.',
         destaque: 'text-indigo-600',
       },
       {
+        key: 'MAIOR_PRESSAO' as const,
         titulo: 'Maior pressão',
         valor: despesaDominante ? despesaDominante.label : 'Sem destaque',
         apoio: despesaDominante ? BRL.format(despesaDominante.total) : 'Sem despesas relevantes no período.',
         destaque: 'text-rose-500',
       },
       {
+        key: 'MAIOR_MOTOR_RECEITA' as const,
         titulo: 'Maior motor de receita',
         valor: receitaDominante ? receitaDominante.label : 'Sem destaque',
         apoio: receitaDominante ? BRL.format(receitaDominante.total) : 'Sem receitas relevantes no período.',
@@ -892,6 +1063,7 @@ export function Dashboard() {
       return;
     }
 
+    const ExcelJS = (await import('exceljs')).default;
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Lancamentos');
     ws.columns = [
@@ -1199,14 +1371,21 @@ export function Dashboard() {
       ...aiContexto,
       modo_consultoria: 'financeira_empresarial',
       resumo_executivo: resumoExecutivoDashboard,
-      instrucao_analise: 'Explique o dashboard em profundidade, aponte causas, riscos, oportunidades e prioridades de melhoria viaveis. Estruture a resposta com: resumo executivo, sinais positivos, sinais de alerta, causas provaveis, impacto no caixa e lucro, acoes imediatas, acoes estruturais e perguntas de acompanhamento.',
+      sinais_executivos: sinaisExecutivos,
+      bancos_em_foco: bancosEmFoco,
+      recorte_interativo: {
+        dataSelecionada: selectedDate,
+        mesSelecionado: selectedMonth,
+        drilldownFinanceiro: financeDrilldown,
+      },
+      instrucao_analise: 'Explique o dashboard em profundidade e entregue a analise agora, sem responder que vai analisar depois. Aponte causas, riscos, oportunidades e prioridades de melhoria viaveis. Estruture a resposta com: resumo executivo, sinais positivos, sinais de alerta, causas provaveis, impacto no caixa e lucro, acoes imediatas, acoes estruturais e perguntas de acompanhamento.',
     },
     sugestoes: [
       'Analise este dashboard como meu consultor financeiro e empresarial.',
       'Explique detalhadamente o que esta acontecendo nos indicadores.',
       'Quais melhorias praticas podem elevar resultado, caixa e previsibilidade?',
     ],
-  }), [aiContexto, resumoExecutivoDashboard]);
+  }), [aiContexto, bancosEmFoco, financeDrilldown, resumoExecutivoDashboard, selectedDate, selectedMonth, sinaisExecutivos]);
 
   useAssistentePage(assistenteConfig);
 
@@ -1346,6 +1525,16 @@ export function Dashboard() {
           <X className="w-3 h-3" />
         </button>
       )}
+      {financeDrilldown && (
+        <button
+          onClick={() => setFinanceDrilldown(null)}
+          className="px-3 py-1 text-xs font-bold rounded-full bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1"
+        >
+          <Wallet className="w-3 h-3" />
+          {FINANCE_DRILLDOWN_LABELS[financeDrilldown]}
+          <X className="w-3 h-3" />
+        </button>
+      )}
       {statusFiltro !== 'TODOS' && (
         <button
           onClick={() => setStatusFiltro('TODOS')}
@@ -1470,7 +1659,7 @@ export function Dashboard() {
       </header>
 
       <div className="p-4 sm:p-6 space-y-6">
-        <section className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.22),_transparent_38%),radial-gradient(circle_at_top_right,_rgba(14,165,233,0.22),_transparent_28%),linear-gradient(135deg,_#ffffff_0%,_#f8fafc_48%,_#ecfeff_100%)] p-6 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.16),_transparent_38%),radial-gradient(circle_at_top_right,_rgba(14,165,233,0.14),_transparent_28%),linear-gradient(135deg,_rgba(15,23,42,0.98)_0%,_rgba(15,23,42,0.95)_48%,_rgba(8,47,73,0.92)_100%)]">
+        <section className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.22),transparent_38%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.22),transparent_28%),linear-gradient(135deg,#ffffff_0%,#f8fafc_48%,#ecfeff_100%)] p-6 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.16),transparent_38%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.14),transparent_28%),linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(15,23,42,0.95)_48%,rgba(8,47,73,0.92)_100%)]">
           <div className="absolute -right-10 -top-12 h-40 w-40 rounded-full bg-emerald-400/10 blur-3xl" />
           <div className="absolute -bottom-16 left-10 h-44 w-44 rounded-full bg-sky-400/10 blur-3xl" />
           <div className="relative grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
@@ -1499,10 +1688,22 @@ export function Dashboard() {
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 {sinaisExecutivos.slice(0, 3).map((sinal) => (
-                  <div key={sinal.titulo} className="rounded-2xl border border-white/70 bg-white/70 p-4 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
+                  <div
+                    key={sinal.key}
+                    className="relative rounded-2xl border border-white/70 bg-white/70 p-4 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/40"
+                    onMouseEnter={() => scheduleKpiMeaning(sinal.key)}
+                    onMouseLeave={hideKpiMeaning}
+                  >
                     <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{sinal.titulo}</p>
                     <p className={`mt-3 text-2xl font-black ${sinal.destaque}`}>{sinal.valor}</p>
                     <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">{sinal.apoio}</p>
+                    {visibleKpiMeaning === sinal.key && (
+                      <div className="pointer-events-none absolute inset-x-4 top-full z-20 mt-3 rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-left shadow-2xl shadow-slate-950/20 dark:border-slate-700">
+                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">{KPI_MEANINGS[sinal.key].titulo}</p>
+                        <p className="mt-2 text-sm font-semibold text-white">{KPI_MEANINGS[sinal.key].significado}</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-300">{KPI_MEANINGS[sinal.key].utilidade}</p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1519,12 +1720,24 @@ export function Dashboard() {
                 </div>
                 <div className="mt-4 space-y-3">
                   {sinaisExecutivos.slice(3).map((sinal) => (
-                    <div key={sinal.titulo} className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 dark:border-slate-700 dark:bg-slate-950/40">
+                    <div
+                      key={sinal.key}
+                      className="relative rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 dark:border-slate-700 dark:bg-slate-950/40"
+                      onMouseEnter={() => scheduleKpiMeaning(sinal.key)}
+                      onMouseLeave={hideKpiMeaning}
+                    >
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-bold text-slate-700 dark:text-slate-100">{sinal.titulo}</p>
                         <span className={`text-sm font-black ${sinal.destaque}`}>{sinal.valor}</span>
                       </div>
                       <p className="mt-1 text-xs text-slate-500 dark:text-slate-300">{sinal.apoio}</p>
+                      {visibleKpiMeaning === sinal.key && (
+                        <div className="pointer-events-none absolute inset-x-0 top-full z-20 mt-3 rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-left shadow-2xl shadow-slate-950/20 dark:border-slate-700">
+                          <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">{KPI_MEANINGS[sinal.key].titulo}</p>
+                          <p className="mt-2 text-sm font-semibold text-white">{KPI_MEANINGS[sinal.key].significado}</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-300">{KPI_MEANINGS[sinal.key].utilidade}</p>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1567,51 +1780,91 @@ export function Dashboard() {
           </div>
         </section>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white/80 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:shadow-md">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase">Receitas</p>
-                <p className="text-2xl font-black text-emerald-600">{BRL.format(kpis.receitas)}</p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            {
+              key: 'RECEITAS' as const,
+              label: 'Receitas',
+              value: BRL.format(kpis.receitas),
+              icon: TrendingUp,
+              iconWrap: 'bg-emerald-100 dark:bg-emerald-900/30',
+              iconTone: 'text-emerald-600',
+              active: tipoFiltro === 'RECEITA',
+              activeClass: 'border-emerald-400 bg-emerald-50/80 dark:border-emerald-500 dark:bg-emerald-500/10',
+              onClick: () => setTipoFiltro((prev) => prev === 'RECEITA' ? 'TODOS' : 'RECEITA'),
+            },
+            {
+              key: 'DESPESAS' as const,
+              label: 'Despesas',
+              value: BRL.format(kpis.despesas),
+              icon: TrendingDown,
+              iconWrap: 'bg-rose-100 dark:bg-rose-900/30',
+              iconTone: 'text-rose-500',
+              active: tipoFiltro === 'DESPESA',
+              activeClass: 'border-rose-400 bg-rose-50/80 dark:border-rose-500 dark:bg-rose-500/10',
+              onClick: () => setTipoFiltro((prev) => prev === 'DESPESA' ? 'TODOS' : 'DESPESA'),
+            },
+            {
+              key: 'SALDO' as const,
+              label: 'Saldo',
+              value: BRL.format(kpis.saldo),
+              icon: Wallet,
+              iconWrap: 'bg-slate-100 dark:bg-slate-700/50',
+              iconTone: 'text-slate-600 dark:text-slate-200',
+              active: !selectedCategorias.size && !selectedCentro && !selectedConta && !selectedDate && !selectedMonth && !financeDrilldown && statusFiltro === 'TODOS' && tipoFiltro === 'TODOS',
+              activeClass: 'border-sky-400 bg-sky-50/80 dark:border-sky-500 dark:bg-sky-500/10',
+              onClick: () => {
+                setStatusFiltro('TODOS');
+                setTipoFiltro('TODOS');
+                setSelectedCategorias(new Set());
+                setSelectedCentro(null);
+                setSelectedConta(null);
+                setSelectedDate(null);
+                setSelectedMonth(null);
+                setFinanceDrilldown(null);
+              },
+            },
+            {
+              key: 'PAGOS' as const,
+              label: 'Pagos',
+              value: BRL.format(kpis.pagos),
+              icon: Filter,
+              iconWrap: 'bg-indigo-100 dark:bg-indigo-900/30',
+              iconTone: 'text-indigo-600',
+              active: statusFiltro === 'PAGO',
+              activeClass: 'border-indigo-400 bg-indigo-50/80 dark:border-indigo-500 dark:bg-indigo-500/10',
+              onClick: () => setStatusFiltro((prev) => prev === 'PAGO' ? 'TODOS' : 'PAGO'),
+            },
+          ].map((card) => (
+            <button
+              key={card.key}
+              type="button"
+              onClick={card.onClick}
+              onMouseEnter={() => scheduleKpiMeaning(card.key)}
+              onMouseLeave={hideKpiMeaning}
+              onFocus={() => scheduleKpiMeaning(card.key)}
+              onBlur={hideKpiMeaning}
+              className={`relative rounded-2xl border p-5 text-left shadow-sm backdrop-blur transition duration-300 hover:-translate-y-1 hover:shadow-lg ${card.active ? card.activeClass : 'border-slate-200 bg-white/80 dark:border-slate-700 dark:bg-slate-800'}`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase text-slate-400">{card.label}</p>
+                  <p className={`text-2xl font-black ${card.label === 'Saldo' && kpis.saldo < 0 ? 'text-rose-500' : card.iconTone}`}>{card.value}</p>
+                </div>
+                <div className={`rounded-lg p-2 ${card.iconWrap}`}>
+                  <card.icon className={`h-5 w-5 ${card.iconTone}`} />
+                </div>
               </div>
-              <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
-                <TrendingUp className="w-5 h-5 text-emerald-600" />
-              </div>
-            </div>
-          </div>
-          <div className="bg-white/80 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:shadow-md">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase">Despesas</p>
-                <p className="text-2xl font-black text-red-500">{BRL.format(kpis.despesas)}</p>
-              </div>
-              <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
-                <TrendingDown className="w-5 h-5 text-red-500" />
-              </div>
-            </div>
-          </div>
-          <div className="bg-white/80 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:shadow-md">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase">Saldo</p>
-                <p className={`text-2xl font-black ${kpis.saldo >= 0 ? 'text-slate-800 dark:text-white' : 'text-red-500'}`}>{BRL.format(kpis.saldo)}</p>
-              </div>
-              <div className="p-2 bg-slate-100 dark:bg-slate-700/50 rounded-lg">
-                <Wallet className="w-5 h-5 text-slate-600 dark:text-slate-200" />
-              </div>
-            </div>
-          </div>
-          <div className="bg-white/80 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:shadow-md">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase">Pagos</p>
-                <p className="text-2xl font-black text-indigo-600">{BRL.format(kpis.pagos)}</p>
-              </div>
-              <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
-                <Filter className="w-5 h-5 text-indigo-600" />
-              </div>
-            </div>
-          </div>
+              <p className="mt-3 text-xs font-semibold text-slate-400">Clique para cruzar o dashboard por este KPI</p>
+              {visibleKpiMeaning === card.key && (
+                <div className="pointer-events-none absolute inset-x-4 top-full z-20 mt-3 rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-left shadow-2xl shadow-slate-950/20 dark:border-slate-700">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">{KPI_MEANINGS[card.key].titulo}</p>
+                  <p className="mt-2 text-sm font-semibold text-white">{KPI_MEANINGS[card.key].significado}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-300">{KPI_MEANINGS[card.key].utilidade}</p>
+                </div>
+              )}
+            </button>
+          ))}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -1752,14 +2005,23 @@ export function Dashboard() {
               <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-bold text-slate-700 dark:text-slate-100">Mix financeiro</p>
-                  <span className="text-xs text-slate-400">Receita x despesa</span>
+                  <span className="text-xs text-slate-400">Receita {mixFinanceiro.receitaPct.toFixed(1)}% x despesa {mixFinanceiro.despesaPct.toFixed(1)}%</span>
                 </div>
-                <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
-                  <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-cyan-500 to-rose-500" style={{ width: `${Math.min(100, Math.max(8, Math.round((kpis.receitas / Math.max(1, kpis.receitas + kpis.despesas)) * 100)))}%` }} />
+                <div className="mt-3 flex h-4 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
+                  <div
+                    className="h-full bg-emerald-500 transition-all duration-500"
+                    style={{ width: `${mixFinanceiro.receitaPct}%` }}
+                    title={`Receitas ${mixFinanceiro.receitaPct.toFixed(1)}%`}
+                  />
+                  <div
+                    className="h-full bg-rose-500 transition-all duration-500"
+                    style={{ width: `${mixFinanceiro.despesaPct}%` }}
+                    title={`Despesas ${mixFinanceiro.despesaPct.toFixed(1)}%`}
+                  />
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-                  <div className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Receitas: {BRL.format(kpis.receitas)}</div>
-                  <div className="rounded-xl bg-rose-50 px-3 py-2 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">Despesas: {BRL.format(kpis.despesas)}</div>
+                  <div className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Receitas: {BRL.format(kpis.receitas)} ({mixFinanceiro.receitaPct.toFixed(1)}%)</div>
+                  <div className="rounded-xl bg-rose-50 px-3 py-2 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">Despesas: {BRL.format(kpis.despesas)} ({mixFinanceiro.despesaPct.toFixed(1)}%)</div>
                 </div>
               </div>
               <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
@@ -1770,7 +2032,7 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white/80 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6 shadow-sm backdrop-blur">
+        <div className={`${INTERACTIVE_PANEL_CLASS} bg-white/80 backdrop-blur`}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-slate-700 dark:text-slate-200">Produtividade</h3>
             <span className="text-xs text-slate-400">Eficiência de execução financeira</span>
@@ -1805,78 +2067,78 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={INTERACTIVE_PANEL_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Contas a Pagar</h3>
-              <span className="text-xs text-slate-400">Vencimentos do mês</span>
+              <span className="text-xs text-slate-400">Vencimentos reativos</span>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_HOJE')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_HOJE' ? 'border-rose-400 bg-rose-50 dark:border-rose-500 dark:bg-rose-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-rose-300 dark:hover:border-rose-500/60'}`}>
                 <p className="text-xs text-slate-400">Para hoje</p>
                 <p className="font-bold text-red-600">{BRL.format(contasHoje.pagar.hoje)}</p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              </button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_AMANHA')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_AMANHA' ? 'border-rose-400 bg-rose-50 dark:border-rose-500 dark:bg-rose-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-rose-300 dark:hover:border-rose-500/60'}`}>
                 <p className="text-xs text-slate-400">Para amanhã</p>
                 <p className="font-bold text-red-600">{BRL.format(contasHoje.pagar.amanha)}</p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              </button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_ATRASADAS')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_ATRASADAS' ? 'border-rose-400 bg-rose-50 dark:border-rose-500 dark:bg-rose-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-rose-300 dark:hover:border-rose-500/60'}`}>
                 <p className="text-xs text-slate-400">Atrasadas</p>
                 <p className="font-bold text-red-600">{BRL.format(contasHoje.pagar.atrasadas)}</p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              </button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_TOTAL')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_TOTAL' ? 'border-slate-400 bg-slate-50 dark:border-slate-500 dark:bg-slate-700/30' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-slate-300 dark:hover:border-slate-500/60'}`}>
                 <p className="text-xs text-slate-400">Total do mês</p>
                 <p className="font-bold text-slate-700 dark:text-slate-100">{BRL.format(contasHoje.pagar.totalMes)}</p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              </button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_REALIZADAS')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_REALIZADAS' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}>
                 <p className="text-xs text-slate-400">Realizadas</p>
                 <p className="font-bold text-emerald-600">{BRL.format(contasHoje.pagar.realizadas)}</p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              </button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_ABERTO')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_ABERTO' ? 'border-amber-400 bg-amber-50 dark:border-amber-500 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-amber-300 dark:hover:border-amber-500/60'}`}>
                 <p className="text-xs text-slate-400">Em aberto</p>
                 <p className="font-bold text-amber-600">{BRL.format(contasHoje.pagar.emAberto)}</p>
-              </div>
+              </button>
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={INTERACTIVE_PANEL_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Contas a Receber</h3>
-              <span className="text-xs text-slate-400">Vencimentos do mês</span>
+              <span className="text-xs text-slate-400">Vencimentos reativos</span>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_HOJE')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_HOJE' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}>
                 <p className="text-xs text-slate-400">Para hoje</p>
                 <p className="font-bold text-emerald-600">{BRL.format(contasHoje.receber.hoje)}</p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              </button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_AMANHA')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_AMANHA' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}>
                 <p className="text-xs text-slate-400">Para amanhã</p>
                 <p className="font-bold text-emerald-600">{BRL.format(contasHoje.receber.amanha)}</p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              </button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_ATRASADAS')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_ATRASADAS' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}>
                 <p className="text-xs text-slate-400">Atrasadas</p>
                 <p className="font-bold text-emerald-600">{BRL.format(contasHoje.receber.atrasadas)}</p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              </button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_TOTAL')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_TOTAL' ? 'border-slate-400 bg-slate-50 dark:border-slate-500 dark:bg-slate-700/30' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-slate-300 dark:hover:border-slate-500/60'}`}>
                 <p className="text-xs text-slate-400">Total do mês</p>
                 <p className="font-bold text-slate-700 dark:text-slate-100">{BRL.format(contasHoje.receber.totalMes)}</p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              </button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_REALIZADAS')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_REALIZADAS' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}>
                 <p className="text-xs text-slate-400">Realizadas</p>
                 <p className="font-bold text-emerald-600">{BRL.format(contasHoje.receber.realizadas)}</p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              </button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_ABERTO')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_ABERTO' ? 'border-amber-400 bg-amber-50 dark:border-amber-500 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-amber-300 dark:hover:border-amber-500/60'}`}>
                 <p className="text-xs text-slate-400">Em aberto</p>
                 <p className="font-bold text-amber-600">{BRL.format(contasHoje.receber.emAberto)}</p>
-              </div>
+              </button>
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={INTERACTIVE_PANEL_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Lançamentos • Contas a Pagar</h3>
-              <span className="text-xs text-slate-400">{lancamentosContasDetalhe.pagar.length} item(ns)</span>
+              <span className="text-xs text-slate-400">{lancamentosContasDetalhe.pagar.length} item(ns){financeDrilldown?.startsWith('PAGAR') ? ' no recorte ativo' : ''}</span>
             </div>
             <div className="overflow-auto max-h-80 rounded-xl border border-slate-200 dark:border-slate-700">
               <table className="w-full text-sm">
@@ -1906,10 +2168,10 @@ export function Dashboard() {
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={INTERACTIVE_PANEL_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Lançamentos • Contas a Receber</h3>
-              <span className="text-xs text-slate-400">{lancamentosContasDetalhe.receber.length} item(ns)</span>
+              <span className="text-xs text-slate-400">{lancamentosContasDetalhe.receber.length} item(ns){financeDrilldown?.startsWith('RECEBER') ? ' no recorte ativo' : ''}</span>
             </div>
             <div className="overflow-auto max-h-80 rounded-xl border border-slate-200 dark:border-slate-700">
               <table className="w-full text-sm">
@@ -1941,7 +2203,7 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">
                 {periodoTipo === 'ANO' ? 'Fluxo de Caixa Mensal' : 'Fluxo de Caixa Diário'}
@@ -1953,7 +2215,7 @@ export function Dashboard() {
             <ReactApexChart type="area" height={320} series={chartFluxo.series} options={chartFluxo.options} />
           </div>
 
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={INTERACTIVE_PANEL_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Despesas por Categoria</h3>
               <span className="text-xs text-slate-400">Clique para filtrar</span>
@@ -1969,7 +2231,7 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={INTERACTIVE_PANEL_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas por Categoria</h3>
               <span className="text-xs text-slate-400">Clique para filtrar</span>
@@ -1982,7 +2244,7 @@ export function Dashboard() {
               <ReactApexChart type="donut" height={320} series={chartReceitasCategorias.series} options={chartReceitasCategorias.options} />
             )}
           </div>
-          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Acumulado: Receitas x Despesas</h3>
               <span className="text-xs text-slate-400">Evolução no período</span>
@@ -1992,7 +2254,7 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Operacional ({resultadoMensalAno.year})</h3>
               <span className="text-xs text-slate-400">Jan → Dez</span>
@@ -2005,7 +2267,7 @@ export function Dashboard() {
               <ReactApexChart type="bar" height={320} series={chartResultadoOperacional.series} options={chartResultadoOperacional.options} />
             )}
           </div>
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={INTERACTIVE_PANEL_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Resumo Operacional</h3>
               <span className="text-xs text-slate-400">Média mensal</span>
@@ -2032,14 +2294,14 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas x Despesas ({resultadoMensalAno.year})</h3>
               <span className="text-xs text-slate-400">Comparativo anual</span>
             </div>
             <ReactApexChart type="bar" height={320} series={chartReceitasDespesasAno.series} options={chartReceitasDespesasAno.options} />
           </div>
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={INTERACTIVE_PANEL_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Margem Operacional</h3>
               <span className="text-xs text-slate-400">% mês a mês</span>
@@ -2049,7 +2311,7 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Comparativo Ano a Ano</h3>
               <span className="text-xs text-slate-400">{resultadoMensalAnoAnterior.year} vs {resultadoMensalAno.year}</span>
@@ -2086,7 +2348,7 @@ export function Dashboard() {
               </div>
             </div>
           </div>
-          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Acumulado</h3>
               <span className="text-xs text-slate-400">Evolução do caixa</span>
@@ -2103,7 +2365,7 @@ export function Dashboard() {
             </div>
             <ReactApexChart type="line" height={280} series={chartResultadoAcumulado.series} options={chartResultadoAcumulado.options} />
           </div>
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={INTERACTIVE_PANEL_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Distribuição por Status</h3>
               <span className="text-xs text-slate-400">Valor por status</span>
@@ -2113,7 +2375,7 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={INTERACTIVE_PANEL_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Despesas por Centro</h3>
               <span className="text-xs text-slate-400">Clique para filtrar</span>
@@ -2121,7 +2383,7 @@ export function Dashboard() {
             <ReactApexChart type="bar" height={320} series={chartCentros.series} options={chartCentros.options} />
           </div>
 
-          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Últimos Lançamentos</h3>
               <div className="flex items-center gap-2">

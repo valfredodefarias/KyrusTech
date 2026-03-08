@@ -721,58 +721,85 @@ export function Consultor() {
     return true;
   })();
 
+  const empresasAtivas = empresas.filter((empresa) => empresa.is_active !== false).length;
+  const usuariosAtivos = usuarios.filter((usuario) => usuario.is_active).length;
+  const modeLabel = isSuperConsultor ? 'Super consultoria com visão global' : 'Consultoria com escopo autorizado';
+  const tabItems = [
+    { key: 'empresas' as const, label: 'Minhas Empresas', icon: Building2, visible: true },
+    { key: 'consultores' as const, label: 'Gerenciar Consultores', icon: Users, visible: isSuperConsultor },
+    { key: 'usuarios' as const, label: 'Usuários', icon: Shield, visible: isSuperConsultor },
+    { key: 'tarefas' as const, label: 'To-do', icon: ClipboardList, visible: true },
+  ].filter((item) => item.visible);
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in pb-12">
-      
-      {/* HEADER */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-800 p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-            <Briefcase className="text-blue-600" /> Área do Consultor
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400">Gerenciamento global de multi-empresas.</p>
-        </div>
-        
-        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-          <button onClick={handleOpenCreate} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 transition flex items-center gap-2 shadow-md active:scale-95 w-full sm:w-auto justify-center">
-            <Building2 size={18} /> Nova Empresa
-          </button>
-          <button onClick={() => setShowUserModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition flex items-center gap-2 shadow-md active:scale-95 w-full sm:w-auto justify-center">
-            <UserPlus size={18} /> Novo Usuário
-          </button>
-        </div>
-      </div>
+      <section className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(59,130,246,0.18),transparent_26%),linear-gradient(135deg,#ffffff_0%,#f8fafc_46%,#eff6ff_100%)] p-5 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_34%),radial-gradient(circle_at_top_right,rgba(59,130,246,0.12),transparent_26%),linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(15,23,42,0.95)_46%,rgba(30,41,59,0.92)_100%)] sm:p-6">
+        <div className="absolute -right-8 top-0 h-40 w-40 rounded-full bg-sky-400/10 blur-3xl" />
+        <div className="absolute -left-6 bottom-0 h-36 w-36 rounded-full bg-blue-500/10 blur-3xl" />
+        <div className="relative space-y-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-3">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-slate-500 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
+                <Briefcase className="h-3.5 w-3.5 text-blue-600" />
+                Operação consultiva
+              </div>
+              <div>
+                <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Área do Consultor</h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">Controle empresas, consultores, usuários e tarefas a partir de uma visão única. O topo resume carga operacional, cobertura do time e foco imediato.</p>
+              </div>
+            </div>
 
-      {/* TABS */}
-      <div className="flex flex-wrap gap-2 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 sm:p-4 rounded-t-xl overflow-x-auto">
-        <button 
-          onClick={() => setActiveTab('empresas')}
-          className={`px-4 py-2 font-bold transition whitespace-nowrap ${activeTab === 'empresas' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
-        >
-          <Building2 size={18} className="inline mr-2" /> Minhas Empresas
-        </button>
-        {isSuperConsultor && (
-          <button 
-            onClick={() => setActiveTab('consultores')}
-            className={`px-4 py-2 font-bold transition whitespace-nowrap ${activeTab === 'consultores' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
-          >
-            <Users size={18} className="inline mr-2" /> Gerenciar Consultores
-          </button>
-        )}
-        {isSuperConsultor && (
-          <button 
-            onClick={() => setActiveTab('usuarios')}
-            className={`px-4 py-2 font-bold transition whitespace-nowrap ${activeTab === 'usuarios' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
-          >
-            <Users size={18} className="inline mr-2" /> Usuários
-          </button>
-        )}
-        <button 
-          onClick={() => setActiveTab('tarefas')}
-          className={`px-4 py-2 font-bold transition whitespace-nowrap ${activeTab === 'tarefas' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
-        >
-          <ClipboardList size={18} className="inline mr-2" /> To-do
-        </button>
+            <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+              <button onClick={handleOpenCreate} className="rounded-2xl bg-emerald-600 px-4 py-3 font-bold text-white transition hover:bg-emerald-700 flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20">
+                <Building2 size={18} /> Nova Empresa
+              </button>
+              <button onClick={() => setShowUserModal(true)} className="rounded-2xl bg-blue-600 px-4 py-3 font-bold text-white transition hover:bg-blue-700 flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20">
+                <UserPlus size={18} /> Novo Usuário
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div className="rounded-2xl border border-white/70 bg-white/75 p-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Modo de acesso</p>
+              <p className="mt-2 text-lg font-black text-slate-900 dark:text-white">{modeLabel}</p>
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Perfil atual: {currentUser?.consultor_role || 'CONSULTOR'}</p>
+            </div>
+            <div className="rounded-2xl border border-white/70 bg-white/75 p-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Empresas ativas</p>
+              <p className="mt-2 text-3xl font-black text-slate-900 dark:text-white">{empresasAtivas}</p>
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">{empresas.length} empresas carregadas na visão atual.</p>
+            </div>
+            <div className="rounded-2xl border border-white/70 bg-white/75 p-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Consultores</p>
+              <p className="mt-2 text-3xl font-black text-slate-900 dark:text-white">{consultores.length}</p>
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">{isSuperConsultor ? 'Rede completa de consultoria carregada.' : 'Visão restrita ao seu escopo atual.'}</p>
+            </div>
+            <div className="rounded-2xl border border-white/70 bg-white/75 p-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Pulso de tarefas</p>
+              <p className="mt-2 text-3xl font-black text-slate-900 dark:text-white">{todoResumo.atrasadas}</p>
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Atrasadas agora. Conclusão: {produtividade.conclusaoPct}% • Usuários ativos: {usuariosAtivos}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="rounded-3xl border border-slate-200 bg-white/90 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
+        <div className="flex flex-wrap gap-2 overflow-x-auto">
+          {tabItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.key;
+            return (
+              <button
+                key={item.key}
+                onClick={() => setActiveTab(item.key)}
+                className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${isActive ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+              >
+                <Icon size={18} /> {item.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* SEARCH */}

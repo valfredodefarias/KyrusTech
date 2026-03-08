@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
   Home, BarChart2, PlusCircle, Users, 
-  Landmark, CreditCard, Settings, Link as LinkIcon, LogOut,
-  Briefcase, Layers, RefreshCw, ClipboardList, X,
+  Landmark, CreditCard, Settings, LogOut,
+  Briefcase, RefreshCw, X,
   ChevronsLeft, ChevronsRight, Sun, Moon
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -71,24 +71,10 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
   const menuItems = [
     { icon: Home, label: 'Visão Geral', path: '/home' },
     { icon: BarChart2, label: 'Dashboard', path: '/dashboard' },
-    
-    // --- CORE (O Principal) ---
     { icon: PlusCircle, label: 'Lançamentos', path: '/lancamentos' },
-    
-    // --- CADASTROS ---
     { icon: Users, label: 'Interessados', path: '/entidades' },
     { icon: Landmark, label: 'Contas Bancárias', path: '/contas' },
     { icon: CreditCard, label: 'Cartões', path: '/cartoes' },
-    { icon: Layers, label: 'Centros de Custo', path: '/centro-custo' },
-
-    // --- TAREFAS ---
-    { icon: ClipboardList, label: 'Tarefas', path: '/tarefas' },
-    
-    { icon: ClipboardList, label: 'Auditoria', path: '/auditoria' },
-    
-    // --- SISTEMA ---
-    { icon: RefreshCw, label: 'Importações', path: '/importacao' },
-    { icon: LinkIcon, label: 'Integrações', path: '/integracoes/asaas' },
     { icon: Settings, label: 'Configurações', path: '/config' },
   ];
 
@@ -132,7 +118,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
   return (
     <>
       {/* --- HEADER DA EMPRESA --- */}
-      <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center min-h-40 text-center gap-3 w-full relative">
+      <div className={`border-b border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center text-center gap-3 w-full relative transition-all duration-300 ${collapsed ? 'min-h-28 px-3 py-4' : 'min-h-40 p-4'}`}>
         {showClose && (
           <button
             onClick={onNavigate}
@@ -145,7 +131,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
         {!showClose && (
           <button
             onClick={onToggleCollapse}
-            className="absolute right-4 top-4 p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+            className={`absolute top-4 p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition ${collapsed ? 'right-1/2 translate-x-1/2' : 'right-4'}`}
             aria-label="Recolher menu"
           >
             {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
@@ -153,7 +139,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
         )}
         
         {/* LOGO EM BOLINHA (CROPADA PERFEITA) */}
-        <div className={`w-16 h-16 ${collapsed ? 'w-12 h-12' : 'w-16 h-16'} rounded-full bg-white dark:bg-slate-700 flex items-center justify-center overflow-hidden border-4 border-slate-100 dark:border-slate-600 shadow-md shrink-0 transition-all`}>
+        <div className={`${collapsed ? 'mt-7 h-12 w-12' : 'h-16 w-16'} rounded-full bg-white dark:bg-slate-700 flex items-center justify-center overflow-hidden border-4 border-slate-100 dark:border-slate-600 shadow-md shrink-0 transition-all duration-300`}>
             {logoSrc ? (
               <img 
                 src={logoSrc} 
@@ -206,21 +192,40 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
             onClick={onNavigate}
             title={collapsed ? item.label : undefined}
             aria-label={item.label}
-            style={({ isActive }) => isActive ? { 
-              backgroundColor: `${primaryColor}15`, // Fundo translúcido da cor primária
-              color: primaryColor,
-              borderRight: `3px solid ${primaryColor}` 
-            } : { borderRight: '3px solid transparent' }}
+            style={({ isActive }) => {
+              if (!isActive) {
+                return collapsed
+                  ? { border: '1px solid transparent' }
+                  : { borderRight: '3px solid transparent' };
+              }
+
+              if (collapsed) {
+                return {
+                  backgroundColor: `${primaryColor}18`,
+                  color: primaryColor,
+                  border: `1px solid ${primaryColor}55`,
+                  boxShadow: `0 0 0 1px ${primaryColor}22 inset`,
+                };
+              }
+
+              return {
+                backgroundColor: `${primaryColor}15`,
+                color: primaryColor,
+                borderRight: `3px solid ${primaryColor}`,
+              };
+            }}
             className={({ isActive }) => `
-              flex items-center ${collapsed ? 'justify-center px-2.5' : 'gap-3 px-4'} py-3 rounded-l-xl transition-all font-medium text-sm group
+              flex items-center ${collapsed ? 'justify-center px-2.5 rounded-2xl' : 'gap-3 px-4 rounded-l-xl'} py-3 transition-all duration-300 font-medium text-sm group
               ${!isActive 
-                ? 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white hover:pl-5' 
+                ? collapsed
+                  ? 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white hover:-translate-y-0.5'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white hover:pl-5'
                 : 'shadow-sm'}
             `}
           >
             <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border transition-all ${collapsed ? 'border-slate-200 bg-slate-50 shadow-sm dark:border-slate-700 dark:bg-slate-900/70' : 'border-transparent'} group-hover:border-slate-200 group-hover:bg-white/80 dark:group-hover:border-slate-600 dark:group-hover:bg-slate-800/80`}>
               <item.icon 
-                  size={collapsed ? 22 : 18} 
+                  size={18} 
                   strokeWidth={2.6} 
                   className={`transition-transform group-hover:scale-110`}
               />
@@ -231,8 +236,8 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
       </nav>
 
       {/* --- FOOTER / SAIR --- */}
-      <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
-        {!collapsed && (
+      <div className={`border-t border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/60 transition-all duration-300 ${collapsed ? 'p-3' : 'p-4'}`}>
+        {!collapsed ? (
           <div className="mb-3 flex items-center gap-3 px-3 py-2 rounded-xl bg-white/80 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
             <div className="w-9 h-9 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
               {userFotoSrc ? (
@@ -248,13 +253,25 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
               <p className="text-[10px] text-slate-400 truncate">{user?.email || ''}</p>
             </div>
           </div>
+        ) : (
+          <div className="mb-3 flex justify-center">
+            <div title={user?.nome || user?.email || 'Usuário'} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/90 text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200">
+              {userFotoSrc ? (
+                <img src={userFotoSrc} alt="Usuário" className="h-full w-full object-cover" />
+              ) : (
+                <span className="text-xs font-bold">
+                  {(user?.nome || user?.email || 'U').substring(0, 2).toUpperCase()}
+                </span>
+              )}
+            </div>
+          </div>
         )}
         <button
           onClick={onToggleTheme}
           title={collapsed ? (theme === 'dark' ? 'Tema Claro' : 'Tema Escuro') : undefined}
           className={`flex items-center gap-3 px-4 py-3 w-full text-left text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors font-bold text-sm mb-2 ${collapsed ? 'justify-center px-3' : ''}`}
         >
-          {theme === 'dark' ? <Sun size={collapsed ? 21 : 18} strokeWidth={2.5} /> : <Moon size={collapsed ? 21 : 18} strokeWidth={2.5} />}
+          {theme === 'dark' ? <Sun size={18} strokeWidth={2.5} /> : <Moon size={18} strokeWidth={2.5} />}
           {!collapsed && (theme === 'dark' ? 'Tema Claro' : 'Tema Escuro')}
         </button>
         <button 
@@ -263,7 +280,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
             title={collapsed ? 'Sincronizar Cadastros' : undefined}
             className={`flex items-center gap-3 px-4 py-3 w-full text-left text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors font-bold text-sm mb-2 disabled:opacity-50 ${collapsed ? 'justify-center px-3' : ''}`}
         >
-          <RefreshCw size={collapsed ? 21 : 18} strokeWidth={2.5} className={syncing ? 'animate-spin' : ''} />
+          <RefreshCw size={18} strokeWidth={2.5} className={syncing ? 'animate-spin' : ''} />
           {!collapsed && 'Sincronizar Cadastros'}
         </button>
         <button 
@@ -271,7 +288,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
             title={collapsed ? 'Sair do Sistema' : undefined}
             className={`flex items-center gap-3 px-4 py-3 w-full text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors font-bold text-sm ${collapsed ? 'justify-center px-3' : ''}`}
         >
-          <LogOut size={collapsed ? 21 : 18} strokeWidth={2.5} /> 
+          <LogOut size={18} strokeWidth={2.5} /> 
           {!collapsed && 'Sair do Sistema'}
         </button>
       </div>
@@ -281,7 +298,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
 
 export function Sidebar({ collapsed, onToggleCollapse, onMouseEnter, onMouseLeave, theme, onToggleTheme }: { collapsed: boolean; onToggleCollapse: () => void; onMouseEnter?: () => void; onMouseLeave?: () => void; theme: 'dark' | 'light'; onToggleTheme: () => void; }) {
   return (
-    <aside onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className={`${collapsed ? 'w-20' : 'w-64'} bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 hidden md:flex flex-col h-screen sticky top-0 transition-all duration-300 z-30 shadow-sm`}> 
+    <aside onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className={`${collapsed ? 'w-24' : 'w-64'} bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] dark:bg-[linear-gradient(180deg,#0f172a_0%,#111c34_100%)] border-r border-slate-200/80 dark:border-slate-700 hidden md:flex flex-col h-screen sticky top-0 transition-all duration-300 z-30 shadow-sm overflow-hidden`}> 
       <SidebarPanel collapsed={collapsed} onToggleCollapse={onToggleCollapse} theme={theme} onToggleTheme={onToggleTheme} />
     </aside>
   );

@@ -49,6 +49,6 @@ class Empresa(AuditMixin, SQLModel, table=True):
     integracoes_bancarias: List["IntegracaoBancaria"] = Relationship(back_populates="empresa")
     dashboard_view_config: Optional["DashboardViewConfig"] = Relationship(
         back_populates="empresa",
-        sa_relationship_kwargs=dict(uselist=False, lazy="selectin", cascade="all, delete-orphan")
+        sa_relationship_kwargs=dict(uselist=False, cascade="all, delete-orphan")
     )
     # anexo_lancamento não precisa de back_populates direto aqui geralmente, mas pode ter se necessário

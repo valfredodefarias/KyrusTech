@@ -74,8 +74,15 @@ type KpiMeaningKey =
   | 'MAIOR_PRESSAO'
   | 'MAIOR_MOTOR_RECEITA';
 
+type KpiTooltipState = {
+  key: KpiMeaningKey;
+  x: number;
+  y: number;
+};
+
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-const INTERACTIVE_PANEL_CLASS = 'group relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-800 dark:hover:shadow-black/20';
+const INTERACTIVE_PANEL_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.1),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
+const DASHBOARD_SECTION_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.96))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
 const FINANCE_DRILLDOWN_LABELS: Record<Exclude<FinanceDrilldown, null>, string> = {
   PAGAR_HOJE: 'Contas a pagar hoje',
   PAGAR_AMANHA: 'Contas a pagar amanha',
@@ -254,7 +261,7 @@ export function Dashboard() {
   const [selectedConta, setSelectedConta] = useState<number | null>(null);
   const [analysisQuery, setAnalysisQuery] = useState('');
   const [financeDrilldown, setFinanceDrilldown] = useState<FinanceDrilldown>(null);
-  const [visibleKpiMeaning, setVisibleKpiMeaning] = useState<KpiMeaningKey | null>(null);
+  const [visibleKpiMeaning, setVisibleKpiMeaning] = useState<KpiTooltipState | null>(null);
   const hoverTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -343,12 +350,16 @@ export function Dashboard() {
     setFinanceDrilldown((prev) => prev === next ? null : next);
   };
 
-  const scheduleKpiMeaning = (key: KpiMeaningKey) => {
+  const scheduleKpiMeaning = (key: KpiMeaningKey, element: HTMLElement) => {
     if (hoverTimerRef.current) {
       window.clearTimeout(hoverTimerRef.current);
     }
+    const rect = element.getBoundingClientRect();
+    const tooltipWidth = Math.min(360, Math.max(280, rect.width));
+    const x = Math.min(window.innerWidth - tooltipWidth - 20, Math.max(20, rect.left));
+    const y = Math.min(window.innerHeight - 140, rect.bottom + 14);
     hoverTimerRef.current = window.setTimeout(() => {
-      setVisibleKpiMeaning(key);
+      setVisibleKpiMeaning({ key, x, y });
     }, 650);
   };
 
@@ -1364,6 +1375,22 @@ export function Dashboard() {
     };
   }, [resultadoMensalAno.values, kpis.saldo]);
 
+  const resultadoAcumuladoSnapshot = useMemo(() => {
+    if (!resultadoAcumulado.values.length) {
+      return { final: 0, pico: 0, vale: 0, amplitude: 0 };
+    }
+
+    const final = resultadoAcumulado.values[resultadoAcumulado.values.length - 1] || 0;
+    const pico = Math.max(...resultadoAcumulado.values);
+    const vale = Math.min(...resultadoAcumulado.values);
+    return {
+      final,
+      pico,
+      vale,
+      amplitude: pico - vale,
+    };
+  }, [resultadoAcumulado.values]);
+
   const assistenteConfig = useMemo(() => ({
     tela: 'dashboard' as const,
     titulo: 'Assistente KyrusTECH',
@@ -1691,19 +1718,12 @@ export function Dashboard() {
                   <div
                     key={sinal.key}
                     className="relative rounded-2xl border border-white/70 bg-white/70 p-4 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/40"
-                    onMouseEnter={() => scheduleKpiMeaning(sinal.key)}
+                    onMouseEnter={(event) => scheduleKpiMeaning(sinal.key, event.currentTarget)}
                     onMouseLeave={hideKpiMeaning}
                   >
                     <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{sinal.titulo}</p>
                     <p className={`mt-3 text-2xl font-black ${sinal.destaque}`}>{sinal.valor}</p>
                     <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">{sinal.apoio}</p>
-                    {visibleKpiMeaning === sinal.key && (
-                      <div className="pointer-events-none absolute inset-x-4 top-full z-20 mt-3 rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-left shadow-2xl shadow-slate-950/20 dark:border-slate-700">
-                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">{KPI_MEANINGS[sinal.key].titulo}</p>
-                        <p className="mt-2 text-sm font-semibold text-white">{KPI_MEANINGS[sinal.key].significado}</p>
-                        <p className="mt-1 text-xs leading-5 text-slate-300">{KPI_MEANINGS[sinal.key].utilidade}</p>
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
@@ -1723,7 +1743,7 @@ export function Dashboard() {
                     <div
                       key={sinal.key}
                       className="relative rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 dark:border-slate-700 dark:bg-slate-950/40"
-                      onMouseEnter={() => scheduleKpiMeaning(sinal.key)}
+                      onMouseEnter={(event) => scheduleKpiMeaning(sinal.key, event.currentTarget)}
                       onMouseLeave={hideKpiMeaning}
                     >
                       <div className="flex items-center justify-between gap-3">
@@ -1731,13 +1751,6 @@ export function Dashboard() {
                         <span className={`text-sm font-black ${sinal.destaque}`}>{sinal.valor}</span>
                       </div>
                       <p className="mt-1 text-xs text-slate-500 dark:text-slate-300">{sinal.apoio}</p>
-                      {visibleKpiMeaning === sinal.key && (
-                        <div className="pointer-events-none absolute inset-x-0 top-full z-20 mt-3 rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-left shadow-2xl shadow-slate-950/20 dark:border-slate-700">
-                          <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">{KPI_MEANINGS[sinal.key].titulo}</p>
-                          <p className="mt-2 text-sm font-semibold text-white">{KPI_MEANINGS[sinal.key].significado}</p>
-                          <p className="mt-1 text-xs leading-5 text-slate-300">{KPI_MEANINGS[sinal.key].utilidade}</p>
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
@@ -1840,9 +1853,9 @@ export function Dashboard() {
               key={card.key}
               type="button"
               onClick={card.onClick}
-              onMouseEnter={() => scheduleKpiMeaning(card.key)}
+              onMouseEnter={(event) => scheduleKpiMeaning(card.key, event.currentTarget)}
               onMouseLeave={hideKpiMeaning}
-              onFocus={() => scheduleKpiMeaning(card.key)}
+              onFocus={(event) => scheduleKpiMeaning(card.key, event.currentTarget)}
               onBlur={hideKpiMeaning}
               className={`relative rounded-2xl border p-5 text-left shadow-sm backdrop-blur transition duration-300 hover:-translate-y-1 hover:shadow-lg ${card.active ? card.activeClass : 'border-slate-200 bg-white/80 dark:border-slate-700 dark:bg-slate-800'}`}
             >
@@ -1856,13 +1869,6 @@ export function Dashboard() {
                 </div>
               </div>
               <p className="mt-3 text-xs font-semibold text-slate-400">Clique para cruzar o dashboard por este KPI</p>
-              {visibleKpiMeaning === card.key && (
-                <div className="pointer-events-none absolute inset-x-4 top-full z-20 mt-3 rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-left shadow-2xl shadow-slate-950/20 dark:border-slate-700">
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">{KPI_MEANINGS[card.key].titulo}</p>
-                  <p className="mt-2 text-sm font-semibold text-white">{KPI_MEANINGS[card.key].significado}</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-300">{KPI_MEANINGS[card.key].utilidade}</p>
-                </div>
-              )}
             </button>
           ))}
         </div>
@@ -2203,7 +2209,7 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">
                 {periodoTipo === 'ANO' ? 'Fluxo de Caixa Mensal' : 'Fluxo de Caixa Diário'}
@@ -2215,7 +2221,7 @@ export function Dashboard() {
             <ReactApexChart type="area" height={320} series={chartFluxo.series} options={chartFluxo.options} />
           </div>
 
-          <div className={INTERACTIVE_PANEL_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Despesas por Categoria</h3>
               <span className="text-xs text-slate-400">Clique para filtrar</span>
@@ -2231,7 +2237,7 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={INTERACTIVE_PANEL_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas por Categoria</h3>
               <span className="text-xs text-slate-400">Clique para filtrar</span>
@@ -2244,7 +2250,7 @@ export function Dashboard() {
               <ReactApexChart type="donut" height={320} series={chartReceitasCategorias.series} options={chartReceitasCategorias.options} />
             )}
           </div>
-          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Acumulado: Receitas x Despesas</h3>
               <span className="text-xs text-slate-400">Evolução no período</span>
@@ -2254,7 +2260,7 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Operacional ({resultadoMensalAno.year})</h3>
               <span className="text-xs text-slate-400">Jan → Dez</span>
@@ -2267,23 +2273,23 @@ export function Dashboard() {
               <ReactApexChart type="bar" height={320} series={chartResultadoOperacional.series} options={chartResultadoOperacional.options} />
             )}
           </div>
-          <div className={INTERACTIVE_PANEL_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Resumo Operacional</h3>
               <span className="text-xs text-slate-400">Média mensal</span>
             </div>
             <div className="space-y-3">
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 dark:border-emerald-900/40 dark:bg-emerald-500/10">
                 <p className="text-xs text-slate-400">Média por mês</p>
                 <p className={`text-lg font-bold ${mediaResultado >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{BRL.format(mediaResultado)}</p>
               </div>
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="rounded-2xl border border-sky-100 bg-sky-50/80 p-4 dark:border-sky-900/40 dark:bg-sky-500/10">
                 <p className="text-xs text-slate-400">Melhor cenário</p>
                 <p className="text-lg font-bold text-emerald-600">
                   {resultadoMensal.values.length ? BRL.format(Math.max(...resultadoMensal.values)) : '—'}
                 </p>
               </div>
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 dark:border-rose-900/40 dark:bg-rose-500/10">
                 <p className="text-xs text-slate-400">Pior cenário</p>
                 <p className="text-lg font-bold text-red-500">
                   {resultadoMensal.values.length ? BRL.format(Math.min(...resultadoMensal.values)) : '—'}
@@ -2294,14 +2300,14 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas x Despesas ({resultadoMensalAno.year})</h3>
               <span className="text-xs text-slate-400">Comparativo anual</span>
             </div>
             <ReactApexChart type="bar" height={320} series={chartReceitasDespesasAno.series} options={chartReceitasDespesasAno.options} />
           </div>
-          <div className={INTERACTIVE_PANEL_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Margem Operacional</h3>
               <span className="text-xs text-slate-400">% mês a mês</span>
@@ -2311,14 +2317,14 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Comparativo Ano a Ano</h3>
               <span className="text-xs text-slate-400">{resultadoMensalAnoAnterior.year} vs {resultadoMensalAno.year}</span>
             </div>
             <ReactApexChart type="line" height={280} series={chartComparativoAno.series} options={chartComparativoAno.options} />
           </div>
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={DASHBOARD_SECTION_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Sazonalidade</h3>
               <span className="text-xs text-slate-400">Índice mensal</span>
@@ -2328,27 +2334,27 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className={DASHBOARD_SECTION_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Cenários</h3>
               <span className="text-xs text-slate-400">Baseado na volatilidade</span>
             </div>
             <div className="space-y-3">
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 dark:border-rose-900/40 dark:bg-rose-500/10">
                 <p className="text-xs text-slate-400">Pessimista</p>
                 <p className="text-lg font-bold text-red-500">{BRL.format(cenarios.pessimista)}</p>
               </div>
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/50">
                 <p className="text-xs text-slate-400">Realista</p>
                 <p className="text-lg font-bold text-slate-800 dark:text-white">{BRL.format(cenarios.realista)}</p>
               </div>
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 dark:border-emerald-900/40 dark:bg-emerald-500/10">
                 <p className="text-xs text-slate-400">Otimista</p>
                 <p className="text-lg font-bold text-emerald-600">{BRL.format(cenarios.otimista)}</p>
               </div>
             </div>
           </div>
-          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Acumulado</h3>
               <span className="text-xs text-slate-400">Evolução do caixa</span>
@@ -2358,14 +2364,31 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="lg:col-span-2 relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.1),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.96))] p-6 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))]">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Acumulado</h3>
-              <span className="text-xs text-slate-400">Evolução do caixa</span>
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Pulso do Acumulado</h3>
+              <span className="text-xs text-slate-400">Resumo instantâneo do caixa</span>
             </div>
-            <ReactApexChart type="line" height={280} series={chartResultadoAcumulado.series} options={chartResultadoAcumulado.options} />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <div className="rounded-2xl border border-slate-200 bg-white/85 p-4 dark:border-slate-700 dark:bg-slate-900/50">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Fechamento</p>
+                <p className={`mt-3 text-xl font-black ${resultadoAcumuladoSnapshot.final >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{BRL.format(resultadoAcumuladoSnapshot.final)}</p>
+              </div>
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 dark:border-emerald-900/40 dark:bg-emerald-500/10">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Pico</p>
+                <p className="mt-3 text-xl font-black text-emerald-600">{BRL.format(resultadoAcumuladoSnapshot.pico)}</p>
+              </div>
+              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 dark:border-rose-900/40 dark:bg-rose-500/10">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Vale</p>
+                <p className="mt-3 text-xl font-black text-rose-500">{BRL.format(resultadoAcumuladoSnapshot.vale)}</p>
+              </div>
+              <div className="rounded-2xl border border-sky-100 bg-sky-50/80 p-4 dark:border-sky-900/40 dark:bg-sky-500/10">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Amplitude</p>
+                <p className="mt-3 text-xl font-black text-sky-600">{BRL.format(resultadoAcumuladoSnapshot.amplitude)}</p>
+              </div>
+            </div>
           </div>
-          <div className={INTERACTIVE_PANEL_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Distribuição por Status</h3>
               <span className="text-xs text-slate-400">Valor por status</span>
@@ -2375,7 +2398,7 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={INTERACTIVE_PANEL_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Despesas por Centro</h3>
               <span className="text-xs text-slate-400">Clique para filtrar</span>
@@ -2383,7 +2406,7 @@ export function Dashboard() {
             <ReactApexChart type="bar" height={320} series={chartCentros.series} options={chartCentros.options} />
           </div>
 
-          <div className={`lg:col-span-2 ${INTERACTIVE_PANEL_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Últimos Lançamentos</h3>
               <div className="flex items-center gap-2">
@@ -2653,6 +2676,17 @@ export function Dashboard() {
           </div>
         )}
       </div>
+
+      {visibleKpiMeaning && (
+        <div
+          className="pointer-events-none fixed z-120 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-left shadow-2xl shadow-slate-950/30 dark:border-slate-700"
+          style={{ left: visibleKpiMeaning.x, top: visibleKpiMeaning.y }}
+        >
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">{KPI_MEANINGS[visibleKpiMeaning.key].titulo}</p>
+          <p className="mt-2 text-sm font-semibold text-white">{KPI_MEANINGS[visibleKpiMeaning.key].significado}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-300">{KPI_MEANINGS[visibleKpiMeaning.key].utilidade}</p>
+        </div>
+      )}
     </div>
   );
 }

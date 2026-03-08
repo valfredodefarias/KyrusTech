@@ -879,6 +879,14 @@ export function Dashboard() {
   const receitasTreemapData = useMemo(() => receitasPorCategoria.map(r => ({ x: r.label, y: r.total })), [receitasPorCategoria]);
   const totalDespesasTreemap = useMemo(() => despesasTreemapData.reduce((acc, item) => acc + item.y, 0), [despesasTreemapData]);
   const totalReceitasTreemap = useMemo(() => receitasTreemapData.reduce((acc, item) => acc + item.y, 0), [receitasTreemapData]);
+  const despesasCategoriaResumo = useMemo(() => despesasPorCategoria.map((item) => ({
+    ...item,
+    percentual: totalDespesasTreemap > 0 ? (item.total / totalDespesasTreemap) * 100 : 0,
+  })), [despesasPorCategoria, totalDespesasTreemap]);
+  const receitasCategoriaResumo = useMemo(() => receitasPorCategoria.map((item) => ({
+    ...item,
+    percentual: totalReceitasTreemap > 0 ? (item.total / totalReceitasTreemap) * 100 : 0,
+  })), [receitasPorCategoria, totalReceitasTreemap]);
 
   const despesasPorCentro = useMemo(() => {
     const map = new Map<number, number>();
@@ -2487,6 +2495,28 @@ export function Dashboard() {
             ) : (
               <AsyncApexChart type="treemap" height={420} series={chartCategorias.series} options={chartCategorias.options} />
             )}
+            {despesasCategoriaResumo.length > 0 && (
+              <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {despesasCategoriaResumo.map((item) => (
+                  <button
+                    key={`despesa-resumo-${item.id}`}
+                    type="button"
+                    onClick={() => {
+                      if (item.id === -1) return;
+                      setSelectedCategorias((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+                        return next;
+                      });
+                    }}
+                    className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-left transition ${item.id !== -1 && selectedCategorias.has(item.id) ? 'border-rose-300 bg-rose-50 dark:border-rose-500/60 dark:bg-rose-500/10' : 'border-slate-200 bg-white/70 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30 dark:hover:bg-slate-800/50'}`}
+                  >
+                    <span className="min-w-0 pr-3 text-sm font-semibold text-slate-700 dark:text-slate-100 truncate">{item.label}</span>
+                    <span className="shrink-0 text-xs font-black text-slate-500 dark:text-slate-300">{item.percentual.toFixed(1)}%</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <p className="mt-3 text-xs text-slate-400">{includeNaoOperacionaisCategorias ? 'Visualização ampliada: categorias não operacionais entram apenas neste treemap para comparação visual, sem alterar os KPIs operacionais do dashboard.' : 'Categorias não operacionais continuam visíveis nos lançamentos e no consolidado, mas ficam fora desta leitura operacional.'}</p>
           </div>
         </div>
@@ -2503,6 +2533,28 @@ export function Dashboard() {
               </div>
             ) : (
               <AsyncApexChart type="treemap" height={320} series={chartReceitasCategorias.series} options={chartReceitasCategorias.options} />
+            )}
+            {receitasCategoriaResumo.length > 0 && (
+              <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {receitasCategoriaResumo.map((item) => (
+                  <button
+                    key={`receita-resumo-${item.id}`}
+                    type="button"
+                    onClick={() => {
+                      if (item.id === -1) return;
+                      setSelectedCategorias((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+                        return next;
+                      });
+                    }}
+                    className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-left transition ${item.id !== -1 && selectedCategorias.has(item.id) ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-500/60 dark:bg-emerald-500/10' : 'border-slate-200 bg-white/70 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30 dark:hover:bg-slate-800/50'}`}
+                  >
+                    <span className="min-w-0 pr-3 text-sm font-semibold text-slate-700 dark:text-slate-100 truncate">{item.label}</span>
+                    <span className="shrink-0 text-xs font-black text-slate-500 dark:text-slate-300">{item.percentual.toFixed(1)}%</span>
+                  </button>
+                ))}
+              </div>
             )}
             <p className="mt-3 text-xs text-slate-400">{includeNaoOperacionaisCategorias ? 'Ao incluir não operacionais, este painel vira uma visão comparativa ampliada por categoria.' : 'O maior motor de receita agora considera apenas categorias operacionais marcadas para resultado.'}</p>
           </div>

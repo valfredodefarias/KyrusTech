@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import GridLayout, { type Layout, type LayoutItem } from 'react-grid-layout';
+import { useEffect, useMemo, useRef, useState, type Ref } from 'react';
+import GridLayout, { type Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { api } from '../services/api';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { AsyncApexChart } from '../components/AsyncApexChart';
-import { DashboardViewManager } from '../components/DashboardViewManager';
 import {
   TrendingUp, TrendingDown, Wallet, RefreshCw, Filter,
   CalendarRange, Layers, Building2, List, X, Landmark,
-  Sparkles, Download, Search, Activity, Settings2
+  Sparkles, Download, Search, Activity, Settings2,
+  LayoutGrid, Plus, Pencil, Trash2, Eye, EyeOff, GripVertical
 } from 'lucide-react';
 
 interface Lancamento {
@@ -103,7 +103,7 @@ type KpiTooltipState = {
   key: DashboardHelpKey;
 };
 
-type DashboardWidgetId =
+type DashboardBuiltInWidgetId =
   | 'heatmap_calendar'
   | 'executive_readings'
   | 'productivity'
@@ -132,6 +132,37 @@ type DashboardWidgetId =
   | 'base_analitica'
   | 'lancamentos_dia';
 
+type DashboardWidgetId = string;
+
+type DashboardCustomWidgetKind = 'kpi' | 'chart';
+type DashboardCustomAggregation = 'sum' | 'avg' | 'count';
+type DashboardCustomMetricField = 'valor_previsto' | 'valor_pago' | 'count';
+type DashboardCustomChartType = 'bar' | 'line' | 'donut';
+type DashboardCustomGroupBy = 'categoria' | 'centro_custo' | 'conta' | 'status' | 'tipo' | 'competencia' | 'mes' | 'dia';
+type DashboardCustomScope = 'todos' | 'receitas' | 'despesas';
+type DashboardCustomFormulaId = 'saldo' | 'margem_percentual' | 'cobertura_pagamentos' | 'ticket_medio';
+
+interface DashboardCustomWidgetDefinition {
+  kind: DashboardCustomWidgetKind;
+  title: string;
+  description?: string;
+  metricField: DashboardCustomMetricField;
+  aggregation: DashboardCustomAggregation;
+  scope: DashboardCustomScope;
+  chartType?: DashboardCustomChartType;
+  groupBy?: DashboardCustomGroupBy;
+  limit?: number;
+  color?: string;
+  formula?: DashboardCustomFormulaId | null;
+}
+
+interface DashboardCustomWidgetTemplate {
+  id: string;
+  label: string;
+  description: string;
+  definition: DashboardCustomWidgetDefinition;
+}
+
 type DashboardWidgetSize = 'sm' | 'md' | 'lg' | 'full';
 type DashboardGridLayout = Layout;
 
@@ -139,6 +170,9 @@ interface DashboardWidgetConfig {
   id: DashboardWidgetId;
   visible: boolean;
   size: DashboardWidgetSize;
+  autoWidth?: boolean;
+  autoHeight?: boolean;
+  customDefinition?: DashboardCustomWidgetDefinition | null;
   x?: number;
   y?: number;
   w?: number;
@@ -163,14 +197,104 @@ const DASHBOARD_ACTIVE_VIEW_STORAGE_KEY_PREFIX = 'kyrus-dashboard-active-view-v1
 const DASHBOARD_GRID_COLUMNS = 12;
 const DASHBOARD_GRID_ROW_HEIGHT = 92;
 
+const DEFAULT_CUSTOM_WIDGET_DEFINITION: DashboardCustomWidgetDefinition = {
+  kind: 'kpi',
+  title: 'Novo KPI',
+  description: '',
+  metricField: 'valor_previsto',
+  aggregation: 'sum',
+  scope: 'todos',
+  chartType: 'bar',
+  groupBy: 'categoria',
+  limit: 8,
+  color: '#0ea5e9',
+  formula: null,
+};
+
+const DASHBOARD_CUSTOM_FORMULA_LABELS: Record<DashboardCustomFormulaId, string> = {
+  saldo: 'Saldo',
+  margem_percentual: 'Margem %',
+  cobertura_pagamentos: 'Cobertura de pagamentos %',
+  ticket_medio: 'Ticket médio',
+};
+
+const DASHBOARD_CUSTOM_METRIC_LABELS: Record<DashboardCustomMetricField, string> = {
+  valor_previsto: 'Valor previsto',
+  valor_pago: 'Valor pago',
+  count: 'Quantidade de lançamentos',
+};
+
+const DASHBOARD_CUSTOM_WIDGET_TEMPLATES: DashboardCustomWidgetTemplate[] = [
+  {
+    id: 'saldo-geral',
+    label: 'Saldo geral',
+    description: 'Receitas menos despesas no recorte atual.',
+    definition: {
+      ...DEFAULT_CUSTOM_WIDGET_DEFINITION,
+      kind: 'kpi',
+      title: 'Saldo geral',
+      description: 'Resultado do recorte filtrado.',
+      scope: 'todos',
+      color: '#0f766e',
+      formula: 'saldo',
+    },
+  },
+  {
+    id: 'margem-centro',
+    label: 'Margem por centro',
+    description: 'Margem percentual por centro de custo.',
+    definition: {
+      ...DEFAULT_CUSTOM_WIDGET_DEFINITION,
+      kind: 'chart',
+      title: 'Margem por centro',
+      description: 'Margem percentual agrupada por centro de custo.',
+      chartType: 'bar',
+      groupBy: 'centro_custo',
+      color: '#7c3aed',
+      formula: 'margem_percentual',
+    },
+  },
+  {
+    id: 'receita-categoria',
+    label: 'Receita por categoria',
+    description: 'Top categorias de receita.',
+    definition: {
+      ...DEFAULT_CUSTOM_WIDGET_DEFINITION,
+      kind: 'chart',
+      title: 'Receita por categoria',
+      description: 'Soma do valor previsto por categoria.',
+      scope: 'receitas',
+      chartType: 'donut',
+      groupBy: 'categoria',
+      color: '#16a34a',
+      formula: null,
+    },
+  },
+  {
+    id: 'ticket-medio-mes',
+    label: 'Ticket médio por mês',
+    description: 'Valor médio por lançamento ao longo do tempo.',
+    definition: {
+      ...DEFAULT_CUSTOM_WIDGET_DEFINITION,
+      kind: 'chart',
+      title: 'Ticket médio por mês',
+      description: 'Média por lançamento agrupada por mês.',
+      chartType: 'line',
+      groupBy: 'mes',
+      color: '#ea580c',
+      formula: 'ticket_medio',
+    },
+  },
+];
+
 const DEFAULT_DASHBOARD_WIDGETS: DashboardWidgetConfig[] = [
   { id: 'heatmap_calendar', visible: true, size: 'lg' },
   { id: 'executive_readings', visible: true, size: 'sm' },
   { id: 'productivity', visible: true, size: 'full' },
   { id: 'contas_pagar', visible: true, size: 'md' },
   { id: 'contas_receber', visible: true, size: 'md' },
-  { id: 'lancamentos_pagar', visible: true, size: 'lg' },
-  { id: 'lancamentos_receber', visible: true, size: 'lg' },
+  { id: 'lancamentos_pagar', visible: true, size: 'lg', autoHeight: true, autoWidth: true },
+  { id: 'lancamentos_receber', visible: true, size: 'lg', autoHeight: true, autoWidth: true },
   { id: 'fluxo', visible: true, size: 'full' },
   { id: 'despesas_categoria', visible: true, size: 'full' },
   { id: 'receitas_categoria', visible: true, size: 'sm' },
@@ -186,14 +310,14 @@ const DEFAULT_DASHBOARD_WIDGETS: DashboardWidgetConfig[] = [
   { id: 'pulso_acumulado', visible: true, size: 'lg' },
   { id: 'status', visible: true, size: 'sm' },
   { id: 'despesas_centro', visible: true, size: 'sm' },
-  { id: 'ultimos_lancamentos', visible: true, size: 'lg' },
-  { id: 'gastos_categoria_lista', visible: true, size: 'sm' },
-  { id: 'lancamentos_categoria', visible: true, size: 'lg' },
-  { id: 'base_analitica', visible: true, size: 'full' },
-  { id: 'lancamentos_dia', visible: true, size: 'full' },
+  { id: 'ultimos_lancamentos', visible: true, size: 'lg', autoHeight: true, autoWidth: true },
+  { id: 'gastos_categoria_lista', visible: true, size: 'sm', autoHeight: true },
+  { id: 'lancamentos_categoria', visible: true, size: 'lg', autoHeight: true, autoWidth: true },
+  { id: 'base_analitica', visible: true, size: 'full', autoHeight: true, autoWidth: true },
+  { id: 'lancamentos_dia', visible: true, size: 'full', autoHeight: true, autoWidth: true },
 ];
 
-const DASHBOARD_WIDGET_HEIGHTS: Record<DashboardWidgetId, number> = {
+const DASHBOARD_WIDGET_HEIGHTS: Record<string, number> = {
   heatmap_calendar: 5,
   executive_readings: 4,
   productivity: 4,
@@ -223,7 +347,7 @@ const DASHBOARD_WIDGET_HEIGHTS: Record<DashboardWidgetId, number> = {
   lancamentos_dia: 4,
 };
 
-const DASHBOARD_WIDGET_LABELS: Record<DashboardWidgetId, string> = {
+const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   heatmap_calendar: 'Heatmap por dia',
   executive_readings: 'Leituras executivas',
   productivity: 'Produtividade',
@@ -261,6 +385,41 @@ function createDefaultDashboardView(): DashboardView {
   };
 }
 
+function normalizeCustomWidgetDefinition(definition?: DashboardCustomWidgetDefinition | null): DashboardCustomWidgetDefinition | null {
+  if (!definition) return null;
+
+  return {
+    ...DEFAULT_CUSTOM_WIDGET_DEFINITION,
+    ...definition,
+    title: String(definition.title || DEFAULT_CUSTOM_WIDGET_DEFINITION.title),
+    description: String(definition.description || ''),
+    limit: Math.max(3, Math.min(20, Number(definition.limit || DEFAULT_CUSTOM_WIDGET_DEFINITION.limit || 8))),
+    formula: definition.formula ?? DEFAULT_CUSTOM_WIDGET_DEFINITION.formula,
+  };
+}
+
+function getCustomWidgetFormulaLabel(formula?: DashboardCustomFormulaId | null) {
+  return formula ? DASHBOARD_CUSTOM_FORMULA_LABELS[formula] : null;
+}
+
+function getCustomMetricLabel(definition: DashboardCustomWidgetDefinition) {
+  return getCustomWidgetFormulaLabel(definition.formula) || DASHBOARD_CUSTOM_METRIC_LABELS[definition.metricField];
+}
+
+function resolveCustomWidgetTitle(kind: DashboardCustomWidgetKind) {
+  return kind === 'kpi' ? 'Novo KPI' : 'Novo gráfico';
+}
+
+function getWidgetDefaultHeight(widget: DashboardWidgetConfig) {
+  if (widget.customDefinition?.kind === 'kpi') return 4;
+  if (widget.customDefinition?.kind === 'chart') return 6;
+  return DASHBOARD_WIDGET_HEIGHTS[widget.id as DashboardBuiltInWidgetId] ?? 4;
+}
+
+function getWidgetLabel(widget: DashboardWidgetConfig) {
+  return widget.customDefinition?.title || DASHBOARD_WIDGET_LABELS[widget.id as DashboardBuiltInWidgetId] || widget.id;
+}
+
 function getWidgetWidthFromSize(size: DashboardWidgetSize) {
   if (size === 'full') return 12;
   if (size === 'lg') return 8;
@@ -282,7 +441,7 @@ function buildSequentialWidgetLayout(widgets: DashboardWidgetConfig[]) {
 
   return widgets.map((widget) => {
     const width = Math.min(DASHBOARD_GRID_COLUMNS, widget.w ?? getWidgetWidthFromSize(widget.size));
-    const height = Math.max(3, widget.h ?? DASHBOARD_WIDGET_HEIGHTS[widget.id]);
+    const height = Math.max(3, widget.h ?? getWidgetDefaultHeight(widget));
 
     if (x + width > DASHBOARD_GRID_COLUMNS) {
       x = 0;
@@ -313,20 +472,36 @@ function buildSequentialWidgetLayout(widgets: DashboardWidgetConfig[]) {
 
 function normalizeDashboardWidgets(widgets?: DashboardWidgetConfig[]) {
   const incoming = new Map((widgets || []).map((widget) => [widget.id, widget] as const));
-  return buildSequentialWidgetLayout(DEFAULT_DASHBOARD_WIDGETS.map((widget) => {
+  const normalizedDefaults = DEFAULT_DASHBOARD_WIDGETS.map((widget) => {
     const current = incoming.get(widget.id);
     return current
       ? {
         ...widget,
         visible: current.visible,
         size: current.size,
+        autoWidth: current.autoWidth,
+        autoHeight: current.autoHeight,
+        customDefinition: normalizeCustomWidgetDefinition(current.customDefinition),
         x: current.x,
         y: current.y,
         w: current.w,
         h: current.h,
       }
       : { ...widget };
-  }));
+  });
+
+  const normalizedCustom = (widgets || [])
+    .filter((widget) => !DEFAULT_DASHBOARD_WIDGETS.some((defaultWidget) => defaultWidget.id === widget.id))
+    .map((widget) => ({
+      ...widget,
+      visible: widget.visible !== false,
+      size: widget.size || 'lg',
+      autoWidth: widget.autoWidth ?? (widget.customDefinition?.kind === 'chart'),
+      autoHeight: widget.autoHeight ?? true,
+      customDefinition: normalizeCustomWidgetDefinition(widget.customDefinition),
+    }));
+
+  return buildSequentialWidgetLayout([...normalizedDefaults, ...normalizedCustom]);
 }
 
 function normalizeDashboardViews(views?: DashboardView[]) {
@@ -345,17 +520,6 @@ function getDashboardActiveViewStorageKey(empresaId?: number | null) {
   return `${DASHBOARD_ACTIVE_VIEW_STORAGE_KEY_PREFIX}-${empresaId || 'unknown'}`;
 }
 
-function toGridLayout(widget: DashboardWidgetConfig): LayoutItem {
-  return {
-    i: widget.id,
-    x: widget.x ?? 0,
-    y: widget.y ?? 0,
-    w: Math.max(2, Math.min(DASHBOARD_GRID_COLUMNS, widget.w ?? getWidgetWidthFromSize(widget.size))),
-    h: Math.max(3, widget.h ?? DASHBOARD_WIDGET_HEIGHTS[widget.id]),
-    minW: 2,
-    minH: 3,
-  };
-}
 const FINANCE_DRILLDOWN_LABELS: Record<Exclude<FinanceDrilldown, null>, string> = {
   PAGAR_HOJE: 'Contas a pagar hoje',
   PAGAR_AMANHA: 'Contas a pagar amanha',
@@ -689,6 +853,9 @@ export function Dashboard() {
   const [activeDashboardViewId, setActiveDashboardViewId] = useState('default');
   const [dashboardEditMode, setDashboardEditMode] = useState(false);
   const [dashboardGridWidth, setDashboardGridWidth] = useState(1200);
+  const [customWidgetDraft, setCustomWidgetDraft] = useState<DashboardCustomWidgetDefinition>(DEFAULT_CUSTOM_WIDGET_DEFINITION);
+  const [customWidgetModalOpen, setCustomWidgetModalOpen] = useState(false);
+  const [editingCustomWidgetId, setEditingCustomWidgetId] = useState<DashboardWidgetId | null>(null);
   const hoverTimerRef = useRef<number | null>(null);
   const dashboardViewsLoadedRef = useRef(false);
   const dashboardViewsSaveTimerRef = useRef<number | null>(null);
@@ -792,18 +959,6 @@ export function Dashboard() {
     });
   };
 
-  const moveActiveWidget = (widgetId: DashboardWidgetId, direction: -1 | 1) => {
-    updateActiveDashboardView((view) => {
-      const widgets = [...view.widgets];
-      const index = widgets.findIndex((widget) => widget.id === widgetId);
-      const nextIndex = index + direction;
-      if (index < 0 || nextIndex < 0 || nextIndex >= widgets.length) return view;
-      const [widget] = widgets.splice(index, 1);
-      widgets.splice(nextIndex, 0, widget);
-      return { ...view, widgets };
-    });
-  };
-
   const updateActiveWidget = (widgetId: DashboardWidgetId, patch: Partial<DashboardWidgetConfig>) => {
     updateActiveDashboardView((view) => ({
       ...view,
@@ -816,18 +971,6 @@ export function Dashboard() {
         return nextWidget;
       }),
     }));
-  };
-
-  const reorderActiveWidget = (draggedWidgetId: DashboardWidgetId, targetWidgetId: DashboardWidgetId) => {
-    updateActiveDashboardView((view) => {
-      const widgets = [...view.widgets];
-      const draggedIndex = widgets.findIndex((widget) => widget.id === draggedWidgetId);
-      const targetIndex = widgets.findIndex((widget) => widget.id === targetWidgetId);
-      if (draggedIndex < 0 || targetIndex < 0 || draggedIndex === targetIndex) return view;
-      const [draggedWidget] = widgets.splice(draggedIndex, 1);
-      widgets.splice(targetIndex, 0, draggedWidget);
-      return { ...view, widgets };
-    });
   };
 
   const updateActiveWidgetLayout = (layout: DashboardGridLayout) => {
@@ -863,6 +1006,78 @@ export function Dashboard() {
     setDashboardEditMode(true);
   };
 
+  const openCreateCustomWidgetModal = (template?: DashboardCustomWidgetTemplate) => {
+    setEditingCustomWidgetId(null);
+    setCustomWidgetDraft(normalizeCustomWidgetDefinition(template?.definition) || {
+      ...DEFAULT_CUSTOM_WIDGET_DEFINITION,
+      title: resolveCustomWidgetTitle(DEFAULT_CUSTOM_WIDGET_DEFINITION.kind),
+    });
+    setCustomWidgetModalOpen(true);
+  };
+
+  const openEditCustomWidgetModal = (widget: DashboardWidgetConfig) => {
+    if (!widget.customDefinition) return;
+    setEditingCustomWidgetId(widget.id);
+    setCustomWidgetDraft(normalizeCustomWidgetDefinition(widget.customDefinition) || DEFAULT_CUSTOM_WIDGET_DEFINITION);
+    setCustomWidgetModalOpen(true);
+  };
+
+  const closeCustomWidgetModal = () => {
+    setCustomWidgetModalOpen(false);
+    setEditingCustomWidgetId(null);
+    setCustomWidgetDraft(DEFAULT_CUSTOM_WIDGET_DEFINITION);
+  };
+
+  const applyCustomWidgetTemplate = (template: DashboardCustomWidgetTemplate) => {
+    setCustomWidgetDraft(normalizeCustomWidgetDefinition(template.definition) || DEFAULT_CUSTOM_WIDGET_DEFINITION);
+  };
+
+  const createCustomDashboardWidget = () => {
+    const definition = normalizeCustomWidgetDefinition(customWidgetDraft);
+    if (!definition || !definition.title.trim()) return;
+
+    if (editingCustomWidgetId) {
+      updateActiveDashboardView((view) => ({
+        ...view,
+        widgets: view.widgets.map((widget) => {
+          if (widget.id !== editingCustomWidgetId) return widget;
+          return {
+            ...widget,
+            size: definition.kind === 'kpi' ? 'sm' : widget.size,
+            autoWidth: definition.kind === 'chart',
+            autoHeight: true,
+            customDefinition: definition,
+          };
+        }),
+      }));
+    } else {
+      const widgetId = `custom_${Date.now()}`;
+      const nextWidget: DashboardWidgetConfig = {
+        id: widgetId,
+        visible: true,
+        size: definition.kind === 'kpi' ? 'sm' : 'lg',
+        autoWidth: definition.kind === 'chart',
+        autoHeight: true,
+        customDefinition: definition,
+      };
+
+      updateActiveDashboardView((view) => ({
+        ...view,
+        widgets: [...view.widgets, nextWidget],
+      }));
+    }
+
+    closeCustomWidgetModal();
+    setDashboardEditMode(true);
+  };
+
+  const deleteCustomDashboardWidget = (widgetId: DashboardWidgetId) => {
+    updateActiveDashboardView((view) => ({
+      ...view,
+      widgets: view.widgets.filter((widget) => widget.id !== widgetId),
+    }));
+  };
+
   const resetActiveDashboardView = () => {
     updateActiveDashboardView((view) => ({
       ...view,
@@ -887,6 +1102,11 @@ export function Dashboard() {
     [activeDashboardWidgets]
   );
 
+  const hiddenDashboardWidgets = useMemo(
+    () => activeDashboardWidgets.filter((widget) => !widget.visible),
+    [activeDashboardWidgets]
+  );
+
   const dashboardGridCols = useMemo(() => {
     if (dashboardGridWidth < 480) return 1;
     if (dashboardGridWidth < 768) return 2;
@@ -894,17 +1114,6 @@ export function Dashboard() {
     if (dashboardGridWidth < 1200) return 8;
     return 12;
   }, [dashboardGridWidth]);
-
-  const dashboardLayouts = useMemo<DashboardGridLayout>(() => {
-    return visibleDashboardWidgets.map((widget) => {
-      const item = toGridLayout(widget);
-      return {
-        ...item,
-        x: dashboardGridCols === 12 ? item.x : 0,
-        w: Math.min(dashboardGridCols, item.w),
-      };
-    });
-  }, [dashboardGridCols, visibleDashboardWidgets]);
 
   const categoriasExcluidasResultado = useMemo(() => buildExcludedCategoriaIds(categorias), [categorias]);
 
@@ -1774,6 +1983,45 @@ export function Dashboard() {
     await exportLancamentos(topLancamentos, format, `ultimos_lancamentos_${mes}`);
   };
 
+  const renameActiveDashboardView = () => {
+    const suggestedName = activeDashboardView?.name || 'Nova vista';
+    const nextName = window.prompt('Nome da vista', suggestedName);
+    if (nextName === null) return;
+    const normalizedName = nextName.trim();
+    if (!normalizedName) return;
+    updateActiveDashboardView((view) => ({ ...view, name: normalizedName }));
+  };
+
+  const cycleWidgetWidth = (widgetId: DashboardWidgetId) => {
+    const widget = activeDashboardWidgets.find((item) => item.id === widgetId);
+    if (!widget || widget.autoWidth) return;
+    const sizes: DashboardWidgetSize[] = ['sm', 'md', 'lg', 'full'];
+    const currentIndex = sizes.indexOf(widget.size);
+    const nextSize = sizes[(currentIndex + 1) % sizes.length];
+    updateActiveWidget(widgetId, {
+      size: nextSize,
+      w: getWidgetWidthFromSize(nextSize),
+    });
+  };
+
+  const toggleWidgetVisibility = (widgetId: DashboardWidgetId) => {
+    const widget = activeDashboardWidgets.find((item) => item.id === widgetId);
+    if (!widget) return;
+    updateActiveWidget(widgetId, { visible: !widget.visible });
+  };
+
+  const toggleWidgetAutoHeight = (widgetId: DashboardWidgetId) => {
+    const widget = activeDashboardWidgets.find((item) => item.id === widgetId);
+    if (!widget) return;
+    updateActiveWidget(widgetId, { autoHeight: !widget.autoHeight });
+  };
+
+  const toggleWidgetAutoWidth = (widgetId: DashboardWidgetId) => {
+    const widget = activeDashboardWidgets.find((item) => item.id === widgetId);
+    if (!widget) return;
+    updateActiveWidget(widgetId, { autoWidth: !widget.autoWidth });
+  };
+
   const toggleTimelineSelection = (index: number) => {
     if (index < 0) return;
     if (fluxoDiario.mode === 'MONTH') {
@@ -1800,6 +2048,251 @@ export function Dashboard() {
   const toggleStatusSelection = (index: number) => {
     const nextStatus = index === 0 ? 'PAGO' : index === 1 ? 'PENDENTE' : 'ATRASADO';
     setStatusFiltro((prev) => prev === nextStatus ? 'TODOS' : nextStatus);
+  };
+
+  const widgetAutoMetrics = useMemo<Record<DashboardWidgetId, { w: number; h: number }>>(() => ({
+    heatmap_calendar: { w: 8, h: Math.max(6, Math.min(9, heatmapCalendario.weeks.length + 2)) },
+    executive_readings: { w: 4, h: 6 },
+    productivity: { w: 12, h: 6 },
+    contas_pagar: { w: 6, h: 4 },
+    contas_receber: { w: 6, h: 4 },
+    lancamentos_pagar: { w: lancamentosContasDetalhe.pagar.length > 4 ? 12 : 8, h: Math.max(5, Math.min(12, 5 + Math.ceil(lancamentosContasDetalhe.pagar.length / 3))) },
+    lancamentos_receber: { w: lancamentosContasDetalhe.receber.length > 4 ? 12 : 8, h: Math.max(5, Math.min(12, 5 + Math.ceil(lancamentosContasDetalhe.receber.length / 3))) },
+    fluxo: { w: 12, h: 6 },
+    despesas_categoria: { w: 12, h: 7 },
+    receitas_categoria: { w: 8, h: 6 },
+    acumulado_rec_desp: { w: 8, h: 5 },
+    resultado_operacional: { w: 8, h: 5 },
+    resumo_operacional: { w: 4, h: 6 },
+    receitas_despesas_ano: { w: 8, h: 5 },
+    margem_operacional: { w: 4, h: 5 },
+    comparativo_ano: { w: 8, h: 5 },
+    sazonalidade: { w: 4, h: 5 },
+    cenarios: { w: 4, h: 5 },
+    resultado_acumulado: { w: 8, h: 5 },
+    pulso_acumulado: { w: 8, h: 6 },
+    status: { w: 4, h: 4 },
+    despesas_centro: { w: 6, h: 6 },
+    ultimos_lancamentos: { w: topLancamentos.length > 6 ? 12 : 8, h: Math.max(5, Math.min(11, 5 + Math.ceil(topLancamentos.length / 3))) },
+    gastos_categoria_lista: { w: 4, h: Math.max(4, Math.min(9, 4 + Math.ceil(categoriasList.length / 4))) },
+    lancamentos_categoria: { w: selectedCategorias.size > 0 ? 12 : 8, h: Math.max(5, Math.min(11, 5 + Math.ceil(categoriaLancamentos.length / 3))) },
+    base_analitica: { w: 12, h: Math.max(8, Math.min(16, 8 + Math.ceil(linhasAnaliticas.length / 10))) },
+    lancamentos_dia: { w: selectedDate ? 12 : 8, h: selectedDate ? Math.max(5, Math.min(11, 5 + Math.ceil(diaLancamentos.length / 3))) : 4 },
+    ...Object.fromEntries(
+      activeDashboardWidgets
+        .filter((widget) => widget.customDefinition)
+        .map((widget) => [widget.id, {
+          w: widget.customDefinition?.kind === 'kpi' ? 4 : 8,
+          h: widget.customDefinition?.kind === 'kpi' ? 4 : 6,
+        }])
+    ),
+  }), [categoriaLancamentos.length, categoriasList.length, diaLancamentos.length, heatmapCalendario.weeks.length, lancamentosContasDetalhe.pagar.length, lancamentosContasDetalhe.receber.length, linhasAnaliticas.length, selectedCategorias.size, selectedDate, topLancamentos.length]);
+
+  const getResolvedWidgetWidth = (widget: DashboardWidgetConfig) => {
+    const autoWidth = widget.autoWidth ? widgetAutoMetrics[widget.id].w : widget.w ?? getWidgetWidthFromSize(widget.size);
+    return Math.max(2, Math.min(DASHBOARD_GRID_COLUMNS, autoWidth));
+  };
+
+  const getResolvedWidgetHeight = (widget: DashboardWidgetConfig) => {
+    const autoHeight = widget.autoHeight ? widgetAutoMetrics[widget.id].h : widget.h ?? getWidgetDefaultHeight(widget);
+    return Math.max(3, autoHeight);
+  };
+
+  const getWidgetResizeHandles = (widget: DashboardWidgetConfig) => {
+    if (!dashboardEditMode) return [] as Array<'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'>;
+    if (widget.autoWidth && widget.autoHeight) return [] as Array<'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'>;
+    if (widget.autoWidth) return ['n', 's'] as Array<'n' | 's'>;
+    if (widget.autoHeight) return ['e', 'w'] as Array<'e' | 'w'>;
+    return ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as Array<'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'>;
+  };
+
+  const dashboardLayouts = useMemo<DashboardGridLayout>(() => {
+    return visibleDashboardWidgets.map((widget) => {
+      const width = getResolvedWidgetWidth(widget);
+      const height = getResolvedWidgetHeight(widget);
+      const resizeHandles = getWidgetResizeHandles(widget);
+
+      return {
+        i: widget.id,
+        x: dashboardGridCols === 12 ? (widget.x ?? 0) : 0,
+        y: widget.y ?? 0,
+        w: Math.min(dashboardGridCols, width),
+        h: height,
+        minW: 2,
+        minH: 3,
+        isResizable: resizeHandles.length > 0,
+        resizeHandles,
+      };
+    });
+  }, [dashboardEditMode, dashboardGridCols, visibleDashboardWidgets, widgetAutoMetrics]);
+
+  const renderResizeHandle = (axis: 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw', ref: Ref<HTMLElement>) => (
+    <span
+      ref={ref as Ref<HTMLSpanElement>}
+      className={`react-resizable-handle react-resizable-handle-${axis} dashboard-resize-handle dashboard-resize-handle-${axis}`}
+    />
+  );
+
+  const customWidgetSeries = useMemo(() => {
+    const buildLabel = (lancamento: Lancamento, groupBy: DashboardCustomGroupBy) => {
+      if (groupBy === 'categoria') return categoriaPorId.get(Number(lancamento.plano_contas_id)) || 'Sem categoria';
+      if (groupBy === 'centro_custo') return centroPorId.get(Number(lancamento.centro_custo_id)) || 'Sem centro';
+      if (groupBy === 'conta') return contaPorId.get(Number((lancamento as any).conta_id))?.nome || 'Sem conta';
+      if (groupBy === 'status') return String(lancamento.status || 'Sem status');
+      if (groupBy === 'tipo') return isReceita(lancamento.tipo) ? 'Receitas' : 'Despesas';
+      if (groupBy === 'competencia') return lancamento.competencia || toCompetencia(lancamento.data_vencimento) || 'Sem competência';
+      if (groupBy === 'mes') return toDateOnlyStr(lancamento.data_vencimento).slice(0, 7) || 'Sem mês';
+      return toDateOnlyStr(lancamento.data_vencimento) || 'Sem dia';
+    };
+
+    const aggregateMetricValue = (definition: DashboardCustomWidgetDefinition, lancamento: Lancamento) => {
+      if (definition.metricField === 'count') return 1;
+      return definition.metricField === 'valor_pago'
+        ? Number(lancamento.valor_pago || 0)
+        : Number(lancamento.valor_previsto || 0);
+    };
+
+    const createBucket = () => ({
+      receitasPrevisto: 0,
+      despesasPrevisto: 0,
+      receitasPago: 0,
+      despesasPago: 0,
+      pagamentos: 0,
+      lancamentos: 0,
+      metricTotal: 0,
+    });
+
+    const resolveFormulaValue = (formula: DashboardCustomFormulaId, bucket: ReturnType<typeof createBucket>) => {
+      if (formula === 'saldo') return bucket.receitasPrevisto - bucket.despesasPrevisto;
+      if (formula === 'margem_percentual') return bucket.receitasPrevisto > 0 ? ((bucket.receitasPrevisto - bucket.despesasPrevisto) / bucket.receitasPrevisto) * 100 : 0;
+      if (formula === 'cobertura_pagamentos') return bucket.despesasPrevisto > 0 ? (bucket.pagamentos / bucket.despesasPrevisto) * 100 : 0;
+      return bucket.lancamentos > 0 ? bucket.metricTotal / bucket.lancamentos : 0;
+    };
+
+    const resolveBucketValue = (definition: DashboardCustomWidgetDefinition, bucket: ReturnType<typeof createBucket>) => {
+      if (definition.formula) return resolveFormulaValue(definition.formula, bucket);
+      if (definition.aggregation === 'avg') return bucket.metricTotal / (bucket.lancamentos || 1);
+      return bucket.metricTotal;
+    };
+
+    const datasetForDefinition = (definition: DashboardCustomWidgetDefinition) => {
+      const scoped = filteredLancamentos.filter((lancamento) => {
+        if (definition.scope === 'receitas') return isReceita(lancamento.tipo);
+        if (definition.scope === 'despesas') return isDespesa(lancamento.tipo);
+        return true;
+      });
+
+      const populateBucket = (bucket: ReturnType<typeof createBucket>, lancamento: Lancamento) => {
+        const previsto = Number(lancamento.valor_previsto || 0);
+        const pago = Number(lancamento.valor_pago || 0);
+        if (isReceita(lancamento.tipo)) {
+          bucket.receitasPrevisto += previsto;
+          bucket.receitasPago += pago;
+        } else if (isDespesa(lancamento.tipo)) {
+          bucket.despesasPrevisto += previsto;
+          bucket.despesasPago += pago;
+        }
+        bucket.pagamentos += pago;
+        bucket.lancamentos += 1;
+        bucket.metricTotal += aggregateMetricValue(definition, lancamento);
+      };
+
+      if (definition.kind === 'kpi') {
+        const bucket = createBucket();
+        scoped.forEach((lancamento) => populateBucket(bucket, lancamento));
+        return {
+          total: resolveBucketValue(definition, bucket),
+          count: bucket.lancamentos,
+        };
+      }
+
+      const buckets = new Map<string, ReturnType<typeof createBucket>>();
+      scoped.forEach((lancamento) => {
+        const label = buildLabel(lancamento, definition.groupBy || 'categoria');
+        const current = buckets.get(label) || createBucket();
+        populateBucket(current, lancamento);
+        buckets.set(label, current);
+      });
+
+      const rows = Array.from(buckets.entries()).map(([label, bucket]) => ({
+        label,
+        value: resolveBucketValue(definition, bucket),
+      }));
+
+      rows.sort((a, b) => b.value - a.value);
+      return rows.slice(0, definition.limit || 8);
+    };
+
+    return Object.fromEntries(
+      activeDashboardWidgets
+        .filter((widget) => widget.customDefinition)
+        .map((widget) => [widget.id, datasetForDefinition(widget.customDefinition!)])
+    ) as Record<string, { total: number; count: number } | Array<{ label: string; value: number }>>;
+  }, [activeDashboardWidgets, categoriaPorId, centroPorId, contaPorId, filteredLancamentos]);
+
+  const renderCustomDashboardWidget = (widget: DashboardWidgetConfig) => {
+    const definition = widget.customDefinition;
+    if (!definition) return null;
+
+    if (definition.kind === 'kpi') {
+      const dataset = customWidgetSeries[widget.id] as { total: number; count: number } | undefined;
+      const value = dataset?.total || 0;
+      const formulaLabel = getCustomWidgetFormulaLabel(definition.formula);
+      const isPercentFormula = definition.formula === 'margem_percentual' || definition.formula === 'cobertura_pagamentos';
+      return (
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">KPI customizado</p>
+          <h3 className="mt-2 text-xl font-bold text-slate-900 dark:text-white">{definition.title}</h3>
+          {definition.description && <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">{definition.description}</p>}
+          <p className="mt-5 text-4xl font-black" style={{ color: definition.color || '#0ea5e9' }}>
+            {isPercentFormula ? `${value.toFixed(1)}%` : definition.metricField === 'count' && !definition.formula ? Math.round(value).toLocaleString('pt-BR') : BRL.format(value)}
+          </p>
+          <p className="mt-3 text-xs text-slate-400">{formulaLabel || `${definition.aggregation.toUpperCase()} de ${getCustomMetricLabel(definition)}`} com filtros atuais da empresa.</p>
+        </div>
+      );
+    }
+
+    const dataset = (customWidgetSeries[widget.id] as Array<{ label: string; value: number }> | undefined) || [];
+    const isPercentFormula = definition.formula === 'margem_percentual' || definition.formula === 'cobertura_pagamentos';
+    const chartSeries = [{
+      name: definition.title,
+      data: dataset.map((item) => item.value),
+    }];
+    const chartOptions = {
+      chart: { toolbar: { show: false }, background: 'transparent' },
+      colors: [definition.color || '#0ea5e9'],
+      xaxis: { categories: dataset.map((item) => item.label) },
+      labels: dataset.map((item) => item.label),
+      legend: { show: definition.chartType === 'donut' },
+      dataLabels: { enabled: false },
+      stroke: { curve: 'smooth' as const },
+      theme: { mode: isDark ? 'dark' : 'light' },
+      tooltip: {
+        y: {
+          formatter: (value: number) => isPercentFormula ? `${value.toFixed(1)}%` : definition.metricField === 'count' && !definition.formula ? Math.round(value).toLocaleString('pt-BR') : BRL.format(value),
+        },
+      },
+    };
+
+    return (
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Gráfico customizado</p>
+            <h3 className="mt-1 text-xl font-bold text-slate-900 dark:text-white">{definition.title}</h3>
+          </div>
+          <span className="text-xs text-slate-400">{getCustomMetricLabel(definition)} • {(definition.groupBy || 'categoria').replace('_', ' ')}</span>
+        </div>
+        {definition.description && <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">{definition.description}</p>}
+        {dataset.length === 0 ? (
+          <div className="mt-6 flex h-56 items-center justify-center rounded-2xl border border-dashed border-slate-300 text-sm text-slate-400 dark:border-slate-700">Sem dados para os filtros atuais.</div>
+        ) : (
+          <div className="mt-4">
+            <AsyncApexChart type={definition.chartType || 'bar'} height={320} series={chartSeries} options={chartOptions} />
+          </div>
+        )}
+      </div>
+    );
   };
 
   const chartFluxo = {
@@ -2398,6 +2891,11 @@ export function Dashboard() {
   );
 
   const renderDashboardWidget = (widgetId: DashboardWidgetId) => {
+    const widget = activeDashboardWidgets.find((item) => item.id === widgetId);
+    if (widget?.customDefinition) {
+      return renderCustomDashboardWidget(widget);
+    }
+
     switch (widgetId) {
       case 'heatmap_calendar':
         return (
@@ -2764,6 +3262,32 @@ export function Dashboard() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900">
+      <style>{`
+        .dashboard-grid .dashboard-resize-handle {
+          width: 16px;
+          height: 16px;
+          border-radius: 9999px;
+          border: 2px solid rgb(14 165 233);
+          background: rgba(255, 255, 255, 0.96);
+          background-image: none;
+          box-shadow: 0 6px 16px rgba(14, 165, 233, 0.28);
+          opacity: 0;
+          transition: opacity 160ms ease, transform 160ms ease;
+          z-index: 30;
+        }
+        .dashboard-grid .dashboard-grid-item:hover .dashboard-resize-handle,
+        .dashboard-grid .dashboard-grid-item.is-editing .dashboard-resize-handle {
+          opacity: 1;
+        }
+        .dashboard-grid .dashboard-resize-handle-n { top: -8px; left: calc(50% - 8px); }
+        .dashboard-grid .dashboard-resize-handle-s { bottom: -8px; left: calc(50% - 8px); }
+        .dashboard-grid .dashboard-resize-handle-e { right: -8px; top: calc(50% - 8px); }
+        .dashboard-grid .dashboard-resize-handle-w { left: -8px; top: calc(50% - 8px); }
+        .dashboard-grid .dashboard-resize-handle-ne { top: -8px; right: -8px; }
+        .dashboard-grid .dashboard-resize-handle-nw { top: -8px; left: -8px; }
+        .dashboard-grid .dashboard-resize-handle-se { right: -8px; bottom: -8px; }
+        .dashboard-grid .dashboard-resize-handle-sw { left: -8px; bottom: -8px; }
+      `}</style>
       <header className="border-b border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 px-4 sm:px-8 py-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">Dashboard</h2>
@@ -2819,6 +3343,60 @@ export function Dashboard() {
               </div>
             )}
           </div>
+          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 w-full sm:w-auto min-w-55">
+            <LayoutGrid className="w-4 h-4 text-slate-400" />
+            <select
+              value={activeDashboardViewId}
+              onChange={(e) => setActiveDashboardViewId(e.target.value)}
+              className="w-full bg-transparent text-sm font-bold text-slate-900 dark:text-white outline-none [&>option]:text-slate-900 [&>option]:bg-white dark:[&>option]:text-slate-100 dark:[&>option]:bg-slate-800"
+            >
+              {dashboardViews.map((view) => (
+                <option key={view.id} value={view.id}>{view.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 px-1.5 py-1 dark:border-slate-600 dark:bg-slate-700/50">
+            <button
+              type="button"
+              onClick={createDashboardViewFromCurrent}
+              className="rounded-md p-2 text-slate-500 transition hover:bg-white hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+              title="Nova vista baseada na atual"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={renameActiveDashboardView}
+              className="rounded-md p-2 text-slate-500 transition hover:bg-white hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+              title="Renomear vista"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={deleteActiveDashboardView}
+              className="rounded-md p-2 text-rose-500 transition hover:bg-white hover:text-rose-600 dark:text-rose-300 dark:hover:bg-slate-800"
+              title={activeDashboardViewId === 'default' ? 'Restaurar vista padrão' : 'Excluir vista atual'}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => openCreateCustomWidgetModal()}
+              className="rounded-md p-2 text-slate-500 transition hover:bg-white hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+              title="Criar KPI ou gráfico customizado"
+            >
+              <Activity className="h-4 w-4" />
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDashboardEditMode((prev) => !prev)}
+            className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition ${dashboardEditMode ? 'border-sky-400 bg-sky-50 text-sky-700 dark:border-sky-500 dark:bg-sky-500/10 dark:text-sky-300' : 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700'}`}
+          >
+            <Settings2 className="h-4 w-4" />
+            {dashboardEditMode ? 'Fechar edição' : 'Editar dashboard'}
+          </button>
           <button
             onClick={handleSync}
             className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-700 rounded-lg transition"
@@ -2857,17 +3435,7 @@ export function Dashboard() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setDashboardEditMode((prev) => !prev)}
-                  className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-bold transition ${dashboardEditMode ? 'border-sky-400 bg-sky-50 text-sky-700 dark:border-sky-500 dark:bg-sky-500/10 dark:text-sky-300' : 'border-white/70 bg-white/75 text-slate-700 hover:bg-white dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-800/80'}`}
-                >
-                  <Settings2 className="h-4 w-4" />
-                  {dashboardEditMode ? 'Fechar edição' : 'Editar dashboard'}
-                </button>
-                {dashboardEditMode && <p className="text-sm text-slate-600 dark:text-slate-300">Arraste os cards pela faixa azul e redimensione pela alça do canto para ajustar a grade.</p>}
-              </div>
+              {dashboardEditMode && <p className="text-sm text-slate-600 dark:text-slate-300">Escolha a vista no topo, arraste os cards pela faixa pontilhada e use os pontos azuis para redimensionar. Os toggles de largura e altura automáticas ficam no canto de cada widget.</p>}
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 {sinaisExecutivos.slice(0, 3).map((sinal) => (
@@ -3244,27 +3812,240 @@ export function Dashboard() {
           </div>
           {selectedChips}
         </div>
-        {dashboardEditMode && (
-          <DashboardViewManager
-            activeDashboardView={activeDashboardView}
-            activeDashboardViewId={activeDashboardViewId}
-            activeDashboardWidgets={activeDashboardWidgets}
-            dashboardEditMode={dashboardEditMode}
-            dashboardViews={dashboardViews}
-            dashboardWidgetLabels={DASHBOARD_WIDGET_LABELS}
-            onActiveViewChange={setActiveDashboardViewId}
-            onCreateView={createDashboardViewFromCurrent}
-            onDeleteView={deleteActiveDashboardView}
-            onMoveWidget={(widgetId, direction) => moveActiveWidget(widgetId as DashboardWidgetId, direction)}
-            onRenameView={(name) => updateActiveDashboardView((view) => ({ ...view, name }))}
-            onResetView={resetActiveDashboardView}
-            onReorderWidget={(draggedWidgetId, targetWidgetId) => reorderActiveWidget(draggedWidgetId as DashboardWidgetId, targetWidgetId as DashboardWidgetId)}
-            onToggleEditMode={() => setDashboardEditMode((prev) => !prev)}
-            onUpdateWidget={(widgetId, patch) => updateActiveWidget(widgetId as DashboardWidgetId, patch as Partial<DashboardWidgetConfig>)}
-          />
+        {dashboardEditMode && hiddenDashboardWidgets.length > 0 && (
+          <div className="rounded-3xl border border-dashed border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900 dark:bg-sky-500/10">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-sky-700 dark:text-sky-300">Widgets ocultos</p>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Reative um painel sem sair da grade.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {hiddenDashboardWidgets.map((widget) => (
+                  <button
+                    key={`hidden-${widget.id}`}
+                    type="button"
+                    onClick={() => toggleWidgetVisibility(widget.id)}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-sky-200 bg-white px-3 py-2 text-sm font-bold text-sky-700 transition hover:bg-sky-100 dark:border-sky-800 dark:bg-slate-900/50 dark:text-sky-300 dark:hover:bg-slate-800"
+                  >
+                    <Eye className="h-4 w-4" />
+                    {getWidgetLabel(widget)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
 
-        <div ref={dashboardGridRef} className="rounded-4xl border border-slate-200/80 bg-white/70 p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+        {customWidgetModalOpen && (
+          <div className="fixed inset-0 z-120 flex items-center justify-center bg-slate-950/50 px-4 py-8 backdrop-blur-sm">
+            <div className="w-full max-w-3xl rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-sky-500">Construtor de widgets</p>
+                  <h3 className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{editingCustomWidgetId ? 'Editar widget customizado' : 'Criar KPI ou gráfico com dados da empresa'}</h3>
+                  <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">Use os mesmos filtros do dashboard para montar leituras personalizadas por empresa, no estilo mini Power BI.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeCustomWidgetModal}
+                  className="rounded-2xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-950/40">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Templates rápidos</p>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-300">Comece com uma leitura pronta e ajuste o que precisar.</p>
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {DASHBOARD_CUSTOM_WIDGET_TEMPLATES.map((template) => (
+                    <button
+                      key={template.id}
+                      type="button"
+                      onClick={() => applyCustomWidgetTemplate(template)}
+                      className="rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-sky-300 hover:bg-sky-50 dark:border-slate-700 dark:bg-slate-900/60 dark:hover:border-sky-700 dark:hover:bg-slate-800"
+                    >
+                      <p className="text-sm font-bold text-slate-900 dark:text-white">{template.label}</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-300">{template.description}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label className="space-y-2">
+                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Tipo</span>
+                  <select
+                    value={customWidgetDraft.kind}
+                    onChange={(e) => setCustomWidgetDraft((prev) => ({
+                      ...prev,
+                      kind: e.target.value as DashboardCustomWidgetKind,
+                      title: prev.title === resolveCustomWidgetTitle(prev.kind) ? resolveCustomWidgetTitle(e.target.value as DashboardCustomWidgetKind) : prev.title,
+                    }))}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-950/50 dark:text-white"
+                  >
+                    <option value="kpi">KPI</option>
+                    <option value="chart">Gráfico</option>
+                  </select>
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Título</span>
+                  <input
+                    value={customWidgetDraft.title}
+                    onChange={(e) => setCustomWidgetDraft((prev) => ({ ...prev, title: e.target.value }))}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-950/50 dark:text-white"
+                    placeholder="Ex.: Receita média por centro"
+                  />
+                </label>
+
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Descrição</span>
+                  <input
+                    value={customWidgetDraft.description || ''}
+                    onChange={(e) => setCustomWidgetDraft((prev) => ({ ...prev, description: e.target.value }))}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-100"
+                    placeholder="Explique rapidamente o objetivo desse indicador"
+                  />
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Escopo</span>
+                  <select
+                    value={customWidgetDraft.scope}
+                    onChange={(e) => setCustomWidgetDraft((prev) => ({ ...prev, scope: e.target.value as DashboardCustomScope }))}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-950/50 dark:text-white"
+                  >
+                    <option value="todos">Todos os lançamentos</option>
+                    <option value="receitas">Só receitas</option>
+                    <option value="despesas">Só despesas</option>
+                  </select>
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Métrica</span>
+                  <select
+                    value={customWidgetDraft.metricField}
+                    onChange={(e) => setCustomWidgetDraft((prev) => ({ ...prev, metricField: e.target.value as DashboardCustomMetricField }))}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-950/50 dark:text-white"
+                  >
+                    <option value="valor_previsto">Valor previsto</option>
+                    <option value="valor_pago">Valor pago</option>
+                    <option value="count">Quantidade de lançamentos</option>
+                  </select>
+                </label>
+
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Fórmula pronta</span>
+                  <select
+                    value={customWidgetDraft.formula || ''}
+                    onChange={(e) => setCustomWidgetDraft((prev) => ({ ...prev, formula: (e.target.value || null) as DashboardCustomFormulaId | null }))}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-950/50 dark:text-white"
+                  >
+                    <option value="">Sem fórmula pronta</option>
+                    <option value="saldo">Saldo</option>
+                    <option value="margem_percentual">Margem %</option>
+                    <option value="cobertura_pagamentos">Cobertura de pagamentos %</option>
+                    <option value="ticket_medio">Ticket médio</option>
+                  </select>
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Agregação</span>
+                  <select
+                    value={customWidgetDraft.aggregation}
+                    onChange={(e) => setCustomWidgetDraft((prev) => ({ ...prev, aggregation: e.target.value as DashboardCustomAggregation }))}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-950/50 dark:text-white"
+                  >
+                    <option value="sum">Soma</option>
+                    <option value="avg">Média</option>
+                    <option value="count">Contagem</option>
+                  </select>
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Cor</span>
+                  <input
+                    type="color"
+                    value={customWidgetDraft.color || '#0ea5e9'}
+                    onChange={(e) => setCustomWidgetDraft((prev) => ({ ...prev, color: e.target.value }))}
+                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-950/50"
+                  />
+                </label>
+
+                {customWidgetDraft.kind === 'chart' && (
+                  <>
+                    <label className="space-y-2">
+                      <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Tipo do gráfico</span>
+                      <select
+                        value={customWidgetDraft.chartType}
+                        onChange={(e) => setCustomWidgetDraft((prev) => ({ ...prev, chartType: e.target.value as DashboardCustomChartType }))}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-950/50 dark:text-white"
+                      >
+                        <option value="bar">Barras</option>
+                        <option value="line">Linha</option>
+                        <option value="donut">Donut</option>
+                      </select>
+                    </label>
+
+                    <label className="space-y-2">
+                      <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Agrupar por</span>
+                      <select
+                        value={customWidgetDraft.groupBy}
+                        onChange={(e) => setCustomWidgetDraft((prev) => ({ ...prev, groupBy: e.target.value as DashboardCustomGroupBy }))}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-950/50 dark:text-white"
+                      >
+                        <option value="categoria">Categoria</option>
+                        <option value="centro_custo">Centro de custo</option>
+                        <option value="conta">Conta</option>
+                        <option value="status">Status</option>
+                        <option value="tipo">Tipo</option>
+                        <option value="competencia">Competência</option>
+                        <option value="mes">Mês</option>
+                        <option value="dia">Dia</option>
+                      </select>
+                    </label>
+
+                    <label className="space-y-2">
+                      <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Limite de grupos</span>
+                      <input
+                        type="number"
+                        min={3}
+                        max={20}
+                        value={customWidgetDraft.limit || 8}
+                        onChange={(e) => setCustomWidgetDraft((prev) => ({ ...prev, limit: Number(e.target.value) || 8 }))}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-950/50 dark:text-white"
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
+
+              <div className="mt-6 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closeCustomWidgetModal}
+                  className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={createCustomDashboardWidget}
+                  className="rounded-2xl bg-sky-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-sky-500"
+                >
+                  {editingCustomWidgetId ? 'Salvar widget' : 'Criar widget'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div ref={dashboardGridRef} className="dashboard-grid rounded-4xl border border-slate-200/80 bg-white/70 p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
           <GridLayout
             className="layout"
             layout={dashboardLayouts}
@@ -3280,17 +4061,76 @@ export function Dashboard() {
             }}
             resizeConfig={{
               enabled: dashboardEditMode,
+              handles: ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'],
+              handleComponent: renderResizeHandle,
             }}
             onDragStop={(layout: DashboardGridLayout) => updateActiveWidgetLayout(layout)}
             onResizeStop={(layout: DashboardGridLayout) => updateActiveWidgetLayout(layout)}
           >
             {visibleDashboardWidgets.map((widget) => (
-              <div key={widget.id} className="overflow-visible">
-                <div className={`h-full ${dashboardEditMode ? 'rounded-4xl ring-1 ring-sky-200 dark:ring-sky-800' : ''}`}>
+              <div key={widget.id} className={`dashboard-grid-item overflow-visible ${dashboardEditMode ? 'is-editing' : ''}`}>
+                <div className={`h-full overflow-hidden rounded-[30px] ${dashboardEditMode ? 'ring-1 ring-sky-200 dark:ring-sky-800' : ''}`}>
                   {dashboardEditMode && (
-                    <div className="dashboard-widget-drag-handle mb-2 flex cursor-move items-center justify-between rounded-2xl border border-dashed border-sky-200 bg-sky-50/80 px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-sky-700 dark:border-sky-900 dark:bg-sky-500/10 dark:text-sky-300">
-                      <span>{DASHBOARD_WIDGET_LABELS[widget.id]}</span>
-                      <span>arraste e redimensione</span>
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-dashed border-sky-200 bg-sky-50/80 px-3 py-2 text-xs font-bold uppercase tracking-[0.14em] text-sky-700 dark:border-sky-900 dark:bg-sky-500/10 dark:text-sky-300">
+                      <div className="dashboard-widget-drag-handle inline-flex cursor-move items-center gap-2 rounded-xl px-2 py-1">
+                        <GripVertical className="h-4 w-4" />
+                        <span>{getWidgetLabel(widget)}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleWidgetVisibility(widget.id)}
+                          className="inline-flex items-center gap-1 rounded-xl border border-sky-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-sky-700 transition hover:bg-sky-100 dark:border-sky-800 dark:bg-slate-900/60 dark:text-sky-300 dark:hover:bg-slate-800"
+                          title={widget.visible ? 'Ocultar widget' : 'Mostrar widget'}
+                        >
+                          {widget.visible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleWidgetAutoWidth(widget.id)}
+                          className={`rounded-xl border px-2.5 py-1.5 text-[11px] font-bold transition ${widget.autoWidth ? 'border-sky-300 bg-sky-100 text-sky-800 dark:border-sky-700 dark:bg-sky-500/20 dark:text-sky-200' : 'border-sky-200 bg-white text-sky-700 hover:bg-sky-100 dark:border-sky-800 dark:bg-slate-900/60 dark:text-sky-300 dark:hover:bg-slate-800'}`}
+                          title="Alternar largura automática"
+                        >
+                          L auto
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleWidgetAutoHeight(widget.id)}
+                          className={`rounded-xl border px-2.5 py-1.5 text-[11px] font-bold transition ${widget.autoHeight ? 'border-sky-300 bg-sky-100 text-sky-800 dark:border-sky-700 dark:bg-sky-500/20 dark:text-sky-200' : 'border-sky-200 bg-white text-sky-700 hover:bg-sky-100 dark:border-sky-800 dark:bg-slate-900/60 dark:text-sky-300 dark:hover:bg-slate-800'}`}
+                          title="Alternar altura automática"
+                        >
+                          A auto
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => cycleWidgetWidth(widget.id)}
+                          disabled={Boolean(widget.autoWidth)}
+                          className="rounded-xl border border-sky-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-45 dark:border-sky-800 dark:bg-slate-900/60 dark:text-sky-300 dark:hover:bg-slate-800"
+                          title="Ciclar largura manual"
+                        >
+                          {widget.size.toUpperCase()}
+                        </button>
+                        {widget.customDefinition && (
+                          <button
+                            type="button"
+                            onClick={() => openEditCustomWidgetModal(widget)}
+                            className="rounded-xl border border-amber-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-amber-700 transition hover:bg-amber-50 dark:border-amber-900 dark:bg-slate-900/60 dark:text-amber-300 dark:hover:bg-slate-800"
+                            title="Editar widget customizado"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {widget.customDefinition && (
+                          <button
+                            type="button"
+                            onClick={() => deleteCustomDashboardWidget(widget.id)}
+                            className="rounded-xl border border-rose-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-rose-600 transition hover:bg-rose-50 dark:border-rose-900 dark:bg-slate-900/60 dark:text-rose-300 dark:hover:bg-slate-800"
+                            title="Excluir widget customizado"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
                   {renderDashboardWidget(widget.id)}

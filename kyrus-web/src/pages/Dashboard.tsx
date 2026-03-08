@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { AsyncApexChart } from '../components/AsyncApexChart';
+import { DashboardViewManager } from '../components/DashboardViewManager';
 import {
   TrendingUp, TrendingDown, Wallet, RefreshCw, Filter,
   CalendarRange, Layers, Building2, List, X, Landmark,
@@ -99,9 +100,159 @@ type KpiTooltipState = {
   key: DashboardHelpKey;
 };
 
+type DashboardWidgetId =
+  | 'heatmap_calendar'
+  | 'executive_readings'
+  | 'productivity'
+  | 'contas_pagar'
+  | 'contas_receber'
+  | 'lancamentos_pagar'
+  | 'lancamentos_receber'
+  | 'fluxo'
+  | 'despesas_categoria'
+  | 'receitas_categoria'
+  | 'acumulado_rec_desp'
+  | 'resultado_operacional'
+  | 'resumo_operacional'
+  | 'receitas_despesas_ano'
+  | 'margem_operacional'
+  | 'comparativo_ano'
+  | 'sazonalidade'
+  | 'cenarios'
+  | 'resultado_acumulado'
+  | 'pulso_acumulado'
+  | 'status'
+  | 'despesas_centro'
+  | 'ultimos_lancamentos'
+  | 'gastos_categoria_lista'
+  | 'lancamentos_categoria'
+  | 'base_analitica'
+  | 'lancamentos_dia';
+
+type DashboardWidgetSize = 'sm' | 'md' | 'lg' | 'full';
+
+interface DashboardWidgetConfig {
+  id: DashboardWidgetId;
+  visible: boolean;
+  size: DashboardWidgetSize;
+}
+
+interface DashboardView {
+  id: string;
+  name: string;
+  widgets: DashboardWidgetConfig[];
+}
+
+interface DashboardViewsApiResponse {
+  empresa_id: number;
+  views: DashboardView[];
+}
+
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const INTERACTIVE_PANEL_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.1),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
 const DASHBOARD_SECTION_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.96))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
+const DASHBOARD_ACTIVE_VIEW_STORAGE_KEY_PREFIX = 'kyrus-dashboard-active-view-v1';
+
+const DEFAULT_DASHBOARD_WIDGETS: DashboardWidgetConfig[] = [
+  { id: 'heatmap_calendar', visible: true, size: 'lg' },
+  { id: 'executive_readings', visible: true, size: 'sm' },
+  { id: 'productivity', visible: true, size: 'full' },
+  { id: 'contas_pagar', visible: true, size: 'md' },
+  { id: 'contas_receber', visible: true, size: 'md' },
+  { id: 'lancamentos_pagar', visible: true, size: 'lg' },
+  { id: 'lancamentos_receber', visible: true, size: 'lg' },
+  { id: 'fluxo', visible: true, size: 'full' },
+  { id: 'despesas_categoria', visible: true, size: 'full' },
+  { id: 'receitas_categoria', visible: true, size: 'sm' },
+  { id: 'acumulado_rec_desp', visible: true, size: 'lg' },
+  { id: 'resultado_operacional', visible: true, size: 'lg' },
+  { id: 'resumo_operacional', visible: true, size: 'sm' },
+  { id: 'receitas_despesas_ano', visible: true, size: 'lg' },
+  { id: 'margem_operacional', visible: true, size: 'sm' },
+  { id: 'comparativo_ano', visible: true, size: 'lg' },
+  { id: 'sazonalidade', visible: true, size: 'sm' },
+  { id: 'cenarios', visible: true, size: 'sm' },
+  { id: 'resultado_acumulado', visible: true, size: 'lg' },
+  { id: 'pulso_acumulado', visible: true, size: 'lg' },
+  { id: 'status', visible: true, size: 'sm' },
+  { id: 'despesas_centro', visible: true, size: 'sm' },
+  { id: 'ultimos_lancamentos', visible: true, size: 'lg' },
+  { id: 'gastos_categoria_lista', visible: true, size: 'sm' },
+  { id: 'lancamentos_categoria', visible: true, size: 'lg' },
+  { id: 'base_analitica', visible: true, size: 'full' },
+  { id: 'lancamentos_dia', visible: true, size: 'full' },
+];
+
+const DASHBOARD_WIDGET_LABELS: Record<DashboardWidgetId, string> = {
+  heatmap_calendar: 'Heatmap por dia',
+  executive_readings: 'Leituras executivas',
+  productivity: 'Produtividade',
+  contas_pagar: 'Contas a pagar',
+  contas_receber: 'Contas a receber',
+  lancamentos_pagar: 'Lancamentos a pagar',
+  lancamentos_receber: 'Lancamentos a receber',
+  fluxo: 'Fluxo de caixa',
+  despesas_categoria: 'Despesas por categoria',
+  receitas_categoria: 'Receitas por categoria',
+  acumulado_rec_desp: 'Acumulado receitas x despesas',
+  resultado_operacional: 'Resultado operacional',
+  resumo_operacional: 'Resumo operacional',
+  receitas_despesas_ano: 'Receitas x despesas do ano',
+  margem_operacional: 'Margem operacional',
+  comparativo_ano: 'Comparativo ano a ano',
+  sazonalidade: 'Sazonalidade',
+  cenarios: 'Cenarios',
+  resultado_acumulado: 'Resultado acumulado',
+  pulso_acumulado: 'Pulso do acumulado',
+  status: 'Distribuicao por status',
+  despesas_centro: 'Despesas por centro',
+  ultimos_lancamentos: 'Ultimos lancamentos',
+  gastos_categoria_lista: 'Lista de gastos por categoria',
+  lancamentos_categoria: 'Lancamentos da categoria',
+  base_analitica: 'Base analitica final',
+  lancamentos_dia: 'Lancamentos do dia selecionado',
+};
+
+function createDefaultDashboardView(): DashboardView {
+  return {
+    id: 'default',
+    name: 'Padrao',
+    widgets: DEFAULT_DASHBOARD_WIDGETS.map((widget) => ({ ...widget })),
+  };
+}
+
+function normalizeDashboardWidgets(widgets?: DashboardWidgetConfig[]) {
+  const incoming = new Map((widgets || []).map((widget) => [widget.id, widget] as const));
+  return DEFAULT_DASHBOARD_WIDGETS.map((widget) => {
+    const current = incoming.get(widget.id);
+    return current
+      ? { ...widget, visible: current.visible, size: current.size }
+      : { ...widget };
+  });
+}
+
+function normalizeDashboardViews(views?: DashboardView[]) {
+  if (!Array.isArray(views) || views.length === 0) {
+    return [createDefaultDashboardView()];
+  }
+
+  return views.map((view, index) => ({
+    id: String(view.id || `view-${Date.now()}-${index}`),
+    name: String(view.name || `Vista ${index + 1}`),
+    widgets: normalizeDashboardWidgets(view.widgets),
+  }));
+}
+
+function getDashboardActiveViewStorageKey(empresaId?: number | null) {
+  return `${DASHBOARD_ACTIVE_VIEW_STORAGE_KEY_PREFIX}-${empresaId || 'unknown'}`;
+}
+
+function getDashboardWidgetSpan(size: DashboardWidgetSize) {
+  if (size === 'full') return 'lg:col-span-3';
+  if (size === 'lg') return 'lg:col-span-2';
+  if (size === 'md') return 'lg:col-span-1 xl:col-span-2';
+  return 'lg:col-span-1';
+}
 const FINANCE_DRILLDOWN_LABELS: Record<Exclude<FinanceDrilldown, null>, string> = {
   PAGAR_HOJE: 'Contas a pagar hoje',
   PAGAR_AMANHA: 'Contas a pagar amanha',
@@ -372,8 +523,13 @@ const buildExcludedCategoriaIds = (categorias: Categoria[]) => {
 const formatTreemapLabel = (label: string, value: number, total: number) => {
   if (!label || total <= 0) return '';
   const ratio = value / total;
-  if (ratio >= 0.18) return label;
-  if (ratio >= 0.1) return label.length > 14 ? `${label.slice(0, 14)}...` : label;
+  const percent = `${(ratio * 100).toFixed(1)}%`;
+  if (ratio >= 0.1) {
+    const displayLabel = label.length > 20 ? `${label.slice(0, 20)}...` : label;
+    return `${displayLabel}\n${percent}`;
+  }
+  if (ratio >= 0.045) return label.length > 16 ? `${label.slice(0, 16)}...` : label;
+  if (ratio >= 0.025) return label.length > 10 ? `${label.slice(0, 10)}...` : label;
   return '';
 };
 
@@ -416,7 +572,7 @@ export function Dashboard() {
   const [selectedCentro, setSelectedCentro] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
-  const [statusFiltro, setStatusFiltro] = useState<'TODOS' | 'PAGO' | 'PENDENTE'>('TODOS');
+  const [statusFiltro, setStatusFiltro] = useState<'TODOS' | 'PAGO' | 'PENDENTE' | 'ATRASADO'>('TODOS');
   const [tipoFiltro, setTipoFiltro] = useState<'TODOS' | 'RECEITA' | 'DESPESA'>('TODOS');
   const [previstoFiltro, setPrevistoFiltro] = useState<'TODOS' | 'SIM' | 'NAO'>('TODOS');
   const [competenciaFiltro, setCompetenciaFiltro] = useState('');
@@ -425,7 +581,13 @@ export function Dashboard() {
   const [analysisQuery, setAnalysisQuery] = useState('');
   const [financeDrilldown, setFinanceDrilldown] = useState<FinanceDrilldown>(null);
   const [visibleKpiMeaning, setVisibleKpiMeaning] = useState<KpiTooltipState | null>(null);
+  const [dashboardViews, setDashboardViews] = useState<DashboardView[]>([createDefaultDashboardView()]);
+  const [dashboardViewsEmpresaId, setDashboardViewsEmpresaId] = useState<number | null>(null);
+  const [activeDashboardViewId, setActiveDashboardViewId] = useState('default');
+  const [dashboardEditMode, setDashboardEditMode] = useState(false);
   const hoverTimerRef = useRef<number | null>(null);
+  const dashboardViewsLoadedRef = useRef(false);
+  const dashboardViewsSaveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const handler = () => setIsDark(document.documentElement.classList.contains('dark'));
@@ -438,8 +600,142 @@ export function Dashboard() {
       if (hoverTimerRef.current) {
         window.clearTimeout(hoverTimerRef.current);
       }
+      if (dashboardViewsSaveTimerRef.current) {
+        window.clearTimeout(dashboardViewsSaveTimerRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadDashboardViewsFromApi = async () => {
+      try {
+        const { data } = await api.get<DashboardViewsApiResponse>('/dashboard-views/');
+        if (!isMounted) return;
+        const normalizedViews = normalizeDashboardViews(data.views);
+        const storageKey = getDashboardActiveViewStorageKey(data.empresa_id);
+        const storedActiveViewId = localStorage.getItem(storageKey);
+        const nextActiveViewId = normalizedViews.some((view) => view.id === storedActiveViewId)
+          ? String(storedActiveViewId)
+          : normalizedViews[0]?.id || 'default';
+
+        setDashboardViews(normalizedViews);
+        setDashboardViewsEmpresaId(data.empresa_id);
+        setActiveDashboardViewId(nextActiveViewId);
+      } catch {
+        if (!isMounted) return;
+        setDashboardViews([createDefaultDashboardView()]);
+        setActiveDashboardViewId('default');
+      } finally {
+        if (isMounted) {
+          dashboardViewsLoadedRef.current = true;
+        }
+      }
+    };
+
+    loadDashboardViewsFromApi();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!dashboardViewsEmpresaId) return;
+    localStorage.setItem(getDashboardActiveViewStorageKey(dashboardViewsEmpresaId), activeDashboardViewId);
+  }, [activeDashboardViewId, dashboardViewsEmpresaId]);
+
+  useEffect(() => {
+    if (!dashboardViewsLoadedRef.current || !dashboardViewsEmpresaId) return;
+    if (dashboardViewsSaveTimerRef.current) {
+      window.clearTimeout(dashboardViewsSaveTimerRef.current);
+    }
+
+    dashboardViewsSaveTimerRef.current = window.setTimeout(() => {
+      api.put('/dashboard-views/', { views: dashboardViews }).catch(() => {
+        // Fallback silencioso: mantemos o estado local ativo mesmo se a sync falhar.
+      });
+    }, 350);
+  }, [dashboardViews, dashboardViewsEmpresaId]);
+
+  const activeDashboardView = useMemo(() => {
+    return dashboardViews.find((view) => view.id === activeDashboardViewId) || dashboardViews[0] || createDefaultDashboardView();
+  }, [activeDashboardViewId, dashboardViews]);
+
+  const activeDashboardWidgets = activeDashboardView?.widgets || DEFAULT_DASHBOARD_WIDGETS;
+
+  const updateActiveDashboardView = (updater: (view: DashboardView) => DashboardView) => {
+    setDashboardViews((prev) => {
+      const current = prev.find((view) => view.id === activeDashboardViewId) || createDefaultDashboardView();
+      const next = updater({ ...current, widgets: normalizeDashboardWidgets(current.widgets).map((widget) => ({ ...widget })) });
+      const exists = prev.some((view) => view.id === next.id);
+      if (!exists) return [...prev, { ...next, widgets: normalizeDashboardWidgets(next.widgets) }];
+      return prev.map((view) => view.id === next.id ? { ...next, widgets: normalizeDashboardWidgets(next.widgets) } : view);
+    });
+  };
+
+  const moveActiveWidget = (widgetId: DashboardWidgetId, direction: -1 | 1) => {
+    updateActiveDashboardView((view) => {
+      const widgets = [...view.widgets];
+      const index = widgets.findIndex((widget) => widget.id === widgetId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= widgets.length) return view;
+      const [widget] = widgets.splice(index, 1);
+      widgets.splice(nextIndex, 0, widget);
+      return { ...view, widgets };
+    });
+  };
+
+  const updateActiveWidget = (widgetId: DashboardWidgetId, patch: Partial<DashboardWidgetConfig>) => {
+    updateActiveDashboardView((view) => ({
+      ...view,
+      widgets: view.widgets.map((widget) => widget.id === widgetId ? { ...widget, ...patch } : widget),
+    }));
+  };
+
+  const reorderActiveWidget = (draggedWidgetId: DashboardWidgetId, targetWidgetId: DashboardWidgetId) => {
+    updateActiveDashboardView((view) => {
+      const widgets = [...view.widgets];
+      const draggedIndex = widgets.findIndex((widget) => widget.id === draggedWidgetId);
+      const targetIndex = widgets.findIndex((widget) => widget.id === targetWidgetId);
+      if (draggedIndex < 0 || targetIndex < 0 || draggedIndex === targetIndex) return view;
+      const [draggedWidget] = widgets.splice(draggedIndex, 1);
+      widgets.splice(targetIndex, 0, draggedWidget);
+      return { ...view, widgets };
+    });
+  };
+
+  const createDashboardViewFromCurrent = () => {
+    const nextId = `view-${Date.now()}`;
+    const nextView: DashboardView = {
+      id: nextId,
+      name: `Vista ${dashboardViews.length + 1}`,
+      widgets: activeDashboardWidgets.map((widget) => ({ ...widget })),
+    };
+    setDashboardViews((prev) => [...prev, nextView]);
+    setActiveDashboardViewId(nextId);
+    setDashboardEditMode(true);
+  };
+
+  const resetActiveDashboardView = () => {
+    updateActiveDashboardView((view) => ({
+      ...view,
+      widgets: DEFAULT_DASHBOARD_WIDGETS.map((widget) => ({ ...widget })),
+    }));
+  };
+
+  const deleteActiveDashboardView = () => {
+    if (activeDashboardViewId === 'default') {
+      resetActiveDashboardView();
+      return;
+    }
+    setDashboardViews((prev) => {
+      const filtered = prev.filter((view) => view.id !== activeDashboardViewId);
+      return filtered.length ? filtered : [createDefaultDashboardView()];
+    });
+    setActiveDashboardViewId('default');
+  };
 
   const categoriasExcluidasResultado = useMemo(() => buildExcludedCategoriaIds(categorias), [categorias]);
 
@@ -460,7 +756,9 @@ export function Dashboard() {
     if (selectedConta && Number((l as any).conta_id) !== Number(selectedConta)) return false;
     if (selectedDate && toDateOnlyStr(l.data_vencimento) !== selectedDate) return false;
     if (!selectedDate && selectedMonth && !toDateOnlyStr(l.data_vencimento).startsWith(selectedMonth)) return false;
-    if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
+    if (statusFiltro === 'ATRASADO' && (isPago(l.status) || toDateOnlyStr(l.data_vencimento) >= hoje)) return false;
+    if (statusFiltro === 'PENDENTE' && (isPago(l.status) || toDateOnlyStr(l.data_vencimento) < hoje)) return false;
+    if (statusFiltro === 'PAGO' && String(l.status).toUpperCase() !== 'PAGO') return false;
     if (tipoFiltro === 'RECEITA' && !isReceita(l.tipo)) return false;
     if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
     return true;
@@ -481,7 +779,9 @@ export function Dashboard() {
     if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
     if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
     if (selectedConta && Number((l as any).conta_id) !== Number(selectedConta)) return false;
-    if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
+    if (statusFiltro === 'ATRASADO' && (isPago(l.status) || toDateOnlyStr(l.data_vencimento) >= hoje)) return false;
+    if (statusFiltro === 'PENDENTE' && (isPago(l.status) || toDateOnlyStr(l.data_vencimento) < hoje)) return false;
+    if (statusFiltro === 'PAGO' && String(l.status).toUpperCase() !== 'PAGO') return false;
     if (tipoFiltro === 'RECEITA' && !isReceita(l.tipo)) return false;
     if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
     return true;
@@ -1305,6 +1605,34 @@ export function Dashboard() {
     await exportLancamentos(topLancamentos, format, `ultimos_lancamentos_${mes}`);
   };
 
+  const toggleTimelineSelection = (index: number) => {
+    if (index < 0) return;
+    if (fluxoDiario.mode === 'MONTH') {
+      const month = fluxoDiario.indexToDate?.[index];
+      if (!month) return;
+      setSelectedDate(null);
+      setSelectedMonth((prev) => prev === month ? null : month);
+      return;
+    }
+
+    const date = fluxoDiario.indexToDate?.[index];
+    if (!date) return;
+    setSelectedMonth(null);
+    setSelectedDate((prev) => prev === date ? null : date);
+  };
+
+  const toggleYearMonthSelection = (year: number, monthIndex: number) => {
+    if (monthIndex < 0 || monthIndex > 11) return;
+    const month = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+    setSelectedDate(null);
+    setSelectedMonth((prev) => prev === month ? null : month);
+  };
+
+  const toggleStatusSelection = (index: number) => {
+    const nextStatus = index === 0 ? 'PAGO' : index === 1 ? 'PENDENTE' : 'ATRASADO';
+    setStatusFiltro((prev) => prev === nextStatus ? 'TODOS' : nextStatus);
+  };
+
   const chartFluxo = {
     series: [
       { name: 'Entradas', data: fluxoDiario.rec },
@@ -1319,53 +1647,14 @@ export function Dashboard() {
         selection: { enabled: true },
         events: {
           dataPointSelection: (_: any, __: any, opts: any) => {
-            const day = (opts.dataPointIndex ?? -1) + 1;
-            if (day > 0) {
-              if (fluxoDiario.mode === 'MONTH') {
-                const month = fluxoDiario.indexToDate?.[day - 1];
-                if (!month) return;
-                setSelectedDate(null);
-                setSelectedMonth(prev => prev === month ? null : month);
-              } else {
-                const date = fluxoDiario.indexToDate?.[day - 1];
-                if (!date) return;
-                setSelectedMonth(null);
-                setSelectedDate(prev => prev === date ? null : date);
-              }
-            }
+            toggleTimelineSelection(opts.dataPointIndex ?? -1);
           },
           markerClick: (_: any, __: any, opts: any) => {
-            const day = (opts.dataPointIndex ?? -1) + 1;
-            if (day > 0) {
-              if (fluxoDiario.mode === 'MONTH') {
-                const month = fluxoDiario.indexToDate?.[day - 1];
-                if (!month) return;
-                setSelectedDate(null);
-                setSelectedMonth(prev => prev === month ? null : month);
-              } else {
-                const date = fluxoDiario.indexToDate?.[day - 1];
-                if (!date) return;
-                setSelectedMonth(null);
-                setSelectedDate(prev => prev === date ? null : date);
-              }
-            }
+            toggleTimelineSelection(opts.dataPointIndex ?? -1);
           },
           click: (_: any, chartContext: any, config: any) => {
             const idx = config?.dataPointIndex ?? chartContext?.globals?.lastHoveredDataPointIndex ?? -1;
-            const day = idx + 1;
-            if (day > 0) {
-              if (fluxoDiario.mode === 'MONTH') {
-                const month = fluxoDiario.indexToDate?.[day - 1];
-                if (!month) return;
-                setSelectedDate(null);
-                setSelectedMonth(prev => prev === month ? null : month);
-              } else {
-                const date = fluxoDiario.indexToDate?.[day - 1];
-                if (!date) return;
-                setSelectedMonth(null);
-                setSelectedDate(prev => prev === date ? null : date);
-              }
-            }
+            toggleTimelineSelection(idx);
           }
         }
       },
@@ -1412,7 +1701,7 @@ export function Dashboard() {
       legend: { show: false },
       dataLabels: {
         enabled: true,
-        style: { fontSize: '11px', fontWeight: 700 },
+        style: { fontSize: '10px', fontWeight: 700 },
         formatter: (_: string, opts: any) => {
           const point = despesasTreemapData[opts.dataPointIndex];
           if (!point) return '';
@@ -1453,7 +1742,7 @@ export function Dashboard() {
       legend: { show: false },
       dataLabels: {
         enabled: true,
-        style: { fontSize: '11px', fontWeight: 700 },
+        style: { fontSize: '10px', fontWeight: 700 },
         formatter: (_: string, opts: any) => {
           const point = receitasTreemapData[opts.dataPointIndex];
           if (!point) return '';
@@ -1515,7 +1804,18 @@ export function Dashboard() {
   const chartResultadoOperacional = {
     series: [{ name: 'Resultado Operacional', data: resultadoMensalAno.values }],
     options: {
-      chart: { type: 'bar', height: 320, toolbar: { show: false } },
+      chart: {
+        type: 'bar',
+        height: 320,
+        toolbar: { show: false },
+        events: {
+          dataPointSelection: (_: any, __: any, opts: any) => toggleYearMonthSelection(resultadoMensalAno.year, opts.dataPointIndex ?? -1),
+          click: (_: any, chartContext: any, config: any) => {
+            const idx = config?.dataPointIndex ?? chartContext?.globals?.lastHoveredDataPointIndex ?? -1;
+            toggleYearMonthSelection(resultadoMensalAno.year, idx);
+          }
+        }
+      },
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
       dataLabels: { enabled: false },
@@ -1544,7 +1844,22 @@ export function Dashboard() {
       { name: String(resultadoMensalAnoAnterior.year), data: resultadoMensalAnoAnterior.values }
     ],
     options: {
-      chart: { type: 'line', height: 280, toolbar: { show: false }, zoom: { enabled: true } },
+      chart: {
+        type: 'line',
+        height: 280,
+        toolbar: { show: false },
+        zoom: { enabled: true },
+        events: {
+          dataPointSelection: (_: any, __: any, opts: any) => {
+            const year = opts.seriesIndex === 1 ? resultadoMensalAnoAnterior.year : resultadoMensalAno.year;
+            toggleYearMonthSelection(year, opts.dataPointIndex ?? -1);
+          },
+          markerClick: (_: any, __: any, opts: any) => {
+            const year = opts.seriesIndex === 1 ? resultadoMensalAnoAnterior.year : resultadoMensalAno.year;
+            toggleYearMonthSelection(year, opts.dataPointIndex ?? -1);
+          }
+        }
+      },
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
       dataLabels: { enabled: false },
@@ -1560,7 +1875,18 @@ export function Dashboard() {
   const chartSazonalidade = {
     series: [{ name: 'Índice Sazonal (%)', data: sazonalidadeIndice.values }],
     options: {
-      chart: { type: 'bar', height: 260, toolbar: { show: false } },
+      chart: {
+        type: 'bar',
+        height: 260,
+        toolbar: { show: false },
+        events: {
+          dataPointSelection: (_: any, __: any, opts: any) => toggleYearMonthSelection(resultadoMensalAno.year, opts.dataPointIndex ?? -1),
+          click: (_: any, chartContext: any, config: any) => {
+            const idx = config?.dataPointIndex ?? chartContext?.globals?.lastHoveredDataPointIndex ?? -1;
+            toggleYearMonthSelection(resultadoMensalAno.year, idx);
+          }
+        }
+      },
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
       dataLabels: { enabled: false },
@@ -1641,7 +1967,19 @@ export function Dashboard() {
       { name: 'Despesas', data: resultadoMensalAno.desp }
     ],
     options: {
-      chart: { type: 'bar', height: 320, stacked: true, toolbar: { show: false } },
+      chart: {
+        type: 'bar',
+        height: 320,
+        stacked: true,
+        toolbar: { show: false },
+        events: {
+          dataPointSelection: (_: any, __: any, opts: any) => toggleYearMonthSelection(resultadoMensalAno.year, opts.dataPointIndex ?? -1),
+          click: (_: any, chartContext: any, config: any) => {
+            const idx = config?.dataPointIndex ?? chartContext?.globals?.lastHoveredDataPointIndex ?? -1;
+            toggleYearMonthSelection(resultadoMensalAno.year, idx);
+          }
+        }
+      },
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
       dataLabels: { enabled: false },
@@ -1657,7 +1995,15 @@ export function Dashboard() {
   const chartMargemAno = {
     series: [{ name: 'Margem Operacional %', data: resultadoMensalAno.margem }],
     options: {
-      chart: { type: 'line', height: 280, toolbar: { show: false } },
+      chart: {
+        type: 'line',
+        height: 280,
+        toolbar: { show: false },
+        events: {
+          dataPointSelection: (_: any, __: any, opts: any) => toggleYearMonthSelection(resultadoMensalAno.year, opts.dataPointIndex ?? -1),
+          markerClick: (_: any, __: any, opts: any) => toggleYearMonthSelection(resultadoMensalAno.year, opts.dataPointIndex ?? -1),
+        }
+      },
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
       dataLabels: { enabled: false },
@@ -1673,7 +2019,16 @@ export function Dashboard() {
   const chartResultadoAcumulado = {
     series: [{ name: 'Resultado Acumulado', data: resultadoAcumulado.values }],
     options: {
-      chart: { type: 'line', height: 280, toolbar: { show: false }, animations: { enabled: true } },
+      chart: {
+        type: 'line',
+        height: 280,
+        toolbar: { show: false },
+        animations: { enabled: true },
+        events: {
+          dataPointSelection: (_: any, __: any, opts: any) => toggleTimelineSelection(opts.dataPointIndex ?? -1),
+          markerClick: (_: any, __: any, opts: any) => toggleTimelineSelection(opts.dataPointIndex ?? -1),
+        }
+      },
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
       dataLabels: { enabled: false },
@@ -1692,7 +2047,16 @@ export function Dashboard() {
       { name: 'Despesas Acumuladas', data: acumuladoRecDesp.desp }
     ],
     options: {
-      chart: { type: 'line', height: 280, toolbar: { show: false }, animations: { enabled: true } },
+      chart: {
+        type: 'line',
+        height: 280,
+        toolbar: { show: false },
+        animations: { enabled: true },
+        events: {
+          dataPointSelection: (_: any, __: any, opts: any) => toggleTimelineSelection(opts.dataPointIndex ?? -1),
+          markerClick: (_: any, __: any, opts: any) => toggleTimelineSelection(opts.dataPointIndex ?? -1),
+        }
+      },
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
       dataLabels: { enabled: false },
@@ -1708,7 +2072,18 @@ export function Dashboard() {
   const chartStatus = {
     series: [statusDistrib.pagos, statusDistrib.pendentes, statusDistrib.atrasados],
     options: {
-      chart: { type: 'donut', height: 220, toolbar: { show: false } },
+      chart: {
+        type: 'donut',
+        height: 220,
+        toolbar: { show: false },
+        events: {
+          dataPointSelection: (_: any, __: any, opts: any) => toggleStatusSelection(opts.dataPointIndex ?? -1),
+          click: (_: any, chartContext: any, config: any) => {
+            const idx = config?.dataPointIndex ?? chartContext?.globals?.lastHoveredDataPointIndex ?? -1;
+            toggleStatusSelection(idx);
+          }
+        }
+      },
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
       labels: ['Pagos', 'Pendentes', 'Atrasados'],
@@ -1852,6 +2227,371 @@ export function Dashboard() {
       )}
     </div>
   );
+
+  const renderDashboardWidget = (widgetId: DashboardWidgetId) => {
+    switch (widgetId) {
+      case 'heatmap_calendar':
+        return (
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Heatmaps reativos</p>
+                <h3 className="mt-1 text-xl font-bold text-slate-900 dark:text-white">Mapa de calor por receita e despesa</h3>
+              </div>
+              <span className="rounded-full border border-slate-200 px-3 py-1 text-xs font-bold text-slate-500 dark:border-slate-700 dark:text-slate-300">{heatmapCalendario.monthLabel}</span>
+            </div>
+            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+              {([
+                { key: 'receita', label: 'Receitas', max: heatmapCalendario.maxReceita },
+                { key: 'despesa', label: 'Despesas', max: heatmapCalendario.maxDespesa },
+              ] as const).map((mapa) => (
+                <div key={mapa.key} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h4 className={`text-sm font-bold ${mapa.key === 'receita' ? 'text-emerald-600' : 'text-rose-500'}`}>{mapa.label}</h4>
+                    <span className="text-xs text-slate-400">Clique para abrir o dia</span>
+                  </div>
+                  <div className="grid grid-cols-7 gap-2 text-center text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                    {heatmapCalendario.weekLabels.map((label) => <div key={label}>{label}</div>)}
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {heatmapCalendario.weeks.map((week) => (
+                      <div key={week.label} className="grid grid-cols-7 gap-2">
+                        {week.cells.map((cell) => {
+                          const amount = mapa.key === 'receita' ? cell.receita : cell.despesa;
+                          const ratio = mapa.max > 0 ? amount / mapa.max : 0;
+                          return (
+                            <button
+                              key={`${mapa.key}-${cell.date}`}
+                              onClick={() => cell.isCurrentMonth && setSelectedDate((prev) => prev === cell.date ? null : cell.date)}
+                              className={`aspect-square rounded-2xl border text-[11px] font-bold transition hover:-translate-y-0.5 ${cell.isCurrentMonth ? getHeatCellClass(ratio, mapa.key) : 'border-slate-100 bg-slate-50 text-slate-300 dark:border-slate-800 dark:bg-slate-900/20 dark:text-slate-600'} ${selectedDate === cell.date ? 'ring-2 ring-sky-400 ring-offset-2 ring-offset-white dark:ring-offset-slate-800' : ''}`}
+                              title={`${parseDateLocal(cell.date)?.toLocaleDateString('pt-BR')} • ${BRL.format(amount)}`}
+                            >
+                              {cell.dayLabel}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      case 'executive_readings':
+        return (
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Conexao dos paineis</p>
+                <h3 className="mt-1 text-xl font-bold text-slate-900 dark:text-white">Leituras executivas do recorte</h3>
+              </div>
+              <Sparkles className="h-5 w-5 text-amber-500" />
+            </div>
+            <div className="mt-5 space-y-3">
+              <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Saldo atual</p>
+                <p className={`mt-2 text-3xl font-black ${operationalKpis.saldo >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>{BRL.format(operationalKpis.saldo)}</p>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">O saldo reage ao periodo, tipo, centro, categoria, conta e cortes vindos dos graficos.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-bold text-slate-700 dark:text-slate-100">Mix financeiro</p>
+                  <span className="text-xs text-slate-400">Receita {mixFinanceiro.receitaPct.toFixed(1)}% x despesa {mixFinanceiro.despesaPct.toFixed(1)}%</span>
+                </div>
+                <div className="mt-3 flex h-4 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
+                  <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${mixFinanceiro.receitaPct}%` }} />
+                  <div className="h-full bg-rose-500 transition-all duration-500" style={{ width: `${mixFinanceiro.despesaPct}%` }} />
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                  <div className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Receitas: {BRL.format(operationalKpis.receitas)} ({mixFinanceiro.receitaPct.toFixed(1)}%)</div>
+                  <div className="rounded-xl bg-rose-50 px-3 py-2 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">Despesas: {BRL.format(operationalKpis.despesas)} ({mixFinanceiro.despesaPct.toFixed(1)}%)</div>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-100">Preparacao para exportacao</p>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">A base do fim da pagina replica exatamente estes filtros. Voce pode buscar um termo e baixar CSV/XLSX do resultado consolidado.</p>
+              </div>
+            </div>
+          </div>
+        );
+      case 'productivity':
+        return (
+          <div className={`${INTERACTIVE_PANEL_CLASS} bg-white/80 backdrop-blur`} onMouseEnter={(event) => scheduleKpiMeaning('PRODUTIVIDADE', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Produtividade</h3>
+              <span className="text-xs text-slate-400">Eficiencia de execucao financeira</span>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-center">
+              <div className="lg:col-span-1 rounded-3xl border border-slate-200 bg-slate-50/80 p-5 dark:border-slate-700 dark:bg-slate-900/40">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Leitura rapida</p>
+                <p className="mt-3 text-3xl font-black text-slate-900 dark:text-white">{execucaoPct}%</p>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">Quanto do financeiro ja saiu do planejado e virou execucao dentro do recorte atual.</p>
+              </div>
+              <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <p className="text-xs text-slate-400">Execucao</p>
+                  <p className="text-xl font-bold text-indigo-600">{execucaoPct}%</p>
+                </div>
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <p className="text-xs text-slate-400">Tarefas pendentes</p>
+                  <p className="text-xl font-bold text-amber-600">{todoPendentesPct}%</p>
+                </div>
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <p className="text-xs text-slate-400">Resultado no periodo</p>
+                  <p className={`text-xl font-bold ${operationalKpis.saldo >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{BRL.format(operationalKpis.saldo)}</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+              {produtividadeIndicadores.map((item) => (
+                <div key={item.key} className="rounded-2xl border border-slate-200 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-100">{item.label}</p>
+                    <span className="text-sm font-black text-slate-900 dark:text-white">{item.valor}</span>
+                  </div>
+                  <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                    <div className={`h-full ${item.tone}`} style={{ width: `${Math.max(6, Math.min(100, item.percentual))}%` }} />
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">{item.apoio}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      case 'contas_pagar':
+        return (
+          <div className={INTERACTIVE_PANEL_CLASS}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Contas a Pagar</h3>
+              <span className="text-xs text-slate-400">Vencimentos reativos</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_HOJE')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_HOJE' ? 'border-rose-400 bg-rose-50 dark:border-rose-500 dark:bg-rose-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-rose-300 dark:hover:border-rose-500/60'}`}><p className="text-xs text-slate-400">Para hoje</p><p className="font-bold text-red-600">{BRL.format(contasHoje.pagar.hoje)}</p></button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_AMANHA')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_AMANHA' ? 'border-rose-400 bg-rose-50 dark:border-rose-500 dark:bg-rose-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-rose-300 dark:hover:border-rose-500/60'}`}><p className="text-xs text-slate-400">Para amanha</p><p className="font-bold text-red-600">{BRL.format(contasHoje.pagar.amanha)}</p></button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_ATRASADAS')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_ATRASADAS' ? 'border-rose-400 bg-rose-50 dark:border-rose-500 dark:bg-rose-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-rose-300 dark:hover:border-rose-500/60'}`}><p className="text-xs text-slate-400">Atrasadas</p><p className="font-bold text-red-600">{BRL.format(contasHoje.pagar.atrasadas)}</p></button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_TOTAL')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_TOTAL' ? 'border-slate-400 bg-slate-50 dark:border-slate-500 dark:bg-slate-700/30' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-slate-300 dark:hover:border-slate-500/60'}`}><p className="text-xs text-slate-400">Total do mes</p><p className="font-bold text-slate-700 dark:text-slate-100">{BRL.format(contasHoje.pagar.totalMes)}</p></button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_REALIZADAS')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_REALIZADAS' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}><p className="text-xs text-slate-400">Realizadas</p><p className="font-bold text-emerald-600">{BRL.format(contasHoje.pagar.realizadas)}</p></button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_ABERTO')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_ABERTO' ? 'border-amber-400 bg-amber-50 dark:border-amber-500 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-amber-300 dark:hover:border-amber-500/60'}`}><p className="text-xs text-slate-400">Em aberto</p><p className="font-bold text-amber-600">{BRL.format(contasHoje.pagar.emAberto)}</p></button>
+            </div>
+          </div>
+        );
+      case 'contas_receber':
+        return (
+          <div className={INTERACTIVE_PANEL_CLASS}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Contas a Receber</h3>
+              <span className="text-xs text-slate-400">Vencimentos reativos</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_HOJE')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_HOJE' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}><p className="text-xs text-slate-400">Para hoje</p><p className="font-bold text-emerald-600">{BRL.format(contasHoje.receber.hoje)}</p></button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_AMANHA')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_AMANHA' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}><p className="text-xs text-slate-400">Para amanha</p><p className="font-bold text-emerald-600">{BRL.format(contasHoje.receber.amanha)}</p></button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_ATRASADAS')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_ATRASADAS' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}><p className="text-xs text-slate-400">Atrasadas</p><p className="font-bold text-emerald-600">{BRL.format(contasHoje.receber.atrasadas)}</p></button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_TOTAL')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_TOTAL' ? 'border-slate-400 bg-slate-50 dark:border-slate-500 dark:bg-slate-700/30' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-slate-300 dark:hover:border-slate-500/60'}`}><p className="text-xs text-slate-400">Total do mes</p><p className="font-bold text-slate-700 dark:text-slate-100">{BRL.format(contasHoje.receber.totalMes)}</p></button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_REALIZADAS')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_REALIZADAS' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}><p className="text-xs text-slate-400">Realizadas</p><p className="font-bold text-emerald-600">{BRL.format(contasHoje.receber.realizadas)}</p></button>
+              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_ABERTO')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_ABERTO' ? 'border-amber-400 bg-amber-50 dark:border-amber-500 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-amber-300 dark:hover:border-amber-500/60'}`}><p className="text-xs text-slate-400">Em aberto</p><p className="font-bold text-amber-600">{BRL.format(contasHoje.receber.emAberto)}</p></button>
+            </div>
+          </div>
+        );
+      case 'lancamentos_pagar':
+        return (
+          <div className={INTERACTIVE_PANEL_CLASS}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Lancamentos • Contas a Pagar</h3>
+              <span className="text-xs text-slate-400">{lancamentosContasDetalhe.pagar.length} item(ns){financeDrilldown?.startsWith('PAGAR') ? ' no recorte ativo' : ''}</span>
+            </div>
+            <div className="overflow-auto max-h-80 rounded-xl border border-slate-200 dark:border-slate-700">
+              <table className="w-full text-sm"><thead className="bg-slate-50 dark:bg-slate-900/40 text-slate-500 text-xs uppercase"><tr><th className="p-2 text-left">Descricao</th><th className="p-2 text-left">Venc.</th><th className="p-2 text-left">Status</th><th className="p-2 text-right">Valor</th></tr></thead><tbody>{lancamentosContasDetalhe.pagar.length === 0 ? (<tr><td className="p-3 text-slate-400" colSpan={4}>Sem lancamentos de contas a pagar no filtro atual.</td></tr>) : (lancamentosContasDetalhe.pagar.map((l) => (<tr key={`pagar-${l.id}`} className="border-t border-slate-100 dark:border-slate-700"><td className="p-2 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className="p-2 text-slate-500">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="p-2"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${isPago(l.status) ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'}`}>{l.status}</span></td><td className="p-2 text-right font-bold text-red-500">{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table>
+            </div>
+          </div>
+        );
+      case 'lancamentos_receber':
+        return (
+          <div className={INTERACTIVE_PANEL_CLASS}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Lancamentos • Contas a Receber</h3>
+              <span className="text-xs text-slate-400">{lancamentosContasDetalhe.receber.length} item(ns){financeDrilldown?.startsWith('RECEBER') ? ' no recorte ativo' : ''}</span>
+            </div>
+            <div className="overflow-auto max-h-80 rounded-xl border border-slate-200 dark:border-slate-700">
+              <table className="w-full text-sm"><thead className="bg-slate-50 dark:bg-slate-900/40 text-slate-500 text-xs uppercase"><tr><th className="p-2 text-left">Descricao</th><th className="p-2 text-left">Venc.</th><th className="p-2 text-left">Status</th><th className="p-2 text-right">Valor</th></tr></thead><tbody>{lancamentosContasDetalhe.receber.length === 0 ? (<tr><td className="p-3 text-slate-400" colSpan={4}>Sem lancamentos de contas a receber no filtro atual.</td></tr>) : (lancamentosContasDetalhe.receber.map((l) => (<tr key={`receber-${l.id}`} className="border-t border-slate-100 dark:border-slate-700"><td className="p-2 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className="p-2 text-slate-500">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="p-2"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${isPago(l.status) ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'}`}>{l.status}</span></td><td className="p-2 text-right font-bold text-emerald-600">{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table>
+            </div>
+          </div>
+        );
+      case 'fluxo':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('FLUXO_CAIXA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">{periodoTipo === 'ANO' ? 'Fluxo de Caixa Mensal' : 'Fluxo de Caixa Diario'}</h3>
+              <span className="text-xs text-slate-400">{periodoTipo === 'ANO' ? 'Interativo por mes' : 'Interativo por dia'}</span>
+            </div>
+            <AsyncApexChart type="area" height={320} series={chartFluxo.series} options={chartFluxo.options} />
+          </div>
+        );
+      case 'despesas_categoria':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('DESPESAS_CATEGORIA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h3 className="font-bold text-slate-700 dark:text-slate-200">{includeNaoOperacionaisCategorias ? 'Despesas por Categoria' : 'Despesas Operacionais por Categoria'}</h3>
+                <span className="text-xs text-slate-400">Treemap proporcional • clique para filtrar</span>
+              </div>
+              <button type="button" onClick={() => setIncludeNaoOperacionaisCategorias((prev) => !prev)} className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-bold transition ${includeNaoOperacionaisCategorias ? 'border-sky-400 bg-sky-50 text-sky-700 dark:border-sky-500 dark:bg-sky-500/10 dark:text-sky-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/70'}`}>{includeNaoOperacionaisCategorias ? 'Ocultar nao operacionais' : 'Incluir nao operacionais'}</button>
+            </div>
+            {chartCategorias.series.length === 0 ? <div className="h-96 flex items-center justify-center text-sm text-slate-400">Sem dados de despesas no periodo.</div> : <AsyncApexChart type="treemap" height={420} series={chartCategorias.series} options={chartCategorias.options} />}
+            {despesasCategoriaResumo.length > 0 && (<div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">{despesasCategoriaResumo.map((item) => (<button key={`despesa-resumo-${item.id}`} type="button" onClick={() => { if (item.id === -1) return; setSelectedCategorias((prev) => { const next = new Set(prev); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; }); }} className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-left transition ${item.id !== -1 && selectedCategorias.has(item.id) ? 'border-rose-300 bg-rose-50 dark:border-rose-500/60 dark:bg-rose-500/10' : 'border-slate-200 bg-white/70 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30 dark:hover:bg-slate-800/50'}`}><span className="min-w-0 pr-3 text-sm font-semibold text-slate-700 dark:text-slate-100 truncate">{item.label}</span><span className="shrink-0 text-xs font-black text-slate-500 dark:text-slate-300">{item.percentual.toFixed(1)}%</span></button>))}</div>)}
+            <p className="mt-3 text-xs text-slate-400">{includeNaoOperacionaisCategorias ? 'Visualizacao ampliada: categorias nao operacionais entram apenas neste treemap para comparacao visual, sem alterar os KPIs operacionais do dashboard.' : 'Categorias nao operacionais continuam visiveis nos lancamentos e no consolidado, mas ficam fora desta leitura operacional.'}</p>
+          </div>
+        );
+      case 'receitas_categoria':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RECEITAS_CATEGORIA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">{includeNaoOperacionaisCategorias ? 'Receitas por Categoria' : 'Receitas Operacionais por Categoria'}</h3><span className="text-xs text-slate-400">Treemap proporcional • clique para filtrar</span></div>
+            {chartReceitasCategorias.series.length === 0 ? <div className="h-80 flex items-center justify-center text-sm text-slate-400">Sem dados de receitas no periodo.</div> : <AsyncApexChart type="treemap" height={320} series={chartReceitasCategorias.series} options={chartReceitasCategorias.options} />}
+            {receitasCategoriaResumo.length > 0 && (<div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">{receitasCategoriaResumo.map((item) => (<button key={`receita-resumo-${item.id}`} type="button" onClick={() => { if (item.id === -1) return; setSelectedCategorias((prev) => { const next = new Set(prev); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; }); }} className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-left transition ${item.id !== -1 && selectedCategorias.has(item.id) ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-500/60 dark:bg-emerald-500/10' : 'border-slate-200 bg-white/70 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30 dark:hover:bg-slate-800/50'}`}><span className="min-w-0 pr-3 text-sm font-semibold text-slate-700 dark:text-slate-100 truncate">{item.label}</span><span className="shrink-0 text-xs font-black text-slate-500 dark:text-slate-300">{item.percentual.toFixed(1)}%</span></button>))}</div>)}
+            <p className="mt-3 text-xs text-slate-400">{includeNaoOperacionaisCategorias ? 'Ao incluir nao operacionais, este painel vira uma visao comparativa ampliada por categoria.' : 'O maior motor de receita agora considera apenas categorias operacionais marcadas para resultado.'}</p>
+          </div>
+        );
+      case 'acumulado_rec_desp':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('ACUMULADO_REC_DESP', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Acumulado: Receitas x Despesas</h3><span className="text-xs text-slate-400">Evolucao no periodo</span></div>
+            <AsyncApexChart type="line" height={280} series={chartAcumuladoRecDesp.series} options={chartAcumuladoRecDesp.options} />
+          </div>
+        );
+      case 'resultado_operacional':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RESULTADO_OPERACIONAL', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Operacional ({resultadoMensalAno.year})</h3><span className="text-xs text-slate-400">Jan → Dez</span></div>
+            {chartResultadoOperacional.series[0].data.length === 0 ? <div className="h-80 flex items-center justify-center text-sm text-slate-400">Sem dados suficientes para o periodo.</div> : <AsyncApexChart type="bar" height={320} series={chartResultadoOperacional.series} options={chartResultadoOperacional.options} />}
+          </div>
+        );
+      case 'resumo_operacional':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RESUMO_OPERACIONAL', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Resumo Operacional</h3><span className="text-xs text-slate-400">Media mensal</span></div>
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 dark:border-emerald-900/40 dark:bg-emerald-500/10"><p className="text-xs text-slate-400">Media por mes</p><p className={`text-lg font-bold ${mediaResultado >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{BRL.format(mediaResultado)}</p></div>
+              <div className="rounded-2xl border border-sky-100 bg-sky-50/80 p-4 dark:border-sky-900/40 dark:bg-sky-500/10"><p className="text-xs text-slate-400">Melhor cenario</p><p className="text-lg font-bold text-emerald-600">{resultadoMensal.values.length ? BRL.format(Math.max(...resultadoMensal.values)) : '—'}</p></div>
+              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 dark:border-rose-900/40 dark:bg-rose-500/10"><p className="text-xs text-slate-400">Pior cenario</p><p className="text-lg font-bold text-red-500">{resultadoMensal.values.length ? BRL.format(Math.min(...resultadoMensal.values)) : '—'}</p></div>
+            </div>
+          </div>
+        );
+      case 'receitas_despesas_ano':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RECEITAS_DESPESAS_ANO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas x Despesas ({resultadoMensalAno.year})</h3><span className="text-xs text-slate-400">Comparativo anual</span></div>
+            <AsyncApexChart type="bar" height={320} series={chartReceitasDespesasAno.series} options={chartReceitasDespesasAno.options} />
+          </div>
+        );
+      case 'margem_operacional':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('MARGEM_OPERACIONAL_PAINEL', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Margem Operacional</h3><span className="text-xs text-slate-400">% mes a mes</span></div>
+            <AsyncApexChart type="line" height={280} series={chartMargemAno.series} options={chartMargemAno.options} />
+          </div>
+        );
+      case 'comparativo_ano':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('COMPARATIVO_ANO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Comparativo Ano a Ano</h3><span className="text-xs text-slate-400">{resultadoMensalAnoAnterior.year} vs {resultadoMensalAno.year}</span></div>
+            <AsyncApexChart type="line" height={280} series={chartComparativoAno.series} options={chartComparativoAno.options} />
+          </div>
+        );
+      case 'sazonalidade':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('SAZONALIDADE', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Sazonalidade</h3><span className="text-xs text-slate-400">Indice mensal</span></div>
+            <AsyncApexChart type="bar" height={260} series={chartSazonalidade.series} options={chartSazonalidade.options} />
+          </div>
+        );
+      case 'cenarios':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('CENARIOS', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Cenarios</h3><span className="text-xs text-slate-400">Baseado na volatilidade</span></div>
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 dark:border-rose-900/40 dark:bg-rose-500/10"><p className="text-xs text-slate-400">Pessimista</p><p className="text-lg font-bold text-red-500">{BRL.format(cenarios.pessimista)}</p></div>
+              <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/50"><p className="text-xs text-slate-400">Realista</p><p className="text-lg font-bold text-slate-800 dark:text-white">{BRL.format(cenarios.realista)}</p></div>
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 dark:border-emerald-900/40 dark:bg-emerald-500/10"><p className="text-xs text-slate-400">Otimista</p><p className="text-lg font-bold text-emerald-600">{BRL.format(cenarios.otimista)}</p></div>
+            </div>
+          </div>
+        );
+      case 'resultado_acumulado':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RESULTADO_ACUMULADO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Acumulado</h3><span className="text-xs text-slate-400">Evolucao do caixa</span></div>
+            <AsyncApexChart type="line" height={280} series={chartResultadoAcumulado.series} options={chartResultadoAcumulado.options} />
+          </div>
+        );
+      case 'pulso_acumulado':
+        return (
+          <div className="relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.1),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.96))] p-6 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))]" onMouseEnter={(event) => scheduleKpiMeaning('PULSO_ACUMULADO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Pulso do Acumulado</h3><span className="text-xs text-slate-400">Resumo instantaneo do caixa</span></div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-white/85 p-4 dark:border-slate-700 dark:bg-slate-900/50" onMouseEnter={(event) => scheduleKpiMeaning('FECHAMENTO_ACUMULADO', event.currentTarget, 400)} onMouseLeave={hideKpiMeaning}><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Fechamento</p><p className={`mt-3 text-xl font-black ${resultadoAcumuladoSnapshot.final >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{BRL.format(resultadoAcumuladoSnapshot.final)}</p></div>
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 dark:border-emerald-900/40 dark:bg-emerald-500/10" onMouseEnter={(event) => scheduleKpiMeaning('PICO_ACUMULADO', event.currentTarget, 400)} onMouseLeave={hideKpiMeaning}><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Pico</p><p className="mt-3 text-xl font-black text-emerald-600">{BRL.format(resultadoAcumuladoSnapshot.pico)}</p></div>
+              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 dark:border-rose-900/40 dark:bg-rose-500/10" onMouseEnter={(event) => scheduleKpiMeaning('VALE_ACUMULADO', event.currentTarget, 400)} onMouseLeave={hideKpiMeaning}><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Vale</p><p className="mt-3 text-xl font-black text-rose-500">{BRL.format(resultadoAcumuladoSnapshot.vale)}</p></div>
+              <div className="rounded-2xl border border-sky-100 bg-sky-50/80 p-4 dark:border-sky-900/40 dark:bg-sky-500/10" onMouseEnter={(event) => scheduleKpiMeaning('AMPLITUDE_ACUMULADO', event.currentTarget, 400)} onMouseLeave={hideKpiMeaning}><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Amplitude</p><p className="mt-3 text-xl font-black text-sky-600">{BRL.format(resultadoAcumuladoSnapshot.amplitude)}</p></div>
+            </div>
+          </div>
+        );
+      case 'status':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('STATUS_DISTRIB', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Distribuicao por Status</h3><span className="text-xs text-slate-400">Valor por status</span></div>
+            <AsyncApexChart type="donut" height={220} series={chartStatus.series} options={chartStatus.options} />
+          </div>
+        );
+      case 'despesas_centro':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('DESPESAS_CENTRO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Despesas por Centro</h3><span className="text-xs text-slate-400">Clique para filtrar</span></div>
+            <AsyncApexChart type="bar" height={320} series={chartCentros.series} options={chartCentros.options} />
+          </div>
+        );
+      case 'ultimos_lancamentos':
+        return (
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('ULTIMOS_LANCAMENTOS', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Ultimos Lancamentos</h3><div className="flex items-center gap-2"><span className="text-xs text-slate-400">Atualiza com filtros</span><button onClick={() => exportUltimosLancamentos('csv')} className="px-2 py-1 text-[11px] font-bold rounded border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40">CSV</button><button onClick={() => exportUltimosLancamentos('xlsx')} className="px-2 py-1 text-[11px] font-bold rounded border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40">XLSX</button></div></div>
+            <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{loading ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Carregando...</td></tr>) : topLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos no periodo.</td></tr>) : (topLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${String(l.tipo).toUpperCase().startsWith('R') ? 'text-emerald-600' : 'text-red-500'}`}>{String(l.tipo).toUpperCase().startsWith('D') ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
+          </div>
+        );
+      case 'gastos_categoria_lista':
+        return (
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Gastos por Categoria</h3><span className="text-xs text-slate-400">Clique para filtrar</span></div>
+            <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar">{categoriasList.length === 0 ? (<div className="text-sm text-slate-400">Sem despesas no periodo.</div>) : (categoriasList.map(item => (<button key={item.id} onClick={() => setSelectedCategorias(prev => { const next = new Set(prev); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-left transition ${item.active ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/40'}`}><span className="text-sm text-slate-700 dark:text-slate-100 truncate pr-2">{item.label}</span><span className="text-sm font-bold text-slate-800 dark:text-slate-100">{BRL.format(item.total)}</span></button>)))}</div>
+          </div>
+        );
+      case 'lancamentos_categoria':
+        return (
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Lancamentos da Categoria</h3><span className="text-xs text-slate-400">Mostra quando categoria esta selecionada</span></div>
+            <div className="flex items-center justify-between mb-3"><span className="text-xs text-slate-400">Exportacao inclui filtros atuais</span><div className="flex items-center gap-2"><button onClick={() => exportLancamentos(filteredLancamentos, 'csv', `lancamentos_${mes}`)} className="px-3 py-1 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40">Exportar CSV</button><button onClick={() => exportLancamentos(filteredLancamentos, 'xlsx', `lancamentos_${mes}`)} className="px-3 py-1 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40">Exportar XLSX</button></div></div>
+            <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{selectedCategorias.size === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Selecione uma ou mais categorias para ver os lancamentos.</td></tr>) : categoriaLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos para esta categoria.</td></tr>) : (categoriaLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${isReceita(l.tipo) ? 'text-emerald-600' : 'text-red-500'}`}>{isDespesa(l.tipo) ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
+          </div>
+        );
+      case 'base_analitica':
+        return (
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Base analitica final</p><h3 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">Resultado consolidado dos lancamentos filtrados</h3><p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-300">Ideal para analise fina, conferencia antes de conciliacao e exportacao do financeiro conforme o recorte que voce montou no dashboard.</p></div><div className="flex flex-wrap items-center gap-2"><button onClick={() => exportLancamentos(linhasAnaliticas, 'csv', `analise_financeira_${mes}`)} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/40"><Download className="h-4 w-4" />Exportar CSV</button><button onClick={() => exportLancamentos(linhasAnaliticas, 'xlsx', `analise_financeira_${mes}`)} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/40"><Download className="h-4 w-4" />Exportar XLSX</button></div></div>
+            <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto]"><label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-700"><Search className="h-4 w-4 text-slate-400" /><input value={analysisQuery} onChange={(e) => setAnalysisQuery(e.target.value)} placeholder="Buscar por descricao, categoria, centro, conta, banco ou status" className="w-full bg-transparent outline-none text-slate-700 dark:text-slate-100" /></label><div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Linhas</p><p className="mt-2 text-xl font-black text-slate-900 dark:text-white">{linhasAnaliticas.length}</p></div><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Receitas operacionais</p><p className="mt-2 text-xl font-black text-emerald-600">{BRL.format(linhasAnaliticasResumo.receitasOperacionais)}</p></div><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Despesas operacionais</p><p className="mt-2 text-xl font-black text-rose-500">{BRL.format(linhasAnaliticasResumo.despesasOperacionais)}</p></div><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Nao operacionais</p><p className={`mt-2 text-xl font-black ${linhasAnaliticasResumo.movimentosNaoOperacionais >= 0 ? 'text-sky-600' : 'text-amber-600'}`}>{BRL.format(linhasAnaliticasResumo.movimentosNaoOperacionais)}</p></div><div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Saldo consolidado</p><p className={`mt-2 text-xl font-black ${linhasAnaliticasResumo.saldoConsolidado >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>{BRL.format(linhasAnaliticasResumo.saldoConsolidado)}</p></div></div></div>
+            <div className="mt-5 overflow-x-auto rounded-3xl border border-slate-200 dark:border-slate-700"><table className="min-w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.16em] text-slate-400 dark:bg-slate-900/50"><tr><th className="px-4 py-3">Data</th><th className="px-4 py-3">Descricao</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Centro</th><th className="px-4 py-3">Conta</th><th className="px-4 py-3">Banco</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{linhasAnaliticas.length === 0 ? (<tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">Nenhum lancamento encontrado para os filtros e a busca informada.</td></tr>) : (linhasAnaliticas.slice(0, 120).map((lancamento) => (<tr key={`analitico-${lancamento.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/30"><td className="px-4 py-3 font-mono text-slate-500">{parseDateLocal(lancamento.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="px-4 py-3 text-slate-700 dark:text-slate-100">{lancamento.descricao}</td><td className="px-4 py-3 text-slate-500"><div className="flex flex-wrap items-center gap-2"><span>{lancamento.categoriaNome}</span>{lancamento.naoOperacional && (<span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">Nao operacional</span>)}</div></td><td className="px-4 py-3 text-slate-500">{lancamento.centroNome}</td><td className="px-4 py-3 text-slate-500">{lancamento.contaNome}</td><td className="px-4 py-3 text-slate-500">{lancamento.bancoNome}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${isPago(lancamento.status) ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}`}>{lancamento.status}</span></td><td className={`px-4 py-3 text-right font-bold ${isReceita(lancamento.tipo) ? 'text-emerald-600' : 'text-rose-500'}`}>{isDespesa(lancamento.tipo) ? '-' : ''}{BRL.format(Number(lancamento.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
+            {linhasAnaliticas.length > 120 && <p className="mt-3 text-xs text-slate-400">Mostrando os 120 lancamentos mais recentes. A exportacao leva todas as linhas filtradas.</p>}
+          </div>
+        );
+      case 'lancamentos_dia':
+        return selectedDate ? (
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Lancamentos do Dia {parseDateLocal(selectedDate)?.toLocaleDateString('pt-BR')}</h3><span className="text-xs text-slate-400">Vencimento no dia selecionado</span></div>
+            <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="text-xs text-slate-400 uppercase"><tr><th className="py-2 text-left">Data</th><th className="py-2 text-left">Descricao</th><th className="py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{diaLancamentos.length === 0 ? (<tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lancamentos para este dia.</td></tr>) : (diaLancamentos.map(l => (<tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40"><td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td><td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td><td className={`py-3 text-right font-bold ${isReceita(l.tipo) ? 'text-emerald-600' : 'text-red-500'}`}>{isDespesa(l.tipo) ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}</td></tr>)))}</tbody></table></div>
+          </div>
+        ) : (
+          <div className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-6 text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900/30">Selecione um dia no heatmap ou nos graficos temporais para abrir os lancamentos detalhados.</div>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900">
@@ -2113,7 +2853,8 @@ export function Dashboard() {
             { key: 'HOJE', label: 'Hoje' },
             { key: 'TODOS', label: 'Todos status' },
             { key: 'PAGO', label: 'Pagos' },
-            { key: 'PENDENTE', label: 'Pendentes' }
+            { key: 'PENDENTE', label: 'Pendentes' },
+            { key: 'ATRASADO', label: 'Atrasados' }
           ] as const).map(f => (
             <button
               key={f.key}
@@ -2322,649 +3063,33 @@ export function Dashboard() {
           </div>
           {selectedChips}
         </div>
+        <DashboardViewManager
+          activeDashboardView={activeDashboardView}
+          activeDashboardViewId={activeDashboardViewId}
+          activeDashboardWidgets={activeDashboardWidgets}
+          dashboardEditMode={dashboardEditMode}
+          dashboardViews={dashboardViews}
+          dashboardWidgetLabels={DASHBOARD_WIDGET_LABELS}
+          onActiveViewChange={setActiveDashboardViewId}
+          onCreateView={createDashboardViewFromCurrent}
+          onDeleteView={deleteActiveDashboardView}
+          onMoveWidget={(widgetId, direction) => moveActiveWidget(widgetId as DashboardWidgetId, direction)}
+          onRenameView={(name) => updateActiveDashboardView((view) => ({ ...view, name }))}
+          onResetView={resetActiveDashboardView}
+          onReorderWidget={(draggedWidgetId, targetWidgetId) => reorderActiveWidget(draggedWidgetId as DashboardWidgetId, targetWidgetId as DashboardWidgetId)}
+          onToggleEditMode={() => setDashboardEditMode((prev) => !prev)}
+          onUpdateWidget={(widgetId, patch) => updateActiveWidget(widgetId as DashboardWidgetId, patch as Partial<DashboardWidgetConfig>)}
+        />
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className={INTERACTIVE_PANEL_CLASS}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Contas a Pagar</h3>
-              <span className="text-xs text-slate-400">Vencimentos reativos</span>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {activeDashboardWidgets.filter((widget) => widget.visible).map((widget) => (
+            <div key={widget.id} className={getDashboardWidgetSpan(widget.size)}>
+              {renderDashboardWidget(widget.id)}
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_HOJE')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_HOJE' ? 'border-rose-400 bg-rose-50 dark:border-rose-500 dark:bg-rose-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-rose-300 dark:hover:border-rose-500/60'}`}>
-                <p className="text-xs text-slate-400">Para hoje</p>
-                <p className="font-bold text-red-600">{BRL.format(contasHoje.pagar.hoje)}</p>
-              </button>
-              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_AMANHA')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_AMANHA' ? 'border-rose-400 bg-rose-50 dark:border-rose-500 dark:bg-rose-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-rose-300 dark:hover:border-rose-500/60'}`}>
-                <p className="text-xs text-slate-400">Para amanhã</p>
-                <p className="font-bold text-red-600">{BRL.format(contasHoje.pagar.amanha)}</p>
-              </button>
-              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_ATRASADAS')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_ATRASADAS' ? 'border-rose-400 bg-rose-50 dark:border-rose-500 dark:bg-rose-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-rose-300 dark:hover:border-rose-500/60'}`}>
-                <p className="text-xs text-slate-400">Atrasadas</p>
-                <p className="font-bold text-red-600">{BRL.format(contasHoje.pagar.atrasadas)}</p>
-              </button>
-              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_TOTAL')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_TOTAL' ? 'border-slate-400 bg-slate-50 dark:border-slate-500 dark:bg-slate-700/30' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-slate-300 dark:hover:border-slate-500/60'}`}>
-                <p className="text-xs text-slate-400">Total do mês</p>
-                <p className="font-bold text-slate-700 dark:text-slate-100">{BRL.format(contasHoje.pagar.totalMes)}</p>
-              </button>
-              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_REALIZADAS')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_REALIZADAS' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}>
-                <p className="text-xs text-slate-400">Realizadas</p>
-                <p className="font-bold text-emerald-600">{BRL.format(contasHoje.pagar.realizadas)}</p>
-              </button>
-              <button type="button" onClick={() => toggleFinanceDrilldown('PAGAR_ABERTO')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'PAGAR_ABERTO' ? 'border-amber-400 bg-amber-50 dark:border-amber-500 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-amber-300 dark:hover:border-amber-500/60'}`}>
-                <p className="text-xs text-slate-400">Em aberto</p>
-                <p className="font-bold text-amber-600">{BRL.format(contasHoje.pagar.emAberto)}</p>
-              </button>
-            </div>
-          </div>
-
-          <div className={INTERACTIVE_PANEL_CLASS}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Contas a Receber</h3>
-              <span className="text-xs text-slate-400">Vencimentos reativos</span>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_HOJE')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_HOJE' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}>
-                <p className="text-xs text-slate-400">Para hoje</p>
-                <p className="font-bold text-emerald-600">{BRL.format(contasHoje.receber.hoje)}</p>
-              </button>
-              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_AMANHA')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_AMANHA' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}>
-                <p className="text-xs text-slate-400">Para amanhã</p>
-                <p className="font-bold text-emerald-600">{BRL.format(contasHoje.receber.amanha)}</p>
-              </button>
-              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_ATRASADAS')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_ATRASADAS' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}>
-                <p className="text-xs text-slate-400">Atrasadas</p>
-                <p className="font-bold text-emerald-600">{BRL.format(contasHoje.receber.atrasadas)}</p>
-              </button>
-              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_TOTAL')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_TOTAL' ? 'border-slate-400 bg-slate-50 dark:border-slate-500 dark:bg-slate-700/30' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-slate-300 dark:hover:border-slate-500/60'}`}>
-                <p className="text-xs text-slate-400">Total do mês</p>
-                <p className="font-bold text-slate-700 dark:text-slate-100">{BRL.format(contasHoje.receber.totalMes)}</p>
-              </button>
-              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_REALIZADAS')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_REALIZADAS' ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-emerald-300 dark:hover:border-emerald-500/60'}`}>
-                <p className="text-xs text-slate-400">Realizadas</p>
-                <p className="font-bold text-emerald-600">{BRL.format(contasHoje.receber.realizadas)}</p>
-              </button>
-              <button type="button" onClick={() => toggleFinanceDrilldown('RECEBER_ABERTO')} className={`p-3 rounded-2xl border text-left transition ${financeDrilldown === 'RECEBER_ABERTO' ? 'border-amber-400 bg-amber-50 dark:border-amber-500 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700 hover:-translate-y-0.5 hover:border-amber-300 dark:hover:border-amber-500/60'}`}>
-                <p className="text-xs text-slate-400">Em aberto</p>
-                <p className="font-bold text-amber-600">{BRL.format(contasHoje.receber.emAberto)}</p>
-              </button>
-            </div>
-          </div>
+          ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className={INTERACTIVE_PANEL_CLASS}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Lançamentos • Contas a Pagar</h3>
-              <span className="text-xs text-slate-400">{lancamentosContasDetalhe.pagar.length} item(ns){financeDrilldown?.startsWith('PAGAR') ? ' no recorte ativo' : ''}</span>
-            </div>
-            <div className="overflow-auto max-h-80 rounded-xl border border-slate-200 dark:border-slate-700">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-900/40 text-slate-500 text-xs uppercase">
-                  <tr>
-                    <th className="p-2 text-left">Descrição</th>
-                    <th className="p-2 text-left">Venc.</th>
-                    <th className="p-2 text-left">Status</th>
-                    <th className="p-2 text-right">Valor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lancamentosContasDetalhe.pagar.length === 0 ? (
-                    <tr><td className="p-3 text-slate-400" colSpan={4}>Sem lançamentos de contas a pagar no filtro atual.</td></tr>
-                  ) : (
-                    lancamentosContasDetalhe.pagar.map((l) => (
-                      <tr key={`pagar-${l.id}`} className="border-t border-slate-100 dark:border-slate-700">
-                        <td className="p-2 text-slate-700 dark:text-slate-200">{l.descricao}</td>
-                        <td className="p-2 text-slate-500">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td>
-                        <td className="p-2"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${isPago(l.status) ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'}`}>{l.status}</span></td>
-                        <td className="p-2 text-right font-bold text-red-500">{BRL.format(Number(l.valor_previsto || 0))}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className={INTERACTIVE_PANEL_CLASS}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Lançamentos • Contas a Receber</h3>
-              <span className="text-xs text-slate-400">{lancamentosContasDetalhe.receber.length} item(ns){financeDrilldown?.startsWith('RECEBER') ? ' no recorte ativo' : ''}</span>
-            </div>
-            <div className="overflow-auto max-h-80 rounded-xl border border-slate-200 dark:border-slate-700">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-900/40 text-slate-500 text-xs uppercase">
-                  <tr>
-                    <th className="p-2 text-left">Descrição</th>
-                    <th className="p-2 text-left">Venc.</th>
-                    <th className="p-2 text-left">Status</th>
-                    <th className="p-2 text-right">Valor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lancamentosContasDetalhe.receber.length === 0 ? (
-                    <tr><td className="p-3 text-slate-400" colSpan={4}>Sem lançamentos de contas a receber no filtro atual.</td></tr>
-                  ) : (
-                    lancamentosContasDetalhe.receber.map((l) => (
-                      <tr key={`receber-${l.id}`} className="border-t border-slate-100 dark:border-slate-700">
-                        <td className="p-2 text-slate-700 dark:text-slate-200">{l.descricao}</td>
-                        <td className="p-2 text-slate-500">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td>
-                        <td className="p-2"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${isPago(l.status) ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'}`}>{l.status}</span></td>
-                        <td className="p-2 text-right font-bold text-emerald-600">{BRL.format(Number(l.valor_previsto || 0))}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6">
-          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('FLUXO_CAIXA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">
-                {periodoTipo === 'ANO' ? 'Fluxo de Caixa Mensal' : 'Fluxo de Caixa Diário'}
-              </h3>
-              <span className="text-xs text-slate-400">
-                {periodoTipo === 'ANO' ? 'Interativo por mês' : 'Interativo por dia'}
-              </span>
-            </div>
-            <AsyncApexChart type="area" height={320} series={chartFluxo.series} options={chartFluxo.options} />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6">
-          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('DESPESAS_CATEGORIA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <h3 className="font-bold text-slate-700 dark:text-slate-200">{includeNaoOperacionaisCategorias ? 'Despesas por Categoria' : 'Despesas Operacionais por Categoria'}</h3>
-                <span className="text-xs text-slate-400">Treemap proporcional • clique para filtrar</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIncludeNaoOperacionaisCategorias((prev) => !prev)}
-                className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-bold transition ${includeNaoOperacionaisCategorias ? 'border-sky-400 bg-sky-50 text-sky-700 dark:border-sky-500 dark:bg-sky-500/10 dark:text-sky-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/70'}`}
-              >
-                {includeNaoOperacionaisCategorias ? 'Ocultar não operacionais' : 'Incluir não operacionais'}
-              </button>
-            </div>
-            {chartCategorias.series.length === 0 ? (
-              <div className="h-96 flex items-center justify-center text-sm text-slate-400">
-                Sem dados de despesas no período.
-              </div>
-            ) : (
-              <AsyncApexChart type="treemap" height={420} series={chartCategorias.series} options={chartCategorias.options} />
-            )}
-            {despesasCategoriaResumo.length > 0 && (
-              <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {despesasCategoriaResumo.map((item) => (
-                  <button
-                    key={`despesa-resumo-${item.id}`}
-                    type="button"
-                    onClick={() => {
-                      if (item.id === -1) return;
-                      setSelectedCategorias((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
-                        return next;
-                      });
-                    }}
-                    className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-left transition ${item.id !== -1 && selectedCategorias.has(item.id) ? 'border-rose-300 bg-rose-50 dark:border-rose-500/60 dark:bg-rose-500/10' : 'border-slate-200 bg-white/70 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30 dark:hover:bg-slate-800/50'}`}
-                  >
-                    <span className="min-w-0 pr-3 text-sm font-semibold text-slate-700 dark:text-slate-100 truncate">{item.label}</span>
-                    <span className="shrink-0 text-xs font-black text-slate-500 dark:text-slate-300">{item.percentual.toFixed(1)}%</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <p className="mt-3 text-xs text-slate-400">{includeNaoOperacionaisCategorias ? 'Visualização ampliada: categorias não operacionais entram apenas neste treemap para comparação visual, sem alterar os KPIs operacionais do dashboard.' : 'Categorias não operacionais continuam visíveis nos lançamentos e no consolidado, mas ficam fora desta leitura operacional.'}</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RECEITAS_CATEGORIA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">{includeNaoOperacionaisCategorias ? 'Receitas por Categoria' : 'Receitas Operacionais por Categoria'}</h3>
-              <span className="text-xs text-slate-400">Treemap proporcional • clique para filtrar</span>
-            </div>
-            {chartReceitasCategorias.series.length === 0 ? (
-              <div className="h-80 flex items-center justify-center text-sm text-slate-400">
-                Sem dados de receitas no período.
-              </div>
-            ) : (
-              <AsyncApexChart type="treemap" height={320} series={chartReceitasCategorias.series} options={chartReceitasCategorias.options} />
-            )}
-            {receitasCategoriaResumo.length > 0 && (
-              <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {receitasCategoriaResumo.map((item) => (
-                  <button
-                    key={`receita-resumo-${item.id}`}
-                    type="button"
-                    onClick={() => {
-                      if (item.id === -1) return;
-                      setSelectedCategorias((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
-                        return next;
-                      });
-                    }}
-                    className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-left transition ${item.id !== -1 && selectedCategorias.has(item.id) ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-500/60 dark:bg-emerald-500/10' : 'border-slate-200 bg-white/70 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30 dark:hover:bg-slate-800/50'}`}
-                  >
-                    <span className="min-w-0 pr-3 text-sm font-semibold text-slate-700 dark:text-slate-100 truncate">{item.label}</span>
-                    <span className="shrink-0 text-xs font-black text-slate-500 dark:text-slate-300">{item.percentual.toFixed(1)}%</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <p className="mt-3 text-xs text-slate-400">{includeNaoOperacionaisCategorias ? 'Ao incluir não operacionais, este painel vira uma visão comparativa ampliada por categoria.' : 'O maior motor de receita agora considera apenas categorias operacionais marcadas para resultado.'}</p>
-          </div>
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('ACUMULADO_REC_DESP', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Acumulado: Receitas x Despesas</h3>
-              <span className="text-xs text-slate-400">Evolução no período</span>
-            </div>
-            <AsyncApexChart type="line" height={280} series={chartAcumuladoRecDesp.series} options={chartAcumuladoRecDesp.options} />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('RESULTADO_OPERACIONAL', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Operacional ({resultadoMensalAno.year})</h3>
-              <span className="text-xs text-slate-400">Jan → Dez</span>
-            </div>
-            {chartResultadoOperacional.series[0].data.length === 0 ? (
-              <div className="h-80 flex items-center justify-center text-sm text-slate-400">
-                Sem dados suficientes para o período.
-              </div>
-            ) : (
-              <AsyncApexChart type="bar" height={320} series={chartResultadoOperacional.series} options={chartResultadoOperacional.options} />
-            )}
-          </div>
-          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RESUMO_OPERACIONAL', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Resumo Operacional</h3>
-              <span className="text-xs text-slate-400">Média mensal</span>
-            </div>
-            <div className="space-y-3">
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 dark:border-emerald-900/40 dark:bg-emerald-500/10">
-                <p className="text-xs text-slate-400">Média por mês</p>
-                <p className={`text-lg font-bold ${mediaResultado >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{BRL.format(mediaResultado)}</p>
-              </div>
-              <div className="rounded-2xl border border-sky-100 bg-sky-50/80 p-4 dark:border-sky-900/40 dark:bg-sky-500/10">
-                <p className="text-xs text-slate-400">Melhor cenário</p>
-                <p className="text-lg font-bold text-emerald-600">
-                  {resultadoMensal.values.length ? BRL.format(Math.max(...resultadoMensal.values)) : '—'}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 dark:border-rose-900/40 dark:bg-rose-500/10">
-                <p className="text-xs text-slate-400">Pior cenário</p>
-                <p className="text-lg font-bold text-red-500">
-                  {resultadoMensal.values.length ? BRL.format(Math.min(...resultadoMensal.values)) : '—'}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('RECEITAS_DESPESAS_ANO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas x Despesas ({resultadoMensalAno.year})</h3>
-              <span className="text-xs text-slate-400">Comparativo anual</span>
-            </div>
-            <AsyncApexChart type="bar" height={320} series={chartReceitasDespesasAno.series} options={chartReceitasDespesasAno.options} />
-          </div>
-          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('MARGEM_OPERACIONAL_PAINEL', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Margem Operacional</h3>
-              <span className="text-xs text-slate-400">% mês a mês</span>
-            </div>
-            <AsyncApexChart type="line" height={280} series={chartMargemAno.series} options={chartMargemAno.options} />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('COMPARATIVO_ANO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Comparativo Ano a Ano</h3>
-              <span className="text-xs text-slate-400">{resultadoMensalAnoAnterior.year} vs {resultadoMensalAno.year}</span>
-            </div>
-            <AsyncApexChart type="line" height={280} series={chartComparativoAno.series} options={chartComparativoAno.options} />
-          </div>
-          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('SAZONALIDADE', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Sazonalidade</h3>
-              <span className="text-xs text-slate-400">Índice mensal</span>
-            </div>
-            <AsyncApexChart type="bar" height={260} series={chartSazonalidade.series} options={chartSazonalidade.options} />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('CENARIOS', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Cenários</h3>
-              <span className="text-xs text-slate-400">Baseado na volatilidade</span>
-            </div>
-            <div className="space-y-3">
-              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 dark:border-rose-900/40 dark:bg-rose-500/10">
-                <p className="text-xs text-slate-400">Pessimista</p>
-                <p className="text-lg font-bold text-red-500">{BRL.format(cenarios.pessimista)}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/50">
-                <p className="text-xs text-slate-400">Realista</p>
-                <p className="text-lg font-bold text-slate-800 dark:text-white">{BRL.format(cenarios.realista)}</p>
-              </div>
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 dark:border-emerald-900/40 dark:bg-emerald-500/10">
-                <p className="text-xs text-slate-400">Otimista</p>
-                <p className="text-lg font-bold text-emerald-600">{BRL.format(cenarios.otimista)}</p>
-              </div>
-            </div>
-          </div>
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('RESULTADO_ACUMULADO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Acumulado</h3>
-              <span className="text-xs text-slate-400">Evolução do caixa</span>
-            </div>
-            <AsyncApexChart type="line" height={280} series={chartResultadoAcumulado.series} options={chartResultadoAcumulado.options} />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.1),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.96))] p-6 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))]" onMouseEnter={(event) => scheduleKpiMeaning('PULSO_ACUMULADO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Pulso do Acumulado</h3>
-              <span className="text-xs text-slate-400">Resumo instantâneo do caixa</span>
-            </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 bg-white/85 p-4 dark:border-slate-700 dark:bg-slate-900/50" onMouseEnter={(event) => scheduleKpiMeaning('FECHAMENTO_ACUMULADO', event.currentTarget, 400)} onMouseLeave={hideKpiMeaning}>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Fechamento</p>
-                <p className={`mt-3 text-xl font-black ${resultadoAcumuladoSnapshot.final >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{BRL.format(resultadoAcumuladoSnapshot.final)}</p>
-              </div>
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 dark:border-emerald-900/40 dark:bg-emerald-500/10" onMouseEnter={(event) => scheduleKpiMeaning('PICO_ACUMULADO', event.currentTarget, 400)} onMouseLeave={hideKpiMeaning}>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Pico</p>
-                <p className="mt-3 text-xl font-black text-emerald-600">{BRL.format(resultadoAcumuladoSnapshot.pico)}</p>
-              </div>
-              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 dark:border-rose-900/40 dark:bg-rose-500/10" onMouseEnter={(event) => scheduleKpiMeaning('VALE_ACUMULADO', event.currentTarget, 400)} onMouseLeave={hideKpiMeaning}>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Vale</p>
-                <p className="mt-3 text-xl font-black text-rose-500">{BRL.format(resultadoAcumuladoSnapshot.vale)}</p>
-              </div>
-              <div className="rounded-2xl border border-sky-100 bg-sky-50/80 p-4 dark:border-sky-900/40 dark:bg-sky-500/10" onMouseEnter={(event) => scheduleKpiMeaning('AMPLITUDE_ACUMULADO', event.currentTarget, 400)} onMouseLeave={hideKpiMeaning}>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Amplitude</p>
-                <p className="mt-3 text-xl font-black text-sky-600">{BRL.format(resultadoAcumuladoSnapshot.amplitude)}</p>
-              </div>
-            </div>
-          </div>
-          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('STATUS_DISTRIB', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Distribuição por Status</h3>
-              <span className="text-xs text-slate-400">Valor por status</span>
-            </div>
-            <AsyncApexChart type="donut" height={220} series={chartStatus.series} options={chartStatus.options} />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('DESPESAS_CENTRO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Despesas por Centro</h3>
-              <span className="text-xs text-slate-400">Clique para filtrar</span>
-            </div>
-            <AsyncApexChart type="bar" height={320} series={chartCentros.series} options={chartCentros.options} />
-          </div>
-
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('ULTIMOS_LANCAMENTOS', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Últimos Lançamentos</h3>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">Atualiza com filtros</span>
-                <button
-                  onClick={() => exportUltimosLancamentos('csv')}
-                  className="px-2 py-1 text-[11px] font-bold rounded border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40"
-                >
-                  CSV
-                </button>
-                <button
-                  onClick={() => exportUltimosLancamentos('xlsx')}
-                  className="px-2 py-1 text-[11px] font-bold rounded border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40"
-                >
-                  XLSX
-                </button>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-xs text-slate-400 uppercase">
-                  <tr>
-                    <th className="py-2 text-left">Data</th>
-                    <th className="py-2 text-left">Descrição</th>
-                    <th className="py-2 text-right">Valor</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                  {loading ? (
-                    <tr><td colSpan={3} className="py-6 text-center text-slate-400">Carregando...</td></tr>
-                  ) : topLancamentos.length === 0 ? (
-                    <tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lançamentos no período.</td></tr>
-                  ) : (
-                    topLancamentos.map(l => (
-                      <tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40">
-                        <td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td>
-                        <td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td>
-                        <td className={`py-3 text-right font-bold ${String(l.tipo).toUpperCase().startsWith('R') ? 'text-emerald-600' : 'text-red-500'}`}>
-                          {String(l.tipo).toUpperCase().startsWith('D') ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Gastos por Categoria</h3>
-              <span className="text-xs text-slate-400">Clique para filtrar</span>
-            </div>
-            <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
-              {categoriasList.length === 0 ? (
-                <div className="text-sm text-slate-400">Sem despesas no período.</div>
-              ) : (
-                categoriasList.map(item => (
-                  <button
-                    key={item.id}
-                    onClick={() => setSelectedCategorias(prev => {
-                      const next = new Set(prev);
-                      if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
-                      return next;
-                    })}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-left transition ${item.active ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/40'}`}
-                  >
-                    <span className="text-sm text-slate-700 dark:text-slate-100 truncate pr-2">{item.label}</span>
-                    <span className="text-sm font-bold text-slate-800 dark:text-slate-100">{BRL.format(item.total)}</span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Lançamentos da Categoria</h3>
-              <span className="text-xs text-slate-400">Mostra quando categoria está selecionada</span>
-            </div>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs text-slate-400">Exportação inclui filtros atuais</span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => exportLancamentos(filteredLancamentos, 'csv', `lancamentos_${mes}`)}
-                  className="px-3 py-1 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40"
-                >
-                  Exportar CSV
-                </button>
-                <button
-                  onClick={() => exportLancamentos(filteredLancamentos, 'xlsx', `lancamentos_${mes}`)}
-                  className="px-3 py-1 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40"
-                >
-                  Exportar XLSX
-                </button>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-xs text-slate-400 uppercase">
-                  <tr>
-                    <th className="py-2 text-left">Data</th>
-                    <th className="py-2 text-left">Descrição</th>
-                    <th className="py-2 text-right">Valor</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                  {selectedCategorias.size === 0 ? (
-                    <tr><td colSpan={3} className="py-6 text-center text-slate-400">Selecione uma ou mais categorias para ver os lançamentos.</td></tr>
-                  ) : categoriaLancamentos.length === 0 ? (
-                    <tr><td colSpan={3} className="py-6 text-center text-slate-400">Sem lançamentos para esta categoria.</td></tr>
-                  ) : (
-                    categoriaLancamentos.map(l => (
-                      <tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40">
-                        <td className="py-3 text-slate-500 font-mono">{parseDateLocal(l.data_vencimento)?.toLocaleDateString('pt-BR')}</td>
-                        <td className="py-3 text-slate-700 dark:text-slate-200">{l.descricao}</td>
-                        <td className={`py-3 text-right font-bold ${isReceita(l.tipo) ? 'text-emerald-600' : 'text-red-500'}`}>
-                          {isDespesa(l.tipo) ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Base analítica final</p>
-              <h3 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">Resultado consolidado dos lançamentos filtrados</h3>
-              <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-300">Ideal para análise fina, conferência antes de conciliação e exportação do financeiro conforme o recorte que você montou no dashboard.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => exportLancamentos(linhasAnaliticas, 'csv', `analise_financeira_${mes}`)}
-                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/40"
-              >
-                <Download className="h-4 w-4" />
-                Exportar CSV
-              </button>
-              <button
-                onClick={() => exportLancamentos(linhasAnaliticas, 'xlsx', `analise_financeira_${mes}`)}
-                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/40"
-              >
-                <Download className="h-4 w-4" />
-                Exportar XLSX
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto]">
-            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-700">
-              <Search className="h-4 w-4 text-slate-400" />
-              <input
-                value={analysisQuery}
-                onChange={(e) => setAnalysisQuery(e.target.value)}
-                placeholder="Buscar por descrição, categoria, centro, conta, banco ou status"
-                className="w-full bg-transparent outline-none text-slate-700 dark:text-slate-100"
-              />
-            </label>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Linhas</p>
-                <p className="mt-2 text-xl font-black text-slate-900 dark:text-white">{linhasAnaliticas.length}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Receitas operacionais</p>
-                <p className="mt-2 text-xl font-black text-emerald-600">{BRL.format(linhasAnaliticasResumo.receitasOperacionais)}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Despesas operacionais</p>
-                <p className="mt-2 text-xl font-black text-rose-500">{BRL.format(linhasAnaliticasResumo.despesasOperacionais)}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Não operacionais</p>
-                <p className={`mt-2 text-xl font-black ${linhasAnaliticasResumo.movimentosNaoOperacionais >= 0 ? 'text-sky-600' : 'text-amber-600'}`}>
-                  {BRL.format(linhasAnaliticasResumo.movimentosNaoOperacionais)}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Saldo consolidado</p>
-                <p className={`mt-2 text-xl font-black ${linhasAnaliticasResumo.saldoConsolidado >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>
-                  {BRL.format(linhasAnaliticasResumo.saldoConsolidado)}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-5 overflow-x-auto rounded-3xl border border-slate-200 dark:border-slate-700">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.16em] text-slate-400 dark:bg-slate-900/50">
-                <tr>
-                  <th className="px-4 py-3">Data</th>
-                  <th className="px-4 py-3">Descrição</th>
-                  <th className="px-4 py-3">Categoria</th>
-                  <th className="px-4 py-3">Centro</th>
-                  <th className="px-4 py-3">Conta</th>
-                  <th className="px-4 py-3">Banco</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3 text-right">Valor</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                {linhasAnaliticas.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-slate-400">Nenhum lançamento encontrado para os filtros e a busca informada.</td>
-                  </tr>
-                ) : (
-                  linhasAnaliticas.slice(0, 120).map((lancamento) => (
-                    <tr key={`analitico-${lancamento.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                      <td className="px-4 py-3 font-mono text-slate-500">{parseDateLocal(lancamento.data_vencimento)?.toLocaleDateString('pt-BR')}</td>
-                      <td className="px-4 py-3 text-slate-700 dark:text-slate-100">{lancamento.descricao}</td>
-                      <td className="px-4 py-3 text-slate-500">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span>{lancamento.categoriaNome}</span>
-                          {lancamento.naoOperacional && (
-                            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">
-                              Não operacional
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-slate-500">{lancamento.centroNome}</td>
-                      <td className="px-4 py-3 text-slate-500">{lancamento.contaNome}</td>
-                      <td className="px-4 py-3 text-slate-500">{lancamento.bancoNome}</td>
-                      <td className="px-4 py-3">
-                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${isPago(lancamento.status) ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}`}>
-                          {lancamento.status}
-                        </span>
-                      </td>
-                      <td className={`px-4 py-3 text-right font-bold ${isReceita(lancamento.tipo) ? 'text-emerald-600' : 'text-rose-500'}`}>
-                        {isDespesa(lancamento.tipo) ? '-' : ''}{BRL.format(Number(lancamento.valor_previsto || 0))}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          {linhasAnaliticas.length > 120 && (
-            <p className="mt-3 text-xs text-slate-400">Mostrando os 120 lançamentos mais recentes. A exportação leva todas as linhas filtradas.</p>
-          )}
-        </div>
-
-        {selectedDate && (
+        {selectedDate && !activeDashboardWidgets.some((widget) => widget.id === 'lancamentos_dia' && widget.visible) && (
           <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Lançamentos do Dia {parseDateLocal(selectedDate)?.toLocaleDateString('pt-BR')}</h3>

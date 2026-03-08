@@ -18,6 +18,7 @@ from app.api.v1.endpoints import (
     auditoria,
     todos,
     ai_assistente,
+    dashboard_views,
 )
 
 api_router = APIRouter()
@@ -52,3 +53,4 @@ api_router.include_router(importacao_ofx.router, prefix="/importacao", tags=["Im
 
 # --- IA ---
 api_router.include_router(ai_assistente.router, prefix="/ai", tags=["Assistente IA"])
+api_router.include_router(dashboard_views.router, prefix="/dashboard-views", tags=["Dashboard Views"])

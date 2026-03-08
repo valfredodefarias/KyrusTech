@@ -5,6 +5,7 @@ import datetime
 from .base_audit import AuditMixin
 
 if TYPE_CHECKING:
+    from .dashboard_view_config import DashboardViewConfig
     from .usuario import Usuario
     from .plano_contas import PlanoContas
     from .conta import Conta
@@ -46,4 +47,8 @@ class Empresa(AuditMixin, SQLModel, table=True):
         sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan")
     )
     integracoes_bancarias: List["IntegracaoBancaria"] = Relationship(back_populates="empresa")
+    dashboard_view_config: Optional["DashboardViewConfig"] = Relationship(
+        back_populates="empresa",
+        sa_relationship_kwargs=dict(uselist=False, lazy="selectin", cascade="all, delete-orphan")
+    )
     # anexo_lancamento não precisa de back_populates direto aqui geralmente, mas pode ter se necessário

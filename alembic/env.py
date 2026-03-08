@@ -35,6 +35,7 @@ from app.models.lancamento import Lancamento
 from app.models.anexo_lancamento import AnexoLancamento
 from app.models.integracao_bancaria import IntegracaoBancaria
 from app.models.mapeamento_categoria import MapeamentoCategoria
+from app.models.dashboard_view_config import DashboardViewConfig
 
 # --- 4. CONFIGURAÇÃO DO ALEMBIC ---
 config = context.config

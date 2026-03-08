@@ -9,7 +9,7 @@ from loguru import logger
 from app.db.session import get_db
 from app.crud.crud_usuario import create_user
 from app.schemas.usuario import UserCreate, UserRead
-from app.api.v1.deps import get_current_active_user
+from app.api.v1.deps import get_current_active_user, get_empresa_id_from_user
 from app.models.usuario import Usuario
 
 UPLOAD_DIR = Path("static/uploads/usuarios")
@@ -35,10 +35,19 @@ def create(
 
 @router.get("/me", response_model=UserRead)
 def read_user_me(
-    current_user: UserRead = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
 ):
     """Retorna os dados do usuário logado (usado pelo frontend para saber quem está acessando)."""
-    return current_user
+    user_data = UserRead.model_validate(current_user)
+
+    if current_user.is_consultor:
+        try:
+            user_data.empresa_id = get_empresa_id_from_user(current_user=current_user, session=db)
+        except HTTPException:
+            user_data.empresa_id = current_user.empresa_id
+
+    return user_data
 
 
 @router.post("/me/foto", response_model=UserRead)

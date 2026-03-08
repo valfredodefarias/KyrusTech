@@ -11,6 +11,7 @@ import { api } from '../services/api';
 
 // --- TIPAGEM ---
 interface EmpresaInfo {
+  id?: number;
   nome_fantasia: string;
   logo_url?: string;
   cor_primaria?: string;
@@ -18,10 +19,14 @@ interface EmpresaInfo {
 
 interface UserInfo {
   is_consultor: boolean;
-  empresa_id: number;
+  empresa_id?: number | null;
   nome?: string | null;
   email?: string;
   foto_url?: string | null;
+}
+
+interface ConsultorContextoResponse {
+  empresa_atual: EmpresaInfo;
 }
 
 interface SidebarPanelProps {
@@ -54,6 +59,13 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
           // Aplica a cor da empresa em todo o sistema
           if(emp.cor_primaria) {
              document.documentElement.style.setProperty('--color-primary', emp.cor_primaria);
+          }
+        } else if (user.is_consultor) {
+          const { data } = await api.get<ConsultorContextoResponse>('/consultor/meu-contexto');
+          setEmpresa(data.empresa_atual);
+
+          if (data.empresa_atual?.cor_primaria) {
+            document.documentElement.style.setProperty('--color-primary', data.empresa_atual.cor_primaria);
           }
         }
       } catch (error) {

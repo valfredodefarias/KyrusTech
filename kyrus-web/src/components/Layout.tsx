@@ -117,7 +117,7 @@ function LayoutShell() {
     }
     sidebarHoverTimerRef.current = window.setTimeout(() => {
       setSidebarCollapsed(false);
-    }, 2000);
+    }, 1000);
   };
 
   const handleSidebarMouseLeave = () => {

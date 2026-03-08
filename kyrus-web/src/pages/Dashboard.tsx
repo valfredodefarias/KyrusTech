@@ -104,6 +104,8 @@ type KpiTooltipState = {
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const INTERACTIVE_PANEL_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.1),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
 const DASHBOARD_SECTION_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.96))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
+const DESPESA_MOSAIC_TONES = ['from-rose-500 to-rose-400', 'from-orange-500 to-amber-400', 'from-fuchsia-500 to-pink-500', 'from-red-500 to-orange-500', 'from-rose-400 to-red-300', 'from-orange-400 to-yellow-300'];
+const RECEITA_MOSAIC_TONES = ['from-emerald-500 to-teal-400', 'from-sky-500 to-cyan-400', 'from-lime-500 to-emerald-400', 'from-teal-500 to-cyan-500', 'from-blue-500 to-sky-400', 'from-green-400 to-emerald-300'];
 const FINANCE_DRILLDOWN_LABELS: Record<Exclude<FinanceDrilldown, null>, string> = {
   PAGAR_HOJE: 'Contas a pagar hoje',
   PAGAR_AMANHA: 'Contas a pagar amanha',
@@ -117,6 +119,12 @@ const FINANCE_DRILLDOWN_LABELS: Record<Exclude<FinanceDrilldown, null>, string> 
   RECEBER_REALIZADAS: 'Contas a receber realizadas',
   RECEBER_ABERTO: 'Contas a receber em aberto',
   RECEBER_TOTAL: 'Total contas a receber',
+};
+
+const getMosaicSpanClass = (index: number, total: number) => {
+  if (index === 0) return 'col-span-2 row-span-2 min-h-[12rem]';
+  if (index === 1 && total > 3) return 'col-span-1 row-span-2 min-h-[12rem]';
+  return 'col-span-1 row-span-1 min-h-[8.5rem]';
 };
 
 const DASHBOARD_HELP: Record<DashboardHelpKey, { titulo: string; significado: string; calculo: string; utilidade: string }> = {
@@ -512,8 +520,8 @@ export function Dashboard() {
     }
     const rect = element.getBoundingClientRect();
     const tooltipWidth = Math.min(360, Math.max(280, rect.width));
-    const x = Math.min(window.innerWidth - tooltipWidth - 20, Math.max(20, rect.left));
-    const y = Math.min(window.innerHeight - 180, rect.bottom + 14);
+    const x = Math.min(window.innerWidth - tooltipWidth - 16, Math.max(16, rect.left + 12));
+    const y = Math.min(window.innerHeight - 220, Math.max(16, rect.top + 12));
     hoverTimerRef.current = window.setTimeout(() => {
       setVisibleKpiMeaning({ key, x, y });
     }, delay);
@@ -2405,7 +2413,39 @@ export function Dashboard() {
                 Sem dados de despesas no período.
               </div>
             ) : (
-              <ReactApexChart type="bar" height={320} series={chartCategorias.series} options={chartCategorias.options} />
+              <div className="grid auto-rows-[5.5rem] grid-cols-2 gap-3">
+                {despesasPorCategoria.map((item, index) => {
+                  const total = despesasPorCategoria.reduce((acc, row) => acc + row.total, 0);
+                  const percent = total > 0 ? (item.total / total) * 100 : 0;
+                  return (
+                    <button
+                      key={`despesa-mosaico-${item.id}`}
+                      type="button"
+                      onClick={() => {
+                        if (item.id === -1) return;
+                        setSelectedCategorias((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+                          return next;
+                        });
+                      }}
+                      className={`${getMosaicSpanClass(index, despesasPorCategoria.length)} relative overflow-hidden rounded-3xl bg-linear-to-br ${DESPESA_MOSAIC_TONES[index % DESPESA_MOSAIC_TONES.length]} p-4 text-left text-white shadow-lg shadow-rose-950/10 transition hover:-translate-y-1`}
+                    >
+                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.22),transparent_30%)]" />
+                      <div className="relative flex h-full flex-col justify-between">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-white/75">{percent.toFixed(1)}%</p>
+                          <h4 className="mt-2 text-lg font-black leading-tight">{item.label}</h4>
+                        </div>
+                        <div>
+                          <p className="text-xl font-black">{BRL.format(item.total)}</p>
+                          <p className="mt-1 text-xs text-white/80">Clique para filtrar esta categoria</p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>
@@ -2421,7 +2461,39 @@ export function Dashboard() {
                 Sem dados de receitas no período.
               </div>
             ) : (
-              <ReactApexChart type="bar" height={320} series={chartReceitasCategorias.series} options={chartReceitasCategorias.options} />
+              <div className="grid auto-rows-[5.5rem] grid-cols-2 gap-3">
+                {receitasPorCategoria.map((item, index) => {
+                  const total = receitasPorCategoria.reduce((acc, row) => acc + row.total, 0);
+                  const percent = total > 0 ? (item.total / total) * 100 : 0;
+                  return (
+                    <button
+                      key={`receita-mosaico-${item.id}`}
+                      type="button"
+                      onClick={() => {
+                        if (item.id === -1) return;
+                        setSelectedCategorias((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+                          return next;
+                        });
+                      }}
+                      className={`${getMosaicSpanClass(index, receitasPorCategoria.length)} relative overflow-hidden rounded-3xl bg-linear-to-br ${RECEITA_MOSAIC_TONES[index % RECEITA_MOSAIC_TONES.length]} p-4 text-left text-white shadow-lg shadow-emerald-950/10 transition hover:-translate-y-1`}
+                    >
+                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.22),transparent_30%)]" />
+                      <div className="relative flex h-full flex-col justify-between">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-white/75">{percent.toFixed(1)}%</p>
+                          <h4 className="mt-2 text-lg font-black leading-tight">{item.label}</h4>
+                        </div>
+                        <div>
+                          <p className="text-xl font-black">{BRL.format(item.total)}</p>
+                          <p className="mt-1 text-xs text-white/80">Clique para filtrar esta categoria</p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
           <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('ACUMULADO_REC_DESP', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
@@ -2543,7 +2615,7 @@ export function Dashboard() {
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Pulso do Acumulado</h3>
               <span className="text-xs text-slate-400">Resumo instantâneo do caixa</span>
             </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="rounded-2xl border border-slate-200 bg-white/85 p-4 dark:border-slate-700 dark:bg-slate-900/50" onMouseEnter={(event) => scheduleKpiMeaning('FECHAMENTO_ACUMULADO', event.currentTarget, 400)} onMouseLeave={hideKpiMeaning}>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Fechamento</p>
                 <p className={`mt-3 text-xl font-black ${resultadoAcumuladoSnapshot.final >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{BRL.format(resultadoAcumuladoSnapshot.final)}</p>

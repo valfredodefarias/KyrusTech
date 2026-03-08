@@ -394,6 +394,70 @@ def verificar_duplicata(
     ).first()
 
 
+def verificar_duplicata_ofx_por_fallback(
+    db: Session,
+    lancamento: Dict,
+    empresa_id: int,
+    conta_id: Optional[int] = None,
+) -> Optional[Lancamento]:
+    """
+    Fallback defensivo para OFX sem identificador estavel de transacao.
+
+    Quando o banco nao envia id/fitid/reference, o parser gera um fallback textual.
+    Nesse caso tentamos localizar um movimento ja importado pela mesma conta,
+    mesma data, mesmo valor, mesmo tipo e descricao normalizada igual.
+    """
+    if str(lancamento.get("origem") or "").upper() != "OFX_EXTRATO":
+        return None
+
+    referencia = _normalizar_texto(lancamento.get("referencia"))
+    if referencia and not referencia.startswith("fallback-"):
+        return None
+
+    conta_resolvida = conta_id or lancamento.get("conta_id")
+    if not conta_resolvida:
+        return None
+
+    descricao = _normalizar_texto(lancamento.get("descricao"))
+    if not descricao:
+        return None
+
+    data_base = lancamento.get("data")
+    if isinstance(data_base, datetime):
+        data_base = data_base.date()
+    elif isinstance(data_base, str):
+        data_base, _ = parsear_data_hora(data_base)
+
+    if not data_base:
+        return None
+
+    try:
+        valor = Decimal(str(lancamento.get("valor") or "0"))
+    except Exception:
+        return None
+
+    candidatos = db.exec(
+        select(Lancamento).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.conta_id == conta_resolvida,
+            Lancamento.origem == "OFX_EXTRATO",
+            Lancamento.tipo == lancamento.get("tipo"),
+            or_(
+                Lancamento.data_pagamento == data_base,
+                Lancamento.data_vencimento == data_base,
+            ),
+        )
+    ).all()
+
+    for candidato in candidatos:
+        descricao_candidata = _normalizar_texto(candidato.descricao)
+        valor_candidato = candidato.valor_pago if candidato.valor_pago not in (None, Decimal("0.00")) else candidato.valor_previsto
+        if descricao_candidata == descricao and Decimal(str(valor_candidato or "0")) == valor:
+            return candidato
+
+    return None
+
+
 def buscar_lancamento_previsto_mesmo_dia_valor(
     db: Session,
     lancamento: Dict,

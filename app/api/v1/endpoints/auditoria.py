@@ -2,12 +2,15 @@
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select, func, col
 from sqlalchemy import or_
 
 from app.db.session import get_db
 from app.api.deps import get_current_user
+from app.crud.crud_consultor_empresa import tem_acesso
+from app.enums import ConsultorRole
+from app.models.consultor_empresa import ConsultorEmpresa
 from app.models.audit_log import AuditLog
 from app.models.usuario import Usuario
 from app.schemas.audit_log import AuditLogItem, AuditLogList
@@ -15,6 +18,10 @@ from app.schemas.audit_log import AuditLogItem, AuditLogList
 router = APIRouter()
 
 BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def _is_super_consultor(user: Usuario) -> bool:
+    return bool(user.is_consultor and user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value)
 
 
 def _br_local_to_utc_naive(dt: datetime) -> datetime:
@@ -63,13 +70,28 @@ def listar_auditoria(
             )
         )
 
-    empresa_filter = empresa_id
     if not current_user.is_consultor:
         empresa_filter = current_user.empresa_id
-
-    if empresa_filter:
-        users_subq = select(Usuario.id).where(Usuario.empresa_id == empresa_filter)
-        filters.append(col(AuditLog.user_id).in_(users_subq))
+        if empresa_filter:
+            users_subq = select(Usuario.id).where(Usuario.empresa_id == empresa_filter)
+            filters.append(col(AuditLog.user_id).in_(users_subq))
+    elif _is_super_consultor(current_user):
+        if empresa_id is not None:
+            users_subq = select(Usuario.id).where(Usuario.empresa_id == empresa_id)
+            filters.append(col(AuditLog.user_id).in_(users_subq))
+    else:
+        if empresa_id is not None:
+            if not tem_acesso(db, int(current_user.id), empresa_id):
+                raise HTTPException(status_code=403, detail="Sem acesso à empresa informada")
+            users_subq = select(Usuario.id).where(Usuario.empresa_id == empresa_id)
+            filters.append(col(AuditLog.user_id).in_(users_subq))
+        else:
+            empresas_subq = select(ConsultorEmpresa.empresa_id).where(
+                ConsultorEmpresa.usuario_id == current_user.id,
+                ConsultorEmpresa.ativo == True,
+            )
+            users_subq = select(Usuario.id).where(Usuario.empresa_id.in_(empresas_subq))
+            filters.append(col(AuditLog.user_id).in_(users_subq))
 
     base_query = select(AuditLog, Usuario.email).join(Usuario, col(AuditLog.user_id) == col(Usuario.id), isouter=True)
     if filters:

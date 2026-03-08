@@ -1,6 +1,6 @@
 """
 Endpoints exclusivos para consultores internos.
-Consultores têm acesso a todas as empresas e podem trocar de contexto.
+Super consultores têm acesso global; consultores comuns operam apenas nas empresas autorizadas.
 Todas as operações são logadas para auditoria e segurança.
 """
 from datetime import datetime, timedelta
@@ -24,6 +24,32 @@ from app.crud.crud_consultor_empresa import tem_acesso
 from pydantic import BaseModel
 
 router = APIRouter()
+
+
+def _is_super_consultor(user: Usuario) -> bool:
+    return user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value
+
+
+def _get_consultor_empresa_ids(db: Session, consultor_id: int) -> list[int]:
+    return list(
+        db.exec(
+            select(ConsultorEmpresa.empresa_id).where(
+                ConsultorEmpresa.usuario_id == consultor_id,
+                ConsultorEmpresa.ativo == True,
+            )
+        ).all()
+    )
+
+
+def _mask_email(value: Optional[str]) -> Optional[str]:
+    if not value or "@" not in value:
+        return value
+    local, domain = value.split("@", 1)
+    if len(local) <= 2:
+        masked_local = local[0] + "*" * max(0, len(local) - 1)
+    else:
+        masked_local = local[:2] + "*" * max(1, len(local) - 2)
+    return f"{masked_local}@{domain}"
 
 
 class RoleChangeRequest(BaseModel):
@@ -56,9 +82,14 @@ def listar_todas_empresas(
     )
     
     try:
-        empresas = list(
-            db.exec(select(Empresa).where(Empresa.is_deleted == False)).all()
-        )
+        query = select(Empresa).where(Empresa.is_deleted == False)
+        if not _is_super_consultor(consultor):
+            empresa_ids = _get_consultor_empresa_ids(db, int(consultor.id))
+            if not empresa_ids:
+                return []
+            query = query.where(Empresa.id.in_(empresa_ids))
+
+        empresas = list(db.exec(query).all())
         logger.success(
             f"[CONSULTOR] {len(empresas)} empresas retornadas para {consultor.email}"
         )
@@ -87,6 +118,12 @@ def obter_empresa_detalhes(
         f"[CONSULTOR] Usuario {consultor.email} (ID: {consultor.id}) acessou empresa ID: {empresa_id}"
     )
     
+    if not _is_super_consultor(consultor) and not tem_acesso(db, int(consultor.id), empresa_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sem acesso a esta empresa",
+        )
+
     empresa = db.get(Empresa, empresa_id)
     if not empresa or empresa.is_deleted:
         logger.warning(
@@ -123,6 +160,12 @@ def trocar_contexto_empresa(
     empresa_id = contexto.empresa_id
     empresa_anterior_id = consultor.empresa_id
     
+    if not _is_super_consultor(consultor) and not tem_acesso(db, int(consultor.id), empresa_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sem acesso a esta empresa",
+        )
+
     # Verifica se a empresa existe
     empresa = db.get(Empresa, empresa_id)
     if not empresa or empresa.is_deleted:
@@ -245,6 +288,9 @@ def adicionar_acesso_empresa(
     """
     Adiciona acesso de um consultor a uma nova empresa.
     """
+    if not _is_super_consultor(consultor):
+        raise HTTPException(status_code=403, detail="Somente super consultor pode conceder acessos")
+
     empresa = db.get(Empresa, empresa_id)
     if not empresa or empresa.is_deleted:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
@@ -296,6 +342,9 @@ def revogar_acesso_empresa(
     """
     Revoga acesso de um consultor a uma empresa.
     """
+    if not _is_super_consultor(consultor):
+        raise HTTPException(status_code=403, detail="Somente super consultor pode revogar acessos")
+
     acesso = db.exec(
         select(ConsultorEmpresa).where(
             ConsultorEmpresa.usuario_id == consultor.id,
@@ -352,7 +401,7 @@ def listar_consultores(
         result.append({
             "id": consultor.id,
             "nome": nome,  # Preferir nome real quando existir
-            "email": consultor.email,
+            "email": _mask_email(consultor.email),
             "consultor_role": consultor.consultor_role,
             "empresa_atual_id": consultor.empresa_id,
             "num_empresas_acesso": len(acessos)
@@ -609,7 +658,7 @@ def listar_usuarios(
         result.append({
             "id": user.id,
             "nome": getattr(user, "nome", None),
-            "email": user.email,
+            "email": _mask_email(user.email),
             "is_active": user.is_active,
             "is_consultor": user.is_consultor,
             "consultor_role": user.consultor_role,

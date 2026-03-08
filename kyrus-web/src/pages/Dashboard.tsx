@@ -5,7 +5,8 @@ import ReactApexChart from 'react-apexcharts';
 import ExcelJS from 'exceljs';
 import {
   TrendingUp, TrendingDown, Wallet, RefreshCw, Filter,
-  CalendarRange, Layers, Building2, List, X
+  CalendarRange, Layers, Building2, List, X, Landmark,
+  Sparkles, Download, Search, Activity
 } from 'lucide-react';
 
 interface Lancamento {
@@ -36,6 +37,13 @@ interface CentroCusto {
   nome: string;
 }
 
+interface Conta {
+  id: number;
+  nome: string;
+  banco?: string | null;
+  saldo_atual?: number;
+}
+
 interface TodoItem {
   id: number;
   status: 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDO' | 'CANCELADO' | string;
@@ -61,6 +69,24 @@ const formatMonthLabel = (ym: string) => new Date(`${ym}-01T00:00:00`).toLocaleD
 const isReceita = (tipo?: string) => (tipo || '').toUpperCase().startsWith('R');
 const isDespesa = (tipo?: string) => (tipo || '').toUpperCase().startsWith('D');
 const isPago = (status?: string) => (status || '').toUpperCase() === 'PAGO';
+
+const getHeatCellClass = (ratio: number, tone: 'receita' | 'despesa') => {
+  if (ratio <= 0) {
+    return 'border-slate-200 bg-white text-slate-400 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-500';
+  }
+
+  if (tone === 'receita') {
+    if (ratio > 0.75) return 'border-emerald-500 bg-emerald-500 text-white shadow-lg shadow-emerald-500/20';
+    if (ratio > 0.5) return 'border-emerald-300 bg-emerald-200 text-emerald-900 dark:border-emerald-500 dark:bg-emerald-500/40 dark:text-emerald-100';
+    if (ratio > 0.25) return 'border-emerald-200 bg-emerald-100 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200';
+    return 'border-emerald-100 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300';
+  }
+
+  if (ratio > 0.75) return 'border-rose-500 bg-rose-500 text-white shadow-lg shadow-rose-500/20';
+  if (ratio > 0.5) return 'border-rose-300 bg-rose-200 text-rose-900 dark:border-rose-500 dark:bg-rose-500/40 dark:text-rose-100';
+  if (ratio > 0.25) return 'border-rose-200 bg-rose-100 text-rose-800 dark:border-rose-700 dark:bg-rose-500/20 dark:text-rose-200';
+  return 'border-rose-100 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-500/10 dark:text-rose-300';
+};
 
 const buildExcludedCategoriaIds = (categorias: Categoria[]) => {
   const filhosPorPai = new Map<number, number[]>();
@@ -119,6 +145,7 @@ export function Dashboard() {
   const [lancamentosAnoAnterior, setLancamentosAnoAnterior] = useState<Lancamento[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [centros, setCentros] = useState<CentroCusto[]>([]);
+  const [contas, setContas] = useState<Conta[]>([]);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
 
@@ -136,6 +163,8 @@ export function Dashboard() {
   const [previstoFiltro, setPrevistoFiltro] = useState<'TODOS' | 'SIM' | 'NAO'>('TODOS');
   const [competenciaFiltro, setCompetenciaFiltro] = useState('');
   const [filtroHojeAtivo, setFiltroHojeAtivo] = useState(false);
+  const [selectedConta, setSelectedConta] = useState<number | null>(null);
+  const [analysisQuery, setAnalysisQuery] = useState('');
 
   useEffect(() => {
     const handler = () => setIsDark(document.documentElement.classList.contains('dark'));
@@ -173,11 +202,12 @@ export function Dashboard() {
       }
       const { start: startYear, end: endYear } = getYearRange(yearBase);
       const { start: startPrev, end: endPrev } = getYearRange(yearBase - 1);
-      const [rLanc, rCats, rCentros, rTodos] = await Promise.all([
+      const [rLanc, rCats, rCentros, rTodos, rContas] = await Promise.all([
         api.get('/lancamentos/', { params: { limit: 5000, data_inicio: start, data_fim: end } }),
         api.get('/plano-contas/'),
         api.get('/centro-custo/'),
-        api.get('/todos/me')
+        api.get('/todos/me'),
+        api.get('/contas/', { params: { include_saldo: false } })
       ]);
       const [rLancAno, rLancAnoAnterior] = await Promise.all([
         api.get('/lancamentos/', { params: { limit: 10000, data_inicio: startYear, data_fim: endYear } }),
@@ -188,6 +218,7 @@ export function Dashboard() {
       setLancamentosAnoAnterior(rLancAnoAnterior.data || []);
       setCategorias(rCats.data || []);
       setCentros(rCentros.data || []);
+      setContas(rContas.data || []);
       setTodos(rTodos.data || []);
     } catch (e) {
       console.error(e);
@@ -220,6 +251,7 @@ export function Dashboard() {
       }
       if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
       if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
+      if (selectedConta && Number((l as any).conta_id) !== Number(selectedConta)) return false;
       if (selectedDate && toDateOnlyStr(l.data_vencimento) !== selectedDate) return false;
       if (!selectedDate && selectedMonth && !toDateOnlyStr(l.data_vencimento).startsWith(selectedMonth)) return false;
       if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
@@ -227,7 +259,7 @@ export function Dashboard() {
       if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
       return true;
     });
-  }, [lancamentos, categoriasExcluidasResultado, selectedCategorias, selectedCentro, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo]);
+  }, [lancamentos, categoriasExcluidasResultado, selectedCategorias, selectedCentro, selectedConta, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo]);
 
   const baseFilteredNoDate = useMemo(() => {
     const hoje = toDateOnly(new Date());
@@ -244,12 +276,13 @@ export function Dashboard() {
       }
       if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
       if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
+      if (selectedConta && Number((l as any).conta_id) !== Number(selectedConta)) return false;
       if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
       if (tipoFiltro === 'RECEITA' && !isReceita(l.tipo)) return false;
       if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
       return true;
     });
-  }, [lancamentosAno, categoriasExcluidasResultado, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo]);
+  }, [lancamentosAno, categoriasExcluidasResultado, selectedCategorias, selectedCentro, selectedConta, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo]);
 
   const baseFilteredAnoAnterior = useMemo(() => {
     const hoje = toDateOnly(new Date());
@@ -266,12 +299,13 @@ export function Dashboard() {
       }
       if (selectedCategorias.size > 0 && !selectedCategorias.has(Number(l.plano_contas_id))) return false;
       if (selectedCentro && Number(l.centro_custo_id) !== Number(selectedCentro)) return false;
+      if (selectedConta && Number((l as any).conta_id) !== Number(selectedConta)) return false;
       if (statusFiltro !== 'TODOS' && String(l.status).toUpperCase() !== statusFiltro) return false;
       if (tipoFiltro === 'RECEITA' && !isReceita(l.tipo)) return false;
       if (tipoFiltro === 'DESPESA' && !isDespesa(l.tipo)) return false;
       return true;
     });
-  }, [lancamentosAnoAnterior, categoriasExcluidasResultado, selectedCategorias, selectedCentro, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo]);
+  }, [lancamentosAnoAnterior, categoriasExcluidasResultado, selectedCategorias, selectedCentro, selectedConta, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo]);
 
   const kpis = useMemo(() => {
     let receitas = 0; let despesas = 0; let pagos = 0; let pendentes = 0;
@@ -284,6 +318,10 @@ export function Dashboard() {
     return { receitas, despesas, saldo: receitas - despesas, pagos, pendentes };
   }, [filteredLancamentos]);
 
+  const categoriaPorId = useMemo(() => new Map(categorias.map((categoria) => [Number(categoria.id), categoria.nome])), [categorias]);
+  const centroPorId = useMemo(() => new Map(centros.map((centro) => [Number(centro.id), centro.nome])), [centros]);
+  const contaPorId = useMemo(() => new Map(contas.map((conta) => [Number(conta.id), conta])), [contas]);
+
   const aiContexto = useMemo(() => {
     return {
       periodo: { tipo: periodoTipo, mes, ano, inicio: periodoIni, fim: periodoFim },
@@ -295,6 +333,7 @@ export function Dashboard() {
         hoje: filtroHojeAtivo,
         categoriasSelecionadas: Array.from(selectedCategorias),
         centroCustoSelecionado: selectedCentro,
+        contaSelecionada: selectedConta,
       },
       metricas: {
         totalLancamentosFiltrados: filteredLancamentos.length,
@@ -305,7 +344,7 @@ export function Dashboard() {
         pendentes: kpis.pendentes,
       },
     };
-  }, [periodoTipo, mes, ano, periodoIni, periodoFim, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, selectedCategorias, selectedCentro, filteredLancamentos.length, kpis]);
+  }, [periodoTipo, mes, ano, periodoIni, periodoFim, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, selectedCategorias, selectedCentro, selectedConta, filteredLancamentos.length, kpis]);
 
   const fluxoDiario = useMemo(() => {
     if (periodoTipo === 'ANO') {
@@ -613,6 +652,168 @@ export function Dashboard() {
       .slice(0, 12);
   }, [filteredLancamentos, selectedDate, selectedMonth]);
 
+  const heatmapReferenceMonth = useMemo(() => {
+    if (selectedDate) return selectedDate.slice(0, 7);
+    if (selectedMonth) return selectedMonth;
+    if (periodoTipo === 'MES') return mes;
+    if (periodoTipo === 'ANO') {
+      const month = ano === new Date().getFullYear() ? String(new Date().getMonth() + 1).padStart(2, '0') : '01';
+      return `${ano}-${month}`;
+    }
+    return periodoIni.slice(0, 7);
+  }, [selectedDate, selectedMonth, periodoTipo, mes, ano, periodoIni]);
+
+  const heatmapCalendario = useMemo(() => {
+    const { start, end } = getMonthRange(heatmapReferenceMonth);
+    const startDate = parseDateLocal(start) || new Date();
+    const endDate = parseDateLocal(end) || new Date();
+    const weekLabels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+    const receitasMap = new Map<string, number>();
+    const despesasMap = new Map<string, number>();
+
+    filteredLancamentos.forEach((lancamento) => {
+      const date = toDateOnlyStr(lancamento.data_vencimento);
+      if (!date.startsWith(heatmapReferenceMonth)) return;
+      const value = Number(lancamento.valor_previsto || 0);
+      if (isReceita(lancamento.tipo)) {
+        receitasMap.set(date, (receitasMap.get(date) || 0) + value);
+      } else {
+        despesasMap.set(date, (despesasMap.get(date) || 0) + value);
+      }
+    });
+
+    const firstCell = new Date(startDate);
+    firstCell.setDate(startDate.getDate() - startDate.getDay());
+    const lastCell = new Date(endDate);
+    lastCell.setDate(endDate.getDate() + (6 - endDate.getDay()));
+
+    const cells: Array<{ date: string; dayLabel: string; isCurrentMonth: boolean; receita: number; despesa: number; weekIndex: number; weekdayIndex: number }> = [];
+    let cursor = new Date(firstCell);
+    let weekIndex = 0;
+    while (cursor <= lastCell) {
+      const currentDate = toDateOnly(cursor);
+      cells.push({
+        date: currentDate,
+        dayLabel: String(cursor.getDate()).padStart(2, '0'),
+        isCurrentMonth: currentDate.startsWith(heatmapReferenceMonth),
+        receita: receitasMap.get(currentDate) || 0,
+        despesa: despesasMap.get(currentDate) || 0,
+        weekIndex,
+        weekdayIndex: cursor.getDay(),
+      });
+      if (cursor.getDay() === 6) weekIndex += 1;
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    const maxReceita = Math.max(...cells.map((cell) => cell.receita), 0);
+    const maxDespesa = Math.max(...cells.map((cell) => cell.despesa), 0);
+
+    return {
+      monthLabel: formatMonthLabel(heatmapReferenceMonth),
+      weekLabels,
+      weeks: Array.from({ length: Math.max(...cells.map((cell) => cell.weekIndex), 0) + 1 }, (_, index) => ({
+        label: `S${index + 1}`,
+        cells: cells.filter((cell) => cell.weekIndex === index),
+      })),
+      maxReceita,
+      maxDespesa,
+    };
+  }, [filteredLancamentos, heatmapReferenceMonth]);
+
+  const bancosEmFoco = useMemo(() => {
+    const grouped = new Map<number, { contaId: number; nome: string; banco: string; total: number; saldo: number; quantidade: number }>();
+
+    filteredLancamentos.forEach((lancamento) => {
+      const contaId = Number((lancamento as any).conta_id);
+      if (!Number.isFinite(contaId) || contaId <= 0) return;
+
+      const conta = contaPorId.get(contaId);
+      const current = grouped.get(contaId) || {
+        contaId,
+        nome: conta?.nome || `Conta ${contaId}`,
+        banco: conta?.banco || 'Banco não informado',
+        total: 0,
+        saldo: 0,
+        quantidade: 0,
+      };
+      const valor = Number(lancamento.valor_previsto || 0);
+      current.total += valor;
+      current.saldo += isReceita(lancamento.tipo) ? valor : -valor;
+      current.quantidade += 1;
+      grouped.set(contaId, current);
+    });
+
+    return Array.from(grouped.values())
+      .sort((a, b) => Math.abs(b.total) - Math.abs(a.total))
+      .slice(0, 6);
+  }, [filteredLancamentos, contaPorId]);
+
+  const margemPercentual = kpis.receitas > 0 ? (kpis.saldo / kpis.receitas) * 100 : 0;
+  const ticketMedio = filteredLancamentos.length > 0 ? (kpis.receitas + kpis.despesas) / filteredLancamentos.length : 0;
+  const coberturaPagamentos = kpis.despesas > 0 ? (kpis.pagos / kpis.despesas) * 100 : 0;
+
+  const sinaisExecutivos = useMemo(() => {
+    const receitaDominante = receitasPorCategoria[0];
+    const despesaDominante = despesasPorCategoria[0];
+    return [
+      {
+        titulo: 'Margem corrente',
+        valor: `${margemPercentual.toFixed(1)}%`,
+        apoio: margemPercentual >= 0 ? 'Resultado operacional saudável no recorte.' : 'Despesas comprimindo o caixa no recorte.',
+        destaque: margemPercentual >= 0 ? 'text-emerald-600' : 'text-rose-500',
+      },
+      {
+        titulo: 'Ticket médio',
+        valor: BRL.format(ticketMedio),
+        apoio: `${filteredLancamentos.length} lançamentos considerados após os filtros.`,
+        destaque: 'text-slate-900 dark:text-white',
+      },
+      {
+        titulo: 'Cobertura financeira',
+        valor: `${coberturaPagamentos.toFixed(1)}%`,
+        apoio: 'Percentual do valor filtrado já executado/pago.',
+        destaque: 'text-indigo-600',
+      },
+      {
+        titulo: 'Maior pressão',
+        valor: despesaDominante ? despesaDominante.label : 'Sem destaque',
+        apoio: despesaDominante ? BRL.format(despesaDominante.total) : 'Sem despesas relevantes no período.',
+        destaque: 'text-rose-500',
+      },
+      {
+        titulo: 'Maior motor de receita',
+        valor: receitaDominante ? receitaDominante.label : 'Sem destaque',
+        apoio: receitaDominante ? BRL.format(receitaDominante.total) : 'Sem receitas relevantes no período.',
+        destaque: 'text-emerald-600',
+      },
+    ];
+  }, [coberturaPagamentos, despesasPorCategoria, filteredLancamentos.length, margemPercentual, receitasPorCategoria, ticketMedio]);
+
+  const linhasAnaliticas = useMemo(() => {
+    const query = analysisQuery.trim().toLowerCase();
+    return [...filteredLancamentos]
+      .sort((a, b) => (parseDateLocal(b.data_vencimento)?.getTime() || 0) - (parseDateLocal(a.data_vencimento)?.getTime() || 0))
+      .map((lancamento) => ({
+        ...lancamento,
+        categoriaNome: categoriaPorId.get(Number(lancamento.plano_contas_id)) || 'Sem categoria',
+        centroNome: centroPorId.get(Number(lancamento.centro_custo_id)) || 'Sem centro',
+        contaNome: contaPorId.get(Number((lancamento as any).conta_id))?.nome || 'Sem conta',
+        bancoNome: contaPorId.get(Number((lancamento as any).conta_id))?.banco || 'Sem banco',
+      }))
+      .filter((lancamento) => {
+        if (!query) return true;
+        const haystack = [
+          lancamento.descricao,
+          lancamento.categoriaNome,
+          lancamento.centroNome,
+          lancamento.contaNome,
+          lancamento.bancoNome,
+          lancamento.status,
+        ].join(' ').toLowerCase();
+        return haystack.includes(query);
+      });
+  }, [analysisQuery, categoriaPorId, centroPorId, contaPorId, filteredLancamentos]);
+
   const resumoExecutivoDashboard = useMemo(() => {
     const topDespesas = despesasPorCategoria.slice(0, 3).map((item) => ({ categoria: item.label, total: item.total }));
     const topReceitas = receitasPorCategoria.slice(0, 3).map((item) => ({ categoria: item.label, total: item.total }));
@@ -660,28 +861,32 @@ export function Dashboard() {
     };
   }, [contasHoje, despesasPorCategoria, despesasPorCentro, kpis.saldo, receitasPorCategoria, resultadoAcumulado.values, resultadoMensal, resultadoMensalAno, resultadoMensalAnoAnterior, statusDistrib, topLancamentos]);
 
-  const exportUltimosLancamentos = async (format: 'csv' | 'xlsx') => {
-    const rows = topLancamentos.map(l => ({
+  const exportRows = (rows: Lancamento[]) => rows.map((l) => ({
       data_vencimento: l.data_vencimento,
       data_pagamento: l.data_pagamento || '',
       descricao: l.descricao,
       tipo: l.tipo,
-      categoria: categorias.find(c => Number(c.id) === Number(l.plano_contas_id))?.nome || '',
+      categoria: categoriaPorId.get(Number(l.plano_contas_id)) || '',
       entidade: '',
-      banco: '',
+      banco: contaPorId.get(Number((l as any).conta_id))?.banco || '',
+      conta: contaPorId.get(Number((l as any).conta_id))?.nome || '',
+      centro_custo: centroPorId.get(Number(l.centro_custo_id)) || '',
       valor_previsto: l.valor_previsto,
       valor_pago: l.valor_pago,
       status: l.status
     }));
 
+  const exportLancamentos = async (rows: Lancamento[], format: 'csv' | 'xlsx', fileName: string) => {
+    const exportData = exportRows(rows);
+
     if (format === 'csv') {
-      const header = 'data_vencimento,data_pagamento,descricao,tipo,categoria,entidade,banco,valor_previsto,valor_pago,status\n';
-      const csv = header + rows.map(r => `${r.data_vencimento},${r.data_pagamento},"${String(r.descricao).replace(/"/g, '""')}",${r.tipo},"${String(r.categoria).replace(/"/g, '""')}","${String(r.entidade).replace(/"/g, '""')}","${String(r.banco).replace(/"/g, '""')}",${r.valor_previsto},${r.valor_pago},${r.status}`).join('\n');
+      const header = 'data_vencimento,data_pagamento,descricao,tipo,categoria,centro_custo,conta,banco,valor_previsto,valor_pago,status\n';
+      const csv = header + exportData.map(r => `${r.data_vencimento},${r.data_pagamento},"${String(r.descricao).replace(/"/g, '""')}",${r.tipo},"${String(r.categoria).replace(/"/g, '""')}","${String(r.centro_custo).replace(/"/g, '""')}","${String(r.conta).replace(/"/g, '""')}","${String(r.banco).replace(/"/g, '""')}",${r.valor_previsto},${r.valor_pago},${r.status}`).join('\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `ultimos_lancamentos_${mes}.csv`;
+      a.download = `${fileName}.csv`;
       a.click();
       URL.revokeObjectURL(url);
       return;
@@ -695,22 +900,27 @@ export function Dashboard() {
       { header: 'Descrição', key: 'descricao', width: 40 },
       { header: 'Tipo', key: 'tipo', width: 12 },
       { header: 'Categoria', key: 'categoria', width: 22 },
-      { header: 'Entidade', key: 'entidade', width: 22 },
+      { header: 'Centro de Custo', key: 'centro_custo', width: 22 },
+      { header: 'Conta', key: 'conta', width: 22 },
       { header: 'Banco', key: 'banco', width: 18 },
       { header: 'Valor Previsto', key: 'valor_previsto', width: 16 },
       { header: 'Valor Pago', key: 'valor_pago', width: 14 },
       { header: 'Status', key: 'status', width: 12 }
     ];
-    rows.forEach(r => ws.addRow(r));
+    exportData.forEach(r => ws.addRow(r));
 
     const buffer = await wb.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ultimos_lancamentos_${mes}.xlsx`;
+    a.download = `${fileName}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const exportUltimosLancamentos = async (format: 'csv' | 'xlsx') => {
+    await exportLancamentos(topLancamentos, format, `ultimos_lancamentos_${mes}`);
   };
 
   const chartFluxo = {
@@ -1106,6 +1316,16 @@ export function Dashboard() {
           <X className="w-3 h-3" />
         </button>
       )}
+      {selectedConta && (
+        <button
+          onClick={() => setSelectedConta(null)}
+          className="px-3 py-1 text-xs font-bold rounded-full bg-cyan-100 text-cyan-700 border border-cyan-200 flex items-center gap-1"
+        >
+          <Landmark className="w-3 h-3" />
+          {contaPorId.get(selectedConta)?.nome || 'Conta'}
+          <X className="w-3 h-3" />
+        </button>
+      )}
       {selectedDate && (
         <button
           onClick={() => setSelectedDate(null)}
@@ -1176,7 +1396,7 @@ export function Dashboard() {
           <X className="w-3 h-3" />
         </button>
       )}
-      {!selectedCategorias.size && !selectedCentro && !selectedDate && !selectedMonth && statusFiltro === 'TODOS' && tipoFiltro === 'TODOS' && previstoFiltro === 'TODOS' && !competenciaFiltro && !filtroHojeAtivo && (
+      {!selectedCategorias.size && !selectedCentro && !selectedConta && !selectedDate && !selectedMonth && statusFiltro === 'TODOS' && tipoFiltro === 'TODOS' && previstoFiltro === 'TODOS' && !competenciaFiltro && !filtroHojeAtivo && (
         <span className="text-xs text-slate-400">Clique nos gráficos para filtrar</span>
       )}
     </div>
@@ -1184,10 +1404,10 @@ export function Dashboard() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900">
-      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-8 py-5 flex flex-col lg:flex-row lg:items-center justify-between shadow-sm gap-4">
+      <header className="border-b border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 px-4 sm:px-8 py-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">Dashboard</h2>
-          <p className="text-sm text-slate-400">Relatórios interativos e conectados</p>
+          <p className="text-sm text-slate-400">Operação financeira conectada, filtrável e pronta para exportação</p>
         </div>
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
           <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 w-full sm:w-auto">
@@ -1250,6 +1470,103 @@ export function Dashboard() {
       </header>
 
       <div className="p-4 sm:p-6 space-y-6">
+        <section className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.22),_transparent_38%),radial-gradient(circle_at_top_right,_rgba(14,165,233,0.22),_transparent_28%),linear-gradient(135deg,_#ffffff_0%,_#f8fafc_48%,_#ecfeff_100%)] p-6 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.16),_transparent_38%),radial-gradient(circle_at_top_right,_rgba(14,165,233,0.14),_transparent_28%),linear-gradient(135deg,_rgba(15,23,42,0.98)_0%,_rgba(15,23,42,0.95)_48%,_rgba(8,47,73,0.92)_100%)]">
+          <div className="absolute -right-10 -top-12 h-40 w-40 rounded-full bg-emerald-400/10 blur-3xl" />
+          <div className="absolute -bottom-16 left-10 h-44 w-44 rounded-full bg-sky-400/10 blur-3xl" />
+          <div className="relative grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-slate-500 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
+                    <Sparkles className="h-3.5 w-3.5 text-emerald-500" />
+                    Sala de controle financeira
+                  </div>
+                  <h3 className="max-w-3xl text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+                    Visão integrada do caixa, pressão de despesas e resposta por banco.
+                  </h3>
+                  <p className="max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+                    Todos os painéis abaixo reagem aos filtros, aos cliques nos gráficos e ao banco selecionado. Use o heatmap para abrir dias críticos e a base analítica para exportar exatamente o recorte em tela.
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/70 bg-white/75 p-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Período ativo</p>
+                  <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
+                    {periodoTipo === 'MES' ? formatMonthLabel(mes) : periodoTipo === 'ANO' ? String(ano) : `${parseDateLocal(periodoIni)?.toLocaleDateString('pt-BR')} → ${parseDateLocal(periodoFim)?.toLocaleDateString('pt-BR')}`}
+                  </p>
+                  <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">{filteredLancamentos.length} lançamentos após filtros ativos</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                {sinaisExecutivos.slice(0, 3).map((sinal) => (
+                  <div key={sinal.titulo} className="rounded-2xl border border-white/70 bg-white/70 p-4 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{sinal.titulo}</p>
+                    <p className={`mt-3 text-2xl font-black ${sinal.destaque}`}>{sinal.valor}</p>
+                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">{sinal.apoio}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              <div className="rounded-2xl border border-white/70 bg-white/75 p-5 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Pulsos rápidos</p>
+                    <h4 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Indicadores que merecem atenção</h4>
+                  </div>
+                  <Activity className="h-5 w-5 text-sky-500" />
+                </div>
+                <div className="mt-4 space-y-3">
+                  {sinaisExecutivos.slice(3).map((sinal) => (
+                    <div key={sinal.titulo} className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 dark:border-slate-700 dark:bg-slate-950/40">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-bold text-slate-700 dark:text-slate-100">{sinal.titulo}</p>
+                        <span className={`text-sm font-black ${sinal.destaque}`}>{sinal.valor}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-300">{sinal.apoio}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/70 bg-white/75 p-5 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Bancos em foco</p>
+                    <h4 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Selecione uma conta e propague o filtro</h4>
+                  </div>
+                  <Landmark className="h-5 w-5 text-emerald-500" />
+                </div>
+                <div className="mt-4 space-y-2">
+                  {bancosEmFoco.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-sm text-slate-400 dark:border-slate-700">Nenhuma conta com movimentação no recorte atual.</div>
+                  ) : (
+                    bancosEmFoco.map((item) => (
+                      <button
+                        key={item.contaId}
+                        onClick={() => setSelectedConta((prev) => prev === item.contaId ? null : item.contaId)}
+                        className={`w-full rounded-2xl border px-4 py-3 text-left transition ${selectedConta === item.contaId ? 'border-cyan-500 bg-cyan-50 shadow-sm dark:border-cyan-400 dark:bg-cyan-500/10' : 'border-slate-200 bg-white/70 hover:border-cyan-300 hover:bg-cyan-50/60 dark:border-slate-700 dark:bg-slate-950/40 dark:hover:border-cyan-500 dark:hover:bg-cyan-500/10'}`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-bold text-slate-800 dark:text-slate-100">{item.nome}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-300">{item.banco}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-black text-slate-900 dark:text-white">{BRL.format(item.total)}</p>
+                            <p className={`text-xs font-bold ${item.saldo >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{item.quantidade} mov. • {BRL.format(item.saldo)}</p>
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white/80 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:shadow-md">
             <div className="flex items-center justify-between">
@@ -1355,6 +1672,101 @@ export function Dashboard() {
               placeholder="Competência MM-AAAA"
               className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 outline-none w-36"
             />
+          </div>
+          <div className="flex items-center gap-2 bg-white/80 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1.5">
+            <Landmark className="w-4 h-4 text-slate-400" />
+            <select
+              value={selectedConta ?? ''}
+              onChange={(e) => setSelectedConta(e.target.value ? Number(e.target.value) : null)}
+              className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 outline-none"
+            >
+              <option value="">Todas as contas</option>
+              {contas.map((conta) => (
+                <option key={conta.id} value={conta.id}>{conta.nome}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.5fr_1fr]">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Heatmaps reativos</p>
+                <h3 className="mt-1 text-xl font-bold text-slate-900 dark:text-white">Mapa de calor por receita e despesa</h3>
+              </div>
+              <span className="rounded-full border border-slate-200 px-3 py-1 text-xs font-bold text-slate-500 dark:border-slate-700 dark:text-slate-300">{heatmapCalendario.monthLabel}</span>
+            </div>
+            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+              {([
+                { key: 'receita', label: 'Receitas', max: heatmapCalendario.maxReceita },
+                { key: 'despesa', label: 'Despesas', max: heatmapCalendario.maxDespesa },
+              ] as const).map((mapa) => (
+                <div key={mapa.key} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h4 className={`text-sm font-bold ${mapa.key === 'receita' ? 'text-emerald-600' : 'text-rose-500'}`}>{mapa.label}</h4>
+                    <span className="text-xs text-slate-400">Clique para abrir o dia</span>
+                  </div>
+                  <div className="grid grid-cols-7 gap-2 text-center text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                    {heatmapCalendario.weekLabels.map((label) => <div key={label}>{label}</div>)}
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {heatmapCalendario.weeks.map((week) => (
+                      <div key={week.label} className="grid grid-cols-7 gap-2">
+                        {week.cells.map((cell) => {
+                          const amount = mapa.key === 'receita' ? cell.receita : cell.despesa;
+                          const ratio = mapa.max > 0 ? amount / mapa.max : 0;
+                          return (
+                            <button
+                              key={`${mapa.key}-${cell.date}`}
+                              onClick={() => cell.isCurrentMonth && setSelectedDate((prev) => prev === cell.date ? null : cell.date)}
+                              className={`aspect-square rounded-2xl border text-[11px] font-bold transition hover:-translate-y-0.5 ${cell.isCurrentMonth ? getHeatCellClass(ratio, mapa.key) : 'border-slate-100 bg-slate-50 text-slate-300 dark:border-slate-800 dark:bg-slate-900/20 dark:text-slate-600'} ${selectedDate === cell.date ? 'ring-2 ring-sky-400 ring-offset-2 ring-offset-white dark:ring-offset-slate-800' : ''}`}
+                              title={`${parseDateLocal(cell.date)?.toLocaleDateString('pt-BR')} • ${BRL.format(amount)}`}
+                            >
+                              {cell.dayLabel}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Conexão dos painéis</p>
+                <h3 className="mt-1 text-xl font-bold text-slate-900 dark:text-white">Leituras executivas do recorte</h3>
+              </div>
+              <Sparkles className="h-5 w-5 text-amber-500" />
+            </div>
+            <div className="mt-5 space-y-3">
+              <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Saldo atual</p>
+                <p className={`mt-2 text-3xl font-black ${kpis.saldo >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>{BRL.format(kpis.saldo)}</p>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">O saldo reage ao período, tipo, centro, categoria, conta e cortes vindos dos gráficos.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-bold text-slate-700 dark:text-slate-100">Mix financeiro</p>
+                  <span className="text-xs text-slate-400">Receita x despesa</span>
+                </div>
+                <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
+                  <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-cyan-500 to-rose-500" style={{ width: `${Math.min(100, Math.max(8, Math.round((kpis.receitas / Math.max(1, kpis.receitas + kpis.despesas)) * 100)))}%` }} />
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                  <div className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Receitas: {BRL.format(kpis.receitas)}</div>
+                  <div className="rounded-xl bg-rose-50 px-3 py-2 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">Despesas: {BRL.format(kpis.despesas)}</div>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-100">Preparação para exportação</p>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">A base do fim da página replica exatamente estes filtros. Você pode buscar um termo e baixar CSV/XLSX do resultado consolidado.</p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1796,71 +2208,13 @@ export function Dashboard() {
               <span className="text-xs text-slate-400">Exportação inclui filtros atuais</span>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={async () => {
-                    const rows = filteredLancamentos.map(l => ({
-                      data_vencimento: l.data_vencimento,
-                      data_pagamento: l.data_pagamento || '',
-                      descricao: l.descricao,
-                      tipo: l.tipo,
-                      categoria: categorias.find(c => Number(c.id) === Number(l.plano_contas_id))?.nome || '',
-                      entidade: '',
-                      banco: '',
-                      valor_previsto: l.valor_previsto,
-                      valor_pago: l.valor_pago,
-                      status: l.status
-                    }));
-                    const header = 'data_vencimento,data_pagamento,descricao,tipo,categoria,entidade,banco,valor_previsto,valor_pago,status\n';
-                    const csv = header + rows.map(r => `${r.data_vencimento},${r.data_pagamento},"${String(r.descricao).replace(/"/g, '""')}",${r.tipo},"${String(r.categoria).replace(/"/g, '""')}","${String(r.entidade).replace(/"/g, '""')}","${String(r.banco).replace(/"/g, '""')}",${r.valor_previsto},${r.valor_pago},${r.status}`).join('\n');
-                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `lancamentos_${mes}.csv`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}
+                  onClick={() => exportLancamentos(filteredLancamentos, 'csv', `lancamentos_${mes}`)}
                   className="px-3 py-1 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40"
                 >
                   Exportar CSV
                 </button>
                 <button
-                  onClick={async () => {
-                    const rows = filteredLancamentos.map(l => ({
-                      data_vencimento: l.data_vencimento,
-                      data_pagamento: l.data_pagamento || '',
-                      descricao: l.descricao,
-                      tipo: l.tipo,
-                      categoria: categorias.find(c => Number(c.id) === Number(l.plano_contas_id))?.nome || '',
-                      entidade: '',
-                      banco: '',
-                      valor_previsto: l.valor_previsto,
-                      valor_pago: l.valor_pago,
-                      status: l.status
-                    }));
-                    const wb = new ExcelJS.Workbook();
-                    const ws = wb.addWorksheet('Lancamentos');
-                    ws.columns = [
-                      { header: 'Data Vencimento', key: 'data_vencimento', width: 14 },
-                      { header: 'Data Pagamento', key: 'data_pagamento', width: 14 },
-                      { header: 'Descrição', key: 'descricao', width: 40 },
-                      { header: 'Tipo', key: 'tipo', width: 12 },
-                      { header: 'Categoria', key: 'categoria', width: 22 },
-                      { header: 'Entidade', key: 'entidade', width: 22 },
-                      { header: 'Banco', key: 'banco', width: 18 },
-                      { header: 'Valor Previsto', key: 'valor_previsto', width: 16 },
-                      { header: 'Valor Pago', key: 'valor_pago', width: 14 },
-                      { header: 'Status', key: 'status', width: 12 }
-                    ];
-                    rows.forEach(r => ws.addRow(r));
-                    const buffer = await wb.xlsx.writeBuffer();
-                    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `lancamentos_${mes}.xlsx`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}
+                  onClick={() => exportLancamentos(filteredLancamentos, 'xlsx', `lancamentos_${mes}`)}
                   className="px-3 py-1 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40"
                 >
                   Exportar XLSX
@@ -1896,6 +2250,110 @@ export function Dashboard() {
               </table>
             </div>
           </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Base analítica final</p>
+              <h3 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">Resultado consolidado dos lançamentos filtrados</h3>
+              <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-300">Ideal para análise fina, conferência antes de conciliação e exportação do financeiro conforme o recorte que você montou no dashboard.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => exportLancamentos(linhasAnaliticas, 'csv', `analise_financeira_${mes}`)}
+                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/40"
+              >
+                <Download className="h-4 w-4" />
+                Exportar CSV
+              </button>
+              <button
+                onClick={() => exportLancamentos(linhasAnaliticas, 'xlsx', `analise_financeira_${mes}`)}
+                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/40"
+              >
+                <Download className="h-4 w-4" />
+                Exportar XLSX
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto]">
+            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-700">
+              <Search className="h-4 w-4 text-slate-400" />
+              <input
+                value={analysisQuery}
+                onChange={(e) => setAnalysisQuery(e.target.value)}
+                placeholder="Buscar por descrição, categoria, centro, conta, banco ou status"
+                className="w-full bg-transparent outline-none text-slate-700 dark:text-slate-100"
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Linhas</p>
+                <p className="mt-2 text-xl font-black text-slate-900 dark:text-white">{linhasAnaliticas.length}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Receitas</p>
+                <p className="mt-2 text-xl font-black text-emerald-600">{BRL.format(linhasAnaliticas.filter((l) => isReceita(l.tipo)).reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0))}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Despesas</p>
+                <p className="mt-2 text-xl font-black text-rose-500">{BRL.format(linhasAnaliticas.filter((l) => isDespesa(l.tipo)).reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0))}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Saldo</p>
+                <p className={`mt-2 text-xl font-black ${linhasAnaliticas.reduce((acc, l) => acc + (isReceita(l.tipo) ? Number(l.valor_previsto || 0) : -Number(l.valor_previsto || 0)), 0) >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>
+                  {BRL.format(linhasAnaliticas.reduce((acc, l) => acc + (isReceita(l.tipo) ? Number(l.valor_previsto || 0) : -Number(l.valor_previsto || 0)), 0))}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 overflow-x-auto rounded-3xl border border-slate-200 dark:border-slate-700">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.16em] text-slate-400 dark:bg-slate-900/50">
+                <tr>
+                  <th className="px-4 py-3">Data</th>
+                  <th className="px-4 py-3">Descrição</th>
+                  <th className="px-4 py-3">Categoria</th>
+                  <th className="px-4 py-3">Centro</th>
+                  <th className="px-4 py-3">Conta</th>
+                  <th className="px-4 py-3">Banco</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3 text-right">Valor</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                {linhasAnaliticas.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-10 text-center text-slate-400">Nenhum lançamento encontrado para os filtros e a busca informada.</td>
+                  </tr>
+                ) : (
+                  linhasAnaliticas.slice(0, 120).map((lancamento) => (
+                    <tr key={`analitico-${lancamento.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                      <td className="px-4 py-3 font-mono text-slate-500">{parseDateLocal(lancamento.data_vencimento)?.toLocaleDateString('pt-BR')}</td>
+                      <td className="px-4 py-3 text-slate-700 dark:text-slate-100">{lancamento.descricao}</td>
+                      <td className="px-4 py-3 text-slate-500">{lancamento.categoriaNome}</td>
+                      <td className="px-4 py-3 text-slate-500">{lancamento.centroNome}</td>
+                      <td className="px-4 py-3 text-slate-500">{lancamento.contaNome}</td>
+                      <td className="px-4 py-3 text-slate-500">{lancamento.bancoNome}</td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${isPago(lancamento.status) ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}`}>
+                          {lancamento.status}
+                        </span>
+                      </td>
+                      <td className={`px-4 py-3 text-right font-bold ${isReceita(lancamento.tipo) ? 'text-emerald-600' : 'text-rose-500'}`}>
+                        {isDespesa(lancamento.tipo) ? '-' : ''}{BRL.format(Number(lancamento.valor_previsto || 0))}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          {linhasAnaliticas.length > 120 && (
+            <p className="mt-3 text-xs text-slate-400">Mostrando os 120 lançamentos mais recentes. A exportação leva todas as linhas filtradas.</p>
+          )}
         </div>
 
         {selectedDate && (

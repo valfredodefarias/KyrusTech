@@ -14,6 +14,7 @@ from app.api.v1.deps import get_empresa_id_from_user
 from app.services.integracao_ofx import processar_ofx
 from app.services.integracao_itau import (
     verificar_duplicata,
+    verificar_duplicata_ofx_por_fallback,
     buscar_lancamento_previsto_mesmo_dia_valor,
     buscar_lancamento_atrasado_mesmo_valor,
     criar_entidade_se_nao_existir,
@@ -241,6 +242,8 @@ async def upload_ofx(
             hashes_vistos.add(lanc_raw["import_hash"])
 
             duplicata = verificar_duplicata(db, lanc_raw, empresa_id, conta_id=conta.id)
+            if not duplicata:
+                duplicata = verificar_duplicata_ofx_por_fallback(db, lanc_raw, empresa_id, conta_id=conta.id)
             if duplicata:
                 duplicatas += 1
                 lanc_raw["duplicata_id"] = duplicata.id

@@ -28,6 +28,11 @@ type PlanoLancamentoItem = {
   competencia?: string | null;
   observacao?: string | null;
   data_pagamento?: string | null;
+  sugestao_acao?: 'CRIAR_NOVO' | 'BAIXAR_PREVISTO' | 'RELACIONAR_ATRASADO' | 'IGNORAR_DUPLICATA';
+  motivo_conciliacao?: string | null;
+  lancamento_relacionado_id?: number | null;
+  duplicata_id?: number | null;
+  relacionado_resumo?: string | null;
 };
 
 type LookupItem = { id: number; nome: string; tipo?: string };
@@ -204,7 +209,41 @@ const normalizePlano = (itens: PlanoLancamentoItem[]) => itens.map((item) => ({
   observacao: item.observacao ?? '',
   competencia: item.competencia ?? '',
   data_pagamento: item.data_pagamento ?? '',
+  sugestao_acao: item.sugestao_acao ?? 'CRIAR_NOVO',
+  motivo_conciliacao: item.motivo_conciliacao ?? '',
+  lancamento_relacionado_id: item.lancamento_relacionado_id ?? null,
+  duplicata_id: item.duplicata_id ?? null,
+  relacionado_resumo: item.relacionado_resumo ?? '',
 }));
+
+const getPlanoActionMeta = (action?: PlanoLancamentoItem['sugestao_acao']) => {
+  if (action === 'BAIXAR_PREVISTO') {
+    return {
+      label: 'Baixar previsto',
+      className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+      rowClassName: 'bg-emerald-50/50 dark:bg-emerald-900/10',
+    };
+  }
+  if (action === 'RELACIONAR_ATRASADO') {
+    return {
+      label: 'Vincular atraso',
+      className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+      rowClassName: 'bg-amber-50/50 dark:bg-amber-900/10',
+    };
+  }
+  if (action === 'IGNORAR_DUPLICATA') {
+    return {
+      label: 'Duplicado',
+      className: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
+      rowClassName: 'bg-rose-50/50 dark:bg-rose-900/10',
+    };
+  }
+  return {
+    label: 'Criar novo',
+    className: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
+    rowClassName: '',
+  };
+};
 
 export function AiAssistente({
   tela,
@@ -244,6 +283,14 @@ export function AiAssistente({
   const messagesRef = useRef<HTMLDivElement | null>(null);
 
   const canSend = useMemo(() => (input.trim().length >= 3 || attachments.length > 0) && !loading && !attachmentLoading, [attachments.length, input, loading, attachmentLoading]);
+  const planoResumo = useMemo(() => {
+    if (!planoPendente) return null;
+    return planoPendente.itens.reduce((acc, item) => {
+      const action = item.sugestao_acao || 'CRIAR_NOVO';
+      acc[action] = (acc[action] || 0) + 1;
+      return acc;
+    }, { CRIAR_NOVO: 0, BAIXAR_PREVISTO: 0, RELACIONAR_ATRASADO: 0, IGNORAR_DUPLICATA: 0 } as Record<'CRIAR_NOVO' | 'BAIXAR_PREVISTO' | 'RELACIONAR_ATRASADO' | 'IGNORAR_DUPLICATA', number>);
+  }, [planoPendente]);
 
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' });
@@ -493,7 +540,7 @@ export function AiAssistente({
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-bold text-amber-700 dark:text-amber-300">Previa de lancamentos ({planoPendente.itens.length})</p>
-                    <p className="text-[11px] text-amber-700/80 dark:text-amber-200/80">Os itens abaixo ainda nao foram criados. Revise, edite se precisar e confirme quando estiver seguro.</p>
+                    <p className="text-[11px] text-amber-700/80 dark:text-amber-200/80">Os itens abaixo ainda nao foram criados diretamente. Na confirmacao, o sistema ignora duplicatas e pode baixar previsto ou vincular atraso quando houver compatibilidade.</p>
                   </div>
                   <div className="flex gap-2">
                     <button type="button" onClick={() => setPlanoPendente((prev) => prev ? { ...prev, editando: !prev.editando } : prev)} className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-[11px] font-bold text-amber-700 transition hover:bg-amber-50 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-200">
@@ -508,10 +555,26 @@ export function AiAssistente({
                   </div>
                 </div>
 
+                {planoResumo && (
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {([
+                      ['CRIAR_NOVO', 'Criar novo'],
+                      ['BAIXAR_PREVISTO', 'Baixar previsto'],
+                      ['RELACIONAR_ATRASADO', 'Vincular atraso'],
+                      ['IGNORAR_DUPLICATA', 'Duplicado'],
+                    ] as const).map(([key, label]) => planoResumo[key] > 0 ? (
+                      <span key={key} className={`rounded-full px-3 py-1 text-[11px] font-bold ${getPlanoActionMeta(key).className}`}>
+                        {planoResumo[key]} {label.toLowerCase()}
+                      </span>
+                    ) : null)}
+                  </div>
+                )}
+
                 <div className="max-h-80 overflow-y-auto rounded-2xl border border-amber-200 bg-white dark:border-amber-800 dark:bg-slate-950">
-                  <table className="w-full min-w-225 text-[11px]">
+                  <table className="w-full min-w-260 text-[11px]">
                     <thead className="sticky top-0 bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-300">
                       <tr>
+                        <th className="px-2 py-2 text-left">Ação</th>
                         <th className="px-2 py-2 text-left">Descricao</th>
                         <th className="px-2 py-2 text-left">Tipo</th>
                         <th className="px-2 py-2 text-right">Valor</th>
@@ -520,11 +583,17 @@ export function AiAssistente({
                         <th className="px-2 py-2 text-left">Conta</th>
                         <th className="px-2 py-2 text-left">Centro</th>
                         <th className="px-2 py-2 text-left">Entidade</th>
+                        <th className="px-2 py-2 text-left">Diagnóstico</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {planoPendente.itens.map((item, idx) => (
-                        <tr key={`${item.descricao}-${item.data_vencimento}-${idx}`} className="border-t border-slate-100 dark:border-slate-800">
+                      {planoPendente.itens.map((item, idx) => {
+                        const actionMeta = getPlanoActionMeta(item.sugestao_acao);
+                        return (
+                        <tr key={`${item.descricao}-${item.data_vencimento}-${idx}`} className={`border-t border-slate-100 dark:border-slate-800 ${actionMeta.rowClassName}`}>
+                          <td className="px-2 py-2 align-top">
+                            <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${actionMeta.className}`}>{actionMeta.label}</span>
+                          </td>
                           <td className="px-2 py-2 align-top">
                             {planoPendente.editando ? (
                               <input value={item.descricao} onChange={(event) => updatePlanoItem(idx, 'descricao', event.target.value)} className="w-full rounded-lg border border-slate-300 px-2 py-1 text-[11px] dark:border-slate-700 dark:bg-slate-900" />
@@ -579,8 +648,14 @@ export function AiAssistente({
                               </select>
                             ) : (lookups?.entidades?.find((entry) => entry.id === item.entidade_id)?.nome || 'Nao informado')}
                           </td>
+                          <td className="px-2 py-2 align-top text-slate-500 dark:text-slate-300">
+                            <div className="min-w-56 space-y-1">
+                              <p>{item.motivo_conciliacao || 'Sem diagnóstico adicional.'}</p>
+                              {item.relacionado_resumo && <p className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">{item.relacionado_resumo}</p>}
+                            </div>
+                          </td>
                         </tr>
-                      ))}
+                      )})}
                     </tbody>
                   </table>
                 </div>
@@ -592,7 +667,7 @@ export function AiAssistente({
                     disabled={loading || planoPendente.sujo}
                     className="flex-1 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-500 disabled:opacity-50"
                   >
-                    Confirmar e criar
+                    Confirmar execução inteligente
                   </button>
                   <button
                     type="button"

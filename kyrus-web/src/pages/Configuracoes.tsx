@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
+import ExcelJS from 'exceljs';
 import { 
   Building2, UploadCloud, Layers, Save, Loader2, 
-  Palette, Check, AlertCircle, Camera, RefreshCw 
+  Palette, Check, AlertCircle, Camera, RefreshCw,
+  Download, CalendarRange, Landmark
 } from 'lucide-react';
 
 // Importa os componentes do arquivo de Importação
@@ -25,6 +27,32 @@ interface UserInfo {
   email: string;
   nome?: string | null;
   foto_url?: string | null;
+}
+
+interface ContaExportacao {
+  id: number;
+  nome: string;
+  banco?: string | null;
+}
+
+interface CategoriaExportacao {
+  id: number;
+  nome: string;
+}
+
+interface LancamentoExportacao {
+  id: number;
+  descricao: string;
+  tipo: string;
+  status: string;
+  data_vencimento: string;
+  data_pagamento?: string | null;
+  valor_previsto: number;
+  valor_pago: number;
+  plano_contas_id?: number | null;
+  conta_id?: number | null;
+  competencia?: string | null;
+  previsto?: boolean;
 }
 
 // --- SUB-COMPONENTE: DADOS DA EMPRESA ---
@@ -340,9 +368,237 @@ const GestaoPlanoContas = () => {
   );
 };
 
+const ExportacaoFinanceira = () => {
+  const [contas, setContas] = useState<ContaExportacao[]>([]);
+  const [categorias, setCategorias] = useState<CategoriaExportacao[]>([]);
+  const [lancamentos, setLancamentos] = useState<LancamentoExportacao[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [exportando, setExportando] = useState<'csv' | 'xlsx' | null>(null);
+  const [contaId, setContaId] = useState('');
+  const [periodoIni, setPeriodoIni] = useState(() => {
+    const hoje = new Date();
+    return new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().split('T')[0];
+  });
+  const [periodoFim, setPeriodoFim] = useState(() => new Date().toISOString().split('T')[0]);
+
+  useEffect(() => {
+    loadBase();
+  }, []);
+
+  useEffect(() => {
+    loadLancamentos();
+  }, [periodoIni, periodoFim, contaId]);
+
+  const categoriaPorId = new Map(categorias.map((categoria) => [Number(categoria.id), categoria.nome]));
+  const contaPorId = new Map(contas.map((conta) => [Number(conta.id), conta]));
+
+  async function loadBase() {
+    setLoading(true);
+    try {
+      const [rContas, rCategorias] = await Promise.all([
+        api.get('/contas/', { params: { include_saldo: false } }),
+        api.get('/plano-contas/'),
+      ]);
+      setContas(rContas.data || []);
+      setCategorias(rCategorias.data || []);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadLancamentos() {
+    try {
+      const params: Record<string, string | number> = {
+        limit: 10000,
+        data_inicio: periodoIni,
+        data_fim: periodoFim,
+      };
+      if (contaId) params.conta_id = Number(contaId);
+      const response = await api.get('/lancamentos/', { params });
+      setLancamentos(response.data || []);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  const resumo = lancamentos.reduce((acc, lancamento) => {
+    const valor = Number(lancamento.valor_previsto || 0);
+    if (String(lancamento.tipo).toUpperCase().startsWith('R')) acc.receitas += valor;
+    else acc.despesas += valor;
+    return acc;
+  }, { receitas: 0, despesas: 0 });
+
+  const saldo = resumo.receitas - resumo.despesas;
+
+  const exportRows = lancamentos.map((lancamento) => ({
+    data_vencimento: lancamento.data_vencimento,
+    data_pagamento: lancamento.data_pagamento || '',
+    descricao: lancamento.descricao,
+    tipo: lancamento.tipo,
+    categoria: categoriaPorId.get(Number(lancamento.plano_contas_id)) || '',
+    conta: contaPorId.get(Number(lancamento.conta_id))?.nome || '',
+    banco: contaPorId.get(Number(lancamento.conta_id))?.banco || '',
+    competencia: lancamento.competencia || '',
+    previsto: lancamento.previsto === false ? 'NAO' : 'SIM',
+    valor_previsto: lancamento.valor_previsto,
+    valor_pago: lancamento.valor_pago,
+    status: lancamento.status,
+  }));
+
+  async function handleExport(formato: 'csv' | 'xlsx') {
+    if (exportRows.length === 0) return;
+    setExportando(formato);
+    try {
+      const sufixoConta = contaId ? `conta_${contaId}` : 'todas_contas';
+      const fileName = `financeiro_${periodoIni}_${periodoFim}_${sufixoConta}`;
+
+      if (formato === 'csv') {
+        const header = 'data_vencimento,data_pagamento,descricao,tipo,categoria,conta,banco,competencia,previsto,valor_previsto,valor_pago,status\n';
+        const csv = header + exportRows.map((row) => `${row.data_vencimento},${row.data_pagamento},"${String(row.descricao).replace(/"/g, '""')}",${row.tipo},"${String(row.categoria).replace(/"/g, '""')}","${String(row.conta).replace(/"/g, '""')}","${String(row.banco).replace(/"/g, '""')}",${row.competencia},${row.previsto},${row.valor_previsto},${row.valor_pago},${row.status}`).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${fileName}.csv`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Financeiro');
+      sheet.columns = [
+        { header: 'Data Vencimento', key: 'data_vencimento', width: 16 },
+        { header: 'Data Pagamento', key: 'data_pagamento', width: 16 },
+        { header: 'Descrição', key: 'descricao', width: 42 },
+        { header: 'Tipo', key: 'tipo', width: 14 },
+        { header: 'Categoria', key: 'categoria', width: 24 },
+        { header: 'Conta', key: 'conta', width: 24 },
+        { header: 'Banco', key: 'banco', width: 20 },
+        { header: 'Competência', key: 'competencia', width: 16 },
+        { header: 'Previsto', key: 'previsto', width: 12 },
+        { header: 'Valor Previsto', key: 'valor_previsto', width: 18 },
+        { header: 'Valor Pago', key: 'valor_pago', width: 16 },
+        { header: 'Status', key: 'status', width: 14 },
+      ];
+      exportRows.forEach((row) => sheet.addRow(row));
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${fileName}.xlsx`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExportando(null);
+    }
+  }
+
+  if (loading) {
+    return <div className="p-20 text-center"><Loader2 className="mx-auto h-10 w-10 animate-spin text-blue-500" /></div>;
+  }
+
+  return (
+    <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Exportação financeira</p>
+            <h2 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">Baixe o financeiro por período ou banco</h2>
+            <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-300">Essa área produz um recorte limpo do financeiro para contabilidade, auditoria, fechamento ou compartilhamento com o cliente.</p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Receitas</p>
+              <p className="mt-2 text-xl font-black text-emerald-600">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resumo.receitas)}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Despesas</p>
+              <p className="mt-2 text-xl font-black text-rose-500">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resumo.despesas)}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Saldo</p>
+              <p className={`mt-2 text-xl font-black ${saldo >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(saldo)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr_1fr_auto]">
+          <label className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+            <span className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-400"><CalendarRange className="h-4 w-4" /> Período</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <input type="date" value={periodoIni} onChange={(e) => setPeriodoIni(e.target.value)} className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm outline-none dark:border-slate-700" />
+              <span className="text-xs text-slate-400">até</span>
+              <input type="date" value={periodoFim} onChange={(e) => setPeriodoFim(e.target.value)} className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm outline-none dark:border-slate-700" />
+            </div>
+          </label>
+
+          <label className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+            <span className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-400"><Landmark className="h-4 w-4" /> Banco / conta</span>
+            <select value={contaId} onChange={(e) => setContaId(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm outline-none dark:border-slate-700">
+              <option value="">Todas as contas</option>
+              {contas.map((conta) => (
+                <option key={conta.id} value={conta.id}>{conta.nome}{conta.banco ? ` • ${conta.banco}` : ''}</option>
+              ))}
+            </select>
+          </label>
+
+          <div className="grid grid-cols-1 gap-2">
+            <button onClick={() => handleExport('csv')} disabled={exportRows.length === 0 || exportando !== null} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-600 dark:hover:bg-blue-500">
+              {exportando === 'csv' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Exportar CSV
+            </button>
+            <button onClick={() => handleExport('xlsx')} disabled={exportRows.length === 0 || exportando !== null} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/40">
+              {exportando === 'xlsx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Exportar XLSX
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 overflow-x-auto rounded-3xl border border-slate-200 dark:border-slate-700">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.16em] text-slate-400 dark:bg-slate-900/50">
+              <tr>
+                <th className="px-4 py-3">Data</th>
+                <th className="px-4 py-3">Descrição</th>
+                <th className="px-4 py-3">Categoria</th>
+                <th className="px-4 py-3">Conta</th>
+                <th className="px-4 py-3">Banco</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3 text-right">Valor</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+              {lancamentos.length === 0 ? (
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">Sem lançamentos para o período e a conta selecionados.</td></tr>
+              ) : (
+                lancamentos.slice(0, 40).map((lancamento) => (
+                  <tr key={lancamento.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                    <td className="px-4 py-3 font-mono text-slate-500">{new Date(`${lancamento.data_vencimento}T00:00:00`).toLocaleDateString('pt-BR')}</td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-100">{lancamento.descricao}</td>
+                    <td className="px-4 py-3 text-slate-500">{categoriaPorId.get(Number(lancamento.plano_contas_id)) || 'Sem categoria'}</td>
+                    <td className="px-4 py-3 text-slate-500">{contaPorId.get(Number(lancamento.conta_id))?.nome || 'Sem conta'}</td>
+                    <td className="px-4 py-3 text-slate-500">{contaPorId.get(Number(lancamento.conta_id))?.banco || 'Sem banco'}</td>
+                    <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${String(lancamento.status).toUpperCase() === 'PAGO' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}`}>{lancamento.status}</span></td>
+                    <td className={`px-4 py-3 text-right font-bold ${String(lancamento.tipo).toUpperCase().startsWith('R') ? 'text-emerald-600' : 'text-rose-500'}`}>{String(lancamento.tipo).toUpperCase().startsWith('D') ? '-' : ''}{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(lancamento.valor_previsto || 0))}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        {lancamentos.length > 40 && <p className="mt-3 text-xs text-slate-400">Prévia limitada aos 40 registros mais recentes. O arquivo exportado inclui todas as linhas retornadas pela consulta.</p>}
+      </div>
+    </div>
+  );
+};
+
 // --- PÁGINA PRINCIPAL ---
 export function Configuracoes() {
-  const [activeTab, setActiveTab] = useState<'EMPRESA' | 'PLANO' | 'IMPORTACAO'>('EMPRESA');
+  const [activeTab, setActiveTab] = useState<'EMPRESA' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO'>('EMPRESA');
 
   // Classe utilitária para as abas (Estilo Sênior)
   const getTabClass = (tab: string) => `
@@ -370,6 +626,9 @@ export function Configuracoes() {
             <button onClick={() => setActiveTab('IMPORTACAO')} className={getTabClass('IMPORTACAO')}>
                 <UploadCloud className="w-4 h-4"/> Importação de Dados
             </button>
+            <button onClick={() => setActiveTab('FINANCEIRO')} className={getTabClass('FINANCEIRO')}>
+              <Download className="w-4 h-4"/> Exportação Financeira
+            </button>
         </div>
       </div>
 
@@ -383,6 +642,7 @@ export function Configuracoes() {
                 <Importacao /> 
             </div>
         )}
+        {activeTab === 'FINANCEIRO' && <ExportacaoFinanceira />}
       </div>
     </div>
   );

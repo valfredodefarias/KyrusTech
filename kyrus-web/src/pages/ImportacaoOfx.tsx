@@ -1,7 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle,
+  FileSpreadsheet,
+  Filter,
+  Landmark,
+  Loader2,
+  Search,
+  Sparkles,
+  UploadCloud,
+  Wand2,
+} from 'lucide-react';
+
+import { useAssistentePage } from '../components/AssistentePageContext';
 import { api } from '../services/api';
-import { UploadCloud, FileSpreadsheet, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 
 function normalizarDescricao(texto?: string | null) {
   if (!texto) return '';
@@ -13,30 +27,22 @@ function normalizarDescricao(texto?: string | null) {
     .trim();
 }
 
+function formatCurrency(valor: number) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor || 0);
+}
+
+function formatDate(valor?: string | null) {
+  if (!valor) return '-';
+  const iso = valor.includes('T') ? valor : `${valor}T00:00:00`;
+  const data = new Date(iso);
+  if (Number.isNaN(data.getTime())) return valor;
+  return data.toLocaleDateString('pt-BR');
+}
+
 interface ContaItem {
   id: number;
   nome: string;
   banco?: string;
-}
-
-interface LancamentoImportado {
-  data: string;
-  data_hora?: string | null;
-  descricao: string;
-  razao_social: string;
-  cpf_cnpj: string;
-  referencia?: string | null;
-  valor: number;
-  tipo: string;
-  origem: string;
-  linha_arquivo: number;
-  import_hash?: string | null;
-  lancamento_previsto_id?: number | null;
-  lancamentos_atrasados_ids?: number[];
-  duplicata_id?: number | null;
-  plano_contas_id?: number | null;
-  entidade_id?: number | null;
-  era_previsto?: boolean;
 }
 
 interface CategoriaItem {
@@ -56,10 +62,57 @@ interface LancamentoSugestao {
   entidade_id?: number | null;
 }
 
+interface RelacionamentoResumo {
+  descricao: string;
+  data_vencimento: string;
+  valor_previsto: number;
+  score: number;
+  motivo: string;
+}
+
+interface DuplicataResumo {
+  descricao: string;
+  data_pagamento?: string | null;
+  valor_pago?: number | null;
+  origem?: string | null;
+  motivo?: string | null;
+}
+
+interface LancamentoImportado {
+  data: string;
+  data_hora?: string | null;
+  descricao: string;
+  razao_social: string;
+  cpf_cnpj: string;
+  referencia?: string | null;
+  referencia_externa?: string | null;
+  movimento_uid?: string | null;
+  ofx_bank_id?: string | null;
+  ofx_agencia?: string | null;
+  ofx_conta_numero?: string | null;
+  valor: number;
+  tipo: 'RECEITA' | 'DESPESA' | string;
+  origem: string;
+  linha_arquivo: number;
+  import_hash?: string | null;
+  lancamento_previsto_id?: number | null;
+  lancamentos_atrasados_ids?: number[];
+  duplicata_id?: number | null;
+  plano_contas_id?: number | null;
+  entidade_id?: number | null;
+  era_previsto?: boolean;
+  sugestao_acao?: 'BAIXAR_PREVISTO' | 'RELACIONAR_ATRASADOS' | 'CRIAR_NOVO' | 'IGNORAR_DUPLICATA';
+  score_conciliacao?: number;
+  motivo_conciliacao?: string | null;
+  lancamento_previsto_resumo?: RelacionamentoResumo | null;
+  lancamentos_atrasados_resumo?: RelacionamentoResumo[];
+  duplicata_resumo?: DuplicataResumo | null;
+}
+
 interface LancamentoEditado extends LancamentoImportado {
-  lancamentos_atrasados_relacionados?: number[];
-  relacionar_apenas_atrasados?: boolean;
-  auto_preenchido?: boolean;
+  lancamentos_atrasados_relacionados: number[];
+  relacionar_apenas_atrasados: boolean;
+  auto_preenchido: boolean;
 }
 
 interface ProcessarArquivoResponse {
@@ -68,6 +121,35 @@ interface ProcessarArquivoResponse {
   duplicatas_encontradas: number;
   lancamentos_previstos_encontrados: number;
   lancamentos_atrasados_encontrados: number;
+}
+
+type FiltroStatus = 'todos' | 'conciliar' | 'novo' | 'duplicado';
+
+const ACAO_META = {
+  BAIXAR_PREVISTO: {
+    label: 'Baixar previsto',
+    tone: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-900/60',
+  },
+  RELACIONAR_ATRASADOS: {
+    label: 'Relacionar atrasados',
+    tone: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-900/60',
+  },
+  CRIAR_NOVO: {
+    label: 'Criar novo lançamento',
+    tone: 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-300 dark:border-sky-900/60',
+  },
+  IGNORAR_DUPLICATA: {
+    label: 'Duplicata detectada',
+    tone: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+  },
+} as const;
+
+function categoriaCompativel(cat: CategoriaItem, tipo: string) {
+  if (!cat.tipo) return true;
+  const categoriaTipo = String(cat.tipo).trim().toUpperCase();
+  if (tipo === 'RECEITA') return categoriaTipo.startsWith('R');
+  if (tipo === 'DESPESA') return categoriaTipo.startsWith('D');
+  return true;
 }
 
 export function ImportacaoOfx() {
@@ -83,6 +165,8 @@ export function ImportacaoOfx() {
   const [categorias, setCategorias] = useState<CategoriaItem[]>([]);
   const [entidades, setEntidades] = useState<EntidadeItem[]>([]);
   const [sugestoes, setSugestoes] = useState<Record<string, LancamentoSugestao>>({});
+  const [busca, setBusca] = useState('');
+  const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>('todos');
 
   useEffect(() => {
     const contaParam = searchParams.get('conta_id');
@@ -140,6 +224,41 @@ export function ImportacaoOfx() {
     [contaId, contas]
   );
 
+  const resumo = useMemo(() => {
+    const items = lancamentosEditados;
+    const conciliaveis = items.filter((item) => item.sugestao_acao && item.sugestao_acao !== 'CRIAR_NOVO' && item.sugestao_acao !== 'IGNORAR_DUPLICATA').length;
+    const novos = items.filter((item) => item.sugestao_acao === 'CRIAR_NOVO').length;
+    const receitas = items.filter((item) => item.tipo === 'RECEITA').reduce((acc, item) => acc + Number(item.valor || 0), 0);
+    const despesas = items.filter((item) => item.tipo === 'DESPESA').reduce((acc, item) => acc + Number(item.valor || 0), 0);
+    const semCategoria = items.filter((item) => !item.plano_contas_id && item.sugestao_acao !== 'IGNORAR_DUPLICATA').length;
+    return { conciliaveis, novos, receitas, despesas, semCategoria };
+  }, [lancamentosEditados]);
+
+  const assistenteConfig = useMemo(() => ({
+    tela: 'geral' as const,
+    titulo: 'Assistente KyrusTECH',
+    contexto: {
+      pagina: 'importacao_ofx',
+      conta_selecionada: contaSelecionada ? `${contaSelecionada.nome}${contaSelecionada.banco ? ` (${contaSelecionada.banco})` : ''}` : null,
+      resumo_importacao_ofx: resultado ? {
+        total_processado: resultado.total_processado,
+        duplicatas: resultado.duplicatas_encontradas,
+        previstos: resultado.lancamentos_previstos_encontrados,
+        atrasados: resultado.lancamentos_atrasados_encontrados,
+        conciliaveis: resumo.conciliaveis,
+        novos: resumo.novos,
+      } : null,
+      instrucao_analise: 'Explique a importacao OFX como um operador financeiro senior. Destaque movimentos que podem baixar previstos, atrasados que merecem vinculacao e o que ainda precisa de classificacao antes da confirmacao.',
+    },
+    sugestoes: [
+      'Quais movimentos deste OFX devem baixar previstos agora?',
+      'Onde existem atrasos relevantes que merecem conciliação manual?',
+      'O que ainda precisa de classificação antes de confirmar?',
+    ],
+  }), [contaSelecionada, resultado, resumo.conciliaveis, resumo.novos]);
+
+  useAssistentePage(assistenteConfig);
+
   const handleUpload = async () => {
     if (!arquivo || !contaId) {
       setFeedback({ type: 'error', message: 'Selecione uma conta e um arquivo OFX.' });
@@ -177,10 +296,10 @@ export function ImportacaoOfx() {
       const { data } = await api.post('/importacao/confirmar-lancamentos', payload);
       setFeedback({
         type: 'success',
-        message: `Importacao concluida. Criados: ${data?.lancamentos_criados || 0}, atualizados: ${data?.lancamentos_atualizados || 0}.`
+        message: `Importação concluída. Criados: ${data?.lancamentos_criados || 0}, atualizados: ${data?.lancamentos_atualizados || 0}.`
       });
     } catch (error: any) {
-      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao confirmar importacao.' });
+      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao confirmar importação.' });
     } finally {
       setConfirming(false);
     }
@@ -206,221 +325,388 @@ export function ImportacaoOfx() {
         entidade_id,
         auto_preenchido,
         lancamentos_atrasados_relacionados: [],
-        relacionar_apenas_atrasados: false,
+        relacionar_apenas_atrasados: lanc.sugestao_acao === 'RELACIONAR_ATRASADOS',
       } as LancamentoEditado;
     });
 
     setLancamentosEditados(editados);
   }, [resultado, sugestoes]);
 
+  const lancamentosFiltrados = useMemo(() => {
+    const termo = normalizarDescricao(busca);
+    return lancamentosEditados.filter((item) => {
+      if (filtroStatus === 'conciliar' && (!item.sugestao_acao || !['BAIXAR_PREVISTO', 'RELACIONAR_ATRASADOS'].includes(item.sugestao_acao))) {
+        return false;
+      }
+      if (filtroStatus === 'novo' && item.sugestao_acao !== 'CRIAR_NOVO') {
+        return false;
+      }
+      if (filtroStatus === 'duplicado' && item.sugestao_acao !== 'IGNORAR_DUPLICATA') {
+        return false;
+      }
+      if (!termo) return true;
+      const bloco = normalizarDescricao(`${item.descricao} ${item.razao_social} ${item.motivo_conciliacao || ''}`);
+      return bloco.includes(termo);
+    });
+  }, [busca, filtroStatus, lancamentosEditados]);
+
+  const updateLancamento = (linhaArquivo: number, patch: Partial<LancamentoEditado>) => {
+    setLancamentosEditados((prev) => prev.map((item) => (
+      item.linha_arquivo === linhaArquivo ? { ...item, ...patch } : item
+    )));
+  };
+
   return (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100">
-      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-4 sm:p-6">
-        <div className="flex items-center gap-3">
-          <UploadCloud className="w-6 h-6 text-blue-600" />
-          <div>
-            <h1 className="text-xl font-bold">Importacao OFX</h1>
-            <p className="text-xs text-slate-400">Importe extratos OFX de qualquer banco.</p>
-          </div>
-        </div>
-      </header>
-
-      <div className="flex-1 p-4 sm:p-6 space-y-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta</label>
-              <select
-                value={contaId}
-                onChange={(e) => setContaId(e.target.value ? Number(e.target.value) : '')}
-                className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-sm"
-              >
-                <option value="">Selecione uma conta</option>
-                {contas.map((conta) => (
-                  <option key={conta.id} value={conta.id}>
-                    {conta.nome} {conta.banco ? `(${conta.banco})` : ''}
-                  </option>
-                ))}
-              </select>
-              {!contaSelecionada && (
-                <p className="text-[11px] text-amber-500 mt-1">Escolha a conta que recebera os lancamentos.</p>
-              )}
+    <div className="space-y-6 text-slate-800 dark:text-slate-100">
+      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.24),transparent_35%),linear-gradient(135deg,#0f172a,#111827_55%,#022c22)] px-6 py-7 text-white shadow-[0_25px_80px_-45px_rgba(15,23,42,0.9)] dark:border-slate-800 md:px-8 md:py-8">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_380px]">
+          <div className="space-y-5">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.24em] text-emerald-200">
+              <Sparkles className="h-3.5 w-3.5" />
+              Conciliação OFX multibancos
+            </div>
+            <div className="space-y-3">
+              <h1 className="max-w-3xl text-3xl font-black tracking-tight md:text-4xl">Importe OFX, cruze com previsões e confirme só o que faz sentido.</h1>
+              <p className="max-w-2xl text-sm leading-6 text-slate-200 md:text-base">
+                O fluxo compara cada movimento bancário com lançamentos previstos ou atrasados do mesmo tipo, usando tolerância de R$ 1,00 e chave estável por conta selecionada + identificador da movimentação.
+              </p>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Arquivo OFX</label>
-              <input
-                type="file"
-                accept=".ofx,.qfx"
-                onChange={(e) => setArquivo(e.target.files?.[0] || null)}
-                className="w-full text-sm"
-              />
-              <p className="text-[11px] text-slate-400 mt-1">Formatos: OFX ou QFX.</p>
-            </div>
-
-            <button
-              onClick={handleUpload}
-              disabled={loading || !contaId}
-              className="w-full py-2.5 rounded-lg bg-blue-600 text-white font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60"
-            >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
-              Processar arquivo
-            </button>
-
-            {feedback && (
-              <div className={`text-sm font-bold flex items-center gap-2 ${feedback.type === 'success' ? 'text-emerald-600' : 'text-red-500'}`}>
-                {feedback.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-                {feedback.message}
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200">Mesmo tipo</p>
+                <p className="mt-2 text-sm text-slate-100">Receita só cruza com receita. Despesa só cruza com despesa.</p>
               </div>
-            )}
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200">Margem segura</p>
+                <p className="mt-2 text-sm text-slate-100">Comparação por valor com tolerância de até R$ 1,00.</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200">Sem conflito</p>
+                <p className="mt-2 text-sm text-slate-100">Duplicidade protegida pela conta escolhida e pelo identificador do movimento.</p>
+              </div>
+            </div>
           </div>
 
-          <div className="lg:col-span-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
-            <h2 className="text-sm font-bold uppercase text-slate-500 mb-3">Resumo do processamento</h2>
-            {resultado ? (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                    <p className="text-xs text-slate-400">Total processado</p>
-                    <p className="font-bold">{resultado.total_processado}</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                    <p className="text-xs text-slate-400">Duplicatas</p>
-                    <p className="font-bold">{resultado.duplicatas_encontradas}</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                    <p className="text-xs text-slate-400">Previstos</p>
-                    <p className="font-bold">{resultado.lancamentos_previstos_encontrados}</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                    <p className="text-xs text-slate-400">Atrasados</p>
-                    <p className="font-bold">{resultado.lancamentos_atrasados_encontrados}</p>
-                  </div>
-                </div>
+          <div className="rounded-3xl border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+            <div className="flex items-center gap-3">
+              <div className="rounded-2xl bg-white/15 p-3 text-emerald-200">
+                <UploadCloud className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-200">Preparar arquivo</p>
+                <p className="text-sm text-slate-200">Selecione a conta e envie o OFX ou QFX.</p>
+              </div>
+            </div>
 
-                <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50 dark:bg-slate-900 text-xs uppercase text-slate-500">
-                      <tr>
-                        <th className="p-2 text-left">Data</th>
-                        <th className="p-2 text-left">Descricao</th>
-                        <th className="p-2 text-right">Valor</th>
-                        <th className="p-2 text-left">Tipo</th>
-                        <th className="p-2 text-left">Categoria</th>
-                        <th className="p-2 text-left">Entidade</th>
-                        <th className="p-2 text-left">Atrasados</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                      {lancamentosEditados.slice(0, 50).map((lanc, idx) => (
-                        <tr key={`${lanc.linha_arquivo}-${idx}`} className={lanc.auto_preenchido ? 'bg-emerald-50/40 dark:bg-emerald-900/10' : ''}>
-                          <td className="p-2 text-xs text-slate-500">{lanc.data}</td>
-                          <td className="p-2">{lanc.descricao}</td>
-                          <td className="p-2 text-right font-mono">{Number(lanc.valor).toFixed(2)}</td>
-                          <td className="p-2 text-xs text-slate-500">{lanc.tipo}</td>
-                          <td className="p-2">
-                            <select
-                              value={lanc.plano_contas_id || ''}
-                              onChange={(e) => {
-                                const value = e.target.value ? Number(e.target.value) : null;
-                                setLancamentosEditados((prev) => prev.map((item) =>
-                                  item.linha_arquivo === lanc.linha_arquivo ? { ...item, plano_contas_id: value } : item
-                                ));
-                              }}
-                              className="w-full p-1.5 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs"
-                            >
-                              <option value="">A Categorizar</option>
-                              {categorias.map((cat) => (
-                                <option key={cat.id} value={cat.id}>
-                                  {cat.codigo ? `${cat.codigo} - ${cat.nome}` : cat.nome}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="p-2">
-                            <select
-                              value={lanc.entidade_id || ''}
-                              onChange={(e) => {
-                                const value = e.target.value ? Number(e.target.value) : null;
-                                setLancamentosEditados((prev) => prev.map((item) =>
-                                  item.linha_arquivo === lanc.linha_arquivo ? { ...item, entidade_id: value } : item
-                                ));
-                              }}
-                              className="w-full p-1.5 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs"
-                            >
-                              <option value="">Sem entidade</option>
-                              {entidades.map((ent) => (
-                                <option key={ent.id} value={ent.id}>
-                                  {ent.nome}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="p-2 text-xs">
-                            {lanc.lancamentos_atrasados_ids && lanc.lancamentos_atrasados_ids.length > 0 ? (
-                              <div className="space-y-1">
-                                <label className="flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={(lanc.lancamentos_atrasados_relacionados || []).length > 0}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setLancamentosEditados((prev) => prev.map((item) =>
-                                        item.linha_arquivo === lanc.linha_arquivo
-                                          ? {
-                                              ...item,
-                                              lancamentos_atrasados_relacionados: checked ? (lanc.lancamentos_atrasados_ids || []) : [],
-                                            }
-                                          : item
-                                      ));
-                                    }}
-                                  />
-                                  Vincular ({lanc.lancamentos_atrasados_ids.length})
-                                </label>
-                                <label className="flex items-center gap-2 text-[11px] text-slate-400">
-                                  <input
-                                    type="checkbox"
-                                    checked={!!lanc.relacionar_apenas_atrasados}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setLancamentosEditados((prev) => prev.map((item) =>
-                                        item.linha_arquivo === lanc.linha_arquivo
-                                          ? { ...item, relacionar_apenas_atrasados: checked }
-                                          : item
-                                      ));
-                                    }}
-                                  />
-                                  Nao criar novo
-                                </label>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">-</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                      {lancamentosEditados.length === 0 && (
-                        <tr><td colSpan={7} className="p-4 text-center text-slate-400">Nenhum lancamento valido.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <button
-                  onClick={handleConfirmar}
-                  disabled={confirming || resultado.lancamentos.length === 0}
-                  className="w-full py-2.5 rounded-lg bg-emerald-600 text-white font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+            <div className="mt-5 space-y-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Conta bancária</label>
+                <select
+                  value={contaId}
+                  onChange={(e) => setContaId(e.target.value ? Number(e.target.value) : '')}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/30 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400"
                 >
-                  {confirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                  Confirmar importacao
-                </button>
+                  <option value="">Selecione uma conta</option>
+                  {contas.map((conta) => (
+                    <option key={conta.id} value={conta.id} className="text-slate-900">
+                      {conta.nome} {conta.banco ? `(${conta.banco})` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
-            ) : (
-              <p className="text-sm text-slate-400">Nenhum arquivo processado ainda.</p>
-            )}
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Arquivo OFX</label>
+                <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-dashed border-white/20 bg-slate-950/25 px-4 py-3 text-sm text-slate-100 transition hover:border-emerald-300/70 hover:bg-white/10">
+                  <span className="truncate pr-3">{arquivo ? arquivo.name : 'Clique para escolher o arquivo OFX ou QFX'}</span>
+                  <FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-200" />
+                  <input
+                    type="file"
+                    accept=".ofx,.qfx"
+                    onChange={(e) => setArquivo(e.target.files?.[0] || null)}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              <button
+                onClick={handleUpload}
+                disabled={loading || !contaId || !arquivo}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                Processar e sugerir conciliações
+              </button>
+
+              <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-4 text-xs text-slate-300">
+                <p className="font-bold uppercase tracking-[0.18em] text-emerald-200">Como o sistema decide</p>
+                <div className="mt-2 space-y-2 leading-5">
+                  <p>1. Procura previsto do mesmo tipo no mesmo dia.</p>
+                  <p>2. Se não achar, busca atrasados compatíveis dos últimos 30 dias.</p>
+                  <p>3. Se ainda não fechar, prepara criação de novo lançamento com apoio de categoria e entidade.</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
+
+      {feedback && (
+        <div className={`flex items-start gap-3 rounded-2xl border px-4 py-4 text-sm shadow-sm ${feedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300' : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300'}`}>
+          {feedback.type === 'success' ? <CheckCircle className="mt-0.5 h-5 w-5 shrink-0" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />}
+          <span>{feedback.message}</span>
+        </div>
+      )}
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Conta</p>
+          <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">{contaSelecionada ? `${contaSelecionada.nome}${contaSelecionada.banco ? ` • ${contaSelecionada.banco}` : ''}` : 'Selecione a conta'}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Total processado</p>
+          <p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{resultado?.total_processado || 0}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Conciliáveis</p>
+          <p className="mt-2 text-2xl font-black text-emerald-600 dark:text-emerald-300">{resumo.conciliaveis}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Receitas importadas</p>
+          <p className="mt-2 text-lg font-black text-slate-900 dark:text-white">{formatCurrency(resumo.receitas)}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Despesas importadas</p>
+          <p className="mt-2 text-lg font-black text-slate-900 dark:text-white">{formatCurrency(resumo.despesas)}</p>
+        </div>
+      </section>
+
+      {resultado ? (
+        <section className="space-y-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <h2 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Fila de conciliação OFX</h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Revise as sugestões, ajuste categoria e entidade quando precisar e confirme só o que estiver correto.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {([
+                ['todos', 'Todos'],
+                ['conciliar', 'Conciliar'],
+                ['novo', 'Criar novo'],
+                ['duplicado', 'Duplicatas'],
+              ] as [FiltroStatus, string][]).map(([value, label]) => (
+                <button
+                  key={value}
+                  onClick={() => setFiltroStatus(value)}
+                  className={`rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] transition ${filtroStatus === value ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-950' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-600'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <Search className="h-4 w-4 text-slate-400" />
+              <input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Busque por descrição, favorecido ou motivo da sugestão"
+                className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
+              />
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex items-center gap-2 font-bold text-slate-600 dark:text-slate-300">
+                <Filter className="h-4 w-4" />
+                Pronto para confirmação
+              </div>
+              <p className="mt-2 text-slate-500 dark:text-slate-400">{resumo.semCategoria === 0 ? 'Todos os itens ativos já têm categoria.' : `${resumo.semCategoria} item(ns) ainda precisam de categoria.`}</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {lancamentosFiltrados.map((lanc) => {
+              const acao = ACAO_META[lanc.sugestao_acao || 'CRIAR_NOVO'];
+              const categoriasCompativeis = categorias.filter((cat) => categoriaCompativel(cat, lanc.tipo));
+              const valorClass = lanc.tipo === 'RECEITA' ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300';
+
+              return (
+                <article key={`${lanc.linha_arquivo}-${lanc.movimento_uid || 'ofx'}`} className={`rounded-3xl border bg-white p-5 shadow-sm transition dark:bg-slate-900 ${lanc.auto_preenchido ? 'border-emerald-200 dark:border-emerald-900/50' : 'border-slate-200 dark:border-slate-800'}`}>
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] ${acao.tone}`}>{acao.label}</span>
+                        <span className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] ${lanc.tipo === 'RECEITA' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300' : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-300'}`}>{lanc.tipo}</span>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">score {lanc.score_conciliacao || 0}</span>
+                      </div>
+
+                      <div>
+                        <h3 className="text-lg font-black text-slate-900 dark:text-white">{lanc.descricao}</h3>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                          {formatDate(lanc.data)} • {lanc.razao_social || 'Favorecido não informado'}
+                        </p>
+                      </div>
+
+                      <p className="max-w-3xl text-sm text-slate-600 dark:text-slate-300">{lanc.motivo_conciliacao || 'Movimento carregado para revisão.'}</p>
+                    </div>
+
+                    <div className="min-w-60 rounded-[22px] border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                        <Landmark className="h-4 w-4" />
+                        Movimento bancário
+                      </div>
+                      <p className={`mt-3 text-2xl font-black ${valorClass}`}>{formatCurrency(Number(lanc.valor || 0))}</p>
+                      <div className="mt-3 space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
+                        <p>Banco OFX: {lanc.ofx_bank_id || contaSelecionada?.banco || 'Não informado'}</p>
+                        <p>Agência OFX: {lanc.ofx_agencia || 'Não informada'}</p>
+                        <p>Conta OFX: {lanc.ofx_conta_numero || 'Não informada'}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {lanc.duplicata_resumo && (
+                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
+                      <p className="font-bold text-slate-800 dark:text-white">Já existe um lançamento equivalente para esta conta.</p>
+                      <p className="mt-1">{lanc.duplicata_resumo.descricao}</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{lanc.duplicata_resumo.motivo || 'Movimento repetido.'}</p>
+                    </div>
+                  )}
+
+                  {lanc.lancamento_previsto_resumo && (
+                    <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">Melhor previsto encontrado</p>
+                      <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="font-bold text-slate-900 dark:text-white">{lanc.lancamento_previsto_resumo.descricao}</p>
+                          <p className="text-sm text-slate-600 dark:text-slate-300">Vence em {formatDate(lanc.lancamento_previsto_resumo.data_vencimento)} • {formatCurrency(lanc.lancamento_previsto_resumo.valor_previsto)}</p>
+                        </div>
+                        <div className="rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-emerald-700 dark:bg-slate-900/70 dark:text-emerald-300">
+                          Score {lanc.lancamento_previsto_resumo.score}
+                        </div>
+                      </div>
+                      <p className="mt-2 text-sm text-emerald-800 dark:text-emerald-200">{lanc.lancamento_previsto_resumo.motivo}</p>
+                    </div>
+                  )}
+
+                  {!!lanc.lancamentos_atrasados_resumo?.length && (
+                    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">Atrasados compatíveis</p>
+                          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Selecione os atrasados que este movimento deve quitar.</p>
+                        </div>
+                        <label className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                          <input
+                            type="checkbox"
+                            checked={!!lanc.relacionar_apenas_atrasados}
+                            onChange={(e) => updateLancamento(lanc.linha_arquivo, { relacionar_apenas_atrasados: e.target.checked })}
+                          />
+                          Não criar novo lançamento
+                        </label>
+                      </div>
+                      <div className="mt-3 space-y-3">
+                        {lanc.lancamentos_atrasados_resumo.map((atrasado, index) => {
+                          const atrasoId = lanc.lancamentos_atrasados_ids?.[index];
+                          const marcado = atrasoId ? lanc.lancamentos_atrasados_relacionados.includes(atrasoId) : false;
+                          return (
+                            <label key={`${lanc.linha_arquivo}-${index}`} className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200/70 bg-white/80 p-3 dark:border-amber-900/40 dark:bg-slate-900/60">
+                              <input
+                                type="checkbox"
+                                checked={marcado}
+                                onChange={(e) => {
+                                  if (!atrasoId) return;
+                                  const proximo = e.target.checked
+                                    ? [...lanc.lancamentos_atrasados_relacionados, atrasoId]
+                                    : lanc.lancamentos_atrasados_relacionados.filter((item) => item !== atrasoId);
+                                  updateLancamento(lanc.linha_arquivo, { lancamentos_atrasados_relacionados: proximo });
+                                }}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                                  <p className="font-bold text-slate-900 dark:text-white">{atrasado.descricao}</p>
+                                  <span className="text-xs font-bold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">Score {atrasado.score}</span>
+                                </div>
+                                <p className="text-sm text-slate-600 dark:text-slate-300">Venceu em {formatDate(atrasado.data_vencimento)} • {formatCurrency(atrasado.valor_previsto)}</p>
+                                <p className="mt-1 text-sm text-amber-800 dark:text-amber-200">{atrasado.motivo}</p>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Categoria compatível</label>
+                      <select
+                        value={lanc.plano_contas_id || ''}
+                        onChange={(e) => updateLancamento(lanc.linha_arquivo, { plano_contas_id: e.target.value ? Number(e.target.value) : null })}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950"
+                      >
+                        <option value="">A categorizar</option>
+                        {categoriasCompativeis.map((cat) => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.codigo ? `${cat.codigo} - ${cat.nome}` : cat.nome}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Entidade</label>
+                      <select
+                        value={lanc.entidade_id || ''}
+                        onChange={(e) => updateLancamento(lanc.linha_arquivo, { entidade_id: e.target.value ? Number(e.target.value) : null })}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950"
+                      >
+                        <option value="">Sem entidade</option>
+                        {entidades.map((ent) => (
+                          <option key={ent.id} value={ent.id}>{ent.nome}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+
+            {lancamentosFiltrados.length === 0 && (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <p className="text-lg font-bold text-slate-900 dark:text-white">Nenhum movimento encontrado para este filtro.</p>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Ajuste a busca ou troque a visão para revisar mais movimentos.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="sticky bottom-4 z-10 rounded-3xl border border-slate-200 bg-white/92 p-4 shadow-xl backdrop-blur dark:border-slate-800 dark:bg-slate-900/92">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Resumo para confirmação</p>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{lancamentosEditados.length} item(ns) prontos para seguir. {resumo.semCategoria === 0 ? 'Sem pendências de categoria.' : `${resumo.semCategoria} item(ns) ainda exigem categoria.`}</p>
+              </div>
+              <button
+                onClick={handleConfirmar}
+                disabled={confirming || !resultado || resultado.lancamentos.length === 0}
+                className="flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+              >
+                {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                Confirmar importação OFX
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section className="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300">
+            <UploadCloud className="h-8 w-8" />
+          </div>
+          <h2 className="mt-5 text-2xl font-black text-slate-900 dark:text-white">Nenhum arquivo analisado ainda</h2>
+          <p className="mx-auto mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
+            Envie um OFX para receber sugestões de baixa de previstos, vinculação de atrasados e criação guiada de novos lançamentos dentro do padrão financeiro do sistema.
+          </p>
+        </section>
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ from typing import List, Optional
 from decimal import Decimal # <--- Importação vital para cálculos financeiros
 from pathlib import Path
 import shutil
+from urllib.parse import urlparse
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select, func, case
@@ -24,6 +25,7 @@ from app.core.network import get_backend_url
 router = APIRouter()
 UPLOAD_DIR = Path("static/uploads/contas")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+MAX_CONTA_LOGO_SIZE = 2 * 1024 * 1024
 
 # Schema para retorno do saldo
 class ContaSaldo(ContaRead):
@@ -36,6 +38,18 @@ class LancamentoExtratoOut(BaseModel):
     descricao: str
     valor_pago: Decimal
     tipo: str
+
+
+def _normalize_logo_url(logo_url: Optional[str], base: str) -> Optional[str]:
+    if not logo_url:
+        return logo_url
+    if str(logo_url).startswith("/"):
+        return f"{base}{logo_url}"
+    if str(logo_url).startswith("http://") and "/static/" in str(logo_url):
+        return f"{base}{urlparse(str(logo_url)).path}"
+    if not str(logo_url).startswith("http"):
+        return f"{base}/{logo_url}"
+    return logo_url
 
 
 @router.get("/", response_model=List[ContaSaldo])
@@ -105,16 +119,7 @@ def read_all_contas(
         # Monta objeto de retorno
         conta_dict = conta.model_dump()
         # Garante URL completa da logo (e normaliza URLs antigas http://IP)
-        logo_url = conta_dict.get("logo_url")
-        if logo_url:
-            if str(logo_url).startswith("/"):
-                conta_dict["logo_url"] = f"{base}{logo_url}"
-            elif str(logo_url).startswith("http://") and "/static/" in str(logo_url):
-                from urllib.parse import urlparse
-                path = urlparse(str(logo_url)).path
-                conta_dict["logo_url"] = f"{base}{path}"
-            elif not str(logo_url).startswith("http"):
-                conta_dict["logo_url"] = f"{base}/{logo_url}"
+        conta_dict["logo_url"] = _normalize_logo_url(conta_dict.get("logo_url"), base)
 
         conta_dict['saldo_atual'] = saldo_real
         resultado.append(conta_dict)
@@ -198,7 +203,7 @@ def update_conta(
 
 def _resolver_centro_custo_id(db: Session, empresa_id: int) -> int:
     centros = db.exec(
-        select(CentroCusto.id).where(CentroCusto.empresa_id == empresa_id)
+        select(CentroCusto.id).where(CentroCusto.empresa_id == empresa_id).limit(2)
     ).all()
     if len(centros) == 1:
         return centros[0]
@@ -251,10 +256,23 @@ def upload_logo_conta(
             detail="Formato de imagem não suportado. Use png, jpg, jpeg ou jiff.",
         )
 
+    if file.content_type and not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Arquivo inválido para imagem.")
+
     filename = f"conta_{conta_id}_{uuid4().hex}{ext}"
     filepath = UPLOAD_DIR / filename
+    bytes_written = 0
     with filepath.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        while True:
+            chunk = file.file.read(1024 * 1024)
+            if not chunk:
+                break
+            bytes_written += len(chunk)
+            if bytes_written > MAX_CONTA_LOGO_SIZE:
+                buffer.close()
+                filepath.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="Arquivo muito grande. Máximo 2MB.")
+            buffer.write(chunk)
 
     # Salva URL absoluta para não depender do host do frontend
     base = get_backend_url()

@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../services/api';
-import { AiAssistente } from '../components/AiAssistente';
+import { useAssistentePage } from '../components/AssistentePageContext';
 import { useLookupStore } from '../store/lookupStore';
 import { 
   Plus, Search, Filter, RefreshCw, ChevronLeft, ChevronRight, 
@@ -717,6 +717,27 @@ export function Lancamentos() {
       extratoContaAtivaId: contaExtratoAtivaId,
     };
   }, [mesAtual, filtroTexto, centroCustoFiltro, filtroRapido, filtrosAvancados, filteredList.length, grouped.sortedDates.length, kpis, categorias, contas, centros, entidades, cartoes, contaExtratoAtivaId]);
+
+  const assistenteConfig = useMemo(() => ({
+    tela: 'lancamentos' as const,
+    titulo: 'Assistente KyrusTECH',
+    contexto: aiContexto,
+    lookups: {
+      categorias: categorias.slice(0, 200).map((item: any) => ({ id: item.id, nome: item.nome, tipo: item.tipo })),
+      contas: contas.slice(0, 120).map((item: any) => ({ id: item.id, nome: item.nome })),
+      centros: centros.slice(0, 120).map((item: any) => ({ id: item.id, nome: item.nome })),
+      entidades: entidades.slice(0, 200).map((item: any) => ({ id: item.id, nome: item.nome })),
+      cartoes: cartoes.slice(0, 120).map((item: any) => ({ id: item.id, nome: item.nome_cartao })),
+    },
+    sugestoes: [
+      'O que os lancamentos desta tela mostram?',
+      'Como reduzir pendencias e atrasos?',
+      'Leia este comprovante e sugira a classificacao.',
+      'Qual filtro usar para investigar melhor o resultado?',
+    ],
+  }), [aiContexto, categorias, contas, centros, entidades, cartoes]);
+
+  useAssistentePage(assistenteConfig);
 
   // --- ACTIONS ---
 
@@ -1885,26 +1906,6 @@ export function Lancamentos() {
           ))}
         </div>
       )}
-
-      <AiAssistente
-        tela="lancamentos"
-        contexto={aiContexto}
-        titulo="Assistente de Lancamentos"
-        lookups={{
-          categorias: categorias.slice(0, 200).map((item: any) => ({ id: item.id, nome: item.nome, tipo: item.tipo })),
-          contas: contas.slice(0, 120).map((item: any) => ({ id: item.id, nome: item.nome })),
-          centros: centros.slice(0, 120).map((item: any) => ({ id: item.id, nome: item.nome })),
-          entidades: entidades.slice(0, 200).map((item: any) => ({ id: item.id, nome: item.nome })),
-          cartoes: cartoes.slice(0, 120).map((item: any) => ({ id: item.id, nome: item.nome_cartao })),
-        }}
-        sugestoes={[
-          'O que os lancamentos deste mes mostram?',
-          'Como reduzir pendencias e atrasos?',
-          'Leia este comprovante e sugira a classificacao.',
-          'Qual filtro usar para investigar melhor o resultado?',
-        ]}
-      />
-
     </div>
   );
 }

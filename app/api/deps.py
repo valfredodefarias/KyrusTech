@@ -77,7 +77,7 @@ def get_empresa_id_from_user(
             # Se não tem acesso, tenta usar a primeira empresa disponível
             from app.models.consultor_empresa import ConsultorEmpresa
             first_acesso = session.exec(
-                select(ConsultorEmpresa)
+                select(ConsultorEmpresa.empresa_id)
                 .where(
                     ConsultorEmpresa.usuario_id == current_user.id,
                     ConsultorEmpresa.ativo == True
@@ -86,10 +86,10 @@ def get_empresa_id_from_user(
             
             if first_acesso:
                 # Atualiza empresa_id do usuário para a primeira com acesso
-                current_user.empresa_id = first_acesso.empresa_id
+                current_user.empresa_id = int(first_acesso)
                 session.add(current_user)
                 session.commit()
-                return first_acesso.empresa_id
+                return int(first_acesso)
             else:
                 raise HTTPException(
                     status_code=403,

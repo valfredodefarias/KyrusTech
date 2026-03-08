@@ -9,12 +9,13 @@ from app.schemas.centro_custo import CentroCustoCreate, CentroCustoUpdate
 
 def ensure_centro_custo_principal(db: Session, *, empresa_id: int) -> CentroCusto:
     """Garante que a empresa tenha um centro de custo padrao chamado 'principal'."""
-    statement = select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)
-    centros = db.exec(statement).all()
-
-    for centro in centros:
-        if (centro.nome or "").strip().lower() == "principal":
-            return centro
+    statement = select(CentroCusto).where(
+        CentroCusto.empresa_id == empresa_id,
+        CentroCusto.nome.ilike("principal"),
+    )
+    centro = db.exec(statement).first()
+    if centro:
+        return centro
 
     novo = CentroCusto(nome="principal", status="ATIVO", empresa_id=empresa_id)
     db.add(novo)

@@ -2,6 +2,7 @@
 Módulo para detecção automática de IP da máquina.
 Centraliza a lógica de obtenção do IP para uso em toda a aplicação.
 """
+from functools import lru_cache
 import socket
 import logging
 from typing import Optional
@@ -16,6 +17,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+@lru_cache(maxsize=1)
 def get_local_ip() -> str:
     """
     Detecta automaticamente o IP local da máquina na rede.
@@ -98,6 +100,7 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
+@lru_cache(maxsize=8)
 def get_backend_url(ip: Optional[str] = None, port: int = 8000) -> str:
     """
     Retorna a URL completa do backend.
@@ -116,6 +119,7 @@ def get_backend_url(ip: Optional[str] = None, port: int = 8000) -> str:
     return f"http://{ip}:{port}"
 
 
+@lru_cache(maxsize=8)
 def get_frontend_url(ip: Optional[str] = None, port: int = 5501) -> str:
     """
     Retorna a URL completa do frontend.

@@ -19,7 +19,7 @@ def read_cartoes(
     current_user: Usuario = Depends(get_current_user),
 ) -> Any:
     # Retorna APENAS cartões da empresa do usuário
-    query = select(Cartao).where(Cartao.empresa_id == current_user.empresa_id)
+    query = select(Cartao).where(Cartao.empresa_id == current_user.empresa_id).order_by(Cartao.nome_cartao)
     query = query.offset(skip).limit(limit)
     return session.exec(query).all()
 

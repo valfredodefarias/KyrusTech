@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../services/api';
-import { AiAssistente } from '../components/AiAssistente';
+import { useAssistentePage } from '../components/AssistentePageContext';
 import ReactApexChart from 'react-apexcharts';
 import ExcelJS from 'exceljs';
 import {
@@ -613,6 +613,53 @@ export function Dashboard() {
       .slice(0, 12);
   }, [filteredLancamentos, selectedDate, selectedMonth]);
 
+  const resumoExecutivoDashboard = useMemo(() => {
+    const topDespesas = despesasPorCategoria.slice(0, 3).map((item) => ({ categoria: item.label, total: item.total }));
+    const topReceitas = receitasPorCategoria.slice(0, 3).map((item) => ({ categoria: item.label, total: item.total }));
+    const topCentros = despesasPorCentro.slice(0, 3).map((item) => ({ centro: item.label, total: item.total }));
+    const ultimosLancamentosResumo = topLancamentos.slice(0, 5).map((item) => ({
+      data: item.data_vencimento,
+      descricao: item.descricao,
+      tipo: item.tipo,
+      valor: item.valor_previsto,
+      status: item.status,
+    }));
+
+    const mediaMensal = resultadoMensal.values.length
+      ? resultadoMensal.values.reduce((acc, value) => acc + value, 0) / resultadoMensal.values.length
+      : 0;
+    const mediaAno = resultadoMensalAno.values.reduce((acc, value) => acc + value, 0) / (resultadoMensalAno.values.length || 1);
+    const varianciaAno = resultadoMensalAno.values.reduce((acc, value) => acc + Math.pow(value - mediaAno, 2), 0) / (resultadoMensalAno.values.length || 1);
+    const desvioAno = Math.sqrt(varianciaAno);
+
+    return {
+      resultado_operacional: {
+        media_mensal: mediaMensal,
+        melhor_mes: resultadoMensalAno.values.length ? Math.max(...resultadoMensalAno.values) : 0,
+        pior_mes: resultadoMensalAno.values.length ? Math.min(...resultadoMensalAno.values) : 0,
+        resultado_acumulado_final: resultadoAcumulado.values.at(-1) || 0,
+      },
+      cenarios: {
+        pessimista: kpis.saldo - desvioAno,
+        realista: kpis.saldo,
+        otimista: kpis.saldo + desvioAno,
+      },
+      contas_a_pagar: contasHoje.pagar,
+      contas_a_receber: contasHoje.receber,
+      distribuicao_status: statusDistrib,
+      top_despesas_categoria: topDespesas,
+      top_receitas_categoria: topReceitas,
+      top_centros_custo: topCentros,
+      ultimos_lancamentos: ultimosLancamentosResumo,
+      variacao_ano_contra_ano: {
+        ano_atual: resultadoMensalAno.year,
+        ano_anterior: resultadoMensalAnoAnterior.year,
+        resultado_atual: resultadoMensalAno.values.reduce((acc, value) => acc + value, 0),
+        resultado_anterior: resultadoMensalAnoAnterior.values.reduce((acc, value) => acc + value, 0),
+      },
+    };
+  }, [contasHoje, despesasPorCategoria, despesasPorCentro, kpis.saldo, receitasPorCategoria, resultadoAcumulado.values, resultadoMensal, resultadoMensalAno, resultadoMensalAnoAnterior, statusDistrib, topLancamentos]);
+
   const exportUltimosLancamentos = async (format: 'csv' | 'xlsx') => {
     const rows = topLancamentos.map(l => ({
       data_vencimento: l.data_vencimento,
@@ -934,6 +981,24 @@ export function Dashboard() {
       otimista: kpis.saldo + desvio
     };
   }, [resultadoMensalAno.values, kpis.saldo]);
+
+  const assistenteConfig = useMemo(() => ({
+    tela: 'dashboard' as const,
+    titulo: 'Assistente KyrusTECH',
+    contexto: {
+      ...aiContexto,
+      modo_consultoria: 'financeira_empresarial',
+      resumo_executivo: resumoExecutivoDashboard,
+      instrucao_analise: 'Explique o dashboard em profundidade, aponte causas, riscos, oportunidades e prioridades de melhoria viaveis. Estruture a resposta com: resumo executivo, sinais positivos, sinais de alerta, causas provaveis, impacto no caixa e lucro, acoes imediatas, acoes estruturais e perguntas de acompanhamento.',
+    },
+    sugestoes: [
+      'Analise este dashboard como meu consultor financeiro e empresarial.',
+      'Explique detalhadamente o que esta acontecendo nos indicadores.',
+      'Quais melhorias praticas podem elevar resultado, caixa e previsibilidade?',
+    ],
+  }), [aiContexto, resumoExecutivoDashboard]);
+
+  useAssistentePage(assistenteConfig);
 
   const chartReceitasDespesasAno = {
     series: [
@@ -1868,17 +1933,6 @@ export function Dashboard() {
           </div>
         )}
       </div>
-
-      <AiAssistente
-        tela="dashboard"
-        contexto={aiContexto}
-        titulo="Assistente do Dashboard"
-        sugestoes={[
-          'Quais indicadores merecem atencao imediata?',
-          'O que explica meu saldo no periodo?',
-          'Quais acoes priorizar para melhorar o resultado?',
-        ]}
-      />
     </div>
   );
 }

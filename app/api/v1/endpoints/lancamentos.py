@@ -1,6 +1,7 @@
 import pandas as pd
 import io
 import json
+from pathlib import Path
 from typing import List, Optional, Any, cast, Tuple
 from datetime import date
 from decimal import Decimal
@@ -34,6 +35,43 @@ from app.schemas.lancamento import (
 from app.schemas.anexo import AnexoRead, AnexoCreate
 
 router = APIRouter()
+MAX_ANEXO_NOME_LEN = 180
+MAX_ANEXO_SIZE = 10 * 1024 * 1024
+
+
+def _load_import_system_rows(session: Session, empresa_id: int) -> dict[str, list[dict[str, Any]]]:
+    contas = session.exec(
+        select(Conta.id, Conta.nome).where(Conta.empresa_id == empresa_id)
+    ).all()
+    categorias = session.exec(
+        select(PlanoContas.id, PlanoContas.nome, PlanoContas.tipo, PlanoContas.codigo)
+        .where(PlanoContas.empresa_id == empresa_id)
+    ).all()
+    centros = session.exec(
+        select(CentroCusto.id, CentroCusto.nome).where(CentroCusto.empresa_id == empresa_id)
+    ).all()
+    entidades = session.exec(
+        select(Entidade.id, Entidade.nome).where(Entidade.empresa_id == empresa_id)
+    ).all()
+
+    return {
+        "contas": [{"id": conta_id, "nome": nome} for conta_id, nome in contas if conta_id is not None],
+        "categorias": [
+            {"id": categoria_id, "nome": nome, "tipo": tipo, "codigo": codigo}
+            for categoria_id, nome, tipo, codigo in categorias
+            if categoria_id is not None
+        ],
+        "centros": [{"id": centro_id, "nome": nome} for centro_id, nome in centros if centro_id is not None],
+        "entidades": [{"id": entidade_id, "nome": nome} for entidade_id, nome in entidades if entidade_id is not None],
+    }
+
+
+def _build_import_name_map(rows: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        str(row["nome"]).upper().strip(): int(row["id"])
+        for row in rows
+        if row.get("id") is not None and str(row.get("nome") or "").strip()
+    }
 
 # Padronizado para usar get_db
 def get_service(session: Session = Depends(get_db)) -> LancamentoService:
@@ -147,8 +185,16 @@ def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Arquivo inválido: nome do arquivo ausente."
             )
-        url_fake = f"https://storage.kyrus.com/{empresa_id}/{lancamento_id}/{file.filename}"
-        dados = AnexoCreate(nome_arquivo=file.filename, url=url_fake, tipo=tipo, tamanho_bytes=file.size, content_type=file.content_type, lancamento_id=lancamento_id, empresa_id=empresa_id)
+        nome_arquivo = Path(file.filename).name.strip()
+        if not nome_arquivo:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo inválido: nome do arquivo ausente.")
+        if len(nome_arquivo) > MAX_ANEXO_NOME_LEN:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nome do arquivo excede o limite permitido.")
+        tamanho_bytes = int(getattr(file, "size", 0) or 0)
+        if tamanho_bytes and tamanho_bytes > MAX_ANEXO_SIZE:
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo muito grande. Máximo 10MB por anexo.")
+        url_fake = f"https://storage.kyrus.com/{empresa_id}/{lancamento_id}/{nome_arquivo}"
+        dados = AnexoCreate(nome_arquivo=nome_arquivo, url=url_fake, tipo=tipo, tamanho_bytes=tamanho_bytes, content_type=file.content_type, lancamento_id=lancamento_id, empresa_id=empresa_id)
         anexos_criados.append(service.adicionar_anexo(lancamento_id, dados, empresa_id, user_id))
     return anexos_criados
 
@@ -180,14 +226,11 @@ def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session =
     col_cat = encontrar_coluna(df, ["CATEGORIA", "PLANO DE CONTAS"])
     col_centro = encontrar_coluna(df, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO"])
     col_entidade = encontrar_coluna(df, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
-    sist_contas = session.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
-    sist_cats = session.exec(select(PlanoContas).where(PlanoContas.empresa_id == empresa_id)).all()
-    sist_centros = session.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).all()
-    sist_entidades = session.exec(select(Entidade).where(Entidade.empresa_id == empresa_id)).all()
-    nomes_contas = {c.nome.upper().strip(): c.id for c in sist_contas if c.id is not None}
-    nomes_cats = {c.nome.upper().strip(): c.id for c in sist_cats if c.id is not None}
-    nomes_centros = {c.nome.upper().strip(): c.id for c in sist_centros if c.id is not None}
-    nomes_entidades = {e.nome.upper().strip(): e.id for e in sist_entidades if e.id is not None}
+    sistema = _load_import_system_rows(session, empresa_id)
+    nomes_contas = _build_import_name_map(sistema["contas"])
+    nomes_cats = _build_import_name_map(sistema["categorias"])
+    nomes_centros = _build_import_name_map(sistema["centros"])
+    nomes_entidades = _build_import_name_map(sistema["entidades"])
     conflitos = {
         "contas": [c for c in df[col_conta].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_contas] if col_conta else [],
         "categorias": [c for c in df[col_cat].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_cats] if col_cat else [],
@@ -196,12 +239,7 @@ def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session =
     }
     return {
         "conflitos": conflitos,
-        "sistema": {
-            "contas": [{"id": c.id, "nome": c.nome} for c in sist_contas],
-            "categorias": [{"id": c.id, "nome": c.nome, "tipo": c.tipo, "codigo": c.codigo} for c in sist_cats],
-            "centros": [{"id": c.id, "nome": c.nome} for c in sist_centros],
-            "entidades": [{"id": e.id, "nome": e.nome} for e in sist_entidades]
-        }
+        "sistema": sistema
     }
 
 
@@ -261,12 +299,12 @@ async def importar_executar(
         col_tipo = encontrar_coluna(df, ["TIPO"])
 
         # Caches do sistema
-        cats_query = db.exec(select(PlanoContas).where(PlanoContas.empresa_id == empresa_id)).all()
-        cache_tipos = {c.id: c.tipo for c in cats_query if c.id is not None}
-        nomes_cats_sist: dict[str, int] = {c.nome.strip().upper(): int(c.id) for c in cats_query if c.id is not None}
-        nomes_contas_sist: dict[str, int] = {c.nome.strip().upper(): int(c.id) for c in db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all() if c.id is not None}
-        nomes_centros_sist: dict[str, int] = {c.nome.strip().upper(): int(c.id) for c in db.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).all() if c.id is not None}
-        nomes_entidades_sist: dict[str, int] = {e.nome.strip().upper(): int(e.id) for e in db.exec(select(Entidade).where(Entidade.empresa_id == empresa_id)).all() if e.id is not None}
+        sistema = _load_import_system_rows(db, empresa_id)
+        cache_tipos = {int(item["id"]): item.get("tipo") for item in sistema["categorias"] if item.get("id") is not None}
+        nomes_cats_sist = _build_import_name_map(sistema["categorias"])
+        nomes_contas_sist = _build_import_name_map(sistema["contas"])
+        nomes_centros_sist = _build_import_name_map(sistema["centros"])
+        nomes_entidades_sist = _build_import_name_map(sistema["entidades"])
 
         for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
             try:

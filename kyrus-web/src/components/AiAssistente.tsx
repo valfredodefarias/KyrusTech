@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import ExcelJS from 'exceljs';
 import { Bot, FileSpreadsheet, FileText, Image as ImageIcon, Loader2, Maximize2, Minimize2, Paperclip, PencilLine, Send, Sparkles, Trash2, User2, X } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 import { api } from '../services/api';
 
-type TelaAssistente = 'dashboard' | 'lancamentos' | 'geral';
+export type TelaAssistente = 'dashboard' | 'lancamentos' | 'geral';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -30,7 +32,7 @@ type PlanoLancamentoItem = {
 
 type LookupItem = { id: number; nome: string; tipo?: string };
 
-type AssistenteLookups = {
+export type AssistenteLookups = {
   categorias?: LookupItem[];
   contas?: LookupItem[];
   centros?: LookupItem[];
@@ -52,7 +54,7 @@ type AttachmentDraft = {
   payload: AttachmentPayload;
 };
 
-type AiAssistenteProps = {
+export type AiAssistenteProps = {
   tela: TelaAssistente;
   contexto: Record<string, unknown>;
   titulo?: string;
@@ -207,10 +209,19 @@ const normalizePlano = (itens: PlanoLancamentoItem[]) => itens.map((item) => ({
 export function AiAssistente({
   tela,
   contexto,
-  titulo = 'Assistente IA',
+  titulo = 'Assistente KyrusTECH',
   sugestoes = DEFAULT_SUGESTOES,
   lookups,
 }: AiAssistenteProps) {
+  const initialMessage = useMemo(() => {
+    if (tela === 'dashboard') {
+      return 'Posso analisar este dashboard como seu consultor financeiro e empresarial, explicar os indicadores em profundidade e sugerir prioridades de melhoria.';
+    }
+    if (tela === 'lancamentos') {
+      return 'Posso analisar a tela atual, ler planilhas e comprovantes, sugerir classificacao e montar uma previa revisavel antes de qualquer criacao.';
+    }
+    return 'Posso explicar a pagina atual, apontar riscos e oportunidades e montar uma previa revisavel quando houver pedido operacional.';
+  }, [tela]);
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(tela === 'lancamentos');
   const [loading, setLoading] = useState(false);
@@ -219,7 +230,7 @@ export function AiAssistente({
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: 'Posso analisar a tela atual, ler planilhas e comprovantes, sugerir classificacao e montar uma previa revisavel antes de qualquer criacao.',
+      content: initialMessage,
     },
   ]);
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
@@ -237,6 +248,16 @@ export function AiAssistente({
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, planoPendente, loading]);
+
+  useEffect(() => {
+    setMessages([{ role: 'assistant', content: initialMessage }]);
+    setAttachments([]);
+    setPlanoPendente(null);
+    setInput('');
+    setLoading(false);
+    setAttachmentLoading(false);
+    setIsExpanded(tela === 'lancamentos');
+  }, [initialMessage, tela]);
 
   const addAssistantMessage = (content: string) => {
     setMessages((prev) => [...prev, { role: 'assistant', content }]);
@@ -439,11 +460,35 @@ export function AiAssistente({
                   {msg.role === 'assistant' ? <Bot className="h-3 w-3" /> : <User2 className="h-3 w-3" />}
                   {msg.role === 'assistant' ? 'Assistente' : 'Voce'}
                 </div>
-                <p className="whitespace-pre-wrap leading-6">{msg.content}</p>
+                <div className="ai-markdown max-w-none text-sm leading-6 text-inherit">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h1: ({ children }) => <h1 className="mb-2 mt-1 text-lg font-black text-inherit">{children}</h1>,
+                      h2: ({ children }) => <h2 className="mb-2 mt-1 text-base font-black text-inherit">{children}</h2>,
+                      h3: ({ children }) => <h3 className="mb-1 mt-1 text-sm font-bold text-inherit">{children}</h3>,
+                      p: ({ children }) => <p className="mb-2 whitespace-pre-wrap last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="mb-2 list-disc space-y-1 pl-5">{children}</ul>,
+                      ol: ({ children }) => <ol className="mb-2 list-decimal space-y-1 pl-5">{children}</ol>,
+                      li: ({ children }) => <li className="pl-0.5">{children}</li>,
+                      strong: ({ children }) => <strong className="font-black text-inherit">{children}</strong>,
+                      em: ({ children }) => <em className="italic text-inherit">{children}</em>,
+                      code: ({ children }) => <code className="rounded bg-slate-900/10 px-1.5 py-0.5 text-[0.92em] dark:bg-slate-100/10">{children}</code>,
+                      pre: ({ children }) => <pre className="mb-2 overflow-x-auto rounded-xl bg-slate-950 px-3 py-2 text-slate-100">{children}</pre>,
+                      blockquote: ({ children }) => <blockquote className="mb-2 border-l-4 border-cyan-500/50 pl-3 italic opacity-90">{children}</blockquote>,
+                      table: ({ children }) => <div className="mb-2 overflow-x-auto"><table className="min-w-full border-collapse text-xs">{children}</table></div>,
+                      thead: ({ children }) => <thead className="bg-slate-900/10 dark:bg-slate-100/10">{children}</thead>,
+                      th: ({ children }) => <th className="border border-slate-300 px-2 py-1 text-left font-bold dark:border-slate-700">{children}</th>,
+                      td: ({ children }) => <td className="border border-slate-300 px-2 py-1 align-top dark:border-slate-700">{children}</td>,
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+                </div>
               </div>
             ))}
 
-            {planoPendente && tela === 'lancamentos' && (
+            {planoPendente && (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs dark:border-amber-800 dark:bg-amber-900/20">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div>
@@ -504,35 +549,35 @@ export function AiAssistente({
                             ) : item.data_vencimento}
                           </td>
                           <td className="px-2 py-2 align-top">
-                            {planoPendente.editando ? (
+                            {planoPendente.editando && lookups?.categorias?.length ? (
                               <select value={item.plano_contas_id} onChange={(event) => updatePlanoItem(idx, 'plano_contas_id', Number(event.target.value))} className="max-w-44 rounded-lg border border-slate-300 px-2 py-1 text-[11px] dark:border-slate-700 dark:bg-slate-900">
                                 {renderLookupOptions(lookups?.categorias)}
                               </select>
-                            ) : (lookups?.categorias?.find((entry) => entry.id === item.plano_contas_id)?.nome || item.plano_contas_id)}
+                            ) : (lookups?.categorias?.find((entry) => entry.id === item.plano_contas_id)?.nome || 'Categoria definida')}
                           </td>
                           <td className="px-2 py-2 align-top">
-                            {planoPendente.editando ? (
+                            {planoPendente.editando && lookups?.contas?.length ? (
                               <select value={item.conta_id ?? ''} onChange={(event) => updatePlanoItem(idx, 'conta_id', event.target.value ? Number(event.target.value) : null)} className="max-w-40 rounded-lg border border-slate-300 px-2 py-1 text-[11px] dark:border-slate-700 dark:bg-slate-900">
                                 <option value="">-</option>
                                 {renderLookupOptions(lookups?.contas)}
                               </select>
-                            ) : (lookups?.contas?.find((entry) => entry.id === item.conta_id)?.nome || '-')}
+                            ) : (lookups?.contas?.find((entry) => entry.id === item.conta_id)?.nome || 'Nao informado')}
                           </td>
                           <td className="px-2 py-2 align-top">
-                            {planoPendente.editando ? (
+                            {planoPendente.editando && lookups?.centros?.length ? (
                               <select value={item.centro_custo_id ?? ''} onChange={(event) => updatePlanoItem(idx, 'centro_custo_id', event.target.value ? Number(event.target.value) : null)} className="max-w-40 rounded-lg border border-slate-300 px-2 py-1 text-[11px] dark:border-slate-700 dark:bg-slate-900">
                                 <option value="">-</option>
                                 {renderLookupOptions(lookups?.centros)}
                               </select>
-                            ) : (lookups?.centros?.find((entry) => entry.id === item.centro_custo_id)?.nome || '-')}
+                            ) : (lookups?.centros?.find((entry) => entry.id === item.centro_custo_id)?.nome || 'Nao informado')}
                           </td>
                           <td className="px-2 py-2 align-top">
-                            {planoPendente.editando ? (
+                            {planoPendente.editando && lookups?.entidades?.length ? (
                               <select value={item.entidade_id ?? ''} onChange={(event) => updatePlanoItem(idx, 'entidade_id', event.target.value ? Number(event.target.value) : null)} className="max-w-44 rounded-lg border border-slate-300 px-2 py-1 text-[11px] dark:border-slate-700 dark:bg-slate-900">
                                 <option value="">-</option>
                                 {renderLookupOptions(lookups?.entidades)}
                               </select>
-                            ) : (lookups?.entidades?.find((entry) => entry.id === item.entidade_id)?.nome || '-')}
+                            ) : (lookups?.entidades?.find((entry) => entry.id === item.entidade_id)?.nome || 'Nao informado')}
                           </td>
                         </tr>
                       ))}

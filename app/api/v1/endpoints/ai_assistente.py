@@ -26,6 +26,12 @@ from app.services.lancamento_service import LancamentoService
 
 router = APIRouter()
 
+LOOKUP_LIMIT_CATEGORIAS = 250
+LOOKUP_LIMIT_CONTAS = 150
+LOOKUP_LIMIT_ENTIDADES = 250
+LOOKUP_LIMIT_CENTROS = 150
+LOOKUP_LIMIT_CARTOES = 150
+
 SAFE_REFUSAL_MESSAGE = (
     "Nao posso ajudar com esse pedido. Posso explicar somente os dados financeiros "
     "da tela atual, sem expor informacoes sensiveis, tecnicas ou de outras empresas."
@@ -61,7 +67,14 @@ FORBIDDEN_RESPONSE_PATTERNS = [
     re.compile(r"\b(/api/v\d|authorization:|bearer\s+[a-z0-9._-]+)\b", re.IGNORECASE),
 ]
 
+RESPONSE_INTERNAL_ID_PATTERNS = [
+    re.compile(r"\b(?:plano_contas_id|conta_id|entidade_id|centro_custo_id|cartao_id|empresa_id|usuario_id)\b\s*[:=#-]?\s*\d+", re.IGNORECASE),
+    re.compile(r"\bids?\b\s*[:=#-]?\s*\d+(?:\s*,\s*\d+)*", re.IGNORECASE),
+    re.compile(r"`[^`]*(?:_id|\bids?\b)[^`]*`", re.IGNORECASE),
+]
+
 ACTIONABLE_LANCAMENTO_PATTERNS = [
+    re.compile(r"\b(fa[cç]a|crie|gere|inclua|adicione|registre|monte)\b.*\b(lan[cç]amento|despesa|receita|gasto|pagamento|recebimento)\b", re.IGNORECASE),
     re.compile(r"\b(criar|gerar|incluir|adicionar|lancar|lan[cç]ar|lan[cç]amento|lancamentos)\b", re.IGNORECASE),
     re.compile(r"\b(aluguel|sal[áa]rio|previs[oõ]es?|recorrente|parcela|mensal|anual|ano\s+inteiro)\b", re.IGNORECASE),
     re.compile(r"\b(alterar|editar|atualizar)\s+lan[cç]amentos?\b", re.IGNORECASE),
@@ -113,8 +126,9 @@ class AssistenteResponse(BaseModel):
 
 def _build_system_prompt() -> str:
     return (
-        "Voce e um assistente financeiro do sistema Kyrus ERP. "
+        "Voce e um assistente financeiro do sistema KyrusTECH. "
         "Responda sempre em portugues do Brasil, de forma clara e pratica. "
+        "Nas respostas de analise, use Markdown simples e legivel, com paragrafos curtos, listas, destaques e subtitulos quando isso ajudar. "
         "Use somente os dados recebidos no contexto e nao invente numeros. "
         "Voce esta restrito ao escopo da empresa e do usuario autenticado desta requisicao. "
         "Nunca forneca dados de outras empresas, mesmo que o usuario solicite. "
@@ -122,10 +136,13 @@ def _build_system_prompt() -> str:
         "Nunca exponha dados sensiveis (documentos, contatos, credenciais), inclusive para administradores. "
         "Quando houver comprovantes, imagens, PDFs ou planilhas anexadas, extraia somente o necessario para analise financeira ou para montar uma previa de lancamentos. "
         "Nunca execute lancamentos automaticamente a partir de anexos sem revisao humana e confirmacao explicita. "
+        "Se o usuario pedir para criar um lancamento, voce DEVE montar uma previa revisavel com os dados disponiveis, em vez de recusar genericamente. "
         "Ao sugerir classificacao, escolha somente entre IDs permitidos no contexto; se houver duvida, sinalize a incerteza. "
+        "Nunca mostre IDs, chaves internas, nomes de campos tecnicos ou referencias internas na resposta final ao usuario. "
         "Se a pergunta pedir algo fora dessas regras, recuse de forma breve e redirecione para analise financeira da tela atual. "
         "Se faltarem dados, diga o que falta de forma objetiva. "
         "Para perguntas validas, priorize: 1) resumo do que o usuario esta vendo, 2) explicacao do resultado, 3) acao recomendada. "
+        "Quando a conversa for sobre dashboard, aja como consultor financeiro e empresarial: explique indicadores em profundidade, causas provaveis, riscos, oportunidades e melhorias acionaveis, sem inventar dados. "
         "Nao forneca aconselhamento juridico, fiscal ou contabil definitivo."
     )
 
@@ -175,6 +192,151 @@ def _sanitize_context(value: Any, depth: int = 0) -> Any:
 
     text = str(value)
     return text[:600]
+
+
+def _sanitize_analysis_context(value: Any, depth: int = 0) -> Any:
+    if depth > 5:
+        return "[MAX_DEPTH]"
+
+    if isinstance(value, dict):
+        sanitized: Dict[str, Any] = {}
+        for idx, (k, v) in enumerate(value.items()):
+            if idx >= 120:
+                sanitized["_truncated"] = True
+                break
+            key = str(k)
+            key_l = key.strip().lower()
+            if _is_sensitive_key(key) or key_l == "id" or key_l.endswith("_id") or key_l.endswith("_ids"):
+                continue
+            if isinstance(v, list) and v and all(isinstance(item, int) for item in v[:20]):
+                sanitized[key] = f"{len(v)} item(ns) selecionado(s)"
+                continue
+            sanitized[key] = _sanitize_analysis_context(v, depth + 1)
+        return sanitized
+
+    if isinstance(value, list):
+        if value and all(isinstance(item, int) for item in value[:20]):
+            return f"{len(value)} item(ns)"
+        return [_sanitize_analysis_context(v, depth + 1) for v in value[:80]]
+
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+
+    return str(value)[:600]
+
+
+def _fetch_id_set(session: Session, statement: Any) -> set[int]:
+    return {int(item) for item in session.exec(statement).all() if item is not None}
+
+
+def _build_lookup_catalog(session: Session, empresa_id: int) -> Dict[str, Any]:
+    planos = session.exec(
+        select(PlanoContas.id, PlanoContas.nome, PlanoContas.tipo, PlanoContas.permite_lancamentos)
+        .where(PlanoContas.empresa_id == empresa_id)
+        .limit(LOOKUP_LIMIT_CATEGORIAS)
+    ).all()
+    contas = session.exec(
+        select(Conta.id, Conta.nome)
+        .where(Conta.empresa_id == empresa_id)
+        .limit(LOOKUP_LIMIT_CONTAS)
+    ).all()
+    entidades = session.exec(
+        select(Entidade.id, Entidade.nome)
+        .where(Entidade.empresa_id == empresa_id)
+        .limit(LOOKUP_LIMIT_ENTIDADES)
+    ).all()
+    centros = session.exec(
+        select(CentroCusto.id, CentroCusto.nome)
+        .where(CentroCusto.empresa_id == empresa_id)
+        .limit(LOOKUP_LIMIT_CENTROS)
+    ).all()
+    cartoes = session.exec(
+        select(Cartao.id, Cartao.nome_cartao)
+        .where(Cartao.empresa_id == empresa_id)
+        .limit(LOOKUP_LIMIT_CARTOES)
+    ).all()
+
+    return {
+        "lookups": {
+            "categorias": [
+                {"id": int(item_id), "nome": nome, "tipo": tipo}
+                for item_id, nome, tipo, permite_lancamentos in planos
+                if item_id is not None and permite_lancamentos is not False
+            ],
+            "contas": [
+                {"id": int(item_id), "nome": nome}
+                for item_id, nome in contas
+                if item_id is not None
+            ],
+            "entidades": [
+                {"id": int(item_id), "nome": nome}
+                for item_id, nome in entidades
+                if item_id is not None
+            ],
+            "centros": [
+                {"id": int(item_id), "nome": nome}
+                for item_id, nome in centros
+                if item_id is not None
+            ],
+            "cartoes": [
+                {"id": int(item_id), "nome": nome_cartao}
+                for item_id, nome_cartao in cartoes
+                if item_id is not None
+            ],
+        }
+    }
+
+
+def _merge_planning_context(contexto: Dict[str, Any], session: Session, empresa_id: int) -> Dict[str, Any]:
+    merged = dict(contexto)
+    lookups = merged.get("lookups") if isinstance(merged.get("lookups"), dict) else None
+    if not lookups or not any(lookups.values()):
+        merged.update(_build_lookup_catalog(session, empresa_id))
+    return merged
+
+
+def _is_dashboard_consulting_request(text: str, tela: str, contexto: Dict[str, Any]) -> bool:
+    if tela == "dashboard":
+        return True
+    if str(contexto.get("modo_consultoria") or "").lower() == "financeira_empresarial":
+        return True
+    return bool(re.search(r"\bdashboard|indicadores?|kpis?|consultor\b", text, re.IGNORECASE))
+
+
+def _sanitize_assistant_response(text: str) -> str:
+    sanitized = text
+    for pattern in RESPONSE_INTERNAL_ID_PATTERNS:
+        sanitized = pattern.sub("[referencia interna ocultada]", sanitized)
+    return sanitized.strip()
+
+
+def _build_analysis_prompt(
+    pergunta: str,
+    tela: str,
+    contexto: Dict[str, Any],
+    anexos_resumo: str,
+    dashboard_consulting: bool,
+) -> str:
+    if dashboard_consulting:
+        return (
+            f"Tela: {tela}\n"
+            "Modo consultoria dashboard: sim\n"
+            f"Resumo dos anexos: {anexos_resumo or 'sem anexos'}\n"
+            "Instrucoes de resposta: entregue uma analise executiva detalhada, em Markdown simples, com estas secoes quando houver dados: "
+            "Resumo executivo, O que esta funcionando, Principais alertas, Causas provaveis, Impacto em caixa e resultado, Acoes imediatas, Acoes estruturais, Oportunidades de ganho, Perguntas que faltam responder. "
+            "Sempre priorize explicacao de negocio, leitura financeira e recomendacoes praticas. Nao mostre IDs nem campos tecnicos.\n"
+            f"Contexto JSON: {json.dumps(contexto, ensure_ascii=False)}\n\n"
+            f"Pergunta: {pergunta}"
+        )
+
+    return (
+        f"Tela: {tela}\n"
+        "Modo consultoria dashboard: nao\n"
+        f"Resumo dos anexos: {anexos_resumo or 'sem anexos'}\n"
+        "Instrucoes de resposta: responda em Markdown simples, priorizando resumo do que a pessoa esta vendo, explicacao do resultado e recomendacoes praticas. Nao mostre IDs nem campos tecnicos.\n"
+        f"Contexto JSON: {json.dumps(contexto, ensure_ascii=False)}\n\n"
+        f"Pergunta: {pergunta}"
+    )
 
 
 def _contains_forbidden_request(text: str) -> bool:
@@ -288,17 +450,11 @@ def _validate_and_convert_plan(
     if len(items) > 120:
         raise HTTPException(status_code=422, detail="Plano excede o limite de 120 lancamentos.")
 
-    planos = session.exec(select(PlanoContas).where(PlanoContas.empresa_id == empresa_id)).all()
-    contas = session.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
-    entidades = session.exec(select(Entidade).where(Entidade.empresa_id == empresa_id)).all()
-    centros = session.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).all()
-    cartoes = session.exec(select(Cartao).where(Cartao.empresa_id == empresa_id)).all()
-
-    plano_ids = {int(p.id) for p in planos if p.id is not None}
-    conta_ids = {int(c.id) for c in contas if c.id is not None}
-    entidade_ids = {int(e.id) for e in entidades if e.id is not None}
-    centro_ids = {int(c.id) for c in centros if c.id is not None}
-    cartao_ids = {int(c.id) for c in cartoes if c.id is not None}
+    plano_ids = _fetch_id_set(session, select(PlanoContas.id).where(PlanoContas.empresa_id == empresa_id))
+    conta_ids = _fetch_id_set(session, select(Conta.id).where(Conta.empresa_id == empresa_id))
+    entidade_ids = _fetch_id_set(session, select(Entidade.id).where(Entidade.empresa_id == empresa_id))
+    centro_ids = _fetch_id_set(session, select(CentroCusto.id).where(CentroCusto.empresa_id == empresa_id))
+    cartao_ids = _fetch_id_set(session, select(Cartao.id).where(Cartao.empresa_id == empresa_id))
 
     converted: list[LancamentoCreate] = []
 
@@ -453,8 +609,6 @@ def perguntar_assistente(
     provider, modelo, llm_timeout = _resolve_llm_provider()
 
     if payload.acao == "CONFIRMAR_PLANO_LANCAMENTOS":
-        if payload.tela != "lancamentos":
-            raise HTTPException(status_code=400, detail="Acao permitida apenas na tela de lancamentos.")
         if not payload.plano_lancamentos or not payload.plano_assinatura:
             raise HTTPException(status_code=400, detail="Plano e assinatura sao obrigatorios para confirmar.")
         if not _verify_plan_signature(payload.plano_lancamentos, payload.plano_assinatura, empresa_id):
@@ -472,8 +626,6 @@ def perguntar_assistente(
         )
 
     if payload.acao == "REVISAR_PLANO_LANCAMENTOS":
-        if payload.tela != "lancamentos":
-            raise HTTPException(status_code=400, detail="Acao permitida apenas na tela de lancamentos.")
         if not payload.plano_lancamentos:
             raise HTTPException(status_code=400, detail="Plano obrigatorio para revisao.")
 
@@ -492,15 +644,16 @@ def perguntar_assistente(
     if _contains_forbidden_request(pergunta):
         return AssistenteResponse(resposta=SAFE_REFUSAL_MESSAGE, modelo="policy-local")
 
-    contexto_sanitizado = _sanitize_context(payload.contexto or {})
+    contexto_planejamento = _merge_planning_context(_sanitize_context(payload.contexto or {}), db, empresa_id)
+    contexto_analise = _sanitize_analysis_context(payload.contexto or {})
     attachment_parts, anexos_resumo = _prepare_attachment_payloads(payload.anexos, provider)
-    if payload.tela == "lancamentos" and _is_actionable_lancamento_request(pergunta):
+    if _is_actionable_lancamento_request(pergunta):
         try:
-            planning_prompt = _build_planning_prompt(pergunta, contexto_sanitizado, anexos_resumo)
+            planning_prompt = _build_planning_prompt(pergunta, contexto_planejamento, anexos_resumo)
             raw_plan = _call_llm(provider=provider, modelo=modelo, user_prompt=planning_prompt, timeout=llm_timeout, temperature=0.1, max_tokens=1200, attachment_parts=attachment_parts)
             parsed = _extract_json_object(raw_plan)
 
-            resumo = str(parsed.get("resumo") or "Revise os lancamentos sugeridos abaixo antes de confirmar.").strip()
+            resumo = _sanitize_assistant_response(str(parsed.get("resumo") or "Revise os lancamentos sugeridos abaixo antes de confirmar.").strip())
             lancamentos_raw = parsed.get("lancamentos") or []
             if not isinstance(lancamentos_raw, list):
                 raise HTTPException(status_code=502, detail="Plano da IA em formato invalido.")
@@ -530,18 +683,20 @@ def perguntar_assistente(
         except Exception:
             raise HTTPException(status_code=422, detail="Nao consegui montar um plano seguro com os dados atuais.")
 
-    user_prompt = (
-        f"Empresa ID: {empresa_id}\n"
-        f"Tela: {payload.tela}\n"
-        f"Resumo dos anexos: {anexos_resumo or 'sem anexos'}\n"
-        f"Contexto JSON: {json.dumps(contexto_sanitizado, ensure_ascii=False)}\n\n"
-        f"Pergunta: {pergunta}"
+    dashboard_consulting = _is_dashboard_consulting_request(pergunta, payload.tela, payload.contexto or {})
+    user_prompt = _build_analysis_prompt(
+        pergunta=pergunta,
+        tela=payload.tela,
+        contexto=contexto_analise,
+        anexos_resumo=anexos_resumo,
+        dashboard_consulting=dashboard_consulting,
     )
 
     try:
-        content = _call_llm(provider=provider, modelo=modelo, user_prompt=user_prompt, timeout=llm_timeout, temperature=0.2, max_tokens=500, attachment_parts=attachment_parts)
+        content = _call_llm(provider=provider, modelo=modelo, user_prompt=user_prompt, timeout=llm_timeout, temperature=0.15, max_tokens=1200, attachment_parts=attachment_parts)
         if not content:
             raise HTTPException(status_code=502, detail="Assistente IA sem resposta no momento.")
+        content = _sanitize_assistant_response(content)
         if _contains_forbidden_response(content):
             return AssistenteResponse(resposta=SAFE_REFUSAL_MESSAGE, modelo="policy-local")
         return AssistenteResponse(resposta=content, modelo=modelo)

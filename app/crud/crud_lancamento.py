@@ -16,6 +16,27 @@ from app.schemas.lancamento import LancamentoCreate, LancamentoRead, LancamentoU
 def _categoria_eh_receita(tipo_categoria: Optional[str]) -> bool:
     return (tipo_categoria or "").strip().upper().startswith("R")
 
+
+def _get_categoria_id_por_tipo(db: Session, empresa_id: int, tipo: str, preferencia_nome: Optional[str] = None) -> Optional[int]:
+    if preferencia_nome:
+        categoria_id = db.exec(
+            select(PlanoContas.id).where(
+                PlanoContas.empresa_id == empresa_id,
+                PlanoContas.tipo == tipo,
+                PlanoContas.nome.ilike(preferencia_nome),
+            )
+        ).first()
+        if categoria_id is not None:
+            return int(categoria_id)
+
+    categoria_id = db.exec(
+        select(PlanoContas.id).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.tipo == tipo,
+        )
+    ).first()
+    return int(categoria_id) if categoria_id is not None else None
+
 # --- HELPER: REGRAS DE NEGÓCIO ---
 def _aplicar_regras_negocio(db: Session, obj_in):
     """Define Tipo e Status automaticamente."""
@@ -177,14 +198,7 @@ def pay_multi(db: Session, *, ids: List[int], data_pagamento: str, empresa_id: i
     
     # --- CRIAÇÃO DO PAGAMENTO DA FATURA (SAÍDA DA CONTA) ---
     if conta_id and total_fatura > 0:
-        cat_fatura = db.exec(select(PlanoContas).where(
-            PlanoContas.empresa_id == empresa_id, 
-            PlanoContas.tipo == 'D',
-            PlanoContas.nome.ilike("%cart%")
-        )).first()
-        
-        if not cat_fatura:
-            cat_fatura = db.exec(select(PlanoContas).where(PlanoContas.empresa_id == empresa_id, PlanoContas.tipo == 'D')).first()
+        cat_fatura_id = _get_categoria_id_por_tipo(db, empresa_id, 'D', "%cart%")
 
         pagamento_saida = Lancamento(
             descricao=f"Pagamento de Fatura/Lançamentos ({qtd_atualizados} itens)",
@@ -196,7 +210,7 @@ def pay_multi(db: Session, *, ids: List[int], data_pagamento: str, empresa_id: i
             data_competencia=data_final,
             status="PAGO",
             conta_id=conta_id,
-            plano_contas_id=cat_fatura.id if cat_fatura else 1,
+            plano_contas_id=cat_fatura_id or 1,
             empresa_id=empresa_id,
             origem="BAIXA_FATURA"
         )
@@ -217,12 +231,10 @@ def realizar_transferencia(db: Session, *, transf_in: TransferenciaCreate, empre
     cat_entrada_id = transf_in.categoria_entrada_id
     
     if not cat_saida_id:
-        c = db.exec(select(PlanoContas).where(PlanoContas.empresa_id==empresa_id, PlanoContas.tipo=='D', PlanoContas.nome.ilike('%transfer%'))).first()
-        cat_saida_id = c.id if c else db.exec(select(PlanoContas).where(PlanoContas.empresa_id==empresa_id, PlanoContas.tipo=='D')).first().id
+        cat_saida_id = _get_categoria_id_por_tipo(db, empresa_id, 'D', '%transfer%')
         
     if not cat_entrada_id:
-        c = db.exec(select(PlanoContas).where(PlanoContas.empresa_id==empresa_id, PlanoContas.tipo=='R', PlanoContas.nome.ilike('%transfer%'))).first()
-        cat_entrada_id = c.id if c else db.exec(select(PlanoContas).where(PlanoContas.empresa_id==empresa_id, PlanoContas.tipo=='R')).first().id
+        cat_entrada_id = _get_categoria_id_por_tipo(db, empresa_id, 'R', '%transfer%')
 
     conta_origem = db.get(Conta, transf_in.conta_origem_id)
     conta_destino = db.get(Conta, transf_in.conta_destino_id)

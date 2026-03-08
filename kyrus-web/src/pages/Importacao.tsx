@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
 import { 
@@ -830,6 +831,39 @@ export function Importacao() {
                 <div className="flex-1"><strong className="block text-sm">{feedback.message}</strong>{feedback.details && <ul className="mt-2 list-disc list-inside text-xs opacity-80 max-h-32 overflow-y-auto custom-scrollbar">{feedback.details.map((d,i)=><li key={i}>{d}</li>)}</ul>}</div><button onClick={()=>setFeedback(null)}><X className="w-4 h-4 hover:text-white"/></button>
             </div>
         )}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-8">
+            <Link to="/importacao_itau" className="group rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+                <div className="flex items-start justify-between gap-4">
+                    <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-blue-500">Banco Itaú</p>
+                        <h3 className="mt-2 text-lg font-bold text-slate-900 dark:text-white">Importação guiada Itaú</h3>
+                        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Use extrato ou relatório de pagamentos com conciliação automática.</p>
+                    </div>
+                    <div className="rounded-2xl bg-blue-50 p-3 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
+                        <FileSpreadsheet className="w-6 h-6" />
+                    </div>
+                </div>
+                <div className="mt-4 text-sm font-bold text-blue-600 dark:text-blue-300">Abrir fluxo Itaú</div>
+            </Link>
+            <Link to="/importacao_ofx" className="group rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+                <div className="flex items-start justify-between gap-4">
+                    <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-emerald-500">OFX Multibancos</p>
+                        <h3 className="mt-2 text-lg font-bold text-slate-900 dark:text-white">Conciliação OFX inteligente</h3>
+                        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Cruze receitas e despesas com previstos e atrasados usando tolerância de R$ 1,00.</p>
+                    </div>
+                    <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        <UploadCloud className="w-6 h-6" />
+                    </div>
+                </div>
+                <div className="mt-4 text-sm font-bold text-emerald-600 dark:text-emerald-300">Abrir fluxo OFX</div>
+            </Link>
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-5 text-white shadow-sm" style={{ background: 'linear-gradient(135deg, #0f172a, #1e293b, #020617)' }}>
+                <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-cyan-300">O que mudou</p>
+                <h3 className="mt-2 text-lg font-bold">Importação mais assistida</h3>
+                <p className="mt-2 text-sm text-slate-300">As novas trilhas de importação priorizam conciliação inteligente, menos retrabalho e revisão visual mais segura antes da confirmação.</p>
+            </div>
+        </div>
         
         {/* STEP 1: UPLOAD */}
         {step === 1 && (

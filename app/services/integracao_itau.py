@@ -118,6 +118,10 @@ def _limpar_cpf_cnpj(cpf_cnpj: Optional[str]) -> str:
     return re.sub(r"[^0-9]", "", cpf_cnpj or "")
 
 
+def _status_aberto_clause() -> tuple[str, ...]:
+    return ("PENDENTE", "EM ABERTO")
+
+
 def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None) -> str:
     payload = {
         "origem": lancamento.get("origem"),
@@ -409,10 +413,11 @@ def buscar_lancamento_previsto_mesmo_dia_valor(
     
     query = select(Lancamento).where(
         Lancamento.empresa_id == empresa_id,
+        Lancamento.tipo == lancamento.get("tipo"),
         Lancamento.data_vencimento == data_lancamento,
         Lancamento.valor_previsto >= valor_min,
         Lancamento.valor_previsto <= valor_max,
-        Lancamento.status == "PENDENTE"
+        Lancamento.status.in_(_status_aberto_clause())
     )
     
     # Se tem centro de custo, filtra por ele
@@ -447,11 +452,12 @@ def buscar_lancamento_atrasado_mesmo_valor(
     
     query = select(Lancamento).where(
         Lancamento.empresa_id == empresa_id,
+        Lancamento.tipo == lancamento.get("tipo"),
         Lancamento.data_vencimento < data_lancamento,
         Lancamento.data_vencimento >= data_limite,
         Lancamento.valor_previsto >= valor_min,
         Lancamento.valor_previsto <= valor_max,
-        Lancamento.status == "PENDENTE"
+        Lancamento.status.in_(_status_aberto_clause())
     )
     
     # Se tem centro de custo, filtra por ele

@@ -1,14 +1,75 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Menu } from 'lucide-react';
+import { AiAssistente } from './AiAssistente';
+import { AssistentePageProvider, useAssistentePageContext } from './AssistentePageContext';
 import { Sidebar, MobileSidebar } from './Sidebar';
 
-export function Layout() {
+function resolveAssistenteDefaults(pathname: string) {
+  if (pathname.startsWith('/dashboard')) {
+    return {
+      tela: 'dashboard' as const,
+      titulo: 'Assistente KyrusTECH',
+      sugestoes: [
+        'Analise este dashboard como meu consultor financeiro e empresarial.',
+        'Explique o que esta puxando meu resultado e o que exige atencao imediata.',
+        'Quais melhorias praticas devo priorizar agora?',
+      ],
+      contexto: {
+        pagina: 'dashboard',
+        modo_consultoria: 'financeira_empresarial',
+      },
+    };
+  }
+
+  if (pathname.startsWith('/lancamentos')) {
+    return {
+      tela: 'lancamentos' as const,
+      titulo: 'Assistente KyrusTECH',
+      sugestoes: [
+        'O que os lancamentos desta tela mostram?',
+        'Leia este comprovante e monte uma previa revisavel.',
+        'Quais acoes melhoram meu caixa no curto prazo?',
+      ],
+      contexto: {
+        pagina: 'lancamentos',
+      },
+    };
+  }
+
+  return {
+    tela: 'geral' as const,
+    titulo: 'Assistente KyrusTECH',
+    sugestoes: [
+      'Explique esta pagina de forma objetiva.',
+      'Quais riscos e oportunidades voce enxerga aqui?',
+      'O que devo fazer primeiro para melhorar o resultado?',
+    ],
+    contexto: {
+      pagina: pathname.replace(/^\//, '') || 'home',
+    },
+  };
+}
+
+function LayoutShell() {
   const location = useLocation();
+  const { config: pageAssistenteConfig } = useAssistentePageContext();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') !== '0');
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('theme') as 'dark' | 'light') || 'light');
   const isLancamentosRoute = location.pathname.startsWith('/lancamentos');
+  const assistenteDefaults = useMemo(() => resolveAssistenteDefaults(location.pathname), [location.pathname]);
+  const assistenteConfig = useMemo(() => ({
+    tela: pageAssistenteConfig.tela ?? assistenteDefaults.tela,
+    titulo: pageAssistenteConfig.titulo ?? assistenteDefaults.titulo,
+    sugestoes: pageAssistenteConfig.sugestoes ?? assistenteDefaults.sugestoes,
+    lookups: pageAssistenteConfig.lookups,
+    contexto: {
+      ...assistenteDefaults.contexto,
+      ...(pageAssistenteConfig.contexto ?? {}),
+      rota_atual: location.pathname,
+    },
+  }), [assistenteDefaults, location.pathname, pageAssistenteConfig]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -36,15 +97,9 @@ export function Layout() {
   }, []);
 
   useEffect(() => {
-    if (!isLancamentosRoute || sidebarCollapsed) return;
     if (window.innerWidth < 1024) return;
-
-    const timer = window.setTimeout(() => {
-      setSidebarCollapsed(true);
-    }, 3200);
-
-    return () => window.clearTimeout(timer);
-  }, [isLancamentosRoute, sidebarCollapsed]);
+    setSidebarCollapsed(true);
+  }, [location.pathname]);
 
   return (
     <div className={theme === 'dark' ? 'dark' : ''}>
@@ -52,6 +107,8 @@ export function Layout() {
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
+        onMouseEnter={() => setSidebarCollapsed(false)}
+        onMouseLeave={() => setSidebarCollapsed(true)}
         theme={theme}
         onToggleTheme={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
       />
@@ -76,6 +133,21 @@ export function Layout() {
         </main>
       </div>
       </div>
+      <AiAssistente
+        tela={assistenteConfig.tela}
+        contexto={assistenteConfig.contexto}
+        titulo={assistenteConfig.titulo}
+        sugestoes={assistenteConfig.sugestoes}
+        lookups={assistenteConfig.lookups}
+      />
     </div>
+  );
+}
+
+export function Layout() {
+  return (
+    <AssistentePageProvider>
+      <LayoutShell />
+    </AssistentePageProvider>
   );
 }

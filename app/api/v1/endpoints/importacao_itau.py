@@ -300,6 +300,7 @@ async def confirmar_lancamentos(
                     
                     lanc_existente.data_pagamento = data_pagamento
                     lanc_existente.status = "PAGO"
+                    lanc_existente.conciliado = True
                     lanc_existente.valor_pago = Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"]))
                     if lanc_data.get("plano_contas_id"):
                         lanc_existente.plano_contas_id = lanc_data["plano_contas_id"]
@@ -329,6 +330,7 @@ async def confirmar_lancamentos(
                         
                         lanc_atrasado.data_pagamento = data_pagamento
                         lanc_atrasado.status = "PAGO"
+                        lanc_atrasado.conciliado = True
                         lanc_atrasado.valor_pago = Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"]))
                         if lanc_data.get("plano_contas_id"):
                             lanc_atrasado.plano_contas_id = lanc_data["plano_contas_id"]
@@ -421,6 +423,7 @@ async def confirmar_lancamentos(
                 conta_id=(conta_resolvida.id if conta_resolvida else lanc_data.get("conta_id") or request.conta_id),
                 centro_custo_id=(centro_custo_resolvido or lanc_data.get("centro_custo_id") or request.centro_custo_id),
                 import_hash=lanc_data.get("import_hash"),
+                conciliado=True,
                 ipp=False
             )
             

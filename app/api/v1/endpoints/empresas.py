@@ -19,6 +19,7 @@ router = APIRouter()
 # --- CONFIGURAÇÃO DE UPLOAD ---
 UPLOAD_DIR = Path("static/logos")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True) # Cria a pasta se não existir
+MAX_LOGO_SIZE = 2 * 1024 * 1024
 
 # --- ROTA BLINDADA: LISTAR TODAS ---
 @router.get("/", response_model=List[EmpresaRead])
@@ -121,16 +122,32 @@ def upload_logo(
     if not db_obj or db_obj.is_deleted:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
 
+    ext = Path(file.filename or "").suffix.lower()
+    allowed_exts = {".jpg", ".jpeg", ".png", ".webp"}
+    if not ext or ext not in allowed_exts:
+        raise HTTPException(400, detail="Extensão de arquivo inválida para logo.")
+
     # 2. Gera nome único para evitar cache do navegador (uuid)
-    ext = file.filename.split('.')[-1]
-    filename = f"logo_{empresa_id}_{uuid4().hex[:8]}.{ext}"
+    filename = f"logo_{empresa_id}_{uuid4().hex[:8]}{ext}"
     file_path = UPLOAD_DIR / filename
 
     # 3. Salva no Disco
     try:
+        bytes_written = 0
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                bytes_written += len(chunk)
+                if bytes_written > MAX_LOGO_SIZE:
+                    buffer.close()
+                    file_path.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail="Arquivo muito grande. Máximo 2MB.")
+                buffer.write(chunk)
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         logger.error(f"Erro ao salvar arquivo: {e}")
         raise HTTPException(status_code=500, detail="Falha ao salvar imagem")
 

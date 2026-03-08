@@ -273,7 +273,7 @@ def obter_contexto_atual(
         "empresa_atual": {
             "id": empresa.id,
             "nome_fantasia": empresa.nome_fantasia,
-            "razao_social": empresa.razao_social
+            "razao_social": empresa.razao_social,
             "logo_url": empresa.logo_url,
             "cor_primaria": empresa.cor_primaria,
             "is_active": empresa.is_active,

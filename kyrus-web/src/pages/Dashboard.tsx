@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import GridLayout, { type Layout, type LayoutItem } from 'react-grid-layout';
+import 'react-grid-layout/css/styles.css';
+import 'react-resizable/css/styles.css';
 import { api } from '../services/api';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { AsyncApexChart } from '../components/AsyncApexChart';
@@ -6,7 +9,7 @@ import { DashboardViewManager } from '../components/DashboardViewManager';
 import {
   TrendingUp, TrendingDown, Wallet, RefreshCw, Filter,
   CalendarRange, Layers, Building2, List, X, Landmark,
-  Sparkles, Download, Search, Activity
+  Sparkles, Download, Search, Activity, Settings2
 } from 'lucide-react';
 
 interface Lancamento {
@@ -130,11 +133,16 @@ type DashboardWidgetId =
   | 'lancamentos_dia';
 
 type DashboardWidgetSize = 'sm' | 'md' | 'lg' | 'full';
+type DashboardGridLayout = Layout;
 
 interface DashboardWidgetConfig {
   id: DashboardWidgetId;
   visible: boolean;
   size: DashboardWidgetSize;
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
 }
 
 interface DashboardView {
@@ -152,6 +160,8 @@ const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' 
 const INTERACTIVE_PANEL_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.1),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
 const DASHBOARD_SECTION_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.96))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
 const DASHBOARD_ACTIVE_VIEW_STORAGE_KEY_PREFIX = 'kyrus-dashboard-active-view-v1';
+const DASHBOARD_GRID_COLUMNS = 12;
+const DASHBOARD_GRID_ROW_HEIGHT = 92;
 
 const DEFAULT_DASHBOARD_WIDGETS: DashboardWidgetConfig[] = [
   { id: 'heatmap_calendar', visible: true, size: 'lg' },
@@ -182,6 +192,36 @@ const DEFAULT_DASHBOARD_WIDGETS: DashboardWidgetConfig[] = [
   { id: 'base_analitica', visible: true, size: 'full' },
   { id: 'lancamentos_dia', visible: true, size: 'full' },
 ];
+
+const DASHBOARD_WIDGET_HEIGHTS: Record<DashboardWidgetId, number> = {
+  heatmap_calendar: 5,
+  executive_readings: 4,
+  productivity: 4,
+  contas_pagar: 3,
+  contas_receber: 3,
+  lancamentos_pagar: 4,
+  lancamentos_receber: 4,
+  fluxo: 4,
+  despesas_categoria: 5,
+  receitas_categoria: 4,
+  acumulado_rec_desp: 4,
+  resultado_operacional: 4,
+  resumo_operacional: 4,
+  receitas_despesas_ano: 4,
+  margem_operacional: 4,
+  comparativo_ano: 4,
+  sazonalidade: 4,
+  cenarios: 4,
+  resultado_acumulado: 4,
+  pulso_acumulado: 4,
+  status: 3,
+  despesas_centro: 4,
+  ultimos_lancamentos: 4,
+  gastos_categoria_lista: 4,
+  lancamentos_categoria: 4,
+  base_analitica: 6,
+  lancamentos_dia: 4,
+};
 
 const DASHBOARD_WIDGET_LABELS: Record<DashboardWidgetId, string> = {
   heatmap_calendar: 'Heatmap por dia',
@@ -217,18 +257,76 @@ function createDefaultDashboardView(): DashboardView {
   return {
     id: 'default',
     name: 'Padrao',
-    widgets: DEFAULT_DASHBOARD_WIDGETS.map((widget) => ({ ...widget })),
+    widgets: normalizeDashboardWidgets(DEFAULT_DASHBOARD_WIDGETS),
   };
+}
+
+function getWidgetWidthFromSize(size: DashboardWidgetSize) {
+  if (size === 'full') return 12;
+  if (size === 'lg') return 8;
+  if (size === 'md') return 6;
+  return 4;
+}
+
+function getWidgetSizeFromWidth(width: number): DashboardWidgetSize {
+  if (width >= 12) return 'full';
+  if (width >= 8) return 'lg';
+  if (width >= 6) return 'md';
+  return 'sm';
+}
+
+function buildSequentialWidgetLayout(widgets: DashboardWidgetConfig[]) {
+  let x = 0;
+  let y = 0;
+  let currentRowHeight = 0;
+
+  return widgets.map((widget) => {
+    const width = Math.min(DASHBOARD_GRID_COLUMNS, widget.w ?? getWidgetWidthFromSize(widget.size));
+    const height = Math.max(3, widget.h ?? DASHBOARD_WIDGET_HEIGHTS[widget.id]);
+
+    if (x + width > DASHBOARD_GRID_COLUMNS) {
+      x = 0;
+      y += currentRowHeight;
+      currentRowHeight = 0;
+    }
+
+    const normalized = {
+      ...widget,
+      x: widget.x ?? x,
+      y: widget.y ?? y,
+      w: width,
+      h: height,
+    };
+
+    x += width;
+    currentRowHeight = Math.max(currentRowHeight, height);
+
+    if (x >= DASHBOARD_GRID_COLUMNS) {
+      x = 0;
+      y += currentRowHeight;
+      currentRowHeight = 0;
+    }
+
+    return normalized;
+  });
 }
 
 function normalizeDashboardWidgets(widgets?: DashboardWidgetConfig[]) {
   const incoming = new Map((widgets || []).map((widget) => [widget.id, widget] as const));
-  return DEFAULT_DASHBOARD_WIDGETS.map((widget) => {
+  return buildSequentialWidgetLayout(DEFAULT_DASHBOARD_WIDGETS.map((widget) => {
     const current = incoming.get(widget.id);
     return current
-      ? { ...widget, visible: current.visible, size: current.size }
+      ? {
+        ...widget,
+        visible: current.visible,
+        size: current.size,
+        x: current.x,
+        y: current.y,
+        w: current.w,
+        h: current.h,
+      }
       : { ...widget };
-  });
+  }));
 }
 
 function normalizeDashboardViews(views?: DashboardView[]) {
@@ -247,11 +345,16 @@ function getDashboardActiveViewStorageKey(empresaId?: number | null) {
   return `${DASHBOARD_ACTIVE_VIEW_STORAGE_KEY_PREFIX}-${empresaId || 'unknown'}`;
 }
 
-function getDashboardWidgetSpan(size: DashboardWidgetSize) {
-  if (size === 'full') return 'lg:col-span-3';
-  if (size === 'lg') return 'lg:col-span-2';
-  if (size === 'md') return 'lg:col-span-1 xl:col-span-2';
-  return 'lg:col-span-1';
+function toGridLayout(widget: DashboardWidgetConfig): LayoutItem {
+  return {
+    i: widget.id,
+    x: widget.x ?? 0,
+    y: widget.y ?? 0,
+    w: Math.max(2, Math.min(DASHBOARD_GRID_COLUMNS, widget.w ?? getWidgetWidthFromSize(widget.size))),
+    h: Math.max(3, widget.h ?? DASHBOARD_WIDGET_HEIGHTS[widget.id]),
+    minW: 2,
+    minH: 3,
+  };
 }
 const FINANCE_DRILLDOWN_LABELS: Record<Exclude<FinanceDrilldown, null>, string> = {
   PAGAR_HOJE: 'Contas a pagar hoje',
@@ -585,14 +688,28 @@ export function Dashboard() {
   const [dashboardViewsEmpresaId, setDashboardViewsEmpresaId] = useState<number | null>(null);
   const [activeDashboardViewId, setActiveDashboardViewId] = useState('default');
   const [dashboardEditMode, setDashboardEditMode] = useState(false);
+  const [dashboardGridWidth, setDashboardGridWidth] = useState(1200);
   const hoverTimerRef = useRef<number | null>(null);
   const dashboardViewsLoadedRef = useRef(false);
   const dashboardViewsSaveTimerRef = useRef<number | null>(null);
+  const dashboardGridRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const handler = () => setIsDark(document.documentElement.classList.contains('dark'));
     window.addEventListener('theme-change', handler);
     return () => window.removeEventListener('theme-change', handler);
+  }, []);
+
+  useEffect(() => {
+    const updateWidth = () => {
+      if (dashboardGridRef.current) {
+        setDashboardGridWidth(Math.max(320, Math.round(dashboardGridRef.current.offsetWidth - 16)));
+      }
+    };
+
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
   }, []);
 
   useEffect(() => {
@@ -690,7 +807,14 @@ export function Dashboard() {
   const updateActiveWidget = (widgetId: DashboardWidgetId, patch: Partial<DashboardWidgetConfig>) => {
     updateActiveDashboardView((view) => ({
       ...view,
-      widgets: view.widgets.map((widget) => widget.id === widgetId ? { ...widget, ...patch } : widget),
+      widgets: view.widgets.map((widget) => {
+        if (widget.id !== widgetId) return widget;
+        const nextWidget = { ...widget, ...patch };
+        if (patch.size) {
+          nextWidget.w = getWidgetWidthFromSize(patch.size);
+        }
+        return nextWidget;
+      }),
     }));
   };
 
@@ -703,6 +827,27 @@ export function Dashboard() {
       const [draggedWidget] = widgets.splice(draggedIndex, 1);
       widgets.splice(targetIndex, 0, draggedWidget);
       return { ...view, widgets };
+    });
+  };
+
+  const updateActiveWidgetLayout = (layout: DashboardGridLayout) => {
+    updateActiveDashboardView((view) => {
+      const layoutMap = new Map(layout.map((item) => [item.i, item] as const));
+      return {
+        ...view,
+        widgets: view.widgets.map((widget) => {
+          const nextLayout = layoutMap.get(widget.id);
+          if (!nextLayout) return widget;
+          return {
+            ...widget,
+            x: nextLayout.x,
+            y: nextLayout.y,
+            w: nextLayout.w,
+            h: nextLayout.h,
+            size: getWidgetSizeFromWidth(nextLayout.w),
+          };
+        }),
+      };
     });
   };
 
@@ -736,6 +881,30 @@ export function Dashboard() {
     });
     setActiveDashboardViewId('default');
   };
+
+  const visibleDashboardWidgets = useMemo(
+    () => activeDashboardWidgets.filter((widget) => widget.visible),
+    [activeDashboardWidgets]
+  );
+
+  const dashboardGridCols = useMemo(() => {
+    if (dashboardGridWidth < 480) return 1;
+    if (dashboardGridWidth < 768) return 2;
+    if (dashboardGridWidth < 996) return 4;
+    if (dashboardGridWidth < 1200) return 8;
+    return 12;
+  }, [dashboardGridWidth]);
+
+  const dashboardLayouts = useMemo<DashboardGridLayout>(() => {
+    return visibleDashboardWidgets.map((widget) => {
+      const item = toGridLayout(widget);
+      return {
+        ...item,
+        x: dashboardGridCols === 12 ? item.x : 0,
+        w: Math.min(dashboardGridCols, item.w),
+      };
+    });
+  }, [dashboardGridCols, visibleDashboardWidgets]);
 
   const categoriasExcluidasResultado = useMemo(() => buildExcludedCategoriaIds(categorias), [categorias]);
 
@@ -2688,6 +2857,18 @@ export function Dashboard() {
                 </div>
               </div>
 
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDashboardEditMode((prev) => !prev)}
+                  className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-bold transition ${dashboardEditMode ? 'border-sky-400 bg-sky-50 text-sky-700 dark:border-sky-500 dark:bg-sky-500/10 dark:text-sky-300' : 'border-white/70 bg-white/75 text-slate-700 hover:bg-white dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-800/80'}`}
+                >
+                  <Settings2 className="h-4 w-4" />
+                  {dashboardEditMode ? 'Fechar edição' : 'Editar dashboard'}
+                </button>
+                {dashboardEditMode && <p className="text-sm text-slate-600 dark:text-slate-300">Arraste os cards pela faixa azul e redimensione pela alça do canto para ajustar a grade.</p>}
+              </div>
+
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 {sinaisExecutivos.slice(0, 3).map((sinal) => (
                   <div
@@ -3063,30 +3244,60 @@ export function Dashboard() {
           </div>
           {selectedChips}
         </div>
-        <DashboardViewManager
-          activeDashboardView={activeDashboardView}
-          activeDashboardViewId={activeDashboardViewId}
-          activeDashboardWidgets={activeDashboardWidgets}
-          dashboardEditMode={dashboardEditMode}
-          dashboardViews={dashboardViews}
-          dashboardWidgetLabels={DASHBOARD_WIDGET_LABELS}
-          onActiveViewChange={setActiveDashboardViewId}
-          onCreateView={createDashboardViewFromCurrent}
-          onDeleteView={deleteActiveDashboardView}
-          onMoveWidget={(widgetId, direction) => moveActiveWidget(widgetId as DashboardWidgetId, direction)}
-          onRenameView={(name) => updateActiveDashboardView((view) => ({ ...view, name }))}
-          onResetView={resetActiveDashboardView}
-          onReorderWidget={(draggedWidgetId, targetWidgetId) => reorderActiveWidget(draggedWidgetId as DashboardWidgetId, targetWidgetId as DashboardWidgetId)}
-          onToggleEditMode={() => setDashboardEditMode((prev) => !prev)}
-          onUpdateWidget={(widgetId, patch) => updateActiveWidget(widgetId as DashboardWidgetId, patch as Partial<DashboardWidgetConfig>)}
-        />
+        {dashboardEditMode && (
+          <DashboardViewManager
+            activeDashboardView={activeDashboardView}
+            activeDashboardViewId={activeDashboardViewId}
+            activeDashboardWidgets={activeDashboardWidgets}
+            dashboardEditMode={dashboardEditMode}
+            dashboardViews={dashboardViews}
+            dashboardWidgetLabels={DASHBOARD_WIDGET_LABELS}
+            onActiveViewChange={setActiveDashboardViewId}
+            onCreateView={createDashboardViewFromCurrent}
+            onDeleteView={deleteActiveDashboardView}
+            onMoveWidget={(widgetId, direction) => moveActiveWidget(widgetId as DashboardWidgetId, direction)}
+            onRenameView={(name) => updateActiveDashboardView((view) => ({ ...view, name }))}
+            onResetView={resetActiveDashboardView}
+            onReorderWidget={(draggedWidgetId, targetWidgetId) => reorderActiveWidget(draggedWidgetId as DashboardWidgetId, targetWidgetId as DashboardWidgetId)}
+            onToggleEditMode={() => setDashboardEditMode((prev) => !prev)}
+            onUpdateWidget={(widgetId, patch) => updateActiveWidget(widgetId as DashboardWidgetId, patch as Partial<DashboardWidgetConfig>)}
+          />
+        )}
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {activeDashboardWidgets.filter((widget) => widget.visible).map((widget) => (
-            <div key={widget.id} className={getDashboardWidgetSpan(widget.size)}>
-              {renderDashboardWidget(widget.id)}
-            </div>
-          ))}
+        <div ref={dashboardGridRef} className="rounded-4xl border border-slate-200/80 bg-white/70 p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+          <GridLayout
+            className="layout"
+            layout={dashboardLayouts}
+            width={dashboardGridWidth}
+            gridConfig={{
+              cols: dashboardGridCols,
+              rowHeight: DASHBOARD_GRID_ROW_HEIGHT,
+              margin: [24, 24],
+            }}
+            dragConfig={{
+              enabled: dashboardEditMode,
+              handle: '.dashboard-widget-drag-handle',
+            }}
+            resizeConfig={{
+              enabled: dashboardEditMode,
+            }}
+            onDragStop={(layout: DashboardGridLayout) => updateActiveWidgetLayout(layout)}
+            onResizeStop={(layout: DashboardGridLayout) => updateActiveWidgetLayout(layout)}
+          >
+            {visibleDashboardWidgets.map((widget) => (
+              <div key={widget.id} className="overflow-visible">
+                <div className={`h-full ${dashboardEditMode ? 'rounded-4xl ring-1 ring-sky-200 dark:ring-sky-800' : ''}`}>
+                  {dashboardEditMode && (
+                    <div className="dashboard-widget-drag-handle mb-2 flex cursor-move items-center justify-between rounded-2xl border border-dashed border-sky-200 bg-sky-50/80 px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-sky-700 dark:border-sky-900 dark:bg-sky-500/10 dark:text-sky-300">
+                      <span>{DASHBOARD_WIDGET_LABELS[widget.id]}</span>
+                      <span>arraste e redimensione</span>
+                    </div>
+                  )}
+                  {renderDashboardWidget(widget.id)}
+                </div>
+              </div>
+            ))}
+          </GridLayout>
         </div>
 
         {selectedDate && !activeDashboardWidgets.some((widget) => widget.id === 'lancamentos_dia' && widget.visible) && (

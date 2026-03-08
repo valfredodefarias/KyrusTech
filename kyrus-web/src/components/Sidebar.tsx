@@ -94,6 +94,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
 
   const logoSrc = getLogoUrl(empresa?.logo_url);
   const userFotoSrc = getLogoUrl(user?.foto_url || undefined);
+  const companyTitle = empresa?.nome_fantasia || 'KyrusTECH';
 
   const handleLogout = () => {
     logout();
@@ -103,7 +104,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
   return (
     <>
       {/* --- HEADER DA EMPRESA --- */}
-      <div className={`border-b border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center text-center gap-2.5 w-full relative transition-all duration-300 ${collapsed ? 'min-h-24 px-2 py-3' : 'min-h-36 p-4'}`}>
+      <div className="relative flex min-h-36 w-full flex-col items-center justify-center gap-2.5 border-b border-slate-100 p-4 text-center transition-all duration-300 dark:border-slate-700">
         {showClose && (
           <button
             onClick={onNavigate}
@@ -145,12 +146,11 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
         </div>
 
         {/* NOME DA EMPRESA */}
-        {!collapsed && (
-        <div className="w-full px-2">
+        <div className={`w-full px-2 transition-all duration-300 ${collapsed ? 'invisible h-11' : 'visible h-11'}`} aria-hidden={collapsed}>
             {empresa?.nome_fantasia ? (
                 <>
                     <h1 className="text-lg font-bold text-slate-800 dark:text-white leading-tight truncate">
-                        {empresa.nome_fantasia}
+                {companyTitle}
                     </h1>
                     <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 block">
                         Gestão Financeira
@@ -160,11 +160,10 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
                 <img
                   src="/kyrusnamegg.png"
                   alt="KyrusTech"
-                  className="h-6 w-auto"
+              className="mx-auto h-6 w-auto"
                 />
             )}
         </div>
-        )}
 
       </div>
 
@@ -186,10 +185,8 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
 
               if (collapsed) {
                 return {
-                  backgroundColor: `${primaryColor}18`,
                   color: primaryColor,
-                  border: `1px solid ${primaryColor}55`,
-                  boxShadow: `0 0 0 1px ${primaryColor}22 inset`,
+                  border: '1px solid transparent',
                 };
               }
 
@@ -200,7 +197,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
               };
             }}
             className={({ isActive }) => `
-              grid items-center ${collapsed ? 'grid-cols-[2.25rem] px-2.5 rounded-2xl' : 'grid-cols-[2.25rem_minmax(0,1fr)] px-3 rounded-l-xl'} py-2.5 transition-all duration-300 font-medium text-sm group
+              w-full grid items-center ${collapsed ? 'grid-cols-[2.25rem] justify-center justify-items-center px-2.5 rounded-2xl' : 'grid-cols-[2.25rem_minmax(0,1fr)] px-3 rounded-l-xl'} py-2.5 transition-all duration-300 font-medium text-sm group
               ${!isActive 
                 ? collapsed
                   ? 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white hover:-translate-y-0.5'
@@ -208,14 +205,31 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
                 : 'shadow-sm'}
             `}
           >
-            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all ${collapsed ? 'border-slate-200 bg-slate-50 shadow-sm dark:border-slate-700 dark:bg-slate-900/70' : 'border-transparent'} group-hover:border-slate-200 group-hover:bg-white/80 dark:group-hover:border-slate-600 dark:group-hover:bg-slate-800/80`}>
-              <item.icon 
-                  size={16} 
-                  strokeWidth={2.35} 
-                  className="transition-transform"
-              />
-            </span>
-            {!collapsed && <span className="truncate">{item.label}</span>}
+            {({ isActive }) => {
+              const collapsedActiveStyle = collapsed && isActive
+                ? {
+                    backgroundColor: `${primaryColor}18`,
+                    borderColor: `${primaryColor}66`,
+                    boxShadow: `0 0 0 1px ${primaryColor}22 inset`,
+                  }
+                : undefined;
+
+              return (
+                <>
+                  <span
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all ${collapsed ? 'border-slate-200 bg-slate-50 shadow-sm dark:border-slate-700 dark:bg-slate-900/70' : 'border-transparent'} group-hover:border-slate-200 group-hover:bg-white/80 dark:group-hover:border-slate-600 dark:group-hover:bg-slate-800/80`}
+                    style={collapsedActiveStyle}
+                  >
+                    <item.icon 
+                        size={16} 
+                        strokeWidth={2.35} 
+                        className="transition-transform"
+                    />
+                  </span>
+                  {!collapsed && <span className="truncate">{item.label}</span>}
+                </>
+              );
+            }}
           </NavLink>
         ))}
       </nav>
@@ -278,7 +292,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
 
 export function Sidebar({ collapsed, onToggleCollapse, onMouseEnter, onMouseLeave, theme, onToggleTheme }: { collapsed: boolean; onToggleCollapse: () => void; onMouseEnter?: () => void; onMouseLeave?: () => void; theme: 'dark' | 'light'; onToggleTheme: () => void; }) {
   return (
-    <aside onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className={`${collapsed ? 'w-[4.75rem]' : 'w-60'} bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] dark:bg-[linear-gradient(180deg,#0f172a_0%,#111c34_100%)] border-r border-slate-200/80 dark:border-slate-700 hidden md:flex flex-col h-screen sticky top-0 transition-all duration-300 z-30 shadow-sm overflow-hidden`}> 
+    <aside onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className={`${collapsed ? 'w-19' : 'w-60'} bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] dark:bg-[linear-gradient(180deg,#0f172a_0%,#111c34_100%)] border-r border-slate-200/80 dark:border-slate-700 hidden md:flex flex-col h-screen sticky top-0 transition-all duration-300 z-30 shadow-sm overflow-hidden`}> 
       <SidebarPanel collapsed={collapsed} onToggleCollapse={onToggleCollapse} theme={theme} onToggleTheme={onToggleTheme} />
     </aside>
   );

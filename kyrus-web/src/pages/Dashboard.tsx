@@ -97,8 +97,6 @@ type DashboardHelpKey =
 
 type KpiTooltipState = {
   key: DashboardHelpKey;
-  x: number;
-  y: number;
 };
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -371,6 +369,14 @@ const buildExcludedCategoriaIds = (categorias: Categoria[]) => {
   return excluidas;
 };
 
+const formatTreemapLabel = (label: string, value: number, total: number) => {
+  if (!label || total <= 0) return '';
+  const ratio = value / total;
+  if (ratio >= 0.18) return label;
+  if (ratio >= 0.1) return label.length > 14 ? `${label.slice(0, 14)}...` : label;
+  return '';
+};
+
 function getMonthRange(yyyymm: string) {
   const [yearStr, monthStr] = yyyymm.split('-');
   const year = Number(yearStr);
@@ -550,16 +556,13 @@ export function Dashboard() {
     setFinanceDrilldown((prev) => prev === next ? null : next);
   };
 
-  const scheduleKpiMeaning = (key: DashboardHelpKey, element: HTMLElement, delay = 650) => {
+  const scheduleKpiMeaning = (key: DashboardHelpKey, ...args: [HTMLElement?, number?]) => {
+    const delay = typeof args[1] === 'number' ? args[1] : 650;
     if (hoverTimerRef.current) {
       window.clearTimeout(hoverTimerRef.current);
     }
-    const rect = element.getBoundingClientRect();
-    const tooltipWidth = Math.min(360, Math.max(280, rect.width));
-    const x = Math.min(window.innerWidth - tooltipWidth - 16, Math.max(16, rect.left + 12));
-    const y = Math.min(window.innerHeight - 220, Math.max(16, rect.top + 12));
     hoverTimerRef.current = window.setTimeout(() => {
-      setVisibleKpiMeaning({ key, x, y });
+      setVisibleKpiMeaning({ key });
     }, delay);
   };
 
@@ -819,10 +822,15 @@ export function Dashboard() {
   }, [fluxoDiario]);
 
   const statusDistrib = useMemo(() => {
+    const atrasados = operationalFilteredLancamentos
+      .filter(l => !isPago(l.status) && toDateOnlyStr(l.data_vencimento) < hojeIso)
+      .reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0);
     const pagos = operationalFilteredLancamentos.filter(l => isPago(l.status)).reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0);
-    const pendentes = operationalFilteredLancamentos.filter(l => !isPago(l.status)).reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0);
-    return { pagos, pendentes };
-  }, [operationalFilteredLancamentos]);
+    const pendentes = operationalFilteredLancamentos
+      .filter(l => !isPago(l.status) && toDateOnlyStr(l.data_vencimento) >= hojeIso)
+      .reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0);
+    return { pagos, pendentes, atrasados };
+  }, [hojeIso, operationalFilteredLancamentos]);
 
   const despesasPorCategoria = useMemo(() => {
     const map = new Map<number, number>();
@@ -861,6 +869,11 @@ export function Dashboard() {
     if (others > 0) top.push({ id: -1, label: 'Outros', total: others });
     return top;
   }, [operationalFilteredLancamentos, categorias]);
+
+  const despesasTreemapData = useMemo(() => despesasPorCategoria.map(r => ({ x: r.label, y: r.total })), [despesasPorCategoria]);
+  const receitasTreemapData = useMemo(() => receitasPorCategoria.map(r => ({ x: r.label, y: r.total })), [receitasPorCategoria]);
+  const totalDespesasTreemap = useMemo(() => despesasTreemapData.reduce((acc, item) => acc + item.y, 0), [despesasTreemapData]);
+  const totalReceitasTreemap = useMemo(() => receitasTreemapData.reduce((acc, item) => acc + item.y, 0), [receitasTreemapData]);
 
   const despesasPorCentro = useMemo(() => {
     const map = new Map<number, number>();
@@ -1127,10 +1140,12 @@ export function Dashboard() {
       .sort((a, b) => (parseDateLocal(b.data_vencimento)?.getTime() || 0) - (parseDateLocal(a.data_vencimento)?.getTime() || 0))
       .map((lancamento) => ({
         ...lancamento,
+        categoriaId: Number(lancamento.plano_contas_id),
         categoriaNome: categoriaPorId.get(Number(lancamento.plano_contas_id)) || 'Sem categoria',
         centroNome: centroPorId.get(Number(lancamento.centro_custo_id)) || 'Sem centro',
         contaNome: contaPorId.get(Number((lancamento as any).conta_id))?.nome || 'Sem conta',
         bancoNome: contaPorId.get(Number((lancamento as any).conta_id))?.banco || 'Sem banco',
+        naoOperacional: categoriasExcluidasResultado.has(Number(lancamento.plano_contas_id)),
       }))
       .filter((lancamento) => {
         if (!query) return true;
@@ -1144,7 +1159,28 @@ export function Dashboard() {
         ].join(' ').toLowerCase();
         return haystack.includes(query);
       });
-  }, [analysisQuery, categoriaPorId, centroPorId, contaPorId, filteredLancamentos]);
+  }, [analysisQuery, categoriaPorId, centroPorId, contaPorId, filteredLancamentos, categoriasExcluidasResultado]);
+
+  const linhasAnaliticasResumo = useMemo(() => {
+    const receitasOperacionais = linhasAnaliticas
+      .filter((l) => isReceita(l.tipo) && !l.naoOperacional)
+      .reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0);
+    const despesasOperacionais = linhasAnaliticas
+      .filter((l) => isDespesa(l.tipo) && !l.naoOperacional)
+      .reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0);
+    const movimentosNaoOperacionais = linhasAnaliticas
+      .filter((l) => l.naoOperacional)
+      .reduce((acc, l) => acc + (isReceita(l.tipo) ? Number(l.valor_previsto || 0) : -Number(l.valor_previsto || 0)), 0);
+    const saldoConsolidado = linhasAnaliticas
+      .reduce((acc, l) => acc + (isReceita(l.tipo) ? Number(l.valor_previsto || 0) : -Number(l.valor_previsto || 0)), 0);
+
+    return {
+      receitasOperacionais,
+      despesasOperacionais,
+      movimentosNaoOperacionais,
+      saldoConsolidado,
+    };
+  }, [linhasAnaliticas]);
 
   const resumoExecutivoDashboard = useMemo(() => {
     const topDespesas = despesasPorCategoria.slice(0, 3).map((item) => ({ categoria: item.label, total: item.total }));
@@ -1340,7 +1376,7 @@ export function Dashboard() {
   };
 
   const chartCategorias = {
-    series: [{ name: 'Despesas Operacionais', data: despesasPorCategoria.map(r => ({ x: r.label, y: r.total })) }],
+    series: [{ name: 'Despesas Operacionais', data: despesasTreemapData }],
     options: {
       chart: {
         type: 'treemap',
@@ -1361,15 +1397,27 @@ export function Dashboard() {
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
       legend: { show: false },
-      dataLabels: { enabled: false },
+      dataLabels: {
+        enabled: true,
+        style: { fontSize: '11px', fontWeight: 700 },
+        formatter: (_: string, opts: any) => {
+          const point = despesasTreemapData[opts.dataPointIndex];
+          if (!point) return '';
+          return formatTreemapLabel(point.x, point.y, totalDespesasTreemap);
+        },
+      },
       plotOptions: { treemap: { distributed: true, enableShades: true, shadeIntensity: 0.18, borderRadius: 8 } },
-      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
+      tooltip: {
+        theme: isDark ? 'dark' : 'light',
+        x: { formatter: (_: string, opts: any) => despesasTreemapData[opts.dataPointIndex]?.x || '' },
+        y: { formatter: (val: number) => BRL.format(val) }
+      },
       colors: ['#ef4444', '#f97316', '#f59e0b', '#fb7185', '#e11d48', '#c2410c', '#a855f7']
     } as any
   };
 
   const chartReceitasCategorias = {
-    series: [{ name: 'Receitas Operacionais', data: receitasPorCategoria.map(r => ({ x: r.label, y: r.total })) }],
+    series: [{ name: 'Receitas Operacionais', data: receitasTreemapData }],
     options: {
       chart: {
         type: 'treemap',
@@ -1390,9 +1438,21 @@ export function Dashboard() {
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
       legend: { show: false },
-      dataLabels: { enabled: false },
+      dataLabels: {
+        enabled: true,
+        style: { fontSize: '11px', fontWeight: 700 },
+        formatter: (_: string, opts: any) => {
+          const point = receitasTreemapData[opts.dataPointIndex];
+          if (!point) return '';
+          return formatTreemapLabel(point.x, point.y, totalReceitasTreemap);
+        },
+      },
       plotOptions: { treemap: { distributed: true, enableShades: true, shadeIntensity: 0.18, borderRadius: 8 } },
-      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
+      tooltip: {
+        theme: isDark ? 'dark' : 'light',
+        x: { formatter: (_: string, opts: any) => receitasTreemapData[opts.dataPointIndex]?.x || '' },
+        y: { formatter: (val: number) => BRL.format(val) }
+      },
       colors: ['#10b981', '#14b8a6', '#22c55e', '#06b6d4', '#0ea5e9', '#84cc16', '#3b82f6']
     } as any
   };
@@ -1633,19 +1693,31 @@ export function Dashboard() {
   };
 
   const chartStatus = {
-    series: [
-      { name: 'Pagos', data: [statusDistrib.pagos] },
-      { name: 'Pendentes', data: [statusDistrib.pendentes] },
-    ],
+    series: [statusDistrib.pagos, statusDistrib.pendentes, statusDistrib.atrasados],
     options: {
-      chart: { type: 'bar', height: 220, stacked: true, toolbar: { show: false } },
+      chart: { type: 'donut', height: 220, toolbar: { show: false } },
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
+      labels: ['Pagos', 'Pendentes', 'Atrasados'],
       dataLabels: { enabled: false },
-      colors: ['#10b981', '#f59e0b'],
+      colors: ['#10b981', '#f59e0b', '#ef4444'],
       legend: { position: 'top' },
-      plotOptions: { bar: { horizontal: true, borderRadius: 10, barHeight: '42%' } },
-      xaxis: { categories: ['Status financeiro'], labels: { formatter: (val: number) => BRL.format(val) } },
+      plotOptions: {
+        pie: {
+          donut: {
+            size: '68%',
+            labels: {
+              show: true,
+              total: {
+                show: true,
+                label: 'Total',
+                formatter: () => BRL.format(statusDistrib.pagos + statusDistrib.pendentes + statusDistrib.atrasados),
+              },
+            },
+          },
+        },
+      },
+      stroke: { width: 0 },
       tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } }
     } as any
   };
@@ -2561,7 +2633,7 @@ export function Dashboard() {
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Distribuição por Status</h3>
               <span className="text-xs text-slate-400">Valor por status</span>
             </div>
-            <AsyncApexChart type="bar" height={220} series={chartStatus.series} options={chartStatus.options} />
+            <AsyncApexChart type="donut" height={220} series={chartStatus.series} options={chartStatus.options} />
           </div>
         </div>
 
@@ -2746,17 +2818,23 @@ export function Dashboard() {
                 <p className="mt-2 text-xl font-black text-slate-900 dark:text-white">{linhasAnaliticas.length}</p>
               </div>
               <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Receitas</p>
-                <p className="mt-2 text-xl font-black text-emerald-600">{BRL.format(linhasAnaliticas.filter((l) => isReceita(l.tipo)).reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0))}</p>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Receitas operacionais</p>
+                <p className="mt-2 text-xl font-black text-emerald-600">{BRL.format(linhasAnaliticasResumo.receitasOperacionais)}</p>
               </div>
               <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Despesas</p>
-                <p className="mt-2 text-xl font-black text-rose-500">{BRL.format(linhasAnaliticas.filter((l) => isDespesa(l.tipo)).reduce((acc, l) => acc + Number(l.valor_previsto || 0), 0))}</p>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Despesas operacionais</p>
+                <p className="mt-2 text-xl font-black text-rose-500">{BRL.format(linhasAnaliticasResumo.despesasOperacionais)}</p>
               </div>
               <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Saldo</p>
-                <p className={`mt-2 text-xl font-black ${linhasAnaliticas.reduce((acc, l) => acc + (isReceita(l.tipo) ? Number(l.valor_previsto || 0) : -Number(l.valor_previsto || 0)), 0) >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>
-                  {BRL.format(linhasAnaliticas.reduce((acc, l) => acc + (isReceita(l.tipo) ? Number(l.valor_previsto || 0) : -Number(l.valor_previsto || 0)), 0))}
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Não operacionais</p>
+                <p className={`mt-2 text-xl font-black ${linhasAnaliticasResumo.movimentosNaoOperacionais >= 0 ? 'text-sky-600' : 'text-amber-600'}`}>
+                  {BRL.format(linhasAnaliticasResumo.movimentosNaoOperacionais)}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Saldo consolidado</p>
+                <p className={`mt-2 text-xl font-black ${linhasAnaliticasResumo.saldoConsolidado >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>
+                  {BRL.format(linhasAnaliticasResumo.saldoConsolidado)}
                 </p>
               </div>
             </div>
@@ -2786,7 +2864,16 @@ export function Dashboard() {
                     <tr key={`analitico-${lancamento.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
                       <td className="px-4 py-3 font-mono text-slate-500">{parseDateLocal(lancamento.data_vencimento)?.toLocaleDateString('pt-BR')}</td>
                       <td className="px-4 py-3 text-slate-700 dark:text-slate-100">{lancamento.descricao}</td>
-                      <td className="px-4 py-3 text-slate-500">{lancamento.categoriaNome}</td>
+                      <td className="px-4 py-3 text-slate-500">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{lancamento.categoriaNome}</span>
+                          {lancamento.naoOperacional && (
+                            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">
+                              Não operacional
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-slate-500">{lancamento.centroNome}</td>
                       <td className="px-4 py-3 text-slate-500">{lancamento.contaNome}</td>
                       <td className="px-4 py-3 text-slate-500">{lancamento.bancoNome}</td>
@@ -2847,8 +2934,7 @@ export function Dashboard() {
 
       {visibleKpiMeaning && (
         <div
-          className="pointer-events-none fixed z-120 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-left shadow-2xl shadow-slate-950/30 dark:border-slate-700"
-          style={{ left: visibleKpiMeaning.x, top: visibleKpiMeaning.y }}
+          className="pointer-events-none fixed bottom-4 right-4 z-120 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-left shadow-2xl shadow-slate-950/30 dark:border-slate-700 lg:bottom-6 lg:right-6"
         >
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">{DASHBOARD_HELP[visibleKpiMeaning.key].titulo}</p>
           <p className="mt-2 text-sm font-semibold text-white">{DASHBOARD_HELP[visibleKpiMeaning.key].significado}</p>

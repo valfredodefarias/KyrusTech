@@ -3,7 +3,7 @@ import { Suspense, lazy } from 'react';
 const ApexChart = lazy(() => import('react-apexcharts'));
 
 type AsyncApexChartProps = {
-  type: 'line' | 'bar' | 'area' | 'treemap';
+  type: 'line' | 'bar' | 'area' | 'treemap' | 'donut';
   height: number;
   series: any;
   options: any;

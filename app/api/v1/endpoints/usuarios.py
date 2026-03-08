@@ -10,6 +10,7 @@ from app.db.session import get_db
 from app.crud.crud_usuario import create_user
 from app.schemas.usuario import UserCreate, UserRead
 from app.api.v1.deps import get_current_active_user, get_empresa_id_from_user
+from app.models.empresa import Empresa
 from app.models.usuario import Usuario
 
 UPLOAD_DIR = Path("static/uploads/usuarios")
@@ -25,10 +26,16 @@ def create(
 ):
     """Cria um novo usuário vinculado a uma empresa."""
     logger.info(f"Recebida requisição para criar usuário: {user_in.email} para empresa ID: {user_in.empresa_id}")
-    
-    # Futuramente: Adicionar verificação se email já existe
-    
-    user = create_user(db=db, user_in=user_in)
+
+    if user_in.empresa_id is not None:
+        empresa = db.get(Empresa, user_in.empresa_id)
+        if not empresa or empresa.is_deleted:
+            raise HTTPException(status_code=404, detail="A empresa informada não existe mais ou foi removida.")
+
+    try:
+        user = create_user(db=db, user_in=user_in)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     
     logger.success(f"Usuário '{user.email}' criado com sucesso com ID: {user.id}")
     return user

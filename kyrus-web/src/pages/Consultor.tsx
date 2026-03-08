@@ -606,7 +606,8 @@ export function Consultor() {
       }
     } catch (error) {
       console.error(error);
-      alert('Erro ao criar usuário');
+      const detail = (error as any)?.response?.data?.detail;
+      alert(typeof detail === 'string' ? detail : 'Erro ao criar usuário');
     }
   }
 

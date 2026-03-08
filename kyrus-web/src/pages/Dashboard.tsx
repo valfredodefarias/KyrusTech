@@ -952,6 +952,8 @@ export function Dashboard() {
   const [analysisQuery, setAnalysisQuery] = useState('');
   const [financeDrilldown, setFinanceDrilldown] = useState<FinanceDrilldown>(null);
   const [visibleKpiMeaning, setVisibleKpiMeaning] = useState<KpiTooltipState | null>(null);
+  const [showDashboardFiltersSidebar, setShowDashboardFiltersSidebar] = useState(false);
+  const [dashboardFiltersRailCollapsed, setDashboardFiltersRailCollapsed] = useState(true);
   const [dashboardViews, setDashboardViews] = useState<DashboardView[]>([createDefaultDashboardView()]);
   const [dashboardViewsEmpresaId, setDashboardViewsEmpresaId] = useState<number | null>(null);
   const [activeDashboardViewId, setActiveDashboardViewId] = useState('default');
@@ -2188,6 +2190,33 @@ export function Dashboard() {
     setStatusFiltro((prev) => prev === nextStatus ? 'TODOS' : nextStatus);
   };
 
+  const toggleDashboardCategoria = (categoriaId: number) => {
+    setSelectedCategorias((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoriaId)) next.delete(categoriaId);
+      else next.add(categoriaId);
+      return next;
+    });
+  };
+
+  const toggleDashboardCentro = (centroId: number) => {
+    setSelectedCentro((prev) => prev === centroId ? null : centroId);
+  };
+
+  const clearAllDashboardFilters = () => {
+    setSelectedCategorias(new Set());
+    setSelectedCentro(null);
+    setSelectedConta(null);
+    setSelectedDate(null);
+    setSelectedMonth(null);
+    setStatusFiltro('TODOS');
+    setTipoFiltro('TODOS');
+    setPrevistoFiltro('TODOS');
+    setCompetenciaFiltro('');
+    setFiltroHojeAtivo(false);
+    setFinanceDrilldown(null);
+  };
+
   const widgetAutoMetrics = useMemo<Record<DashboardWidgetId, { w: number; h: number }>>(() => ({
     // Heights below are derived from the card chrome plus a bounded number of visible table rows.
     heatmap_calendar: { w: 8, h: Math.max(6, Math.min(9, heatmapCalendario.weeks.length + 2)) },
@@ -3060,6 +3089,203 @@ export function Dashboard() {
     </div>
   );
 
+  const dashboardActiveFiltersCount = [
+    selectedCategorias.size > 0 ? 1 : 0,
+    selectedCentro ? 1 : 0,
+    selectedConta ? 1 : 0,
+    selectedDate ? 1 : 0,
+    selectedMonth ? 1 : 0,
+    financeDrilldown ? 1 : 0,
+    statusFiltro !== 'TODOS' ? 1 : 0,
+    tipoFiltro !== 'TODOS' ? 1 : 0,
+    previstoFiltro !== 'TODOS' ? 1 : 0,
+    competenciaFiltro ? 1 : 0,
+    filtroHojeAtivo ? 1 : 0,
+  ].filter(Boolean).length;
+
+  const dashboardFiltersSidebarContent = (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 dark:border-slate-700">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Filtros do dashboard</p>
+          <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Refine o recorte</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          {dashboardActiveFiltersCount > 0 && (
+            <span className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-bold text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">
+              {dashboardActiveFiltersCount} ativo(s)
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowDashboardFiltersSidebar(false)}
+            className="xl:hidden rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 space-y-6 overflow-y-auto p-4 custom-scrollbar">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Ativos agora</p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-300">Veja e remova qualquer filtro com um clique.</p>
+            </div>
+            <button
+              type="button"
+              onClick={clearAllDashboardFilters}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-white dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              Limpar tudo
+            </button>
+          </div>
+          <div className="mt-4">{selectedChips}</div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-[0.14em] text-slate-400 mb-2">Status rápido</label>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { key: 'HOJE', label: 'Hoje' },
+              { key: 'TODOS', label: 'Todos' },
+              { key: 'PAGO', label: 'Pagos' },
+              { key: 'PENDENTE', label: 'Pendentes' },
+              { key: 'ATRASADO', label: 'Atrasados' },
+            ] as const).map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => {
+                  if (item.key === 'HOJE') {
+                    setFiltroHojeAtivo((prev) => !prev);
+                    return;
+                  }
+                  setStatusFiltro(item.key);
+                }}
+                className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${item.key === 'HOJE' ? (filtroHojeAtivo ? 'border-cyan-500 bg-cyan-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-slate-800') : (statusFiltro === item.key ? 'border-indigo-500 bg-indigo-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-slate-800')}`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-[0.14em] text-slate-400 mb-2">Tipo</label>
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { key: 'TODOS', label: 'Todos' },
+              { key: 'RECEITA', label: 'Receitas' },
+              { key: 'DESPESA', label: 'Despesas' },
+            ] as const).map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setTipoFiltro(item.key)}
+                className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${tipoFiltro === item.key ? 'border-emerald-500 bg-emerald-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-[0.14em] text-slate-400 mb-2">Previsto</label>
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { key: 'TODOS', label: 'Todos' },
+              { key: 'SIM', label: 'Sim' },
+              { key: 'NAO', label: 'Não' },
+            ] as const).map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setPrevistoFiltro(item.key)}
+                className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${previstoFiltro === item.key ? 'border-amber-500 bg-amber-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-[0.14em] text-slate-400 mb-2">Competência</label>
+          <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 dark:border-slate-700 dark:bg-slate-900/50">
+            <CalendarRange className="h-4 w-4 text-slate-400" />
+            <input
+              value={competenciaFiltro}
+              onChange={(e) => setCompetenciaFiltro(e.target.value)}
+              placeholder="MM-AAAA"
+              className="w-full bg-transparent text-sm font-bold text-slate-700 outline-none dark:text-slate-200"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-[0.14em] text-slate-400 mb-2">Conta</label>
+          <div className="grid grid-cols-1 gap-2 max-h-56 overflow-y-auto custom-scrollbar pr-1">
+            <button
+              type="button"
+              onClick={() => setSelectedConta(null)}
+              className={`rounded-2xl border px-3 py-2 text-left text-sm font-bold transition ${selectedConta === null ? 'border-cyan-500 bg-cyan-50 text-cyan-700 dark:border-cyan-400 dark:bg-cyan-500/10 dark:text-cyan-300' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+            >
+              Todas as contas
+            </button>
+            {contas.map((conta) => (
+              <button
+                key={conta.id}
+                type="button"
+                onClick={() => setSelectedConta((prev) => prev === conta.id ? null : conta.id)}
+                className={`rounded-2xl border px-3 py-2 text-left text-sm font-bold transition ${selectedConta === conta.id ? 'border-cyan-500 bg-cyan-50 text-cyan-700 dark:border-cyan-400 dark:bg-cyan-500/10 dark:text-cyan-300' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+              >
+                {conta.nome}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-[0.14em] text-slate-400 mb-2">Centro de custo</label>
+          <div className="flex flex-wrap gap-2">
+            {centros.map((centro) => (
+              <button
+                key={centro.id}
+                type="button"
+                onClick={() => toggleDashboardCentro(centro.id)}
+                className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${selectedCentro === centro.id ? 'border-indigo-500 bg-indigo-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+              >
+                {centro.nome}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-[0.14em] text-slate-400 mb-2">Categorias</label>
+          <div className="grid grid-cols-1 gap-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+            {categorias.map((categoria) => {
+              const active = selectedCategorias.has(categoria.id);
+              return (
+                <button
+                  key={categoria.id}
+                  type="button"
+                  onClick={() => toggleDashboardCategoria(categoria.id)}
+                  className={`rounded-2xl border px-3 py-2 text-left text-sm font-bold transition ${active ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-400 dark:bg-emerald-500/10 dark:text-emerald-300' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+                >
+                  {categoria.nome}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderDashboardWidget = (widgetId: DashboardWidgetId) => {
     const widget = activeDashboardWidgets.find((item) => item.id === widgetId);
     if (widget?.customDefinition) {
@@ -3561,6 +3787,24 @@ export function Dashboard() {
           </div>
           <button
             type="button"
+            onClick={() => setShowDashboardFiltersSidebar(true)}
+            className={`xl:hidden inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition ${showDashboardFiltersSidebar ? 'border-sky-500 bg-sky-600 text-white' : 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700'}`}
+          >
+            <Filter className="h-4 w-4" />
+            Filtros
+            {dashboardActiveFiltersCount > 0 && <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px]">{dashboardActiveFiltersCount}</span>}
+          </button>
+          <button
+            type="button"
+            onClick={() => setDashboardFiltersRailCollapsed((prev) => !prev)}
+            className={`hidden xl:inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition ${!dashboardFiltersRailCollapsed ? 'border-sky-500 bg-sky-600 text-white' : 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700'}`}
+          >
+            <Filter className="h-4 w-4" />
+            {dashboardFiltersRailCollapsed ? 'Abrir filtros' : 'Fechar filtros'}
+            {dashboardActiveFiltersCount > 0 && <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px]">{dashboardActiveFiltersCount}</span>}
+          </button>
+          <button
+            type="button"
             onClick={toggleDashboardEditMode}
             className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition ${dashboardEditMode ? 'border-sky-400 bg-sky-50 text-sky-700 dark:border-sky-500 dark:bg-sky-500/10 dark:text-sky-300' : 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700'}`}
           >
@@ -3687,6 +3931,25 @@ export function Dashboard() {
           </div>
         </section>
 
+        <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-slate-500">
+              <List className="w-4 h-4" />
+              <span className="text-xs font-bold uppercase">Filtros Ativos</span>
+            </div>
+            {dashboardActiveFiltersCount > 0 && (
+              <button
+                type="button"
+                onClick={clearAllDashboardFilters}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                Limpar tudo
+              </button>
+            )}
+          </div>
+          <div className="mt-3">{selectedChips}</div>
+        </div>
+
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
             {
@@ -3765,81 +4028,6 @@ export function Dashboard() {
               <p className="mt-3 text-xs font-semibold text-slate-400">Clique para cruzar o dashboard por este KPI</p>
             </button>
           ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {([
-            { key: 'HOJE', label: 'Hoje' },
-            { key: 'TODOS', label: 'Todos status' },
-            { key: 'PAGO', label: 'Pagos' },
-            { key: 'PENDENTE', label: 'Pendentes' },
-            { key: 'ATRASADO', label: 'Atrasados' }
-          ] as const).map(f => (
-            <button
-              key={f.key}
-              onClick={() => {
-                if (f.key === 'HOJE') {
-                  setFiltroHojeAtivo((prev) => !prev);
-                } else {
-                  setStatusFiltro(f.key);
-                }
-              }}
-              className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${f.key === 'HOJE' ? (filtroHojeAtivo ? 'bg-cyan-600 text-white border-cyan-500' : 'bg-white/80 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700') : (statusFiltro === f.key ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white/80 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700')}`}
-            >
-              {f.label}
-            </button>
-          ))}
-          {([
-            { key: 'TODOS', label: 'Todos tipos' },
-            { key: 'RECEITA', label: 'Receitas' },
-            { key: 'DESPESA', label: 'Despesas' }
-          ] as const).map(f => (
-            <button
-              key={f.key}
-              onClick={() => setTipoFiltro(f.key)}
-              className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${tipoFiltro === f.key ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-white/80 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {([
-            { key: 'TODOS', label: 'Previsto (Todos)' },
-            { key: 'SIM', label: 'Previsto' },
-            { key: 'NAO', label: 'Não previsto' }
-          ] as const).map(f => (
-            <button
-              key={f.key}
-              onClick={() => setPrevistoFiltro(f.key)}
-              className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${previstoFiltro === f.key ? 'bg-amber-600 text-white border-amber-500' : 'bg-white/80 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-            >
-              {f.label}
-            </button>
-          ))}
-          <div className="flex items-center gap-2 bg-white/80 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1.5">
-            <CalendarRange className="w-4 h-4 text-slate-400" />
-            <input
-              value={competenciaFiltro}
-              onChange={(e) => setCompetenciaFiltro(e.target.value)}
-              placeholder="Competência MM-AAAA"
-              className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 outline-none w-36"
-            />
-          </div>
-          <div className="flex items-center gap-2 bg-white/80 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1.5">
-            <Landmark className="w-4 h-4 text-slate-400" />
-            <select
-              value={selectedConta ?? ''}
-              onChange={(e) => setSelectedConta(e.target.value ? Number(e.target.value) : null)}
-              className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 outline-none"
-            >
-              <option value="">Todas as contas</option>
-              {contas.map((conta) => (
-                <option key={conta.id} value={conta.id}>{conta.nome}</option>
-              ))}
-            </select>
-          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.5fr_1fr]">
@@ -3975,13 +4163,6 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-slate-500">
-            <List className="w-4 h-4" />
-            <span className="text-xs font-bold uppercase">Filtros Ativos</span>
-          </div>
-          {selectedChips}
-        </div>
         {dashboardEditMode && hiddenDashboardWidgets.length > 0 && (
           <div className="rounded-3xl border border-dashed border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900 dark:bg-sky-500/10">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -4246,6 +4427,25 @@ export function Dashboard() {
             </div>
           </div>
         )}
+
+        {showDashboardFiltersSidebar && (
+          <button
+            type="button"
+            aria-label="Fechar filtros"
+            onClick={() => setShowDashboardFiltersSidebar(false)}
+            className="fixed inset-0 z-[65] bg-slate-950/40 backdrop-blur-sm xl:hidden"
+          />
+        )}
+
+        <div className={`fixed inset-y-0 right-0 z-[70] w-full max-w-sm transform border-l border-slate-200 bg-white shadow-2xl transition-transform duration-300 dark:border-slate-700 dark:bg-slate-900 xl:hidden ${showDashboardFiltersSidebar ? 'translate-x-0' : 'translate-x-full'}`}>
+          {dashboardFiltersSidebarContent}
+        </div>
+
+        <div className={`pointer-events-none fixed bottom-4 right-4 top-24 z-[60] hidden w-[360px] transition-all duration-300 xl:block ${dashboardFiltersRailCollapsed ? 'translate-x-[110%] opacity-0' : 'translate-x-0 opacity-100'}`}>
+          <div className="pointer-events-auto flex h-full flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            {dashboardFiltersSidebarContent}
+          </div>
+        </div>
 
         <div ref={dashboardGridRef} className="dashboard-grid rounded-4xl border border-slate-200/80 bg-white/70 p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
           <GridLayout

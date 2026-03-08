@@ -63,7 +63,7 @@ type FinanceDrilldown =
   | 'RECEBER_TOTAL'
   | null;
 
-type KpiMeaningKey =
+type DashboardHelpKey =
   | 'RECEITAS'
   | 'DESPESAS'
   | 'SALDO'
@@ -72,10 +72,31 @@ type KpiMeaningKey =
   | 'TICKET_MEDIO'
   | 'COBERTURA_FINANCEIRA'
   | 'MAIOR_PRESSAO'
-  | 'MAIOR_MOTOR_RECEITA';
+  | 'MAIOR_MOTOR_RECEITA'
+  | 'FLUXO_CAIXA'
+  | 'DESPESAS_CATEGORIA'
+  | 'RECEITAS_CATEGORIA'
+  | 'ACUMULADO_REC_DESP'
+  | 'RESULTADO_OPERACIONAL'
+  | 'RESUMO_OPERACIONAL'
+  | 'RECEITAS_DESPESAS_ANO'
+  | 'MARGEM_OPERACIONAL_PAINEL'
+  | 'COMPARATIVO_ANO'
+  | 'SAZONALIDADE'
+  | 'CENARIOS'
+  | 'RESULTADO_ACUMULADO'
+  | 'PULSO_ACUMULADO'
+  | 'FECHAMENTO_ACUMULADO'
+  | 'PICO_ACUMULADO'
+  | 'VALE_ACUMULADO'
+  | 'AMPLITUDE_ACUMULADO'
+  | 'STATUS_DISTRIB'
+  | 'PRODUTIVIDADE'
+  | 'DESPESAS_CENTRO'
+  | 'ULTIMOS_LANCAMENTOS';
 
 type KpiTooltipState = {
-  key: KpiMeaningKey;
+  key: DashboardHelpKey;
   x: number;
   y: number;
 };
@@ -98,51 +119,186 @@ const FINANCE_DRILLDOWN_LABELS: Record<Exclude<FinanceDrilldown, null>, string> 
   RECEBER_TOTAL: 'Total contas a receber',
 };
 
-const KPI_MEANINGS: Record<KpiMeaningKey, { titulo: string; significado: string; utilidade: string }> = {
+const DASHBOARD_HELP: Record<DashboardHelpKey, { titulo: string; significado: string; calculo: string; utilidade: string }> = {
   RECEITAS: {
     titulo: 'Receitas',
     significado: 'Soma de todas as entradas filtradas no recorte atual.',
+    calculo: 'Soma de valor_previsto de todos os lançamentos classificados como receita após aplicar período, conta, centro, categoria e demais filtros.',
     utilidade: 'Mostra o tamanho da geração de caixa e permite comparar rapidamente contra despesas e saldo.'
   },
   DESPESAS: {
     titulo: 'Despesas',
     significado: 'Soma de todas as saídas filtradas no recorte atual.',
+    calculo: 'Soma de valor_previsto de todos os lançamentos classificados como despesa dentro do recorte ativo.',
     utilidade: 'Ajuda a localizar pressão de custo e entender quanto da operação está consumindo caixa.'
   },
   SALDO: {
     titulo: 'Saldo',
     significado: 'Diferença entre receitas e despesas dentro do recorte analisado.',
+    calculo: 'Receitas menos despesas no recorte filtrado.',
     utilidade: 'Resume se o período está gerando ou destruindo caixa após todos os filtros aplicados.'
   },
   PAGOS: {
     titulo: 'Pagos',
     significado: 'Total financeiro já executado com status pago.',
+    calculo: 'Soma dos lançamentos com status PAGO dentro do recorte atual.',
     utilidade: 'Mede o quanto do planejamento virou execução real e ajuda a comparar previsto contra realizado.'
   },
   MARGEM_CORRENTE: {
     titulo: 'Margem corrente',
     significado: 'Percentual do saldo sobre a receita no período filtrado.',
+    calculo: 'Saldo dividido por receitas, multiplicado por 100.',
     utilidade: 'Indica se a operação está preservando resultado depois de absorver as despesas.'
   },
   TICKET_MEDIO: {
     titulo: 'Ticket médio',
     significado: 'Valor médio por lançamento dentro do recorte atual.',
+    calculo: 'Soma de receitas e despesas dividida pela quantidade de lançamentos filtrados.',
     utilidade: 'Ajuda a distinguir volume operacional de concentração em poucos lançamentos grandes.'
   },
   COBERTURA_FINANCEIRA: {
     titulo: 'Cobertura financeira',
     significado: 'Percentual das despesas do recorte que já encontra cobertura no valor executado/pago.',
+    calculo: 'Pagos divididos pelas despesas, multiplicado por 100.',
     utilidade: 'Mostra quão protegido o caixa está para sustentar as saídas já mapeadas. Se cair, o risco operacional sobe.'
   },
   MAIOR_PRESSAO: {
     titulo: 'Maior pressão',
     significado: 'Categoria de despesa mais pesada no recorte atual.',
+    calculo: 'Maior total agregado entre as categorias de despesa filtradas.',
     utilidade: 'Aponta onde vale agir primeiro para renegociar, cortar ou redistribuir esforço financeiro.'
   },
   MAIOR_MOTOR_RECEITA: {
     titulo: 'Maior motor de receita',
     significado: 'Categoria que mais impulsiona entradas no recorte atual.',
+    calculo: 'Maior total agregado entre as categorias de receita filtradas.',
     utilidade: 'Mostra a alavanca comercial ou operacional mais relevante para proteger crescimento.'
+  },
+  FLUXO_CAIXA: {
+    titulo: 'Fluxo de caixa',
+    significado: 'Compara entradas e saídas ao longo do tempo no período selecionado.',
+    calculo: 'Agrupa receitas e despesas por dia ou mês e plota as duas curvas lado a lado.',
+    utilidade: 'Ajuda a localizar quando o caixa aperta, onde há concentração e em quais datas vale agir primeiro.'
+  },
+  DESPESAS_CATEGORIA: {
+    titulo: 'Despesas por categoria',
+    significado: 'Ranking das categorias que mais consomem caixa.',
+    calculo: 'Soma das despesas por plano de contas, ordenadas do maior para o menor valor.',
+    utilidade: 'Mostra onde cortar, renegociar ou acompanhar com mais disciplina.'
+  },
+  RECEITAS_CATEGORIA: {
+    titulo: 'Receitas por categoria',
+    significado: 'Ranking das categorias que mais geram entrada.',
+    calculo: 'Soma das receitas por plano de contas, ordenadas do maior para o menor valor.',
+    utilidade: 'Mostra de onde vem a força da operação e o que deve ser protegido para manter crescimento.'
+  },
+  ACUMULADO_REC_DESP: {
+    titulo: 'Acumulado de receitas x despesas',
+    significado: 'Evolução acumulada das entradas e saídas no período.',
+    calculo: 'Faz a soma corrida de receitas e de despesas separadamente ao longo do tempo.',
+    utilidade: 'Ajuda a ver se a operação compensa a saída ao longo do período ou apenas em pontos isolados.'
+  },
+  RESULTADO_OPERACIONAL: {
+    titulo: 'Resultado operacional',
+    significado: 'Saldo mensal ou anual após confrontar receitas e despesas.',
+    calculo: 'Para cada mês, calcula receitas menos despesas.',
+    utilidade: 'Mostra quais meses sustentam o resultado e quais meses drenam margem.'
+  },
+  RESUMO_OPERACIONAL: {
+    titulo: 'Resumo operacional',
+    significado: 'Resumo rápido da média, melhor e pior desempenho do recorte.',
+    calculo: 'Usa a série de resultado operacional para extrair média, máximo e mínimo.',
+    utilidade: 'Dá uma leitura executiva sem precisar percorrer todo o gráfico principal.'
+  },
+  RECEITAS_DESPESAS_ANO: {
+    titulo: 'Receitas x despesas do ano',
+    significado: 'Comparação mensal da composição do resultado.',
+    calculo: 'Empilha receitas e despesas por mês dentro do ano selecionado.',
+    utilidade: 'Mostra se o problema é falta de venda, excesso de custo ou os dois.'
+  },
+  MARGEM_OPERACIONAL_PAINEL: {
+    titulo: 'Margem operacional',
+    significado: 'Percentual de sobra operacional em cada mês.',
+    calculo: 'Para cada mês: (receita - despesa) dividido por receita, em percentual.',
+    utilidade: 'Mostra a qualidade do resultado, não só o tamanho absoluto dele.'
+  },
+  COMPARATIVO_ANO: {
+    titulo: 'Comparativo ano a ano',
+    significado: 'Confronta o comportamento do ano atual com o anterior.',
+    calculo: 'Plota as duas séries anuais de resultado operacional na mesma linha do tempo.',
+    utilidade: 'Ajuda a separar piora estrutural de variação pontual.'
+  },
+  SAZONALIDADE: {
+    titulo: 'Sazonalidade',
+    significado: 'Índice de quanto cada mês fica acima ou abaixo da média de atividade.',
+    calculo: 'Compara o volume total do mês com a média anual e converte em índice percentual.',
+    utilidade: 'Ajuda a planejar caixa, estoque, equipe e cobrança com antecedência.'
+  },
+  CENARIOS: {
+    titulo: 'Cenários',
+    significado: 'Faixa estimada de resultado considerando a volatilidade histórica do período.',
+    calculo: 'Parte do saldo atual e soma ou subtrai o desvio padrão da série de resultados mensais para formar pessimista, realista e otimista.',
+    utilidade: 'Serve para planejamento e proteção de caixa, mostrando um intervalo plausível em vez de um único número.'
+  },
+  RESULTADO_ACUMULADO: {
+    titulo: 'Resultado acumulado',
+    significado: 'Curva do saldo acumulado ao longo do período.',
+    calculo: 'Soma progressiva dos resultados parciais de cada ponto temporal.',
+    utilidade: 'Mostra quando a empresa entrou em tração ou quando começou a perder fôlego.'
+  },
+  PULSO_ACUMULADO: {
+    titulo: 'Pulso do acumulado',
+    significado: 'Snapshot executivo da curva acumulada em quatro leituras.',
+    calculo: 'Extrai o fechamento final, o maior pico, o menor vale e a amplitude da série acumulada.',
+    utilidade: 'Ajuda a explicar rapidamente estabilidade, stress e volatilidade do caixa sem ler o gráfico inteiro.'
+  },
+  FECHAMENTO_ACUMULADO: {
+    titulo: 'Fechamento',
+    significado: 'Valor final da curva acumulada no período.',
+    calculo: 'Último ponto do resultado acumulado.',
+    utilidade: 'Resume como o caixa terminou o recorte.'
+  },
+  PICO_ACUMULADO: {
+    titulo: 'Pico',
+    significado: 'Maior nível atingido pela curva acumulada.',
+    calculo: 'Maior valor observado na série de resultado acumulado.',
+    utilidade: 'Mostra o melhor momento de folga do caixa.'
+  },
+  VALE_ACUMULADO: {
+    titulo: 'Vale',
+    significado: 'Menor nível atingido pela curva acumulada.',
+    calculo: 'Menor valor observado na série de resultado acumulado.',
+    utilidade: 'Mostra o ponto de maior aperto ou risco de caixa.'
+  },
+  AMPLITUDE_ACUMULADO: {
+    titulo: 'Amplitude',
+    significado: 'Distância entre o pico e o vale do acumulado.',
+    calculo: 'Pico menos vale.',
+    utilidade: 'Mede a oscilação do caixa e ajuda a dimensionar a volatilidade operacional.'
+  },
+  STATUS_DISTRIB: {
+    titulo: 'Distribuição por status',
+    significado: 'Divide o valor entre o que já foi pago e o que continua pendente.',
+    calculo: 'Separa o valor total dos lançamentos em dois blocos: pagos e pendentes.',
+    utilidade: 'Ajuda a medir execução versus fila financeira pendente.'
+  },
+  PRODUTIVIDADE: {
+    titulo: 'Produtividade',
+    significado: 'Painel de execução financeira e carga operacional.',
+    calculo: 'Combina percentual executado, tarefas pendentes e resultado do período.',
+    utilidade: 'Mostra se a operação está performando, atrasando ou entregando resultado com eficiência.'
+  },
+  DESPESAS_CENTRO: {
+    titulo: 'Despesas por centro',
+    significado: 'Ranking dos centros de custo mais pesados.',
+    calculo: 'Soma as despesas por centro de custo e ordena do maior para o menor.',
+    utilidade: 'Permite cobrar dono, meta e retorno por área ou unidade operacional.'
+  },
+  ULTIMOS_LANCAMENTOS: {
+    titulo: 'Últimos lançamentos',
+    significado: 'Lista analítica do recorte já filtrado.',
+    calculo: 'Ordena os lançamentos por data mais recente e exibe os primeiros itens.',
+    utilidade: 'Serve para validar o que está explicando os gráficos e exportar o recorte final.'
   }
 };
 
@@ -350,17 +506,17 @@ export function Dashboard() {
     setFinanceDrilldown((prev) => prev === next ? null : next);
   };
 
-  const scheduleKpiMeaning = (key: KpiMeaningKey, element: HTMLElement) => {
+  const scheduleKpiMeaning = (key: DashboardHelpKey, element: HTMLElement, delay = 650) => {
     if (hoverTimerRef.current) {
       window.clearTimeout(hoverTimerRef.current);
     }
     const rect = element.getBoundingClientRect();
     const tooltipWidth = Math.min(360, Math.max(280, rect.width));
     const x = Math.min(window.innerWidth - tooltipWidth - 20, Math.max(20, rect.left));
-    const y = Math.min(window.innerHeight - 140, rect.bottom + 14);
+    const y = Math.min(window.innerHeight - 180, rect.bottom + 14);
     hoverTimerRef.current = window.setTimeout(() => {
       setVisibleKpiMeaning({ key, x, y });
-    }, 650);
+    }, delay);
   };
 
   const hideKpiMeaning = () => {
@@ -1190,11 +1346,10 @@ export function Dashboard() {
   };
 
   const chartCategorias = {
-    series: despesasPorCategoria.map(r => r.total),
+    series: [{ name: 'Despesas', data: despesasPorCategoria.map(r => r.total) }],
     options: {
-      labels: despesasPorCategoria.map(r => r.label),
       chart: {
-        type: 'donut',
+        type: 'bar',
         height: 320,
         events: {
           dataPointSelection: (_: any, __: any, opts: any) => {
@@ -1211,19 +1366,20 @@ export function Dashboard() {
       },
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
-      legend: { position: 'bottom' },
+      legend: { show: false },
       dataLabels: { enabled: false },
+      plotOptions: { bar: { horizontal: true, borderRadius: 10, barHeight: '72%', distributed: true } },
+      xaxis: { categories: despesasPorCategoria.map(r => r.label), labels: { formatter: (val: number) => BRL.format(val) } },
       tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
-      plotOptions: { pie: { donut: { size: '70%' } } }
+      colors: ['#ef4444', '#f97316', '#f59e0b', '#fb7185', '#e11d48', '#c2410c', '#a855f7']
     } as any
   };
 
   const chartReceitasCategorias = {
-    series: receitasPorCategoria.map(r => r.total),
+    series: [{ name: 'Receitas', data: receitasPorCategoria.map(r => r.total) }],
     options: {
-      labels: receitasPorCategoria.map(r => r.label),
       chart: {
-        type: 'donut',
+        type: 'bar',
         height: 320,
         events: {
           dataPointSelection: (_: any, __: any, opts: any) => {
@@ -1240,10 +1396,12 @@ export function Dashboard() {
       },
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
-      legend: { position: 'bottom' },
+      legend: { show: false },
       dataLabels: { enabled: false },
+      plotOptions: { bar: { horizontal: true, borderRadius: 10, barHeight: '72%', distributed: true } },
+      xaxis: { categories: receitasPorCategoria.map(r => r.label), labels: { formatter: (val: number) => BRL.format(val) } },
       tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } },
-      plotOptions: { pie: { donut: { size: '70%' } } }
+      colors: ['#10b981', '#14b8a6', '#22c55e', '#06b6d4', '#0ea5e9', '#84cc16', '#3b82f6']
     } as any
   };
 
@@ -1283,24 +1441,11 @@ export function Dashboard() {
     ? resultadoMensal.values.reduce((acc, v) => acc + v, 0) / resultadoMensal.values.length
     : 0;
 
-  const chartProdutividade = {
-    series: [execucaoPct],
-    options: {
-      chart: { type: 'radialBar', height: 240 },
-      plotOptions: {
-        radialBar: {
-          hollow: { size: '62%' },
-          dataLabels: {
-            name: { show: true, color: '#94a3b8', fontSize: '11px' },
-            value: { show: true, fontSize: '22px', fontWeight: 700 }
-          }
-        }
-      },
-      labels: ['Execução'],
-      colors: ['#6366f1'],
-      theme: { mode: isDark ? 'dark' : 'light' }
-    } as any
-  };
+  const produtividadeIndicadores = [
+    { key: 'execucao', label: 'Execução financeira', valor: `${execucaoPct}%`, percentual: execucaoPct, tone: 'bg-indigo-500', apoio: 'Volume financeiro já executado.' },
+    { key: 'pendencias', label: 'Pendências operacionais', valor: `${todoPendentesPct}%`, percentual: todoPendentesPct, tone: 'bg-amber-500', apoio: 'Percentual de tarefas ainda abertas.' },
+    { key: 'cobertura', label: 'Cobertura de despesas', valor: `${coberturaPagamentos.toFixed(1)}%`, percentual: Math.max(0, Math.min(100, coberturaPagamentos)), tone: 'bg-emerald-500', apoio: 'Quanto das despesas já encontra cobertura financeira.' },
+  ];
 
   const chartResultadoOperacional = {
     series: [{ name: 'Resultado Operacional', data: resultadoMensalAno.values }],
@@ -1391,6 +1536,14 @@ export function Dashboard() {
     };
   }, [resultadoAcumulado.values]);
 
+  const dashboardGlossario = useMemo(() => (Object.entries(DASHBOARD_HELP).map(([key, value]) => ({
+    chave: key,
+    titulo: value.titulo,
+    significado: value.significado,
+    calculo: value.calculo,
+    utilidade: value.utilidade,
+  }))), []);
+
   const assistenteConfig = useMemo(() => ({
     tela: 'dashboard' as const,
     titulo: 'Assistente KyrusTECH',
@@ -1400,19 +1553,20 @@ export function Dashboard() {
       resumo_executivo: resumoExecutivoDashboard,
       sinais_executivos: sinaisExecutivos,
       bancos_em_foco: bancosEmFoco,
+      glossario_dashboard: dashboardGlossario,
       recorte_interativo: {
         dataSelecionada: selectedDate,
         mesSelecionado: selectedMonth,
         drilldownFinanceiro: financeDrilldown,
       },
-      instrucao_analise: 'Explique o dashboard em profundidade e entregue a analise agora, sem responder que vai analisar depois. Aponte causas, riscos, oportunidades e prioridades de melhoria viaveis. Estruture a resposta com: resumo executivo, sinais positivos, sinais de alerta, causas provaveis, impacto no caixa e lucro, acoes imediatas, acoes estruturais e perguntas de acompanhamento.',
+      instrucao_analise: 'Explique o dashboard em profundidade e entregue a analise agora, sem responder que vai analisar depois. Quando a pergunta for vaga, descubra o painel mais provavel pelo contexto e use o glossario do dashboard para explicar significado, calculo e utilidade pratica. Aponte causas, riscos, oportunidades e prioridades de melhoria viaveis. Estruture a resposta com: resumo executivo, sinais positivos, sinais de alerta, causas provaveis, impacto no caixa e lucro, acoes imediatas, acoes estruturais e perguntas de acompanhamento.',
     },
     sugestoes: [
       'Analise este dashboard como meu consultor financeiro e empresarial.',
       'Explique detalhadamente o que esta acontecendo nos indicadores.',
       'Quais melhorias praticas podem elevar resultado, caixa e previsibilidade?',
     ],
-  }), [aiContexto, bancosEmFoco, financeDrilldown, resumoExecutivoDashboard, selectedDate, selectedMonth, sinaisExecutivos]);
+  }), [aiContexto, bancosEmFoco, dashboardGlossario, financeDrilldown, resumoExecutivoDashboard, selectedDate, selectedMonth, sinaisExecutivos]);
 
   useAssistentePage(assistenteConfig);
 
@@ -1487,15 +1641,19 @@ export function Dashboard() {
   };
 
   const chartStatus = {
-    series: [statusDistrib.pagos, statusDistrib.pendentes],
+    series: [
+      { name: 'Pagos', data: [statusDistrib.pagos] },
+      { name: 'Pendentes', data: [statusDistrib.pendentes] },
+    ],
     options: {
-      labels: ['Pagos', 'Pendentes'],
-      chart: { type: 'donut', height: 260 },
+      chart: { type: 'bar', height: 220, stacked: true, toolbar: { show: false } },
       theme: { mode: isDark ? 'dark' : 'light' },
       foreColor: isDark ? '#cbd5f5' : '#475569',
       dataLabels: { enabled: false },
       colors: ['#10b981', '#f59e0b'],
-      legend: { position: 'bottom' },
+      legend: { position: 'top' },
+      plotOptions: { bar: { horizontal: true, borderRadius: 10, barHeight: '42%' } },
+      xaxis: { categories: ['Status financeiro'], labels: { formatter: (val: number) => BRL.format(val) } },
       tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => BRL.format(val) } }
     } as any
   };
@@ -2038,14 +2196,16 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className={`${INTERACTIVE_PANEL_CLASS} bg-white/80 backdrop-blur`}>
+        <div className={`${INTERACTIVE_PANEL_CLASS} bg-white/80 backdrop-blur`} onMouseEnter={(event) => scheduleKpiMeaning('PRODUTIVIDADE', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-slate-700 dark:text-slate-200">Produtividade</h3>
             <span className="text-xs text-slate-400">Eficiência de execução financeira</span>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-center">
-            <div className="lg:col-span-1">
-              <ReactApexChart type="radialBar" height={240} series={chartProdutividade.series} options={chartProdutividade.options} />
+            <div className="lg:col-span-1 rounded-3xl border border-slate-200 bg-slate-50/80 p-5 dark:border-slate-700 dark:bg-slate-900/40">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Leitura rápida</p>
+              <p className="mt-3 text-3xl font-black text-slate-900 dark:text-white">{execucaoPct}%</p>
+              <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">Quanto do financeiro já saiu do planejado e virou execução dentro do recorte atual.</p>
             </div>
             <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -2061,6 +2221,20 @@ export function Dashboard() {
                 <p className={`text-xl font-bold ${kpis.saldo >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{BRL.format(kpis.saldo)}</p>
               </div>
             </div>
+          </div>
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+            {produtividadeIndicadores.map((item) => (
+              <div key={item.key} className="rounded-2xl border border-slate-200 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-bold text-slate-700 dark:text-slate-100">{item.label}</p>
+                  <span className="text-sm font-black text-slate-900 dark:text-white">{item.valor}</span>
+                </div>
+                <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                  <div className={`h-full ${item.tone}`} style={{ width: `${Math.max(6, Math.min(100, item.percentual))}%` }} />
+                </div>
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">{item.apoio}</p>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -2209,7 +2383,7 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('FLUXO_CAIXA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">
                 {periodoTipo === 'ANO' ? 'Fluxo de Caixa Mensal' : 'Fluxo de Caixa Diário'}
@@ -2221,7 +2395,7 @@ export function Dashboard() {
             <ReactApexChart type="area" height={320} series={chartFluxo.series} options={chartFluxo.options} />
           </div>
 
-          <div className={DASHBOARD_SECTION_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('DESPESAS_CATEGORIA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Despesas por Categoria</h3>
               <span className="text-xs text-slate-400">Clique para filtrar</span>
@@ -2231,13 +2405,13 @@ export function Dashboard() {
                 Sem dados de despesas no período.
               </div>
             ) : (
-              <ReactApexChart type="donut" height={320} series={chartCategorias.series} options={chartCategorias.options} />
+              <ReactApexChart type="bar" height={320} series={chartCategorias.series} options={chartCategorias.options} />
             )}
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={DASHBOARD_SECTION_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RECEITAS_CATEGORIA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas por Categoria</h3>
               <span className="text-xs text-slate-400">Clique para filtrar</span>
@@ -2247,10 +2421,10 @@ export function Dashboard() {
                 Sem dados de receitas no período.
               </div>
             ) : (
-              <ReactApexChart type="donut" height={320} series={chartReceitasCategorias.series} options={chartReceitasCategorias.options} />
+              <ReactApexChart type="bar" height={320} series={chartReceitasCategorias.series} options={chartReceitasCategorias.options} />
             )}
           </div>
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('ACUMULADO_REC_DESP', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Acumulado: Receitas x Despesas</h3>
               <span className="text-xs text-slate-400">Evolução no período</span>
@@ -2260,7 +2434,7 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('RESULTADO_OPERACIONAL', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Operacional ({resultadoMensalAno.year})</h3>
               <span className="text-xs text-slate-400">Jan → Dez</span>
@@ -2273,7 +2447,7 @@ export function Dashboard() {
               <ReactApexChart type="bar" height={320} series={chartResultadoOperacional.series} options={chartResultadoOperacional.options} />
             )}
           </div>
-          <div className={DASHBOARD_SECTION_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RESUMO_OPERACIONAL', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Resumo Operacional</h3>
               <span className="text-xs text-slate-400">Média mensal</span>
@@ -2300,14 +2474,14 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('RECEITAS_DESPESAS_ANO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas x Despesas ({resultadoMensalAno.year})</h3>
               <span className="text-xs text-slate-400">Comparativo anual</span>
             </div>
             <ReactApexChart type="bar" height={320} series={chartReceitasDespesasAno.series} options={chartReceitasDespesasAno.options} />
           </div>
-          <div className={DASHBOARD_SECTION_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('MARGEM_OPERACIONAL_PAINEL', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Margem Operacional</h3>
               <span className="text-xs text-slate-400">% mês a mês</span>
@@ -2317,14 +2491,14 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('COMPARATIVO_ANO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Comparativo Ano a Ano</h3>
               <span className="text-xs text-slate-400">{resultadoMensalAnoAnterior.year} vs {resultadoMensalAno.year}</span>
             </div>
             <ReactApexChart type="line" height={280} series={chartComparativoAno.series} options={chartComparativoAno.options} />
           </div>
-          <div className={DASHBOARD_SECTION_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('SAZONALIDADE', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Sazonalidade</h3>
               <span className="text-xs text-slate-400">Índice mensal</span>
@@ -2334,7 +2508,7 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={DASHBOARD_SECTION_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('CENARIOS', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Cenários</h3>
               <span className="text-xs text-slate-400">Baseado na volatilidade</span>
@@ -2354,7 +2528,7 @@ export function Dashboard() {
               </div>
             </div>
           </div>
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('RESULTADO_ACUMULADO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Acumulado</h3>
               <span className="text-xs text-slate-400">Evolução do caixa</span>
@@ -2364,41 +2538,41 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.1),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.96))] p-6 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))]">
+          <div className="lg:col-span-2 relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.1),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.96))] p-6 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))]" onMouseEnter={(event) => scheduleKpiMeaning('PULSO_ACUMULADO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Pulso do Acumulado</h3>
               <span className="text-xs text-slate-400">Resumo instantâneo do caixa</span>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-              <div className="rounded-2xl border border-slate-200 bg-white/85 p-4 dark:border-slate-700 dark:bg-slate-900/50">
+              <div className="rounded-2xl border border-slate-200 bg-white/85 p-4 dark:border-slate-700 dark:bg-slate-900/50" onMouseEnter={(event) => scheduleKpiMeaning('FECHAMENTO_ACUMULADO', event.currentTarget, 400)} onMouseLeave={hideKpiMeaning}>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Fechamento</p>
                 <p className={`mt-3 text-xl font-black ${resultadoAcumuladoSnapshot.final >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{BRL.format(resultadoAcumuladoSnapshot.final)}</p>
               </div>
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 dark:border-emerald-900/40 dark:bg-emerald-500/10">
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 dark:border-emerald-900/40 dark:bg-emerald-500/10" onMouseEnter={(event) => scheduleKpiMeaning('PICO_ACUMULADO', event.currentTarget, 400)} onMouseLeave={hideKpiMeaning}>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Pico</p>
                 <p className="mt-3 text-xl font-black text-emerald-600">{BRL.format(resultadoAcumuladoSnapshot.pico)}</p>
               </div>
-              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 dark:border-rose-900/40 dark:bg-rose-500/10">
+              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 dark:border-rose-900/40 dark:bg-rose-500/10" onMouseEnter={(event) => scheduleKpiMeaning('VALE_ACUMULADO', event.currentTarget, 400)} onMouseLeave={hideKpiMeaning}>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Vale</p>
                 <p className="mt-3 text-xl font-black text-rose-500">{BRL.format(resultadoAcumuladoSnapshot.vale)}</p>
               </div>
-              <div className="rounded-2xl border border-sky-100 bg-sky-50/80 p-4 dark:border-sky-900/40 dark:bg-sky-500/10">
+              <div className="rounded-2xl border border-sky-100 bg-sky-50/80 p-4 dark:border-sky-900/40 dark:bg-sky-500/10" onMouseEnter={(event) => scheduleKpiMeaning('AMPLITUDE_ACUMULADO', event.currentTarget, 400)} onMouseLeave={hideKpiMeaning}>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Amplitude</p>
                 <p className="mt-3 text-xl font-black text-sky-600">{BRL.format(resultadoAcumuladoSnapshot.amplitude)}</p>
               </div>
             </div>
           </div>
-          <div className={DASHBOARD_SECTION_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('STATUS_DISTRIB', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Distribuição por Status</h3>
               <span className="text-xs text-slate-400">Valor por status</span>
             </div>
-            <ReactApexChart type="donut" height={260} series={chartStatus.series} options={chartStatus.options} />
+            <ReactApexChart type="bar" height={220} series={chartStatus.series} options={chartStatus.options} />
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className={DASHBOARD_SECTION_CLASS}>
+          <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('DESPESAS_CENTRO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Despesas por Centro</h3>
               <span className="text-xs text-slate-400">Clique para filtrar</span>
@@ -2406,7 +2580,7 @@ export function Dashboard() {
             <ReactApexChart type="bar" height={320} series={chartCentros.series} options={chartCentros.options} />
           </div>
 
-          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`}>
+          <div className={`lg:col-span-2 ${DASHBOARD_SECTION_CLASS}`} onMouseEnter={(event) => scheduleKpiMeaning('ULTIMOS_LANCAMENTOS', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 dark:text-slate-200">Últimos Lançamentos</h3>
               <div className="flex items-center gap-2">
@@ -2682,9 +2856,12 @@ export function Dashboard() {
           className="pointer-events-none fixed z-120 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-left shadow-2xl shadow-slate-950/30 dark:border-slate-700"
           style={{ left: visibleKpiMeaning.x, top: visibleKpiMeaning.y }}
         >
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">{KPI_MEANINGS[visibleKpiMeaning.key].titulo}</p>
-          <p className="mt-2 text-sm font-semibold text-white">{KPI_MEANINGS[visibleKpiMeaning.key].significado}</p>
-          <p className="mt-1 text-xs leading-5 text-slate-300">{KPI_MEANINGS[visibleKpiMeaning.key].utilidade}</p>
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">{DASHBOARD_HELP[visibleKpiMeaning.key].titulo}</p>
+          <p className="mt-2 text-sm font-semibold text-white">{DASHBOARD_HELP[visibleKpiMeaning.key].significado}</p>
+          <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Como é calculado</p>
+          <p className="mt-1 text-xs leading-5 text-slate-300">{DASHBOARD_HELP[visibleKpiMeaning.key].calculo}</p>
+          <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Utilidade real</p>
+          <p className="mt-1 text-xs leading-5 text-slate-300">{DASHBOARD_HELP[visibleKpiMeaning.key].utilidade}</p>
         </div>
       )}
     </div>

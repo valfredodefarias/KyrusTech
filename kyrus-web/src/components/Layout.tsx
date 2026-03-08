@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { AiAssistente } from './AiAssistente';
@@ -57,6 +57,7 @@ function LayoutShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') !== '0');
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('theme') as 'dark' | 'light') || 'light');
+  const sidebarHoverTimerRef = useRef<number | null>(null);
   const isLancamentosRoute = location.pathname.startsWith('/lancamentos');
   const assistenteDefaults = useMemo(() => resolveAssistenteDefaults(location.pathname), [location.pathname]);
   const assistenteConfig = useMemo(() => ({
@@ -101,12 +102,40 @@ function LayoutShell() {
     setSidebarCollapsed(true);
   }, [location.pathname]);
 
+  useEffect(() => {
+    return () => {
+      if (sidebarHoverTimerRef.current) {
+        window.clearTimeout(sidebarHoverTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleSidebarMouseEnter = () => {
+    if (!sidebarCollapsed) return;
+    if (sidebarHoverTimerRef.current) {
+      window.clearTimeout(sidebarHoverTimerRef.current);
+    }
+    sidebarHoverTimerRef.current = window.setTimeout(() => {
+      setSidebarCollapsed(false);
+    }, 2000);
+  };
+
+  const handleSidebarMouseLeave = () => {
+    if (sidebarHoverTimerRef.current) {
+      window.clearTimeout(sidebarHoverTimerRef.current);
+      sidebarHoverTimerRef.current = null;
+    }
+    setSidebarCollapsed(true);
+  };
+
   return (
     <div className={theme === 'dark' ? 'dark' : ''}>
       <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900 font-sans text-slate-800 dark:text-slate-200">
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
+        onMouseEnter={handleSidebarMouseEnter}
+        onMouseLeave={handleSidebarMouseLeave}
         theme={theme}
         onToggleTheme={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
       />

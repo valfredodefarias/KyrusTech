@@ -508,6 +508,19 @@ def _build_dashboard_fact_sheet(contexto: Dict[str, Any]) -> str:
     if top_centros:
         parts.append("- Top centros de custo: " + "; ".join(top_centros))
 
+    glossario = contexto.get("glossario_dashboard")
+    if isinstance(glossario, list) and glossario:
+        parts.append("- Glossario resumido do dashboard:")
+        for item in glossario[:12]:
+            if not isinstance(item, dict):
+                continue
+            titulo = str(item.get("titulo") or "").strip()
+            significado = str(item.get("significado") or "").strip()
+            calculo = str(item.get("calculo") or "").strip()
+            utilidade = str(item.get("utilidade") or "").strip()
+            if titulo and significado:
+                parts.append(f"  • {titulo}: {significado} Calculo: {calculo} Utilidade: {utilidade}")
+
     return "\n".join(parts)
 
 
@@ -649,6 +662,7 @@ def _build_analysis_prompt(
             f"Resumo dos anexos: {anexos_resumo or 'sem anexos'}\n"
             "Instrucoes de resposta: entregue uma analise executiva detalhada, em Markdown simples, com estas secoes quando houver dados: "
             "Resumo executivo, O que esta funcionando, Principais alertas, Causas provaveis, Impacto em caixa e resultado, Acoes imediatas, Acoes estruturais, Oportunidades de ganho, Perguntas que faltam responder. "
+            "Se a pergunta vier vaga, coloquial ou sem citar o nome exato do painel, infira o painel mais provavel a partir do glossario e explique tambem significado, calculo e utilidade pratica. "
             "Sempre priorize explicacao de negocio, leitura financeira e recomendacoes praticas. Nao mostre IDs nem campos tecnicos. "
             "Nao responda que vai analisar depois: entregue a leitura agora com base nos fatos abaixo.\n"
             f"{dashboard_fact_sheet}\n"

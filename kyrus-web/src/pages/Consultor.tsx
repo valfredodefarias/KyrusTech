@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { 
   Building2, Search, UserPlus, ArrowRightLeft, Briefcase, Upload, X, Loader2, Pencil, Users, Shield, Plus, Trash2, ChevronDown, ChevronUp,
-  ClipboardList, CheckCircle2, Circle, KeyRound
+  ClipboardList, CheckCircle2, Circle, KeyRound, Sparkles, BarChart3
 } from 'lucide-react';
 
 // --- TIPAGENS ---
@@ -126,6 +127,7 @@ const AvatarEmpresa = ({ nome, src, cor }: { nome: string, src?: string, cor: st
 };
 
 export function Consultor() {
+  const navigate = useNavigate();
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [consultores, setConsultores] = useState<Consultor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -782,6 +784,29 @@ export function Consultor() {
               <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Atrasadas agora. Conclusão: {produtividade.conclusaoPct}% • Usuários ativos: {usuariosAtivos}</p>
             </div>
           </div>
+
+          {isSuperConsultor && (
+            <div className="rounded-3xl border border-emerald-200 bg-white/80 p-4 backdrop-blur dark:border-emerald-900 dark:bg-slate-900/40">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="space-y-2">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-emerald-700 dark:border-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-300">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Governança do dashboard
+                  </div>
+                  <h2 className="text-xl font-black text-slate-900 dark:text-white">Padrão global do dashboard</h2>
+                  <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">Abra o Dashboard em modo de padrão global para editar a vista base real de todas as empresas. Nesse modo, o sistema não cria uma vista da empresa: ele altera o padrão compartilhado.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/dashboard?globalDefault=1')}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 shadow-lg shadow-emerald-600/20"
+                >
+                  <BarChart3 size={18} />
+                  Editar padrão global
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 

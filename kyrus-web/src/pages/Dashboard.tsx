@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Ref } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import GridLayout from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -9,7 +10,8 @@ import {
   TrendingUp, TrendingDown, Wallet, RefreshCw, Filter,
   CalendarRange, Layers, Building2, X, Landmark,
   Sparkles, Download, Search, Activity, Settings2,
-  LayoutGrid, Plus, Pencil, Trash2, Eye, EyeOff, GripVertical
+  LayoutGrid, Plus, Pencil, Trash2, Eye, EyeOff, GripVertical,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 
 interface Lancamento {
@@ -944,6 +946,7 @@ function getYearRange(year: number) {
 }
 
 export function Dashboard() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
@@ -980,6 +983,7 @@ export function Dashboard() {
   const [dashboardViews, setDashboardViews] = useState<DashboardView[]>([]);
   const [dashboardViewsEmpresaId, setDashboardViewsEmpresaId] = useState<number | null>(null);
   const [canManageGlobalDefault, setCanManageGlobalDefault] = useState(false);
+  const [globalDefaultEditMode, setGlobalDefaultEditMode] = useState(false);
   const [activeDashboardViewId, setActiveDashboardViewId] = useState(DEFAULT_DASHBOARD_VIEW_ID);
   const [dashboardEditMode, setDashboardEditMode] = useState(false);
   const [dashboardGridWidth, setDashboardGridWidth] = useState(1200);
@@ -1074,11 +1078,25 @@ export function Dashboard() {
     };
 
     loadDashboardViewsFromApi();
+    api.get('/usuarios/me').then(({ data }) => {
+      if (!isMounted) return;
+      if (data?.consultor_role === 'SUPER_CONSULTOR') {
+        setCanManageGlobalDefault(true);
+      }
+    }).catch(() => {
+      // Mantemos o valor retornado pela API de dashboard se esta chamada falhar.
+    });
 
     return () => {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (activeDashboardViewId !== DEFAULT_DASHBOARD_VIEW_ID && globalDefaultEditMode) {
+      setGlobalDefaultEditMode(false);
+    }
+  }, [activeDashboardViewId, globalDefaultEditMode]);
 
   useEffect(() => {
     if (!dashboardViewsEmpresaId) return;
@@ -1106,6 +1124,7 @@ export function Dashboard() {
   }, [activeDashboardViewId, allDashboardViews, defaultDashboardView]);
 
   const activeDashboardViewIsDefault = activeDashboardView?.id === DEFAULT_DASHBOARD_VIEW_ID;
+  const isEditingGlobalDefault = activeDashboardViewIsDefault && canManageGlobalDefault && globalDefaultEditMode;
 
   const activeDashboardWidgets = activeDashboardView?.widgets || DEFAULT_DASHBOARD_WIDGETS;
 
@@ -1120,6 +1139,16 @@ export function Dashboard() {
   };
 
   const updateActiveDashboardView = (updater: (view: DashboardView) => DashboardView) => {
+    if (isEditingGlobalDefault) {
+      setDefaultDashboardView((prev) => cloneDashboardView(updater(prev), {
+        id: DEFAULT_DASHBOARD_VIEW_ID,
+        name: 'Padrao',
+        isDefault: true,
+        source: 'global',
+      }));
+      return;
+    }
+
     if (activeDashboardViewIsDefault) {
       const nextView = cloneDashboardView(updater(createEditableDashboardView(activeDashboardView)), {
         isDefault: false,
@@ -1205,12 +1234,32 @@ export function Dashboard() {
     const nextView = createEditableDashboardView(activeDashboardView);
     setDashboardViews((prev) => [...prev, nextView]);
     setActiveDashboardViewId(nextView.id);
+    setGlobalDefaultEditMode(false);
     setDashboardEditMode(true);
+  };
+
+  const clearGlobalDefaultQueryFlag = () => {
+    if (!searchParams.has('globalDefault')) return;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('globalDefault');
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const openGlobalDefaultEditor = () => {
+    setActiveDashboardViewId(DEFAULT_DASHBOARD_VIEW_ID);
+    setGlobalDefaultEditMode(true);
+    setDashboardEditMode(true);
+  };
+
+  const stopGlobalDefaultEditor = () => {
+    setGlobalDefaultEditMode(false);
+    clearGlobalDefaultQueryFlag();
   };
 
   const publishCurrentViewAsGlobalDefault = async () => {
     if (!canManageGlobalDefault || !dashboardViewsEmpresaId || !activeDashboardView) return;
-    const normalizedDefaultView = cloneDashboardView(activeDashboardView, {
+    const sourceView = isEditingGlobalDefault ? defaultDashboardView : activeDashboardView;
+    const normalizedDefaultView = cloneDashboardView(sourceView, {
       id: DEFAULT_DASHBOARD_VIEW_ID,
       name: 'Padrao',
       isDefault: true,
@@ -1226,7 +1275,17 @@ export function Dashboard() {
     } catch {
       // O estado local permanece para evitar perder o trabalho do super consultor.
     }
+    setGlobalDefaultEditMode(false);
+    clearGlobalDefaultQueryFlag();
   };
+
+  useEffect(() => {
+    if (!canManageGlobalDefault) return;
+    if (searchParams.get('globalDefault') !== '1') return;
+    setActiveDashboardViewId(DEFAULT_DASHBOARD_VIEW_ID);
+    setGlobalDefaultEditMode(true);
+    setDashboardEditMode(true);
+  }, [canManageGlobalDefault, searchParams]);
 
   const openCreateCustomWidgetModal = (template?: DashboardCustomWidgetTemplate) => {
     setEditingCustomWidgetId(null);
@@ -3233,7 +3292,7 @@ export function Dashboard() {
             className="hidden rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 xl:inline-flex"
             title="Recolher painel de filtros"
           >
-            <Filter className="h-4 w-4" />
+            <ChevronLeft className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -3927,15 +3986,26 @@ export function Dashboard() {
             </button>
           </div>
           {canManageGlobalDefault && (
-            <button
-              type="button"
-              onClick={publishCurrentViewAsGlobalDefault}
-              className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
-              title="Aplicar a vista atual como novo dashboard padrão global"
-            >
-              <Sparkles className="h-4 w-4" />
-              Atualizar padrão global
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={isEditingGlobalDefault ? stopGlobalDefaultEditor : openGlobalDefaultEditor}
+                className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition ${isEditingGlobalDefault ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20'}`}
+                title={isEditingGlobalDefault ? 'Sair da edição direta do padrão global' : 'Abrir o padrão global para editar diretamente'}
+              >
+                <Sparkles className="h-4 w-4" />
+                {isEditingGlobalDefault ? 'Sair do padrão global' : 'Editar padrão global'}
+              </button>
+              <button
+                type="button"
+                onClick={publishCurrentViewAsGlobalDefault}
+                className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                title={isEditingGlobalDefault ? 'Salvar a edição direta do padrão global' : 'Aplicar a vista atual como novo dashboard padrão global'}
+              >
+                <Sparkles className="h-4 w-4" />
+                {isEditingGlobalDefault ? 'Salvar padrão global' : 'Atualizar padrão global'}
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -3944,15 +4014,6 @@ export function Dashboard() {
           >
             <Filter className="h-4 w-4" />
             Painel lateral
-            {dashboardActiveFiltersCount > 0 && <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px]">{dashboardActiveFiltersCount}</span>}
-          </button>
-          <button
-            type="button"
-            onClick={() => setDashboardFiltersRailCollapsed((prev) => !prev)}
-            className={`hidden xl:inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition ${!dashboardFiltersRailCollapsed ? 'border-sky-500 bg-sky-600 text-white' : 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700'}`}
-          >
-            <Filter className="h-4 w-4" />
-            {dashboardFiltersRailCollapsed ? 'Abrir painel' : 'Recolher painel'}
             {dashboardActiveFiltersCount > 0 && <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px]">{dashboardActiveFiltersCount}</span>}
           </button>
           <button
@@ -3988,7 +4049,7 @@ export function Dashboard() {
                   className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 text-sky-700 transition hover:bg-sky-100 dark:border-sky-900 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20"
                   title="Expandir painel de filtros"
                 >
-                  <Filter className="h-5 w-5" />
+                  <ChevronRight className="h-5 w-5" />
                 </button>
                 <div className="flex flex-col items-center gap-3">
                   <div className="rounded-full bg-sky-100 px-3 py-1 text-xs font-bold text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">{dashboardActiveFiltersCount}</div>
@@ -4010,6 +4071,11 @@ export function Dashboard() {
         </aside>
 
         <div className="min-w-0 space-y-6">
+        {isEditingGlobalDefault && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 shadow-sm dark:border-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+            Você está editando o padrão global real. Tudo que for salvo aqui vira a base de todas as empresas.
+          </div>
+        )}
         <section className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.22),transparent_38%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.22),transparent_28%),linear-gradient(135deg,#ffffff_0%,#f8fafc_48%,#ecfeff_100%)] p-6 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.16),transparent_38%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.14),transparent_28%),linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(15,23,42,0.95)_48%,rgba(8,47,73,0.92)_100%)]">
           <div className="absolute -right-10 -top-12 h-40 w-40 rounded-full bg-emerald-400/10 blur-3xl" />
           <div className="absolute -bottom-16 left-10 h-44 w-44 rounded-full bg-sky-400/10 blur-3xl" />

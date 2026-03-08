@@ -41,6 +41,49 @@ def _get_consultor_empresa_ids(db: Session, consultor_id: int) -> list[int]:
     )
 
 
+def _resolve_empresa_contexto(db: Session, consultor: Usuario) -> Empresa:
+    empresa_id = consultor.empresa_id
+
+    if empresa_id:
+        empresa = db.get(Empresa, empresa_id)
+        if empresa and not empresa.is_deleted and empresa.is_active:
+            return empresa
+
+    if _is_super_consultor(consultor):
+        empresa = db.exec(
+            select(Empresa)
+            .where(Empresa.is_deleted == False, Empresa.is_active == True)
+            .order_by(Empresa.id)
+        ).first()
+    else:
+        empresa_ids = _get_consultor_empresa_ids(db, int(consultor.id))
+        empresa = None
+        if empresa_ids:
+            empresa = db.exec(
+                select(Empresa)
+                .where(
+                    Empresa.id.in_(empresa_ids),
+                    Empresa.is_deleted == False,
+                    Empresa.is_active == True,
+                )
+                .order_by(Empresa.id)
+            ).first()
+
+    if not empresa:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Empresa do contexto não encontrada"
+        )
+
+    if consultor.empresa_id != empresa.id:
+        consultor.empresa_id = empresa.id
+        db.add(consultor)
+        db.commit()
+        db.refresh(consultor)
+
+    return empresa
+
+
 def _mask_email(value: Optional[str]) -> Optional[str]:
     if not value or "@" not in value:
         return value
@@ -219,15 +262,7 @@ def obter_contexto_atual(
     """
     Retorna o contexto atual do consultor (empresa ativa).
     """
-    empresa = db.get(Empresa, consultor.empresa_id)
-    if not empresa or empresa.is_deleted or not empresa.is_active:
-        logger.warning(
-            f"[CONSULTOR] Empresa ID {consultor.empresa_id} nao encontrada para consultor {consultor.email}"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Empresa do contexto não encontrada"
-        )
+    empresa = _resolve_empresa_contexto(db, consultor)
     
     return {
         "consultor": {
@@ -239,6 +274,9 @@ def obter_contexto_atual(
             "id": empresa.id,
             "nome_fantasia": empresa.nome_fantasia,
             "razao_social": empresa.razao_social
+            "logo_url": empresa.logo_url,
+            "cor_primaria": empresa.cor_primaria,
+            "is_active": empresa.is_active,
         }
     }
 

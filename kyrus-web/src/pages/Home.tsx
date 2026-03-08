@@ -19,15 +19,23 @@ interface ContaResumo {
 
 interface UserInfo {
   email: string;
-  empresa_id: number;
+  empresa_id?: number | null;
+  is_consultor?: boolean;
   nome?: string | null;
   foto_url?: string | null;
 }
 
 interface EmpresaInfo {
+  id?: number;
   nome_fantasia: string;
   razao_social: string;
-  cor_primaria?: string; // Adicionado campo de cor
+  cor_primaria?: string;
+  logo_url?: string | null;
+  is_active?: boolean;
+}
+
+interface ConsultorContextoResponse {
+  empresa_atual: EmpresaInfo;
 }
 
 interface TodoItem {
@@ -63,10 +71,23 @@ export function Home() {
         const resUser = await api.get<UserInfo>('/usuarios/me');
         setUser(resUser.data);
 
+        let empresaAtual: EmpresaInfo | null = null;
+
         if (resUser.data.empresa_id) {
-          const resEmpresa = await api.get<EmpresaInfo>(`/empresas/${resUser.data.empresa_id}`);
-          setEmpresa(resEmpresa.data);
+          try {
+            const resEmpresa = await api.get<EmpresaInfo>(`/empresas/${resUser.data.empresa_id}`);
+            empresaAtual = resEmpresa.data;
+          } catch {
+            empresaAtual = null;
+          }
         }
+
+        if (!empresaAtual && resUser.data.is_consultor) {
+          const resContexto = await api.get<ConsultorContextoResponse>('/consultor/meu-contexto');
+          empresaAtual = resContexto.data.empresa_atual;
+        }
+
+        setEmpresa(empresaAtual);
 
         const resContas = await api.get<ContaResumo[]>('/contas/');
         setContas(resContas.data);

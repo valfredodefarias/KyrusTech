@@ -15,6 +15,7 @@ interface EmpresaInfo {
   nome_fantasia: string;
   logo_url?: string;
   cor_primaria?: string;
+  is_active?: boolean;
 }
 
 interface UserInfo {
@@ -52,21 +53,26 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
         setIsConsultor(user.is_consultor);
         setUser(user);
 
-        if (user.empresa_id) {
-          const { data: emp } = await api.get(`/empresas/${user.empresa_id}`);
-          setEmpresa(emp);
-          
-          // Aplica a cor da empresa em todo o sistema
-          if(emp.cor_primaria) {
-             document.documentElement.style.setProperty('--color-primary', emp.cor_primaria);
-          }
-        } else if (user.is_consultor) {
-          const { data } = await api.get<ConsultorContextoResponse>('/consultor/meu-contexto');
-          setEmpresa(data.empresa_atual);
+        let empresaAtual: EmpresaInfo | null = null;
 
-          if (data.empresa_atual?.cor_primaria) {
-            document.documentElement.style.setProperty('--color-primary', data.empresa_atual.cor_primaria);
+        if (user.empresa_id) {
+          try {
+            const { data: emp } = await api.get<EmpresaInfo>(`/empresas/${user.empresa_id}`);
+            empresaAtual = emp;
+          } catch {
+            empresaAtual = null;
           }
+        }
+
+        if (!empresaAtual && user.is_consultor) {
+          const { data } = await api.get<ConsultorContextoResponse>('/consultor/meu-contexto');
+          empresaAtual = data.empresa_atual;
+        }
+
+        setEmpresa(empresaAtual);
+
+        if (empresaAtual?.cor_primaria) {
+          document.documentElement.style.setProperty('--color-primary', empresaAtual.cor_primaria);
         }
       } catch (error) {
         console.error("Erro ao carregar sidebar", error);

@@ -235,7 +235,7 @@ export function Consultor() {
 
   async function carregarEmpresas() {
     try {
-      const res = await api.get('/empresas/'); 
+      const res = await api.get('/consultor/empresas'); 
       setEmpresas(res.data);
     } catch (error) {
       console.error("Erro ao listar empresas", error);

@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import { BrandAvatar } from '../components/BrandAvatar';
-import { inferBankBrand } from '../lib/branding';
+import { BrandAvatar, inferBankBrand } from '../components/BrandAvatar';
 import { 
   Landmark, RefreshCw, Plus, Edit2, Trash2, ChevronRight, X, Check, Loader2, ChevronDown,
   Banknote, TrendingUp, AlertTriangle, Filter, Search, Settings

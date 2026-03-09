@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
-import { BrandAvatar } from '../components/BrandAvatar';
-import { inferBankBrand } from '../lib/branding';
+import { BrandAvatar, inferBankBrand } from '../components/BrandAvatar';
 import { 
   PlusCircle, BarChart2, Users, Landmark, 
   CreditCard, Settings, Wallet, Banknote, Home as HomeIcon,

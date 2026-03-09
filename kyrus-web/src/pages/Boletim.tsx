@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, CalendarRange, Landmark, ListFilter, ReceiptText, Wallet } from 'lucide-react';
-import { BrandAvatar } from '../components/BrandAvatar';
-import { inferBankBrand } from '../lib/branding';
+import { BrandAvatar, inferBankBrand } from '../components/BrandAvatar';
 import { api } from '../services/api';
 
 interface ContaResumo {

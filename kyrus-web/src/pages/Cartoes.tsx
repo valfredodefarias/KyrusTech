@@ -1,7 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../services/api';
-import { BrandAvatar } from '../components/BrandAvatar';
-import { CARD_BRAND_OPTIONS, inferCardBrand } from '../lib/branding';
+import { BrandAvatar, CARD_BRAND_OPTIONS, inferCardBrand } from '../components/BrandAvatar';
 import { 
   Plus, RefreshCw, Edit2, X, Check, Loader2, 
     ChevronLeft, ChevronRight, CheckCircle2, Building2, ChevronDown

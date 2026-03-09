@@ -7,7 +7,7 @@ import shutil
 from urllib.parse import urlparse
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from sqlmodel import Session, select, func, case
+from sqlmodel import Session, select, func, case, or_
 from loguru import logger
 from pydantic import BaseModel
 from datetime import date
@@ -71,18 +71,22 @@ def read_all_contas(
     # Agrega receitas e despesas por conta em uma única query (evita N+1)
     saldos_por_conta = {}
     if include_saldo:
+        tipo_receita = func.upper(Lancamento.tipo).like("R%")
+        tipo_despesa = func.upper(Lancamento.tipo).like("D%")
+        movimento_pago = or_(Lancamento.status == "PAGO", Lancamento.data_pagamento.is_not(None))
+
         saldo_query = (
             select(
                 Lancamento.conta_id,
                 func.sum(
                     case(
-                        (Lancamento.tipo == "RECEITA", Lancamento.valor_pago),
+                        (tipo_receita, Lancamento.valor_pago),
                         else_=0,
                     )
                 ).label("receitas"),
                 func.sum(
                     case(
-                        (Lancamento.tipo == "DESPESA", Lancamento.valor_pago),
+                        (tipo_despesa, Lancamento.valor_pago),
                         else_=0,
                     )
                 ).label("despesas"),
@@ -90,7 +94,7 @@ def read_all_contas(
             .where(
                 Lancamento.empresa_id == empresa_id,
                 Lancamento.is_deleted == False,
-                Lancamento.status == "PAGO",
+                movimento_pago,
                 Lancamento.conta_id.is_not(None),
             )
             .group_by(Lancamento.conta_id)
@@ -151,7 +155,7 @@ def extrato_conta(
             Lancamento.empresa_id == empresa_id,
             Lancamento.conta_id == conta_id,
             Lancamento.is_deleted == False,
-            Lancamento.status == "PAGO",
+            or_(Lancamento.status == "PAGO", Lancamento.data_pagamento.is_not(None)),
         )
         .order_by(Lancamento.data_pagamento.desc())
         .offset(skip)

@@ -291,8 +291,10 @@ export function Contas() {
       ]);
       setContas(resContas.data);
       setCentros(resCentros.data);
+      return resContas.data as Conta[];
     } catch (error) {
       console.error("Erro ao carregar dados", error);
+      return [] as Conta[];
     } finally {
       setLoading(false);
     }
@@ -509,6 +511,12 @@ export function Contas() {
       setLancamentoEditing(null);
       resetLancamentoForm(extratoConta || undefined);
       await fetchLancamentosConta(extratoContaId);
+      const contasAtualizadas = await carregarDados();
+      const contaAtualizada = contasAtualizadas.find((conta) => conta.id === extratoContaId) || null;
+      setExtratoConta(contaAtualizada);
+      if (contaAtualizada) {
+        setContaExtratoNome(contaAtualizada.nome);
+      }
     } catch (error) {
       console.error('Erro ao salvar lançamento', error);
       alert('Erro ao salvar lançamento.');
@@ -523,6 +531,12 @@ export function Contas() {
       await api.delete(`/lancamentos/${id}`);
       if (extratoContaId) {
         await fetchLancamentosConta(extratoContaId);
+        const contasAtualizadas = await carregarDados();
+        const contaAtualizada = contasAtualizadas.find((conta) => conta.id === extratoContaId) || null;
+        setExtratoConta(contaAtualizada);
+        if (contaAtualizada) {
+          setContaExtratoNome(contaAtualizada.nome);
+        }
       }
     } catch (error) {
       console.error('Erro ao excluir lançamento', error);
@@ -688,7 +702,7 @@ export function Contas() {
                             </span>
                           </td>
                           <td className={`p-4 text-right font-bold ${l.tipo === 'RECEITA' ? 'text-emerald-600' : 'text-red-600'}`}>
-                            {l.tipo === 'DESPESA' ? '-' : ''}{BRL.format(Number(l.valor_previsto || 0))}
+                            {l.tipo === 'DESPESA' ? '-' : ''}{BRL.format(Number((l.status === 'PAGO' ? l.valor_pago : l.valor_previsto) || 0))}
                           </td>
                           <td className="p-4 text-right">
                             <div className="flex items-center justify-end gap-2">

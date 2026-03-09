@@ -49,6 +49,11 @@ interface Conta {
   saldo_atual?: number;
 }
 
+type DashboardSaveFeedback = {
+  type: 'success' | 'error';
+  message: string;
+};
+
 interface TodoItem {
   id: number;
   status: 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDO' | 'CANCELADO' | string;
@@ -960,6 +965,8 @@ export function Dashboard() {
   const [dashboardViewsEmpresaId, setDashboardViewsEmpresaId] = useState<number | null>(null);
   const [canManageGlobalDefault, setCanManageGlobalDefault] = useState(false);
   const [globalDefaultEditMode, setGlobalDefaultEditMode] = useState(false);
+  const [dashboardSaveFeedback, setDashboardSaveFeedback] = useState<DashboardSaveFeedback | null>(null);
+  const [publishingGlobalDefault, setPublishingGlobalDefault] = useState(false);
   const [activeDashboardViewId, setActiveDashboardViewId] = useState(DEFAULT_DASHBOARD_VIEW_ID);
   const [dashboardEditMode, setDashboardEditMode] = useState(false);
   const [dashboardGridWidth, setDashboardGridWidth] = useState(1200);
@@ -1084,6 +1091,12 @@ export function Dashboard() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!dashboardSaveFeedback) return;
+    const timer = window.setTimeout(() => setDashboardSaveFeedback(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [dashboardSaveFeedback]);
 
   useEffect(() => {
     if (activeDashboardViewId !== DEFAULT_DASHBOARD_VIEW_ID && globalDefaultEditMode) {
@@ -1250,7 +1263,7 @@ export function Dashboard() {
   };
 
   const publishCurrentViewAsGlobalDefault = async () => {
-    if (!canManageGlobalDefault || !dashboardViewsEmpresaId || !activeDashboardView) return;
+    if (!canManageGlobalDefault || !dashboardViewsEmpresaId || !activeDashboardView || publishingGlobalDefault) return;
     const sourceView = isEditingGlobalDefault ? defaultDashboardView : activeDashboardView;
     const normalizedDefaultView = cloneDashboardView(sourceView, {
       id: DEFAULT_DASHBOARD_VIEW_ID,
@@ -1259,14 +1272,30 @@ export function Dashboard() {
       source: 'global',
     });
     setDefaultDashboardView(normalizedDefaultView);
+    setPublishingGlobalDefault(true);
+    setDashboardSaveFeedback(null);
     try {
       await api.put('/dashboard-views/', {
         views: dashboardViews,
         default_view: normalizedDefaultView,
         update_default: true,
       });
-    } catch {
+      const { data } = await api.get<DashboardViewsApiResponse>('/dashboard-views/');
+      const normalizedViews = normalizeDashboardViews(data.views);
+      const normalizedDefault = normalizeDefaultDashboardView(data.default_view);
+      setDefaultDashboardView(normalizedDefault);
+      setDashboardViews(normalizedViews);
+      setDashboardViewsEmpresaId(data.empresa_id);
+      setActiveDashboardViewId(DEFAULT_DASHBOARD_VIEW_ID);
+      localStorage.setItem(getDashboardActiveViewStorageKey(data.empresa_id), DEFAULT_DASHBOARD_VIEW_ID);
+      localStorage.setItem(getDashboardViewsCacheKey(data.empresa_id), JSON.stringify(normalizedViews));
+      setDashboardSaveFeedback({ type: 'success', message: 'Padrão global salvo com sucesso.' });
+    } catch (error) {
+      console.error('Erro ao salvar padrão global do dashboard', error);
+      setDashboardSaveFeedback({ type: 'error', message: 'Não foi possível salvar o padrão global. O layout local foi mantido, mas a API não confirmou a gravação.' });
       // O estado local permanece para evitar perder o trabalho do super consultor.
+    } finally {
+      setPublishingGlobalDefault(false);
     }
     setGlobalDefaultEditMode(false);
     clearGlobalDefaultQueryFlag();
@@ -3977,11 +4006,12 @@ export function Dashboard() {
               <button
                 type="button"
                 onClick={publishCurrentViewAsGlobalDefault}
-                className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                disabled={publishingGlobalDefault}
+                className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
                 title={isEditingGlobalDefault ? 'Salvar a edição direta do padrão global' : 'Aplicar a vista atual como novo dashboard padrão global'}
               >
-                <Sparkles className="h-4 w-4" />
-                {isEditingGlobalDefault ? 'Salvar padrão global' : 'Atualizar padrão global'}
+                {publishingGlobalDefault ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {publishingGlobalDefault ? 'Salvando...' : isEditingGlobalDefault ? 'Salvar padrão global' : 'Atualizar padrão global'}
               </button>
             </>
           )}
@@ -4085,6 +4115,11 @@ export function Dashboard() {
         </aside>
 
         <div className="min-w-0 space-y-6">
+        {dashboardSaveFeedback && (
+          <div className={`rounded-2xl border px-4 py-3 text-sm font-semibold shadow-sm ${dashboardSaveFeedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-200' : 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-500/10 dark:text-rose-200'}`}>
+            {dashboardSaveFeedback.message}
+          </div>
+        )}
         {isEditingGlobalDefault && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 shadow-sm dark:border-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
             Você está editando o padrão global real. Tudo que for salvo aqui vira a base de todas as empresas.

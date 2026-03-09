@@ -89,6 +89,7 @@ def read_all_contas(
             )
             .where(
                 Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
                 Lancamento.status == "PAGO",
                 Lancamento.conta_id.is_not(None),
             )
@@ -149,6 +150,7 @@ def extrato_conta(
         .where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.conta_id == conta_id,
+            Lancamento.is_deleted == False,
             Lancamento.status == "PAGO",
         )
         .order_by(Lancamento.data_pagamento.desc())

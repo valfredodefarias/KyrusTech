@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
+import { BrandAvatar } from '../components/BrandAvatar';
+import { inferBankBrand } from '../lib/branding';
 import { 
   Landmark, RefreshCw, Plus, Edit2, Trash2, ChevronRight, X, Check, Loader2, ChevronDown,
   Banknote, TrendingUp, AlertTriangle, Filter, Search, Settings
@@ -919,6 +921,7 @@ export function Contas() {
                    const IconComp = getIcon(c.tipo);
                    const saldo = parseFloat(String(c.saldo_atual || 0));
                    const nomeCentro = centros.find(ct => ct.id === c.centro_custo_id)?.nome;
+                   const bankBrand = inferBankBrand(c.banco, c.nome, c.tipo_integracao);
                    
                    return (
                      <div key={c.id} 
@@ -938,7 +941,7 @@ export function Contas() {
                                 {c.logo_url ? (
                                   <img src={getFullLogoUrl(c.logo_url) || ''} alt={c.nome} className="w-full h-full object-cover" />
                                 ) : (
-                                  <IconComp className="w-5 h-5" />
+                                  c.tipo === 'CAIXA' ? <IconComp className="w-5 h-5" /> : <BrandAvatar visual={bankBrand} size="sm" className="rounded-lg border-0 shadow-none" />
                                 )}
                               </div>
                                 <div>
@@ -1131,7 +1134,7 @@ export function Contas() {
                           {logoPreview || form.logo_url ? (
                             <img src={getFullLogoUrl(logoPreview || form.logo_url || '') || ''} alt="Logo" className="w-full h-full object-cover" />
                           ) : (
-                            'Sem logo'
+                            <BrandAvatar visual={inferBankBrand(form.banco, form.nome, form.tipo_integracao)} size="md" className="rounded-lg border-0 shadow-none" />
                           )}
                       </div>
                       <div className="flex gap-2 flex-wrap">

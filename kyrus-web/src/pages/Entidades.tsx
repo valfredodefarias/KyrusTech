@@ -10,7 +10,21 @@ interface Entidade {
   id: number;
   nome: string;
   tipo: 'CLIENTE' | 'FORNECEDOR' | 'AMBOS';
+  tipo_pessoa: 'PF' | 'PJ';
+  nome_fantasia?: string | null;
   cpf_cnpj?: string | null;
+  email?: string | null;
+  telefone?: string | null;
+  celular?: string | null;
+  contato_nome?: string | null;
+  cep?: string | null;
+  logradouro?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  observacoes?: string | null;
   status: 'ATIVO' | 'INATIVO';
 }
 
@@ -28,9 +42,61 @@ interface EntidadeFormState {
   id: number | null;
   nome: string;
   tipo: 'CLIENTE' | 'FORNECEDOR' | 'AMBOS';
+  tipo_pessoa: 'PF' | 'PJ';
+  nome_fantasia: string;
   cpf_cnpj: string;
+  email: string;
+  telefone: string;
+  celular: string;
+  contato_nome: string;
+  cep: string;
+  logradouro: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  uf: string;
+  observacoes: string;
   status: 'ATIVO' | 'INATIVO';
 }
+
+const onlyDigits = (value: string) => value.replace(/\D/g, '');
+
+const formatCpfCnpj = (value: string) => {
+  const digits = onlyDigits(value).slice(0, 14);
+  if (digits.length <= 11) {
+    return digits
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+  }
+
+  return digits
+    .replace(/(\d{2})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1/$2')
+    .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+};
+
+const formatPhone = (value: string) => {
+  const digits = onlyDigits(value).slice(0, 11);
+  if (digits.length <= 10) {
+    return digits
+      .replace(/(\d{2})(\d)/, '($1) $2')
+      .replace(/(\d{4})(\d)/, '$1-$2');
+  }
+
+  return digits
+    .replace(/(\d{2})(\d)/, '($1) $2')
+    .replace(/(\d{5})(\d)/, '$1-$2');
+};
+
+const formatCep = (value: string) => onlyDigits(value).slice(0, 8).replace(/(\d{5})(\d)/, '$1-$2');
+
+const nullableValue = (value: string) => {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+};
 
 export function Entidades() {
   // --- ESTADOS GERAIS ---
@@ -52,7 +118,21 @@ export function Entidades() {
     id: null,
     nome: '',
     tipo: 'CLIENTE',
+    tipo_pessoa: 'PJ',
+    nome_fantasia: '',
     cpf_cnpj: '',
+    email: '',
+    telefone: '',
+    celular: '',
+    contato_nome: '',
+    cep: '',
+    logradouro: '',
+    numero: '',
+    complemento: '',
+    bairro: '',
+    cidade: '',
+    uf: '',
+    observacoes: '',
     status: 'ATIVO'
   };
 
@@ -115,8 +195,22 @@ export function Entidades() {
       id: e.id,
       nome: e.nome,
       tipo: e.tipo,
+      tipo_pessoa: e.tipo_pessoa || 'PJ',
+      nome_fantasia: e.nome_fantasia || '',
       // Garante string vazia para o input controlar corretamente (null quebra input value)
       cpf_cnpj: e.cpf_cnpj || '', 
+      email: e.email || '',
+      telefone: e.telefone || '',
+      celular: e.celular || '',
+      contato_nome: e.contato_nome || '',
+      cep: e.cep || '',
+      logradouro: e.logradouro || '',
+      numero: e.numero || '',
+      complemento: e.complemento || '',
+      bairro: e.bairro || '',
+      cidade: e.cidade || '',
+      uf: e.uf || '',
+      observacoes: e.observacoes || '',
       status: e.status
     });
     setIsEditing(true);
@@ -134,10 +228,24 @@ export function Entidades() {
       // 1. Removemos string vazia do CPF (envia null)
       // 2. Injetamos empresa_id (Obrigatório pelo Schema do Backend)
       const payload = {
-        nome: form.nome,
+        nome: form.nome.trim(),
         tipo: form.tipo,
+        tipo_pessoa: form.tipo_pessoa,
+        nome_fantasia: nullableValue(form.nome_fantasia),
         status: form.status,
-        cpf_cnpj: form.cpf_cnpj?.trim() ? form.cpf_cnpj.trim() : null,
+        cpf_cnpj: nullableValue(onlyDigits(form.cpf_cnpj)),
+        email: nullableValue(form.email),
+        telefone: nullableValue(onlyDigits(form.telefone)),
+        celular: nullableValue(onlyDigits(form.celular)),
+        contato_nome: nullableValue(form.contato_nome),
+        cep: nullableValue(onlyDigits(form.cep)),
+        logradouro: nullableValue(form.logradouro),
+        numero: nullableValue(form.numero),
+        complemento: nullableValue(form.complemento),
+        bairro: nullableValue(form.bairro),
+        cidade: nullableValue(form.cidade),
+        uf: nullableValue(form.uf.toUpperCase().slice(0, 2)),
+        observacoes: nullableValue(form.observacoes),
         empresa_id: empresaId // <--- AQUI ESTAVA FALTANDO PARA O SCHEMA BASE
       };
 
@@ -191,8 +299,24 @@ export function Entidades() {
   // --- UI HELPERS ---
   const filteredData = entidades.filter(e => 
     e.nome.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (e.nome_fantasia || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (e.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (e.cidade || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (e.cpf_cnpj && e.cpf_cnpj.includes(searchTerm))
   );
+
+  const documentoLabel = form.tipo_pessoa === 'PF' ? 'CPF' : 'CNPJ';
+  const nomePrincipalLabel = form.tipo_pessoa === 'PF' ? 'Nome Completo' : 'Razão Social';
+
+  function handleDocumentoChange(value: string) {
+    const formatted = formatCpfCnpj(value);
+    const digits = onlyDigits(formatted);
+    setForm((prev) => ({
+      ...prev,
+      cpf_cnpj: formatted,
+      tipo_pessoa: digits.length > 11 ? 'PJ' : prev.tipo_pessoa === 'PJ' && digits.length > 0 && digits.length <= 11 ? 'PF' : prev.tipo_pessoa,
+    }));
+  }
 
   const getBadge = (tipo: string) => {
     const badges = {
@@ -281,9 +405,19 @@ export function Entidades() {
                   <tr key={e.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
                     <td className="p-4">
                       <span className="font-semibold text-slate-700 dark:text-slate-200 block">{e.nome}</span>
+                      <span className="text-xs text-slate-400 block mt-1">{e.nome_fantasia || e.contato_nome || (e.email || 'Sem contato principal')}</span>
                     </td>
-                    <td className="p-4">{getBadge(e.tipo)}</td>
-                    <td className="p-4 font-mono text-slate-500 dark:text-slate-400 tracking-tight">{e.cpf_cnpj || '---'}</td>
+                    <td className="p-4">
+                      <div className="flex flex-col gap-2">
+                        <span className={`px-2.5 py-1 rounded text-[10px] font-bold border w-fit uppercase tracking-wide ${e.tipo_pessoa === 'PF' ? 'bg-violet-100 text-violet-700 border-violet-200' : 'bg-sky-100 text-sky-700 border-sky-200'}`}>
+                          {e.tipo_pessoa === 'PF' ? 'Pessoa Fisica' : 'Pessoa Juridica'}
+                        </span>
+                        {getBadge(e.tipo)}
+                      </div>
+                    </td>
+                    <td className="p-4 font-mono text-slate-500 dark:text-slate-400 tracking-tight">
+                      {formatCpfCnpj(e.cpf_cnpj || '') || '---'}
+                    </td>
                     <td className="p-4">
                       <div className={`flex items-center gap-1.5 text-xs font-bold ${e.status === 'ATIVO' ? 'text-emerald-600' : 'text-slate-400'}`}>
                         <div className={`w-2 h-2 rounded-full ${e.status === 'ATIVO' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></div>
@@ -313,7 +447,7 @@ export function Entidades() {
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-200" onClick={() => setShowModal(false)}></div>
-          <div className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-100 dark:border-slate-700">
+          <div className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-100 dark:border-slate-700 max-h-[92vh] flex flex-col">
             
             <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800">
               <div>
@@ -325,87 +459,119 @@ export function Entidades() {
               <button onClick={() => setShowModal(false)} className="p-1 rounded-full text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-red-500 transition"><X className="w-5 h-5"/></button>
             </div>
             
-            <form onSubmit={handleSave} className="p-6 space-y-5">
-              
-              {/* Campo Nome */}
-              <div>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Nome Completo / Razão Social <span className="text-red-500">*</span></label>
-                <input 
-                  autoFocus
-                  type="text" 
-                  required
-                  className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all placeholder:text-slate-400"
-                  // Cor de foco dinâmica
-                  style={{ caretColor: primaryColor }}
-                  onFocus={(e) => {
-                    e.currentTarget.style.borderColor = primaryColor;
-                    e.currentTarget.style.boxShadow = `0 0 0 3px ${primaryColor}20`;
-                  }}
-                  onBlur={(e) => {
-                    e.currentTarget.style.borderColor = '';
-                    e.currentTarget.style.boxShadow = '';
-                  }}
-                  value={form.nome}
-                  onChange={e => setForm({...form, nome: e.target.value})}
-                  placeholder="Ex: Kyrus Tecnologia Ltda"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-5">
-                {/* Campo Tipo */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Tipo de Relacionamento</label>
-                  <select 
-                    className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all cursor-pointer appearance-none"
-                    onFocus={(e) => { e.currentTarget.style.borderColor = primaryColor; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = ''; }}
-                    value={form.tipo}
-                    onChange={e => setForm({...form, tipo: e.target.value as any})}
-                  >
-                    <option value="CLIENTE">Cliente</option>
-                    <option value="FORNECEDOR">Fornecedor</option>
-                    <option value="AMBOS">Ambos</option>
-                  </select>
-                </div>
-
-                {/* Campo Status */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Status Atual</label>
-                  <select 
-                    className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all cursor-pointer"
-                    onFocus={(e) => { e.currentTarget.style.borderColor = primaryColor; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = ''; }}
-                    value={form.status}
-                    onChange={e => setForm({...form, status: e.target.value as any})}
-                  >
-                    <option value="ATIVO">Ativo</option>
-                    <option value="INATIVO">Inativo</option>
-                  </select>
+            <form onSubmit={handleSave} className="p-6 space-y-6 overflow-y-auto">
+              <div className="grid gap-4 lg:grid-cols-4">
+                <button type="button" onClick={() => setForm({ ...form, tipo_pessoa: 'PF' })} className={`rounded-2xl border px-4 py-4 text-left transition ${form.tipo_pessoa === 'PF' ? 'border-violet-300 bg-violet-50 text-violet-700' : 'border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}>
+                  <div className="text-xs font-black uppercase tracking-[0.22em]">PF</div>
+                  <div className="mt-2 text-sm font-semibold">Pessoa Física</div>
+                  <div className="mt-1 text-xs opacity-70">Cadastro por CPF, nome e contato direto.</div>
+                </button>
+                <button type="button" onClick={() => setForm({ ...form, tipo_pessoa: 'PJ' })} className={`rounded-2xl border px-4 py-4 text-left transition ${form.tipo_pessoa === 'PJ' ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}>
+                  <div className="text-xs font-black uppercase tracking-[0.22em]">PJ</div>
+                  <div className="mt-2 text-sm font-semibold">Pessoa Jurídica</div>
+                  <div className="mt-1 text-xs opacity-70">Cadastro por CNPJ, razão social e contato responsável.</div>
+                </button>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:bg-slate-900 lg:col-span-2">
+                  <div className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">Relacionamento</div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <select className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-800 outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-white" value={form.tipo} onChange={e => setForm({...form, tipo: e.target.value as any})}>
+                      <option value="CLIENTE">Cliente</option>
+                      <option value="FORNECEDOR">Fornecedor</option>
+                      <option value="AMBOS">Cliente e fornecedor</option>
+                    </select>
+                    <select className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-800 outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-white" value={form.status} onChange={e => setForm({...form, status: e.target.value as any})}>
+                      <option value="ATIVO">Ativo</option>
+                      <option value="INATIVO">Inativo</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              {/* Campo CPF/CNPJ */}
-              <div>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">CPF / CNPJ (Opcional)</label>
-                <input 
-                  type="text" 
-                  className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all font-mono text-sm placeholder:text-slate-400"
-                  style={{ caretColor: primaryColor }}
-                  onFocus={(e) => {
-                    e.currentTarget.style.borderColor = primaryColor;
-                    e.currentTarget.style.boxShadow = `0 0 0 3px ${primaryColor}20`;
-                  }}
-                  onBlur={(e) => {
-                    e.currentTarget.style.borderColor = '';
-                    e.currentTarget.style.boxShadow = '';
-                  }}
-                  value={form.cpf_cnpj}
-                  onChange={e => setForm({...form, cpf_cnpj: e.target.value})}
-                  placeholder="000.000.000-00"
-                />
-                <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3"/> Deixe em branco se não souber.
-                </p>
+              <div className="grid gap-5 lg:grid-cols-2">
+                <div className="space-y-5 rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900/60">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">{nomePrincipalLabel} <span className="text-red-500">*</span></label>
+                    <input autoFocus type="text" required className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all placeholder:text-slate-400" style={{ caretColor: primaryColor }} value={form.nome} onChange={e => setForm({...form, nome: e.target.value})} placeholder={form.tipo_pessoa === 'PF' ? 'Ex: Maria Aparecida Souza' : 'Ex: Kyrus Tecnologia Ltda'} />
+                  </div>
+
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">{documentoLabel}</label>
+                      <input type="text" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all font-mono text-sm placeholder:text-slate-400" value={form.cpf_cnpj} onChange={e => handleDocumentoChange(e.target.value)} placeholder={form.tipo_pessoa === 'PF' ? '000.000.000-00' : '00.000.000/0000-00'} />
+                      <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3"/> O tipo PF/PJ ajusta automaticamente quando o documento estiver completo.</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Nome Fantasia / Apelido</label>
+                      <input type="text" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all" value={form.nome_fantasia} onChange={e => setForm({...form, nome_fantasia: e.target.value})} placeholder={form.tipo_pessoa === 'PF' ? 'Como você identifica essa pessoa' : 'Nome comercial'} />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Contato responsável</label>
+                      <input type="text" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all" value={form.contato_nome} onChange={e => setForm({...form, contato_nome: e.target.value})} placeholder="Ex: Financeiro / João Silva" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">E-mail</label>
+                      <input type="email" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="contato@empresa.com.br" />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Telefone</label>
+                      <input type="text" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all" value={form.telefone} onChange={e => setForm({...form, telefone: formatPhone(e.target.value)})} placeholder="(11) 3333-4444" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Celular / WhatsApp</label>
+                      <input type="text" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all" value={form.celular} onChange={e => setForm({...form, celular: formatPhone(e.target.value)})} placeholder="(11) 98888-7777" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-5 rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900/60">
+                  <div className="grid gap-5 sm:grid-cols-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">CEP</label>
+                      <input type="text" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all" value={form.cep} onChange={e => setForm({...form, cep: formatCep(e.target.value)})} placeholder="00000-000" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Logradouro</label>
+                      <input type="text" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all" value={form.logradouro} onChange={e => setForm({...form, logradouro: e.target.value})} placeholder="Rua, avenida, praça" />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-5 sm:grid-cols-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Número</label>
+                      <input type="text" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all" value={form.numero} onChange={e => setForm({...form, numero: e.target.value})} placeholder="123" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Complemento</label>
+                      <input type="text" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all" value={form.complemento} onChange={e => setForm({...form, complemento: e.target.value})} placeholder="Sala, bloco, referência" />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-5 sm:grid-cols-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Bairro</label>
+                      <input type="text" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all" value={form.bairro} onChange={e => setForm({...form, bairro: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Cidade</label>
+                      <input type="text" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all" value={form.cidade} onChange={e => setForm({...form, cidade: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">UF</label>
+                      <input type="text" maxLength={2} className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 uppercase dark:text-white outline-none transition-all" value={form.uf} onChange={e => setForm({...form, uf: e.target.value.toUpperCase()})} placeholder="SP" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Observações</label>
+                    <textarea className="min-h-32 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-800 outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-white" value={form.observacoes} onChange={e => setForm({...form, observacoes: e.target.value})} placeholder="Condições comerciais, restrições, detalhes operacionais." />
+                  </div>
+                </div>
               </div>
 
               <div className="pt-6 flex justify-end gap-3 border-t border-slate-100 dark:border-slate-700 mt-2">

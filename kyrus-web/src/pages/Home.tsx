@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
+import { BrandAvatar } from '../components/BrandAvatar';
+import { inferBankBrand } from '../lib/branding';
 import { 
   PlusCircle, BarChart2, Users, Landmark, 
   CreditCard, Settings, Wallet, Banknote, Home as HomeIcon,
@@ -193,10 +195,10 @@ export function Home() {
   const contasNegativas = contas.filter((conta) => getSaldo(conta) < 0).length;
   const operationalShortcuts: AtalhoCardProps[] = [
     {
-      to: '/dashboard',
+      to: '/boletim',
       icon: Activity,
-      label: 'Relatórios e KPIs',
-      description: 'Abrir leitura financeira detalhada e indicadores interativos.',
+      label: 'Boletim',
+      description: 'Abrir leitura financeira diária com caixa, bancos e próximos movimentos.',
       colorClass: 'text-cyan-600',
       bgClass: 'bg-cyan-100 dark:bg-cyan-500/10',
     },
@@ -310,8 +312,8 @@ export function Home() {
             <Link to="/lancamentos" className="bg-white text-slate-800 px-5 py-2.5 rounded-lg font-bold hover:bg-slate-50 transition shadow-sm flex items-center gap-2 w-full sm:w-auto justify-center">
               <PlusCircle size={18} style={{ color: primaryColor }} /> Novo Lançamento
             </Link>
-            <Link to="/dashboard" className="bg-black/20 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-black/30 transition flex items-center gap-2 border border-white/20 w-full sm:w-auto justify-center">
-              <BarChart2 size={18} /> Ver Relatórios
+            <Link to="/boletim" className="bg-black/20 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-black/30 transition flex items-center gap-2 border border-white/20 w-full sm:w-auto justify-center">
+              <BarChart2 size={18} /> Abrir Boletim
             </Link>
           </div>
         </div>
@@ -329,10 +331,10 @@ export function Home() {
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Central de operação</p>
             <h3 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">Áreas que saíram do sidebar ficam acessíveis daqui</h3>
-            <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-300">Tarefas, auditoria, importações, integrações e centros de custo continuam a um clique, mas agora agrupados dentro da Visão Geral.</p>
+            <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-300">Tarefas, auditoria, importações, integrações e centros de custo continuam acessíveis, enquanto a leitura financeira diária sai do dashboard antigo e entra no Boletim.</p>
           </div>
-          <Link to="/dashboard" className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800">
-            Ver análise completa
+          <Link to="/boletim" className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800">
+            Abrir boletim
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
@@ -429,7 +431,7 @@ export function Home() {
                     {c.logo_url ? (
                       <img src={getFullLogoUrl(c.logo_url) || ''} alt={c.nome} className="w-full h-full object-cover" />
                     ) : (
-                      c.tipo === 'CAIXA' ? <Banknote size={20} /> : <Landmark size={20} />
+                      c.tipo === 'CAIXA' ? <Banknote size={20} /> : <BrandAvatar visual={inferBankBrand(c.nome, c.tipo)} size="sm" className="rounded-full border-0 shadow-none" />
                     )}
                   </div>
                   <div className="min-w-0"> {/* min-w-0 é essencial para o truncate funcionar dentro do flex */}

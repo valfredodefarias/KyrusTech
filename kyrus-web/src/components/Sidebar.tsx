@@ -84,7 +84,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, onToggleCollapse, them
   // --- ESTRUTURA DO MENU ---
   const menuItems = [
     { icon: Home, label: 'Visão Geral', path: '/home' },
-    { icon: BarChart2, label: 'Dashboard', path: '/dashboard' },
+    { icon: BarChart2, label: 'Boletim', path: '/boletim' },
     { icon: PlusCircle, label: 'Lançamentos', path: '/lancamentos' },
     { icon: Users, label: 'Interessados', path: '/entidades' },
     { icon: Landmark, label: 'Contas Bancárias', path: '/contas' },

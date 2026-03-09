@@ -15,6 +15,7 @@ class Cartao(AuditMixin, SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     nome_cartao: str = Field(index=True)
+    bandeira: Optional[str] = Field(default=None, index=True)
     
     # Decimal para segurança financeira
     limite_total: Decimal = Field(default=0.0, max_digits=12, decimal_places=2)

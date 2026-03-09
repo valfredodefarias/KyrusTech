@@ -6,6 +6,22 @@ import { AssistentePageProvider, useAssistentePageContext } from './AssistentePa
 import { Sidebar, MobileSidebar } from './Sidebar';
 
 function resolveAssistenteDefaults(pathname: string) {
+  if (pathname.startsWith('/boletim')) {
+    return {
+      tela: 'dashboard' as const,
+      titulo: 'Assistente KyrusTECH',
+      sugestoes: [
+        'Resuma o que este boletim mostra de forma objetiva.',
+        'Quais movimentos exigem atenção imediata nesta semana?',
+        'O que mais está pressionando o caixa agora?',
+      ],
+      contexto: {
+        pagina: 'boletim',
+        modo_consultoria: 'financeira_empresarial',
+      },
+    };
+  }
+
   if (pathname.startsWith('/dashboard')) {
     return {
       tela: 'dashboard' as const,

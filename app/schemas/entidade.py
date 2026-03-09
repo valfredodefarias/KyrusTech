@@ -7,7 +7,21 @@ from .base_audit import AuditReadMixin
 class EntidadeBase(SQLModel):
     nome: str
     tipo: str = "AMBOS" # CLIENTE, FORNECEDOR, AMBOS
+    tipo_pessoa: str = "PJ"
+    nome_fantasia: Optional[str] = None
     cpf_cnpj: Optional[str] = None
+    email: Optional[str] = None
+    telefone: Optional[str] = None
+    celular: Optional[str] = None
+    contato_nome: Optional[str] = None
+    cep: Optional[str] = None
+    logradouro: Optional[str] = None
+    numero: Optional[str] = None
+    complemento: Optional[str] = None
+    bairro: Optional[str] = None
+    cidade: Optional[str] = None
+    uf: Optional[str] = None
+    observacoes: Optional[str] = None
     status: str = "ATIVO"
 
 # --- CREATE (sem empresa_id, o backend extrai do user autenticado) ---
@@ -18,7 +32,21 @@ class EntidadeCreate(EntidadeBase):
 class EntidadeUpdate(SQLModel):
     nome: Optional[str] = None
     tipo: Optional[str] = None
+    tipo_pessoa: Optional[str] = None
+    nome_fantasia: Optional[str] = None
     cpf_cnpj: Optional[str] = None
+    email: Optional[str] = None
+    telefone: Optional[str] = None
+    celular: Optional[str] = None
+    contato_nome: Optional[str] = None
+    cep: Optional[str] = None
+    logradouro: Optional[str] = None
+    numero: Optional[str] = None
+    complemento: Optional[str] = None
+    bairro: Optional[str] = None
+    cidade: Optional[str] = None
+    uf: Optional[str] = None
+    observacoes: Optional[str] = None
     status: Optional[str] = None
 
 # --- READ ---
@@ -31,3 +59,4 @@ class EntidadeLookup(SQLModel):
     id: int
     nome: str
     tipo: str = "AMBOS"
+    tipo_pessoa: str = "PJ"

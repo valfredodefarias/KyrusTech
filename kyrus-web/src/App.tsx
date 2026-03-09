@@ -8,6 +8,7 @@ import { useAuthStore } from './store/authStore';
 
 const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
 const Home = lazy(() => import('./pages/Home').then((module) => ({ default: module.Home })));
+const Boletim = lazy(() => import('./pages/Boletim').then((module) => ({ default: module.Boletim })));
 const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
 const Consultor = lazy(() => import('./pages/Consultor').then((module) => ({ default: module.Consultor })));
 const Tarefas = lazy(() => import('./pages/Tarefas').then((module) => ({ default: module.Tarefas })));
@@ -43,6 +44,7 @@ function App() {
 
           <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
             <Route path="/home" element={<Home />} />
+            <Route path="/boletim" element={<Boletim />} />
             <Route path="/consultor" element={<Consultor />} />
             <Route path="/tarefas" element={<Tarefas />} />
             <Route path="/lancamentos" element={<Lancamentos />} />
@@ -60,7 +62,7 @@ function App() {
             <Route path="/integracoes/asaas" element={<IntegracaoAsaas />} />
           </Route>
 
-          <Route path="*" element={<Navigate to="/home" replace />} />
+          <Route path="*" element={<Navigate to="/boletim" replace />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

@@ -6,6 +6,7 @@ from .base_audit import AuditReadMixin
 # --- BASE ---
 class CartaoBase(SQLModel):
     nome_cartao: str
+    bandeira: Optional[str] = None
     limite_total: Decimal = Decimal("0.00") # <--- RENOMEADO PARA IGUALAR AO BANCO
     dia_fechamento: int
     dia_vencimento: int
@@ -20,6 +21,7 @@ class CartaoCreate(CartaoBase):
 # --- UPDATE ---
 class CartaoUpdate(SQLModel):
     nome_cartao: Optional[str] = None
+    bandeira: Optional[str] = None
     limite_total: Optional[Decimal] = None # <--- RENOMEADO
     dia_fechamento: Optional[int] = None
     dia_vencimento: Optional[int] = None

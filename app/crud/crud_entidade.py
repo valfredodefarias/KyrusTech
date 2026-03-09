@@ -30,8 +30,8 @@ def create(db: Session, *, obj_in: EntidadeCreate, empresa_id: int) -> Entidade:
     db.refresh(db_obj)
 
     # Quando a entidade for pessoa fisica, garante o centro padrao da empresa.
-    tipo = str(db_obj.tipo or "").strip().upper()
-    if tipo in {"PESSOA_FISICA", "PF"}:
+    tipo_pessoa = str(db_obj.tipo_pessoa or "").strip().upper()
+    if tipo_pessoa == "PF":
         ensure_centro_custo_principal(db=db, empresa_id=empresa_id)
 
     return db_obj

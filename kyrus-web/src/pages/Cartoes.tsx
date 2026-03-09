@@ -1,5 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../services/api';
+import { BrandAvatar } from '../components/BrandAvatar';
+import { CARD_BRAND_OPTIONS, inferCardBrand } from '../lib/branding';
 import { 
   Plus, RefreshCw, Edit2, X, Check, Loader2, 
     ChevronLeft, ChevronRight, CheckCircle2, Building2, ChevronDown
@@ -9,6 +11,7 @@ import {
 interface Cartao {
   id: number;
   nome_cartao: string;
+    bandeira?: string | null;
   limite_total: number;
   dia_fechamento: number;
   dia_vencimento: number;
@@ -155,6 +158,7 @@ export function Cartoes() {
   const [formData, setFormData] = useState({
     id: null as number | null,
     nome_cartao: '',
+        bandeira: '',
     limite_total: '',
     dia_fechamento: '',
     dia_vencimento: '',
@@ -315,7 +319,7 @@ export function Cartoes() {
 
   function handleOpenCreate() {
     setFormData({ 
-        id: null, nome_cartao: '', limite_total: '', dia_fechamento: '', dia_vencimento: '', 
+        id: null, nome_cartao: '', bandeira: '', limite_total: '', dia_fechamento: '', dia_vencimento: '', 
         centro_custo_id: '', conta_id: '', status: 'ATIVO' 
     });
     setIsEditing(false);
@@ -328,6 +332,7 @@ export function Cartoes() {
     setFormData({
         id: c.id,
         nome_cartao: c.nome_cartao, 
+        bandeira: c.bandeira || '',
         limite_total: String(c.limite_total || 0),
         dia_fechamento: String(c.dia_fechamento), 
         dia_vencimento: String(c.dia_vencimento),
@@ -353,6 +358,7 @@ export function Cartoes() {
     try {
         const payload = {
             nome_cartao: formData.nome_cartao,
+            bandeira: formData.bandeira || null,
             limite_total: safeFloat(formData.limite_total),
             dia_fechamento: safeInt(formData.dia_fechamento) || 1,
             dia_vencimento: safeInt(formData.dia_vencimento) || 10,
@@ -479,6 +485,7 @@ export function Cartoes() {
   const CardVisual = ({ dados, previewMode = false }: any) => {
     const cc = centros.find(c => String(c.id) === String(dados.centro_custo_id));
     const nomeCC = cc ? (cc.nome || cc.descricao || 'GERAL') : 'GERAL';
+        const brand = inferCardBrand(dados.bandeira, dados.nome_cartao);
     
     const limiteTotal = parseFloat(String(dados.limite_total).replace(',', '.')) || 0;
     let disponivel = limiteTotal;
@@ -495,13 +502,16 @@ export function Cartoes() {
 
     return (
         <div className={`relative overflow-hidden rounded-xl p-6 text-white shadow-lg transition-all duration-300 ${previewMode ? 'h-48' : 'h-48 cursor-pointer hover:shadow-xl hover:scale-[1.02]'}`}
-             style={{ background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }}>
+             style={{ background: `linear-gradient(135deg, ${brand.accent} 0%, #0f172a 100%)` }}>
             
             <div className="absolute top-0 right-0 -mr-10 -mt-10 w-32 h-32 bg-white opacity-10 rounded-full blur-3xl pointer-events-none"></div>
             
             <div className="flex justify-between items-start z-10 relative">
-                <div className="font-mono text-xs opacity-70 tracking-widest font-bold">KYRUS CARD</div>
-                <div className="text-[10px] bg-white/20 px-2 py-0.5 rounded font-bold uppercase backdrop-blur-sm shadow-sm">{nomeCC}</div>
+                <div>
+                    <div className="font-mono text-xs opacity-70 tracking-widest font-bold">{brand.label.toUpperCase()}</div>
+                    <div className="mt-2 text-[10px] bg-white/20 px-2 py-0.5 rounded font-bold uppercase backdrop-blur-sm shadow-sm w-fit">{nomeCC}</div>
+                </div>
+                <BrandAvatar visual={brand} size="sm" className="border-white/20 bg-white/90" />
             </div>
 
             <div className="mt-4 z-10 relative">
@@ -767,6 +777,28 @@ export function Cartoes() {
                         </div>
 
                         <InputDark label="Nome do Cartão" placeholder="Ex: Nubank Platinum" value={formData.nome_cartao} onChange={(e:any) => setFormData({...formData, nome_cartao: e.target.value})} />
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Bandeira</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                {CARD_BRAND_OPTIONS.map((option) => {
+                                    const selected = formData.bandeira === option.value;
+                                    return (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, bandeira: option.value })}
+                                            className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${selected ? 'border-white/40 bg-white/10 text-white' : 'border-slate-700 bg-slate-800/70 text-slate-300 hover:border-slate-500'}`}
+                                        >
+                                            <BrandAvatar visual={option.visual} size="sm" />
+                                            <span className="text-sm font-semibold">{option.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <button type="button" onClick={() => setFormData({ ...formData, bandeira: '' })} className="mt-2 text-xs font-semibold text-slate-400 hover:text-white transition">
+                                Limpar bandeira selecionada
+                            </button>
+                        </div>
                         <InputDark label="Limite Total (R$)" type="number" step="0.01" className="font-bold text-lg" value={formData.limite_total} onChange={(e:any) => setFormData({...formData, limite_total: e.target.value})} />
 
                         <div className="grid grid-cols-2 gap-4">

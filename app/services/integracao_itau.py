@@ -576,11 +576,12 @@ def criar_entidade_se_nao_existir(
     
     # Cria nova entidade
     if razao_social or cpf_cnpj_limpo:
-        tipo = "PESSOA_JURIDICA" if len(cpf_cnpj_limpo) > 11 else "PESSOA_FISICA"
+        tipo_pessoa = "PJ" if len(cpf_cnpj_limpo) > 11 else "PF"
         
         nova_entidade = Entidade(
             nome=razao_social or cpf_cnpj_limpo,
-            tipo=tipo,
+            tipo="AMBOS",
+            tipo_pessoa=tipo_pessoa,
             cpf_cnpj=cpf_cnpj_limpo if cpf_cnpj_limpo else None,
             status="ATIVO",
             empresa_id=empresa_id

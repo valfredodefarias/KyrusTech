@@ -54,7 +54,10 @@ def _run_startup_migrations() -> None:
             logger.warning(result.stderr.strip())
 
         if result.returncode != 0:
-            raise RuntimeError("Alembic migrations failed during application startup")
+            logger.error("Alembic migrations failed during application startup; applying legacy compatibility patch")
+            _apply_legacy_schema_compatibility()
+            logger.warning("Application started with compatibility schema patch because Alembic history is broken")
+            return
 
         logger.success("Database migrations are up to date")
     finally:
@@ -65,6 +68,34 @@ def _run_startup_migrations() -> None:
             except Exception as exc:
                 logger.warning(f"Could not release migration advisory lock: {exc}")
             connection.close()
+
+
+def _apply_legacy_schema_compatibility() -> None:
+    statements = [
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS tipo_pessoa VARCHAR DEFAULT 'PJ'",
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS nome_fantasia VARCHAR",
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS email VARCHAR",
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS telefone VARCHAR",
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS celular VARCHAR",
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS contato_nome VARCHAR",
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS cep VARCHAR",
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS logradouro VARCHAR",
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS numero VARCHAR",
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS complemento VARCHAR",
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS bairro VARCHAR",
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS cidade VARCHAR",
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS uf VARCHAR(2)",
+        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS observacoes TEXT",
+        "UPDATE entidades SET tipo_pessoa = CASE WHEN upper(coalesce(cpf_cnpj, '')) ~ '^[0-9]{12,}$' THEN 'PJ' WHEN upper(coalesce(tipo, '')) IN ('PESSOA_FISICA', 'PF') THEN 'PF' WHEN upper(coalesce(tipo, '')) IN ('PESSOA_JURIDICA', 'PJ') THEN 'PJ' ELSE coalesce(tipo_pessoa, 'PJ') END WHERE tipo_pessoa IS NULL OR trim(tipo_pessoa) = ''",
+        "UPDATE entidades SET tipo = CASE WHEN upper(coalesce(tipo, '')) IN ('CLIENTE', 'FORNECEDOR', 'AMBOS') THEN upper(tipo) ELSE 'AMBOS' END WHERE tipo IS NULL OR upper(coalesce(tipo, '')) NOT IN ('CLIENTE', 'FORNECEDOR', 'AMBOS')",
+        "CREATE INDEX IF NOT EXISTS ix_entidades_tipo_pessoa ON entidades (tipo_pessoa)",
+        "ALTER TABLE cartoes ADD COLUMN IF NOT EXISTS bandeira VARCHAR",
+        "CREATE INDEX IF NOT EXISTS ix_cartoes_bandeira ON cartoes (bandeira)",
+    ]
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
 
 # --- INICIALIZAR APLICAÇÃO ---
 app = FastAPI(

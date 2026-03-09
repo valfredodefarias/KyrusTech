@@ -40,6 +40,46 @@ class LancamentoExtratoOut(BaseModel):
     tipo: str
 
 
+class ContaSaldoMovimentoOut(BaseModel):
+    id: int
+    descricao: str
+    tipo: str
+    status: str
+    origem: str
+    conciliado: bool
+    data_vencimento: date
+    data_pagamento: Optional[date] = None
+    valor_previsto: Decimal
+    valor_pago: Decimal
+    valor_utilizado_saldo: Decimal
+    impacto_valor: Decimal
+    plano_contas_id: Optional[int] = None
+    centro_custo_id: Optional[int] = None
+
+
+class ContaSaldoDetalheOut(BaseModel):
+    conta_id: int
+    conta_nome: str
+    saldo_inicial: Decimal
+    total_entradas: Decimal
+    total_saidas: Decimal
+    saldo_atual: Decimal
+    quantidade_movimentos: int
+    movimentos: List[ContaSaldoMovimentoOut]
+
+
+def _tipo_receita_clause():
+    return func.upper(Lancamento.tipo).like("R%")
+
+
+def _tipo_despesa_clause():
+    return func.upper(Lancamento.tipo).like("D%")
+
+
+def _movimento_influencia_saldo_clause():
+    return or_(Lancamento.status == "PAGO", Lancamento.data_pagamento.is_not(None))
+
+
 def _normalize_logo_url(logo_url: Optional[str], base: str) -> Optional[str]:
     if not logo_url:
         return logo_url
@@ -71,9 +111,9 @@ def read_all_contas(
     # Agrega receitas e despesas por conta em uma única query (evita N+1)
     saldos_por_conta = {}
     if include_saldo:
-        tipo_receita = func.upper(Lancamento.tipo).like("R%")
-        tipo_despesa = func.upper(Lancamento.tipo).like("D%")
-        movimento_pago = or_(Lancamento.status == "PAGO", Lancamento.data_pagamento.is_not(None))
+        tipo_receita = _tipo_receita_clause()
+        tipo_despesa = _tipo_despesa_clause()
+        movimento_pago = _movimento_influencia_saldo_clause()
 
         saldo_query = (
             select(
@@ -155,7 +195,7 @@ def extrato_conta(
             Lancamento.empresa_id == empresa_id,
             Lancamento.conta_id == conta_id,
             Lancamento.is_deleted == False,
-            or_(Lancamento.status == "PAGO", Lancamento.data_pagamento.is_not(None)),
+            _movimento_influencia_saldo_clause(),
         )
         .order_by(Lancamento.data_pagamento.desc())
         .offset(skip)
@@ -173,6 +213,80 @@ def extrato_conta(
         }
         for row in rows
     ]
+
+
+@router.get("/{conta_id}/saldo-detalhe", response_model=ContaSaldoDetalheOut)
+def saldo_detalhe_conta(
+    *,
+    db: Session = Depends(get_db),
+    conta_id: int,
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    conta = db.exec(
+        select(Conta).where(Conta.id == conta_id, Conta.empresa_id == empresa_id)
+    ).first()
+    if not conta:
+        raise HTTPException(status_code=404, detail="Conta não encontrada")
+
+    movimentos = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.conta_id == conta_id,
+            Lancamento.is_deleted == False,
+            _movimento_influencia_saldo_clause(),
+        )
+        .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).desc(), Lancamento.id.desc())
+    ).all()
+
+    total_entradas = Decimal("0.00")
+    total_saidas = Decimal("0.00")
+    movimentos_out: List[ContaSaldoMovimentoOut] = []
+
+    for movimento in movimentos:
+        valor_utilizado = Decimal(str(movimento.valor_pago or 0))
+        tipo_normalizado = (movimento.tipo or "").strip().upper()
+        if tipo_normalizado.startswith("R"):
+            impacto = valor_utilizado
+            total_entradas += valor_utilizado
+        elif tipo_normalizado.startswith("D"):
+            impacto = valor_utilizado * Decimal("-1")
+            total_saidas += valor_utilizado
+        else:
+            impacto = Decimal("0.00")
+
+        movimentos_out.append(
+            ContaSaldoMovimentoOut(
+                id=movimento.id or 0,
+                descricao=movimento.descricao,
+                tipo=movimento.tipo,
+                status=movimento.status,
+                origem=movimento.origem,
+                conciliado=bool(movimento.conciliado),
+                data_vencimento=movimento.data_vencimento,
+                data_pagamento=movimento.data_pagamento,
+                valor_previsto=movimento.valor_previsto,
+                valor_pago=movimento.valor_pago,
+                valor_utilizado_saldo=valor_utilizado,
+                impacto_valor=impacto,
+                plano_contas_id=movimento.plano_contas_id,
+                centro_custo_id=movimento.centro_custo_id,
+            )
+        )
+
+    saldo_inicial = Decimal(str(conta.saldo_inicial))
+    saldo_atual = saldo_inicial + total_entradas - total_saidas
+
+    return ContaSaldoDetalheOut(
+        conta_id=conta.id or 0,
+        conta_nome=conta.nome,
+        saldo_inicial=saldo_inicial,
+        total_entradas=total_entradas,
+        total_saidas=total_saidas,
+        saldo_atual=saldo_atual,
+        quantidade_movimentos=len(movimentos_out),
+        movimentos=movimentos_out,
+    )
 
 @router.post("/", response_model=ContaRead, status_code=201)
 def create_conta(

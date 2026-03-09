@@ -41,13 +41,28 @@ interface LancamentoItem {
   descricao: string;
   tipo: 'RECEITA' | 'DESPESA' | string;
   status: string;
+  origem?: string;
+  conciliado?: boolean;
   data_vencimento: string;
   data_pagamento?: string | null;
   valor_previsto: number;
   valor_pago: number;
+  valor_utilizado_saldo?: number;
+  impacto_valor?: number;
   plano_contas_id?: number;
   conta_id?: number | null;
   centro_custo_id?: number | null;
+}
+
+interface ContaSaldoDetalhe {
+  conta_id: number;
+  conta_nome: string;
+  saldo_inicial: number;
+  total_entradas: number;
+  total_saidas: number;
+  saldo_atual: number;
+  quantidade_movimentos: number;
+  movimentos: LancamentoItem[];
 }
 
 interface FormConta {
@@ -203,6 +218,9 @@ export function Contas() {
   const [extratoContaId, setExtratoContaId] = useState<number | null>(null);
   const [extratoConta, setExtratoConta] = useState<Conta | null>(null);
   const [extratoLancamentos, setExtratoLancamentos] = useState<LancamentoItem[]>([]);
+  const [extratoSaldoDetalhe, setExtratoSaldoDetalhe] = useState<ContaSaldoDetalhe | null>(null);
+  const [extratoSelecionados, setExtratoSelecionados] = useState<number[]>([]);
+  const [excluindoSelecionados, setExcluindoSelecionados] = useState(false);
   const [lancamentoModalOpen, setLancamentoModalOpen] = useState(false);
   const [lancamentoSaving, setLancamentoSaving] = useState(false);
   const [lancamentoEditing, setLancamentoEditing] = useState<LancamentoItem | null>(null);
@@ -410,14 +428,16 @@ export function Contas() {
   async function fetchLancamentosConta(contaId: number) {
     setExtratoLoading(true);
     try {
-      const { data } = await api.get('/lancamentos/', {
-        params: { limit: 5000, conta_id: contaId }
-      });
-      const items = (data || []) as LancamentoItem[];
-      items.sort((a, b) => new Date(b.data_vencimento).getTime() - new Date(a.data_vencimento).getTime());
+      const { data } = await api.get<ContaSaldoDetalhe>(`/contas/${contaId}/saldo-detalhe`);
+      const items = (data?.movimentos || []) as LancamentoItem[];
+      setExtratoSaldoDetalhe(data);
       setExtratoLancamentos(items);
+      setExtratoSelecionados([]);
     } catch (error) {
       console.error("Erro ao carregar extrato", error);
+      setExtratoSaldoDetalhe(null);
+      setExtratoLancamentos([]);
+      setExtratoSelecionados([]);
     } finally {
       setExtratoLoading(false);
     }
@@ -452,9 +472,41 @@ export function Contas() {
   function handleVoltarExtrato() {
     setExtratoOpen(false);
     setExtratoLancamentos([]);
+    setExtratoSaldoDetalhe(null);
+    setExtratoSelecionados([]);
     setExtratoConta(null);
     setExtratoContaId(null);
     setContaExtratoNome('');
+  }
+
+  function toggleExtratoSelecionado(id: number) {
+    setExtratoSelecionados((prev) => prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]);
+  }
+
+  function toggleSelecionarTodosExtrato() {
+    setExtratoSelecionados((prev) => prev.length === extratoLancamentos.length ? [] : extratoLancamentos.map((item) => item.id));
+  }
+
+  async function handleExcluirSelecionadosExtrato() {
+    if (extratoSelecionados.length === 0 || !extratoContaId) return;
+    if (!window.confirm(`Deseja excluir ${extratoSelecionados.length} lançamento(s) que influenciam o saldo desta conta?`)) return;
+
+    setExcluindoSelecionados(true);
+    try {
+      await api.post('/lancamentos/bulk-delete', { ids: extratoSelecionados });
+      await fetchLancamentosConta(extratoContaId);
+      const contasAtualizadas = await carregarDados();
+      const contaAtualizada = contasAtualizadas.find((conta) => conta.id === extratoContaId) || null;
+      setExtratoConta(contaAtualizada);
+      if (contaAtualizada) {
+        setContaExtratoNome(contaAtualizada.nome);
+      }
+    } catch (error) {
+      console.error('Erro ao excluir lançamentos selecionados', error);
+      alert('Erro ao excluir lançamentos selecionados.');
+    } finally {
+      setExcluindoSelecionados(false);
+    }
   }
 
   function handleAbrirLancamentoModal(lancamento?: LancamentoItem) {
@@ -626,7 +678,7 @@ export function Contas() {
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <div>
                 <h3 className="text-xl font-bold text-slate-800 dark:text-white">Extrato - {contaExtratoNome}</h3>
-                <p className="text-xs text-slate-400">Lançamentos somente desta conta.</p>
+                <p className="text-xs text-slate-400">Movimentos que realmente entram no cálculo do saldo desta conta.</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -668,41 +720,112 @@ export function Contas() {
               </div>
             </div>
 
+            {extratoSaldoDetalhe && (
+              <>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Saldo inicial</p>
+                    <p className="mt-2 text-xl font-black text-slate-800 dark:text-white">{BRL.format(Number(extratoSaldoDetalhe.saldo_inicial || 0))}</p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-200 bg-white p-4 shadow-sm dark:border-emerald-900 dark:bg-slate-800">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Entradas no saldo</p>
+                    <p className="mt-2 text-xl font-black text-emerald-600 dark:text-emerald-300">{BRL.format(Number(extratoSaldoDetalhe.total_entradas || 0))}</p>
+                  </div>
+                  <div className="rounded-xl border border-rose-200 bg-white p-4 shadow-sm dark:border-rose-900 dark:bg-slate-800">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Saídas no saldo</p>
+                    <p className="mt-2 text-xl font-black text-rose-600 dark:text-rose-300">{BRL.format(Number(extratoSaldoDetalhe.total_saidas || 0))}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Saldo calculado</p>
+                    <p className={`mt-2 text-xl font-black ${Number(extratoSaldoDetalhe.saldo_atual || 0) >= 0 ? 'text-slate-800 dark:text-white' : 'text-rose-600 dark:text-rose-300'}`}>{BRL.format(Number(extratoSaldoDetalhe.saldo_atual || 0))}</p>
+                    <p className="mt-1 text-[11px] text-slate-400">{extratoSaldoDetalhe.quantidade_movimentos} movimento(s) influenciando</p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-100">Tudo abaixo entra no saldo atual desta conta.</p>
+                    <p className="text-xs text-slate-400">Se algo estiver errado aqui, é isso que precisa ser corrigido ou apagado.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={toggleSelecionarTodosExtrato}
+                      disabled={extratoLancamentos.length === 0}
+                      className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {extratoSelecionados.length === extratoLancamentos.length && extratoLancamentos.length > 0 ? 'Limpar seleção' : 'Selecionar todos'}
+                    </button>
+                    <button
+                      onClick={handleExcluirSelecionadosExtrato}
+                      disabled={extratoSelecionados.length === 0 || excluindoSelecionados}
+                      className="px-4 py-2 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {excluindoSelecionados ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      Apagar selecionados ({extratoSelecionados.length})
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
             <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead className="bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-500 uppercase">
                     <tr>
-                      <th className="p-4">Vencimento</th>
+                      <th className="p-4 w-12">
+                        <button
+                          onClick={toggleSelecionarTodosExtrato}
+                          className="inline-flex items-center justify-center rounded-md border border-slate-200 p-1 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
+                          title="Selecionar todos os movimentos do saldo"
+                        >
+                          {extratoSelecionados.length === extratoLancamentos.length && extratoLancamentos.length > 0 ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                        </button>
+                      </th>
+                      <th className="p-4">Data base</th>
                       <th className="p-4">Descrição</th>
                       <th className="p-4">Categoria</th>
+                      <th className="p-4">Origem</th>
                       <th className="p-4">Status</th>
-                      <th className="p-4 text-right">Valor</th>
+                      <th className="p-4 text-right">Valor usado</th>
+                      <th className="p-4 text-right">Impacto</th>
                       <th className="p-4 text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="text-sm divide-y divide-slate-100 dark:divide-slate-700">
                     {extratoLoading ? (
-                      <tr><td colSpan={6} className="p-6 text-center text-slate-400">Carregando...</td></tr>
+                      <tr><td colSpan={9} className="p-6 text-center text-slate-400">Carregando...</td></tr>
                     ) : extratoLancamentos.length === 0 ? (
-                      <tr><td colSpan={6} className="p-6 text-center text-slate-400 italic">Nenhum lançamento encontrado.</td></tr>
+                      <tr><td colSpan={9} className="p-6 text-center text-slate-400 italic">Nenhum movimento está influenciando o saldo desta conta.</td></tr>
                     ) : (
                       extratoLancamentos.map(l => (
                         <tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                          <td className="p-4">
+                            <input
+                              type="checkbox"
+                              checked={extratoSelecionados.includes(l.id)}
+                              onChange={() => toggleExtratoSelecionado(l.id)}
+                              className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                            />
+                          </td>
                           <td className="p-4 font-mono text-xs text-slate-500">
-                            {new Date(l.data_vencimento).toLocaleDateString('pt-BR')}
+                            {new Date((l.data_pagamento || l.data_vencimento)).toLocaleDateString('pt-BR')}
                           </td>
                           <td className="p-4 font-medium text-slate-700 dark:text-slate-200">{l.descricao}</td>
                           <td className="p-4 text-slate-500">
                             {categorias.find(c => c.id === l.plano_contas_id)?.nome || '-'}
                           </td>
+                          <td className="p-4 text-slate-500">{l.origem || '-'}</td>
                           <td className="p-4">
                             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                               {l.status}
                             </span>
                           </td>
-                          <td className={`p-4 text-right font-bold ${l.tipo === 'RECEITA' ? 'text-emerald-600' : 'text-red-600'}`}>
-                            {l.tipo === 'DESPESA' ? '-' : ''}{BRL.format(Number((l.status === 'PAGO' ? l.valor_pago : l.valor_previsto) || 0))}
+                          <td className="p-4 text-right font-bold text-slate-700 dark:text-slate-200">
+                            {BRL.format(Number(l.valor_utilizado_saldo || 0))}
+                          </td>
+                          <td className={`p-4 text-right font-bold ${Number(l.impacto_valor || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            {Number(l.impacto_valor || 0) >= 0 ? '+' : '-'}{BRL.format(Math.abs(Number(l.impacto_valor || 0)))}
                           </td>
                           <td className="p-4 text-right">
                             <div className="flex items-center justify-end gap-2">

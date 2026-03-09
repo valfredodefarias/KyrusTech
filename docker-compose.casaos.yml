@@ -31,6 +31,7 @@ services:
       - "${APP_PORT:-8000}:8000"
     volumes:
       - ./static:/app/static
+    command: /bin/sh -c "python scripts/run_migrations.py ; python -u run.py"
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 

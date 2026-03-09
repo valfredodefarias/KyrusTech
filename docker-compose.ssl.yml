@@ -33,7 +33,7 @@ services:
       - kyrustech_network
     expose:
       - "8000"
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    command: /bin/sh -c "python scripts/run_migrations.py ; uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
 
   nginx:
     image: nginx:alpine

@@ -197,7 +197,7 @@ export function Home() {
       to: '/boletim',
       icon: Activity,
       label: 'Boletim',
-      description: 'Abrir leitura financeira diária com caixa, bancos e próximos movimentos.',
+      description: 'Leitura diaria.',
       colorClass: 'text-cyan-600',
       bgClass: 'bg-cyan-100 dark:bg-cyan-500/10',
     },
@@ -205,7 +205,7 @@ export function Home() {
       to: '/tarefas',
       icon: ClipboardList,
       label: 'Tarefas',
-      description: 'Gerenciar pendências, execução e acompanhamento operacional.',
+      description: 'Pendencias e execucao.',
       colorClass: 'text-indigo-600',
       bgClass: 'bg-indigo-100 dark:bg-indigo-500/10',
     },
@@ -213,7 +213,7 @@ export function Home() {
       to: '/centro-custo',
       icon: Building2,
       label: 'Centros de Custo',
-      description: 'Organizar estrutura analítica e responsabilização do gasto.',
+      description: 'Estrutura de gasto.',
       colorClass: 'text-amber-600',
       bgClass: 'bg-amber-100 dark:bg-amber-500/10',
     },
@@ -221,7 +221,7 @@ export function Home() {
       to: '/auditoria',
       icon: ShieldCheck,
       label: 'Auditoria',
-      description: 'Ver trilha de ações e mudanças relevantes no sistema.',
+      description: 'Trilha de acoes.',
       colorClass: 'text-rose-600',
       bgClass: 'bg-rose-100 dark:bg-rose-500/10',
     },
@@ -229,7 +229,7 @@ export function Home() {
       to: '/importacao',
       icon: FileCog,
       label: 'Importações',
-      description: 'Trazer dados externos e revisar processamento financeiro.',
+      description: 'Entrada de dados.',
       colorClass: 'text-emerald-600',
       bgClass: 'bg-emerald-100 dark:bg-emerald-500/10',
     },
@@ -237,7 +237,7 @@ export function Home() {
       to: '/integracoes/asaas',
       icon: LinkIcon,
       label: 'Integrações',
-      description: 'Configurar conexões e automações com serviços externos.',
+      description: 'Conexoes externas.',
       colorClass: 'text-violet-600',
       bgClass: 'bg-violet-100 dark:bg-violet-500/10',
     },
@@ -298,9 +298,6 @@ export function Home() {
               {empresa?.nome_fantasia || 'Sua Empresa'}
             </strong>
           </p>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-white/80">
-            Esta página agora concentra entrada rápida para operação, governança e acompanhamento financeiro. O objetivo é reduzir navegação lateral e te colocar mais rápido no que exige ação.
-          </p>
           <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <HeroMetric label="Saldo consolidado" value={BRL.format(saldoTotal)} tone="text-white" />
             <HeroMetric label="Contas ativas" value={String(contas.length)} tone="text-white" />
@@ -329,8 +326,7 @@ export function Home() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Central de operação</p>
-            <h3 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">Áreas que saíram do sidebar ficam acessíveis daqui</h3>
-            <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-300">Tarefas, auditoria, importações, integrações e centros de custo continuam acessíveis, enquanto a leitura financeira diária sai do dashboard antigo e entra no Boletim.</p>
+            <h3 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">Acessos rápidos</h3>
           </div>
           <Link to="/boletim" className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800">
             Abrir boletim
@@ -514,7 +510,7 @@ function SummaryPanel({ title, value, support, tone }: { title: string; value: s
         {title}
       </div>
       <p className="mt-4 text-3xl font-black text-slate-900 dark:text-white">{value}</p>
-      <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">{support}</p>
+      <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">{support}</p>
     </div>
   );
 }
@@ -530,7 +526,7 @@ function AtalhoCard({ to, icon: Icon, label, description, colorClass, bgClass }:
       </div>
       <div className="mt-5">
         <p className="text-base font-black text-slate-800 dark:text-white">{label}</p>
-        <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-300">{description}</p>
+        <p className="mt-1 text-xs font-medium uppercase tracking-[0.14em] text-slate-500 dark:text-slate-300">{description}</p>
       </div>
     </Link>
   );

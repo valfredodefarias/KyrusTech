@@ -31,7 +31,7 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./static:/app/static
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    command: /bin/sh -c "python scripts/run_migrations.py ; uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
   frontend:
     build:

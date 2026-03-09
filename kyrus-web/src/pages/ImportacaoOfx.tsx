@@ -9,7 +9,6 @@ import {
   Landmark,
   Loader2,
   Search,
-  Sparkles,
   UploadCloud,
   Wand2,
 } from 'lucide-react';
@@ -358,34 +357,11 @@ export function ImportacaoOfx() {
 
   return (
     <div className="space-y-6 text-slate-800 dark:text-slate-100">
-      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.24),transparent_35%),linear-gradient(135deg,#0f172a,#111827_55%,#022c22)] px-6 py-7 text-white shadow-[0_25px_80px_-45px_rgba(15,23,42,0.9)] dark:border-slate-800 md:px-8 md:py-8">
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_380px]">
-          <div className="space-y-5">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.24em] text-emerald-200">
-              <Sparkles className="h-3.5 w-3.5" />
-              Conciliação OFX multibancos
-            </div>
-            <div className="space-y-3">
-              <h1 className="max-w-3xl text-3xl font-black tracking-tight md:text-4xl">Importe OFX, cruze com previsões e confirme só o que faz sentido.</h1>
-              <p className="max-w-2xl text-sm leading-6 text-slate-200 md:text-base">
-                O fluxo compara cada movimento bancário com lançamentos previstos ou atrasados do mesmo tipo, usando tolerância de R$ 1,00 e chave estável por conta selecionada + identificador da movimentação.
-              </p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
-                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200">Mesmo tipo</p>
-                <p className="mt-2 text-sm text-slate-100">Receita só cruza com receita. Despesa só cruza com despesa.</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
-                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200">Margem segura</p>
-                <p className="mt-2 text-sm text-slate-100">Comparação por valor com tolerância de até R$ 1,00.</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
-                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200">Sem conflito</p>
-                <p className="mt-2 text-sm text-slate-100">Duplicidade protegida pela conta escolhida e pelo identificador do movimento.</p>
-              </div>
-            </div>
+      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a,#111827_55%,#022c22)] px-6 py-7 text-white shadow-[0_25px_80px_-45px_rgba(15,23,42,0.9)] dark:border-slate-800 md:px-8 md:py-8">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-center">
+          <div className="space-y-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-emerald-200">OFX</p>
+            <h1 className="max-w-3xl text-3xl font-black tracking-tight md:text-4xl">Importe, revise e confirme.</h1>
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
@@ -435,17 +411,8 @@ export function ImportacaoOfx() {
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                Processar e sugerir conciliações
+                Processar arquivo
               </button>
-
-              <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-4 text-xs text-slate-300">
-                <p className="font-bold uppercase tracking-[0.18em] text-emerald-200">Como o sistema decide</p>
-                <div className="mt-2 space-y-2 leading-5">
-                  <p>1. Procura previsto do mesmo tipo no mesmo dia.</p>
-                  <p>2. Se não achar, busca atrasados compatíveis dos últimos 30 dias.</p>
-                  <p>3. Se ainda não fechar, prepara criação de novo lançamento com apoio de categoria e entidade.</p>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -486,7 +453,6 @@ export function ImportacaoOfx() {
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <h2 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Fila de conciliação OFX</h2>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Revise as sugestões, ajuste categoria e entidade quando precisar e confirme só o que estiver correto.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               {([

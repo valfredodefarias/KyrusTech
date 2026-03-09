@@ -2,18 +2,69 @@
 
 import os
 import re
+import sys
 from pathlib import Path
+from subprocess import run
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
+from loguru import logger
+from sqlalchemy import text
 from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.audit_context import set_audit_request, clear_audit_context
+from app.db.session import engine
 
 # --- CRIAR DIRETÓRIOS NECESSÁRIOS ---
 os.makedirs("static/uploads", exist_ok=True)
+ROOT_DIR = Path(__file__).resolve().parent.parent
+MIGRATION_LOCK_ID = 24030901
+
+
+def _should_auto_run_migrations() -> bool:
+    value = os.getenv("AUTO_RUN_MIGRATIONS", "1").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def _run_startup_migrations() -> None:
+    if not _should_auto_run_migrations():
+        logger.info("Auto migration disabled by AUTO_RUN_MIGRATIONS")
+        return
+
+    connection = None
+    try:
+        logger.info("Checking database migrations before serving requests")
+        connection = engine.raw_connection()
+        cursor = connection.cursor()
+        cursor.execute("SELECT pg_advisory_lock(%s)", (MIGRATION_LOCK_ID,))
+
+        result = run(
+            [sys.executable, "scripts/run_migrations.py"],
+            cwd=str(ROOT_DIR),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        if result.stdout.strip():
+            logger.info(result.stdout.strip())
+        if result.stderr.strip():
+            logger.warning(result.stderr.strip())
+
+        if result.returncode != 0:
+            raise RuntimeError("Alembic migrations failed during application startup")
+
+        logger.success("Database migrations are up to date")
+    finally:
+        if connection is not None:
+            try:
+                cursor = connection.cursor()
+                cursor.execute("SELECT pg_advisory_unlock(%s)", (MIGRATION_LOCK_ID,))
+            except Exception as exc:
+                logger.warning(f"Could not release migration advisory lock: {exc}")
+            connection.close()
 
 # --- INICIALIZAR APLICAÇÃO ---
 app = FastAPI(
@@ -21,6 +72,11 @@ app = FastAPI(
     description="API Backend do Kyrus ERP",
     version="1.0.0"
 )
+
+
+@app.on_event("startup")
+def startup_event() -> None:
+    _run_startup_migrations()
 
 # --- CONFIGURAÇÃO DE CORS ---
 # Converte CORS origins para lista se for string "*"

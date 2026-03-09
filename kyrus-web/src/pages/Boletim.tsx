@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, CalendarRange, Landmark, ListFilter, ReceiptText, Wallet } from 'lucide-react';
+import { ArrowRight, Building2, CalendarRange, Landmark, ReceiptText, Wallet } from 'lucide-react';
 import { BrandAvatar, inferBankBrand } from '../components/BrandAvatar';
 import { api } from '../services/api';
 
@@ -26,6 +26,23 @@ interface LancamentoResumo {
   conta_id?: number | null;
 }
 
+interface UserInfo {
+  empresa_id?: number | null;
+  is_consultor?: boolean;
+}
+
+interface EmpresaInfo {
+  id?: number;
+  nome_fantasia: string;
+  razao_social?: string;
+  cor_primaria?: string;
+  logo_url?: string | null;
+}
+
+interface ConsultorContextoResponse {
+  empresa_atual: EmpresaInfo;
+}
+
 type ModoBoletim = 'compacto' | 'detalhado';
 
 function parseDateOnly(value?: string | null) {
@@ -45,18 +62,56 @@ export function Boletim() {
   const [modo, setModo] = useState<ModoBoletim>('compacto');
   const [contas, setContas] = useState<ContaResumo[]>([]);
   const [lancamentos, setLancamentos] = useState<LancamentoResumo[]>([]);
+  const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  function getFullLogoUrl(url?: string | null) {
+    if (!url) return null;
+    if (url.startsWith('blob:') || url.startsWith('data:')) return url;
+    if (url.startsWith('/static')) {
+      const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
+      return `${baseURL}${url}`;
+    }
+    if (url.startsWith('http://') && url.includes('/static/')) {
+      try {
+        const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
+        const path = new URL(url).pathname;
+        return `${baseURL}${path}`;
+      } catch {
+        return url;
+      }
+    }
+    return url;
+  }
 
   useEffect(() => {
     async function loadData() {
       setLoading(true);
       try {
+        const userRes = await api.get<UserInfo>('/usuarios/me');
+
+        let empresaAtual: EmpresaInfo | null = null;
+        if (userRes.data.empresa_id) {
+          try {
+            const empresaRes = await api.get<EmpresaInfo>(`/empresas/${userRes.data.empresa_id}`);
+            empresaAtual = empresaRes.data;
+          } catch {
+            empresaAtual = null;
+          }
+        }
+
+        if (!empresaAtual && userRes.data.is_consultor) {
+          const contextoRes = await api.get<ConsultorContextoResponse>('/consultor/meu-contexto');
+          empresaAtual = contextoRes.data.empresa_atual;
+        }
+
         const [contasRes, lancamentosRes] = await Promise.all([
           api.get<ContaResumo[]>('/contas/'),
           api.get<LancamentoResumo[]>('/lancamentos/', { params: { limit: 400 } }),
         ]);
 
+        setEmpresa(empresaAtual);
         setContas(contasRes.data || []);
         setLancamentos(lancamentosRes.data || []);
       } catch (error) {
@@ -105,11 +160,17 @@ export function Boletim() {
       saldoTotal,
       entradasMes,
       saidasMes,
+      resultadoMes: entradasMes - saidasMes,
       abertasProximas,
       recentes: lancamentosOrdenados.slice(0, modo === 'compacto' ? 8 : 16),
       contasOrdenadas: [...contas].sort((a, b) => Number(b.saldo_atual ?? b.saldo_inicial ?? 0) - Number(a.saldo_atual ?? a.saldo_inicial ?? 0)),
     };
   }, [contas, lancamentos, modo]);
+
+  const primaryColor = empresa?.cor_primaria || '#2563eb';
+  const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
+  const companyName = empresa?.nome_fantasia || 'Sua Empresa';
+  const companySubtitle = empresa?.razao_social || 'Painel financeiro executivo';
 
   if (loading) {
     return <div className="p-10 text-center text-slate-500">Carregando boletim...</div>;
@@ -117,47 +178,75 @@ export function Boletim() {
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6 pb-10">
-      <header className="rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#ffffff_48%,#e2e8f0_100%)] p-6 shadow-sm dark:border-slate-700 dark:bg-[linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(30,41,59,0.96)_100%)]">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.24em] text-slate-400">Boletim financeiro</p>
-            <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Leitura direta do caixa, bancos e próximos movimentos</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500 dark:text-slate-300">
-              Esta página substitui a navegação pelo dashboard antigo para o uso diário. O foco aqui é leitura prática: saldo, entradas, saídas, vencimentos próximos e bancos mais relevantes.
+      <header className="overflow-hidden rounded-4xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div className="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
+                {companyLogo ? (
+                  <img src={companyLogo} alt={companyName} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-slate-400">
+                    <Building2 className="h-7 w-7" />
+                  </div>
+                )}
+              </div>
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-400">KyrusTECH</p>
+                <h1 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{companyName}</h1>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-300">{companySubtitle}</p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-900">
+                <button type="button" onClick={() => setModo('compacto')} className={`rounded-xl px-4 py-2 text-sm font-bold transition ${modo === 'compacto' ? 'text-white' : 'text-slate-500 dark:text-slate-300'}`} style={modo === 'compacto' ? { backgroundColor: primaryColor } : undefined}>
+                  Compacto
+                </button>
+                <button type="button" onClick={() => setModo('detalhado')} className={`rounded-xl px-4 py-2 text-sm font-bold transition ${modo === 'detalhado' ? 'text-white' : 'text-slate-500 dark:text-slate-300'}`} style={modo === 'detalhado' ? { backgroundColor: primaryColor } : undefined}>
+                  Detalhado
+                </button>
+              </div>
+
+              <Link to="/lancamentos" className="inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-bold text-white transition hover:opacity-90" style={{ backgroundColor: primaryColor }}>
+                Ver lançamentos
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 p-6 lg:grid-cols-[1.25fr_0.75fr]">
+          <div className="rounded-[28px] bg-slate-950 px-6 py-6 text-white" style={{ background: `linear-gradient(135deg, ${primaryColor} 0%, #0f172a 72%)` }}>
+            <p className="text-[11px] font-black uppercase tracking-[0.3em] text-white/60">Boletim financeiro</p>
+            <h2 className="mt-3 text-3xl font-black leading-tight">Leitura rápida do caixa e dos próximos movimentos</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/78">
+              Um resumo limpo do que entrou, saiu, vence em seguida e onde está concentrado o saldo da empresa agora.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="inline-flex rounded-2xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
-              <button type="button" onClick={() => setModo('compacto')} className={`rounded-xl px-4 py-2 text-sm font-bold transition ${modo === 'compacto' ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'text-slate-500 dark:text-slate-300'}`}>
-                Compacto
-              </button>
-              <button type="button" onClick={() => setModo('detalhado')} className={`rounded-xl px-4 py-2 text-sm font-bold transition ${modo === 'detalhado' ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'text-slate-500 dark:text-slate-300'}`}>
-                Detalhado
-              </button>
-            </div>
-
-            <Link to="/lancamentos" className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200">
-              Ver lançamentos
-              <ArrowRight className="h-4 w-4" />
-            </Link>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <HeroStat label="Saldo total" value={BRL.format(boletim.saldoTotal)} tone={boletim.saldoTotal >= 0 ? 'positive' : 'negative'} />
+            <HeroStat label="Resultado do mês" value={BRL.format(boletim.resultadoMes)} tone={boletim.resultadoMes >= 0 ? 'positive' : 'negative'} />
+            <HeroStat label="Entradas pagas" value={BRL.format(boletim.entradasMes)} tone="neutral" />
+            <HeroStat label="Saídas pagas" value={BRL.format(boletim.saidasMes)} tone="neutral" />
           </div>
         </div>
       </header>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={Wallet} label="Saldo consolidado" value={BRL.format(boletim.saldoTotal)} support="Posição atual das contas cadastradas" tone={boletim.saldoTotal >= 0 ? 'emerald' : 'rose'} />
-        <MetricCard icon={Landmark} label="Entradas pagas no mês" value={BRL.format(boletim.entradasMes)} support="Recebimentos já efetivados" tone="cyan" />
-        <MetricCard icon={ReceiptText} label="Saídas pagas no mês" value={BRL.format(boletim.saidasMes)} support="Pagamentos já baixados" tone="amber" />
-        <MetricCard icon={CalendarRange} label="A vencer em 7 dias" value={String(boletim.abertasProximas.length)} support="Títulos ainda em aberto" tone="violet" />
+        <MetricCard icon={Wallet} label="Saldo consolidado" value={BRL.format(boletim.saldoTotal)} support="Posição total das contas da empresa" tone={boletim.saldoTotal >= 0 ? 'emerald' : 'rose'} />
+        <MetricCard icon={Landmark} label="Entradas no mês" value={BRL.format(boletim.entradasMes)} support="Recebimentos pagos no período" tone="cyan" />
+        <MetricCard icon={ReceiptText} label="Saídas no mês" value={BRL.format(boletim.saidasMes)} support="Pagamentos baixados no período" tone="amber" />
+        <MetricCard icon={CalendarRange} label="Próximos vencimentos" value={String(boletim.abertasProximas.length)} support="Títulos em aberto nos próximos 7 dias" tone="violet" />
       </section>
 
-      <section className={`grid gap-6 ${modo === 'compacto' ? 'xl:grid-cols-[1.2fr_0.8fr]' : 'xl:grid-cols-[1.35fr_0.65fr]'}`}>
-        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-          <div className="mb-4 flex items-center justify-between gap-3">
+      <section className={`grid gap-6 ${modo === 'compacto' ? 'xl:grid-cols-[1.12fr_0.88fr]' : 'xl:grid-cols-[1.25fr_0.75fr]'}`}>
+        <div className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">Movimentos recentes</p>
-              <h2 className="mt-1 text-xl font-black text-slate-900 dark:text-white">O que acabou de mexer no financeiro</h2>
+              <p className="text-xs font-black uppercase tracking-[0.24em] text-slate-400">Movimentos recentes</p>
+              <h2 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">O que acabou de mexer no financeiro</h2>
             </div>
             <Link to="/contas" className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700/50">
               Abrir extratos
@@ -165,7 +254,7 @@ export function Boletim() {
             </Link>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-2xl border border-slate-100 dark:border-slate-700">
             <table className="w-full min-w-180 text-left">
               <thead className="border-b border-slate-200 text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 dark:border-slate-700">
                 <tr>
@@ -201,13 +290,10 @@ export function Boletim() {
         </div>
 
         <div className="space-y-6">
-          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">Bancos</p>
-                <h2 className="mt-1 text-xl font-black text-slate-900 dark:text-white">Maiores saldos agora</h2>
-              </div>
-              <ListFilter className="h-4 w-4 text-slate-400" />
+          <div className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="mb-4">
+              <p className="text-xs font-black uppercase tracking-[0.24em] text-slate-400">Bancos</p>
+              <h2 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">Saldos por conta</h2>
             </div>
 
             <div className="space-y-3">
@@ -231,9 +317,9 @@ export function Boletim() {
             </div>
           </div>
 
-          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">Atenção curta</p>
-            <h2 className="mt-1 text-xl font-black text-slate-900 dark:text-white">Próximos vencimentos</h2>
+          <div className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p className="text-xs font-black uppercase tracking-[0.24em] text-slate-400">Agenda curta</p>
+            <h2 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">Próximos vencimentos</h2>
 
             <div className="mt-4 space-y-3">
               {boletim.abertasProximas.length === 0 ? (
@@ -257,6 +343,21 @@ export function Boletim() {
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+function HeroStat({ label, value, tone }: { label: string; value: string; tone: 'positive' | 'negative' | 'neutral' }) {
+  const toneClass = tone === 'positive'
+    ? 'text-emerald-600 dark:text-emerald-300'
+    : tone === 'negative'
+      ? 'text-rose-600 dark:text-rose-300'
+      : 'text-slate-900 dark:text-white';
+
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/70">
+      <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">{label}</p>
+      <p className={`mt-2 text-2xl font-black ${toneClass}`}>{value}</p>
     </div>
   );
 }

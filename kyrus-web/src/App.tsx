@@ -9,6 +9,7 @@ import { useAuthStore } from './store/authStore';
 const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
 const Home = lazy(() => import('./pages/Home').then((module) => ({ default: module.Home })));
 const Boletim = lazy(() => import('./pages/Boletim').then((module) => ({ default: module.Boletim })));
+const Dre = lazy(() => import('./pages/Dre').then((module) => ({ default: module.Dre })));
 const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
 const Consultor = lazy(() => import('./pages/Consultor').then((module) => ({ default: module.Consultor })));
 const Tarefas = lazy(() => import('./pages/Tarefas').then((module) => ({ default: module.Tarefas })));
@@ -21,7 +22,6 @@ const Cartoes = lazy(() => import('./pages/Cartoes').then((module) => ({ default
 const Configuracoes = lazy(() => import('./pages/Configuracoes').then((module) => ({ default: module.Configuracoes })));
 const Auditoria = lazy(() => import('./pages/Auditoria').then((module) => ({ default: module.Auditoria })));
 const IntegracaoAsaas = lazy(() => import('./pages/IntegracaoAsaas').then((module) => ({ default: module.IntegracaoAsaas })));
-const ImportacaoItau = lazy(() => import('./pages/ImportacaoItau').then((module) => ({ default: module.ImportacaoItau })));
 const ImportacaoOfx = lazy(() => import('./pages/ImportacaoOfx').then((module) => ({ default: module.ImportacaoOfx })));
 
 const RouteFallback = () => (
@@ -45,6 +45,7 @@ function App() {
           <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
             <Route path="/home" element={<Home />} />
             <Route path="/boletim" element={<Boletim />} />
+            <Route path="/dre" element={<Dre />} />
             <Route path="/consultor" element={<Consultor />} />
             <Route path="/tarefas" element={<Tarefas />} />
             <Route path="/lancamentos" element={<Lancamentos />} />
@@ -54,7 +55,6 @@ function App() {
             <Route path="/centro-custo" element={<CentroCusto />} />
             <Route path="/config" element={<Configuracoes />} />
             <Route path="/importacao" element={<Importacao />} />
-            <Route path="/importacao_itau" element={<ImportacaoItau />} />
             <Route path="/importacao_ofx" element={<ImportacaoOfx />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/auditoria" element={<Auditoria />} />

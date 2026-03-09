@@ -22,6 +22,22 @@ function resolveAssistenteDefaults(pathname: string) {
     };
   }
 
+  if (pathname.startsWith('/dre')) {
+    return {
+      tela: 'dashboard' as const,
+      titulo: 'Assistente KyrusTECH',
+      sugestoes: [
+        'Resuma a DRE deste mês em linguagem de gestão.',
+        'Quais despesas mais comprimem minha margem?',
+        'Quais ações posso tomar para melhorar o resultado no próximo mês?',
+      ],
+      contexto: {
+        pagina: 'dre',
+        modo_consultoria: 'financeira_empresarial',
+      },
+    };
+  }
+
   if (pathname.startsWith('/dashboard')) {
     return {
       tela: 'dashboard' as const,

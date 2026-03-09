@@ -688,15 +688,6 @@ export function Contas() {
                 >
                   Voltar
                 </button>
-                {extratoConta?.tipo_integracao === 'ITAU' && extratoContaId && (
-                  <button
-                    onClick={() => window.location.href = `/importacao_itau?conta_id=${extratoContaId}&tipo=extrato`}
-                    className="px-4 py-2 rounded-lg text-white font-bold text-sm"
-                    style={{ backgroundColor: primaryColor }}
-                  >
-                    Importar Extrato Itaú
-                  </button>
-                )}
                 {extratoContaId && (
                   <button
                     onClick={() => navigate(`/importacao_ofx?conta_id=${extratoContaId}`)}

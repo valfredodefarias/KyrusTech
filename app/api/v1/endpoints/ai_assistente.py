@@ -111,7 +111,7 @@ ACTIONABLE_LANCAMENTO_PATTERNS = [
 ]
 
 PLAN_ACTIONS = ("CRIAR_NOVO", "BAIXAR_PREVISTO", "RELACIONAR_ATRASADO", "IGNORAR_DUPLICATA")
-MATCH_TOLERANCIA_VALOR = Decimal("1.00")
+MATCH_TOLERANCIA_PERCENTUAL = Decimal("0.05")
 
 NUMBER_WORDS_PT = {
     "um": 1,
@@ -1056,7 +1056,7 @@ def _annotate_plan_items(items: list[PlanoLancamentoItem], session: Session, emp
             payload,
             empresa_id,
             centro_custo_id=item.centro_custo_id,
-            tolerancia_valor=MATCH_TOLERANCIA_VALOR,
+            tolerancia_percentual=MATCH_TOLERANCIA_PERCENTUAL,
         )
         if previsto:
             annotated.append(item.model_copy(update={
@@ -1073,7 +1073,7 @@ def _annotate_plan_items(items: list[PlanoLancamentoItem], session: Session, emp
             payload,
             empresa_id,
             centro_custo_id=item.centro_custo_id,
-            tolerancia_valor=MATCH_TOLERANCIA_VALOR,
+            tolerancia_percentual=MATCH_TOLERANCIA_PERCENTUAL,
         )
         if atrasados:
             atrasado = atrasados[0]

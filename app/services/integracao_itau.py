@@ -463,7 +463,8 @@ def buscar_lancamento_previsto_mesmo_dia_valor(
     lancamento: Dict,
     empresa_id: int,
     centro_custo_id: Optional[int] = None,
-    tolerancia_valor: Decimal = Decimal("1.00")
+    tolerancia_valor: Optional[Decimal] = None,
+    tolerancia_percentual: Optional[Decimal] = None,
 ) -> Optional[Lancamento]:
     """
     Busca lançamento previsto no mesmo dia e com mesmo valor.
@@ -472,8 +473,9 @@ def buscar_lancamento_previsto_mesmo_dia_valor(
     """
     data_lancamento = lancamento["data"]
     valor = Decimal(str(lancamento["valor"]))
-    valor_min = valor - tolerancia_valor
-    valor_max = valor + tolerancia_valor
+    margem = abs(valor) * tolerancia_percentual if tolerancia_percentual is not None else (tolerancia_valor or Decimal("1.00"))
+    valor_min = valor - margem
+    valor_max = valor + margem
     
     query = select(Lancamento).where(
         Lancamento.empresa_id == empresa_id,
@@ -499,7 +501,8 @@ def buscar_lancamento_atrasado_mesmo_valor(
     empresa_id: int,
     centro_custo_id: Optional[int] = None,
     dias_tolerancia: int = 30,
-    tolerancia_valor: Decimal = Decimal("1.00")
+    tolerancia_valor: Optional[Decimal] = None,
+    tolerancia_percentual: Optional[Decimal] = None,
 ) -> List[Lancamento]:
     """
     Busca lançamentos em atraso com mesmo valor.
@@ -510,8 +513,9 @@ def buscar_lancamento_atrasado_mesmo_valor(
     
     data_lancamento = lancamento["data"]
     valor = Decimal(str(lancamento["valor"]))
-    valor_min = valor - tolerancia_valor
-    valor_max = valor + tolerancia_valor
+    margem = abs(valor) * tolerancia_percentual if tolerancia_percentual is not None else (tolerancia_valor or Decimal("1.00"))
+    valor_min = valor - margem
+    valor_max = valor + margem
     data_limite = data_lancamento - timedelta(days=dias_tolerancia)
     
     query = select(Lancamento).where(

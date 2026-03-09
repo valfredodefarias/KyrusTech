@@ -27,7 +27,7 @@ from app.models.centro_custo import CentroCusto
 
 router = APIRouter()
 OFX_FILE_SIZE_LIMIT = 10 * 1024 * 1024
-MATCH_TOLERANCIA_VALOR = Decimal("1.00")
+MATCH_TOLERANCIA_PERCENTUAL = Decimal("0.05")
 MATCH_DIAS_ATRASO = 30
 STATUS_ABERTOS = ("PENDENTE", "EM ABERTO")
 
@@ -162,7 +162,7 @@ def _buscar_melhores_relacionamentos(
         lancamento_ofx,
         empresa_id,
         centro_custo_id=centro_custo_id,
-        tolerancia_valor=MATCH_TOLERANCIA_VALOR,
+        tolerancia_percentual=MATCH_TOLERANCIA_PERCENTUAL,
     )
 
     melhor_previsto = None
@@ -176,7 +176,7 @@ def _buscar_melhores_relacionamentos(
         empresa_id,
         centro_custo_id=centro_custo_id,
         dias_tolerancia=MATCH_DIAS_ATRASO,
-        tolerancia_valor=MATCH_TOLERANCIA_VALOR,
+        tolerancia_percentual=MATCH_TOLERANCIA_PERCENTUAL,
     )
     ranked_atrasados = [
         (candidato, *_score_candidate(lancamento_ofx, candidato, "atrasado"))

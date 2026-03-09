@@ -1,6 +1,7 @@
 """
 Endpoints para importacao de arquivos OFX (multibancos).
 """
+from datetime import date, datetime
 from difflib import SequenceMatcher
 from decimal import Decimal
 from typing import List, Dict, Optional
@@ -76,6 +77,17 @@ class LancamentoImportado(BaseModel):
     lancamento_previsto_resumo: Optional[RelacionamentoResumo] = None
     lancamentos_atrasados_resumo: List[RelacionamentoResumo] = Field(default_factory=list)
     duplicata_resumo: Optional[DuplicataResumo] = None
+
+
+def _serializar_lancamento(lanc_raw: Dict) -> Dict:
+    payload = dict(lanc_raw)
+    data_val = payload.get("data")
+    if isinstance(data_val, date):
+        payload["data"] = data_val.isoformat()
+    data_hora_val = payload.get("data_hora")
+    if isinstance(data_hora_val, datetime):
+        payload["data_hora"] = data_hora_val.isoformat()
+    return payload
 
 
 def _normalizar_texto(texto: Optional[str]) -> str:
@@ -298,7 +310,7 @@ async def upload_ofx(
                 lanc_raw["sugestao_acao"] = "CRIAR_NOVO"
                 lanc_raw["motivo_conciliacao"] = "Nenhum previsto ou atraso compativel foi encontrado com o mesmo tipo e tolerancia de R$ 1,00."
 
-            lancamentos_processados.append(LancamentoImportado(**lanc_raw))
+            lancamentos_processados.append(LancamentoImportado(**_serializar_lancamento(lanc_raw)))
 
         return ProcessarArquivoResponse(
             lancamentos=lancamentos_processados,

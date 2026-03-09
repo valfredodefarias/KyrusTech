@@ -11,7 +11,7 @@ import {
   CalendarRange, Layers, Building2, X, Landmark,
   Sparkles, Download, Search, Activity, Settings2,
   LayoutGrid, Plus, Pencil, Trash2, Eye, EyeOff, GripVertical,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, AlertCircle
 } from 'lucide-react';
 
 interface Lancamento {
@@ -215,10 +215,11 @@ const INTERACTIVE_PANEL_CLASS = 'group relative overflow-hidden rounded-[28px] b
 const DASHBOARD_SECTION_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.96))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
 const DASHBOARD_ACTIVE_VIEW_STORAGE_KEY_PREFIX = 'kyrus-dashboard-active-view-v1';
 const DASHBOARD_VIEWS_CACHE_KEY_PREFIX = 'kyrus-dashboard-views-cache-v1';
+const DASHBOARD_FILTERS_RAIL_COLLAPSED_STORAGE_KEY = 'dashboard.filtrosRailCollapsed';
 const DASHBOARD_GRID_STORAGE_COLUMNS = 12;
 const DASHBOARD_GRID_COLUMNS = 24;
-const DASHBOARD_GRID_ROW_HEIGHT = 36;
-const DASHBOARD_GRID_MARGIN = 12;
+const DASHBOARD_GRID_ROW_HEIGHT = 24;
+const DASHBOARD_GRID_MARGIN = 8;
 const DEFAULT_DASHBOARD_VIEW_ID = 'default';
 
 type DashboardCustomWidgetKpiDataset = { total: number; count: number };
@@ -600,53 +601,27 @@ function getRowsForPixelHeight(pixels: number) {
 }
 
 function optimizeVisibleLayout(layout: readonly DashboardGridItem[], columnCount = DASHBOARD_GRID_COLUMNS) {
-  const sorted = [...layout].sort((left, right) => {
-    if (left.y !== right.y) return left.y - right.y;
-    if (left.x !== right.x) return left.x - right.x;
-    return left.i.localeCompare(right.i);
-  });
+  return [...layout]
+    .map((item) => {
+      const width = Math.max(2, Math.min(columnCount, item.w));
+      const height = Math.max(3, item.h);
+      const maxX = Math.max(0, columnCount - width);
+      const nextX = Math.max(0, Math.min(maxX, item.x ?? 0));
+      const nextY = Math.max(0, item.y ?? 0);
 
-  const positioned: DashboardGridLayout = [];
-  const occupied = new Set<string>();
-
-  const canPlace = (x: number, y: number, w: number, h: number) => {
-    if (x + w > columnCount) return false;
-    for (let row = y; row < y + h; row += 1) {
-      for (let col = x; col < x + w; col += 1) {
-        if (occupied.has(`${col}:${row}`)) return false;
-      }
-    }
-    return true;
-  };
-
-  const occupy = (x: number, y: number, w: number, h: number) => {
-    for (let row = y; row < y + h; row += 1) {
-      for (let col = x; col < x + w; col += 1) {
-        occupied.add(`${col}:${row}`);
-      }
-    }
-  };
-
-  sorted.forEach((item) => {
-    const width = Math.max(2, Math.min(columnCount, item.w));
-    const height = Math.max(3, item.h);
-    let nextY = 0;
-    let placed = false;
-
-    while (!placed) {
-      for (let nextX = 0; nextX <= columnCount - width; nextX += 1) {
-        if (!canPlace(nextX, nextY, width, height)) continue;
-        const positionedItem = { ...item, x: nextX, y: nextY, w: width, h: height };
-        positioned.push(positionedItem);
-        occupy(nextX, nextY, width, height);
-        placed = true;
-        break;
-      }
-      if (!placed) nextY += 1;
-    }
-  });
-
-  return positioned;
+      return {
+        ...item,
+        x: nextX,
+        y: nextY,
+        w: width,
+        h: height,
+      };
+    })
+    .sort((left, right) => {
+      if (left.y !== right.y) return left.y - right.y;
+      if (left.x !== right.x) return left.x - right.x;
+      return left.i.localeCompare(right.i);
+    });
 }
 
 const FINANCE_DRILLDOWN_LABELS: Record<Exclude<FinanceDrilldown, null>, string> = {
@@ -979,7 +954,7 @@ export function Dashboard() {
   const [financeDrilldown, setFinanceDrilldown] = useState<FinanceDrilldown>(null);
   const [visibleKpiMeaning, setVisibleKpiMeaning] = useState<KpiTooltipState | null>(null);
   const [showDashboardFiltersSidebar, setShowDashboardFiltersSidebar] = useState(false);
-  const [dashboardFiltersRailCollapsed, setDashboardFiltersRailCollapsed] = useState(false);
+  const [dashboardFiltersRailCollapsed, setDashboardFiltersRailCollapsed] = useState(() => localStorage.getItem(DASHBOARD_FILTERS_RAIL_COLLAPSED_STORAGE_KEY) === '1');
   const [defaultDashboardView, setDefaultDashboardView] = useState<DashboardView>(createDefaultDashboardView());
   const [dashboardViews, setDashboardViews] = useState<DashboardView[]>([]);
   const [dashboardViewsEmpresaId, setDashboardViewsEmpresaId] = useState<number | null>(null);
@@ -995,6 +970,7 @@ export function Dashboard() {
   const dashboardViewsLoadedRef = useRef(false);
   const dashboardViewsSaveTimerRef = useRef<number | null>(null);
   const dashboardGridRef = useRef<HTMLDivElement | null>(null);
+  const dashboardGridResizeFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     const handler = () => setIsDark(document.documentElement.classList.contains('dark'));
@@ -1004,24 +980,40 @@ export function Dashboard() {
 
   useEffect(() => {
     const updateWidth = () => {
-      if (dashboardGridRef.current) {
-        setDashboardGridWidth(Math.max(320, Math.round(dashboardGridRef.current.offsetWidth - 16)));
-      }
+      if (!dashboardGridRef.current) return;
+      const nextWidth = Math.max(320, Math.round(dashboardGridRef.current.offsetWidth - 16));
+      setDashboardGridWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+    };
+
+    const scheduleUpdateWidth = () => {
+      if (dashboardGridResizeFrameRef.current !== null) return;
+      dashboardGridResizeFrameRef.current = window.requestAnimationFrame(() => {
+        dashboardGridResizeFrameRef.current = null;
+        updateWidth();
+      });
     };
 
     updateWidth();
     const resizeObserver = typeof ResizeObserver !== 'undefined' && dashboardGridRef.current
-      ? new ResizeObserver(() => updateWidth())
+      ? new ResizeObserver(() => scheduleUpdateWidth())
       : null;
     if (resizeObserver && dashboardGridRef.current) {
       resizeObserver.observe(dashboardGridRef.current);
     }
-    window.addEventListener('resize', updateWidth);
+    window.addEventListener('resize', scheduleUpdateWidth);
     return () => {
+      if (dashboardGridResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(dashboardGridResizeFrameRef.current);
+        dashboardGridResizeFrameRef.current = null;
+      }
       resizeObserver?.disconnect();
-      window.removeEventListener('resize', updateWidth);
+      window.removeEventListener('resize', scheduleUpdateWidth);
     };
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(DASHBOARD_FILTERS_RAIL_COLLAPSED_STORAGE_KEY, dashboardFiltersRailCollapsed ? '1' : '0');
+  }, [dashboardFiltersRailCollapsed]);
 
   useEffect(() => {
     return () => {
@@ -3280,38 +3272,8 @@ export function Dashboard() {
     filtroHojeAtivo ? 1 : 0,
   ].filter(Boolean).length;
 
-  const dashboardFiltersSidebarContent = (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 dark:border-slate-700">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Filtros do dashboard</p>
-          <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Refine o recorte</h3>
-        </div>
-        <div className="flex items-center gap-2">
-          {dashboardActiveFiltersCount > 0 && (
-            <span className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-bold text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">
-              {dashboardActiveFiltersCount} ativo(s)
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={() => setDashboardFiltersRailCollapsed(true)}
-            className="hidden rounded-2xl border border-slate-200 bg-slate-50 p-2 text-slate-500 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-300 dark:hover:bg-slate-800 xl:inline-flex"
-            title="Recolher painel de filtros"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowDashboardFiltersSidebar(false)}
-            className="xl:hidden rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      <div className="custom-scrollbar flex-1 min-h-0 space-y-6 overflow-y-auto p-4">
+  const dashboardFiltersSidebarBody = (
+    <div className="custom-scrollbar flex-1 min-h-0 space-y-6 overflow-y-auto p-4">
         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-900/40">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -3467,7 +3429,16 @@ export function Dashboard() {
             })}
           </div>
         </div>
+    </div>
+  );
+
+  const dashboardFiltersSidebarContent = (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
+        <h3 className="font-bold flex gap-2 text-slate-800 dark:text-white"><Filter className="w-4 h-4 text-blue-500" /> Filtros Avançados</h3>
+        <button type="button" onClick={() => setShowDashboardFiltersSidebar(false)}><X className="w-5 h-5 text-slate-400 hover:text-slate-700 dark:hover:text-white" /></button>
       </div>
+      {dashboardFiltersSidebarBody}
     </div>
   );
 
@@ -4044,33 +4015,25 @@ export function Dashboard() {
       <div className="p-4 sm:p-6">
         <div
           className="items-start gap-6 xl:grid"
-          style={{ gridTemplateColumns: dashboardFiltersRailCollapsed ? '72px minmax(0, 1fr)' : '344px minmax(0, 1fr)' }}
+          style={{ gridTemplateColumns: dashboardFiltersRailCollapsed ? '6rem minmax(0, 1fr)' : '22.5rem minmax(0, 1fr)' }}
         >
         <aside className="sticky top-6 hidden self-start xl:block">
-          <div className="flex h-[calc(100vh-3rem)] min-h-140 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+          <div className="flex h-[calc(100vh-3rem)] min-h-140 overflow-hidden border-r border-slate-200 bg-white/90 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/80">
             {dashboardFiltersRailCollapsed ? (
-              <div className="flex h-full w-full flex-col items-center gap-3 bg-[linear-gradient(180deg,rgba(14,165,233,0.12)_0%,rgba(255,255,255,0)_100%)] px-2 py-3 dark:bg-[linear-gradient(180deg,rgba(14,165,233,0.12)_0%,rgba(15,23,42,0)_100%)]">
+              <div className="flex h-full w-full flex-col items-center gap-3 px-3 py-4">
                 <button
                   type="button"
                   onClick={() => setDashboardFiltersRailCollapsed(false)}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 text-sky-700 transition hover:bg-sky-100 dark:border-sky-900 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
                   title="Expandir painel de filtros"
                 >
                   <ChevronRight className="h-4 w-4" />
                 </button>
 
-                <div className="flex w-full flex-col items-center gap-2 rounded-3xl border border-slate-200 bg-white/90 px-1.5 py-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-950/60">
-                  <div className="inline-flex h-8 w-8 items-center justify-center rounded-2xl bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">
-                    <Filter className="h-3.5 w-3.5" />
-                  </div>
-                  <div className="text-xl font-black text-slate-900 dark:text-white">{dashboardActiveFiltersCount}</div>
-                  <div className="text-[9px] font-bold uppercase tracking-[0.22em] text-slate-400">ativos</div>
-                </div>
-
                 <button
                   type="button"
                   onClick={() => setFiltroHojeAtivo((prev) => !prev)}
-                  className={`flex h-10 w-10 items-center justify-center rounded-2xl border transition ${filtroHojeAtivo ? 'border-cyan-500 bg-cyan-600 text-white' : 'border-slate-200 bg-white/90 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+                  className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition ${filtroHojeAtivo ? 'border-cyan-500 bg-cyan-600 text-white' : 'border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
                   title="Alternar filtro de hoje"
                 >
                   <span className="text-[10px] font-bold uppercase tracking-[0.16em]">Hoje</span>
@@ -4078,15 +4041,45 @@ export function Dashboard() {
 
                 <button
                   type="button"
+                  onClick={() => setStatusFiltro((prev) => prev === 'ATRASADO' ? 'TODOS' : 'ATRASADO')}
+                  className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition ${statusFiltro === 'ATRASADO' ? 'border-rose-500 bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300' : 'border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
+                  title="Atrasados"
+                >
+                  <AlertCircle className="h-4 w-4" />
+                </button>
+
+                <div className="mt-2 flex w-full flex-col items-center gap-2 rounded-2xl border border-dashed border-slate-200 px-2 py-3 text-center dark:border-slate-700">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Ativos</span>
+                  <span className="text-lg font-black text-slate-700 dark:text-slate-200">{dashboardActiveFiltersCount}</span>
+                </div>
+
+                <button
+                  type="button"
                   onClick={clearAllDashboardFilters}
-                  className="mt-auto inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white/90 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:bg-slate-800"
+                  className="mt-auto inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
                   title="Limpar filtros"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
             ) : (
-              dashboardFiltersSidebarContent
+              <div className="flex h-full min-h-0 flex-col w-full">
+                <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 p-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-400">Console</p>
+                    <h2 className="text-sm font-black text-slate-800 dark:text-slate-100">Filtros e contexto</h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDashboardFiltersRailCollapsed(true)}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                    title="Retrair barra lateral da tela"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                </div>
+                {dashboardFiltersSidebarBody}
+              </div>
             )}
           </div>
         </aside>
@@ -4568,7 +4561,7 @@ export function Dashboard() {
           />
         )}
 
-        <div className={`fixed inset-y-0 left-0 z-70 w-full max-w-sm transform border-r border-slate-200 bg-white shadow-2xl transition-transform duration-300 dark:border-slate-700 dark:bg-slate-900 xl:hidden ${showDashboardFiltersSidebar ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className={`fixed inset-y-0 right-0 z-70 w-80 max-w-full transform border-l border-slate-200 bg-white shadow-2xl transition-transform duration-300 dark:border-slate-700 dark:bg-slate-900 xl:hidden ${showDashboardFiltersSidebar ? 'translate-x-0' : 'translate-x-full'}`}>
           {dashboardFiltersSidebarContent}
         </div>
 

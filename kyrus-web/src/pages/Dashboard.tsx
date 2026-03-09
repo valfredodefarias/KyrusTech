@@ -215,9 +215,10 @@ const INTERACTIVE_PANEL_CLASS = 'group relative overflow-hidden rounded-[28px] b
 const DASHBOARD_SECTION_CLASS = 'group relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.96))] p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.12),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))] dark:hover:shadow-black/20';
 const DASHBOARD_ACTIVE_VIEW_STORAGE_KEY_PREFIX = 'kyrus-dashboard-active-view-v1';
 const DASHBOARD_VIEWS_CACHE_KEY_PREFIX = 'kyrus-dashboard-views-cache-v1';
-const DASHBOARD_GRID_COLUMNS = 12;
-const DASHBOARD_GRID_ROW_HEIGHT = 92;
-const DASHBOARD_GRID_MARGIN = 24;
+const DASHBOARD_GRID_STORAGE_COLUMNS = 12;
+const DASHBOARD_GRID_COLUMNS = 24;
+const DASHBOARD_GRID_ROW_HEIGHT = 64;
+const DASHBOARD_GRID_MARGIN = 20;
 const DEFAULT_DASHBOARD_VIEW_ID = 'default';
 
 type DashboardCustomWidgetKpiDataset = { total: number; count: number };
@@ -471,6 +472,11 @@ function getWidgetSizeFromWidth(width: number): DashboardWidgetSize {
   return 'sm';
 }
 
+function scaleLegacyGridUnit(value: number | undefined, fallback: number) {
+  const source = value ?? fallback;
+  return Math.max(0, Math.round((source / DASHBOARD_GRID_STORAGE_COLUMNS) * DASHBOARD_GRID_COLUMNS));
+}
+
 function buildSequentialWidgetLayout(widgets: DashboardWidgetConfig[]) {
   let x = 0;
   let y = 0;
@@ -540,9 +546,20 @@ function normalizeDashboardWidgets(widgets?: DashboardWidgetConfig[]) {
 
   const combined = [...normalizedDefaults, ...normalizedCustom];
   const hasSavedLayout = combined.some((widget) => widget.x !== undefined || widget.y !== undefined || widget.w !== undefined || widget.h !== undefined);
+  const usesLegacyGrid = hasSavedLayout && combined.every((widget) => {
+    const width = widget.w ?? 0;
+    const x = widget.x ?? 0;
+    return width <= DASHBOARD_GRID_STORAGE_COLUMNS && x <= DASHBOARD_GRID_STORAGE_COLUMNS;
+  });
   return hasSavedLayout ? combined.map((widget) => ({
     ...widget,
-    w: Math.min(DASHBOARD_GRID_COLUMNS, widget.w ?? getWidgetWidthFromSize(widget.size)),
+    x: usesLegacyGrid ? scaleLegacyGridUnit(widget.x, 0) : widget.x,
+    w: Math.min(
+      DASHBOARD_GRID_COLUMNS,
+      usesLegacyGrid
+        ? scaleLegacyGridUnit(widget.w, Math.round((getWidgetWidthFromSize(widget.size) / DASHBOARD_GRID_COLUMNS) * DASHBOARD_GRID_STORAGE_COLUMNS))
+        : widget.w ?? getWidgetWidthFromSize(widget.size)
+    ),
     h: Math.max(3, widget.h ?? getWidgetDefaultHeight(widget)),
   })) : buildSequentialWidgetLayout(combined);
 }
@@ -1366,8 +1383,13 @@ export function Dashboard() {
   };
 
   const visibleDashboardWidgets = useMemo(
-    () => activeDashboardWidgets.filter((widget) => widget.visible),
-    [activeDashboardWidgets]
+    () => activeDashboardWidgets.filter((widget) => {
+      if (!widget.visible) return false;
+      if (widget.id === 'lancamentos_dia' && !selectedDate) return false;
+      if (widget.id === 'lancamentos_categoria' && selectedCategorias.size === 0) return false;
+      return true;
+    }),
+    [activeDashboardWidgets, selectedCategorias.size, selectedDate]
   );
 
   const hiddenDashboardWidgets = useMemo(
@@ -2392,11 +2414,11 @@ export function Dashboard() {
 
   const widgetAutoMetrics = useMemo<Record<DashboardWidgetId, { w: number; h: number }>>(() => ({
     // Heights below are derived from the card chrome plus a bounded number of visible table rows.
-    heatmap_calendar: { w: 8, h: Math.max(6, Math.min(9, heatmapCalendario.weeks.length + 2)) },
-    executive_readings: { w: 4, h: 6 },
-    productivity: { w: 12, h: 6 },
-    contas_pagar: { w: 6, h: 4 },
-    contas_receber: { w: 6, h: 4 },
+    heatmap_calendar: { w: 8, h: Math.max(5, Math.min(8, heatmapCalendario.weeks.length + 1)) },
+    executive_readings: { w: 4, h: 5 },
+    productivity: { w: 12, h: 5 },
+    contas_pagar: { w: 6, h: 3 },
+    contas_receber: { w: 6, h: 3 },
     lancamentos_pagar: {
       w: 6,
       h: getRowsForPixelHeight(132 + Math.max(4, lancamentosContasDetalhe.pagar.length || 1) * 42),
@@ -2405,21 +2427,21 @@ export function Dashboard() {
       w: 6,
       h: getRowsForPixelHeight(132 + Math.max(4, lancamentosContasDetalhe.receber.length || 1) * 42),
     },
-    fluxo: { w: 12, h: 6 },
-    despesas_categoria: { w: 8, h: 7 },
-    receitas_categoria: { w: 4, h: 7 },
-    acumulado_rec_desp: { w: 8, h: 5 },
-    resultado_operacional: { w: 8, h: 5 },
-    resumo_operacional: { w: 4, h: 5 },
-    receitas_despesas_ano: { w: 8, h: 5 },
-    margem_operacional: { w: 4, h: 5 },
-    comparativo_ano: { w: 8, h: 5 },
-    sazonalidade: { w: 4, h: 5 },
-    cenarios: { w: 4, h: 5 },
-    resultado_acumulado: { w: 8, h: 5 },
-    pulso_acumulado: { w: 4, h: 6 },
-    status: { w: 6, h: 4 },
-    despesas_centro: { w: 6, h: 6 },
+    fluxo: { w: 12, h: 5 },
+    despesas_categoria: { w: 8, h: 6 },
+    receitas_categoria: { w: 4, h: 6 },
+    acumulado_rec_desp: { w: 8, h: 4 },
+    resultado_operacional: { w: 8, h: 4 },
+    resumo_operacional: { w: 4, h: 4 },
+    receitas_despesas_ano: { w: 8, h: 4 },
+    margem_operacional: { w: 4, h: 4 },
+    comparativo_ano: { w: 8, h: 4 },
+    sazonalidade: { w: 4, h: 4 },
+    cenarios: { w: 4, h: 4 },
+    resultado_acumulado: { w: 8, h: 4 },
+    pulso_acumulado: { w: 4, h: 5 },
+    status: { w: 6, h: 3 },
+    despesas_centro: { w: 6, h: 4 },
     ultimos_lancamentos: { w: 8, h: getRowsForPixelHeight(128 + Math.max(4, topLancamentos.length || 1) * 42) },
     gastos_categoria_lista: { w: 4, h: Math.max(4, Math.min(9, 4 + Math.ceil(categoriasList.length / 4))) },
     lancamentos_categoria: { w: 12, h: getRowsForPixelHeight(160 + Math.max(4, categoriaLancamentos.length || 1) * 42) },
@@ -2461,7 +2483,7 @@ export function Dashboard() {
 
       return {
         i: widget.id,
-        x: dashboardGridCols === 12 ? (widget.x ?? 0) : 0,
+        x: dashboardGridCols >= DASHBOARD_GRID_STORAGE_COLUMNS ? (widget.x ?? 0) : 0,
         y: widget.y ?? 0,
         w: Math.min(dashboardGridCols, width),
         h: height,
@@ -2642,7 +2664,7 @@ export function Dashboard() {
           <div className="mt-6 flex flex-1 items-center justify-center rounded-2xl border border-dashed border-slate-300 text-sm text-slate-400 dark:border-slate-700" style={{ minHeight: 260 }}>Sem dados para os filtros atuais.</div>
         ) : (
           <div className="mt-4 flex-1">
-            <AsyncApexChart type={definition.chartType || 'bar'} height={320} series={chartSeries} options={chartOptions} />
+            <AsyncApexChart type={definition.chartType || 'bar'} height={280} series={chartSeries} options={chartOptions} />
           </div>
         )}
       </div>
@@ -3650,7 +3672,7 @@ export function Dashboard() {
               <h3 className="font-bold text-slate-700 dark:text-slate-200">{periodoTipo === 'ANO' ? 'Fluxo de Caixa Mensal' : 'Fluxo de Caixa Diario'}</h3>
               <span className="text-xs text-slate-400">{periodoTipo === 'ANO' ? 'Interativo por mes' : 'Interativo por dia'}</span>
             </div>
-            <AsyncApexChart type="area" height={320} series={chartFluxo.series} options={chartFluxo.options} />
+            <AsyncApexChart type="area" height={280} series={chartFluxo.series} options={chartFluxo.options} />
           </div>
         );
       case 'despesas_categoria':
@@ -3663,7 +3685,7 @@ export function Dashboard() {
               </div>
               <button type="button" onClick={() => setIncludeNaoOperacionaisCategorias((prev) => !prev)} className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-bold transition ${includeNaoOperacionaisCategorias ? 'border-sky-400 bg-sky-50 text-sky-700 dark:border-sky-500 dark:bg-sky-500/10 dark:text-sky-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/70'}`}>{includeNaoOperacionaisCategorias ? 'Ocultar nao operacionais' : 'Incluir nao operacionais'}</button>
             </div>
-            {chartCategorias.series.length === 0 ? <div className="h-96 flex items-center justify-center text-sm text-slate-400">Sem dados de despesas no periodo.</div> : <AsyncApexChart type="treemap" height={420} series={chartCategorias.series} options={chartCategorias.options} />}
+            {chartCategorias.series.length === 0 ? <div className="h-72 flex items-center justify-center text-sm text-slate-400">Sem dados de despesas no periodo.</div> : <AsyncApexChart type="treemap" height={320} series={chartCategorias.series} options={chartCategorias.options} />}
             {despesasCategoriaResumo.length > 0 && (<div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">{despesasCategoriaResumo.map((item) => (<button key={`despesa-resumo-${item.id}`} type="button" onClick={() => { if (item.id === -1) return; setSelectedCategorias((prev) => { const next = new Set(prev); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; }); }} className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-left transition ${item.id !== -1 && selectedCategorias.has(item.id) ? 'border-rose-300 bg-rose-50 dark:border-rose-500/60 dark:bg-rose-500/10' : 'border-slate-200 bg-white/70 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30 dark:hover:bg-slate-800/50'}`}><span className="min-w-0 pr-3 text-sm font-semibold text-slate-700 dark:text-slate-100 truncate">{item.label}</span><span className="shrink-0 text-xs font-black text-slate-500 dark:text-slate-300">{item.percentual.toFixed(1)}%</span></button>))}</div>)}
             <p className="mt-3 text-xs text-slate-400">{includeNaoOperacionaisCategorias ? 'Visualizacao ampliada: categorias nao operacionais entram apenas neste treemap para comparacao visual, sem alterar os KPIs operacionais do dashboard.' : 'Categorias nao operacionais continuam visiveis nos lancamentos e no consolidado, mas ficam fora desta leitura operacional.'}</p>
           </div>
@@ -3672,7 +3694,7 @@ export function Dashboard() {
         return (
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RECEITAS_CATEGORIA', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">{includeNaoOperacionaisCategorias ? 'Receitas por Categoria' : 'Receitas Operacionais por Categoria'}</h3><span className="text-xs text-slate-400">Treemap proporcional • clique para filtrar</span></div>
-            {chartReceitasCategorias.series.length === 0 ? <div className="h-80 flex items-center justify-center text-sm text-slate-400">Sem dados de receitas no periodo.</div> : <AsyncApexChart type="treemap" height={320} series={chartReceitasCategorias.series} options={chartReceitasCategorias.options} />}
+            {chartReceitasCategorias.series.length === 0 ? <div className="h-64 flex items-center justify-center text-sm text-slate-400">Sem dados de receitas no periodo.</div> : <AsyncApexChart type="treemap" height={260} series={chartReceitasCategorias.series} options={chartReceitasCategorias.options} />}
             {receitasCategoriaResumo.length > 0 && (<div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">{receitasCategoriaResumo.map((item) => (<button key={`receita-resumo-${item.id}`} type="button" onClick={() => { if (item.id === -1) return; setSelectedCategorias((prev) => { const next = new Set(prev); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; }); }} className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-left transition ${item.id !== -1 && selectedCategorias.has(item.id) ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-500/60 dark:bg-emerald-500/10' : 'border-slate-200 bg-white/70 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30 dark:hover:bg-slate-800/50'}`}><span className="min-w-0 pr-3 text-sm font-semibold text-slate-700 dark:text-slate-100 truncate">{item.label}</span><span className="shrink-0 text-xs font-black text-slate-500 dark:text-slate-300">{item.percentual.toFixed(1)}%</span></button>))}</div>)}
             <p className="mt-3 text-xs text-slate-400">{includeNaoOperacionaisCategorias ? 'Ao incluir nao operacionais, este painel vira uma visao comparativa ampliada por categoria.' : 'O maior motor de receita agora considera apenas categorias operacionais marcadas para resultado.'}</p>
           </div>
@@ -3681,14 +3703,14 @@ export function Dashboard() {
         return (
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('ACUMULADO_REC_DESP', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Acumulado: Receitas x Despesas</h3><span className="text-xs text-slate-400">Evolucao no periodo</span></div>
-            <AsyncApexChart type="line" height={280} series={chartAcumuladoRecDesp.series} options={chartAcumuladoRecDesp.options} />
+            <AsyncApexChart type="line" height={240} series={chartAcumuladoRecDesp.series} options={chartAcumuladoRecDesp.options} />
           </div>
         );
       case 'resultado_operacional':
         return (
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RESULTADO_OPERACIONAL', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Operacional ({resultadoMensalAno.year})</h3><span className="text-xs text-slate-400">Jan → Dez</span></div>
-            {chartResultadoOperacional.series[0].data.length === 0 ? <div className="h-80 flex items-center justify-center text-sm text-slate-400">Sem dados suficientes para o periodo.</div> : <AsyncApexChart type="bar" height={320} series={chartResultadoOperacional.series} options={chartResultadoOperacional.options} />}
+            {chartResultadoOperacional.series[0].data.length === 0 ? <div className="h-64 flex items-center justify-center text-sm text-slate-400">Sem dados suficientes para o periodo.</div> : <AsyncApexChart type="bar" height={280} series={chartResultadoOperacional.series} options={chartResultadoOperacional.options} />}
           </div>
         );
       case 'resumo_operacional':
@@ -3706,28 +3728,28 @@ export function Dashboard() {
         return (
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RECEITAS_DESPESAS_ANO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Receitas x Despesas ({resultadoMensalAno.year})</h3><span className="text-xs text-slate-400">Comparativo anual</span></div>
-            <AsyncApexChart type="bar" height={320} series={chartReceitasDespesasAno.series} options={chartReceitasDespesasAno.options} />
+            <AsyncApexChart type="bar" height={280} series={chartReceitasDespesasAno.series} options={chartReceitasDespesasAno.options} />
           </div>
         );
       case 'margem_operacional':
         return (
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('MARGEM_OPERACIONAL_PAINEL', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Margem Operacional</h3><span className="text-xs text-slate-400">% mes a mes</span></div>
-            <AsyncApexChart type="line" height={280} series={chartMargemAno.series} options={chartMargemAno.options} />
+            <AsyncApexChart type="line" height={220} series={chartMargemAno.series} options={chartMargemAno.options} />
           </div>
         );
       case 'comparativo_ano':
         return (
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('COMPARATIVO_ANO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Comparativo Ano a Ano</h3><span className="text-xs text-slate-400">{resultadoMensalAnoAnterior.year} vs {resultadoMensalAno.year}</span></div>
-            <AsyncApexChart type="line" height={280} series={chartComparativoAno.series} options={chartComparativoAno.options} />
+            <AsyncApexChart type="line" height={240} series={chartComparativoAno.series} options={chartComparativoAno.options} />
           </div>
         );
       case 'sazonalidade':
         return (
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('SAZONALIDADE', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Sazonalidade</h3><span className="text-xs text-slate-400">Indice mensal</span></div>
-            <AsyncApexChart type="bar" height={260} series={chartSazonalidade.series} options={chartSazonalidade.options} />
+            <AsyncApexChart type="bar" height={220} series={chartSazonalidade.series} options={chartSazonalidade.options} />
           </div>
         );
       case 'cenarios':
@@ -3745,7 +3767,7 @@ export function Dashboard() {
         return (
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('RESULTADO_ACUMULADO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Resultado Acumulado</h3><span className="text-xs text-slate-400">Evolucao do caixa</span></div>
-            <AsyncApexChart type="line" height={280} series={chartResultadoAcumulado.series} options={chartResultadoAcumulado.options} />
+            <AsyncApexChart type="line" height={240} series={chartResultadoAcumulado.series} options={chartResultadoAcumulado.options} />
           </div>
         );
       case 'pulso_acumulado':
@@ -3771,7 +3793,7 @@ export function Dashboard() {
         return (
           <div className={DASHBOARD_SECTION_CLASS} onMouseEnter={(event) => scheduleKpiMeaning('DESPESAS_CENTRO', event.currentTarget, 500)} onMouseLeave={hideKpiMeaning}>
             <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-700 dark:text-slate-200">Despesas por Centro</h3><span className="text-xs text-slate-400">Clique para filtrar</span></div>
-            <AsyncApexChart type="bar" height={320} series={chartCentros.series} options={chartCentros.options} />
+            <AsyncApexChart type="bar" height={260} series={chartCentros.series} options={chartCentros.options} />
           </div>
         );
       case 'ultimos_lancamentos':
@@ -4561,7 +4583,7 @@ export function Dashboard() {
           ref={dashboardGridRef}
           className={`dashboard-grid rounded-4xl border border-slate-200/80 bg-white/70 p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900/40 ${dashboardEditMode ? 'is-editing' : ''}`}
           style={dashboardEditMode ? {
-            backgroundSize: `${Math.max(96, Math.floor(dashboardGridWidth / Math.max(dashboardGridCols, 1)) + DASHBOARD_GRID_MARGIN)}px 100%, 100% ${DASHBOARD_GRID_ROW_HEIGHT + DASHBOARD_GRID_MARGIN}px, auto`,
+            backgroundSize: `${Math.max(40, Math.floor(dashboardGridWidth / Math.max(dashboardGridCols, 1)) + DASHBOARD_GRID_MARGIN)}px 100%, 100% ${DASHBOARD_GRID_ROW_HEIGHT + DASHBOARD_GRID_MARGIN}px, auto`,
             backgroundPosition: '0 0, 0 0, center top',
           } : undefined}
         >
@@ -4572,7 +4594,7 @@ export function Dashboard() {
             gridConfig={{
               cols: dashboardGridCols,
               rowHeight: DASHBOARD_GRID_ROW_HEIGHT,
-              margin: [24, 24],
+              margin: [DASHBOARD_GRID_MARGIN, DASHBOARD_GRID_MARGIN],
             }}
             dragConfig={{
               enabled: dashboardEditMode,

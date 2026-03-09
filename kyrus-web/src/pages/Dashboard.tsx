@@ -582,7 +582,7 @@ function getRowsForPixelHeight(pixels: number) {
   return Math.max(3, Math.ceil((pixels + DASHBOARD_GRID_MARGIN) / (DASHBOARD_GRID_ROW_HEIGHT + DASHBOARD_GRID_MARGIN)));
 }
 
-function optimizeVisibleLayout(layout: readonly DashboardGridItem[]) {
+function optimizeVisibleLayout(layout: readonly DashboardGridItem[], columnCount = DASHBOARD_GRID_COLUMNS) {
   const sorted = [...layout].sort((left, right) => {
     if (left.y !== right.y) return left.y - right.y;
     if (left.x !== right.x) return left.x - right.x;
@@ -593,7 +593,7 @@ function optimizeVisibleLayout(layout: readonly DashboardGridItem[]) {
   const occupied = new Set<string>();
 
   const canPlace = (x: number, y: number, w: number, h: number) => {
-    if (x + w > DASHBOARD_GRID_COLUMNS) return false;
+    if (x + w > columnCount) return false;
     for (let row = y; row < y + h; row += 1) {
       for (let col = x; col < x + w; col += 1) {
         if (occupied.has(`${col}:${row}`)) return false;
@@ -611,13 +611,13 @@ function optimizeVisibleLayout(layout: readonly DashboardGridItem[]) {
   };
 
   sorted.forEach((item) => {
-    const width = Math.max(2, Math.min(DASHBOARD_GRID_COLUMNS, item.w));
+    const width = Math.max(2, Math.min(columnCount, item.w));
     const height = Math.max(3, item.h);
     let nextY = 0;
     let placed = false;
 
     while (!placed) {
-      for (let nextX = 0; nextX <= DASHBOARD_GRID_COLUMNS - width; nextX += 1) {
+      for (let nextX = 0; nextX <= columnCount - width; nextX += 1) {
         if (!canPlace(nextX, nextY, width, height)) continue;
         const positionedItem = { ...item, x: nextX, y: nextY, w: width, h: height };
         positioned.push(positionedItem);
@@ -627,22 +627,6 @@ function optimizeVisibleLayout(layout: readonly DashboardGridItem[]) {
       }
       if (!placed) nextY += 1;
     }
-  });
-
-  const rows = new Map<number, DashboardGridLayout>();
-  positioned.forEach((item) => {
-    const rowItems = rows.get(item.y) || [];
-    rowItems.push(item);
-    rows.set(item.y, rowItems);
-  });
-
-  rows.forEach((rowItems) => {
-    rowItems.sort((left, right) => left.x - right.x);
-    const usedWidth = rowItems.reduce((sum, item) => sum + item.w, 0);
-    const freeWidth = DASHBOARD_GRID_COLUMNS - usedWidth;
-    if (freeWidth <= 0 || rowItems.length === 0) return;
-    const candidate = [...rowItems].reverse().find((item) => item.w >= 4) || rowItems[rowItems.length - 1];
-    candidate.w = Math.min(DASHBOARD_GRID_COLUMNS - candidate.x, candidate.w + freeWidth);
   });
 
   return positioned;
@@ -1183,7 +1167,7 @@ export function Dashboard() {
   };
 
   const updateActiveWidgetLayout = (layout: readonly DashboardGridItem[]) => {
-    const optimizedLayout = optimizeVisibleLayout([...layout]);
+    const optimizedLayout = optimizeVisibleLayout([...layout], dashboardGridCols);
     updateActiveDashboardView((view) => {
       const layoutMap = new Map(optimizedLayout.map((item) => [item.i, item] as const));
       return {
@@ -2470,7 +2454,7 @@ export function Dashboard() {
   };
 
   const dashboardLayouts = useMemo<DashboardGridLayout>(() => {
-    return visibleDashboardWidgets.map((widget) => {
+    const rawLayout = visibleDashboardWidgets.map((widget) => {
       const width = getResolvedWidgetWidth(widget);
       const height = getResolvedWidgetHeight(widget);
       const resizeHandles = getWidgetResizeHandles(widget);
@@ -2487,6 +2471,7 @@ export function Dashboard() {
         resizeHandles,
       } satisfies DashboardGridItem;
     });
+    return optimizeVisibleLayout(rawLayout, dashboardGridCols);
   }, [dashboardEditMode, dashboardGridCols, visibleDashboardWidgets, widgetAutoMetrics]);
 
   const renderResizeHandle = (axis: 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw', ref: Ref<HTMLElement>) => (
@@ -3274,8 +3259,8 @@ export function Dashboard() {
   ].filter(Boolean).length;
 
   const dashboardFiltersSidebarContent = (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 dark:border-slate-700">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 dark:border-slate-700">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Filtros do dashboard</p>
           <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Refine o recorte</h3>
@@ -3289,7 +3274,7 @@ export function Dashboard() {
           <button
             type="button"
             onClick={() => setDashboardFiltersRailCollapsed(true)}
-            className="hidden rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 xl:inline-flex"
+            className="hidden rounded-2xl border border-slate-200 bg-slate-50 p-2 text-slate-500 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-300 dark:hover:bg-slate-800 xl:inline-flex"
             title="Recolher painel de filtros"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -3304,7 +3289,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="flex-1 space-y-6 overflow-y-auto p-4 custom-scrollbar">
+      <div className="custom-scrollbar flex-1 min-h-0 space-y-6 overflow-y-auto p-4">
         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-900/40">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -4037,12 +4022,12 @@ export function Dashboard() {
       <div className="p-4 sm:p-6">
         <div
           className="items-start gap-6 xl:grid"
-          style={{ gridTemplateColumns: dashboardFiltersRailCollapsed ? '88px minmax(0, 1fr)' : '360px minmax(0, 1fr)' }}
+          style={{ gridTemplateColumns: dashboardFiltersRailCollapsed ? '104px minmax(0, 1fr)' : '344px minmax(0, 1fr)' }}
         >
-        <aside className="sticky top-6 hidden xl:block">
-          <div className="flex max-h-[calc(100vh-3rem)] min-h-160 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+        <aside className="sticky top-6 hidden self-start xl:block">
+          <div className="flex h-[calc(100vh-3rem)] min-h-140 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
             {dashboardFiltersRailCollapsed ? (
-              <div className="flex h-full w-full flex-col items-center justify-between px-3 py-4">
+              <div className="flex h-full w-full flex-col items-center gap-4 bg-[linear-gradient(180deg,rgba(14,165,233,0.12)_0%,rgba(255,255,255,0)_100%)] px-3 py-4 dark:bg-[linear-gradient(180deg,rgba(14,165,233,0.12)_0%,rgba(15,23,42,0)_100%)]">
                 <button
                   type="button"
                   onClick={() => setDashboardFiltersRailCollapsed(false)}
@@ -4051,14 +4036,35 @@ export function Dashboard() {
                 >
                   <ChevronRight className="h-5 w-5" />
                 </button>
-                <div className="flex flex-col items-center gap-3">
-                  <div className="rounded-full bg-sky-100 px-3 py-1 text-xs font-bold text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">{dashboardActiveFiltersCount}</div>
-                  <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400 [writing-mode:vertical-rl]">Filtros</span>
+
+                <div className="w-full rounded-3xl border border-slate-200 bg-white/90 px-2 py-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-950/60">
+                  <div className="mx-auto inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">
+                    <Filter className="h-4 w-4" />
+                  </div>
+                  <p className="mt-3 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Filtros</p>
+                  <p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{dashboardActiveFiltersCount}</p>
+                  <p className="mt-1 text-[11px] font-medium text-slate-500 dark:text-slate-300">{dashboardActiveFiltersCount === 1 ? 'ativo' : 'ativos'}</p>
                 </div>
+
+                <div className="w-full space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setFiltroHojeAtivo((prev) => !prev)}
+                    className={`flex w-full items-center justify-center rounded-2xl border px-2 py-3 text-[11px] font-bold uppercase tracking-[0.16em] transition ${filtroHojeAtivo ? 'border-cyan-500 bg-cyan-600 text-white' : 'border-slate-200 bg-white/90 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+                    title="Alternar filtro de hoje"
+                  >
+                    Hoje
+                  </button>
+                  <div className="rounded-2xl border border-slate-200 bg-white/90 px-2 py-3 text-center dark:border-slate-700 dark:bg-slate-950/60">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Conta</p>
+                    <p className="mt-2 text-xs font-bold text-slate-700 dark:text-slate-200">{selectedConta ? '1 ativa' : 'Todas'}</p>
+                  </div>
+                </div>
+
                 <button
                   type="button"
                   onClick={clearAllDashboardFilters}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  className="mt-auto inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/90 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:bg-slate-800"
                   title="Limpar filtros"
                 >
                   <X className="h-4 w-4" />

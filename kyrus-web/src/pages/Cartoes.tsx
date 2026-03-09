@@ -780,7 +780,7 @@ export function Cartoes() {
                         <div>
                             <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Bandeira</label>
                             <div className="grid grid-cols-2 gap-2">
-                                {CARD_BRAND_OPTIONS.map((option) => {
+                                {CARD_BRAND_OPTIONS.map((option: (typeof CARD_BRAND_OPTIONS)[number]) => {
                                     const selected = formData.bandeira === option.value;
                                     return (
                                         <button

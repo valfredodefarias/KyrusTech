@@ -24,6 +24,10 @@ wheels/
 *.egg
 MANIFEST
 
+# Frontend shared source that must stay in Docker context
+!kyrus-web/src/lib/
+!kyrus-web/src/lib/**
+
 # IDE
 .vscode/
 .idea/

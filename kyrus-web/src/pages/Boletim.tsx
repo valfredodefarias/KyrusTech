@@ -686,7 +686,7 @@ export function Boletim() {
                 <select
                   value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
                   onChange={(event) => setSelectedCentroCustoId(event.target.value === 'ALL' ? 'ALL' : Number(event.target.value))}
-                  className={`rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.14em] outline-none ${isDark ? 'border-white/12 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-700'}`}
+                  className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white md:w-72"
                 >
                   <option value="ALL">Todos os centros de custo</option>
                   {centrosCusto.map((centro) => (

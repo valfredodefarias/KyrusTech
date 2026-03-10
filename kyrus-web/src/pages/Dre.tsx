@@ -383,7 +383,7 @@ export function Dre() {
                     setSelectedContaId(null);
                     setSelectedMonth(null);
                   }}
-                  className={`mt-2 w-64 rounded-xl border-none bg-transparent p-0 text-sm font-black outline-none ${isDark ? 'text-white' : 'text-slate-900'}`}
+                  className="mt-2 w-64 rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                 >
                   <option value="ALL">Todos os centros de custo</option>
                   {centrosCusto.map((centro) => (

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, CalendarDays, Landmark, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { Building2, CalendarDays, TrendingDown, TrendingUp } from 'lucide-react';
 
 import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BrandAvatar, inferBankBrand } from '../components/BrandAvatar';
@@ -10,7 +10,6 @@ interface ContaResumo {
   nome: string;
   banco?: string | null;
   tipo: string;
-  logo_url?: string | null;
   saldo_inicial: number;
   saldo_atual?: number;
 }
@@ -24,7 +23,6 @@ interface LancamentoResumo {
   data_pagamento?: string | null;
   valor_previsto: number;
   valor_pago?: number | null;
-  conta_id?: number | null;
 }
 
 interface UserInfo {
@@ -50,7 +48,7 @@ const BRL = new Intl.NumberFormat('pt-BR', {
   maximumFractionDigits: 0,
 });
 
-const MONTH_SHORT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const MONTH_SHORT = ['jan. de 2026', 'fev. de 2026', 'mar. de 2026', 'abr. de 2026', 'mai. de 2026', 'jun. de 2026', 'jul. de 2026', 'ago. de 2026', 'set. de 2026', 'out. de 2026', 'nov. de 2026', 'dez. de 2026'];
 
 function parseDateOnly(value?: string | null) {
   if (!value) return null;
@@ -79,46 +77,43 @@ function getFullLogoUrl(url?: string | null) {
     const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
     return `${baseURL}${url}`;
   }
-  if (url.startsWith('http://') && url.includes('/static/')) {
-    try {
-      const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
-      const path = new URL(url).pathname;
-      return `${baseURL}${path}`;
-    } catch {
-      return url;
-    }
-  }
   return url;
 }
 
-function SummaryPanel({
+function useIsDarkMode() {
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
+
+  useEffect(() => {
+    const syncTheme = () => setIsDark(document.documentElement.classList.contains('dark'));
+    window.addEventListener('theme-change', syncTheme);
+    return () => window.removeEventListener('theme-change', syncTheme);
+  }, []);
+
+  return isDark;
+}
+
+function MetricGrid({
   title,
   accent,
   metrics,
+  isDark,
 }: {
   title: string;
-  accent: 'rose' | 'emerald' | 'sky';
-  metrics: Array<{ label: string; value: number; tone?: 'positive' | 'negative' | 'neutral' }>;
+  accent: 'rose' | 'cyan';
+  metrics: Array<{ label: string; value: number }>;
+  isDark: boolean;
 }) {
-  const accentClass = {
-    rose: 'border-rose-500/30 bg-[linear-gradient(180deg,rgba(244,63,94,0.14),rgba(15,23,42,0.78))]',
-    emerald: 'border-emerald-500/30 bg-[linear-gradient(180deg,rgba(16,185,129,0.14),rgba(15,23,42,0.78))]',
-    sky: 'border-sky-500/30 bg-[linear-gradient(180deg,rgba(14,165,233,0.14),rgba(15,23,42,0.78))]',
-  }[accent];
+  const borderClass = accent === 'rose' ? 'border-rose-500/45' : 'border-cyan-400/45';
+  const titleClass = accent === 'rose' ? 'text-rose-400' : 'text-cyan-300';
 
   return (
-    <section className={`rounded-[28px] border p-5 text-white shadow-[0_25px_80px_-60px_rgba(2,6,23,0.95)] ${accentClass}`}>
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <h2 className="text-[13px] font-black uppercase tracking-[0.24em] text-white/92">{title}</h2>
-      </div>
-
-      <div className="space-y-3">
+    <section className={`rounded-none border px-4 py-4 shadow-sm ${borderClass} ${isDark ? 'bg-black/90' : 'bg-white'}`}>
+      <h2 className={`mb-4 text-center text-2xl font-black uppercase tracking-[0.04em] ${titleClass}`}>{title}</h2>
+      <div className="grid grid-cols-2 gap-4">
         {metrics.map((metric) => (
-          <div key={metric.label} className="flex items-center justify-between gap-4 rounded-2xl border border-white/8 bg-white/3 px-4 py-3">
-            <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/58">{metric.label}</span>
-            <span className={`text-sm font-black ${metric.tone === 'positive' ? 'text-emerald-300' : metric.tone === 'negative' ? 'text-rose-300' : 'text-white'}`}>
-              {BRL.format(metric.value)}
-            </span>
+          <div key={metric.label} className={`border px-4 py-5 text-center ${isDark ? 'border-white/35 bg-black' : 'border-slate-300 bg-white'}`}>
+            <div className={`text-sm font-black ${titleClass}`}>{metric.label}</div>
+            <div className={`mt-2 text-2xl font-light tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{BRL.format(metric.value)}</div>
           </div>
         ))}
       </div>
@@ -126,18 +121,11 @@ function SummaryPanel({
   );
 }
 
-function InfoChip({ label, value, icon: Icon }: { label: string; value: string; icon: any }) {
+function ResultChip({ label, value, isDark }: { label: string; value: number; isDark: boolean }) {
   return (
-    <div className="rounded-[22px] border border-white/10 bg-white/4 px-4 py-3 text-white">
-      <div className="flex items-center gap-3">
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-2 text-white/70">
-          <Icon className="h-4 w-4" />
-        </div>
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/45">{label}</p>
-          <p className="mt-1 text-lg font-black text-white">{value}</p>
-        </div>
-      </div>
+    <div className={`border px-4 py-5 text-center ${isDark ? 'border-white/35 bg-black' : 'border-slate-300 bg-white'}`}>
+      <div className="text-sm font-black text-amber-400">{label}</div>
+      <div className={`mt-2 text-2xl font-light tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{BRL.format(value)}</div>
     </div>
   );
 }
@@ -147,6 +135,7 @@ export function Boletim() {
   const [contas, setContas] = useState<ContaResumo[]>([]);
   const [lancamentos, setLancamentos] = useState<LancamentoResumo[]>([]);
   const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
+  const isDark = useIsDarkMode();
 
   useEffect(() => {
     let active = true;
@@ -211,45 +200,29 @@ export function Boletim() {
     const receivables = lancamentos.filter((item) => isReceita(item.tipo));
 
     const makeBlock = (items: LancamentoResumo[]) => {
-      const hoje = items
-        .filter((item) => !isPago(item.status) && item.data_vencimento?.slice(0, 10) === todayIso)
-        .reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
-
-      const amanha = items
-        .filter((item) => !isPago(item.status) && item.data_vencimento?.slice(0, 10) === tomorrowIso)
-        .reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
-
-      const atrasadas = items
-        .filter((item) => !isPago(item.status) && item.data_vencimento?.slice(0, 10) < todayIso)
-        .reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
-
-      const emAberto = items
-        .filter((item) => !isPago(item.status))
-        .reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
-
-      const realizadas = items
-        .filter((item) => isPago(item.status))
-        .reduce((acc, item) => acc + Number(item.valor_pago ?? item.valor_previsto ?? 0), 0);
-
-      const totalMes = items
-        .filter((item) => {
-          const due = parseDateOnly(item.data_vencimento);
-          return due && due >= monthStart && due <= monthEnd;
-        })
-        .reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
-
-      return { hoje, amanha, atrasadas, emAberto, realizadas, totalMes };
+      const hoje = items.filter((item) => !isPago(item.status) && item.data_vencimento?.slice(0, 10) === todayIso).reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
+      const amanha = items.filter((item) => !isPago(item.status) && item.data_vencimento?.slice(0, 10) === tomorrowIso).reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
+      const atrasadas = items.filter((item) => !isPago(item.status) && item.data_vencimento?.slice(0, 10) < todayIso).reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
+      const totalMes = items.filter((item) => {
+        const due = parseDateOnly(item.data_vencimento);
+        return due && due >= monthStart && due <= monthEnd;
+      }).reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
+      const realizadas = items.filter((item) => isPago(item.status)).reduce((acc, item) => acc + Number(item.valor_pago ?? item.valor_previsto ?? 0), 0);
+      const emAberto = items.filter((item) => !isPago(item.status)).reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
+      return { hoje, amanha, atrasadas, totalMes, realizadas, emAberto };
     };
 
     const pagar = makeBlock(payables);
     const receber = makeBlock(receivables);
+    const bancos = [...contas]
+      .map((conta) => ({ ...conta, saldo: Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0) }))
+      .sort((left, right) => right.saldo - left.saldo);
 
-    const saldoBancario = contas.reduce((acc, conta) => acc + Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0), 0);
-    const saldoTransferencia = receber.emAberto - pagar.emAberto;
-    const resultadoRealizado = receber.realizadas - pagar.realizadas;
-    const resultadoProjetado = receber.totalMes - pagar.totalMes;
-
-    const saldosOrdenados = [...contas].sort((left, right) => Number(right.saldo_atual ?? right.saldo_inicial ?? 0) - Number(left.saldo_atual ?? left.saldo_inicial ?? 0));
+    const saldoBancario = bancos.reduce((acc, conta) => acc + conta.saldo, 0);
+    const operacional = receber.totalMes - pagar.totalMes;
+    const final = receber.realizadas - pagar.realizadas;
+    const endividamento = pagar.emAberto;
+    const aReceberAberto = receber.emAberto;
 
     const chartReceber = Array.from({ length: 12 }, () => 0);
     const chartPagar = Array.from({ length: 12 }, () => 0);
@@ -264,56 +237,47 @@ export function Boletim() {
       }
     });
 
-    return {
-      pagar,
-      receber,
-      saldoBancario,
-      saldoTransferencia,
-      resultadoRealizado,
-      resultadoProjetado,
-      bancos: saldosOrdenados,
-      chartReceber,
-      chartPagar,
-    };
+    return { pagar, receber, bancos, saldoBancario, operacional, final, endividamento, aReceberAberto, chartReceber, chartPagar };
   }, [contas, lancamentos]);
+
+  const chartSeries = useMemo(() => ([
+    { name: 'Pagamento', data: boletim.chartPagar },
+    { name: 'Recebimento', data: boletim.chartReceber },
+  ]), [boletim.chartPagar, boletim.chartReceber]);
 
   const chartOptions = useMemo<any>(() => ({
     chart: {
       toolbar: { show: false },
-      foreColor: '#94a3b8',
       background: 'transparent',
+      foreColor: isDark ? '#cbd5e1' : '#475569',
       fontFamily: 'ui-sans-serif, system-ui, sans-serif',
     },
-    stroke: { curve: 'smooth', width: [3, 3] },
-    colors: ['#34d399', '#fb7185'],
+    plotOptions: { bar: { columnWidth: '50%', borderRadius: 0 } },
+    dataLabels: { enabled: false },
+    stroke: { show: false },
+    colors: ['#ef4444', '#3b82f6'],
     legend: {
       position: 'top',
       horizontalAlign: 'left',
-      labels: { colors: '#cbd5e1' },
+      labels: { colors: isDark ? '#e2e8f0' : '#334155' },
     },
-    grid: { borderColor: 'rgba(148, 163, 184, 0.12)' },
+    grid: { borderColor: isDark ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.28)' },
     xaxis: {
       categories: MONTH_SHORT,
-      labels: { style: { colors: Array.from({ length: 12 }, () => '#94a3b8') } },
+      labels: { style: { colors: Array.from({ length: 12 }, () => isDark ? '#cbd5e1' : '#334155') } },
     },
     yaxis: {
       labels: {
         formatter: (value: number) => BRL.format(value),
-        style: { colors: ['#94a3b8'] },
+        style: { colors: [isDark ? '#cbd5e1' : '#334155'] },
       },
     },
     tooltip: {
-      theme: 'dark',
+      theme: isDark ? 'dark' : 'light',
       y: { formatter: (value: number) => BRL.format(value) },
     },
-  }), []);
+  }), [isDark]);
 
-  const chartSeries = useMemo(() => ([
-    { name: 'Contas a receber', data: boletim.chartReceber },
-    { name: 'Contas a pagar', data: boletim.chartPagar },
-  ]), [boletim.chartPagar, boletim.chartReceber]);
-
-  const primaryColor = empresa?.cor_primaria || '#0ea5e9';
   const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
   const companyName = empresa?.nome_fantasia || 'Sua Empresa';
   const now = new Date();
@@ -322,145 +286,130 @@ export function Boletim() {
     return <div className="p-10 text-center text-slate-400">Carregando boletim...</div>;
   }
 
+  const pageClass = isDark
+    ? 'bg-[linear-gradient(180deg,#001f54_0%,#00163d_100%)] text-white'
+    : 'bg-[linear-gradient(180deg,#f8fafc_0%,#e8edf5_100%)] text-slate-900';
+  const frameClass = isDark ? 'border-[#0d2d66] bg-[#00163d]' : 'border-slate-300 bg-white';
+  const chartPanelClass = isDark ? 'border-white/20 bg-black' : 'border-slate-300 bg-white';
+
   return (
-    <div className="min-h-full bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.15),transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_45%,#111827_100%)] px-4 py-6 text-white sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-screen-2xl space-y-6">
-        <header className="rounded-[34px] border border-white/10 bg-slate-950/70 px-6 py-6 shadow-[0_35px_120px_-70px_rgba(2,6,23,1)] backdrop-blur md:px-8">
-          <div className="grid gap-5 xl:grid-cols-[1.1fr_1fr_0.8fr] xl:items-center">
-            <div className="flex items-center gap-4 rounded-[28px] border border-white/10 bg-white/3 px-5 py-4">
-              <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-white/5">
-                {companyLogo ? (
-                  <img src={companyLogo} alt={companyName} className="h-full w-full object-cover" />
-                ) : (
-                  <Building2 className="h-8 w-8 text-white/35" />
-                )}
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.28em] text-white/35">Empresa</p>
-                <h1 className="mt-2 text-2xl font-black text-white">{companyName}</h1>
-                <p className="mt-1 text-sm text-white/48">{empresa?.razao_social || 'Posicao financeira consolidada'}</p>
+    <div className={`min-h-full px-3 py-6 sm:px-4 lg:px-6 ${pageClass}`}>
+      <div className="mx-auto w-full space-y-4">
+        <header className={`rounded-none border px-6 py-4 shadow-sm ${frameClass}`}>
+          <div className="grid items-center gap-4 xl:grid-cols-[300px_1fr_300px]">
+            <div className={`flex items-center justify-center rounded-2xl border px-4 py-3 ${isDark ? 'border-white/20 bg-white/5' : 'border-slate-300 bg-slate-50'}`}>
+              <div className="flex items-center gap-4">
+                <div className={`flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl ${isDark ? 'bg-white' : 'bg-slate-100'}`}>
+                  {companyLogo ? <img src={companyLogo} alt={companyName} className="h-full w-full object-cover" /> : <Building2 className="h-7 w-7 text-slate-400" />}
+                </div>
+                <div>
+                  <div className={`text-xl font-black uppercase ${isDark ? 'text-white' : 'text-slate-900'}`}>{companyName}</div>
+                  <div className={`text-xs font-bold uppercase tracking-[0.18em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>Posição financeira</div>
+                </div>
               </div>
             </div>
 
             <div className="text-center">
-              <p className="text-[11px] font-black uppercase tracking-[0.36em] text-white/35">Boletim financeiro</p>
-              <h2 className="mt-3 text-3xl font-black tracking-[0.14em] text-white md:text-4xl">BOLETIM</h2>
-              <p className="mt-2 text-sm font-semibold uppercase tracking-[0.18em] text-white/45">{MONTH_SHORT[now.getMonth()]} {now.getFullYear()}</p>
+              <h1 className={`text-4xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                Boletim<span className={`font-light ${isDark ? 'text-white/80' : 'text-slate-500'}`}>financeiro</span>
+              </h1>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
-              <InfoChip label="Saldo bancario" value={BRL.format(boletim.saldoBancario)} icon={Wallet} />
-              <InfoChip label="Data base" value={now.toLocaleDateString('pt-BR')} icon={CalendarDays} />
+            <div className={`flex items-center justify-center rounded-2xl border px-4 py-3 ${isDark ? 'border-white/20 bg-white/5' : 'border-slate-300 bg-slate-50'}`}>
+              <div className="flex items-center gap-3">
+                <CalendarDays className={`h-5 w-5 ${isDark ? 'text-white/60' : 'text-slate-500'}`} />
+                <div>
+                  <div className={`text-xs font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>Data base</div>
+                  <div className={`text-lg font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{now.toLocaleDateString('pt-BR')}</div>
+                </div>
+              </div>
             </div>
           </div>
         </header>
 
-        <section className="grid gap-4 xl:grid-cols-3">
-          <SummaryPanel
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_520px]">
+          <MetricGrid
             title="Contas a pagar"
             accent="rose"
+            isDark={isDark}
             metrics={[
-              { label: 'Hoje', value: boletim.pagar.hoje, tone: 'negative' },
-              { label: 'Amanha', value: boletim.pagar.amanha, tone: 'negative' },
-              { label: 'Atrasadas', value: boletim.pagar.atrasadas, tone: 'negative' },
-              { label: 'Em aberto', value: boletim.pagar.emAberto, tone: 'negative' },
+              { label: 'Para hoje', value: boletim.pagar.hoje },
+              { label: 'Para amanhã', value: boletim.pagar.amanha },
+              { label: 'Atrasadas', value: boletim.pagar.atrasadas },
+              { label: 'Total do mês', value: boletim.pagar.totalMes },
               { label: 'Realizadas', value: boletim.pagar.realizadas },
-              { label: 'Total do mes', value: boletim.pagar.totalMes },
+              { label: 'Em aberto', value: boletim.pagar.emAberto },
             ]}
           />
 
-          <SummaryPanel
+          <MetricGrid
             title="Contas a receber"
-            accent="emerald"
+            accent="cyan"
+            isDark={isDark}
             metrics={[
-              { label: 'Hoje', value: boletim.receber.hoje, tone: 'positive' },
-              { label: 'Amanha', value: boletim.receber.amanha, tone: 'positive' },
-              { label: 'Atrasadas', value: boletim.receber.atrasadas, tone: 'positive' },
-              { label: 'Em aberto', value: boletim.receber.emAberto, tone: 'positive' },
+              { label: 'Para hoje', value: boletim.receber.hoje },
+              { label: 'Para amanhã', value: boletim.receber.amanha },
+              { label: 'Atrasadas', value: boletim.receber.atrasadas },
+              { label: 'Total do mês', value: boletim.receber.totalMes },
               { label: 'Realizadas', value: boletim.receber.realizadas },
-              { label: 'Total do mes', value: boletim.receber.totalMes },
+              { label: 'Em aberto', value: boletim.receber.emAberto },
             ]}
           />
 
-          <SummaryPanel
-            title="Resultados"
-            accent="sky"
-            metrics={[
-              { label: 'Saldo bancario', value: boletim.saldoBancario, tone: boletim.saldoBancario >= 0 ? 'positive' : 'negative' },
-              { label: 'Saldo transferencia', value: boletim.saldoTransferencia, tone: boletim.saldoTransferencia >= 0 ? 'positive' : 'negative' },
-              { label: 'Resultado realizado', value: boletim.resultadoRealizado, tone: boletim.resultadoRealizado >= 0 ? 'positive' : 'negative' },
-              { label: 'Resultado projetado', value: boletim.resultadoProjetado, tone: boletim.resultadoProjetado >= 0 ? 'positive' : 'negative' },
-              { label: 'Recebimentos', value: boletim.receber.totalMes, tone: 'positive' },
-              { label: 'Pagamentos', value: boletim.pagar.totalMes, tone: 'negative' },
-            ]}
-          />
-        </section>
+          <section className={`border px-4 py-4 ${isDark ? 'border-amber-400/45 bg-black' : 'border-amber-300 bg-white'}`}>
+            <h2 className="mb-4 text-center text-2xl font-black uppercase tracking-[0.04em] text-amber-400">Resultados</h2>
 
-        <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <div className="rounded-4xl border border-white/10 bg-slate-950/65 p-5 shadow-[0_30px_100px_-70px_rgba(2,6,23,1)] backdrop-blur">
-            <div className="mb-4 flex items-center justify-between gap-4">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.28em] text-white/35">Bancos</p>
-                <h3 className="mt-2 text-xl font-black text-white">Saldos</h3>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/4 p-3 text-white/55">
-                <Landmark className="h-5 w-5" />
-              </div>
-            </div>
-
-            <div className="overflow-hidden rounded-3xl border border-white/10">
+            <div className={`overflow-hidden border ${isDark ? 'border-white/25' : 'border-slate-300'}`}>
               <table className="w-full text-left text-sm">
-                <thead className="bg-white/4 text-[10px] font-black uppercase tracking-[0.2em] text-white/45">
+                <thead className={isDark ? 'bg-amber-300 text-slate-950' : 'bg-amber-200 text-slate-900'}>
                   <tr>
-                    <th className="px-4 py-3">Banco</th>
-                    <th className="px-4 py-3">Conta</th>
-                    <th className="px-4 py-3 text-right">Saldo</th>
+                    <th className="px-3 py-2 font-black">Banco</th>
+                    <th className="px-3 py-2 text-right font-black">Saldo</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {boletim.bancos.slice(0, 10).map((conta) => {
-                    const saldo = Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0);
+                  {boletim.bancos.map((conta) => {
                     const bankBrand = inferBankBrand(conta.banco, conta.nome, conta.tipo);
-
                     return (
-                      <tr key={conta.id} className="border-t border-white/8 bg-white/2">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
+                      <tr key={conta.id} className={isDark ? 'border-t border-white/10 text-white' : 'border-t border-slate-200 text-slate-800'}>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2">
                             <BrandAvatar visual={bankBrand} size="sm" />
-                            <span className="font-semibold text-white/72">{conta.banco || conta.tipo}</span>
+                            <span>{conta.banco || conta.nome}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 font-semibold text-white">{conta.nome}</td>
-                        <td className={`px-4 py-3 text-right font-black ${saldo >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
-                          {BRL.format(saldo)}
-                        </td>
+                        <td className="px-3 py-2 text-right font-semibold">{BRL.format(Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0))}</td>
                       </tr>
                     );
                   })}
+                  <tr className={isDark ? 'border-t border-white/20 text-white' : 'border-t border-slate-300 text-slate-900'}>
+                    <td className="px-3 py-3 font-black">Total geral</td>
+                    <td className="px-3 py-3 text-right font-black">{BRL.format(boletim.saldoBancario)}</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
-          </div>
 
-          <div className="rounded-4xl border border-white/10 bg-slate-950/65 p-5 shadow-[0_30px_100px_-70px_rgba(2,6,23,1)] backdrop-blur">
+            <div className="mt-6 grid grid-cols-2 gap-4">
+              <ResultChip label="Operacional" value={boletim.operacional} isDark={isDark} />
+              <ResultChip label="Final" value={boletim.final} isDark={isDark} />
+              <ResultChip label="A receber" value={boletim.aReceberAberto} isDark={isDark} />
+              <ResultChip label="Endividamento" value={boletim.endividamento} isDark={isDark} />
+            </div>
+          </section>
+
+          <section className={`border px-4 py-4 xl:col-span-2 ${chartPanelClass}`}>
             <div className="mb-4 flex items-center justify-between gap-4">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.28em] text-white/35">Historico</p>
-                <h3 className="mt-2 text-xl font-black text-white">Contas a pagar e a receber no vencimento</h3>
-              </div>
-              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white/35">
-                <TrendingUp className="h-4 w-4 text-emerald-300" />
-                <TrendingDown className="h-4 w-4 text-rose-300" />
+              <h3 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>Histórico de contas a pagar e a receber no vencimento</h3>
+              <div className="flex items-center gap-3">
+                <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-red-500"><TrendingDown className="h-4 w-4" />Pagamento</span>
+                <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-blue-500"><TrendingUp className="h-4 w-4" />Recebimento</span>
               </div>
             </div>
-
-            <AsyncApexChart type="line" height={320} series={chartSeries} options={chartOptions} />
-          </div>
+            <AsyncApexChart type="bar" height={320} series={chartSeries} options={chartOptions} />
+          </section>
         </section>
       </div>
-
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 h-32 bg-linear-to-t from-slate-950 to-transparent" />
-      <div className="pointer-events-none fixed right-8 top-8 hidden h-40 w-40 rounded-full blur-3xl lg:block" style={{ backgroundColor: `${primaryColor}22` }} />
     </div>
   );
 }

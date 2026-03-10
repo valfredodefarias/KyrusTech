@@ -1,10 +1,14 @@
 import pandas as pd
 import io
 import json
+import re
+import unicodedata
 from pathlib import Path
 from typing import List, Optional, Any, cast, Tuple
-from datetime import date
+from collections import defaultdict
+from datetime import date, datetime
 from decimal import Decimal
+from difflib import SequenceMatcher
 
 from fastapi import APIRouter, Depends, Query, UploadFile, File, status, Form, HTTPException
 from fastapi.responses import StreamingResponse
@@ -43,10 +47,7 @@ def _load_import_system_rows(session: Session, empresa_id: int) -> dict[str, lis
     contas = session.exec(
         select(Conta.id, Conta.nome).where(Conta.empresa_id == empresa_id)
     ).all()
-    categorias = session.exec(
-        select(PlanoContas.id, PlanoContas.nome, PlanoContas.tipo, PlanoContas.codigo)
-        .where(PlanoContas.empresa_id == empresa_id)
-    ).all()
+    categorias = session.exec(select(PlanoContas).where(PlanoContas.empresa_id == empresa_id)).all()
     centros = session.exec(
         select(CentroCusto.id, CentroCusto.nome).where(CentroCusto.empresa_id == empresa_id)
     ).all()
@@ -57,21 +58,208 @@ def _load_import_system_rows(session: Session, empresa_id: int) -> dict[str, lis
     return {
         "contas": [{"id": conta_id, "nome": nome} for conta_id, nome in contas if conta_id is not None],
         "categorias": [
-            {"id": categoria_id, "nome": nome, "tipo": tipo, "codigo": codigo}
-            for categoria_id, nome, tipo, codigo in categorias
-            if categoria_id is not None
+            {
+                "id": categoria.id,
+                "nome": categoria.nome,
+                "tipo": categoria.tipo,
+                "codigo": categoria.codigo,
+                "conta_pai_id": categoria.conta_pai_id,
+                "permite_lancamentos": categoria.permite_lancamentos,
+                "eh_cabecalho": categoria.eh_cabecalho,
+            }
+            for categoria in categorias
+            if categoria.id is not None
         ],
         "centros": [{"id": centro_id, "nome": nome} for centro_id, nome in centros if centro_id is not None],
         "entidades": [{"id": entidade_id, "nome": nome} for entidade_id, nome in entidades if entidade_id is not None],
     }
 
 
-def _build_import_name_map(rows: list[dict[str, Any]]) -> dict[str, int]:
+def _build_import_name_map(rows: list[dict[str, Any]], selectable_only: bool = False) -> dict[str, int]:
     return {
         str(row["nome"]).upper().strip(): int(row["id"])
         for row in rows
+        if not selectable_only or (row.get("permite_lancamentos", True) and not row.get("eh_cabecalho", False))
         if row.get("id") is not None and str(row.get("nome") or "").strip()
     }
+
+
+def _normalizar_texto_importacao(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    normalized = re.sub(r"[^a-zA-Z0-9]+", " ", normalized.lower()).strip()
+    return re.sub(r"\s+", " ", normalized)
+
+
+def _normalizar_descricao_aprendizado(value: Any) -> str:
+    stopwords = {
+        "de", "da", "do", "das", "dos", "para", "com", "sem", "por", "via", "pix", "ted", "doc",
+        "pgto", "pagamento", "recebimento", "receber", "pagar", "nf", "nfe", "boleto", "transferencia",
+    }
+    tokens = [token for token in _normalizar_texto_importacao(value).split() if len(token) > 2 and token not in stopwords]
+    return " ".join(tokens[:10])
+
+
+def _similaridade_texto_importacao(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    if left == right:
+        return 1.0
+    ratio = SequenceMatcher(None, left, right).ratio()
+    left_tokens = set(left.split())
+    right_tokens = set(right.split())
+    union = left_tokens | right_tokens
+    overlap = (len(left_tokens & right_tokens) / len(union)) if union else 0.0
+    contains_bonus = 0.12 if left in right or right in left else 0.0
+    return min(1.0, (ratio * 0.65) + (overlap * 0.35) + contains_bonus)
+
+
+def _append_learning_reference(
+    refs: list[dict[str, Any]],
+    descricao: Any,
+    tipo: str,
+    plano_contas_id: Optional[int] = None,
+    entidade_id: Optional[int] = None,
+    source: str = "historico",
+) -> None:
+    descricao_norm = _normalizar_descricao_aprendizado(descricao)
+    if not descricao_norm:
+        return
+    refs.append(
+        {
+            "descricao": descricao_norm,
+            "tipo": tipo or "",
+            "plano_contas_id": int(plano_contas_id) if plano_contas_id else None,
+            "entidade_id": int(entidade_id) if entidade_id else None,
+            "source": source,
+        }
+    )
+
+
+def _load_learning_references(session: Session, empresa_id: int) -> list[dict[str, Any]]:
+    rows = session.exec(
+        select(Lancamento.descricao, Lancamento.tipo, Lancamento.plano_contas_id, Lancamento.entidade_id)
+        .where(Lancamento.empresa_id == empresa_id, Lancamento.is_deleted == False)
+    ).all()
+    refs: list[dict[str, Any]] = []
+    for descricao, tipo, plano_contas_id, entidade_id in rows:
+        if plano_contas_id is None and entidade_id is None:
+            continue
+        _append_learning_reference(refs, descricao, str(tipo or ""), plano_contas_id, entidade_id, "historico")
+    return refs
+
+
+def _infer_learning_ids(descricao: str, tipo: str, refs: list[dict[str, Any]]) -> dict[str, Optional[int] | float]:
+    descricao_norm = _normalizar_descricao_aprendizado(descricao)
+    if not descricao_norm:
+        return {"plano_contas_id": None, "plano_score": 0.0, "entidade_id": None, "entidade_score": 0.0}
+
+    categoria_scores: dict[int, float] = defaultdict(float)
+    entidade_scores: dict[int, float] = defaultdict(float)
+
+    for ref in refs:
+        score = _similaridade_texto_importacao(descricao_norm, str(ref.get("descricao") or ""))
+        if score < 0.56:
+            continue
+
+        source_bonus = 0.15 if ref.get("source") == "lote" else 0.0
+        ref_tipo = str(ref.get("tipo") or "")
+
+        plano_contas_id = ref.get("plano_contas_id")
+        if plano_contas_id and (not tipo or not ref_tipo or ref_tipo == tipo):
+            categoria_scores[int(plano_contas_id)] += score + source_bonus
+
+        entidade_id = ref.get("entidade_id")
+        if entidade_id:
+            entidade_scores[int(entidade_id)] += score + source_bonus
+
+    def pick_best(scores: dict[int, float]) -> tuple[Optional[int], float]:
+        if not scores:
+            return None, 0.0
+        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+        best_id, best_score = ranked[0]
+        second_score = ranked[1][1] if len(ranked) > 1 else 0.0
+        if best_score < 0.72:
+            return None, best_score
+        if second_score and best_score < second_score * 1.08:
+            return None, best_score
+        return int(best_id), float(best_score)
+
+    plano_contas_id, plano_score = pick_best(categoria_scores)
+    entidade_id, entidade_score = pick_best(entidade_scores)
+    return {
+        "plano_contas_id": plano_contas_id,
+        "plano_score": plano_score,
+        "entidade_id": entidade_id,
+        "entidade_score": entidade_score,
+    }
+
+
+def _build_import_suggestions(
+    df: pd.DataFrame,
+    col_desc: str,
+    col_tipo: str,
+    col_cat: str,
+    col_entidade: str,
+    conflitos: dict[str, list[str]],
+    learning_refs: list[dict[str, Any]],
+) -> dict[str, dict[str, int]]:
+    categoria_votes: dict[str, dict[int, float]] = defaultdict(lambda: defaultdict(float))
+    entidade_votes: dict[str, dict[int, float]] = defaultdict(lambda: defaultdict(float))
+
+    conflitos_categoria = {str(item).strip() for item in conflitos.get("categorias", []) if str(item).strip()}
+    conflitos_entidade = {str(item).strip() for item in conflitos.get("entidades", []) if str(item).strip()}
+
+    for _, row in df.iterrows():
+        descricao = str(row[col_desc]).strip() if col_desc and pd.notna(row[col_desc]) else ""
+        if not descricao:
+            continue
+        tipo_raw = str(row[col_tipo]).upper().strip() if col_tipo and pd.notna(row[col_tipo]) else ""
+        tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw.startswith("D") else "")
+        categoria_nome = str(row[col_cat]).strip() if col_cat and pd.notna(row[col_cat]) else ""
+        entidade_nome = str(row[col_entidade]).strip() if col_entidade and pd.notna(row[col_entidade]) else ""
+        suggestion = _infer_learning_ids(descricao, tipo, learning_refs)
+
+        plano_sugerido = suggestion.get("plano_contas_id")
+        if categoria_nome in conflitos_categoria and plano_sugerido is not None:
+            categoria_votes[categoria_nome][int(plano_sugerido)] += float(suggestion.get("plano_score") or 0)
+
+        entidade_sugerida = suggestion.get("entidade_id")
+        if entidade_nome in conflitos_entidade and entidade_sugerida is not None:
+            entidade_votes[entidade_nome][int(entidade_sugerida)] += float(suggestion.get("entidade_score") or 0)
+
+    def consolidate(votes: dict[str, dict[int, float]]) -> dict[str, int]:
+        resolved: dict[str, int] = {}
+        for external_name, score_map in votes.items():
+            ranked = sorted(score_map.items(), key=lambda item: item[1], reverse=True)
+            if not ranked:
+                continue
+            best_id, best_score = ranked[0]
+            second_score = ranked[1][1] if len(ranked) > 1 else 0.0
+            if best_score < 0.72:
+                continue
+            if second_score and best_score < second_score * 1.08:
+                continue
+            resolved[external_name] = int(best_id)
+        return resolved
+
+    return {
+        "categorias": consolidate(categoria_votes),
+        "entidades": consolidate(entidade_votes),
+    }
+
+
+def _format_preview_value(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    if pd.isna(value):
+        return ""
+    if isinstance(value, (date, datetime)):
+        try:
+            return value.strftime("%Y-%m-%d")
+        except Exception:
+            return str(value)
+    return str(value).strip()
 
 # Padronizado para usar get_db
 def get_service(session: Session = Depends(get_db)) -> LancamentoService:
@@ -222,13 +410,17 @@ def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session =
     empresa_id, _ = require_empresa_user(current_user)
     df = pd.read_excel(io.BytesIO(file.file.read()))
     df.columns = [str(c).upper().strip() for c in df.columns]
+    col_desc = encontrar_coluna(df, ["DESCRIÇÃO", "DESCRICAO", "HISTÓRICO", "HISTORICO"])
+    col_tipo = encontrar_coluna(df, ["TIPO"])
+    col_venc = encontrar_coluna(df, ["DATA VENCIMENTO", "VENCIMENTO", "DATA"])
+    col_valor = encontrar_coluna(df, ["VALOR", "VALOR PAGO", "VALOR PREVISTO"])
     col_conta = encontrar_coluna(df, ["CONTA", "BANCO"])
     col_cat = encontrar_coluna(df, ["CATEGORIA", "PLANO DE CONTAS"])
     col_centro = encontrar_coluna(df, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO"])
     col_entidade = encontrar_coluna(df, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
     sistema = _load_import_system_rows(session, empresa_id)
     nomes_contas = _build_import_name_map(sistema["contas"])
-    nomes_cats = _build_import_name_map(sistema["categorias"])
+    nomes_cats = _build_import_name_map(sistema["categorias"], selectable_only=True)
     nomes_centros = _build_import_name_map(sistema["centros"])
     nomes_entidades = _build_import_name_map(sistema["entidades"])
     conflitos = {
@@ -237,9 +429,73 @@ def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session =
         "centros": [c for c in df[col_centro].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_centros] if col_centro else [],
         "entidades": [c for c in df[col_entidade].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_entidades] if col_entidade else []
     }
+
+    cache_tipos = {int(item["id"]): item.get("tipo") for item in sistema["categorias"] if item.get("id") is not None}
+    learning_refs = _load_learning_references(session, empresa_id)
+
+    for _, row in df.iterrows():
+        descricao = str(row[col_desc]).strip() if col_desc and pd.notna(row[col_desc]) else ""
+        tipo_raw = str(row[col_tipo]).upper().strip() if col_tipo and pd.notna(row[col_tipo]) else ""
+        tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw.startswith("D") else "")
+        categoria_nome = str(row[col_cat]).strip() if col_cat and pd.notna(row[col_cat]) else ""
+        entidade_nome = str(row[col_entidade]).strip() if col_entidade and pd.notna(row[col_entidade]) else ""
+
+        plano_contas_id = nomes_cats.get(categoria_nome.upper().strip()) if categoria_nome else None
+        entidade_id = nomes_entidades.get(entidade_nome.upper().strip()) if entidade_nome else None
+
+        if not tipo and plano_contas_id is not None:
+            tipo = "RECEITA" if cache_tipos.get(int(plano_contas_id)) == "R" else "DESPESA"
+
+        if plano_contas_id or entidade_id:
+            _append_learning_reference(learning_refs, descricao, tipo, plano_contas_id, entidade_id, "lote")
+
+    sugestoes = _build_import_suggestions(df, col_desc, col_tipo, col_cat, col_entidade, conflitos, learning_refs)
+    categorias_by_id = {int(item["id"]): item for item in sistema["categorias"] if item.get("id") is not None}
+    entidades_by_id = {int(item["id"]): item for item in sistema["entidades"] if item.get("id") is not None}
+    preview_rows = []
+
+    for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
+        descricao = str(row[col_desc]).strip() if col_desc and pd.notna(row[col_desc]) else ""
+        tipo_raw = str(row[col_tipo]).upper().strip() if col_tipo and pd.notna(row[col_tipo]) else ""
+        tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw.startswith("D") else "")
+        categoria_nome = str(row[col_cat]).strip() if col_cat and pd.notna(row[col_cat]) else ""
+        entidade_nome = str(row[col_entidade]).strip() if col_entidade and pd.notna(row[col_entidade]) else ""
+
+        categoria_mapeada_id = sugestoes["categorias"].get(categoria_nome) if categoria_nome else None
+        entidade_mapeada_id = sugestoes["entidades"].get(entidade_nome) if entidade_nome else None
+
+        if descricao and (categoria_mapeada_id is None or entidade_mapeada_id is None):
+            inferencia = _infer_learning_ids(descricao, tipo, learning_refs)
+            if categoria_mapeada_id is None:
+                plano_sugerido = inferencia.get("plano_contas_id")
+                if plano_sugerido is not None:
+                    categoria_mapeada_id = int(plano_sugerido)
+            if entidade_mapeada_id is None:
+                entidade_sugerida = inferencia.get("entidade_id")
+                if entidade_sugerida is not None:
+                    entidade_mapeada_id = int(entidade_sugerida)
+
+        preview_rows.append(
+            {
+                "linha": row_idx,
+                "descricao": descricao,
+                "tipo": tipo if tipo else (_format_preview_value(row.get(col_tipo)) if col_tipo else ""),
+                "valor": _format_preview_value(row.get(col_valor)) if col_valor else "",
+                "data_vencimento": _format_preview_value(row.get(col_venc)) if col_venc else "",
+                "categoria_arquivo": categoria_nome,
+                "categoria_sugerida_id": categoria_mapeada_id,
+                "categoria_sugerida_nome": categorias_by_id.get(int(categoria_mapeada_id), {}).get("nome") if categoria_mapeada_id is not None else None,
+                "entidade_arquivo": entidade_nome,
+                "entidade_sugerida_id": entidade_mapeada_id,
+                "entidade_sugerida_nome": entidades_by_id.get(int(entidade_mapeada_id), {}).get("nome") if entidade_mapeada_id is not None else None,
+            }
+        )
+
     return {
         "conflitos": conflitos,
-        "sistema": sistema
+        "sistema": sistema,
+        "sugestoes": sugestoes,
+        "preview": preview_rows[:200],
     }
 
 
@@ -301,10 +557,40 @@ async def importar_executar(
         # Caches do sistema
         sistema = _load_import_system_rows(db, empresa_id)
         cache_tipos = {int(item["id"]): item.get("tipo") for item in sistema["categorias"] if item.get("id") is not None}
-        nomes_cats_sist = _build_import_name_map(sistema["categorias"])
+        nomes_cats_sist = _build_import_name_map(sistema["categorias"], selectable_only=True)
         nomes_contas_sist = _build_import_name_map(sistema["contas"])
         nomes_centros_sist = _build_import_name_map(sistema["centros"])
         nomes_entidades_sist = _build_import_name_map(sistema["entidades"])
+        learning_refs = _load_learning_references(db, empresa_id)
+
+        for _, row in df.iterrows():
+            descricao = str(row[col_desc]).strip() if col_desc and pd.notna(row[col_desc]) else ""
+            tipo_raw = str(row[col_tipo]).upper().strip() if col_tipo and pd.notna(row[col_tipo]) else ""
+            tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw.startswith("D") else "")
+            categoria_nome = str(row[col_cat]).strip() if col_cat and pd.notna(row[col_cat]) else ""
+            entidade_nome = str(row[col_ent]).strip() if col_ent and pd.notna(row[col_ent]) else ""
+
+            plano_contas_id = None
+            if categoria_nome:
+                cat_key = categoria_nome.upper().strip()
+                if cat_key in map_categorias and map_categorias[cat_key] is not None:
+                    plano_contas_id = int(map_categorias[cat_key])
+                elif cat_key in nomes_cats_sist and nomes_cats_sist[cat_key] is not None:
+                    plano_contas_id = int(nomes_cats_sist[cat_key])
+
+            entidade_id = None
+            if entidade_nome:
+                ent_key = entidade_nome.upper().strip()
+                if ent_key in map_entidades and map_entidades[ent_key] is not None:
+                    entidade_id = int(map_entidades[ent_key])
+                elif ent_key in nomes_entidades_sist and nomes_entidades_sist[ent_key] is not None:
+                    entidade_id = int(nomes_entidades_sist[ent_key])
+
+            if not tipo and plano_contas_id is not None:
+                tipo = "RECEITA" if cache_tipos.get(int(plano_contas_id)) == "R" else "DESPESA"
+
+            if plano_contas_id or entidade_id:
+                _append_learning_reference(learning_refs, descricao, tipo, plano_contas_id, entidade_id, "lote")
 
         for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
             try:
@@ -330,6 +616,11 @@ async def importar_executar(
                     plano_contas_id = int(map_categorias[cat_key])
                 elif cat_key in nomes_cats_sist and nomes_cats_sist[cat_key] is not None:
                     plano_contas_id = int(nomes_cats_sist[cat_key])
+                elif descricao:
+                    inferencia = _infer_learning_ids(descricao, tipo, learning_refs)
+                    plano_sugerido = inferencia.get("plano_contas_id")
+                    if plano_sugerido is not None:
+                        plano_contas_id = int(plano_sugerido)
                 else:
                     # Busca categoria no sistema ou cria "A Categorizar"
                     categoria = db.exec(
@@ -358,19 +649,23 @@ async def importar_executar(
                 entidade_id = None
                 entidade_id = None
                 ent_key = entidade_nome.upper().strip() if entidade_nome else ""
-                if ent_key:
-                    if ent_key in map_entidades and map_entidades[ent_key] is not None:
-                        entidade_id = int(map_entidades[ent_key])
-                    elif ent_key in nomes_entidades_sist and nomes_entidades_sist[ent_key] is not None:
-                        entidade_id = int(nomes_entidades_sist[ent_key])
-                    else:
-                        nova_ent = Entidade(nome=entidade_nome, tipo="AMBOS", cpf_cnpj=None, status="ATIVO", empresa_id=empresa_id)
-                        db.add(nova_ent)
-                        db.flush()
-                        if nova_ent.id is None:
-                            raise Exception("Falha ao criar entidade")
-                        entidade_id = int(nova_ent.id)
-                        nomes_entidades_sist[ent_key] = entidade_id
+                if ent_key and ent_key in map_entidades and map_entidades[ent_key] is not None:
+                    entidade_id = int(map_entidades[ent_key])
+                elif ent_key and ent_key in nomes_entidades_sist and nomes_entidades_sist[ent_key] is not None:
+                    entidade_id = int(nomes_entidades_sist[ent_key])
+                elif descricao:
+                    inferencia = _infer_learning_ids(descricao, tipo, learning_refs)
+                    entidade_sugerida = inferencia.get("entidade_id")
+                    if entidade_sugerida is not None:
+                        entidade_id = int(entidade_sugerida)
+                elif ent_key:
+                    nova_ent = Entidade(nome=entidade_nome, tipo="AMBOS", cpf_cnpj=None, status="ATIVO", empresa_id=empresa_id)
+                    db.add(nova_ent)
+                    db.flush()
+                    if nova_ent.id is None:
+                        raise Exception("Falha ao criar entidade")
+                    entidade_id = int(nova_ent.id)
+                    nomes_entidades_sist[ent_key] = entidade_id
                 
                 # Mapeia conta
                 conta_id = None
@@ -426,6 +721,7 @@ async def importar_executar(
                 
                 db.add(novo_lancamento)
                 importados += 1
+                _append_learning_reference(learning_refs, descricao, tipo, plano_contas_id, entidade_id, "lote")
                 
             except Exception as e:
                 logger.error(f"Erro na linha {row_idx}: {e}")

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
@@ -17,6 +17,8 @@ interface ItemSistema {
     tipo?: string; 
     codigo?: string; 
     considerar_nos_resultados?: boolean;
+    permite_lancamentos?: boolean;
+    eh_cabecalho?: boolean;
     conta_pai_id?: number | null; 
     children?: ItemSistema[];     
 } 
@@ -43,6 +45,161 @@ interface Feedback {
   details?: string[];
 }
 
+interface PreviewRow {
+        linha: number;
+        descricao: string;
+        tipo: string;
+        valor: string;
+        data_vencimento: string;
+        categoria_arquivo: string;
+        categoria_sugerida_id?: number | null;
+        categoria_sugerida_nome?: string | null;
+        entidade_arquivo: string;
+        entidade_sugerida_id?: number | null;
+        entidade_sugerida_nome?: string | null;
+}
+
+interface SearchOption {
+    id: number | string;
+    nome: string;
+    codigo?: string;
+    depth?: number;
+    disabled?: boolean;
+    helperText?: string;
+    searchText?: string;
+}
+
+interface SearchOptionGroup {
+    label: string;
+    options: SearchOption[];
+}
+
+interface QuickEntityFormState {
+    nome: string;
+    tipo: 'CLIENTE' | 'FORNECEDOR' | 'AMBOS';
+    tipo_pessoa: 'PF' | 'PJ';
+    nome_fantasia: string;
+    cpf_cnpj: string;
+    email: string;
+    telefone: string;
+    celular: string;
+    contato_nome: string;
+    cep: string;
+    logradouro: string;
+    numero: string;
+    complemento: string;
+    bairro: string;
+    cidade: string;
+    uf: string;
+    observacoes: string;
+}
+
+type TreeCategoriaItem = ItemSistema & { children: TreeCategoriaItem[] };
+
+const initialQuickEntityForm: QuickEntityFormState = {
+    nome: '',
+    tipo: 'AMBOS',
+    tipo_pessoa: 'PF',
+    nome_fantasia: '',
+    cpf_cnpj: '',
+    email: '',
+    telefone: '',
+    celular: '',
+    contato_nome: '',
+    cep: '',
+    logradouro: '',
+    numero: '',
+    complemento: '',
+    bairro: '',
+    cidade: '',
+    uf: '',
+    observacoes: '',
+};
+
+const onlyDigits = (value: string) => value.replace(/\D/g, '');
+
+const formatCpfCnpj = (value: string) => {
+    const digits = onlyDigits(value).slice(0, 14);
+    if (digits.length <= 11) {
+        return digits
+            .replace(/(\d{3})(\d)/, '$1.$2')
+            .replace(/(\d{3})(\d)/, '$1.$2')
+            .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+    }
+
+    return digits
+        .replace(/(\d{2})(\d)/, '$1.$2')
+        .replace(/(\d{3})(\d)/, '$1.$2')
+        .replace(/(\d{3})(\d)/, '$1/$2')
+        .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+};
+
+const formatPhone = (value: string) => {
+    const digits = onlyDigits(value).slice(0, 11);
+    if (digits.length <= 10) {
+        return digits
+            .replace(/(\d{2})(\d)/, '($1) $2')
+            .replace(/(\d{4})(\d)/, '$1-$2');
+    }
+
+    return digits
+        .replace(/(\d{2})(\d)/, '($1) $2')
+        .replace(/(\d{5})(\d)/, '$1-$2');
+};
+
+const formatCep = (value: string) => onlyDigits(value).slice(0, 8).replace(/(\d{5})(\d)/, '$1-$2');
+
+const nullableValue = (value: string) => {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+};
+
+const sortByCodeAndName = (items: ItemSistema[]) => [...items].sort((a, b) => {
+    const codeCompare = String(a.codigo || '').localeCompare(String(b.codigo || ''), 'pt-BR', { numeric: true });
+    if (codeCompare !== 0) return codeCompare;
+    return a.nome.localeCompare(b.nome, 'pt-BR');
+});
+
+const buildCategoriaOptionGroups = (items: ItemSistema[]): SearchOptionGroup[] => {
+    const map = new Map<number, TreeCategoriaItem>();
+    items.forEach((item) => map.set(item.id, { ...item, children: [] }));
+
+    const roots: TreeCategoriaItem[] = [];
+    sortByCodeAndName(items).forEach((item) => {
+        const current = map.get(item.id);
+        if (!current) return;
+        if (item.conta_pai_id && map.has(Number(item.conta_pai_id))) {
+            map.get(Number(item.conta_pai_id))!.children.push(current);
+        } else {
+            roots.push(current);
+        }
+    });
+
+    const flatten = (nodes: TreeCategoriaItem[], depth = 0): SearchOption[] => {
+        return nodes.flatMap((node) => {
+            const disabled = node.eh_cabecalho === true || node.permite_lancamentos === false;
+            const helperText = disabled ? 'Categoria pai / agrupadora' : undefined;
+            const current: SearchOption = {
+                id: node.id,
+                nome: node.nome,
+                codigo: node.codigo,
+                depth,
+                disabled,
+                helperText,
+                searchText: `${node.codigo || ''} ${node.nome}`.trim(),
+            };
+            return [current, ...flatten(sortByCodeAndName(node.children) as TreeCategoriaItem[], depth + 1)];
+        });
+    };
+
+    const receitas = flatten(sortByCodeAndName(roots.filter((item) => normalizeTipo(item.tipo) === 'R')) as TreeCategoriaItem[]);
+    const despesas = flatten(sortByCodeAndName(roots.filter((item) => normalizeTipo(item.tipo) === 'D')) as TreeCategoriaItem[]);
+    const groups: SearchOptionGroup[] = [];
+    if (receitas.length) groups.push({ label: 'Receitas', options: receitas });
+    if (despesas.length) groups.push({ label: 'Despesas', options: despesas });
+    return groups;
+};
+
 // --- HELPER COMPONENTS ---
 
 const StepBadge = ({ num, current, label }: { num: number, current: number, label: string }) => {
@@ -64,7 +221,11 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState('');
     const wrapperRef = useRef<HTMLDivElement>(null);
-    const selectedItem = options.find((opt: any) => String(opt.id) === String(value));
+    const groupedOptions = Array.isArray(options) && options.length > 0 && Array.isArray(options[0]?.options)
+        ? options
+        : [{ label: '', options: options || [] }];
+    const flatOptions = groupedOptions.flatMap((group: SearchOptionGroup) => group.options || []);
+    const selectedItem = flatOptions.find((opt: any) => String(opt.id) === String(value));
 
     useEffect(() => {
         function handleClickOutside(event: any) {
@@ -78,14 +239,19 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
     }, [value]);
 
     useEffect(() => {
-        if (selectedItem) setSearch(selectedItem.nome);
+        if (selectedItem) setSearch(selectedItem.searchText || selectedItem.nome);
         else setSearch('');
     }, [selectedItem, isOpen]);
 
-    const filteredOptions = options.filter((opt: any) => 
-        (opt.nome || '').toLowerCase().includes(search.toLowerCase()) ||
-        (opt.codigo || '').toLowerCase().includes(search.toLowerCase())
-    );
+    const filteredGroups = groupedOptions
+        .map((group: SearchOptionGroup) => ({
+            ...group,
+            options: (group.options || []).filter((opt: SearchOption) => {
+                const haystack = `${opt.searchText || ''} ${opt.nome || ''} ${opt.codigo || ''}`.toLowerCase();
+                return haystack.includes(search.toLowerCase());
+            })
+        }))
+        .filter((group: SearchOptionGroup) => group.options.length > 0);
 
     return (
         <div className="relative w-full" ref={wrapperRef}>
@@ -113,18 +279,36 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
 
             {isOpen && (
                 <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95">
-                    {filteredOptions.length === 0 ? (
+                    {filteredGroups.length === 0 ? (
                         <div className="p-3 text-slate-500 text-center text-xs italic">Nenhum item encontrado.</div>
                     ) : (
-                        filteredOptions.map((opt: any) => (
-                            <div 
-                                key={opt.id}
-                                className={`p-3 text-sm cursor-pointer hover:bg-blue-600 hover:text-white transition flex justify-between items-center
-                                    ${String(opt.id) === String(value) ? 'bg-blue-500/20 text-blue-700 dark:text-blue-200' : 'text-slate-700 dark:text-slate-300'}`}
-                                onClick={() => { onChange(opt.id); setIsOpen(false); setSearch(opt.nome); }}
-                            >
-                                <span>{opt.codigo ? <span className="font-mono opacity-70 mr-2">{opt.codigo}</span> : ''}{opt.nome}</span>
-                                {String(opt.id) === String(value) && <Check className="w-4 h-4"/>}
+                        filteredGroups.map((group: SearchOptionGroup) => (
+                            <div key={group.label || 'default'}>
+                                {group.label ? <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-blue-500 bg-slate-50 dark:bg-slate-900/80 dark:text-blue-300">{group.label}</div> : null}
+                                {group.options.map((opt: SearchOption) => {
+                                    const isDisabled = !!opt.disabled;
+                                    return (
+                                        <div 
+                                            key={opt.id}
+                                            className={`p-3 text-sm transition flex justify-between items-center gap-3 ${isDisabled ? 'cursor-not-allowed opacity-45 text-slate-400' : 'cursor-pointer hover:bg-blue-600 hover:text-white'} ${String(opt.id) === String(value) ? 'bg-blue-500/20 text-blue-700 dark:text-blue-200' : 'text-slate-700 dark:text-slate-300'}`}
+                                            onClick={() => {
+                                                if (isDisabled) return;
+                                                onChange(opt.id);
+                                                setIsOpen(false);
+                                                setSearch(opt.searchText || opt.nome);
+                                            }}
+                                        >
+                                            <div className="min-w-0" style={{ paddingLeft: `${(opt.depth || 0) * 14}px` }}>
+                                                <div className="truncate">
+                                                    {opt.codigo ? <span className="font-mono opacity-70 mr-2">{opt.codigo}</span> : ''}
+                                                    {opt.nome}
+                                                </div>
+                                                {opt.helperText ? <div className="text-[10px] opacity-70">{opt.helperText}</div> : null}
+                                            </div>
+                                            {String(opt.id) === String(value) && <Check className="w-4 h-4 shrink-0"/>}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         ))
                     )}
@@ -606,7 +790,7 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
 };
 
 // --- RESTO DO CÓDIGO DA PÁGINA (MANTIDO) ---
-const MappingRow = ({ label, original, value, options, onChange, onCreate, typeLabel, icon: Icon }: any) => (
+const MappingRow = ({ label, original, value, options, onChange, onCreate, typeLabel, icon: Icon, suggestionValue }: any) => (
     <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row gap-4 items-center animate-in fade-in group hover:border-slate-300 dark:hover:border-slate-600 transition">
         <div className="flex-1 w-full min-w-0">
             <p className="text-[10px] text-slate-500 uppercase font-bold mb-1 flex items-center gap-1 group-hover:text-slate-400 transition">
@@ -619,9 +803,16 @@ const MappingRow = ({ label, original, value, options, onChange, onCreate, typeL
         <ArrowRight className="text-slate-600 hidden md:block w-5 h-5 shrink-0" />
         <div className="flex-1 w-full min-w-0">
             <div className="flex justify-between items-center mb-1">
-                <p className="text-[10px] text-blue-500 uppercase font-bold flex items-center gap-1 group-hover:text-blue-400 transition">
-                    <Icon className="w-3 h-3"/> No Sistema
-                </p>
+                <div className="flex items-center gap-2">
+                    <p className="text-[10px] text-blue-500 uppercase font-bold flex items-center gap-1 group-hover:text-blue-400 transition">
+                        <Icon className="w-3 h-3"/> No Sistema
+                    </p>
+                    {suggestionValue ? (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${String(value) === String(suggestionValue) ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-300'}`}>
+                            {String(value) === String(suggestionValue) ? 'Sugerido aplicado' : 'Sugestão disponível'}
+                        </span>
+                    ) : null}
+                </div>
                 <button onClick={onCreate} className="text-[10px] bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 hover:text-emerald-400 px-2 py-0.5 rounded font-bold flex items-center gap-1 transition">
                     <Plus className="w-3 h-3"/> Criar {typeLabel}
                 </button>
@@ -650,6 +841,9 @@ export function Importacao() {
   const [mapContas, setMapContas] = useState<Record<string, string>>({});
   const [mapCentros, setMapCentros] = useState<Record<string, string>>({});
   const [mapEntidades, setMapEntidades] = useState<Record<string, string>>({});
+    const [suggestedCategorias, setSuggestedCategorias] = useState<Record<string, string>>({});
+    const [suggestedEntidades, setSuggestedEntidades] = useState<Record<string, string>>({});
+    const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
     const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
     const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
     const setEntidadesCache = useLookupStore((state) => state.setEntidades);
@@ -659,11 +853,47 @@ export function Importacao() {
     const [modalOpen, setModalOpen] = useState(false);
     const [modalType, setModalType] = useState<'CATEGORIA'|'ENTIDADE'|'CONTA'|'CENTRO' | null>(null);
     const [modalValue, setModalValue] = useState('');
-    const [modalPendingKey, setModalPendingKey] = useState(''); 
+    const [modalPendingKey, setModalPendingKey] = useState('');
+    const [entityForm, setEntityForm] = useState<QuickEntityFormState>(initialQuickEntityForm);
+
+    const categoriaSelectOptions = useMemo(() => buildCategoriaOptionGroups(sistemaData.categorias), [sistemaData.categorias]);
+    const entidadeSelectOptions = useMemo<SearchOption[]>(() =>
+        [...sistemaData.entidades]
+            .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+            .map((item) => ({ id: item.id, nome: item.nome, searchText: item.nome })),
+    [sistemaData.entidades]);
+    const categoriasById = useMemo(() => new Map(sistemaData.categorias.map((item) => [String(item.id), item])), [sistemaData.categorias]);
+    const entidadesById = useMemo(() => new Map(sistemaData.entidades.map((item) => [String(item.id), item])), [sistemaData.entidades]);
+    const previewResolvedRows = useMemo(() => previewRows.map((row) => {
+        const categoriaMapeadaId = mapCategorias[row.categoria_arquivo] || (row.categoria_sugerida_id ? String(row.categoria_sugerida_id) : '');
+        const entidadeMapeadaId = mapEntidades[row.entidade_arquivo] || (row.entidade_sugerida_id ? String(row.entidade_sugerida_id) : '');
+        const categoriaItem = categoriaMapeadaId ? categoriasById.get(categoriaMapeadaId) : null;
+        const entidadeItem = entidadeMapeadaId ? entidadesById.get(entidadeMapeadaId) : null;
+        return {
+            ...row,
+            categoria_final: categoriaItem ? `${categoriaItem.codigo ? `${categoriaItem.codigo} - ` : ''}${categoriaItem.nome}` : (row.categoria_arquivo || 'A Categorizar'),
+            entidade_final: entidadeItem ? entidadeItem.nome : (row.entidade_arquivo || 'Sem interessado'),
+            categoria_auto: !mapCategorias[row.categoria_arquivo] && !!row.categoria_sugerida_id,
+            entidade_auto: !mapEntidades[row.entidade_arquivo] && !!row.entidade_sugerida_id,
+        };
+    }), [previewRows, mapCategorias, mapEntidades, categoriasById, entidadesById]);
+
+    const documentoInteressadoLabel = entityForm.tipo_pessoa === 'PF' ? 'CPF' : 'CNPJ';
+    const nomeInteressadoLabel = entityForm.tipo_pessoa === 'PF' ? 'Nome completo' : 'Razão social';
 
     useEffect(() => {
         carregarDadosIniciais();
     }, []);
+
+  function handleEntityDocumentoChange(value: string) {
+      const formatted = formatCpfCnpj(value);
+      const digits = onlyDigits(formatted);
+      setEntityForm((prev) => ({
+          ...prev,
+          cpf_cnpj: formatted,
+          tipo_pessoa: digits.length > 11 ? 'PJ' : prev.tipo_pessoa === 'PJ' && digits.length > 0 && digits.length <= 11 ? 'PF' : prev.tipo_pessoa,
+      }));
+  }
 
   async function carregarDadosIniciais() {
     try {
@@ -700,12 +930,42 @@ export function Importacao() {
       const { data } = await api.post('/lancamentos/importar/analisar', fd);
       setConflitos({ ...data.conflitos, entidades: data.conflitos.entidades || [] });
       if (data.sistema) setSistemaData(prev => ({...prev, ...data.sistema}));
+            if (data.sugestoes?.categorias) {
+                const nextSuggestions: Record<string, string> = {};
+                Object.entries(data.sugestoes.categorias).forEach(([key, value]) => { nextSuggestions[key] = String(value); });
+                setSuggestedCategorias(nextSuggestions);
+                setMapCategorias((prev) => {
+                        const next = { ...prev };
+                        Object.entries(data.sugestoes.categorias).forEach(([key, value]) => {
+                                if (!next[key]) next[key] = String(value);
+                        });
+                        return next;
+                });
+            } else {
+                setSuggestedCategorias({});
+            }
+            if (data.sugestoes?.entidades) {
+                const nextSuggestions: Record<string, string> = {};
+                Object.entries(data.sugestoes.entidades).forEach(([key, value]) => { nextSuggestions[key] = String(value); });
+                setSuggestedEntidades(nextSuggestions);
+                setMapEntidades((prev) => {
+                        const next = { ...prev };
+                        Object.entries(data.sugestoes.entidades).forEach(([key, value]) => {
+                                if (!next[key]) next[key] = String(value);
+                        });
+                        return next;
+                });
+            } else {
+                setSuggestedEntidades({});
+            }
+            setPreviewRows(data.preview || []);
       setStep(2);
     } catch (e: any) { setFeedback({ type: 'error', message: e.response?.data?.detail || "Erro ao analisar arquivo." }); } finally { setLoading(false); }
   }
 
   async function handleQuickCreate() {
-      if(!modalValue) return;
+            if(modalType !== 'ENTIDADE' && !modalValue) return;
+            if (modalType === 'ENTIDADE' && !entityForm.nome.trim()) return;
       setLoading(true);
       try {
           let res: any; let newItem: any;
@@ -718,9 +978,28 @@ export function Importacao() {
                 setPlanoContasCache(next);
                 return { ...prev, categorias: next };
               });
-              setMapCategorias(prev => ({...prev, [modalPendingKey]: newItem.id}));
+              setMapCategorias(prev => ({...prev, [modalPendingKey]: String(newItem.id)}));
           } else if (modalType === 'ENTIDADE') {
-              res = await api.post('/entidades/', { nome: modalValue, tipo: 'AMBOS' });
+              res = await api.post('/entidades/', {
+                  nome: entityForm.nome.trim(),
+                  tipo: entityForm.tipo,
+                  tipo_pessoa: entityForm.tipo_pessoa,
+                  nome_fantasia: nullableValue(entityForm.nome_fantasia),
+                  cpf_cnpj: nullableValue(onlyDigits(entityForm.cpf_cnpj)),
+                  email: nullableValue(entityForm.email),
+                  telefone: nullableValue(onlyDigits(entityForm.telefone)),
+                  celular: nullableValue(onlyDigits(entityForm.celular)),
+                  contato_nome: nullableValue(entityForm.contato_nome),
+                  cep: nullableValue(onlyDigits(entityForm.cep)),
+                  logradouro: nullableValue(entityForm.logradouro),
+                  numero: nullableValue(entityForm.numero),
+                  complemento: nullableValue(entityForm.complemento),
+                  bairro: nullableValue(entityForm.bairro),
+                  cidade: nullableValue(entityForm.cidade),
+                  uf: nullableValue(entityForm.uf.toUpperCase().slice(0, 2)),
+                  observacoes: nullableValue(entityForm.observacoes),
+                  status: 'ATIVO'
+              });
               newItem = res.data;
                             setSistemaData(prev => {
                                 const next = [...prev.entidades, newItem];
@@ -728,19 +1007,21 @@ export function Importacao() {
                                 setEntidadesLookup(next);
                                 return { ...prev, entidades: next };
                             });
-              setMapEntidades(prev => ({...prev, [modalPendingKey]: newItem.id}));
+              setMapEntidades(prev => ({...prev, [modalPendingKey]: String(newItem.id)}));
           } else if (modalType === 'CONTA') {
               res = await api.post('/contas/', { nome: modalValue, tipo: 'CORRENTE' });
               newItem = res.data;
               setSistemaData(prev => ({...prev, contas: [...prev.contas, newItem]}));
-              setMapContas(prev => ({...prev, [modalPendingKey]: newItem.id}));
+              setMapContas(prev => ({...prev, [modalPendingKey]: String(newItem.id)}));
           } else if (modalType === 'CENTRO') {
               res = await api.post('/centro-custo/', { nome: modalValue });
               newItem = res.data;
               setSistemaData(prev => ({...prev, centros: [...prev.centros, newItem]}));
-              setMapCentros(prev => ({...prev, [modalPendingKey]: newItem.id}));
+              setMapCentros(prev => ({...prev, [modalPendingKey]: String(newItem.id)}));
           }
-          setModalOpen(false); setModalValue('');
+          setModalOpen(false);
+          setModalValue('');
+          setEntityForm(initialQuickEntityForm);
       } catch(e) { alert("Erro ao criar item."); } finally { setLoading(false); }
   }
 
@@ -775,7 +1056,7 @@ export function Importacao() {
                                         setPlanoContasCache(next);
                                         return { ...prev, categorias: next };
                                     });
-                  setMapCategorias(prev => ({ ...prev, [res.name]: res.data.id }));
+                  setMapCategorias(prev => ({ ...prev, [res.name]: String(res.data.id) }));
               } else if (type === 'ENTIDADE') {
                                     setSistemaData(prev => {
                                         const next = [...prev.entidades, res.data];
@@ -783,13 +1064,13 @@ export function Importacao() {
                                         setEntidadesLookup(next);
                                         return { ...prev, entidades: next };
                                     });
-                  setMapEntidades(prev => ({ ...prev, [res.name]: res.data.id }));
+                  setMapEntidades(prev => ({ ...prev, [res.name]: String(res.data.id) }));
               } else if (type === 'CONTA') {
                   setSistemaData(prev => ({ ...prev, contas: [...prev.contas, res.data] }));
-                  setMapContas(prev => ({ ...prev, [res.name]: res.data.id }));
+                  setMapContas(prev => ({ ...prev, [res.name]: String(res.data.id) }));
               } else if (type === 'CENTRO') {
                   setSistemaData(prev => ({ ...prev, centros: [...prev.centros, res.data] }));
-                  setMapCentros(prev => ({ ...prev, [res.name]: res.data.id }));
+                  setMapCentros(prev => ({ ...prev, [res.name]: String(res.data.id) }));
               }
           });
 
@@ -802,7 +1083,11 @@ export function Importacao() {
   }
 
   function openCreateModal(type: any, excelKey: string) {
-      setModalType(type); setModalPendingKey(excelKey); setModalValue(excelKey); setModalOpen(true);
+      setModalType(type);
+      setModalPendingKey(excelKey);
+      setModalValue(excelKey);
+      setEntityForm({ ...initialQuickEntityForm, nome: excelKey, nome_fantasia: excelKey });
+      setModalOpen(true);
   }
 
   async function handleExecutar() {
@@ -880,7 +1165,7 @@ export function Importacao() {
                         )}
                     </div>
                     {conflitos.categorias.length === 0 && <div className="p-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Tudo certo! Todas as categorias do arquivo já existem.</div>}
-                    <div className="space-y-3">{conflitos.categorias.map(k => (<MappingRow key={k} original={k} value={mapCategorias[k]} options={sistemaData.categorias} onChange={(v:string)=>setMapCategorias(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('CATEGORIA', k)} typeLabel="Categoria" icon={Tag} />))}</div>
+                    <div className="space-y-3">{conflitos.categorias.map(k => (<MappingRow key={k} original={k} value={mapCategorias[k]} suggestionValue={suggestedCategorias[k]} options={categoriaSelectOptions} onChange={(v:string)=>setMapCategorias(p=>({...p,[k]:String(v)}))} onCreate={()=>openCreateModal('CATEGORIA', k)} typeLabel="Categoria" icon={Tag} />))}</div>
                 </div>
 
                 {/* INTERESSADOS */}
@@ -896,9 +1181,66 @@ export function Importacao() {
                     {conflitos.entidades.length === 0 ? (
                         <div className="p-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Nenhum interessado novo detectado.</div>
                     ) : (
-                        <div className="space-y-3">{conflitos.entidades.map(k => (<MappingRow key={k} original={k} value={mapEntidades[k]} options={sistemaData.entidades} onChange={(v:string)=>setMapEntidades(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('ENTIDADE', k)} typeLabel="Interessado" icon={Users} />))}</div>
+                        <div className="space-y-3">{conflitos.entidades.map(k => (<MappingRow key={k} original={k} value={mapEntidades[k]} suggestionValue={suggestedEntidades[k]} options={entidadeSelectOptions} onChange={(v:string)=>setMapEntidades(p=>({...p,[k]:String(v)}))} onCreate={()=>openCreateModal('ENTIDADE', k)} typeLabel="Interessado" icon={Users} />))}</div>
                     )}
                 </div>
+
+                {previewResolvedRows.length > 0 && (
+                    <div>
+                        <div className="flex items-center justify-between mb-4 gap-4">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Prévia da importação</h3>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">As sugestões automáticas aparecem destacadas e a tabela já reflete seus mapeamentos atuais.</p>
+                            </div>
+                            <span className="text-xs font-bold px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800">{previewResolvedRows.length} linhas na prévia</span>
+                        </div>
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                            <div className="overflow-x-auto max-h-130 custom-scrollbar">
+                                <table className="w-full min-w-275 text-sm">
+                                    <thead className="bg-slate-50 dark:bg-slate-900/70 text-slate-500 dark:text-slate-400">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Linha</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Descrição</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Tipo</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Valor</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Vencimento</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Categoria final</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Interessado final</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                                        {previewResolvedRows.map((row) => (
+                                            <tr key={`${row.linha}-${row.descricao}`} className="hover:bg-slate-50 dark:hover:bg-slate-900/40">
+                                                <td className="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{row.linha}</td>
+                                                <td className="px-4 py-3 min-w-70">
+                                                    <div className="font-semibold text-slate-800 dark:text-slate-100">{row.descricao || '-'}</div>
+                                                    {(row.categoria_arquivo || row.entidade_arquivo) && (
+                                                        <div className="mt-1 text-xs text-slate-400 dark:text-slate-500">{row.categoria_arquivo ? `Origem cat.: ${row.categoria_arquivo}` : 'Sem categoria no arquivo'}{row.entidade_arquivo ? ` • Origem int.: ${row.entidade_arquivo}` : ''}</div>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.tipo || '-'}</td>
+                                                <td className="px-4 py-3 font-medium text-slate-700 dark:text-slate-200">{row.valor || '-'}</td>
+                                                <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.data_vencimento || '-'}</td>
+                                                <td className="px-4 py-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-medium text-slate-700 dark:text-slate-200">{row.categoria_final}</span>
+                                                        {row.categoria_auto ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Auto</span> : null}
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-medium text-slate-700 dark:text-slate-200">{row.entidade_final}</span>
+                                                        {row.entidade_auto ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Auto</span> : null}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <div className="flex justify-between pt-6 border-t border-slate-200 dark:border-slate-800"><button onClick={()=>setStep(1)} className="px-6 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={()=>setStep(3)} className="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition">Próximo <ArrowRight className="w-4 h-4"/></button></div>
             </div>
@@ -919,7 +1261,7 @@ export function Importacao() {
                         )}
                     </div>
                     {conflitos.contas.length === 0 && <div className="p-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Tudo certo com as contas.</div>}
-                    <div className="space-y-3">{conflitos.contas.map(k => (<MappingRow key={k} original={k} value={mapContas[k]} options={sistemaData.contas} onChange={(v:string)=>setMapContas(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('CONTA', k)} typeLabel="Conta" icon={Wallet} />))}</div>
+                    <div className="space-y-3">{conflitos.contas.map(k => (<MappingRow key={k} original={k} value={mapContas[k]} options={sistemaData.contas} onChange={(v:string)=>setMapContas(p=>({...p,[k]:String(v)}))} onCreate={()=>openCreateModal('CONTA', k)} typeLabel="Conta" icon={Wallet} />))}</div>
                 </div>
 
                 {/* CENTROS */}
@@ -932,7 +1274,7 @@ export function Importacao() {
                             </button>
                         )}
                     </div>
-                    <div className="space-y-3">{conflitos.centros.map(k => (<MappingRow key={k} original={k} value={mapCentros[k]} options={sistemaData.centros} onChange={(v:string)=>setMapCentros(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('CENTRO', k)} typeLabel="Centro" icon={Layers} />))}</div>
+                    <div className="space-y-3">{conflitos.centros.map(k => (<MappingRow key={k} original={k} value={mapCentros[k]} options={sistemaData.centros} onChange={(v:string)=>setMapCentros(p=>({...p,[k]:String(v)}))} onCreate={()=>openCreateModal('CENTRO', k)} typeLabel="Centro" icon={Layers} />))}</div>
                 </div>
 
                 <div className="flex justify-between pt-6 border-t border-slate-200 dark:border-slate-800"><button onClick={()=>setStep(2)} className="px-6 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={handleExecutar} disabled={loading} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition disabled:opacity-50">{loading ? <Loader2 className="animate-spin w-5 h-5"/> : <CheckCircle className="w-5 h-5"/>} Confirmar Importação</button></div>
@@ -942,12 +1284,63 @@ export function Importacao() {
 
       {modalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-slate-900/80 backdrop-blur-sm p-4">
-              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6 rounded-2xl shadow-2xl w-full max-w-sm animate-scale-in">
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-blue-500"/> Criar {modalType}</h3>
-                  <div className="space-y-4">
-                      <div><label className="text-xs font-bold text-slate-500 uppercase">Nome</label><input autoFocus type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={modalValue} onChange={e=>setModalValue(e.target.value)} /></div>
-                      <div className="flex gap-2 justify-end mt-4"><button onClick={()=>setModalOpen(false)} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold transition">Cancelar</button><button onClick={handleQuickCreate} disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex gap-2 items-center transition shadow-lg">{loading ? <Loader2 className="animate-spin w-4 h-4"/> : 'Criar'}</button></div>
-                  </div>
+              <div className={`bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6 rounded-2xl shadow-2xl w-full animate-scale-in ${modalType === 'ENTIDADE' ? 'max-w-4xl' : 'max-w-sm'}`}>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-blue-500"/> Criar {modalType === 'ENTIDADE' ? 'Interessado' : modalType}</h3>
+                  {modalType === 'ENTIDADE' ? (
+                    <div className="space-y-5">
+                        <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                            <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900/60">
+                                <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-950">
+                                    <button type="button" onClick={() => setEntityForm(prev => ({ ...prev, tipo_pessoa: 'PF' }))} className={`rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] transition ${entityForm.tipo_pessoa === 'PF' ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}>Pessoa Física</button>
+                                    <button type="button" onClick={() => setEntityForm(prev => ({ ...prev, tipo_pessoa: 'PJ' }))} className={`rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] transition ${entityForm.tipo_pessoa === 'PJ' ? 'bg-sky-600 text-white' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}>Pessoa Jurídica</button>
+                                </div>
+
+                                <div className="grid gap-4 sm:grid-cols-2">
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">{nomeInteressadoLabel}</label><input autoFocus type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.nome} onChange={e=>setEntityForm(prev=>({...prev, nome:e.target.value}))} /></div>
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">{documentoInteressadoLabel}</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition font-mono" value={entityForm.cpf_cnpj} onChange={e=>handleEntityDocumentoChange(e.target.value)} placeholder={entityForm.tipo_pessoa === 'PF' ? '000.000.000-00' : '00.000.000/0000-00'} /></div>
+                                </div>
+
+                                <div className="grid gap-4 sm:grid-cols-2">
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Nome fantasia / apelido</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.nome_fantasia} onChange={e=>setEntityForm(prev=>({...prev, nome_fantasia:e.target.value}))} /></div>
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Classificação</label><select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.tipo} onChange={e=>setEntityForm(prev=>({...prev, tipo:e.target.value as QuickEntityFormState['tipo']}))}><option value="CLIENTE">Cliente</option><option value="FORNECEDOR">Fornecedor</option><option value="AMBOS">Ambos</option></select></div>
+                                </div>
+
+                                <div className="grid gap-4 sm:grid-cols-2">
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Contato responsável</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.contato_nome} onChange={e=>setEntityForm(prev=>({...prev, contato_nome:e.target.value}))} /></div>
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">E-mail</label><input type="email" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.email} onChange={e=>setEntityForm(prev=>({...prev, email:e.target.value}))} /></div>
+                                </div>
+
+                                <div className="grid gap-4 sm:grid-cols-2">
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Telefone</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.telefone} onChange={e=>setEntityForm(prev=>({...prev, telefone: formatPhone(e.target.value)}))} /></div>
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Celular / WhatsApp</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.celular} onChange={e=>setEntityForm(prev=>({...prev, celular: formatPhone(e.target.value)}))} /></div>
+                                </div>
+                            </div>
+
+                            <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900/60">
+                                <div className="grid gap-4 sm:grid-cols-3">
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">CEP</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.cep} onChange={e=>setEntityForm(prev=>({...prev, cep: formatCep(e.target.value)}))} /></div>
+                                    <div className="sm:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase">Logradouro</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.logradouro} onChange={e=>setEntityForm(prev=>({...prev, logradouro:e.target.value}))} /></div>
+                                </div>
+                                <div className="grid gap-4 sm:grid-cols-3">
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Número</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.numero} onChange={e=>setEntityForm(prev=>({...prev, numero:e.target.value}))} /></div>
+                                    <div className="sm:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase">Complemento</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.complemento} onChange={e=>setEntityForm(prev=>({...prev, complemento:e.target.value}))} /></div>
+                                </div>
+                                <div className="grid gap-4 sm:grid-cols-3">
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Bairro</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.bairro} onChange={e=>setEntityForm(prev=>({...prev, bairro:e.target.value}))} /></div>
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Cidade</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.cidade} onChange={e=>setEntityForm(prev=>({...prev, cidade:e.target.value}))} /></div>
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">UF</label><input type="text" maxLength={2} className="w-full p-3 uppercase bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.uf} onChange={e=>setEntityForm(prev=>({...prev, uf:e.target.value.toUpperCase()}))} /></div>
+                                </div>
+                                <div><label className="text-xs font-bold text-slate-500 uppercase">Observações</label><textarea className="min-h-32 w-full resize-y p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.observacoes} onChange={e=>setEntityForm(prev=>({...prev, observacoes:e.target.value}))} /></div>
+                            </div>
+                        </div>
+                        <div className="flex gap-2 justify-end mt-4"><button onClick={()=>{ setModalOpen(false); setEntityForm(initialQuickEntityForm); }} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold transition">Cancelar</button><button onClick={handleQuickCreate} disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex gap-2 items-center transition shadow-lg">{loading ? <Loader2 className="animate-spin w-4 h-4"/> : 'Criar interessado'}</button></div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                        <div><label className="text-xs font-bold text-slate-500 uppercase">Nome</label><input autoFocus type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={modalValue} onChange={e=>setModalValue(e.target.value)} /></div>
+                        <div className="flex gap-2 justify-end mt-4"><button onClick={()=>setModalOpen(false)} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold transition">Cancelar</button><button onClick={handleQuickCreate} disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex gap-2 items-center transition shadow-lg">{loading ? <Loader2 className="animate-spin w-4 h-4"/> : 'Criar'}</button></div>
+                    </div>
+                  )}
               </div>
           </div>
       )}

@@ -19,11 +19,18 @@ interface LancamentoResumo {
   tipo: string;
   status?: string;
   plano_contas_id?: number | null;
+  centro_custo_id?: number | null;
   valor_previsto: number;
   valor_pago?: number | null;
   data_vencimento: string;
   data_pagamento?: string | null;
   data_competencia?: string | null;
+}
+
+interface CentroCustoResumo {
+  id: number;
+  nome: string;
+  codigo?: string | null;
 }
 
 interface DreNode {
@@ -138,6 +145,8 @@ export function Dre() {
   const [error, setError] = useState<string | null>(null);
   const [categorias, setCategorias] = useState<PlanoConta[]>([]);
   const [lancamentos, setLancamentos] = useState<LancamentoResumo[]>([]);
+  const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
+  const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>('ALL');
   const [selectedContaId, setSelectedContaId] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const isDark = useIsDarkMode();
@@ -151,15 +160,17 @@ export function Dre() {
       try {
         const inicio = `${ano}-01-01`;
         const fim = `${ano}-12-31`;
-        const [categoriasRes, lancamentosRes] = await Promise.all([
+        const [categoriasRes, lancamentosRes, centrosCustoRes] = await Promise.all([
           api.get<PlanoConta[]>('/plano-contas/'),
           api.get<LancamentoResumo[]>('/lancamentos/', { params: { limit: 10000, data_inicio: inicio, data_fim: fim } }),
+          api.get<CentroCustoResumo[]>('/centro-custo/'),
         ]);
 
         if (!active) return;
 
         setCategorias(categoriasRes.data || []);
         setLancamentos(lancamentosRes.data || []);
+        setCentrosCusto(centrosCustoRes.data || []);
       } catch (err: any) {
         if (!active) return;
         setError(err?.response?.data?.detail || 'Nao foi possivel montar a DRE.');
@@ -173,6 +184,11 @@ export function Dre() {
       active = false;
     };
   }, [ano]);
+
+  const lancamentosFiltrados = useMemo(() => {
+    if (selectedCentroCustoId === 'ALL') return lancamentos;
+    return lancamentos.filter((item) => Number(item.centro_custo_id) === selectedCentroCustoId);
+  }, [lancamentos, selectedCentroCustoId]);
 
   const dre = useMemo(() => {
     const relevantes = categorias.filter((conta) => {
@@ -192,7 +208,7 @@ export function Dre() {
       filhosPorPai.set(parentId, list);
     });
 
-    lancamentos.forEach((lancamento) => {
+    lancamentosFiltrados.forEach((lancamento) => {
       const contaId = Number(lancamento.plano_contas_id);
       if (!contaPorId.has(contaId)) return;
       const monthIndex = parseMonthIndex(lancamento.data_vencimento);
@@ -289,7 +305,7 @@ export function Dre() {
       despesaTotal: sumValues(despesaMonthly),
       resultadoTotal: sumValues(resultadoMonthly),
     };
-  }, [categorias, lancamentos]);
+  }, [categorias, lancamentosFiltrados]);
 
   useEffect(() => {
     if (!selectedContaId) return;
@@ -306,23 +322,23 @@ export function Dre() {
   const selectedRows = useMemo(() => {
     if (!selectedContaId) return [] as LancamentoResumo[];
     const ids = new Set(dre.descendantsById.get(selectedContaId) || [selectedContaId]);
-    return lancamentos
+    return lancamentosFiltrados
       .filter((item) => ids.has(Number(item.plano_contas_id)) && (selectedMonth === null || parseMonthIndex(item.data_vencimento) === selectedMonth))
       .sort((left, right) => new Date(`${right.data_vencimento.slice(0, 10)}T00:00:00`).getTime() - new Date(`${left.data_vencimento.slice(0, 10)}T00:00:00`).getTime());
-  }, [dre.descendantsById, lancamentos, selectedContaId, selectedMonth]);
+  }, [dre.descendantsById, lancamentosFiltrados, selectedContaId, selectedMonth]);
 
   const selectedMonthly = useMemo(() => {
     if (!selectedContaId) return Array.from({ length: 12 }, () => 0);
     const ids = new Set(dre.descendantsById.get(selectedContaId) || [selectedContaId]);
     const monthly = Array.from({ length: 12 }, () => 0);
-    lancamentos.forEach((item) => {
+    lancamentosFiltrados.forEach((item) => {
       if (!ids.has(Number(item.plano_contas_id))) return;
       const monthIndex = parseMonthIndex(item.data_vencimento);
       if (monthIndex < 0) return;
       monthly[monthIndex] += Number(item.valor_previsto || 0);
     });
     return monthly;
-  }, [dre.descendantsById, lancamentos, selectedContaId]);
+  }, [dre.descendantsById, lancamentosFiltrados, selectedContaId]);
 
   const pageBg = isDark
     ? 'bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.10),transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_48%,#111827_100%)] text-slate-100'
@@ -356,6 +372,26 @@ export function Dre() {
                     className={`w-28 border-none bg-transparent p-0 text-lg font-black outline-none ${isDark ? 'text-white' : 'text-slate-900'}`}
                   />
                 </div>
+              </div>
+
+              <div className={`rounded-[22px] border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
+                <label className={`block text-[10px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Centro de custo</label>
+                <select
+                  value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
+                  onChange={(event) => {
+                    setSelectedCentroCustoId(event.target.value === 'ALL' ? 'ALL' : Number(event.target.value));
+                    setSelectedContaId(null);
+                    setSelectedMonth(null);
+                  }}
+                  className={`mt-2 w-64 rounded-xl border-none bg-transparent p-0 text-sm font-black outline-none ${isDark ? 'text-white' : 'text-slate-900'}`}
+                >
+                  <option value="ALL">Todos os centros de custo</option>
+                  {centrosCusto.map((centro) => (
+                    <option key={centro.id} value={centro.id}>
+                      {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>

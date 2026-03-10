@@ -67,7 +67,21 @@ interface ConsultorContextoResponse {
 }
 
 type ViewMode = 'executivo' | 'pay-receive';
-type TableFilter = 'TODOS' | 'PAGO' | 'EM_ABERTO' | 'ATRASADO' | 'HOJE' | 'AMANHA';
+type StatusFilter = 'TODOS' | 'PAGO' | 'EM_ABERTO' | 'ATRASADO' | 'HOJE' | 'AMANHA';
+type FlowFilter = 'ALL' | 'PAGAMENTO' | 'RECEBIMENTO';
+
+interface NormalizedRow {
+  id: number;
+  descricao: string;
+  flowType: FlowFilter;
+  statusKey: StatusFilter;
+  dataVencimento: string;
+  monthIndex: number;
+  dayOfMonth: number;
+  valor: number;
+  valorAbsoluto: number;
+  interessado: string;
+}
 
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -206,6 +220,48 @@ function FilterPill({ active, label, onClick, isDark }: { active: boolean; label
   );
 }
 
+function getStatusKey(item: LancamentoResumo, todayIso: string, tomorrowIso: string): StatusFilter {
+  if (isPago(item.status)) return 'PAGO';
+  const due = item.data_vencimento?.slice(0, 10);
+  if (due === todayIso) return 'HOJE';
+  if (due === tomorrowIso) return 'AMANHA';
+  if (due && due < todayIso) return 'ATRASADO';
+  return 'EM_ABERTO';
+}
+
+function buildMonthLabel(monthIndex: number, year: number) {
+  return `${MONTH_NAMES[monthIndex]}/${String(year).slice(2)}`;
+}
+
+function applyFilters(
+  rows: NormalizedRow[],
+  filters: {
+    flowType: FlowFilter;
+    status: StatusFilter;
+    monthIndex: number | null;
+    dayOfMonth: number | null;
+    fallbackMonthIndex: number;
+  },
+  options?: {
+    ignoreFlow?: boolean;
+    ignoreStatus?: boolean;
+    ignoreMonth?: boolean;
+    ignoreDay?: boolean;
+  },
+) {
+  const effectiveMonth = filters.monthIndex ?? filters.fallbackMonthIndex;
+  return rows.filter((row) => {
+    if (!options?.ignoreFlow && filters.flowType !== 'ALL' && row.flowType !== filters.flowType) return false;
+    if (!options?.ignoreStatus && filters.status !== 'TODOS' && row.statusKey !== filters.status) return false;
+    if (!options?.ignoreMonth && filters.monthIndex !== null && row.monthIndex !== filters.monthIndex) return false;
+    if (!options?.ignoreDay && filters.dayOfMonth !== null) {
+      if (row.monthIndex !== effectiveMonth) return false;
+      if (row.dayOfMonth !== filters.dayOfMonth) return false;
+    }
+    return true;
+  });
+}
+
 export function Boletim() {
   const [loading, setLoading] = useState(true);
   const [contas, setContas] = useState<ContaResumo[]>([]);
@@ -214,7 +270,10 @@ export function Boletim() {
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
   const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('executivo');
-  const [tableFilter, setTableFilter] = useState<TableFilter>('TODOS');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
+  const [flowFilter, setFlowFilter] = useState<FlowFilter>('ALL');
+  const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
+  const [selectedDayOfMonth, setSelectedDayOfMonth] = useState<number | null>(null);
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>('ALL');
   const isDark = useIsDarkMode();
 
@@ -272,137 +331,203 @@ export function Boletim() {
     };
   }, []);
 
-  const boletim = useMemo(() => {
+  const dashboard = useMemo(() => {
     const now = new Date();
     const currentYear = now.getFullYear();
-    const monthLabels = MONTH_NAMES.map((label) => `${label}/${String(currentYear).slice(2)}`);
+    const fallbackMonthIndex = now.getMonth();
     const todayIso = toIsoDate(now);
     const tomorrow = new Date(now);
     tomorrow.setDate(now.getDate() + 1);
     const tomorrowIso = toIsoDate(tomorrow);
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    const daysInMonth = monthEnd.getDate();
+    const effectiveMonthIndex = selectedMonthIndex ?? fallbackMonthIndex;
+    const daysInEffectiveMonth = new Date(currentYear, effectiveMonthIndex + 1, 0).getDate();
     const entityMap = new Map(entidades.map((item) => [item.id, item.nome_fantasia || item.nome]));
-    const lancamentosFiltrados = selectedCentroCustoId === 'ALL'
-      ? lancamentos
-      : lancamentos.filter((item) => Number(item.centro_custo_id) === selectedCentroCustoId);
-
-    const payables = lancamentosFiltrados.filter((item) => !isReceita(item.tipo));
-    const receivables = lancamentosFiltrados.filter((item) => isReceita(item.tipo));
-
-    const makeBlock = (items: LancamentoResumo[]) => {
-      const hoje = items.filter((item) => !isPago(item.status) && item.data_vencimento?.slice(0, 10) === todayIso).reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
-      const amanha = items.filter((item) => !isPago(item.status) && item.data_vencimento?.slice(0, 10) === tomorrowIso).reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
-      const atrasadas = items.filter((item) => !isPago(item.status) && item.data_vencimento?.slice(0, 10) < todayIso).reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
-      const totalMes = items.filter((item) => {
-        const due = parseDateOnly(item.data_vencimento);
-        return due && due >= monthStart && due <= monthEnd;
-      }).reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
-      const realizadas = items.filter((item) => isPago(item.status)).reduce((acc, item) => acc + Number(item.valor_pago ?? item.valor_previsto ?? 0), 0);
-      const emAberto = items.filter((item) => !isPago(item.status)).reduce((acc, item) => acc + Number(item.valor_previsto || 0), 0);
-      return { hoje, amanha, atrasadas, totalMes, realizadas, emAberto };
-    };
-
-    const pagar = makeBlock(payables);
-    const receber = makeBlock(receivables);
-    const bancos = [...contas]
+    const bankBalances = contas
       .map((conta) => ({ ...conta, saldo: Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0) }))
       .sort((left, right) => right.saldo - left.saldo);
 
-    const saldoBancario = bancos.reduce((acc, conta) => acc + conta.saldo, 0);
-    const operacional = receber.totalMes - pagar.totalMes;
-    const final = receber.realizadas - pagar.realizadas;
-    const endividamento = pagar.emAberto;
-    const aReceberAberto = receber.emAberto;
+    const baseRows = lancamentos
+      .filter((item) => selectedCentroCustoId === 'ALL' || Number(item.centro_custo_id) === selectedCentroCustoId)
+      .map((item) => {
+        const due = parseDateOnly(item.data_vencimento);
+        const flowType: FlowFilter = isReceita(item.tipo) ? 'RECEBIMENTO' : 'PAGAMENTO';
+        const baseValue = Number(item.valor_pago ?? item.valor_previsto ?? 0);
+        const signedValue = flowType === 'RECEBIMENTO' ? baseValue : baseValue * -1;
+        return {
+          id: item.id,
+          descricao: item.descricao,
+          flowType,
+          statusKey: getStatusKey(item, todayIso, tomorrowIso),
+          dataVencimento: item.data_vencimento,
+          monthIndex: due ? due.getMonth() : -1,
+          dayOfMonth: due ? due.getDate() : -1,
+          valor: signedValue,
+          valorAbsoluto: Math.abs(signedValue),
+          interessado: entityMap.get(Number(item.entidade_id)) || 'Sem interessado',
+        } satisfies NormalizedRow;
+      })
+      .filter((item) => item.monthIndex >= 0 && item.dayOfMonth >= 0);
 
-    const monthlyReceber = Array.from({ length: 12 }, () => 0);
+    const activeRows = applyFilters(baseRows, {
+      flowType: flowFilter,
+      status: statusFilter,
+      monthIndex: selectedMonthIndex,
+      dayOfMonth: selectedDayOfMonth,
+      fallbackMonthIndex,
+    });
+
+    const payables = activeRows.filter((item) => item.flowType === 'PAGAMENTO');
+    const receivables = activeRows.filter((item) => item.flowType === 'RECEBIMENTO');
+    const sumValues = (rows: NormalizedRow[]) => rows.reduce((acc, item) => acc + item.valorAbsoluto, 0);
+
+    const pagar = {
+      hoje: sumValues(payables.filter((item) => item.statusKey === 'HOJE')),
+      amanha: sumValues(payables.filter((item) => item.statusKey === 'AMANHA')),
+      atrasadas: sumValues(payables.filter((item) => item.statusKey === 'ATRASADO')),
+      totalMes: sumValues(payables.filter((item) => item.monthIndex === effectiveMonthIndex)),
+      realizadas: sumValues(payables.filter((item) => item.statusKey === 'PAGO')),
+      emAberto: sumValues(payables.filter((item) => item.statusKey !== 'PAGO')),
+    };
+
+    const receber = {
+      hoje: sumValues(receivables.filter((item) => item.statusKey === 'HOJE')),
+      amanha: sumValues(receivables.filter((item) => item.statusKey === 'AMANHA')),
+      atrasadas: sumValues(receivables.filter((item) => item.statusKey === 'ATRASADO')),
+      totalMes: sumValues(receivables.filter((item) => item.monthIndex === effectiveMonthIndex)),
+      realizadas: sumValues(receivables.filter((item) => item.statusKey === 'PAGO')),
+      emAberto: sumValues(receivables.filter((item) => item.statusKey !== 'PAGO')),
+    };
+
+    const monthlyRows = applyFilters(baseRows, {
+      flowType: flowFilter,
+      status: statusFilter,
+      monthIndex: selectedMonthIndex,
+      dayOfMonth: selectedDayOfMonth,
+      fallbackMonthIndex,
+    }, { ignoreMonth: true, ignoreDay: true });
+
     const monthlyPagar = Array.from({ length: 12 }, () => 0);
-    const dailyReceber = Array.from({ length: daysInMonth }, () => 0);
-    const dailyPagar = Array.from({ length: daysInMonth }, () => 0);
-
-    const rows = lancamentosFiltrados.map((item) => {
-      const due = parseDateOnly(item.data_vencimento);
-      const baseValue = Number(item.valor_pago ?? item.valor_previsto ?? 0);
-      const signedValue = isReceita(item.tipo) ? baseValue : baseValue * -1;
-      const statusKey: TableFilter = isPago(item.status)
-        ? 'PAGO'
-        : item.data_vencimento?.slice(0, 10) === todayIso
-          ? 'HOJE'
-          : item.data_vencimento?.slice(0, 10) === tomorrowIso
-            ? 'AMANHA'
-            : item.data_vencimento?.slice(0, 10) < todayIso
-              ? 'ATRASADO'
-              : 'EM_ABERTO';
-
-      if (due) {
-        const monthIndex = due.getMonth();
-        if (isReceita(item.tipo)) {
-          monthlyReceber[monthIndex] += Number(item.valor_previsto || 0);
-          if (due.getMonth() === now.getMonth()) dailyReceber[due.getDate() - 1] += Number(item.valor_previsto || 0);
-        } else {
-          monthlyPagar[monthIndex] += Number(item.valor_previsto || 0);
-          if (due.getMonth() === now.getMonth()) dailyPagar[due.getDate() - 1] += Number(item.valor_previsto || 0);
-        }
-      }
-
-      return {
-        id: item.id,
-        descricao: item.descricao,
-        tipoLabel: isReceita(item.tipo) ? 'Recebimento' : 'Pagamento',
-        dataVencimento: item.data_vencimento,
-        statusKey,
-        valor: signedValue,
-        valorAbsoluto: Math.abs(signedValue),
-        interessado: entityMap.get(Number(item.entidade_id)) || 'Sem interessado',
-      };
+    const monthlyReceber = Array.from({ length: 12 }, () => 0);
+    monthlyRows.forEach((item) => {
+      if (item.flowType === 'PAGAMENTO') monthlyPagar[item.monthIndex] += item.valorAbsoluto;
+      else monthlyReceber[item.monthIndex] += item.valorAbsoluto;
     });
 
-    const tableRowsAll = [...rows].sort((left, right) => {
-      if (right.valorAbsoluto !== left.valorAbsoluto) return right.valorAbsoluto - left.valorAbsoluto;
-      return String(left.dataVencimento).localeCompare(String(right.dataVencimento));
+    const dailyRows = applyFilters(baseRows, {
+      flowType: flowFilter,
+      status: statusFilter,
+      monthIndex: selectedMonthIndex,
+      dayOfMonth: selectedDayOfMonth,
+      fallbackMonthIndex,
+    }, { ignoreMonth: true, ignoreDay: true }).filter((item) => item.monthIndex === effectiveMonthIndex);
+
+    const dailyPagar = Array.from({ length: daysInEffectiveMonth }, () => 0);
+    const dailyReceber = Array.from({ length: daysInEffectiveMonth }, () => 0);
+    dailyRows.forEach((item) => {
+      if (item.flowType === 'PAGAMENTO') dailyPagar[item.dayOfMonth - 1] += item.valorAbsoluto;
+      else dailyReceber[item.dayOfMonth - 1] += item.valorAbsoluto;
     });
+
+    const donutRows = applyFilters(baseRows, {
+      flowType: flowFilter,
+      status: statusFilter,
+      monthIndex: selectedMonthIndex,
+      dayOfMonth: selectedDayOfMonth,
+      fallbackMonthIndex,
+    }, { ignoreFlow: true });
+
+    const situacaoRows = applyFilters(baseRows, {
+      flowType: flowFilter,
+      status: statusFilter,
+      monthIndex: selectedMonthIndex,
+      dayOfMonth: selectedDayOfMonth,
+      fallbackMonthIndex,
+    }, { ignoreStatus: true });
 
     const situacao = {
-      PAGO: lancamentosFiltrados.filter((item) => isPago(item.status)).reduce((acc, item) => acc + Math.abs(Number(item.valor_pago ?? item.valor_previsto ?? 0)), 0),
-      EM_ABERTO: rows.filter((item) => item.statusKey === 'EM_ABERTO').reduce((acc, item) => acc + item.valorAbsoluto, 0),
-      ATRASADO: rows.filter((item) => item.statusKey === 'ATRASADO').reduce((acc, item) => acc + item.valorAbsoluto, 0),
-      AMANHA: rows.filter((item) => item.statusKey === 'AMANHA').reduce((acc, item) => acc + item.valorAbsoluto, 0),
-      HOJE: rows.filter((item) => item.statusKey === 'HOJE').reduce((acc, item) => acc + item.valorAbsoluto, 0),
+      PAGO: sumValues(situacaoRows.filter((item) => item.statusKey === 'PAGO')),
+      EM_ABERTO: sumValues(situacaoRows.filter((item) => item.statusKey === 'EM_ABERTO')),
+      ATRASADO: sumValues(situacaoRows.filter((item) => item.statusKey === 'ATRASADO')),
+      AMANHA: sumValues(situacaoRows.filter((item) => item.statusKey === 'AMANHA')),
+      HOJE: sumValues(situacaoRows.filter((item) => item.statusKey === 'HOJE')),
     };
+
+    const tableRows = [...activeRows].sort((left, right) => {
+      if (left.dataVencimento !== right.dataVencimento) return String(left.dataVencimento).localeCompare(String(right.dataVencimento));
+      return right.valorAbsoluto - left.valorAbsoluto;
+    });
 
     return {
-      monthLabels,
-      dayLabels: Array.from({ length: daysInMonth }, (_, index) => String(index + 1)),
+      now,
+      currentYear,
+      fallbackMonthIndex,
+      effectiveMonthIndex,
+      effectiveMonthLabel: buildMonthLabel(effectiveMonthIndex, currentYear),
+      dayLabels: Array.from({ length: daysInEffectiveMonth }, (_, index) => String(index + 1)),
+      monthLabels: MONTH_NAMES.map((label) => `${label}/${String(currentYear).slice(2)}`),
+      banks: bankBalances,
+      saldoBancario: bankBalances.reduce((acc, conta) => acc + conta.saldo, 0),
+      operacional: receber.totalMes - pagar.totalMes,
+      final: receber.realizadas - pagar.realizadas,
+      endividamento: pagar.emAberto,
+      aReceberAberto: receber.emAberto,
       pagar,
       receber,
-      bancos,
-      saldoBancario,
-      operacional,
-      final,
-      endividamento,
-      aReceberAberto,
-      monthlyReceber,
+      tableRows,
       monthlyPagar,
-      dailyReceber,
+      monthlyReceber,
       dailyPagar,
-      donutSeries: [pagar.emAberto, receber.emAberto],
-      tableRowsAll,
+      dailyReceber,
+      donutSeries: [
+        sumValues(donutRows.filter((item) => item.flowType === 'PAGAMENTO')),
+        sumValues(donutRows.filter((item) => item.flowType === 'RECEBIMENTO')),
+      ],
       situacao,
     };
-  }, [contas, entidades, lancamentos, selectedCentroCustoId]);
+  }, [contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
 
-  const filteredTableRows = useMemo(() => {
-    if (tableFilter === 'TODOS') return boletim.tableRowsAll.slice(0, 14);
-    return boletim.tableRowsAll.filter((item) => item.statusKey === tableFilter).slice(0, 14);
-  }, [boletim.tableRowsAll, tableFilter]);
+  useEffect(() => {
+    const daysInSelectedMonth = new Date(dashboard.currentYear, dashboard.effectiveMonthIndex + 1, 0).getDate();
+    if (selectedDayOfMonth && selectedDayOfMonth > daysInSelectedMonth) {
+      setSelectedDayOfMonth(null);
+    }
+  }, [dashboard.currentYear, dashboard.effectiveMonthIndex, selectedDayOfMonth]);
 
-  const situacaoCards: Array<{ label: string; key: TableFilter; value: number }> = [
-    { label: 'Pago', key: 'PAGO', value: boletim.situacao.PAGO },
-    { label: 'Em Aberto', key: 'EM_ABERTO', value: boletim.situacao.EM_ABERTO },
-    { label: 'Atrasado', key: 'ATRASADO', value: boletim.situacao.ATRASADO },
-    { label: 'Vcto Amanhã', key: 'AMANHA', value: boletim.situacao.AMANHA },
-    { label: 'Vcto Hoje', key: 'HOJE', value: boletim.situacao.HOJE },
+  const activeFilterTags = useMemo(() => {
+    const tags: Array<{ key: string; label: string; onClear: () => void }> = [];
+    if (selectedCentroCustoId !== 'ALL') {
+      const centro = centrosCusto.find((item) => item.id === selectedCentroCustoId);
+      tags.push({ key: 'cc', label: `Centro: ${centro?.nome || 'Selecionado'}`, onClear: () => setSelectedCentroCustoId('ALL') });
+    }
+    if (flowFilter !== 'ALL') {
+      tags.push({ key: 'flow', label: flowFilter === 'PAGAMENTO' ? 'Tipo: Pagamento' : 'Tipo: Recebimento', onClear: () => setFlowFilter('ALL') });
+    }
+    if (selectedMonthIndex !== null) {
+      tags.push({ key: 'month', label: `Mês: ${dashboard.monthLabels[selectedMonthIndex]}`, onClear: () => { setSelectedMonthIndex(null); setSelectedDayOfMonth(null); } });
+    }
+    if (selectedDayOfMonth !== null) {
+      tags.push({ key: 'day', label: `Dia: ${String(selectedDayOfMonth).padStart(2, '0')}/${String(dashboard.effectiveMonthIndex + 1).padStart(2, '0')}`, onClear: () => setSelectedDayOfMonth(null) });
+    }
+    if (statusFilter !== 'TODOS') {
+      const labels: Record<StatusFilter, string> = {
+        TODOS: 'Todos',
+        PAGO: 'Pago',
+        EM_ABERTO: 'Em aberto',
+        ATRASADO: 'Atrasado',
+        HOJE: 'Vence hoje',
+        AMANHA: 'Vence amanhã',
+      };
+      tags.push({ key: 'status', label: `Situação: ${labels[statusFilter]}`, onClear: () => setStatusFilter('TODOS') });
+    }
+    return tags;
+  }, [centrosCusto, dashboard.effectiveMonthIndex, dashboard.monthLabels, flowFilter, selectedCentroCustoId, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
+
+  const situacaoCards: Array<{ label: string; key: StatusFilter; value: number }> = [
+    { label: 'Pago', key: 'PAGO', value: dashboard.situacao.PAGO },
+    { label: 'Em Aberto', key: 'EM_ABERTO', value: dashboard.situacao.EM_ABERTO },
+    { label: 'Atrasado', key: 'ATRASADO', value: dashboard.situacao.ATRASADO },
+    { label: 'Vcto Amanhã', key: 'AMANHA', value: dashboard.situacao.AMANHA },
+    { label: 'Vcto Hoje', key: 'HOJE', value: dashboard.situacao.HOJE },
   ];
 
   const monthlyChartOptions = useMemo<any>(() => ({
@@ -411,6 +536,16 @@ export function Boletim() {
       background: 'transparent',
       foreColor: isDark ? '#cbd5e1' : '#475569',
       fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      events: {
+        dataPointSelection: (_: unknown, __: unknown, opts: { seriesIndex?: number; dataPointIndex?: number }) => {
+          const monthIndex = opts.dataPointIndex ?? -1;
+          if (monthIndex < 0) return;
+          const flowType: FlowFilter = opts.seriesIndex === 0 ? 'PAGAMENTO' : 'RECEBIMENTO';
+          setFlowFilter(flowType);
+          setSelectedMonthIndex(monthIndex);
+          setSelectedDayOfMonth(null);
+        },
+      },
     },
     plotOptions: { bar: { columnWidth: '48%', borderRadius: 10, borderRadiusApplication: 'end' } },
     dataLabels: { enabled: false },
@@ -422,8 +557,8 @@ export function Boletim() {
     },
     grid: { borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.18)', strokeDashArray: 3 },
     xaxis: {
-      categories: boletim.monthLabels,
-      labels: { style: { colors: Array.from({ length: boletim.monthLabels.length }, () => isDark ? '#cbd5e1' : '#334155') } },
+      categories: dashboard.monthLabels,
+      labels: { style: { colors: Array.from({ length: dashboard.monthLabels.length }, () => isDark ? '#cbd5e1' : '#334155') } },
     },
     yaxis: {
       labels: {
@@ -432,7 +567,7 @@ export function Boletim() {
       },
     },
     tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (value: number) => BRL.format(value) } },
-  }), [boletim.monthLabels, isDark]);
+  }), [dashboard.monthLabels, isDark]);
 
   const dailyChartOptions = useMemo<any>(() => ({
     chart: {
@@ -440,6 +575,15 @@ export function Boletim() {
       background: 'transparent',
       foreColor: isDark ? '#cbd5e1' : '#475569',
       fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      events: {
+        dataPointSelection: (_: unknown, __: unknown, opts: { seriesIndex?: number; dataPointIndex?: number }) => {
+          const dayIndex = opts.dataPointIndex ?? -1;
+          if (dayIndex < 0) return;
+          const flowType: FlowFilter = opts.seriesIndex === 0 ? 'PAGAMENTO' : 'RECEBIMENTO';
+          setFlowFilter(flowType);
+          setSelectedDayOfMonth(dayIndex + 1);
+        },
+      },
     },
     plotOptions: { bar: { columnWidth: '58%', borderRadius: 6, borderRadiusApplication: 'end' } },
     dataLabels: { enabled: false },
@@ -451,8 +595,8 @@ export function Boletim() {
     },
     grid: { borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.18)', strokeDashArray: 3 },
     xaxis: {
-      categories: boletim.dayLabels,
-      labels: { style: { colors: Array.from({ length: boletim.dayLabels.length }, () => isDark ? '#cbd5e1' : '#334155') } },
+      categories: dashboard.dayLabels,
+      labels: { style: { colors: Array.from({ length: dashboard.dayLabels.length }, () => isDark ? '#cbd5e1' : '#334155') } },
     },
     yaxis: {
       labels: {
@@ -461,10 +605,19 @@ export function Boletim() {
       },
     },
     tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (value: number) => BRL.format(value) } },
-  }), [boletim.dayLabels, isDark]);
+  }), [dashboard.dayLabels, isDark]);
 
   const donutChartOptions = useMemo<any>(() => ({
-    chart: { background: 'transparent', toolbar: { show: false } },
+    chart: {
+      background: 'transparent',
+      toolbar: { show: false },
+      events: {
+        dataPointSelection: (_: unknown, __: unknown, opts: { dataPointIndex?: number }) => {
+          const flowType: FlowFilter = opts.dataPointIndex === 0 ? 'PAGAMENTO' : 'RECEBIMENTO';
+          setFlowFilter((current) => current === flowType ? 'ALL' : flowType);
+        },
+      },
+    },
     labels: ['Pagamento', 'Recebimento'],
     colors: ['#ff5a47', '#4d8cf3'],
     stroke: { width: 0 },
@@ -487,17 +640,16 @@ export function Boletim() {
               show: true,
               label: 'Total',
               color: isDark ? '#cbd5e1' : '#334155',
-              formatter: () => BRL.format(boletim.donutSeries.reduce((sum: number, item: number) => sum + item, 0)),
+              formatter: () => BRL.format(dashboard.donutSeries.reduce((sum: number, item: number) => sum + item, 0)),
             },
           },
         },
       },
     },
-  }), [boletim.donutSeries, isDark]);
+  }), [dashboard.donutSeries, isDark]);
 
   const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
   const companyName = empresa?.nome_fantasia || 'Sua Empresa';
-  const now = new Date();
 
   if (loading) {
     return <div className="p-10 text-center text-slate-400">Carregando boletim...</div>;
@@ -524,14 +676,56 @@ export function Boletim() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 xl:items-center">
+            <div className="flex flex-col gap-3 xl:items-end">
               <ViewToggle current={viewMode} onChange={setViewMode} isDark={isDark} />
-              <div className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.14em] ${isDark ? 'border-white/12 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
-                <CalendarDays className="h-4 w-4" />
-                Data base {now.toLocaleDateString('pt-BR')}
+              <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                <div className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.14em] ${isDark ? 'border-white/12 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                  <CalendarDays className="h-4 w-4" />
+                  Data base {dashboard.now.toLocaleDateString('pt-BR')}
+                </div>
+                <select
+                  value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
+                  onChange={(event) => setSelectedCentroCustoId(event.target.value === 'ALL' ? 'ALL' : Number(event.target.value))}
+                  className={`rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.14em] outline-none ${isDark ? 'border-white/12 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-700'}`}
+                >
+                  <option value="ALL">Todos os centros de custo</option>
+                  {centrosCusto.map((centro) => (
+                    <option key={centro.id} value={centro.id}>
+                      {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
+
+          {activeFilterTags.length > 0 ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              {activeFilterTags.map((tag) => (
+                <button
+                  key={tag.key}
+                  type="button"
+                  onClick={tag.onClear}
+                  className={`rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'border-white/12 bg-white/5 text-white/75 hover:bg-white/10' : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-white'}`}
+                >
+                  {tag.label} x
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setFlowFilter('ALL');
+                  setStatusFilter('TODOS');
+                  setSelectedMonthIndex(null);
+                  setSelectedDayOfMonth(null);
+                  setSelectedCentroCustoId('ALL');
+                }}
+                className={`rounded-full px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-amber-200 hover:text-amber-100' : 'text-amber-700 hover:text-amber-800'}`}
+              >
+                Limpar tudo
+              </button>
+            </div>
+          ) : null}
         </header>
 
         {viewMode === 'executivo' ? (
@@ -541,12 +735,12 @@ export function Boletim() {
               accent="rose"
               isDark={isDark}
               metrics={[
-                { label: 'Para hoje', value: boletim.pagar.hoje },
-                { label: 'Para amanhã', value: boletim.pagar.amanha },
-                { label: 'Atrasadas', value: boletim.pagar.atrasadas },
-                { label: 'Total do mês', value: boletim.pagar.totalMes },
-                { label: 'Realizadas', value: boletim.pagar.realizadas },
-                { label: 'Em aberto', value: boletim.pagar.emAberto },
+                { label: 'Para hoje', value: dashboard.pagar.hoje },
+                { label: 'Para amanhã', value: dashboard.pagar.amanha },
+                { label: 'Atrasadas', value: dashboard.pagar.atrasadas },
+                { label: `Total ${dashboard.effectiveMonthLabel}`, value: dashboard.pagar.totalMes },
+                { label: 'Realizadas', value: dashboard.pagar.realizadas },
+                { label: 'Em aberto', value: dashboard.pagar.emAberto },
               ]}
             />
 
@@ -555,12 +749,12 @@ export function Boletim() {
               accent="cyan"
               isDark={isDark}
               metrics={[
-                { label: 'Para hoje', value: boletim.receber.hoje },
-                { label: 'Para amanhã', value: boletim.receber.amanha },
-                { label: 'Atrasadas', value: boletim.receber.atrasadas },
-                { label: 'Total do mês', value: boletim.receber.totalMes },
-                { label: 'Realizadas', value: boletim.receber.realizadas },
-                { label: 'Em aberto', value: boletim.receber.emAberto },
+                { label: 'Para hoje', value: dashboard.receber.hoje },
+                { label: 'Para amanhã', value: dashboard.receber.amanha },
+                { label: 'Atrasadas', value: dashboard.receber.atrasadas },
+                { label: `Total ${dashboard.effectiveMonthLabel}`, value: dashboard.receber.totalMes },
+                { label: 'Realizadas', value: dashboard.receber.realizadas },
+                { label: 'Em aberto', value: dashboard.receber.emAberto },
               ]}
             />
 
@@ -568,7 +762,7 @@ export function Boletim() {
               <div className="mb-5 flex items-center justify-between gap-3">
                 <div>
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Resultados e bancos</div>
-                  <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Mesmo arranjo, com leitura mais suave.</div>
+                  <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Os totais acompanham o centro de custo e os filtros ativos.</div>
                 </div>
                 <Landmark className={`h-5 w-5 ${isDark ? 'text-amber-200' : 'text-amber-700'}`} />
               </div>
@@ -582,7 +776,7 @@ export function Boletim() {
                     </tr>
                   </thead>
                   <tbody>
-                    {boletim.bancos.slice(0, 6).map((conta) => {
+                    {dashboard.banks.slice(0, 6).map((conta) => {
                       const bankBrand = inferBankBrand(conta.banco, conta.nome, conta.tipo);
                       return (
                         <tr key={conta.id} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
@@ -601,10 +795,10 @@ export function Boletim() {
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3">
-                <ResultCard label="Operacional" value={boletim.operacional} emphasis isDark={isDark} />
-                <ResultCard label="Final" value={boletim.final} emphasis isDark={isDark} />
-                <ResultCard label="A receber" value={boletim.aReceberAberto} isDark={isDark} />
-                <ResultCard label="Endividamento" value={boletim.endividamento} isDark={isDark} />
+                <ResultCard label="Operacional" value={dashboard.operacional} emphasis isDark={isDark} />
+                <ResultCard label="Final" value={dashboard.final} emphasis isDark={isDark} />
+                <ResultCard label="A receber" value={dashboard.aReceberAberto} isDark={isDark} />
+                <ResultCard label="Endividamento" value={dashboard.endividamento} isDark={isDark} />
               </div>
             </section>
 
@@ -612,7 +806,7 @@ export function Boletim() {
               <div className="mb-4 flex items-center justify-between gap-4">
                 <div>
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>Histórico mensal</div>
-                  <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Pagamentos versus recebimentos por mês de vencimento.</div>
+                  <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Clique numa barra para combinar tipo e mês no restante do boletim.</div>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-[#ff5a47]"><TrendingDown className="h-4 w-4" />Pagamento</span>
@@ -623,8 +817,8 @@ export function Boletim() {
                 type="bar"
                 height={340}
                 series={[
-                  { name: 'Pagamento', data: boletim.monthlyPagar },
-                  { name: 'Recebimento', data: boletim.monthlyReceber },
+                  { name: 'Pagamento', data: dashboard.monthlyPagar },
+                  { name: 'Recebimento', data: dashboard.monthlyReceber },
                 ]}
                 options={monthlyChartOptions}
               />
@@ -638,31 +832,15 @@ export function Boletim() {
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Filtro</div>
                   <PieChart className={`h-4 w-4 ${isDark ? 'text-amber-200' : 'text-amber-700'}`} />
                 </div>
-                <div className="mb-4">
-                  <label className={`mb-2 block text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>
-                    Centro de custo
-                  </label>
-                  <select
-                    value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
-                    onChange={(event) => setSelectedCentroCustoId(event.target.value === 'ALL' ? 'ALL' : Number(event.target.value))}
-                    className={`w-full rounded-2xl border px-3 py-3 text-sm font-semibold outline-none transition ${isDark ? 'border-white/10 bg-white/5 text-white focus:border-amber-300/50' : 'border-slate-200 bg-white text-slate-900 focus:border-slate-400'}`}
-                  >
-                    <option value="ALL">Todos os centros de custo</option>
-                    {centrosCusto.map((centro) => (
-                      <option key={centro.id} value={centro.id}>
-                        {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <AsyncApexChart type="donut" height={265} series={boletim.donutSeries} options={donutChartOptions} />
+                <div className={`mb-3 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Clique no donut para alternar entre pagamentos e recebimentos.</div>
+                <AsyncApexChart type="donut" height={265} series={dashboard.donutSeries} options={donutChartOptions} />
               </section>
 
               <section className={`rounded-[28px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
                     <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>A pagar vs a receber por mês</div>
-                    <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Vencimento mensal consolidado.</div>
+                    <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Clique na barra para aplicar mês e tipo.</div>
                   </div>
                   <BarChart3 className={`h-4 w-4 ${isDark ? 'text-white/60' : 'text-slate-500'}`} />
                 </div>
@@ -670,8 +848,8 @@ export function Boletim() {
                   type="bar"
                   height={260}
                   series={[
-                    { name: 'Pagamento', data: boletim.monthlyPagar },
-                    { name: 'Recebimento', data: boletim.monthlyReceber },
+                    { name: 'Pagamento', data: dashboard.monthlyPagar },
+                    { name: 'Recebimento', data: dashboard.monthlyReceber },
                   ]}
                   options={monthlyChartOptions}
                 />
@@ -681,7 +859,7 @@ export function Boletim() {
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
                     <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>A pagar vs a receber por dia</div>
-                    <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Distribuição diária do mês atual.</div>
+                    <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Mostrando {dashboard.effectiveMonthLabel}. Clique para combinar o dia.</div>
                   </div>
                   <Rows3 className={`h-4 w-4 ${isDark ? 'text-white/60' : 'text-slate-500'}`} />
                 </div>
@@ -689,8 +867,8 @@ export function Boletim() {
                   type="bar"
                   height={260}
                   series={[
-                    { name: 'Pagamento', data: boletim.dailyPagar },
-                    { name: 'Recebimento', data: boletim.dailyReceber },
+                    { name: 'Pagamento', data: dashboard.dailyPagar },
+                    { name: 'Recebimento', data: dashboard.dailyReceber },
                   ]}
                   options={dailyChartOptions}
                 />
@@ -702,20 +880,20 @@ export function Boletim() {
                 <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                   <div>
                     <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>A Pagar e a Receber</div>
-                    <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Estrutura da referência, mas com leitura mais suave e interação por filtro.</div>
+                    <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>A tabela combina centro de custo, tipo, mês, dia e situação.</div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <FilterPill active={tableFilter === 'TODOS'} label="Todos" onClick={() => setTableFilter('TODOS')} isDark={isDark} />
-                    <FilterPill active={tableFilter === 'PAGO'} label="Pago" onClick={() => setTableFilter('PAGO')} isDark={isDark} />
-                    <FilterPill active={tableFilter === 'EM_ABERTO'} label="Em aberto" onClick={() => setTableFilter('EM_ABERTO')} isDark={isDark} />
-                    <FilterPill active={tableFilter === 'ATRASADO'} label="Atrasado" onClick={() => setTableFilter('ATRASADO')} isDark={isDark} />
-                    <FilterPill active={tableFilter === 'AMANHA'} label="Vcto amanhã" onClick={() => setTableFilter('AMANHA')} isDark={isDark} />
-                    <FilterPill active={tableFilter === 'HOJE'} label="Vcto hoje" onClick={() => setTableFilter('HOJE')} isDark={isDark} />
+                    <FilterPill active={statusFilter === 'TODOS'} label="Todos" onClick={() => setStatusFilter('TODOS')} isDark={isDark} />
+                    <FilterPill active={statusFilter === 'PAGO'} label="Pago" onClick={() => setStatusFilter('PAGO')} isDark={isDark} />
+                    <FilterPill active={statusFilter === 'EM_ABERTO'} label="Em aberto" onClick={() => setStatusFilter('EM_ABERTO')} isDark={isDark} />
+                    <FilterPill active={statusFilter === 'ATRASADO'} label="Atrasado" onClick={() => setStatusFilter('ATRASADO')} isDark={isDark} />
+                    <FilterPill active={statusFilter === 'AMANHA'} label="Vcto amanhã" onClick={() => setStatusFilter('AMANHA')} isDark={isDark} />
+                    <FilterPill active={statusFilter === 'HOJE'} label="Vcto hoje" onClick={() => setStatusFilter('HOJE')} isDark={isDark} />
                   </div>
                 </div>
 
                 <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                  <div className="overflow-x-auto max-h-96">
+                  <div className="overflow-x-auto">
                     <table className="w-full min-w-[920px] text-sm">
                       <thead className={isDark ? 'bg-[#f2c94c] text-slate-950' : 'bg-amber-300 text-slate-950'}>
                         <tr>
@@ -727,22 +905,22 @@ export function Boletim() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredTableRows.length === 0 ? (
+                        {dashboard.tableRows.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className={`px-4 py-12 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Nenhum lançamento para esse filtro.</td>
+                            <td colSpan={5} className={`px-4 py-12 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Nenhum lançamento para os filtros atuais.</td>
                           </tr>
-                        ) : filteredTableRows.map((row) => (
+                        ) : dashboard.tableRows.map((row) => (
                           <tr key={row.id} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/[0.04]' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
                             <td className="px-4 py-3 font-medium">{formatDate(row.dataVencimento)}</td>
                             <td className="px-4 py-3 font-semibold">{row.interessado}</td>
                             <td className="px-4 py-3 max-w-[340px] truncate" title={row.descricao}>{row.descricao}</td>
-                            <td className={`px-4 py-3 font-semibold ${row.tipoLabel === 'Recebimento' ? 'text-[#4d8cf3]' : 'text-[#ff5a47]'}`}>{row.tipoLabel}</td>
+                            <td className={`px-4 py-3 font-semibold ${row.flowType === 'RECEBIMENTO' ? 'text-[#4d8cf3]' : 'text-[#ff5a47]'}`}>{row.flowType === 'RECEBIMENTO' ? 'Recebimento' : 'Pagamento'}</td>
                             <td className={`px-4 py-3 text-right font-black ${row.valor >= 0 ? 'text-[#4d8cf3]' : 'text-[#ff5a47]'}`}>{BRL.format(row.valor)}</td>
                           </tr>
                         ))}
                         <tr className={isDark ? 'border-t border-white/10 bg-black/25 text-white' : 'border-t border-slate-200 bg-slate-50 text-slate-900'}>
                           <td colSpan={4} className="px-4 py-3 text-right font-black uppercase tracking-[0.14em]">Total geral</td>
-                          <td className="px-4 py-3 text-right font-black">{BRL.format(filteredTableRows.reduce((sum, row) => sum + row.valor, 0))}</td>
+                          <td className="px-4 py-3 text-right font-black">{BRL.format(dashboard.tableRows.reduce((sum, row) => sum + row.valor, 0))}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -755,25 +933,25 @@ export function Boletim() {
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Situação</div>
                   <button
                     type="button"
-                    onClick={() => setTableFilter('TODOS')}
-                    className={`text-[10px] font-black uppercase tracking-[0.14em] ${tableFilter === 'TODOS' ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white/45 hover:text-white/75' : 'text-slate-400 hover:text-slate-700'}`}
+                    onClick={() => setStatusFilter('TODOS')}
+                    className={`text-[10px] font-black uppercase tracking-[0.14em] ${statusFilter === 'TODOS' ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white/45 hover:text-white/75' : 'text-slate-400 hover:text-slate-700'}`}
                   >
                     Mostrar tudo
                   </button>
                 </div>
-                <div className={`mb-4 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Clique em um bloco para filtrar a tabela abaixo.</div>
+                <div className={`mb-4 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Os cards usam os outros filtros ativos e aplicam a situação na tabela.</div>
                 <div className="space-y-2.5">
                   {situacaoCards.map((item) => {
-                    const active = tableFilter === item.key;
+                    const active = statusFilter === item.key;
                     return (
                       <button
                         key={item.key}
                         type="button"
-                        onClick={() => setTableFilter((current) => current === item.key ? 'TODOS' : item.key)}
+                        onClick={() => setStatusFilter((current) => current === item.key ? 'TODOS' : item.key)}
                         className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-3 text-left transition ${active ? isDark ? 'border-amber-300/50 bg-amber-300/10' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035] hover:bg-white/[0.06]' : 'border-slate-200 bg-white/85 hover:bg-slate-50'}`}
                       >
                         <span className={`font-black ${isDark ? 'text-white/85' : 'text-slate-800'}`}>{item.label}</span>
-                        <span className={`font-black ${active ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white' : 'text-slate-900'}`}>{BRL.format(Number(item.value))}</span>
+                        <span className={`font-black ${active ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white' : 'text-slate-900'}`}>{BRL.format(item.value)}</span>
                       </button>
                     );
                   })}

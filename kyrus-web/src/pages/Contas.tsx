@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { BrandAvatar, inferBankBrand } from '../components/BrandAvatar';
@@ -46,13 +46,32 @@ interface LancamentoItem {
   conciliado?: boolean;
   data_vencimento: string;
   data_pagamento?: string | null;
+  data_competencia?: string | null;
   valor_previsto: number;
   valor_pago: number;
-  valor_utilizado_saldo?: number;
-  impacto_valor?: number;
+  valor_entrada?: number;
+  valor_saida?: number;
+  saldo_apos_movimento?: number;
+  numero_parcela?: number | null;
   plano_contas_id?: number;
   conta_id?: number | null;
   centro_custo_id?: number | null;
+  cartao_id?: number | null;
+  cartao_nome?: string | null;
+}
+
+interface ExtratoGrupoFatura {
+  key: string;
+  cartaoNome: string;
+  competencia: string;
+  totalSaida: number;
+  saldoApos: number;
+  dataBase: string;
+  itens: LancamentoItem[];
+}
+
+function getExtratoBaseDate(item: Pick<LancamentoItem, 'data_pagamento' | 'data_vencimento'>) {
+  return item.data_pagamento || item.data_vencimento;
 }
 
 interface ContaSaldoDetalhe {
@@ -221,6 +240,7 @@ export function Contas() {
   const [extratoLancamentos, setExtratoLancamentos] = useState<LancamentoItem[]>([]);
   const [extratoSaldoDetalhe, setExtratoSaldoDetalhe] = useState<ContaSaldoDetalhe | null>(null);
   const [extratoSelecionados, setExtratoSelecionados] = useState<number[]>([]);
+  const [extratoFaturasExpandidas, setExtratoFaturasExpandidas] = useState<Record<string, boolean>>({});
   const [excluindoSelecionados, setExcluindoSelecionados] = useState(false);
   const [lancamentoModalOpen, setLancamentoModalOpen] = useState(false);
   const [lancamentoSaving, setLancamentoSaving] = useState(false);
@@ -434,11 +454,13 @@ export function Contas() {
       setExtratoSaldoDetalhe(data);
       setExtratoLancamentos(items);
       setExtratoSelecionados([]);
+      setExtratoFaturasExpandidas({});
     } catch (error) {
       console.error("Erro ao carregar extrato", error);
       setExtratoSaldoDetalhe(null);
       setExtratoLancamentos([]);
       setExtratoSelecionados([]);
+      setExtratoFaturasExpandidas({});
     } finally {
       setExtratoLoading(false);
     }
@@ -475,6 +497,7 @@ export function Contas() {
     setExtratoLancamentos([]);
     setExtratoSaldoDetalhe(null);
     setExtratoSelecionados([]);
+    setExtratoFaturasExpandidas({});
     setExtratoConta(null);
     setExtratoContaId(null);
     setContaExtratoNome('');
@@ -486,6 +509,20 @@ export function Contas() {
 
   function toggleSelecionarTodosExtrato() {
     setExtratoSelecionados((prev) => prev.length === extratoLancamentos.length ? [] : extratoLancamentos.map((item) => item.id));
+  }
+
+  function toggleExtratoGrupoSelecionado(ids: number[]) {
+    setExtratoSelecionados((prev) => {
+      const allSelected = ids.every((id) => prev.includes(id));
+      if (allSelected) {
+        return prev.filter((id) => !ids.includes(id));
+      }
+      return Array.from(new Set([...prev, ...ids]));
+    });
+  }
+
+  function toggleExtratoFatura(key: string) {
+    setExtratoFaturasExpandidas((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
   async function handleExcluirSelecionadosExtrato() {
@@ -605,6 +642,57 @@ export function Contas() {
   });
 
   const saldoTotal = filteredContas.reduce((acc, curr) => acc + (parseFloat(String(curr.saldo_atual)) || 0), 0);
+
+  const extratoAgrupado = useMemo(() => {
+    const singleRows: Array<{ type: 'single'; item: LancamentoItem }> = [];
+    const grouped = new Map<string, ExtratoGrupoFatura>();
+
+    extratoLancamentos.forEach((item) => {
+      const isCardMovement = Number(item.cartao_id || 0) > 0;
+      if (!isCardMovement) {
+        singleRows.push({ type: 'single', item });
+        return;
+      }
+
+      const competenciaBase = (item.data_vencimento || item.data_competencia || '').slice(0, 7);
+      if (!competenciaBase) {
+        singleRows.push({ type: 'single', item });
+        return;
+      }
+
+      const key = `${item.cartao_id}-${competenciaBase}`;
+      const current = grouped.get(key) || {
+        key,
+        cartaoNome: item.cartao_nome || `Cartão ${item.cartao_id}`,
+        competencia: competenciaBase,
+        totalSaida: 0,
+        saldoApos: Number(item.saldo_apos_movimento || 0),
+        dataBase: getExtratoBaseDate(item),
+        itens: [],
+      };
+
+      current.totalSaida += Number(item.valor_saida || item.valor_pago || item.valor_previsto || 0);
+      current.saldoApos = Number(item.saldo_apos_movimento || current.saldoApos || 0);
+      current.dataBase = current.dataBase || getExtratoBaseDate(item);
+      current.itens.push(item);
+      grouped.set(key, current);
+    });
+
+    grouped.forEach((group) => {
+      group.itens.sort((left, right) => new Date(getExtratoBaseDate(right)).getTime() - new Date(getExtratoBaseDate(left)).getTime());
+      group.dataBase = getExtratoBaseDate(group.itens[0] || { data_pagamento: group.dataBase, data_vencimento: group.dataBase });
+      group.saldoApos = Number(group.itens[0]?.saldo_apos_movimento || group.saldoApos || 0);
+    });
+
+    const invoiceRows = Array.from(grouped.values()).sort((left, right) => new Date(right.dataBase).getTime() - new Date(left.dataBase).getTime());
+    const singles = [...singleRows].sort((left, right) => new Date(getExtratoBaseDate(right.item)).getTime() - new Date(getExtratoBaseDate(left.item)).getTime());
+
+    return [...invoiceRows.map((group) => ({ type: 'invoice' as const, group })), ...singles].sort((left, right) => {
+      const leftDate = left.type === 'invoice' ? left.group.dataBase : getExtratoBaseDate(left.item);
+      const rightDate = right.type === 'invoice' ? right.group.dataBase : getExtratoBaseDate(right.item);
+      return new Date(rightDate).getTime() - new Date(leftDate).getTime();
+    });
+  }, [extratoLancamentos]);
 
   const catOptions = [
     {
@@ -779,64 +867,159 @@ export function Contas() {
                       <th className="p-4">Categoria</th>
                       <th className="p-4">Origem</th>
                       <th className="p-4">Status</th>
-                      <th className="p-4 text-right">Valor usado</th>
-                      <th className="p-4 text-right">Impacto</th>
+                      <th className="p-4 text-right">Entrada</th>
+                      <th className="p-4 text-right">Saída</th>
+                      <th className="p-4 text-right">Saldo após</th>
                       <th className="p-4 text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="text-sm divide-y divide-slate-100 dark:divide-slate-700">
                     {extratoLoading ? (
-                      <tr><td colSpan={9} className="p-6 text-center text-slate-400">Carregando...</td></tr>
+                      <tr><td colSpan={10} className="p-6 text-center text-slate-400">Carregando...</td></tr>
                     ) : extratoLancamentos.length === 0 ? (
-                      <tr><td colSpan={9} className="p-6 text-center text-slate-400 italic">Nenhum movimento está influenciando o saldo desta conta.</td></tr>
+                      <tr><td colSpan={10} className="p-6 text-center text-slate-400 italic">Nenhum movimento está influenciando o saldo desta conta.</td></tr>
                     ) : (
-                      extratoLancamentos.map(l => (
-                        <tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                          <td className="p-4">
-                            <input
-                              type="checkbox"
-                              checked={extratoSelecionados.includes(l.id)}
-                              onChange={() => toggleExtratoSelecionado(l.id)}
-                              className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
-                            />
-                          </td>
-                          <td className="p-4 font-mono text-xs text-slate-500">
-                            {new Date((l.data_pagamento || l.data_vencimento)).toLocaleDateString('pt-BR')}
-                          </td>
-                          <td className="p-4 font-medium text-slate-700 dark:text-slate-200">{l.descricao}</td>
-                          <td className="p-4 text-slate-500">
-                            {categorias.find(c => c.id === l.plano_contas_id)?.nome || '-'}
-                          </td>
-                          <td className="p-4 text-slate-500">{l.origem || '-'}</td>
-                          <td className="p-4">
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                              {l.status}
-                            </span>
-                          </td>
-                          <td className="p-4 text-right font-bold text-slate-700 dark:text-slate-200">
-                            {BRL.format(Number(l.valor_utilizado_saldo || 0))}
-                          </td>
-                          <td className={`p-4 text-right font-bold ${Number(l.impacto_valor || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                            {Number(l.impacto_valor || 0) >= 0 ? '+' : '-'}{BRL.format(Math.abs(Number(l.impacto_valor || 0)))}
-                          </td>
-                          <td className="p-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => handleAbrirLancamentoModal(l)}
-                                className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleExcluirLancamento(l.id)}
-                                className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                      extratoAgrupado.map((row) => {
+                        if (row.type === 'invoice') {
+                          const ids = row.group.itens.map((item) => item.id);
+                          const isExpanded = !!extratoFaturasExpandidas[row.group.key];
+                          const allSelected = ids.every((id) => extratoSelecionados.includes(id));
+                          const competenciaLabel = row.group.competencia
+                            ? new Date(`${row.group.competencia}-01T00:00:00`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+                            : '-';
+
+                          return (
+                            <React.Fragment key={row.group.key}>
+                              <tr className="bg-slate-50/80 dark:bg-slate-800/60">
+                                <td className="p-4 align-top">
+                                  <input
+                                    type="checkbox"
+                                    checked={allSelected}
+                                    onChange={() => toggleExtratoGrupoSelecionado(ids)}
+                                    className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                                  />
+                                </td>
+                                <td className="p-4 font-mono text-xs text-slate-500 align-top">
+                                  {new Date(row.group.dataBase).toLocaleDateString('pt-BR')}
+                                </td>
+                                <td className="p-4 align-top">
+                                  <button
+                                    onClick={() => toggleExtratoFatura(row.group.key)}
+                                    className="flex items-start gap-3 text-left"
+                                  >
+                                    <ChevronDown className={`mt-0.5 h-4 w-4 text-slate-400 transition ${isExpanded ? 'rotate-180' : ''}`} />
+                                    <div>
+                                      <div className="font-semibold text-slate-800 dark:text-slate-100">Fatura {row.group.cartaoNome}</div>
+                                      <div className="text-xs text-slate-500">{row.group.itens.length} lançamento(s) • {competenciaLabel}</div>
+                                    </div>
+                                  </button>
+                                </td>
+                                <td className="p-4 text-slate-500 align-top">Cartão de crédito</td>
+                                <td className="p-4 text-slate-500 align-top">FATURA</td>
+                                <td className="p-4 align-top">
+                                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                                    AGRUPADO
+                                  </span>
+                                </td>
+                                <td className="p-4 text-right font-bold text-emerald-600 align-top">{BRL.format(0)}</td>
+                                <td className="p-4 text-right font-bold text-rose-600 align-top">{BRL.format(row.group.totalSaida)}</td>
+                                <td className={`p-4 text-right font-bold align-top ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{BRL.format(row.group.saldoApos)}</td>
+                                <td className="p-4" />
+                              </tr>
+
+                              {isExpanded && row.group.itens.map((l) => (
+                                <tr key={l.id} className="bg-white dark:bg-slate-800/20 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                                  <td className="p-4 pl-10">
+                                    <input
+                                      type="checkbox"
+                                      checked={extratoSelecionados.includes(l.id)}
+                                      onChange={() => toggleExtratoSelecionado(l.id)}
+                                      className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                                    />
+                                  </td>
+                                  <td className="p-4 font-mono text-xs text-slate-500">
+                                    {new Date((l.data_pagamento || l.data_vencimento)).toLocaleDateString('pt-BR')}
+                                  </td>
+                                  <td className="p-4 font-medium text-slate-700 dark:text-slate-200">
+                                    <div>{l.descricao}</div>
+                                    <div className="text-xs text-slate-400">{l.numero_parcela ? `${l.numero_parcela}a parcela` : 'À vista'}</div>
+                                  </td>
+                                  <td className="p-4 text-slate-500">{categorias.find(c => c.id === l.plano_contas_id)?.nome || '-'}</td>
+                                  <td className="p-4 text-slate-500">{l.origem || '-'}</td>
+                                  <td className="p-4">
+                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                      {l.status}
+                                    </span>
+                                  </td>
+                                  <td className="p-4 text-right font-bold text-emerald-600">{BRL.format(Number(l.valor_entrada || 0))}</td>
+                                  <td className="p-4 text-right font-bold text-rose-600">{BRL.format(Number(l.valor_saida || 0))}</td>
+                                  <td className={`p-4 text-right font-bold ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{BRL.format(Number(l.saldo_apos_movimento || 0))}</td>
+                                  <td className="p-4 text-right">
+                                    <div className="flex items-center justify-end gap-2">
+                                      <button
+                                        onClick={() => handleAbrirLancamentoModal(l)}
+                                        className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                      >
+                                        <Edit2 className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleExcluirLancamento(l.id)}
+                                        className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          );
+                        }
+
+                        const l = row.item;
+                        return (
+                          <tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                            <td className="p-4">
+                              <input
+                                type="checkbox"
+                                checked={extratoSelecionados.includes(l.id)}
+                                onChange={() => toggleExtratoSelecionado(l.id)}
+                                className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                              />
+                            </td>
+                            <td className="p-4 font-mono text-xs text-slate-500">
+                              {new Date((l.data_pagamento || l.data_vencimento)).toLocaleDateString('pt-BR')}
+                            </td>
+                            <td className="p-4 font-medium text-slate-700 dark:text-slate-200">{l.descricao}</td>
+                            <td className="p-4 text-slate-500">{categorias.find(c => c.id === l.plano_contas_id)?.nome || '-'}</td>
+                            <td className="p-4 text-slate-500">{l.origem || '-'}</td>
+                            <td className="p-4">
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {l.status}
+                              </span>
+                            </td>
+                            <td className="p-4 text-right font-bold text-emerald-600">{BRL.format(Number(l.valor_entrada || 0))}</td>
+                            <td className="p-4 text-right font-bold text-rose-600">{BRL.format(Number(l.valor_saida || 0))}</td>
+                            <td className={`p-4 text-right font-bold ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{BRL.format(Number(l.saldo_apos_movimento || 0))}</td>
+                            <td className="p-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => handleAbrirLancamentoModal(l)}
+                                  className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleExcluirLancamento(l.id)}
+                                  className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>

@@ -582,7 +582,7 @@ export function AiAssistente({
                         <th className="px-2 py-2 text-left">Categoria</th>
                         <th className="px-2 py-2 text-left">Conta</th>
                         <th className="px-2 py-2 text-left">Centro</th>
-                        <th className="px-2 py-2 text-left">Entidade</th>
+                        <th className="px-2 py-2 text-left">Interessado</th>
                         <th className="px-2 py-2 text-left">Diagnóstico</th>
                       </tr>
                     </thead>

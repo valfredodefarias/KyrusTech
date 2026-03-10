@@ -325,8 +325,8 @@ export function Cartoes() {
     setShowDrawer(true);
   }
 
-  function handleOpenEdit(c: Cartao, e: React.MouseEvent) {
-    e.stopPropagation();
+    function handleOpenEdit(c: Cartao, e?: React.MouseEvent) {
+        e?.stopPropagation();
     setIsEditing(true);
     setFormData({
         id: c.id,
@@ -564,9 +564,10 @@ export function Cartoes() {
                 <div className="col-span-full py-12 text-center text-slate-500 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl">Nenhum cartão encontrado. Clique em "Novo" para criar.</div>
             )}
             {filteredCartoes.map(c => (
-                <div key={c.id} className={`rounded-xl transition group relative ${selectedCartaoId === c.id ? 'ring-2 ring-offset-2 ring-offset-slate-900 ring-blue-500' : ''}`} onClick={() => setSelectedCartaoId(c.id)}>
-                    <CardVisual dados={c} />
-                    <button onClick={(e) => handleOpenEdit(c, e)} className="absolute top-4 right-4 p-1.5 bg-black/20 hover:bg-black/40 rounded text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition"><Edit2 className="w-4 h-4"/></button>
+                <div key={c.id} className={`rounded-xl transition relative ${selectedCartaoId === c.id ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900' : ''}`}>
+                    <button className="block w-full text-left" onClick={() => setSelectedCartaoId(c.id)}>
+                        <CardVisual dados={c} />
+                    </button>
                     {selectedCartaoId === c.id && <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-4 h-4 bg-white dark:bg-slate-800 rotate-45 border-b border-r border-slate-200 dark:border-slate-700 z-0"></div>}
                 </div>
             ))}
@@ -590,6 +591,16 @@ export function Cartoes() {
                             <p className="text-2xl font-black text-slate-800 dark:text-white">{BRL.format(faturaAtual.total)}</p>
                             <p className="text-xs text-slate-500 mt-0.5">Vence dia {faturaAtual.vencimento?.toLocaleDateString('pt-BR', {day:'numeric', month:'short'}) || '--'}</p>
                         </div>
+                        <button
+                            onClick={() => {
+                                const cartao = cartoes.find((item) => item.id === selectedCartaoId);
+                                if (cartao) handleOpenEdit(cartao);
+                            }}
+                            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700"
+                        >
+                            <Edit2 className="w-4 h-4" />
+                            Editar dados do cartão
+                        </button>
                                                 <button
                                                     onClick={() => {
                                                         const defaultCat = categorias.find(c => (c.tipo || '').toUpperCase().startsWith('D'))?.id || categorias[0]?.id || '';

@@ -341,9 +341,9 @@ export function Entidades() {
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-8 py-5 flex flex-col lg:flex-row lg:items-center justify-between shadow-sm z-10 gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white flex items-center gap-2">
-            Entidades <span className="text-sm font-normal text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">{entidades.length}</span>
+            Interessados <span className="text-sm font-normal text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">{entidades.length}</span>
           </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Gestão de Clientes e Fornecedores</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Gestão de clientes, fornecedores e demais interessados</p>
         </div>
         
         <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
@@ -376,7 +376,7 @@ export function Entidades() {
             <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
               <tr>
-                <th className="p-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Entidade</th>
+                <th className="p-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Interessado</th>
                 <th className="p-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Classificação</th>
                 <th className="p-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Documento</th>
                 <th className="p-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Status</th>
@@ -453,7 +453,7 @@ export function Entidades() {
               <div>
                 <h3 className="font-bold text-xl text-slate-800 dark:text-white flex items-center gap-2">
                   {isEditing ? <Edit2 className="w-5 h-5 text-blue-500"/> : <Plus className="w-5 h-5 text-emerald-500"/>}
-                  {isEditing ? 'Editar Entidade' : 'Novo Cadastro'}
+                  {isEditing ? 'Editar Interessado' : 'Novo Interessado'}
                 </h3>
               </div>
               <button onClick={() => setShowModal(false)} className="p-1 rounded-full text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-red-500 transition"><X className="w-5 h-5"/></button>

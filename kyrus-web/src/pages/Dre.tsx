@@ -1,89 +1,113 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { CalendarDays, Sigma, TrendingDown, TrendingUp } from 'lucide-react';
 
-import { AsyncApexChart } from '../components/AsyncApexChart';
 import { api } from '../services/api';
 
-interface DRECategoriaItem {
-  plano_contas_id: number | null;
+interface PlanoConta {
+  id: number;
   nome: string;
-  codigo?: string | null;
   tipo: string;
+  codigo?: string | null;
+  considerar_nos_resultados?: boolean;
+  permite_lancamentos?: boolean;
+  conta_pai_id?: number | null;
+}
+
+interface LancamentoResumo {
+  id: number;
+  tipo: string;
+  plano_contas_id?: number | null;
+  valor_previsto: number;
+  data_vencimento: string;
+}
+
+interface DreNode {
+  id: number;
+  nome: string;
+  codigo: string;
+  depth: number;
+  monthly: number[];
   total: number;
+  hasChildren: boolean;
 }
 
-interface DRESerieItem {
-  competencia: string;
-  receitas: number;
-  despesas: number;
-  resultado: number;
-}
-
-interface DREPayload {
-  ano: number;
-  mes: number;
-  competencia_label: string;
-  receita_total: number;
-  despesa_total: number;
-  resultado_total: number;
-  margem_percentual: number;
-  categorias_receita: DRECategoriaItem[];
-  categorias_despesa: DRECategoriaItem[];
-  serie_mensal: DRESerieItem[];
-}
-
-const MONTHS = [
-  'Janeiro', 'Fevereiro', 'Marco', 'Abril', 'Maio', 'Junho',
-  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
-];
+const MONTH_SHORT = ['jan.', 'fev.', 'mar.', 'abr.', 'mai.', 'jun.', 'jul.', 'ago.', 'set.', 'out.', 'nov.', 'dez.'];
 
 const moneyFormatter = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
   currency: 'BRL',
+  maximumFractionDigits: 0,
 });
 
-const percentFormatter = new Intl.NumberFormat('pt-BR', {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
+function isReceita(tipo?: string | null) {
+  return String(tipo || '').toUpperCase().startsWith('R');
+}
+
+function isDespesa(tipo?: string | null) {
+  return String(tipo || '').toUpperCase().startsWith('D');
+}
+
+function parseMonthIndex(dateValue?: string | null) {
+  if (!dateValue) return -1;
+  const month = Number(dateValue.slice(5, 7));
+  return Number.isFinite(month) && month >= 1 && month <= 12 ? month - 1 : -1;
+}
+
+function sumValues(values: number[]) {
+  return values.reduce((acc, value) => acc + value, 0);
+}
+
+function hasAnyValue(values: number[]) {
+  return values.some((value) => Math.abs(value) > 0.009);
+}
+
+function buildMonthLabels(ano: number) {
+  return MONTH_SHORT.map((label) => `${label}/${ano}`);
+}
 
 function MetricCard({
-  title,
+  label,
   value,
   tone,
   icon,
 }: {
-  title: string;
+  label: string;
   value: string;
   tone: 'emerald' | 'rose' | 'slate';
   icon: React.ReactNode;
 }) {
   const toneClass = {
-    emerald: 'border-emerald-200/70 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-200',
-    rose: 'border-rose-200/70 bg-rose-50 text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200',
-    slate: 'border-slate-200/70 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100',
+    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    rose: 'border-rose-200 bg-rose-50 text-rose-700',
+    slate: 'border-slate-200 bg-slate-50 text-slate-700',
   }[tone];
 
   return (
-    <div className={`rounded-[26px] border p-5 shadow-sm ${toneClass}`}>
-      <div className="flex items-center justify-between gap-4">
+    <div className={`rounded-3xl border px-5 py-4 ${toneClass}`}>
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.24em] opacity-70">{title}</p>
-          <p className="mt-3 text-2xl font-black tracking-tight">{value}</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] opacity-60">{label}</p>
+          <p className="mt-2 text-2xl font-black tracking-tight">{value}</p>
         </div>
-        <div className="rounded-2xl border border-current/10 bg-white/60 p-3 dark:bg-white/5">{icon}</div>
+        <div className="rounded-2xl border border-current/10 bg-white/80 p-3">{icon}</div>
       </div>
     </div>
   );
 }
 
+function renderMoneyCell(value: number, tone?: 'receita' | 'despesa' | 'resultado') {
+  if (Math.abs(value) < 0.009) return 'R$ 0';
+  if (tone === 'resultado') return moneyFormatter.format(value);
+  return moneyFormatter.format(Math.abs(value));
+}
+
 export function Dre() {
-  const now = useMemo(() => new Date(), []);
-  const [mes, setMes] = useState(now.getMonth() + 1);
-  const [ano, setAno] = useState(now.getFullYear());
+  const currentYear = useMemo(() => new Date().getFullYear(), []);
+  const [ano, setAno] = useState(currentYear);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<DREPayload | null>(null);
+  const [categorias, setCategorias] = useState<PlanoConta[]>([]);
+  const [lancamentos, setLancamentos] = useState<LancamentoResumo[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -92,16 +116,22 @@ export function Dre() {
       setLoading(true);
       setError(null);
       try {
-        const response = await api.get<DREPayload>('/dre/', { params: { ano, mes } });
+        const inicio = `${ano}-01-01`;
+        const fim = `${ano}-12-31`;
+        const [categoriasRes, lancamentosRes] = await Promise.all([
+          api.get<PlanoConta[]>('/plano-contas/'),
+          api.get<LancamentoResumo[]>('/lancamentos/', { params: { limit: 10000, data_inicio: inicio, data_fim: fim } }),
+        ]);
+
         if (!active) return;
-        setData(response.data);
+
+        setCategorias(categoriasRes.data || []);
+        setLancamentos(lancamentosRes.data || []);
       } catch (err: any) {
         if (!active) return;
-        setError(err?.response?.data?.detail || 'Nao foi possivel carregar a DRE.');
+        setError(err?.response?.data?.detail || 'Nao foi possivel montar a DRE.');
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        if (active) setLoading(false);
       }
     }
 
@@ -109,186 +139,242 @@ export function Dre() {
     return () => {
       active = false;
     };
-  }, [ano, mes]);
+  }, [ano]);
 
-  const chartSeries = useMemo(() => {
-    if (!data) return [];
-    return [
-      { name: 'Receitas', data: data.serie_mensal.map((item) => item.receitas) },
-      { name: 'Despesas', data: data.serie_mensal.map((item) => item.despesas) },
-      { name: 'Resultado', data: data.serie_mensal.map((item) => item.resultado) },
-    ];
-  }, [data]);
+  const dre = useMemo(() => {
+    const relevantes = categorias.filter((conta) => {
+      if (conta.considerar_nos_resultados === false) return false;
+      return isReceita(conta.tipo) || isDespesa(conta.tipo);
+    });
 
-  const chartOptions = useMemo(() => ({
-    chart: {
-      toolbar: { show: false },
-      foreColor: '#94a3b8',
-      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-    },
-    stroke: { curve: 'smooth', width: [3, 3, 4] },
-    colors: ['#10b981', '#f43f5e', '#0f172a'],
-    grid: { borderColor: 'rgba(148, 163, 184, 0.15)' },
-    xaxis: {
-      categories: data?.serie_mensal.map((item) => item.competencia) || [],
-      labels: { rotate: -35 },
-    },
-    yaxis: {
-      labels: {
-        formatter: (value: number) => moneyFormatter.format(value),
-      },
-    },
-    tooltip: {
-      y: {
-        formatter: (value: number) => moneyFormatter.format(value),
-      },
-    },
-    legend: {
-      position: 'top',
-      horizontalAlign: 'left',
-    },
-  }), [data]);
+    const contaPorId = new Map<number, PlanoConta>();
+    const filhosPorPai = new Map<number | null, PlanoConta[]>();
+    const valoresDiretos = new Map<number, number[]>();
+
+    relevantes.forEach((conta) => {
+      contaPorId.set(conta.id, conta);
+      const parentId = conta.conta_pai_id ?? null;
+      const list = filhosPorPai.get(parentId) || [];
+      list.push(conta);
+      filhosPorPai.set(parentId, list);
+    });
+
+    lancamentos.forEach((lancamento) => {
+      const contaId = Number(lancamento.plano_contas_id);
+      if (!contaPorId.has(contaId)) return;
+      const monthIndex = parseMonthIndex(lancamento.data_vencimento);
+      if (monthIndex < 0) return;
+      const values = valoresDiretos.get(contaId) || Array.from({ length: 12 }, () => 0);
+      values[monthIndex] += Number(lancamento.valor_previsto || 0);
+      valoresDiretos.set(contaId, values);
+    });
+
+    const sortAccounts = (accounts: PlanoConta[]) => [...accounts].sort((left, right) => {
+      const codeCompare = String(left.codigo || '').localeCompare(String(right.codigo || ''), 'pt-BR', { numeric: true });
+      if (codeCompare !== 0) return codeCompare;
+      return left.nome.localeCompare(right.nome, 'pt-BR');
+    });
+
+    const roots = sortAccounts(relevantes.filter((conta) => !conta.conta_pai_id || !contaPorId.has(Number(conta.conta_pai_id))));
+
+    const buildBranch = (conta: PlanoConta, depth: number): { rows: DreNode[]; monthly: number[] } | null => {
+      const ownValues = [...(valoresDiretos.get(conta.id) || Array.from({ length: 12 }, () => 0))];
+      const children = sortAccounts(filhosPorPai.get(conta.id) || []);
+      const childRows: DreNode[] = [];
+      const totalValues = [...ownValues];
+
+      children.forEach((child) => {
+        const branch = buildBranch(child, depth + 1);
+        if (!branch) return;
+        branch.monthly.forEach((value, index) => {
+          totalValues[index] += value;
+        });
+        childRows.push(...branch.rows);
+      });
+
+      if (!hasAnyValue(totalValues) && childRows.length === 0) return null;
+
+      const row: DreNode = {
+        id: conta.id,
+        nome: conta.nome,
+        codigo: conta.codigo || '',
+        depth,
+        monthly: totalValues,
+        total: sumValues(totalValues),
+        hasChildren: childRows.length > 0,
+      };
+
+      return { rows: [row, ...childRows], monthly: totalValues };
+    };
+
+    const receitaRoots = roots.filter((conta) => isReceita(conta.tipo));
+    const despesaRoots = roots.filter((conta) => isDespesa(conta.tipo));
+
+    const receitaBranches = receitaRoots.map((conta) => buildBranch(conta, 0)).filter(Boolean) as Array<{ rows: DreNode[]; monthly: number[] }>;
+    const despesaBranches = despesaRoots.map((conta) => buildBranch(conta, 0)).filter(Boolean) as Array<{ rows: DreNode[]; monthly: number[] }>;
+
+    const receitaRows = receitaBranches.flatMap((branch) => branch.rows);
+    const despesaRows = despesaBranches.flatMap((branch) => branch.rows);
+
+    const receitaMonthly = Array.from({ length: 12 }, () => 0);
+    const despesaMonthly = Array.from({ length: 12 }, () => 0);
+
+    receitaBranches.forEach((branch) => {
+      branch.monthly.forEach((value, index) => {
+        receitaMonthly[index] += value;
+      });
+    });
+
+    despesaBranches.forEach((branch) => {
+      branch.monthly.forEach((value, index) => {
+        despesaMonthly[index] += value;
+      });
+    });
+
+    const resultadoMonthly = receitaMonthly.map((value, index) => value - despesaMonthly[index]);
+
+    return {
+      receitaRows,
+      despesaRows,
+      receitaMonthly,
+      despesaMonthly,
+      resultadoMonthly,
+      receitaTotal: sumValues(receitaMonthly),
+      despesaTotal: sumValues(despesaMonthly),
+      resultadoTotal: sumValues(resultadoMonthly),
+    };
+  }, [categorias, lancamentos]);
+
+  const monthLabels = useMemo(() => buildMonthLabels(ano), [ano]);
 
   return (
-    <div className="min-h-full bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.10),transparent_28%),radial-gradient(circle_at_top_right,rgba(15,23,42,0.10),transparent_22%)] px-4 py-6 text-slate-900 dark:text-slate-100 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <section className="overflow-hidden rounded-[30px] border border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#e2e8f0_48%,#cbd5e1_100%)] p-6 shadow-[0_30px_90px_-50px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-[linear-gradient(135deg,#020617_0%,#0f172a_48%,#111827_100%)] md:p-8">
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-end">
+    <div className="min-h-full bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] px-4 py-6 text-slate-900 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-screen-2xl space-y-6">
+        <section className="rounded-[30px] border border-slate-200 bg-white px-6 py-6 shadow-[0_30px_90px_-60px_rgba(15,23,42,0.45)] md:px-8">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
             <div>
-              <p className="text-[11px] font-black uppercase tracking-[0.28em] text-slate-500 dark:text-slate-400">KyrusTECH</p>
-              <h1 className="mt-3 text-3xl font-black tracking-tight md:text-5xl">DRE gerencial</h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-                Leitura mensal de receitas, despesas e margem com abertura por categoria e historico consolidado dos ultimos 12 meses.
-              </p>
+              <p className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-400">Demonstrativo</p>
+              <h1 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">DRE</h1>
+              <p className="mt-2 text-sm font-medium text-slate-500">Jan a dez com totais por conta e subtotal por estrutura.</p>
             </div>
 
-            <div className="rounded-[28px] border border-white/50 bg-white/75 p-5 backdrop-blur dark:border-white/10 dark:bg-white/5">
-              <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Competencia</label>
-              <div className="grid grid-cols-[1fr_120px] gap-3">
-                <select
-                  value={mes}
-                  onChange={(e) => setMes(Number(e.target.value))}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                >
-                  {MONTHS.map((label, index) => (
-                    <option key={label} value={index + 1}>{label}</option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  min={2000}
-                  max={2100}
-                  value={ano}
-                  onChange={(e) => setAno(Number(e.target.value) || now.getFullYear())}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                />
-              </div>
-              <div className="mt-4 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                <CalendarDays className="h-4 w-4" />
-                {data?.competencia_label || `${MONTHS[mes - 1]}/${ano}`}
+            <div className="flex flex-col gap-3 md:flex-row md:items-center">
+              <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
+                <label className="block text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Ano</label>
+                <div className="mt-2 flex items-center gap-3">
+                  <CalendarDays className="h-4 w-4 text-slate-400" />
+                  <input
+                    type="number"
+                    min={2000}
+                    max={2100}
+                    value={ano}
+                    onChange={(event) => setAno(Number(event.target.value) || currentYear)}
+                    className="w-28 border-none bg-transparent p-0 text-lg font-black text-slate-900 outline-none"
+                  />
+                </div>
               </div>
             </div>
           </div>
         </section>
 
         {error ? (
-          <div className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-semibold text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">
+          <div className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-semibold text-rose-700">
             {error}
           </div>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-3">
-          <MetricCard title="Receita" value={moneyFormatter.format(data?.receita_total || 0)} tone="emerald" icon={<TrendingUp className="h-6 w-6" />} />
-          <MetricCard title="Despesa" value={moneyFormatter.format(data?.despesa_total || 0)} tone="rose" icon={<TrendingDown className="h-6 w-6" />} />
-          <MetricCard
-            title="Resultado"
-            value={`${moneyFormatter.format(data?.resultado_total || 0)} • ${percentFormatter.format(data?.margem_percentual || 0)}%`}
-            tone="slate"
-            icon={<Wallet className="h-6 w-6" />}
-          />
+        <section className="grid gap-4 xl:grid-cols-3">
+          <MetricCard label="Receita total" value={moneyFormatter.format(dre.receitaTotal)} tone="emerald" icon={<TrendingUp className="h-5 w-5" />} />
+          <MetricCard label="Despesa total" value={moneyFormatter.format(dre.despesaTotal)} tone="rose" icon={<TrendingDown className="h-5 w-5" />} />
+          <MetricCard label="Resultado" value={moneyFormatter.format(dre.resultadoTotal)} tone="slate" icon={<Sigma className="h-5 w-5" />} />
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
-          <div className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 md:p-6">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Historico</p>
-                <h2 className="mt-2 text-xl font-black tracking-tight">Serie mensal da operacao</h2>
-              </div>
-            </div>
-            <div className="mt-6">
-              {loading ? (
-                <div className="flex h-80 items-center justify-center rounded-3xl border border-dashed border-slate-200 text-sm font-semibold text-slate-400 dark:border-slate-800 dark:text-slate-500">
-                  Carregando DRE...
-                </div>
-              ) : (
-                <AsyncApexChart type="line" height={320} series={chartSeries} options={chartOptions} />
-              )}
-            </div>
-          </div>
+        <section className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)]">
+          <div className="overflow-x-auto">
+            <table className="min-w-max w-full border-separate border-spacing-0 text-sm">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 z-20 border-b border-r border-slate-200 bg-slate-950 px-5 py-4 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white">Conta</th>
+                  <th className="border-b border-r border-slate-200 bg-slate-950 px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">Total</th>
+                  {monthLabels.map((label) => (
+                    <th key={label} className="border-b border-r border-slate-200 bg-slate-950 px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] text-white last:border-r-0">{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="sticky left-0 z-10 border-b border-r border-emerald-200 bg-emerald-600 px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white">Receitas</td>
+                  <td className="border-b border-r border-emerald-200 bg-emerald-50 px-4 py-3 text-right font-black text-emerald-700">{renderMoneyCell(dre.receitaTotal, 'receita')}</td>
+                  {dre.receitaMonthly.map((value, index) => (
+                    <td key={`receita-total-${index}`} className="border-b border-r border-emerald-200 bg-emerald-50 px-4 py-3 text-right font-bold text-emerald-700 last:border-r-0">{renderMoneyCell(value, 'receita')}</td>
+                  ))}
+                </tr>
 
-          <div className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 md:p-6">
-            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Resumo</p>
-            <h2 className="mt-2 text-xl font-black tracking-tight">Leitura do mes</h2>
-            <div className="mt-6 space-y-4">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Receita liquida gerencial</p>
-                <p className="mt-3 text-2xl font-black text-emerald-600 dark:text-emerald-300">{moneyFormatter.format(data?.receita_total || 0)}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Custo e despesas</p>
-                <p className="mt-3 text-2xl font-black text-rose-600 dark:text-rose-300">{moneyFormatter.format(data?.despesa_total || 0)}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-950 p-4 text-white dark:border-slate-700">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Resultado final</p>
-                <p className="mt-3 text-2xl font-black">{moneyFormatter.format(data?.resultado_total || 0)}</p>
-                <p className="mt-2 text-sm text-slate-300">Margem de {percentFormatter.format(data?.margem_percentual || 0)}% no periodo selecionado.</p>
-              </div>
-            </div>
-          </div>
-        </section>
+                {loading ? (
+                  <tr>
+                    <td colSpan={14} className="px-5 py-12 text-center text-sm font-semibold text-slate-400">Carregando demonstrativo...</td>
+                  </tr>
+                ) : dre.receitaRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={14} className="px-5 py-12 text-center text-sm font-semibold text-slate-400">Sem receitas classificadas para este ano.</td>
+                  </tr>
+                ) : dre.receitaRows.map((row, rowIndex) => (
+                  <tr key={`receita-row-${row.id}`} className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
+                    <td className={`sticky left-0 z-1 border-b border-r border-slate-200 px-5 py-3 ${row.hasChildren ? 'bg-emerald-50 font-black text-slate-900' : rowIndex % 2 === 0 ? 'bg-white font-semibold text-slate-600' : 'bg-slate-50/60 font-semibold text-slate-600'}`}>
+                      <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 18}px` }}>
+                        <span className="min-w-0 truncate">{row.codigo ? `${row.codigo} ${row.nome}` : row.nome}</span>
+                      </div>
+                    </td>
+                    <td className={`border-b border-r border-slate-200 px-4 py-3 text-right ${row.hasChildren ? 'font-black text-slate-900' : 'font-medium text-slate-600'}`}>{renderMoneyCell(row.total, 'receita')}</td>
+                    {row.monthly.map((value, index) => (
+                      <td key={`receita-value-${row.id}-${index}`} className={`border-b border-r border-slate-200 px-4 py-3 text-right ${row.hasChildren ? 'font-bold text-slate-800' : 'font-medium text-slate-500'} last:border-r-0`}>
+                        {renderMoneyCell(value, 'receita')}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
 
-        <section className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 md:p-6">
-            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Receitas</p>
-            <h2 className="mt-2 text-xl font-black tracking-tight">Categorias que sustentam o resultado</h2>
-            <div className="mt-6 space-y-3">
-              {(data?.categorias_receita || []).slice(0, 8).map((item) => (
-                <div key={`receita-${item.plano_contas_id}-${item.nome}`} className="flex items-center justify-between rounded-2xl border border-emerald-100 bg-emerald-50/70 px-4 py-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
-                  <div>
-                    <p className="text-sm font-bold text-slate-900 dark:text-white">{item.nome}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{item.codigo || 'Sem codigo'}</p>
-                  </div>
-                  <p className="text-sm font-black text-emerald-600 dark:text-emerald-300">{moneyFormatter.format(item.total)}</p>
-                </div>
-              ))}
-              {!loading && !(data?.categorias_receita.length) ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-5 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                  Nenhuma receita contabilizada nesta competencia.
-                </div>
-              ) : null}
-            </div>
-          </div>
+                <tr>
+                  <td className="sticky left-0 z-10 border-b border-r border-rose-200 bg-rose-600 px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white">Despesas</td>
+                  <td className="border-b border-r border-rose-200 bg-rose-50 px-4 py-3 text-right font-black text-rose-700">{renderMoneyCell(dre.despesaTotal, 'despesa')}</td>
+                  {dre.despesaMonthly.map((value, index) => (
+                    <td key={`despesa-total-${index}`} className="border-b border-r border-rose-200 bg-rose-50 px-4 py-3 text-right font-bold text-rose-700 last:border-r-0">{renderMoneyCell(value, 'despesa')}</td>
+                  ))}
+                </tr>
 
-          <div className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 md:p-6">
-            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Despesas</p>
-            <h2 className="mt-2 text-xl font-black tracking-tight">Categorias que mais pressionam a margem</h2>
-            <div className="mt-6 space-y-3">
-              {(data?.categorias_despesa || []).slice(0, 8).map((item) => (
-                <div key={`despesa-${item.plano_contas_id}-${item.nome}`} className="flex items-center justify-between rounded-2xl border border-rose-100 bg-rose-50/70 px-4 py-3 dark:border-rose-900/50 dark:bg-rose-950/20">
-                  <div>
-                    <p className="text-sm font-bold text-slate-900 dark:text-white">{item.nome}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{item.codigo || 'Sem codigo'}</p>
-                  </div>
-                  <p className="text-sm font-black text-rose-600 dark:text-rose-300">{moneyFormatter.format(item.total)}</p>
-                </div>
-              ))}
-              {!loading && !(data?.categorias_despesa.length) ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-5 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                  Nenhuma despesa contabilizada nesta competencia.
-                </div>
-              ) : null}
-            </div>
+                {loading ? null : dre.despesaRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={14} className="px-5 py-12 text-center text-sm font-semibold text-slate-400">Sem despesas classificadas para este ano.</td>
+                  </tr>
+                ) : dre.despesaRows.map((row, rowIndex) => (
+                  <tr key={`despesa-row-${row.id}`} className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
+                    <td className={`sticky left-0 z-1 border-b border-r border-slate-200 px-5 py-3 ${row.hasChildren ? 'bg-rose-50 font-black text-slate-900' : rowIndex % 2 === 0 ? 'bg-white font-semibold text-slate-600' : 'bg-slate-50/60 font-semibold text-slate-600'}`}>
+                      <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 18}px` }}>
+                        <span className="min-w-0 truncate">{row.codigo ? `${row.codigo} ${row.nome}` : row.nome}</span>
+                      </div>
+                    </td>
+                    <td className={`border-b border-r border-slate-200 px-4 py-3 text-right ${row.hasChildren ? 'font-black text-slate-900' : 'font-medium text-slate-600'}`}>{renderMoneyCell(row.total, 'despesa')}</td>
+                    {row.monthly.map((value, index) => (
+                      <td key={`despesa-value-${row.id}-${index}`} className={`border-b border-r border-slate-200 px-4 py-3 text-right ${row.hasChildren ? 'font-bold text-slate-800' : 'font-medium text-slate-500'} last:border-r-0`}>
+                        {renderMoneyCell(value, 'despesa')}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+
+                <tr>
+                  <td className="sticky left-0 z-10 border-r border-slate-200 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado</td>
+                  <td className={`border-r border-slate-200 px-4 py-4 text-right text-sm font-black ${dre.resultadoTotal >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                    {renderMoneyCell(dre.resultadoTotal, 'resultado')}
+                  </td>
+                  {dre.resultadoMonthly.map((value, index) => (
+                    <td key={`resultado-${index}`} className={`border-r border-slate-200 px-4 py-4 text-right text-sm font-black last:border-r-0 ${value >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                      {renderMoneyCell(value, 'resultado')}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
           </div>
         </section>
       </div>

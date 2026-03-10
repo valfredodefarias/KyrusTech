@@ -330,7 +330,7 @@ export function Lancamentos() {
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [filesToUpload, setFilesToUpload] = useState<FileList | null>(null);
-  const [newEntityData, setNewEntityData] = useState({ nome: '', tipo: 'AMBOS' });
+  const [newEntityData, setNewEntityData] = useState({ nome: '', tipo: 'AMBOS', tipo_pessoa: 'PF' as 'PF' | 'PJ' });
 
   const [formData, setFormData] = useState<any>({
     id: null, descricao: '', valor_previsto: '', data_vencimento: '',
@@ -859,7 +859,7 @@ export function Lancamentos() {
   // --- FUNÇÃO RECUPERADA (FIX) ---
   async function handleCreateEntity() {
     if(!newEntityData.nome) {
-      pushToast('info', 'Digite o nome da entidade.');
+      pushToast('info', 'Digite o nome do interessado.');
       return;
     }
     setSaving(true);
@@ -871,10 +871,10 @@ export function Lancamentos() {
       setEntidades(prev => [...prev, res.data]);
       setFormData((prev:any) => ({...prev, entidade_id: res.data.id}));
       setShowEntityDrawer(false); 
-      setNewEntityData({ nome: '', tipo: 'AMBOS' });
-      pushToast('success', 'Entidade criada com sucesso.');
+      setNewEntityData({ nome: '', tipo: 'AMBOS', tipo_pessoa: 'PF' });
+      pushToast('success', 'Interessado criado com sucesso.');
     } catch(e) {
-      pushToast('error', 'Erro ao criar entidade.');
+      pushToast('error', 'Erro ao criar interessado.');
     } finally { setSaving(false); }
   }
 
@@ -1372,7 +1372,7 @@ export function Lancamentos() {
                             <th className="p-2.5 w-12 text-center">Sel</th>
                             <th className="p-2.5 w-12 text-center">IPP</th>
                             <th className="p-2.5">Descrição</th>
-                            <th className="p-2.5 hidden md:table-cell">Entidade / Categoria</th>
+                            <th className="p-2.5 hidden md:table-cell">Interessado / Categoria</th>
                             <th className="p-2.5 text-right">Valor</th>
                             <th className="p-2.5 text-center w-24">Status</th>
                           </tr>
@@ -1553,17 +1553,33 @@ export function Lancamentos() {
         </div>
       )}
 
-      {/* DRAWER ENTIDADE */}
+        {/* DRAWER INTERESSADO */}
       <div className={`fixed inset-y-0 right-0 w-80 bg-white dark:bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 ${showEntityDrawer?'translate-x-0':'translate-x-full'}`}>
         <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
-            <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><User className="w-4 h-4 text-blue-500"/> Nova Entidade</h3>
+          <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><User className="w-4 h-4 text-blue-500"/> Novo Interessado</h3>
             <button onClick={()=>setShowEntityDrawer(false)}><X className="w-5 h-5 text-slate-400 hover:text-slate-700 dark:hover:text-white"/></button>
         </div>
         <div className="p-6 space-y-4">
-            <InputDark label="Nome da Entidade" autoFocus placeholder="Ex: Fornecedor ABC" value={newEntityData.nome} onChange={(e:any)=>setNewEntityData({...newEntityData, nome:e.target.value})} />
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-900">
+            <button
+              type="button"
+              onClick={() => setNewEntityData((prev:any) => ({ ...prev, tipo_pessoa: 'PF' }))}
+              className={`rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] transition ${newEntityData.tipo_pessoa === 'PF' ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+            >
+              Pessoa Física
+            </button>
+            <button
+              type="button"
+              onClick={() => setNewEntityData((prev:any) => ({ ...prev, tipo_pessoa: 'PJ' }))}
+              className={`rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] transition ${newEntityData.tipo_pessoa === 'PJ' ? 'bg-sky-600 text-white' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+            >
+              Pessoa Jurídica
+            </button>
+          </div>
+          <InputDark label={newEntityData.tipo_pessoa === 'PF' ? 'Nome completo' : 'Razão social'} autoFocus placeholder={newEntityData.tipo_pessoa === 'PF' ? 'Ex: Maria Souza' : 'Ex: Fornecedor ABC Ltda'} value={newEntityData.nome} onChange={(e:any)=>setNewEntityData({...newEntityData, nome:e.target.value})} />
             <div className="pt-4">
                 <button onClick={handleCreateEntity} disabled={saving} className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow-lg flex justify-center gap-2">
-                    {saving?<Loader2 className="animate-spin w-4 h-4"/>:<Save className="w-4 h-4"/>} Salvar Entidade
+              {saving?<Loader2 className="animate-spin w-4 h-4"/>:<Save className="w-4 h-4"/>} Salvar Interessado
                 </button>
             </div>
         </div>
@@ -1666,7 +1682,7 @@ export function Lancamentos() {
                 )}
               </div>
 
-              {/* CATEGORIA E ENTIDADE */}
+              {/* CATEGORIA E INTERESSADO */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <SearchableSelect label="Categoria" placeholder="Selecione..." options={catOptions} value={formData.plano_contas_id} onChange={(id:any)=>{
                    const cat = categorias.find(c=>String(c.id)===String(id));
@@ -1675,7 +1691,7 @@ export function Lancamentos() {
                 }} />
                 <div>
                   <div className="flex justify-between items-center mb-1">
-                    <label className="text-xs font-bold text-slate-400 uppercase">Entidade</label>
+                    <label className="text-xs font-bold text-slate-400 uppercase">Interessado</label>
                     <button onClick={()=>setShowEntityDrawer(true)} className="text-[10px] text-blue-400 font-bold hover:text-blue-300 flex items-center gap-1"><Plus className="w-3 h-3"/> Nova</button>
                   </div>
                   <select className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500 text-sm" value={formData.entidade_id} onChange={e=>{

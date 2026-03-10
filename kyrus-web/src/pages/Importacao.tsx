@@ -862,7 +862,7 @@ export function Importacao() {
             </div>
         )}
 
-        {/* STEP 2: CATEGORIAS E ENTIDADES */}
+        {/* STEP 2: CATEGORIAS E INTERESSADOS */}
         {step === 2 && (
             <div className="space-y-8 animate-in fade-in slide-in-from-right-8">
                 
@@ -883,10 +883,10 @@ export function Importacao() {
                     <div className="space-y-3">{conflitos.categorias.map(k => (<MappingRow key={k} original={k} value={mapCategorias[k]} options={sistemaData.categorias} onChange={(v:string)=>setMapCategorias(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('CATEGORIA', k)} typeLabel="Categoria" icon={Tag} />))}</div>
                 </div>
 
-                {/* ENTIDADES */}
+                {/* INTERESSADOS */}
                 <div>
                     <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2"><Users className="text-purple-500"/> Entidades Encontradas ({conflitos.entidades.length})</h3>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2"><Users className="text-purple-500"/> Interessados Encontrados ({conflitos.entidades.length})</h3>
                         {conflitos.entidades.length > 0 && (
                             <button onClick={() => handleBulkCreate('ENTIDADE')} disabled={!!bulkLoading} className="text-xs bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 shadow transition disabled:opacity-50">
                                 {bulkLoading === 'ENTIDADE' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3"/>} Criar Todas
@@ -894,9 +894,9 @@ export function Importacao() {
                         )}
                     </div>
                     {conflitos.entidades.length === 0 ? (
-                        <div className="p-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Nenhuma entidade nova detectada.</div>
+                        <div className="p-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Nenhum interessado novo detectado.</div>
                     ) : (
-                        <div className="space-y-3">{conflitos.entidades.map(k => (<MappingRow key={k} original={k} value={mapEntidades[k]} options={sistemaData.entidades} onChange={(v:string)=>setMapEntidades(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('ENTIDADE', k)} typeLabel="Entidade" icon={Users} />))}</div>
+                        <div className="space-y-3">{conflitos.entidades.map(k => (<MappingRow key={k} original={k} value={mapEntidades[k]} options={sistemaData.entidades} onChange={(v:string)=>setMapEntidades(p=>({...p,[k]:v}))} onCreate={()=>openCreateModal('ENTIDADE', k)} typeLabel="Interessado" icon={Users} />))}</div>
                     )}
                 </div>
 

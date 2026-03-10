@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select, func, case, or_
+from sqlalchemy.orm import selectinload
 from loguru import logger
 from pydantic import BaseModel
 from datetime import date
@@ -49,12 +50,17 @@ class ContaSaldoMovimentoOut(BaseModel):
     conciliado: bool
     data_vencimento: date
     data_pagamento: Optional[date] = None
+    data_competencia: Optional[date] = None
     valor_previsto: Decimal
     valor_pago: Decimal
-    valor_utilizado_saldo: Decimal
-    impacto_valor: Decimal
+    valor_entrada: Decimal
+    valor_saida: Decimal
+    saldo_apos_movimento: Decimal
+    numero_parcela: Optional[int] = None
     plano_contas_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
+    cartao_id: Optional[int] = None
+    cartao_nome: Optional[str] = None
 
 
 class ContaSaldoDetalheOut(BaseModel):
@@ -230,30 +236,38 @@ def saldo_detalhe_conta(
 
     movimentos = db.exec(
         select(Lancamento)
+        .options(selectinload(Lancamento.cartao))
         .where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.conta_id == conta_id,
             Lancamento.is_deleted == False,
             _movimento_influencia_saldo_clause(),
         )
-        .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).desc(), Lancamento.id.desc())
+        .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).asc(), Lancamento.id.asc())
     ).all()
 
     total_entradas = Decimal("0.00")
     total_saidas = Decimal("0.00")
     movimentos_out: List[ContaSaldoMovimentoOut] = []
+    saldo_corrente = Decimal(str(conta.saldo_inicial))
 
     for movimento in movimentos:
-        valor_utilizado = Decimal(str(movimento.valor_pago or 0))
+        valor_utilizado = Decimal(str(movimento.valor_pago if movimento.valor_pago is not None else 0))
         tipo_normalizado = (movimento.tipo or "").strip().upper()
+        valor_entrada = Decimal("0.00")
+        valor_saida = Decimal("0.00")
         if tipo_normalizado.startswith("R"):
             impacto = valor_utilizado
+            valor_entrada = valor_utilizado
             total_entradas += valor_utilizado
         elif tipo_normalizado.startswith("D"):
             impacto = valor_utilizado * Decimal("-1")
+            valor_saida = valor_utilizado
             total_saidas += valor_utilizado
         else:
             impacto = Decimal("0.00")
+
+        saldo_corrente += impacto
 
         movimentos_out.append(
             ContaSaldoMovimentoOut(
@@ -265,14 +279,21 @@ def saldo_detalhe_conta(
                 conciliado=bool(movimento.conciliado),
                 data_vencimento=movimento.data_vencimento,
                 data_pagamento=movimento.data_pagamento,
+                data_competencia=movimento.data_competencia,
                 valor_previsto=movimento.valor_previsto,
                 valor_pago=movimento.valor_pago,
-                valor_utilizado_saldo=valor_utilizado,
-                impacto_valor=impacto,
+                valor_entrada=valor_entrada,
+                valor_saida=valor_saida,
+                saldo_apos_movimento=saldo_corrente,
+                numero_parcela=movimento.numero_parcela,
                 plano_contas_id=movimento.plano_contas_id,
                 centro_custo_id=movimento.centro_custo_id,
+                cartao_id=movimento.cartao_id,
+                cartao_nome=movimento.cartao.nome_cartao if movimento.cartao else None,
             )
         )
+
+    movimentos_out.reverse()
 
     saldo_inicial = Decimal(str(conta.saldo_inicial))
     saldo_atual = saldo_inicial + total_entradas - total_saidas

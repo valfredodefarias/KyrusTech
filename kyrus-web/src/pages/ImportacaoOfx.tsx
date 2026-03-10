@@ -620,13 +620,13 @@ export function ImportacaoOfx() {
                       </select>
                     </div>
                     <div>
-                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Entidade</label>
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Interessado</label>
                       <select
                         value={lanc.entidade_id || ''}
                         onChange={(e) => updateLancamento(lanc.linha_arquivo, { entidade_id: e.target.value ? Number(e.target.value) : null })}
                         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950"
                       >
-                        <option value="">Sem entidade</option>
+                        <option value="">Sem interessado</option>
                         {entidades.map((ent) => (
                           <option key={ent.id} value={ent.id}>{ent.nome}</option>
                         ))}

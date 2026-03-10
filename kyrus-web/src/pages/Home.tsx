@@ -457,7 +457,7 @@ export function Home() {
 
       {/* Atalhos Rápidos */}
       <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <AtalhoCard to="/entidades" icon={Users} label="Clientes" description="Abrir cadastro e relacionamento com interessados." colorClass="text-green-600" bgClass="bg-green-100 dark:bg-green-500/10" />
+        <AtalhoCard to="/entidades" icon={Users} label="Interessados" description="Abrir cadastro e relacionamento com clientes, fornecedores e contatos." colorClass="text-green-600" bgClass="bg-green-100 dark:bg-green-500/10" />
         <AtalhoCard to="/contas" icon={Landmark} label="Contas" description="Gerenciar bancos, caixas e estrutura financeira." colorClass="text-purple-600" bgClass="bg-purple-100 dark:bg-purple-500/10" />
         <AtalhoCard to="/cartoes" icon={CreditCard} label="Cartões" description="Controlar faturas, limites e lançamentos vinculados." colorClass="text-orange-600" bgClass="bg-orange-100 dark:bg-orange-500/10" />
         <AtalhoCard to="/config" icon={Settings} label="Configuração" description="Ajustar preferências, empresa e comportamento do sistema." colorClass="text-slate-600" bgClass="bg-slate-100 dark:bg-slate-700/60" />

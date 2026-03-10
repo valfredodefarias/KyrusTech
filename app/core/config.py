@@ -59,10 +59,25 @@ class Settings(BaseSettings):
             return [str(i).strip().rstrip("/") for i in v if str(i).strip()]
         raise ValueError(v)
 
+    def _normalized_cors_origins(self) -> list[str]:
+        origins = self.BACKEND_CORS_ORIGINS if isinstance(self.BACKEND_CORS_ORIGINS, list) else [self.BACKEND_CORS_ORIGINS]
+        normalized = [str(origin).strip().rstrip("/") for origin in origins if str(origin).strip()]
+
+        if self.ENVIRONMENT.lower() == "production" and "*" in normalized:
+            fallback_origins: list[str] = []
+            if self.BACKEND_PUBLIC_URL:
+                fallback_origins.append(self.BACKEND_PUBLIC_URL.strip().rstrip("/"))
+            normalized = fallback_origins
+
+        # Remove duplicados preservando ordem.
+        return list(dict.fromkeys(normalized))
+
     @model_validator(mode="after")
     def validate_security_configuration(self):
         if self.ENVIRONMENT.lower() != "production":
             return self
+
+        self.BACKEND_CORS_ORIGINS = self._normalized_cors_origins()
 
         if self.SECRET_KEY == "change-me-in-production-env":
             raise ValueError("SECRET_KEY insegura para produção. Defina uma chave forte no ambiente.")
@@ -113,6 +128,8 @@ class Settings(BaseSettings):
         environment = (self.ENVIRONMENT or "development").strip().lower()
         if environment != "production":
             return self
+
+        self.BACKEND_CORS_ORIGINS = self._normalized_cors_origins()
 
         issues: list[str] = []
         if self.SECRET_KEY == "change-me-in-production-env" or len(self.SECRET_KEY.strip()) < 32:

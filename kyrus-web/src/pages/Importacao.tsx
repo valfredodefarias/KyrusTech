@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 // --- INTERFACES ---
-interface ItemSistema { 
+export interface ItemSistema { 
     id: number; 
     nome: string; 
     tipo?: string; 
@@ -43,6 +43,17 @@ interface Feedback {
   type: 'success' | 'error';
   message: string;
   details?: string[];
+}
+
+interface PlanoSectionState {
+        tipo: 'R' | 'D';
+        titulo: string;
+        descricao: string;
+        accentClassName: string;
+        surfaceClassName: string;
+        dropClassName: string;
+        emptyTitle: string;
+        emptyDescription: string;
 }
 
 interface PreviewRow {
@@ -195,8 +206,8 @@ const buildCategoriaOptionGroups = (items: ItemSistema[]): SearchOptionGroup[] =
     const receitas = flatten(sortByCodeAndName(roots.filter((item) => normalizeTipo(item.tipo) === 'R')) as TreeCategoriaItem[]);
     const despesas = flatten(sortByCodeAndName(roots.filter((item) => normalizeTipo(item.tipo) === 'D')) as TreeCategoriaItem[]);
     const groups: SearchOptionGroup[] = [];
-    if (receitas.length) groups.push({ label: 'Receitas', options: receitas });
-    if (despesas.length) groups.push({ label: 'Despesas', options: despesas });
+    if (receitas.length) groups.push({ label: 'Entradas', options: receitas });
+    if (despesas.length) groups.push({ label: 'Saidas', options: despesas });
     return groups;
 };
 
@@ -320,7 +331,7 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
 
 // --- ÁRVORE DRAGGABLE ---
 
-const DraggableTreeItem = ({ item, depth = 0, inheritedExcluded = false, onDragStart, onDrop, onEdit, onDelete, onToggle, expandedIds }: any) => {
+const DraggableTreeItem = ({ item, depth = 0, inheritedExcluded = false, onDragStart, onDrop, onEdit, onDelete, onCreateChild, onMove, onToggle, expandedIds }: any) => {
     const isExpanded = expandedIds.has(item.id);
     const hasChildren = item.children && item.children.length > 0;
     const ownExcluded = item.considerar_nos_resultados === false;
@@ -375,17 +386,19 @@ const DraggableTreeItem = ({ item, depth = 0, inheritedExcluded = false, onDragS
                     {effectiveExcluded && (
                         <span
                             className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${inheritedOnly ? 'text-amber-300 bg-amber-900/20 border-amber-900/40' : 'text-red-300 bg-red-900/20 border-red-900/40'}`}
-                            title={inheritedOnly ? 'Fora dos resultados por herança da categoria pai' : 'Marcado para não considerar nos resultados'}
+                            title={inheritedOnly ? 'Nao operacional por heranca da categoria pai' : 'Marcado como nao operacional'}
                         >
-                            {inheritedOnly ? 'Fora (herdado)' : 'Fora do resultado'}
+                            {inheritedOnly ? 'Nao op. (herdado)' : 'Nao operacional'}
                         </span>
                     )}
                 </div>
 
                 {/* Actions */}
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={(e) => { e.stopPropagation(); onCreateChild(item); }} title="Adicionar categoria filha" className="p-1.5 text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><Plus size={12}/></button>
+                    <button onClick={(e) => { e.stopPropagation(); onMove(item); }} title="Mover categoria" className="p-1.5 text-slate-400 hover:text-amber-500 dark:hover:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><ArrowRight size={12}/></button>
                     <button onClick={(e) => { e.stopPropagation(); onEdit(item); }} className="p-1.5 text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><Edit2 size={12}/></button>
-                    <button onClick={(e) => { e.stopPropagation(); onDelete(item.id); }} className="p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><Trash2 size={12}/></button>
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(item); }} className="p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><Trash2 size={12}/></button>
                 </div>
             </div>
 
@@ -403,6 +416,8 @@ const DraggableTreeItem = ({ item, depth = 0, inheritedExcluded = false, onDragS
                             onDrop={onDrop}
                             onEdit={onEdit}
                             onDelete={onDelete}
+                            onCreateChild={onCreateChild}
+                            onMove={onMove}
                             onToggle={onToggle}
                             expandedIds={expandedIds}
                         />
@@ -413,19 +428,67 @@ const DraggableTreeItem = ({ item, depth = 0, inheritedExcluded = false, onDragS
     );
 };
 
+const FloatingFeedbackToast = ({ feedback, onDismiss }: { feedback: Feedback; onDismiss: () => void }) => (
+    <div className="pointer-events-none fixed bottom-4 right-4 z-120 w-[min(380px,calc(100vw-2rem))] rounded-3xl border border-slate-200 bg-slate-950/95 px-4 py-4 text-left shadow-2xl shadow-slate-950/30 dark:border-slate-700 lg:bottom-6 lg:right-6">
+        <div className="flex items-start gap-3">
+            <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl ${feedback.type === 'success' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>
+                {feedback.type === 'success' ? <CheckCircle className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+            </div>
+            <div className="min-w-0 flex-1">
+                <p className={`text-[11px] font-bold uppercase tracking-[0.18em] ${feedback.type === 'success' ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    {feedback.type === 'success' ? 'Plano atualizado' : 'Revisao necessaria'}
+                </p>
+                <p className="mt-2 text-sm font-semibold leading-5 text-white">{feedback.message}</p>
+                {feedback.details && feedback.details.length > 0 && (
+                    <div className="mt-3 space-y-1 text-xs leading-5 text-slate-300">
+                        {feedback.details.map((detail, index) => (
+                            <p key={`${detail}-${index}`}>{detail}</p>
+                        ))}
+                    </div>
+                )}
+            </div>
+            <button
+                type="button"
+                onClick={onDismiss}
+                className="pointer-events-auto rounded-2xl border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:bg-white/10 hover:text-white"
+                aria-label="Fechar aviso"
+            >
+                <X className="h-4 w-4" />
+            </button>
+        </div>
+    </div>
+);
+
 // --- PLANO CONTAS MANAGER (COM RECALCULO AUTOMÁTICO) ---
-export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: ItemSistema[], onUpdateList: (l: any) => void }) => {
+export const PlanoContasManager = ({
+    categorias,
+    onUpdateList,
+    apiBasePath = '/plano-contas',
+    syncWithLookupStore = true,
+}: {
+    categorias: ItemSistema[];
+    onUpdateList: (l: any) => void;
+    apiBasePath?: string;
+    syncWithLookupStore?: boolean;
+}) => {
     const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
   const [localList, setLocalList] = useState<ItemSistema[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [draggedItem, setDraggedItem] = useState<ItemSistema | null>(null);
+    const [managerFeedback, setManagerFeedback] = useState<Feedback | null>(null);
 
   // CRUD States
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState<'CREATE'|'EDIT'>('CREATE');
-    const [formData, setFormData] = useState({ id: 0, nome: '', codigo: '', tipo: 'D', considerar_nos_resultados: true });
+    const [modalMode, setModalMode] = useState<'CREATE'|'EDIT'|'MOVE'>('CREATE');
+        const [formData, setFormData] = useState({ id: 0, nome: '', codigo: '', tipo: 'D', considerar_nos_resultados: true, conta_pai_id: '' as number | '' });
+
+    useEffect(() => {
+            if (!managerFeedback) return;
+            const timer = window.setTimeout(() => setManagerFeedback(null), 4500);
+            return () => window.clearTimeout(timer);
+    }, [managerFeedback]);
 
   // --- ALGORITMO DE RECALCULO DE CÓDIGOS ---
   // Esta função mágica recebe a lista plana desordenada, remonta a árvore visual
@@ -515,6 +578,79 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
     const receitasTree = roots.filter(c => normalizeTipo(c.tipo) === 'R');
     const despesasTree = roots.filter(c => normalizeTipo(c.tipo) === 'D');
 
+    const sectionStates: PlanoSectionState[] = [
+        {
+            tipo: 'R',
+            titulo: 'ENTRADAS',
+            descricao: 'Receitas, recebimentos e fontes que aumentam caixa.',
+            accentClassName: 'text-emerald-400',
+            surfaceClassName: 'bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/50',
+            dropClassName: 'rgba(16, 185, 129, 0.05)',
+            emptyTitle: 'Nenhuma categoria de entrada',
+            emptyDescription: 'Crie a primeira categoria de entrada para começar a estruturar esse lado do plano.',
+        },
+        {
+            tipo: 'D',
+            titulo: 'SAIDAS',
+            descricao: 'Custos, despesas e compromissos que reduzem caixa.',
+            accentClassName: 'text-red-400',
+            surfaceClassName: 'bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/50',
+            dropClassName: 'rgba(239, 68, 68, 0.05)',
+            emptyTitle: 'Nenhuma categoria de saida',
+            emptyDescription: 'Crie a primeira categoria de saida para manter a estrutura completa do plano.',
+        },
+    ];
+
+    const refreshRemoteList = async () => {
+            if (syncWithLookupStore && apiBasePath === '/plano-contas') {
+                    return fetchPlanoContas(true);
+            }
+
+            const response = await api.get(apiBasePath);
+            return response.data || [];
+    };
+
+  const getApiErrorMessage = (error: any, fallback: string) => {
+      const detail = error?.response?.data?.detail;
+
+      if (Array.isArray(detail)) {
+          const parsed = detail
+              .map((item) => item?.msg || item?.message || String(item))
+              .filter(Boolean)
+              .join(' ')
+              .trim();
+          return parsed || fallback;
+      }
+
+      if (typeof detail === 'string' && detail.trim()) {
+          return detail.trim();
+      }
+
+      return fallback;
+  };
+
+  const descendantsMap = useMemo(() => {
+      const map = new Map<number, Set<number>>();
+      const collect = (node: ItemSistema): Set<number> => {
+          const ids = new Set<number>([node.id]);
+          (node.children || []).forEach((child) => {
+              collect(child).forEach((id) => ids.add(id));
+          });
+          map.set(node.id, ids);
+          return ids;
+      };
+      roots.forEach((node) => collect(node));
+      return map;
+  }, [roots]);
+
+  const parentOptions = useMemo(() => {
+      return localList
+          .filter((item) => item.id !== formData.id)
+          .filter((item) => normalizeTipo(item.tipo) === normalizeTipo(formData.tipo))
+          .filter((item) => !descendantsMap.get(formData.id)?.has(item.id))
+          .sort((a, b) => (a.codigo || '').localeCompare(b.codigo || '', undefined, { numeric: true }) || a.nome.localeCompare(b.nome));
+  }, [descendantsMap, formData.id, formData.tipo, localList]);
+
   // --- DRAG HANDLERS ---
   const handleDragStart = (e: React.DragEvent, item: ItemSistema) => {
       setDraggedItem(item);
@@ -575,6 +711,7 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
   // --- SAVE ---
   const handleSaveOrder = async () => {
     setSaving(true);
+        setManagerFeedback(null);
     try {
         const payload = localList.map((item) => ({
             id: item.id,
@@ -583,17 +720,20 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
             tipo: normalizeTipo(item.tipo)
         }));
 
-        await api.post('/plano-contas/reordenar', payload);
+        await api.post(`${apiBasePath}/reordenar`, payload);
         
         setHasChanges(false);
-        alert("Ordem salva com sucesso!");
+        setManagerFeedback({ type: 'success', message: 'Ordem do plano de contas salva com sucesso.' });
         
-        const updated = await fetchPlanoContas(true);
+        const updated = await refreshRemoteList();
         onUpdateList(updated);
 
-    } catch (e) {
+    } catch (e: any) {
         console.error(e);
-        alert("Erro ao salvar ordem.");
+        setManagerFeedback({
+            type: 'error',
+            message: getApiErrorMessage(e, 'Nao foi possivel salvar a ordem do plano de contas.'),
+        });
     } finally {
         setSaving(false);
     }
@@ -605,22 +745,59 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
       setExpandedIds(newSet);
   };
 
-  const handleDelete = async (id: number) => {
-      if(!confirm("Excluir categoria?")) return;
+  const handleDelete = async (item: ItemSistema) => {
+      setManagerFeedback(null);
+
+      const childCount = localList.filter((categoria) => categoria.conta_pai_id === item.id).length;
+      if (childCount > 0) {
+          setExpandedIds((prev) => new Set(prev).add(item.id));
+          setManagerFeedback({
+              type: 'error',
+              message: `Nao foi possivel excluir \"${item.nome}\".`,
+              details: [
+                  `Esta categoria possui ${childCount} subcategoria(s).`,
+                  'Mova ou exclua as subcategorias antes de remover a categoria pai.',
+              ],
+          });
+          return;
+      }
+
+      if(!confirm(`Excluir a categoria \"${item.nome}\"?`)) return;
       try {
-          await api.delete(`/plano-contas/${id}`);
-          onUpdateList(localList.filter(c => c.id !== id));
-      } catch(e) { alert("Erro ao excluir."); }
+          await api.delete(`${apiBasePath}/${item.id}`);
+          onUpdateList(localList.filter((categoria) => categoria.id !== item.id));
+          setManagerFeedback({ type: 'success', message: `Categoria \"${item.nome}\" excluida com sucesso.` });
+      } catch(e: any) {
+          setManagerFeedback({
+              type: 'error',
+              message: getApiErrorMessage(e, `Nao foi possivel excluir a categoria \"${item.nome}\".`),
+          });
+      }
+  };
+
+  const openCreateModal = (tipo: 'R' | 'D', contaPaiId: number | '' = '') => {
+      setModalMode('CREATE');
+      setFormData({
+          id: 0,
+          nome: '',
+          codigo: '',
+          tipo,
+          considerar_nos_resultados: true,
+          conta_pai_id: contaPaiId,
+      });
+      setModalOpen(true);
   };
 
   const handleSaveModal = async () => {
+      setManagerFeedback(null);
       try {
           if (modalMode === 'CREATE') {
-                            const res = await api.post('/plano-contas/', {
+                            const res = await api.post(`${apiBasePath}`, {
                                 nome: formData.nome,
                                 tipo: normalizeTipo(formData.tipo),
                                 permite_lancamentos: true,
                                 considerar_nos_resultados: formData.considerar_nos_resultados,
+                                conta_pai_id: formData.conta_pai_id || null,
                             });
               // Adiciona e recalcula
               const newList = [...localList, res.data];
@@ -628,127 +805,155 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
               setLocalList(reindexed);
               setHasChanges(true); // Marca como alterado para forçar salvar a ordem nova
           } else {
-                            await api.patch(`/plano-contas/${formData.id}`, {
+                            await api.patch(`${apiBasePath}/${formData.id}`, {
                                 nome: formData.nome,
                                 considerar_nos_resultados: formData.considerar_nos_resultados,
+                                conta_pai_id: formData.conta_pai_id || null,
+                                tipo: normalizeTipo(formData.tipo),
                             });
-                            onUpdateList(localList.map(c => c.id === formData.id ? {
+                            onUpdateList(recalcCodes(localList.map(c => c.id === formData.id ? {
                                 ...c,
                                 nome: formData.nome,
                                 considerar_nos_resultados: formData.considerar_nos_resultados,
-                            } : c));
+                                conta_pai_id: formData.conta_pai_id || null,
+                                tipo: normalizeTipo(formData.tipo),
+                            } : c)));
           }
           setModalOpen(false);
-      } catch(e) { alert("Erro ao salvar"); }
+          setManagerFeedback({
+              type: 'success',
+              message: modalMode === 'CREATE'
+                  ? 'Categoria criada. Salve as mudancas para consolidar a ordem.'
+                  : modalMode === 'MOVE'
+                      ? 'Categoria movida. Salve as mudancas para consolidar a nova ordem.'
+                      : 'Categoria atualizada com sucesso.',
+          });
+      } catch(e: any) {
+          setManagerFeedback({
+              type: 'error',
+              message: getApiErrorMessage(e, 'Nao foi possivel salvar a categoria.'),
+          });
+      }
   };
 
   return (
     <div className="relative">
-      
-      {/* HEADER ACTIONS */}
-      <div className="flex justify-between items-center mb-6">
-          <button onClick={() => { setModalMode('CREATE'); setFormData({id:0, nome:'', codigo:'', tipo:'D', considerar_nos_resultados:true}); setModalOpen(true); }} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg font-bold flex items-center gap-2 transition shadow-lg">
-              <Plus className="w-4 h-4"/> Nova Categoria
-          </button>
-
-          {hasChanges && (
-            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-4">
-                <span className="text-xs text-orange-400 font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Ordem alterada</span>
-                <button 
-                    onClick={handleSaveOrder} 
-                    disabled={saving}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-lg transition flex items-center gap-2"
-                >
-                    {saving ? <Loader2 className="w-3 h-3 animate-spin"/> : <Save className="w-3 h-3"/>}
-                    Salvar Mudanças
-                </button>
-            </div>
-          )}
+      <div className="mb-6 rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div className="space-y-2">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-700 dark:border-cyan-900/60 dark:bg-cyan-500/10 dark:text-cyan-300">
+                      <Layers className="h-3.5 w-3.5" />
+                      Estrutura editavel
+                  </div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white">Plano de contas hierarquico</h3>
+                  <p className="max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">Arraste categorias para reorganizar a estrutura, edite operacao e tipo quando fizer sentido e crie novas categorias apenas no lado que estiver vazio.</p>
+              </div>
+              {hasChanges && (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 dark:border-amber-900/50 dark:bg-amber-500/10 dark:text-amber-300">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Estrutura alterada. Falta salvar.
+                  </div>
+              )}
+          </div>
       </div>
 
       {/* DUAS COLUNAS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          
-          {/* RECEITAS */}
-          <div 
-            className="flex flex-col bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/50 rounded-xl p-4 min-h-125"
-            onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.05)'; }}
-            onDragLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-            onDrop={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'transparent'; handleDrop('ROOT_R'); }}
-          >
-              <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-200 dark:border-slate-700">
-                  <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
-                      <TrendingUp className="w-4 h-4"/> RECEITAS
-                  </h3>
-                  <span className="text-xs bg-white dark:bg-slate-800 px-2 py-0.5 rounded text-slate-500 border border-slate-200 dark:border-slate-700">{receitasTree.length} Raízes</span>
-              </div>
-              <div className="flex-1 space-y-1">
-                  {receitasTree.length === 0 ? (
-                      <div className="text-center py-20 text-slate-600 text-xs italic">Arraste itens para cá</div>
-                  ) : (
-                      receitasTree.map(item => (
-                          <DraggableTreeItem 
-                             key={item.id} 
-                             item={item} 
-                                      inheritedExcluded={false}
-                             onDragStart={handleDragStart} 
-                             onDrop={handleDrop}
-                             onEdit={(i:any)=>{ setModalMode('EDIT'); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, considerar_nos_resultados: i.considerar_nos_resultados !== false}); setModalOpen(true); }}
-                             onDelete={handleDelete}
-                             onToggle={handleToggle}
-                             expandedIds={expandedIds}
-                          />
-                      ))
-                  )}
-              </div>
-          </div>
+          {sectionStates.map((section) => {
+              const tree = section.tipo === 'R' ? receitasTree : despesasTree;
+              const rootDropTarget = section.tipo === 'R' ? 'ROOT_R' : 'ROOT_D';
 
-          {/* DESPESAS */}
-          <div 
-            className="flex flex-col bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/50 rounded-xl p-4 min-h-125"
-            onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.05)'; }}
-            onDragLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-            onDrop={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'transparent'; handleDrop('ROOT_D'); }}
-          >
-              <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-200 dark:border-slate-700">
-                  <h3 className="text-sm font-bold text-red-400 flex items-center gap-2">
-                      <TrendingDown className="w-4 h-4"/> DESPESAS
-                  </h3>
-                  <span className="text-xs bg-white dark:bg-slate-800 px-2 py-0.5 rounded text-slate-500 border border-slate-200 dark:border-slate-700">{despesasTree.length} Raízes</span>
-              </div>
-              <div className="flex-1 space-y-1">
-                  {despesasTree.length === 0 ? (
-                      <div className="text-center py-20 text-slate-600 text-xs italic">Arraste itens para cá</div>
-                  ) : (
-                      despesasTree.map(item => (
-                          <DraggableTreeItem 
-                             key={item.id} 
-                             item={item} 
+              return (
+                  <div
+                      key={section.tipo}
+                      className={`flex min-h-125 flex-col rounded-[28px] p-4 ${section.surfaceClassName}`}
+                      onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = section.dropClassName; }}
+                      onDragLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      onDrop={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'transparent'; handleDrop(rootDropTarget); }}
+                  >
+                      <div className="mb-4 border-b border-slate-200 pb-3 dark:border-slate-700">
+                          <div className="flex items-start justify-between gap-3">
+                              <div>
+                                  <h3 className={`flex items-center gap-2 text-sm font-bold ${section.accentClassName}`}>
+                                      {section.tipo === 'R' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />} {section.titulo}
+                                  </h3>
+                                  <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{section.descricao}</p>
+                              </div>
+                              <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">{tree.length} raizes</span>
+                          </div>
+                      </div>
+
+                      <div className="flex-1 space-y-1">
+                          {tree.length === 0 ? (
+                              <div className="flex h-full min-h-90 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white/70 px-6 text-center dark:border-slate-700 dark:bg-slate-900/40">
+                                  <div className={`mb-4 flex h-14 w-14 items-center justify-center rounded-2xl ${section.tipo === 'R' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                                      {section.tipo === 'R' ? <TrendingUp className="h-6 w-6" /> : <TrendingDown className="h-6 w-6" />}
+                                  </div>
+                                  <h4 className="text-sm font-black text-slate-900 dark:text-white">{section.emptyTitle}</h4>
+                                  <p className="mt-2 max-w-xs text-xs leading-5 text-slate-500 dark:text-slate-400">{section.emptyDescription}</p>
+                                  <button
+                                      type="button"
+                                      onClick={() => openCreateModal(section.tipo)}
+                                      className={`mt-5 inline-flex items-center gap-2 rounded-full px-4 py-3 text-sm font-bold text-white shadow-xl transition ${section.tipo === 'R' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'}`}
+                                  >
+                                      <Plus className="h-4 w-4" />
+                                      Criar primeira categoria
+                                  </button>
+                              </div>
+                          ) : (
+                              tree.map(item => (
+                                  <DraggableTreeItem
+                                      key={item.id}
+                                      item={item}
                                       inheritedExcluded={false}
-                             onDragStart={handleDragStart} 
-                             onDrop={handleDrop}
-                             onEdit={(i:any)=>{ setModalMode('EDIT'); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, considerar_nos_resultados: i.considerar_nos_resultados !== false}); setModalOpen(true); }}
-                             onDelete={handleDelete}
-                             onToggle={handleToggle}
-                             expandedIds={expandedIds}
-                          />
-                      ))
-                  )}
-              </div>
-          </div>
+                                      onDragStart={handleDragStart}
+                                      onDrop={handleDrop}
+                                      onEdit={(i:any)=>{ setModalMode('EDIT'); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, considerar_nos_resultados: i.considerar_nos_resultados !== false, conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
+                                      onCreateChild={(i:any)=>{ setExpandedIds((prev) => new Set(prev).add(i.id)); openCreateModal(normalizeTipo(i.tipo), i.id); }}
+                                      onMove={(i:any)=>{ setModalMode('MOVE'); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, considerar_nos_resultados: i.considerar_nos_resultados !== false, conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
+                                      onDelete={handleDelete}
+                                      onToggle={handleToggle}
+                                      expandedIds={expandedIds}
+                                  />
+                              ))
+                          )}
+                      </div>
+                  </div>
+              );
+          })}
 
       </div>
+
+      {hasChanges && (
+          <div className="fixed bottom-5 right-5 z-110 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-full border border-white/10 bg-slate-950/95 px-4 py-3 text-white shadow-2xl shadow-slate-950/30 backdrop-blur lg:max-w-none">
+              <div className="hidden sm:block">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-300">Plano pendente</p>
+                  <p className="text-sm font-semibold text-white">Salve a estrutura antes de sair.</p>
+              </div>
+              <button
+                  type="button"
+                  onClick={handleSaveOrder}
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 rounded-full bg-cyan-600 px-4 py-3 text-sm font-bold text-white shadow-xl transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {saving ? 'Salvando...' : 'Salvar alteracoes'}
+              </button>
+          </div>
+      )}
+
+      {managerFeedback && <FloatingFeedbackToast feedback={managerFeedback} onDismiss={() => setManagerFeedback(null)} />}
 
       {/* MODAL */}
       {modalOpen && (
           <div className="fixed inset-0 z-80 flex items-center justify-center bg-slate-900/50 dark:bg-slate-900/80 p-4 backdrop-blur-sm">
               <div className="bg-white dark:bg-slate-800 p-6 rounded-xl w-full max-w-sm border border-slate-200 dark:border-slate-700 shadow-2xl animate-scale-in">
-                  <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-lg">{modalMode === 'CREATE' ? 'Nova Categoria' : 'Editar Categoria'}</h3>
+                                    <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-lg">{modalMode === 'CREATE' ? 'Nova Categoria' : modalMode === 'MOVE' ? 'Mover Categoria' : 'Editar Categoria'}</h3>
                   <div className="space-y-4">
-                      <div>
+                                            {modalMode !== 'MOVE' && <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome</label>
                         <input autoFocus value={formData.nome} onChange={(e:any)=>setFormData({...formData, nome:e.target.value})} className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-white outline-none focus:border-blue-500" />
-                      </div>
+                                            </div>}
                       
                       {modalMode === 'EDIT' && (
                           <div>
@@ -761,21 +966,27 @@ export const PlanoContasManager = ({ categorias, onUpdateList }: { categorias: I
                           <div>
                               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tipo</label>
                               <select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white" value={formData.tipo} onChange={e=>setFormData({...formData, tipo:e.target.value})}>
-                                  <option value="R">Receita</option>
-                                  <option value="D">Despesa</option>
+                                  <option value="R">Entrada</option>
+                                  <option value="D">Saida</option>
                               </select>
                           </div>
                       )}
 
-                                            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={formData.considerar_nos_resultados}
-                                                    onChange={(e:any)=>setFormData({...formData, considerar_nos_resultados: e.target.checked})}
-                                                    className="accent-emerald-500"
-                                                />
-                                                Considerar nos resultados (KPIs/Dashboard)
-                                            </label>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Categoria pai</label>
+                          <select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white" value={formData.conta_pai_id} onChange={e=>setFormData({...formData, conta_pai_id: e.target.value ? Number(e.target.value) : ''})}>
+                              <option value="">Sem categoria pai</option>
+                              {parentOptions.map((item) => <option key={item.id} value={item.id}>{item.codigo ? `${item.codigo} - ` : ''}{item.nome}</option>)}
+                          </select>
+                      </div>
+
+                      {modalMode !== 'MOVE' && <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Operacional?</label>
+                          <div className="grid grid-cols-2 gap-2">
+                              <button type="button" onClick={()=>setFormData({...formData, considerar_nos_resultados:true})} className={`py-3 rounded-lg text-sm font-bold border transition ${formData.considerar_nos_resultados ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-900/20' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>Sim</button>
+                              <button type="button" onClick={()=>setFormData({...formData, considerar_nos_resultados:false})} className={`py-3 rounded-lg text-sm font-bold border transition ${!formData.considerar_nos_resultados ? 'bg-rose-600 text-white border-rose-600 shadow-lg shadow-rose-900/20' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>Nao</button>
+                          </div>
+                      </div>}
                       
                       <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
                           <button onClick={()=>setModalOpen(false)} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold">Cancelar</button>

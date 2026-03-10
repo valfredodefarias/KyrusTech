@@ -372,6 +372,8 @@ export function Lancamentos() {
       status: [] as string[],
       contaIds: new Set<number>(),
       categoriaIds: new Set<number>(),
+      centroCustoPresenca: 'TODOS' as 'TODOS' | 'COM' | 'SEM',
+      dataModo: 'VENCIMENTO' as 'VENCIMENTO' | 'PAGAMENTO',
       dataInicio: '',
       dataFim: ''
   });
@@ -489,7 +491,7 @@ export function Lancamentos() {
   };
 
   const getVisibleRange = () => {
-    if (filtrosAvancados.dataInicio && filtrosAvancados.dataFim) {
+    if (filtrosAvancados.dataModo === 'VENCIMENTO' && filtrosAvancados.dataInicio && filtrosAvancados.dataFim) {
       return { ini: filtrosAvancados.dataInicio, fim: filtrosAvancados.dataFim };
     }
     const ano = mesAtual.getFullYear();
@@ -550,7 +552,9 @@ export function Lancamentos() {
   }, [resumoTopoModo]);
 
   useEffect(() => { 
-    if(!filtrosAvancados.dataInicio && !filtrosAvancados.dataFim) {
+    if (filtrosAvancados.dataModo === 'PAGAMENTO' && (filtrosAvancados.dataInicio || filtrosAvancados.dataFim)) {
+      loadLancamentos(undefined, undefined, { force: true, skipFallback: true });
+    } else if(!filtrosAvancados.dataInicio && !filtrosAvancados.dataFim) {
         const ano = mesAtual.getFullYear(); const mes = mesAtual.getMonth() + 1;
         const ini = new Date(ano, mes - 1, 1).toISOString().split('T')[0];
         const fim = new Date(ano, mes, 0).toISOString().split('T')[0];
@@ -558,7 +562,7 @@ export function Lancamentos() {
     } else {
         loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
     }
-  }, [mesAtual, filtrosAvancados.dataInicio, filtrosAvancados.dataFim]);
+    }, [mesAtual, filtrosAvancados.dataInicio, filtrosAvancados.dataFim, filtrosAvancados.dataModo]);
 
   useEffect(() => {
     if (centros.length === 1) {
@@ -621,7 +625,7 @@ export function Lancamentos() {
       setLancamentos(res.data);
 
       const isEmpty = !res.data || res.data.length === 0;
-      if (!opts?.skipFallback && !opts?.force && isEmpty && ini && fim && !didFallbackAll && !filtroTexto && !filtroRapido && !centroCustoFiltro && filtrosAvancados.status.length === 0 && filtrosAvancados.contaIds.size === 0 && filtrosAvancados.categoriaIds.size === 0) {
+      if (!opts?.skipFallback && !opts?.force && isEmpty && ini && fim && !didFallbackAll && !filtroTexto && !filtroRapido && !centroCustoFiltro && filtrosAvancados.status.length === 0 && filtrosAvancados.contaIds.size === 0 && filtrosAvancados.categoriaIds.size === 0 && filtrosAvancados.centroCustoPresenca === 'TODOS') {
         setDidFallbackAll(true);
         await loadLancamentos(undefined, undefined, { force: true, skipFallback: true });
       }
@@ -727,6 +731,13 @@ export function Lancamentos() {
       // 4. Filtros Avançados
       if (filtrosAvancados.tipo !== 'TODOS' && l.tipo !== filtrosAvancados.tipo) return false;
       if (filtrosAvancados.status.length > 0 && !filtrosAvancados.status.includes(l.status)) return false;
+
+      if (filtrosAvancados.centroCustoPresenca === 'COM' && !l.centro_custo_id) return false;
+      if (filtrosAvancados.centroCustoPresenca === 'SEM' && !!l.centro_custo_id) return false;
+
+      const dataComparacao = filtrosAvancados.dataModo === 'PAGAMENTO' ? (l.data_pagamento || '') : (l.data_vencimento || '');
+      if (filtrosAvancados.dataInicio && (!dataComparacao || dataComparacao < filtrosAvancados.dataInicio)) return false;
+      if (filtrosAvancados.dataFim && (!dataComparacao || dataComparacao > filtrosAvancados.dataFim)) return false;
       
       // Filtro de Contas (Multi)
       if (filtrosAvancados.contaIds.size > 0 && (!l.conta_id || !filtrosAvancados.contaIds.has(l.conta_id))) return false;
@@ -786,8 +797,12 @@ export function Lancamentos() {
       filtros: {
         texto: filtroTexto,
         centroCusto: centroCustoFiltro || null,
+        possuiCentroCusto: filtrosAvancados.centroCustoPresenca,
         filtroRapido,
         tipo: filtrosAvancados.tipo,
+        dataModo: filtrosAvancados.dataModo,
+        dataInicio: filtrosAvancados.dataInicio || null,
+        dataFim: filtrosAvancados.dataFim || null,
         contasSelecionadas: Array.from(filtrosAvancados.contaIds),
         categoriasSelecionadas: Array.from(filtrosAvancados.categoriaIds),
       },
@@ -899,7 +914,7 @@ export function Lancamentos() {
   };
 
   const resetFiltros = () => {
-    setFiltrosAvancados({ tipo: 'TODOS', status: [], contaIds: new Set(), categoriaIds: new Set(), dataInicio: '', dataFim: '' });
+    setFiltrosAvancados({ tipo: 'TODOS', status: [], contaIds: new Set(), categoriaIds: new Set(), centroCustoPresenca: 'TODOS', dataModo: 'VENCIMENTO', dataInicio: '', dataFim: '' });
     setFiltroTexto('');
     setCentroCustoFiltro('');
     setFiltroRapido(null);
@@ -1064,7 +1079,8 @@ export function Lancamentos() {
       }
       setShowDrawer(false); 
       // Recarrega inteligente
-      if(filtrosAvancados.dataInicio) loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { force: true });
+      if(filtrosAvancados.dataModo === 'PAGAMENTO' && (filtrosAvancados.dataInicio || filtrosAvancados.dataFim)) loadLancamentos(undefined, undefined, { force: true, skipFallback: true });
+      else if(filtrosAvancados.dataInicio) loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { force: true });
       else { const ano = mesAtual.getFullYear(); const mes = mesAtual.getMonth() + 1; loadLancamentos(new Date(ano, mes-1, 1).toISOString().split('T')[0], new Date(ano, mes, 0).toISOString().split('T')[0], { force: true }); }
       await refreshContasComSaldo();
       pushToast('success', isEditing ? 'Lançamento atualizado com sucesso.' : 'Lançamento salvo com sucesso.');
@@ -1084,8 +1100,8 @@ export function Lancamentos() {
 
   // Normaliza o tipo da categoria para primeira letra (R/D) para lidar com dados "Receita/Despesa"
   const catOptions = [
-    { label: 'DESPESAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('D')).map(c=>({id:c.id, label:c.nome, tipo: c.tipo, grupo: 'DESPESAS', disabled: c.eh_cabecalho || c.permite_lancamentos === false, eh_cabecalho: c.eh_cabecalho, permite_lancamentos: c.permite_lancamentos})) },
-    { label: 'RECEITAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('R')).map(c=>({id:c.id, label:c.nome, tipo: c.tipo, grupo: 'RECEITAS', disabled: c.eh_cabecalho || c.permite_lancamentos === false, eh_cabecalho: c.eh_cabecalho, permite_lancamentos: c.permite_lancamentos})) }
+    { label: 'SAIDAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('D')).map(c=>({id:c.id, label:c.nome, tipo: c.tipo, grupo: 'SAIDAS', disabled: c.eh_cabecalho || c.permite_lancamentos === false, eh_cabecalho: c.eh_cabecalho, permite_lancamentos: c.permite_lancamentos})) },
+    { label: 'ENTRADAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('R')).map(c=>({id:c.id, label:c.nome, tipo: c.tipo, grupo: 'ENTRADAS', disabled: c.eh_cabecalho || c.permite_lancamentos === false, eh_cabecalho: c.eh_cabecalho, permite_lancamentos: c.permite_lancamentos})) }
   ];
 
   const quickFilterOptions = [
@@ -1101,6 +1117,7 @@ export function Lancamentos() {
     centroCustoFiltro ? 1 : 0,
     filtroRapido ? 1 : 0,
     filtrosAvancados.tipo !== 'TODOS' ? 1 : 0,
+    filtrosAvancados.centroCustoPresenca !== 'TODOS' ? 1 : 0,
     filtrosAvancados.dataInicio || filtrosAvancados.dataFim ? 1 : 0,
     filtrosAvancados.contaIds.size > 0 ? 1 : 0,
     filtrosAvancados.categoriaIds.size > 0 ? 1 : 0,
@@ -1275,6 +1292,43 @@ export function Lancamentos() {
                 <div className="grid grid-cols-2 gap-2">
                   <input type="date" className="rounded-xl border border-slate-300 bg-white p-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-white" value={filtrosAvancados.dataInicio} onChange={e=>setFiltrosAvancados({...filtrosAvancados, dataInicio:e.target.value})} />
                   <input type="date" className="rounded-xl border border-slate-300 bg-white p-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-white" value={filtrosAvancados.dataFim} onChange={e=>setFiltrosAvancados({...filtrosAvancados, dataFim:e.target.value})} />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase text-slate-400">Filtrar datas por</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'VENCIMENTO', label: 'Vencimento' },
+                      { id: 'PAGAMENTO', label: 'Pagamento' },
+                    ].map((modo) => (
+                      <button
+                        key={modo.id}
+                        onClick={() => setFiltrosAvancados(prev => ({ ...prev, dataModo: modo.id as 'VENCIMENTO' | 'PAGAMENTO' }))}
+                        className={`rounded-xl border px-2 py-2 text-xs font-bold transition ${filtrosAvancados.dataModo === modo.id ? 'border-cyan-600 bg-cyan-600 text-white' : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+                      >
+                        {modo.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase text-slate-400">Centro de custo no lançamento</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { id: 'TODOS', label: 'Todos' },
+                      { id: 'COM', label: 'Com CC' },
+                      { id: 'SEM', label: 'Sem CC' },
+                    ].map((opcao) => (
+                      <button
+                        key={opcao.id}
+                        onClick={() => setFiltrosAvancados(prev => ({ ...prev, centroCustoPresenca: opcao.id as 'TODOS' | 'COM' | 'SEM' }))}
+                        className={`rounded-xl border px-2 py-2 text-xs font-bold transition ${filtrosAvancados.centroCustoPresenca === opcao.id ? 'border-violet-600 bg-violet-600 text-white' : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+                      >
+                        {opcao.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div>
@@ -1585,6 +1639,43 @@ export function Lancamentos() {
                <div className="grid grid-cols-2 gap-2">
                    <input type="date" className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded p-2 text-xs text-slate-700 dark:text-white" value={filtrosAvancados.dataInicio} onChange={e=>setFiltrosAvancados({...filtrosAvancados, dataInicio:e.target.value})} />
                    <input type="date" className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded p-2 text-xs text-slate-700 dark:text-white" value={filtrosAvancados.dataFim} onChange={e=>setFiltrosAvancados({...filtrosAvancados, dataFim:e.target.value})} />
+               </div>
+           </div>
+
+           <div>
+               <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Filtrar datas por</label>
+               <div className="grid grid-cols-2 gap-2">
+                   {[
+                     { id: 'VENCIMENTO', label: 'Vencimento' },
+                     { id: 'PAGAMENTO', label: 'Pagamento' },
+                   ].map((modo) => (
+                     <button
+                       key={modo.id}
+                       onClick={() => setFiltrosAvancados(prev => ({ ...prev, dataModo: modo.id as 'VENCIMENTO' | 'PAGAMENTO' }))}
+                       className={`py-2 rounded-lg text-xs font-bold border transition ${filtrosAvancados.dataModo===modo.id ? 'bg-cyan-600 text-white border-cyan-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                     >
+                       {modo.label}
+                     </button>
+                   ))}
+               </div>
+           </div>
+
+           <div>
+               <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Centro de custo no lançamento</label>
+               <div className="grid grid-cols-3 gap-2">
+                   {[
+                     { id: 'TODOS', label: 'Todos' },
+                     { id: 'COM', label: 'Com CC' },
+                     { id: 'SEM', label: 'Sem CC' },
+                   ].map((opcao) => (
+                     <button
+                       key={opcao.id}
+                       onClick={() => setFiltrosAvancados(prev => ({ ...prev, centroCustoPresenca: opcao.id as 'TODOS' | 'COM' | 'SEM' }))}
+                       className={`py-2 rounded-lg text-xs font-bold border transition ${filtrosAvancados.centroCustoPresenca===opcao.id ? 'bg-violet-600 text-white border-violet-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                     >
+                       {opcao.label}
+                     </button>
+                   ))}
                </div>
            </div>
 

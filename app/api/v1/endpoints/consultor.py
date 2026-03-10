@@ -17,9 +17,11 @@ from app.models.consultor_empresa import ConsultorEmpresa
 from app.models.todo_item import TodoItem
 from app.api.v1.deps import get_consultor_user, get_current_active_user, get_super_consultor_user
 from app.schemas.empresa import EmpresaRead
+from app.schemas.plano_contas import PlanoContasCreate, PlanoContasRead, PlanoContasUpdate
 from app.schemas.todo import TodoCreate, TodoUpdate, TodoRead
 from app.enums import ConsultorRole
 from app.core.security import get_password_hash
+from app.crud import crud_plano_contas
 from app.crud.crud_consultor_empresa import tem_acesso
 from pydantic import BaseModel
 
@@ -95,6 +97,26 @@ def _mask_email(value: Optional[str]) -> Optional[str]:
     return f"{masked_local}@{domain}"
 
 
+def _normalizar_tipo_pessoa_template(tipo_pessoa: str) -> str:
+    valor = (tipo_pessoa or "").strip().upper()
+    if valor not in {"PF", "PJ"}:
+        raise HTTPException(status_code=400, detail="tipo_pessoa invalido. Use PF ou PJ")
+    return valor
+
+
+def _template_items_index(items: List[dict]) -> dict[int, dict]:
+    return {int(item["id"]): item for item in items}
+
+
+def _template_descendants(items_index: dict[int, dict], node_id: int) -> set[int]:
+    descendants: set[int] = set()
+    for current_id, item in items_index.items():
+        if item.get("conta_pai_id") == node_id:
+            descendants.add(current_id)
+            descendants.update(_template_descendants(items_index, current_id))
+    return descendants
+
+
 class RoleChangeRequest(BaseModel):
     """Schema para mudança de role"""
     role: str
@@ -108,6 +130,13 @@ class EmpresaContexto(BaseModel):
 class ResetPasswordRequest(BaseModel):
     """Schema para redefinição de senha"""
     new_password: str
+
+
+class PlanoContasTemplateReordenacaoItem(BaseModel):
+    id: int
+    codigo: str
+    conta_pai_id: Optional[int] = None
+    tipo: str
 
 
 @router.get("/empresas", response_model=List[EmpresaRead])
@@ -789,6 +818,153 @@ def super_deletar_usuario(
 
     logger.critical(f"[SUPER] {super_consultor.email} deletou usuário {user.email}")
     return {"mensagem": "Usuário deletado"}
+
+
+# ==========================================
+# SUPER CONSULTOR: TEMPLATES DE PLANO DE CONTAS
+# ==========================================
+
+@router.get("/super/plano-contas-templates/{tipo_pessoa}", response_model=List[PlanoContasRead])
+def listar_template_plano_contas(
+    tipo_pessoa: str,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
+    items = crud_plano_contas.get_template_items(db=db, tipo_pessoa=normalized)
+    logger.info(f"[SUPER] {super_consultor.email} listou template de plano de contas {normalized}")
+    return items
+
+
+@router.post("/super/plano-contas-templates/{tipo_pessoa}", response_model=PlanoContasRead, status_code=201)
+def criar_item_template_plano_contas(
+    tipo_pessoa: str,
+    conta_in: PlanoContasCreate,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
+    items = crud_plano_contas.get_template_items(db=db, tipo_pessoa=normalized)
+    items_index = _template_items_index(items)
+
+    conta_pai_id = conta_in.conta_pai_id
+    if conta_pai_id is not None and conta_pai_id not in items_index:
+        raise HTTPException(status_code=404, detail="Categoria pai do template nao encontrada")
+
+    parent = items_index.get(conta_pai_id) if conta_pai_id is not None else None
+    next_id = max((int(item["id"]) for item in items), default=0) + 1
+    new_item = {
+        "id": next_id,
+        "nome": conta_in.nome,
+        "tipo": parent["tipo"] if parent else conta_in.tipo,
+        "codigo": None,
+        "permite_lancamentos": conta_in.permite_lancamentos,
+        "considerar_nos_resultados": conta_in.considerar_nos_resultados,
+        "conta_pai_id": conta_pai_id,
+    }
+    items.append(new_item)
+    crud_plano_contas.save_template_items(db=db, tipo_pessoa=normalized, items=items)
+    logger.warning(f"[SUPER] {super_consultor.email} criou item no template {normalized}: {conta_in.nome}")
+    return new_item
+
+
+@router.patch("/super/plano-contas-templates/{tipo_pessoa}/{conta_id}", response_model=PlanoContasRead)
+def atualizar_item_template_plano_contas(
+    tipo_pessoa: str,
+    conta_id: int,
+    conta_in: PlanoContasUpdate,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
+    items = crud_plano_contas.get_template_items(db=db, tipo_pessoa=normalized)
+    items_index = _template_items_index(items)
+    item = items_index.get(conta_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Categoria do template nao encontrada")
+
+    update_data = conta_in.model_dump(exclude_unset=True)
+    new_parent_id = update_data.get("conta_pai_id", item.get("conta_pai_id"))
+    if new_parent_id == conta_id:
+        raise HTTPException(status_code=400, detail="A categoria nao pode ser pai dela mesma")
+    if new_parent_id is not None and new_parent_id not in items_index:
+        raise HTTPException(status_code=404, detail="Categoria pai do template nao encontrada")
+    if new_parent_id is not None and new_parent_id in _template_descendants(items_index, conta_id):
+        raise HTTPException(status_code=400, detail="Nao e permitido mover uma categoria para dentro de uma subcategoria dela")
+
+    parent = items_index.get(new_parent_id) if new_parent_id is not None else None
+    if "nome" in update_data and update_data["nome"] is not None:
+        item["nome"] = update_data["nome"]
+    if "considerar_nos_resultados" in update_data and update_data["considerar_nos_resultados"] is not None:
+        item["considerar_nos_resultados"] = update_data["considerar_nos_resultados"]
+    if "permite_lancamentos" in update_data and update_data["permite_lancamentos"] is not None:
+        item["permite_lancamentos"] = update_data["permite_lancamentos"]
+    if "tipo" in update_data and update_data["tipo"] is not None:
+        item["tipo"] = update_data["tipo"]
+    if "conta_pai_id" in update_data:
+        item["conta_pai_id"] = new_parent_id
+        if parent:
+            item["tipo"] = parent["tipo"]
+
+    crud_plano_contas.save_template_items(db=db, tipo_pessoa=normalized, items=items)
+    logger.warning(f"[SUPER] {super_consultor.email} atualizou item {conta_id} do template {normalized}")
+    return item
+
+
+@router.delete("/super/plano-contas-templates/{tipo_pessoa}/{conta_id}")
+def deletar_item_template_plano_contas(
+    tipo_pessoa: str,
+    conta_id: int,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
+    items = crud_plano_contas.get_template_items(db=db, tipo_pessoa=normalized)
+    item = next((current for current in items if int(current["id"]) == conta_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Categoria do template nao encontrada")
+
+    child_count = sum(1 for current in items if current.get("conta_pai_id") == conta_id)
+    if child_count > 0:
+        raise HTTPException(status_code=400, detail="Nao e possivel excluir uma categoria do template que possui subcategorias")
+
+    updated_items = [current for current in items if int(current["id"]) != conta_id]
+    crud_plano_contas.save_template_items(db=db, tipo_pessoa=normalized, items=updated_items)
+    logger.warning(f"[SUPER] {super_consultor.email} removeu item {conta_id} do template {normalized}")
+    return {"ok": True}
+
+
+@router.post("/super/plano-contas-templates/{tipo_pessoa}/reordenar")
+def reordenar_template_plano_contas(
+    tipo_pessoa: str,
+    itens: List[PlanoContasTemplateReordenacaoItem],
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
+    items = crud_plano_contas.get_template_items(db=db, tipo_pessoa=normalized)
+    items_index = _template_items_index(items)
+
+    if len(items) != len(itens):
+        raise HTTPException(status_code=400, detail="Envie a estrutura completa do template para reordenar")
+
+    updated_items: List[dict] = []
+    for payload in itens:
+        current = items_index.get(payload.id)
+        if not current:
+            raise HTTPException(status_code=404, detail=f"Categoria do template {payload.id} nao encontrada")
+        updated_items.append(
+            {
+                **current,
+                "codigo": payload.codigo,
+                "conta_pai_id": payload.conta_pai_id,
+                "tipo": payload.tipo,
+            }
+        )
+
+    crud_plano_contas.save_template_items(db=db, tipo_pessoa=normalized, items=updated_items)
+    logger.warning(f"[SUPER] {super_consultor.email} reordenou template {normalized}")
+    return {"message": "Template salvo com sucesso"}
 
 
 # ==========================================

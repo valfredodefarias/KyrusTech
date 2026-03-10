@@ -116,8 +116,11 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
   const companyTitle = empresa?.nome_fantasia || 'KyrusTECH';
 
   const handleLogout = () => {
-    logout();
-    onNavigate?.();
+    api.post('/auth/logout').catch(() => undefined).finally(() => {
+      logout();
+      onNavigate?.();
+      window.location.href = '/';
+    });
   };
 
   return (

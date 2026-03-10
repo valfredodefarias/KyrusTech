@@ -1,7 +1,8 @@
 import requests
 
-# Fazer login
-response = requests.post(
+session = requests.Session()
+
+login_response = session.post(
     "http://localhost:8000/api/v1/auth/login",
     data={
         "username": "admin@kyrustech.com",
@@ -9,19 +10,16 @@ response = requests.post(
     }
 )
 
-print(f"Login Status: {response.status_code}")
-if response.status_code == 200:
-    token = response.json()["access_token"]
-    print(f"Token: {token}")
-    
-    # Agora testar o endpoint com token válido
-    headers = {"Authorization": f"Bearer {token}"}
-    
-    response2 = requests.get(
-        "http://localhost:8000/api/v1/consultor/super/consultores",
-        headers=headers
-    )
-    print(f"Endpoint Status: {response2.status_code}")
-    print(f"Response: {response2.text}")
+print(f"Login Status: {login_response.status_code}")
+if login_response.status_code == 200:
+    print(f"Sessao criada por {login_response.json()['expires_in_minutes']} minutos")
+    print(f"Cookies recebidos: {session.cookies.get_dict()}")
+
+    response = session.get("http://localhost:8000/api/v1/consultor/super/consultores")
+    print(f"Endpoint Status: {response.status_code}")
+    print(f"Response: {response.text}")
+
+    logout_response = session.post("http://localhost:8000/api/v1/auth/logout")
+    print(f"Logout Status: {logout_response.status_code}")
 else:
-    print(f"Login failed: {response.text}")
+    print(f"Login failed: {login_response.text}")

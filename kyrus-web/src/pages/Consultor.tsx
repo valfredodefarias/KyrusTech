@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
+import { PlanoContasManager } from './Importacao';
+import type { ItemSistema } from './Importacao';
 import { 
   Building2, Search, UserPlus, ArrowRightLeft, Briefcase, Upload, X, Loader2, Pencil, Users, Shield, Plus, Trash2, ChevronDown, ChevronUp,
-  ClipboardList, CheckCircle2, Circle, KeyRound, Sparkles, BarChart3
+  ClipboardList, CheckCircle2, Circle, KeyRound, Sparkles, BarChart3, Layers
 } from 'lucide-react';
 
 // --- TIPAGENS ---
@@ -145,7 +147,7 @@ export function Consultor() {
   const [consultorEmpresas, setConsultorEmpresas] = useState<ConsultorEmpresa[]>([]);
   const [loadingConsultorEmpresas, setLoadingConsultorEmpresas] = useState(false);
   const [expandedConsultorId, setExpandedConsultorId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<'empresas' | 'consultores' | 'usuarios' | 'tarefas'>('empresas');
+  const [activeTab, setActiveTab] = useState<'empresas' | 'consultores' | 'planos-padrao' | 'usuarios' | 'tarefas'>('empresas');
 
   // Usuários
   const [usuarios, setUsuarios] = useState<UsuarioItem[]>([]);
@@ -178,7 +180,7 @@ export function Consultor() {
 
   const [showTodoForm, setShowTodoForm] = useState(false);
 
-  const [currentUser, setCurrentUser] = useState<{ id: number; email: string; consultor_role: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ id: number; email: string; consultor_role: string; empresa_id?: number | null } | null>(null);
 
   // States Formulários
   const [newUser, setNewUser] = useState<NovoUsuario>({
@@ -193,6 +195,9 @@ export function Consultor() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [templateTipoPessoa, setTemplateTipoPessoa] = useState<'PF' | 'PJ'>('PJ');
+  const [templateCategorias, setTemplateCategorias] = useState<ItemSistema[]>([]);
+  const [loadingTemplateCategorias, setLoadingTemplateCategorias] = useState(false);
 
   useEffect(() => {
     carregarEmpresas();
@@ -203,11 +208,16 @@ export function Consultor() {
     if (currentUser?.id && !todoConsultorId) setTodoConsultorId(currentUser.id);
   }, [currentUser, todoConsultorId]);
 
+  useEffect(() => {
+    if (!isSuperConsultor || activeTab !== 'planos-padrao') return;
+    carregarTemplatePlanoContas(templateTipoPessoa);
+  }, [activeTab, isSuperConsultor, templateTipoPessoa]);
+
   async function verificarSuperConsultor() {
     try {
       const res = await api.get('/usuarios/me');
       const isSuper = res.data.consultor_role === 'SUPER_CONSULTOR';
-      setCurrentUser({ id: res.data.id, email: res.data.email, consultor_role: res.data.consultor_role });
+      setCurrentUser({ id: res.data.id, email: res.data.email, consultor_role: res.data.consultor_role, empresa_id: res.data.empresa_id ?? null });
       setIsSuperConsultor(isSuper);
       if (isSuper) {
         carregarConsultores();
@@ -255,6 +265,19 @@ export function Consultor() {
       console.error("Erro ao listar usuários", error);
     } finally {
       setLoadingUsuarios(false);
+    }
+  }
+
+  async function carregarTemplatePlanoContas(tipoPessoa: 'PF' | 'PJ') {
+    try {
+      setLoadingTemplateCategorias(true);
+      const res = await api.get(`/consultor/super/plano-contas-templates/${tipoPessoa}`);
+      setTemplateCategorias(res.data || []);
+    } catch (error) {
+      console.error(`Erro ao carregar template ${tipoPessoa}`, error);
+      setTemplateCategorias([]);
+    } finally {
+      setLoadingTemplateCategorias(false);
     }
   }
 
@@ -596,7 +619,10 @@ export function Consultor() {
       // Se for consultor, não envia empresa_id (será null/0)
       const payload = {
         ...newUser,
-        empresa_id: newUser.is_consultor ? null : (newUser.empresa_id || null)
+        empresa_id: isSuperConsultor
+          ? (newUser.is_consultor ? null : (newUser.empresa_id || null))
+          : (currentUser?.empresa_id || null),
+        is_consultor: isSuperConsultor ? newUser.is_consultor : false,
       };
       await api.post('/usuarios/', payload);
       setShowUserModal(false);
@@ -730,6 +756,7 @@ export function Consultor() {
   const tabItems = [
     { key: 'empresas' as const, label: 'Minhas Empresas', icon: Building2, visible: true },
     { key: 'consultores' as const, label: 'Gerenciar Consultores', icon: Users, visible: isSuperConsultor },
+    { key: 'planos-padrao' as const, label: 'Planos Padrão', icon: Layers, visible: isSuperConsultor },
     { key: 'usuarios' as const, label: 'Usuários', icon: Shield, visible: isSuperConsultor },
     { key: 'tarefas' as const, label: 'To-do', icon: ClipboardList, visible: true },
   ].filter((item) => item.visible);
@@ -753,9 +780,11 @@ export function Consultor() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
-              <button onClick={handleOpenCreate} className="rounded-2xl bg-emerald-600 px-4 py-3 font-bold text-white transition hover:bg-emerald-700 flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20">
-                <Building2 size={18} /> Nova Empresa
-              </button>
+              {isSuperConsultor && (
+                <button onClick={handleOpenCreate} className="rounded-2xl bg-emerald-600 px-4 py-3 font-bold text-white transition hover:bg-emerald-700 flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20">
+                  <Building2 size={18} /> Nova Empresa
+                </button>
+              )}
               <button onClick={() => setShowUserModal(true)} className="rounded-2xl bg-blue-600 px-4 py-3 font-bold text-white transition hover:bg-blue-700 flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20">
                 <UserPlus size={18} /> Novo Usuário
               </button>
@@ -1012,6 +1041,55 @@ export function Consultor() {
           </div>
         )}
       </div>
+      )}
+
+      {activeTab === 'planos-padrao' && isSuperConsultor && (
+        <div className="space-y-6">
+          <div className="rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-blue-700 dark:border-blue-900 dark:bg-blue-500/10 dark:text-blue-300">
+                  <Layers className="h-3.5 w-3.5" />
+                  Templates globais
+                </div>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white">Plano de contas padrão PF e PJ</h2>
+                <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">O que você editar aqui passa a ser a base usada em novas empresas. Super consultor pode estruturar, mover, criar subcategorias e marcar o que entra no resultado.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTemplateTipoPessoa('PJ')}
+                  className={`rounded-2xl px-4 py-2.5 text-sm font-bold transition ${templateTipoPessoa === 'PJ' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                >
+                  Pessoa Juridica
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTemplateTipoPessoa('PF')}
+                  className={`rounded-2xl px-4 py-2.5 text-sm font-bold transition ${templateTipoPessoa === 'PF' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                >
+                  Pessoa Fisica
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {loadingTemplateCategorias ? (
+            <div className="rounded-3xl border border-slate-200 bg-white/90 p-10 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
+              <Loader2 className="mx-auto h-8 w-8 animate-spin text-blue-500" />
+              <p className="mt-3 text-sm text-slate-500 dark:text-slate-300">Carregando template {templateTipoPessoa}...</p>
+            </div>
+          ) : (
+            <div className="rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
+              <PlanoContasManager
+                categorias={templateCategorias}
+                onUpdateList={setTemplateCategorias}
+                apiBasePath={`/consultor/super/plano-contas-templates/${templateTipoPessoa}`}
+                syncWithLookupStore={false}
+              />
+            </div>
+          )}
+        </div>
       )}
 
       {/* ABA USUÁRIOS (SUPER-CONSULTOR ONLY) */}
@@ -1587,15 +1665,21 @@ export function Consultor() {
               </div>
               <div>
                 <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Vincular Empresa</label>
-                <select className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" value={newUser.empresa_id} onChange={e => setNewUser({...newUser, empresa_id: Number(e.target.value)})} disabled={newUser.is_consultor}>
+                <select className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" value={isSuperConsultor ? newUser.empresa_id : (currentUser?.empresa_id || 0)} onChange={e => setNewUser({...newUser, empresa_id: Number(e.target.value)})} disabled={!isSuperConsultor || newUser.is_consultor}>
                   <option value={0}>{newUser.is_consultor ? '-- Consultores acessam múltiplas empresas --' : '-- Selecione --'}</option>
-                  {!newUser.is_consultor && empresas.map(emp => (<option key={emp.id} value={emp.id}>{emp.nome_fantasia}</option>))}
+                  {!newUser.is_consultor && (isSuperConsultor ? empresas : empresas.filter(emp => emp.id === currentUser?.empresa_id)).map(emp => (<option key={emp.id} value={emp.id}>{emp.nome_fantasia}</option>))}
                 </select>
               </div>
-              <div className="flex items-center gap-2 pt-2 bg-slate-50 dark:bg-slate-700/50 p-2 rounded">
-                <input type="checkbox" id="isConsultorCheck" checked={newUser.is_consultor} onChange={e => setNewUser({...newUser, is_consultor: e.target.checked})} className="w-4 h-4 text-blue-600 rounded" />
-                <label htmlFor="isConsultorCheck" className="text-sm text-slate-700 dark:text-slate-300 cursor-pointer select-none">Dar permissão de <strong>Consultor</strong>?</label>
-              </div>
+              {isSuperConsultor ? (
+                <div className="flex items-center gap-2 pt-2 bg-slate-50 dark:bg-slate-700/50 p-2 rounded">
+                  <input type="checkbox" id="isConsultorCheck" checked={newUser.is_consultor} onChange={e => setNewUser({...newUser, is_consultor: e.target.checked})} className="w-4 h-4 text-blue-600 rounded" />
+                  <label htmlFor="isConsultorCheck" className="text-sm text-slate-700 dark:text-slate-300 cursor-pointer select-none">Dar permissão de <strong>Consultor</strong>?</label>
+                </div>
+              ) : (
+                <div className="rounded bg-slate-50 p-2 text-xs text-slate-500 dark:bg-slate-700/50 dark:text-slate-300">
+                  Usuários criados aqui ficam vinculados à empresa em contexto e não recebem permissões de consultor.
+                </div>
+              )}
               <button type="submit" className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition shadow-lg mt-4">Criar Usuário</button>
             </form>
           </div>

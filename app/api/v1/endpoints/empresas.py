@@ -12,9 +12,27 @@ from app.db.session import get_db
 from app.crud.crud_empresa import create_empresa, get_empresa, update_empresa
 from app.schemas.empresa import EmpresaCreate, EmpresaRead, EmpresaUpdate
 from app.models.empresa import Empresa
-from app.api.v1.deps import get_empresa_id_from_user, get_current_active_user, get_consultor_user 
+from app.api.v1.deps import get_current_active_user, get_consultor_user, get_super_consultor_user 
+from app.crud.crud_consultor_empresa import tem_acesso
+from app.enums import ConsultorRole
 
 router = APIRouter()
+
+
+def _is_super_consultor(current_user) -> bool:
+    return bool(current_user.is_consultor and current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value)
+
+
+def _ensure_empresa_access(current_user, db: Session, empresa_id: int) -> None:
+    if current_user.is_consultor:
+        if _is_super_consultor(current_user):
+            return
+        if tem_acesso(db, int(current_user.id), empresa_id):
+            return
+        raise HTTPException(status_code=403, detail="Você não tem permissão para acessar esta empresa.")
+
+    if current_user.empresa_id != empresa_id:
+        raise HTTPException(status_code=403, detail="Você não tem permissão para acessar esta empresa.")
 
 # --- CONFIGURAÇÃO DE UPLOAD ---
 UPLOAD_DIR = Path("static/logos")
@@ -29,12 +47,21 @@ def read_empresas(
     db: Session = Depends(get_db),
     current_user = Depends(get_consultor_user)
 ):
-    empresas = db.exec(
-        select(Empresa)
-        .where(Empresa.is_deleted == False)
-        .offset(skip)
-        .limit(limit)
-    ).all()
+    query = select(Empresa).where(Empresa.is_deleted == False)
+    if not _is_super_consultor(current_user):
+        from app.models.consultor_empresa import ConsultorEmpresa
+
+        empresa_ids = db.exec(
+            select(ConsultorEmpresa.empresa_id).where(
+                ConsultorEmpresa.usuario_id == current_user.id,
+                ConsultorEmpresa.ativo == True,
+            )
+        ).all()
+        if not empresa_ids:
+            return []
+        query = query.where(Empresa.id.in_(empresa_ids))
+
+    empresas = db.exec(query.offset(skip).limit(limit)).all()
     return empresas
 
 # --- ROTA BLINDADA: CRIAR EMPRESA ---
@@ -43,7 +70,7 @@ def create_endpoint(
     *,
     db: Session = Depends(get_db), 
     empresa_in: EmpresaCreate,
-    current_user = Depends(get_consultor_user)
+    current_user = Depends(get_super_consultor_user)
 ):
     logger.info(f"Criando empresa: {empresa_in.nome_fantasia}")
     
@@ -63,8 +90,7 @@ def read_endpoint(
     empresa_id: int,
     current_user = Depends(get_current_active_user)
 ):
-    if not current_user.is_consultor and current_user.empresa_id != empresa_id:
-        raise HTTPException(status_code=403, detail="Você não tem permissão para ver esta empresa.")
+    _ensure_empresa_access(current_user, db, empresa_id)
         
     empresa = get_empresa(db, empresa_id)
     if not empresa or empresa.is_deleted:
@@ -82,8 +108,7 @@ def update_endpoint(
     empresa_in: EmpresaUpdate,
     current_user = Depends(get_current_active_user)
 ):
-    if not current_user.is_consultor and current_user.empresa_id != empresa_id:
-         raise HTTPException(status_code=403, detail="Acesso negado")
+    _ensure_empresa_access(current_user, db, empresa_id)
 
     db_obj = get_empresa(db, empresa_id)
     if not db_obj or db_obj.is_deleted:
@@ -115,8 +140,7 @@ def upload_logo(
         raise HTTPException(400, detail="Apenas imagens (JPG, PNG, WEBP) são permitidas.")
 
     # 1. Verifica Permissão
-    if not current_user.is_consultor and current_user.empresa_id != empresa_id:
-         raise HTTPException(status_code=403, detail="Acesso negado")
+    _ensure_empresa_access(current_user, db, empresa_id)
 
     db_obj = get_empresa(db, empresa_id)
     if not db_obj or db_obj.is_deleted:

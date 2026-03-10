@@ -1,10 +1,23 @@
 # app/crud/crud_plano_contas.py
 
 import re
-from typing import List, Optional
+from copy import deepcopy
+from typing import Any, Optional
+
 from sqlmodel import Session, select
+
 from app.models.plano_contas import PlanoContas
+from app.models.plano_contas_template_config import PlanoContasTemplateConfig
 from app.schemas.plano_contas import PlanoContasCreate, PlanoContasUpdate
+
+
+TemplateNode = dict[str, Any]
+TemplateItem = dict[str, Any]
+
+TEMPLATE_CONFIG_KEYS = {
+    "PF": "template-default-pf",
+    "PJ": "template-default-pj",
+}
 
 
 def _apply_model_update(db_obj, update_data: dict) -> None:
@@ -24,6 +37,11 @@ def _normalizar_tipo_plano(tipo: Optional[str], default: str = "D") -> str:
     return default
 
 
+def _normalizar_tipo_pessoa(tipo_pessoa: Optional[str]) -> str:
+    valor = (tipo_pessoa or "PJ").strip().upper()
+    return "PF" if valor == "PF" else "PJ"
+
+
 def _strip_codigo_prefixo(nome: str) -> str:
     texto = (nome or "").strip()
     match = re.match(r"^\s*\d+(?:\.\d+)*\.?\s+(.+)$", texto)
@@ -31,20 +49,291 @@ def _strip_codigo_prefixo(nome: str) -> str:
         return match.group(1).strip()
     return texto
 
-# --- FUNÇÕES BÁSICAS DE CRUD (Faltavam estas) ---
+
+def _pf_template_nodes() -> list[TemplateNode]:
+    return [
+        {
+            "nome": "Receitas",
+            "tipo": "R",
+            "permite_lancamentos": False,
+            "children": [
+                {
+                    "nome": "Renda Principal",
+                    "tipo": "R",
+                    "permite_lancamentos": False,
+                    "children": [
+                        {"nome": "Salario", "tipo": "R"},
+                        {"nome": "Pro-labore", "tipo": "R"},
+                    ],
+                },
+                {
+                    "nome": "Rendas Extras",
+                    "tipo": "R",
+                    "permite_lancamentos": False,
+                    "children": [
+                        {"nome": "Freelance", "tipo": "R"},
+                        {"nome": "Rendimentos", "tipo": "R"},
+                    ],
+                },
+            ],
+        },
+        {
+            "nome": "Despesas",
+            "tipo": "D",
+            "permite_lancamentos": False,
+            "children": [
+                {
+                    "nome": "Moradia",
+                    "tipo": "D",
+                    "permite_lancamentos": False,
+                    "children": [
+                        {"nome": "Aluguel", "tipo": "D"},
+                        {"nome": "Condominio", "tipo": "D"},
+                        {"nome": "Agua e Luz", "tipo": "D"},
+                    ],
+                },
+                {
+                    "nome": "Alimentacao",
+                    "tipo": "D",
+                    "permite_lancamentos": False,
+                    "children": [
+                        {"nome": "Mercado", "tipo": "D"},
+                        {"nome": "Restaurantes", "tipo": "D"},
+                    ],
+                },
+                {
+                    "nome": "Transporte",
+                    "tipo": "D",
+                    "permite_lancamentos": False,
+                    "children": [
+                        {"nome": "Combustivel", "tipo": "D"},
+                        {"nome": "Uber/Taxi", "tipo": "D"},
+                    ],
+                },
+            ],
+        },
+    ]
+
+
+def _pj_template_nodes() -> list[TemplateNode]:
+    return [
+        {
+            "nome": "Receitas Operacionais",
+            "tipo": "R",
+            "permite_lancamentos": False,
+            "children": [
+                {"nome": "Cartoes de Credito", "tipo": "R"},
+                {"nome": "Cartoes de Debito", "tipo": "R"},
+                {"nome": "Vale Refeicao/Alimentacao", "tipo": "R"},
+                {"nome": "Cheque", "tipo": "R"},
+                {"nome": "Boleto", "tipo": "R"},
+                {"nome": "Deposito", "tipo": "R"},
+                {"nome": "Dinheiro", "tipo": "R"},
+                {"nome": "Outros Recebimentos Operacionais", "tipo": "R"},
+            ],
+        },
+        {
+            "nome": "Abatimento de Vendas",
+            "tipo": "D",
+            "permite_lancamentos": False,
+            "children": [
+                {
+                    "nome": "Imposto sobre Faturamento",
+                    "tipo": "D",
+                    "permite_lancamentos": False,
+                    "children": [
+                        {"nome": "ICMS", "tipo": "D"},
+                        {"nome": "ISS", "tipo": "D"},
+                        {"nome": "PIS", "tipo": "D"},
+                        {"nome": "COFINS", "tipo": "D"},
+                        {"nome": "SIMPLES", "tipo": "D"},
+                        {"nome": "IR", "tipo": "D"},
+                        {"nome": "CSLL", "tipo": "D"},
+                    ],
+                },
+                {"nome": "Devolucoes de Vendas", "tipo": "D"},
+            ],
+        },
+        {
+            "nome": "Custos",
+            "tipo": "D",
+            "permite_lancamentos": False,
+            "children": [
+                {
+                    "nome": "Operacao",
+                    "tipo": "D",
+                    "permite_lancamentos": False,
+                    "children": [
+                        {"nome": "Fornecedores", "tipo": "D"},
+                        {"nome": "Fretes", "tipo": "D"},
+                        {"nome": "Energia", "tipo": "D"},
+                        {"nome": "Tarifas", "tipo": "D"},
+                        {"nome": "Embalagens e Similares", "tipo": "D"},
+                        {"nome": "Manutencao de Maquinas e Equipamentos", "tipo": "D"},
+                        {"nome": "Seguro de Maquinarios", "tipo": "D"},
+                        {"nome": "Seguro com Mercadorias", "tipo": "D"},
+                        {"nome": "Outros Custos na Operacao", "tipo": "D"},
+                    ],
+                },
+                {
+                    "nome": "Logistica",
+                    "tipo": "D",
+                    "permite_lancamentos": False,
+                    "children": [
+                        {"nome": "Multas de Transito", "tipo": "D"},
+                        {"nome": "Manutencao de Transportes", "tipo": "D"},
+                        {"nome": "Combustivel", "tipo": "D"},
+                        {"nome": "Vistorias e Taxas DETRAN", "tipo": "D"},
+                        {"nome": "Tercerizacao de Veiculos", "tipo": "D"},
+                        {"nome": "Seguro de Veiculos", "tipo": "D"},
+                        {"nome": "Aluguel de Maquinarios Logisticos", "tipo": "D"},
+                        {"nome": "Estacionamentos e Pedagios", "tipo": "D"},
+                        {"nome": "Outros Custos com Logisticas", "tipo": "D"},
+                    ],
+                },
+                {
+                    "nome": "Comercial e Marketing",
+                    "tipo": "D",
+                    "permite_lancamentos": False,
+                    "children": [
+                        {"nome": "Comissoes", "tipo": "D"},
+                        {"nome": "Publicidade e Divulgacao", "tipo": "D"},
+                        {"nome": "Eventos e Feiras", "tipo": "D"},
+                        {"nome": "Brindes e Similares", "tipo": "D"},
+                        {"nome": "Viagens Comerciais", "tipo": "D"},
+                        {"nome": "Outros Custos com Comercial e Marketing (MKT)", "tipo": "D"},
+                    ],
+                },
+            ],
+        },
+        {
+            "nome": "Despesas",
+            "tipo": "D",
+            "permite_lancamentos": False,
+            "children": [
+                {
+                    "nome": "Despesas de Pessoal",
+                    "tipo": "D",
+                    "permite_lancamentos": False,
+                    "children": [
+                        {"nome": "Salario/ Bolsas/ Autonomia", "tipo": "D"},
+                        {"nome": "Pro-labore", "tipo": "D"},
+                        {"nome": "Encargos Sociais", "tipo": "D"},
+                        {"nome": "Gratificacoes", "tipo": "D"},
+                    ],
+                },
+            ],
+        },
+    ]
+
+
+def _default_template_nodes(tipo_pessoa: str) -> list[TemplateNode]:
+    normalized = _normalizar_tipo_pessoa(tipo_pessoa)
+    return deepcopy(_pf_template_nodes() if normalized == "PF" else _pj_template_nodes())
+
+
+def _flatten_template_nodes(nodes: list[TemplateNode]) -> list[TemplateItem]:
+    flat_items: list[TemplateItem] = []
+    next_id = 1
+
+    def traverse(group_nodes: list[TemplateNode], prefix: str, parent_id: Optional[int] = None) -> None:
+        nonlocal next_id
+        for index, node in enumerate(group_nodes, start=1):
+            node_id = next_id
+            next_id += 1
+            codigo = f"{prefix}.{str(index).zfill(2)}"
+            flat_items.append(
+                {
+                    "id": node_id,
+                    "nome": _strip_codigo_prefixo(str(node.get("nome", ""))),
+                    "tipo": _normalizar_tipo_plano(node.get("tipo"), default="D"),
+                    "codigo": codigo,
+                    "permite_lancamentos": bool(node.get("permite_lancamentos", not bool(node.get("children")))),
+                    "considerar_nos_resultados": bool(node.get("considerar_nos_resultados", True)),
+                    "conta_pai_id": parent_id,
+                }
+            )
+
+            children = node.get("children") or []
+            if children:
+                traverse(children, codigo, node_id)
+
+    receitas = [node for node in nodes if _normalizar_tipo_plano(node.get("tipo"), default="D") == "R"]
+    despesas = [node for node in nodes if _normalizar_tipo_plano(node.get("tipo"), default="D") == "D"]
+    traverse(receitas, "1")
+    traverse(despesas, "2")
+    return flat_items
+
+
+def _default_template_items(tipo_pessoa: str) -> list[TemplateItem]:
+    return _flatten_template_nodes(_default_template_nodes(tipo_pessoa))
+
+
+def _template_config_key(tipo_pessoa: str) -> str:
+    return TEMPLATE_CONFIG_KEYS[_normalizar_tipo_pessoa(tipo_pessoa)]
+
+
+def _sanitize_template_item(item: dict[str, Any]) -> TemplateItem:
+    return {
+        "id": int(item["id"]),
+        "nome": _strip_codigo_prefixo(str(item.get("nome", "")).strip()),
+        "tipo": _normalizar_tipo_plano(item.get("tipo"), default="D"),
+        "codigo": item.get("codigo"),
+        "permite_lancamentos": bool(item.get("permite_lancamentos", True)),
+        "considerar_nos_resultados": bool(item.get("considerar_nos_resultados", True)),
+        "conta_pai_id": item.get("conta_pai_id"),
+    }
+
+
+def get_template_config(db: Session, *, tipo_pessoa: str) -> Optional[PlanoContasTemplateConfig]:
+    normalized = _normalizar_tipo_pessoa(tipo_pessoa)
+    return db.exec(
+        select(PlanoContasTemplateConfig).where(
+            PlanoContasTemplateConfig.tipo_pessoa == normalized,
+            PlanoContasTemplateConfig.config_key == _template_config_key(normalized),
+        )
+    ).first()
+
+
+def get_template_items(db: Session, *, tipo_pessoa: str) -> list[TemplateItem]:
+    normalized = _normalizar_tipo_pessoa(tipo_pessoa)
+    config = get_template_config(db=db, tipo_pessoa=normalized)
+    if not config or not config.items:
+        return _default_template_items(normalized)
+
+    items = [_sanitize_template_item(item) for item in config.items]
+    return sorted(items, key=lambda item: ((item.get("codigo") or "zzz"), item.get("nome") or ""))
+
+
+def save_template_items(db: Session, *, tipo_pessoa: str, items: list[dict[str, Any]]) -> list[TemplateItem]:
+    normalized = _normalizar_tipo_pessoa(tipo_pessoa)
+    sanitized_items = [_sanitize_template_item(item) for item in items]
+    config = get_template_config(db=db, tipo_pessoa=normalized)
+    if not config:
+        config = PlanoContasTemplateConfig(
+            tipo_pessoa=normalized,
+            config_key=_template_config_key(normalized),
+            items=[],
+        )
+
+    config.items = sanitized_items
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+    return [_sanitize_template_item(item) for item in config.items]
+
 
 def get(db: Session, *, id: int, empresa_id: int) -> Optional[PlanoContas]:
-    """Busca uma categoria específica pelo ID e Empresa."""
     statement = select(PlanoContas).where(PlanoContas.id == id, PlanoContas.empresa_id == empresa_id)
     return db.exec(statement).first()
 
-def get_by_empresa(db: Session, *, empresa_id: int) -> List[PlanoContas]:
-    """Busca todas as categorias da empresa."""
+
+def get_by_empresa(db: Session, *, empresa_id: int) -> list[PlanoContas]:
     statement = select(PlanoContas).where(PlanoContas.empresa_id == empresa_id).order_by(PlanoContas.nome)
     return list(db.exec(statement).all())
 
+
 def create(db: Session, *, obj_in: PlanoContasCreate, empresa_id: int) -> PlanoContas:
-    """Cria uma nova categoria manualmente."""
     data = obj_in.model_dump()
     data["tipo"] = _normalizar_tipo_plano(data.get("tipo"), default="D")
     data["empresa_id"] = empresa_id
@@ -54,8 +343,8 @@ def create(db: Session, *, obj_in: PlanoContasCreate, empresa_id: int) -> PlanoC
     db.refresh(db_obj)
     return db_obj
 
+
 def update(db: Session, *, db_obj: PlanoContas, obj_in: PlanoContasUpdate) -> PlanoContas:
-    """Atualiza uma categoria existente."""
     update_data = obj_in.model_dump(exclude_unset=True)
     if "codigo" in update_data and isinstance(update_data["codigo"], str) and not update_data["codigo"].strip():
         update_data.pop("codigo")
@@ -67,361 +356,31 @@ def update(db: Session, *, db_obj: PlanoContas, obj_in: PlanoContasUpdate) -> Pl
     db.refresh(db_obj)
     return db_obj
 
+
 def delete(db: Session, *, id: int, empresa_id: int) -> Optional[PlanoContas]:
-    """Remove uma categoria."""
     db_obj = get(db=db, id=id, empresa_id=empresa_id)
     if db_obj:
         db.delete(db_obj)
         db.commit()
     return db_obj
 
-# --- SUA FUNÇÃO DE SEED (Mantida intacta) ---
 
 def seed_plano_contas_padrao(db: Session, *, empresa_id: int, tipo_pessoa: str = "PJ"):
-    """
-    Cria plano de contas padrão completo e profissional.
-    Baseado em melhores práticas de gestão financeira empresarial.
-    Estrutura hierárquica que permite personalização por empresa.
-    """
-    if tipo_pessoa.upper() == "PF":
-        plano_estrutura = {
-            "1. RECEITAS": {
-                "tipo": "R",
-                "codigo": "1",
-                "permite_lancamentos": False,
-                "filhas": {
-                    "1.1 Renda Principal": {
-                        "tipo": "R",
-                        "codigo": "1.1",
-                        "permite_lancamentos": False,
-                        "filhas": [
-                            {"nome": "1.1.1 Salário", "tipo": "R", "codigo": "1.1.1"},
-                            {"nome": "1.1.2 Pró-labore", "tipo": "R", "codigo": "1.1.2"},
-                        ]
-                    },
-                    "1.2 Rendas Extras": {
-                        "tipo": "R",
-                        "codigo": "1.2",
-                        "permite_lancamentos": False,
-                        "filhas": [
-                            {"nome": "1.2.1 Freelance", "tipo": "R", "codigo": "1.2.1"},
-                            {"nome": "1.2.2 Rendimentos", "tipo": "R", "codigo": "1.2.2"},
-                        ]
-                    }
-                }
-            },
-            "2. DESPESAS": {
-                "tipo": "D",
-                "codigo": "2",
-                "permite_lancamentos": False,
-                "filhas": {
-                    "2.1 Moradia": {
-                        "tipo": "D",
-                        "codigo": "2.1",
-                        "permite_lancamentos": False,
-                        "filhas": [
-                            {"nome": "2.1.1 Aluguel", "tipo": "D", "codigo": "2.1.1"},
-                            {"nome": "2.1.2 Condomínio", "tipo": "D", "codigo": "2.1.2"},
-                            {"nome": "2.1.3 Água e Luz", "tipo": "D", "codigo": "2.1.3"},
-                        ]
-                    },
-                    "2.2 Alimentação": {
-                        "tipo": "D",
-                        "codigo": "2.2",
-                        "permite_lancamentos": False,
-                        "filhas": [
-                            {"nome": "2.2.1 Mercado", "tipo": "D", "codigo": "2.2.1"},
-                            {"nome": "2.2.2 Restaurantes", "tipo": "D", "codigo": "2.2.2"},
-                        ]
-                    },
-                    "2.3 Transporte": {
-                        "tipo": "D",
-                        "codigo": "2.3",
-                        "permite_lancamentos": False,
-                        "filhas": [
-                            {"nome": "2.3.1 Combustível", "tipo": "D", "codigo": "2.3.1"},
-                            {"nome": "2.3.2 Uber/Taxi", "tipo": "D", "codigo": "2.3.2"},
-                        ]
-                    }
-                }
-            }
-        }
-    else:
-        plano_estrutura = {
-        "1. RECEITAS": {
-            "tipo": "R",
-            "codigo": "1",
-            "permite_lancamentos": False,
-            "filhas": {
-                "1.1 Receitas Operacionais": {
-                    "tipo": "R",
-                    "codigo": "1.1",
-                    "permite_lancamentos": False,
-                    "filhas": {
-                        "1.1.1 Vendas de Produtos": {
-                            "tipo": "R",
-                            "codigo": "1.1.1",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "1.1.1.1 Vendas de Produtos - Mercado Interno", "tipo": "R", "codigo": "1.1.1.1"},
-                                {"nome": "1.1.1.2 Vendas de Produtos - Exportação", "tipo": "R", "codigo": "1.1.1.2"},
-                                {"nome": "1.1.1.3 Vendas de Produtos - E-commerce", "tipo": "R", "codigo": "1.1.1.3"},
-                            ]
-                        },
-                        "1.1.2 Vendas de Serviços": {
-                            "tipo": "R",
-                            "codigo": "1.1.2",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "1.1.2.1 Prestação de Serviços", "tipo": "R", "codigo": "1.1.2.1"},
-                                {"nome": "1.1.2.2 Consultoria", "tipo": "R", "codigo": "1.1.2.2"},
-                                {"nome": "1.1.2.3 Serviços de Manutenção", "tipo": "R", "codigo": "1.1.2.3"},
-                                {"nome": "1.1.2.4 Serviços de Suporte Técnico", "tipo": "R", "codigo": "1.1.2.4"},
-                            ]
-                        },
-                        "1.1.3 Receitas de Aluguel": {
-                            "tipo": "R",
-                            "codigo": "1.1.3",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "1.1.3.1 Aluguel de Imóveis", "tipo": "R", "codigo": "1.1.3.1"},
-                                {"nome": "1.1.3.2 Aluguel de Equipamentos", "tipo": "R", "codigo": "1.1.3.2"},
-                            ]
-                        },
-                        "1.1.4 Outras Receitas Operacionais": {
-                            "tipo": "R",
-                            "codigo": "1.1.4",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "1.1.4.1 Juros sobre Aplicações Financeiras", "tipo": "R", "codigo": "1.1.4.1"},
-                                {"nome": "1.1.4.2 Descontos Obtidos", "tipo": "R", "codigo": "1.1.4.2"},
-                                {"nome": "1.1.4.3 Multas e Juros Recebidos", "tipo": "R", "codigo": "1.1.4.3"},
-                            ]
-                        }
-                    }
-                },
-                "1.2 Deduções de Receitas": {
-                    "tipo": "R",
-                    "codigo": "1.2",
-                    "permite_lancamentos": False,
-                    "filhas": [
-                        {"nome": "1.2.1 Devoluções de Vendas", "tipo": "R", "codigo": "1.2.1"},
-                        {"nome": "1.2.2 Cancelamentos de Vendas", "tipo": "R", "codigo": "1.2.2"},
-                        {"nome": "1.2.3 Descontos Incondicionais Concedidos", "tipo": "R", "codigo": "1.2.3"},
-                        {"nome": "1.2.4 Impostos sobre Vendas (ICMS, ISS, PIS, COFINS)", "tipo": "R", "codigo": "1.2.4"},
-                    ]
-                },
-                "1.3 Receitas Não Operacionais": {
-                    "tipo": "R",
-                    "codigo": "1.3",
-                    "permite_lancamentos": False,
-                    "filhas": [
-                        {"nome": "1.3.1 Ganhos com Venda de Ativos", "tipo": "R", "codigo": "1.3.1"},
-                        {"nome": "1.3.2 Receitas de Equivalência Patrimonial", "tipo": "R", "codigo": "1.3.2"},
-                        {"nome": "1.3.3 Outras Receitas Não Operacionais", "tipo": "R", "codigo": "1.3.3"},
-                    ]
-                }
-            }
-        },
-        "2. DESPESAS": {
-            "tipo": "D",
-            "codigo": "2",
-            "permite_lancamentos": False,
-            "filhas": {
-                "2.1 Custos de Produção/Serviços": {
-                    "tipo": "D",
-                    "codigo": "2.1",
-                    "permite_lancamentos": False,
-                    "filhas": {
-                        "2.1.1 Custo de Mercadorias Vendidas (CMV)": {
-                            "tipo": "D",
-                            "codigo": "2.1.1",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "2.1.1.1 Compras de Mercadorias", "tipo": "D", "codigo": "2.1.1.1"},
-                                {"nome": "2.1.1.2 Fretes sobre Compras", "tipo": "D", "codigo": "2.1.1.2"},
-                                {"nome": "2.1.1.3 Estoque Inicial", "tipo": "D", "codigo": "2.1.1.3"},
-                                {"nome": "2.1.1.4 Estoque Final", "tipo": "D", "codigo": "2.1.1.4"},
-                            ]
-                        },
-                        "2.1.2 Custo de Serviços Prestados": {
-                            "tipo": "D",
-                            "codigo": "2.1.2",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "2.1.2.1 Materiais Consumidos", "tipo": "D", "codigo": "2.1.2.1"},
-                                {"nome": "2.1.2.2 Subcontratações", "tipo": "D", "codigo": "2.1.2.2"},
-                                {"nome": "2.1.2.3 Outros Custos Diretos", "tipo": "D", "codigo": "2.1.2.3"},
-                            ]
-                        }
-                    }
-                },
-                "2.2 Despesas Operacionais": {
-                    "tipo": "D",
-                    "codigo": "2.2",
-                    "permite_lancamentos": False,
-                    "filhas": {
-                        "2.2.1 Despesas com Pessoal": {
-                            "tipo": "D",
-                            "codigo": "2.2.1",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "2.2.1.1 Salários e Ordenados", "tipo": "D", "codigo": "2.2.1.1"},
-                                {"nome": "2.2.1.2 Encargos Sociais (INSS, FGTS, etc)", "tipo": "D", "codigo": "2.2.1.2"},
-                                {"nome": "2.2.1.3 13º Salário e Férias", "tipo": "D", "codigo": "2.2.1.3"},
-                                {"nome": "2.2.1.4 Comissões e Bonificações", "tipo": "D", "codigo": "2.2.1.4"},
-                                {"nome": "2.2.1.5 Vale Transporte", "tipo": "D", "codigo": "2.2.1.5"},
-                                {"nome": "2.2.1.6 Vale Refeição/Alimentação", "tipo": "D", "codigo": "2.2.1.6"},
-                                {"nome": "2.2.1.7 Plano de Saúde", "tipo": "D", "codigo": "2.2.1.7"},
-                                {"nome": "2.2.1.8 Treinamentos e Desenvolvimento", "tipo": "D", "codigo": "2.2.1.8"},
-                            ]
-                        },
-                        "2.2.2 Despesas Administrativas": {
-                            "tipo": "D",
-                            "codigo": "2.2.2",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "2.2.2.1 Aluguel e Condomínio", "tipo": "D", "codigo": "2.2.2.1"},
-                                {"nome": "2.2.2.2 Energia Elétrica", "tipo": "D", "codigo": "2.2.2.2"},
-                                {"nome": "2.2.2.3 Água e Esgoto", "tipo": "D", "codigo": "2.2.2.3"},
-                                {"nome": "2.2.2.4 Telefonia e Internet", "tipo": "D", "codigo": "2.2.2.4"},
-                                {"nome": "2.2.2.5 Material de Escritório", "tipo": "D", "codigo": "2.2.2.5"},
-                                {"nome": "2.2.2.6 Serviços de Limpeza", "tipo": "D", "codigo": "2.2.2.6"},
-                                {"nome": "2.2.2.7 Segurança e Vigilância", "tipo": "D", "codigo": "2.2.2.7"},
-                                {"nome": "2.2.2.8 Manutenção Predial", "tipo": "D", "codigo": "2.2.2.8"},
-                            ]
-                        },
-                        "2.2.3 Despesas Comerciais": {
-                            "tipo": "D",
-                            "codigo": "2.2.3",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "2.2.3.1 Propaganda e Publicidade", "tipo": "D", "codigo": "2.2.3.1"},
-                                {"nome": "2.2.3.2 Marketing Digital", "tipo": "D", "codigo": "2.2.3.2"},
-                                {"nome": "2.2.3.3 Feiras e Eventos", "tipo": "D", "codigo": "2.2.3.3"},
-                                {"nome": "2.2.3.4 Material Promocional", "tipo": "D", "codigo": "2.2.3.4"},
-                                {"nome": "2.2.3.5 Comissões de Vendas", "tipo": "D", "codigo": "2.2.3.5"},
-                            ]
-                        },
-                        "2.2.4 Despesas Financeiras": {
-                            "tipo": "D",
-                            "codigo": "2.2.4",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "2.2.4.1 Juros sobre Empréstimos", "tipo": "D", "codigo": "2.2.4.1"},
-                                {"nome": "2.2.4.2 Juros sobre Financiamentos", "tipo": "D", "codigo": "2.2.4.2"},
-                                {"nome": "2.2.4.3 Juros sobre Cartão de Crédito", "tipo": "D", "codigo": "2.2.4.3"},
-                                {"nome": "2.2.4.4 IOF e Tarifas Bancárias", "tipo": "D", "codigo": "2.2.4.4"},
-                                {"nome": "2.2.4.5 Descontos Concedidos", "tipo": "D", "codigo": "2.2.4.5"},
-                                {"nome": "2.2.4.6 Multas e Juros Pagos", "tipo": "D", "codigo": "2.2.4.6"},
-                            ]
-                        },
-                        "2.2.5 Despesas com Tecnologia": {
-                            "tipo": "D",
-                            "codigo": "2.2.5",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "2.2.5.1 Software e Licenças", "tipo": "D", "codigo": "2.2.5.1"},
-                                {"nome": "2.2.5.2 Serviços de Cloud/Hosting", "tipo": "D", "codigo": "2.2.5.2"},
-                                {"nome": "2.2.5.3 Manutenção de Equipamentos", "tipo": "D", "codigo": "2.2.5.3"},
-                                {"nome": "2.2.5.4 Consultoria em TI", "tipo": "D", "codigo": "2.2.5.4"},
-                            ]
-                        },
-                        "2.2.6 Despesas com Impostos e Taxas": {
-                            "tipo": "D",
-                            "codigo": "2.2.6",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "2.2.6.1 Impostos Municipais (ISS)", "tipo": "D", "codigo": "2.2.6.1"},
-                                {"nome": "2.2.6.2 Impostos Estaduais (ICMS)", "tipo": "D", "codigo": "2.2.6.2"},
-                                {"nome": "2.2.6.3 Impostos Federais (IRPJ, CSLL)", "tipo": "D", "codigo": "2.2.6.3"},
-                                {"nome": "2.2.6.4 Contribuições (PIS, COFINS)", "tipo": "D", "codigo": "2.2.6.4"},
-                                {"nome": "2.2.6.5 Taxas e Contribuições", "tipo": "D", "codigo": "2.2.6.5"},
-                            ]
-                        },
-                        "2.2.7 Despesas com Veículos": {
-                            "tipo": "D",
-                            "codigo": "2.2.7",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "2.2.7.1 Combustível", "tipo": "D", "codigo": "2.2.7.1"},
-                                {"nome": "2.2.7.2 Manutenção de Veículos", "tipo": "D", "codigo": "2.2.7.2"},
-                                {"nome": "2.2.7.3 Seguro de Veículos", "tipo": "D", "codigo": "2.2.7.3"},
-                                {"nome": "2.2.7.4 IPVA e Licenciamento", "tipo": "D", "codigo": "2.2.7.4"},
-                                {"nome": "2.2.7.5 Estacionamento e Pedágios", "tipo": "D", "codigo": "2.2.7.5"},
-                            ]
-                        },
-                        "2.2.8 Despesas Diversas": {
-                            "tipo": "D",
-                            "codigo": "2.2.8",
-                            "permite_lancamentos": False,
-                            "filhas": [
-                                {"nome": "2.2.8.1 Honorários Contábeis", "tipo": "D", "codigo": "2.2.8.1"},
-                                {"nome": "2.2.8.2 Honorários Advocatícios", "tipo": "D", "codigo": "2.2.8.2"},
-                                {"nome": "2.2.8.3 Consultorias Diversas", "tipo": "D", "codigo": "2.2.8.3"},
-                                {"nome": "2.2.8.4 Despesas com Viagens", "tipo": "D", "codigo": "2.2.8.4"},
-                                {"nome": "2.2.8.5 Despesas com Representação", "tipo": "D", "codigo": "2.2.8.5"},
-                                {"nome": "2.2.8.6 Depreciação e Amortização", "tipo": "D", "codigo": "2.2.8.6"},
-                            ]
-                        }
-                    }
-                },
-                "2.3 Despesas Não Operacionais": {
-                    "tipo": "D",
-                    "codigo": "2.3",
-                    "permite_lancamentos": False,
-                    "filhas": [
-                        {"nome": "2.3.1 Perdas com Venda de Ativos", "tipo": "D", "codigo": "2.3.1"},
-                        {"nome": "2.3.2 Despesas de Equivalência Patrimonial", "tipo": "D", "codigo": "2.3.2"},
-                        {"nome": "2.3.3 Outras Despesas Não Operacionais", "tipo": "D", "codigo": "2.3.3"},
-                    ]
-                }
-            }
-        }
-    }
+    template_items = get_template_items(db=db, tipo_pessoa=tipo_pessoa)
+    created_ids: dict[int, int] = {}
 
-    def criar_recursivo(estrutura, conta_pai_id=None):
-        """
-        Função recursiva para criar a estrutura hierárquica do plano de contas.
-        Suporta dicionários (com filhas) e listas (folhas finais).
-        """
-        if isinstance(estrutura, list):
-            # Lista de contas folha (sem subcontas)
-            for item in estrutura:
-                nc = PlanoContas(
-                    nome=_strip_codigo_prefixo(item["nome"]),
-                    tipo=_normalizar_tipo_plano(item["tipo"], default="D"),
-                    codigo=item.get("codigo"),
-                    empresa_id=empresa_id,
-                    conta_pai_id=conta_pai_id,
-                    permite_lancamentos=True,
-                    considerar_nos_resultados=True
-                )
-                db.add(nc)
-            return
-
-        if isinstance(estrutura, dict):
-            # Dicionário de contas (podem ter subcontas)
-            for nome, dados in estrutura.items():
-                # Determina se permite lançamentos (False se tiver filhas, True caso contrário)
-                tem_filhas = 'filhas' in dados
-                permite_lanc = dados.get("permite_lancamentos", not tem_filhas)
-                
-                nc = PlanoContas(
-                    nome=_strip_codigo_prefixo(nome),
-                    tipo=_normalizar_tipo_plano(dados["tipo"], default="D"),
-                    codigo=dados.get("codigo"),
-                    empresa_id=empresa_id,
-                    conta_pai_id=conta_pai_id,
-                    permite_lancamentos=permite_lanc,
-                    considerar_nos_resultados=True
-                )
-                db.add(nc)
-                db.flush()  # Flush para obter o ID antes de criar as filhas
-                
-                # Cria recursivamente as contas filhas
-                if tem_filhas:
-                    criar_recursivo(dados['filhas'], nc.id)
-
-    criar_recursivo(plano_estrutura)
-    # Commit feito pelo caller (quem chamou a função)
+    for item in sorted(template_items, key=lambda current: ((current.get("codigo") or "zzz"), current.get("nome") or "")):
+        template_id = int(item["id"])
+        parent_template_id = item.get("conta_pai_id")
+        conta = PlanoContas(
+            nome=_strip_codigo_prefixo(str(item.get("nome", ""))),
+            tipo=_normalizar_tipo_plano(item.get("tipo"), default="D"),
+            codigo=item.get("codigo"),
+            empresa_id=empresa_id,
+            conta_pai_id=created_ids.get(int(parent_template_id)) if parent_template_id is not None else None,
+            permite_lancamentos=bool(item.get("permite_lancamentos", True)),
+            considerar_nos_resultados=bool(item.get("considerar_nos_resultados", True)),
+        )
+        db.add(conta)
+        db.flush()
+        created_ids[template_id] = int(conta.id)

@@ -1,7 +1,6 @@
 # app/api/deps.py
-from typing import Generator, Optional
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from typing import Generator
+from fastapi import Cookie, Depends, HTTPException, status
 from jose import jwt, JWTError
 from pydantic import ValidationError
 from sqlmodel import Session, select
@@ -18,16 +17,19 @@ try:
 except ImportError:
     from app.schemas.usuario import UsuarioBase as Usuario
 
-# Define o endpoint de login
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
-
 def get_current_user(
-    session: Session = Depends(get_session), 
-    token: str = Depends(oauth2_scheme)
+    session: Session = Depends(get_session),
+    access_token: str | None = Cookie(default=None, alias=settings.ACCESS_TOKEN_COOKIE_NAME)
 ) -> Usuario:
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Não autenticado",
+        )
+
     try:
         payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+            access_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
         token_sub = payload.get("sub")
         if not token_sub:
@@ -41,6 +43,8 @@ def get_current_user(
          user = session.get(Usuario, int(token_sub))
     
     if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    if getattr(user, "is_deleted", False):
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Usuário inativo")

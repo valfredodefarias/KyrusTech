@@ -11,7 +11,8 @@ export function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
-  const setToken = useAuthStore((state) => state.setToken);
+  const setAuthenticated = useAuthStore((state) => state.setAuthenticated);
+  const setInitialized = useAuthStore((state) => state.setInitialized);
   const navigate = useNavigate();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -24,12 +25,12 @@ export function Login() {
       formData.append('username', email);
       formData.append('password', password);
 
-      const response = await api.post('/auth/login', formData, {
+      await api.post('/auth/login', formData, {
          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       });
 
-      const { access_token } = response.data;
-      setToken(access_token);
+      setAuthenticated(true);
+      setInitialized(true);
       navigate('/home');
 
     } catch (err) {

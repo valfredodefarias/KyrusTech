@@ -696,7 +696,7 @@ export function Contas() {
 
   const catOptions = [
     {
-      label: 'DESPESAS',
+      label: 'SAIDAS',
       options: categorias
         .filter(c => (c.tipo || '').trim().toUpperCase().startsWith('D'))
         .map(c => ({
@@ -709,7 +709,7 @@ export function Contas() {
         }))
     },
     {
-      label: 'RECEITAS',
+      label: 'ENTRADAS',
       options: categorias
         .filter(c => (c.tipo || '').trim().toUpperCase().startsWith('R'))
         .map(c => ({

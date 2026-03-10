@@ -2,7 +2,7 @@
 import os
 import json
 from typing import List, Union
-from pydantic import AnyHttpUrl, PostgresDsn, computed_field, field_validator
+from pydantic import AnyHttpUrl, PostgresDsn, computed_field, field_validator, model_validator
 from pydantic_core import MultiHostUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,8 +15,9 @@ class Settings(BaseSettings):
     
     # --- SEGURANÇA ---
     SECRET_KEY: str = "change-me-in-production-env" # Default para dev, obrigatório em produção
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 720
     ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_COOKIE_NAME: str = "kyrus_access_token"
     
     # CORS: Lista de URLs que podem acessar o backend (Front, Mobile, etc)
     # No .env use: BACKEND_CORS_ORIGINS=http://localhost:5501,http://meuapp.com
@@ -58,6 +59,23 @@ class Settings(BaseSettings):
             return [str(i).strip().rstrip("/") for i in v if str(i).strip()]
         raise ValueError(v)
 
+    @model_validator(mode="after")
+    def validate_security_configuration(self):
+        if self.ENVIRONMENT.lower() != "production":
+            return self
+
+        if self.SECRET_KEY == "change-me-in-production-env":
+            raise ValueError("SECRET_KEY insegura para produção. Defina uma chave forte no ambiente.")
+
+        cors_origins = self.BACKEND_CORS_ORIGINS if isinstance(self.BACKEND_CORS_ORIGINS, list) else [self.BACKEND_CORS_ORIGINS]
+        normalized_origins = {str(origin).strip() for origin in cors_origins if str(origin).strip()}
+        if "*" in normalized_origins or "[*]" in normalized_origins:
+            raise ValueError("BACKEND_CORS_ORIGINS não pode ser '*' em produção.")
+
+        if self.POSTGRES_PASSWORD == "casaos":
+            raise ValueError("POSTGRES_PASSWORD padrão detectada em produção. Configure uma senha própria.")
+
+        return self
     # --- BANCO DE DADOS (POSTGRES) ---
     POSTGRES_SERVER: str = "103.63.28.155"
     POSTGRES_PORT: int = 5432
@@ -89,5 +107,33 @@ class Settings(BaseSettings):
         case_sensitive=True, 
         extra="ignore"
     )
+
+    @model_validator(mode="after")
+    def validate_security_settings(self):
+        environment = (self.ENVIRONMENT or "development").strip().lower()
+        if environment != "production":
+            return self
+
+        issues: list[str] = []
+        if self.SECRET_KEY == "change-me-in-production-env" or len(self.SECRET_KEY.strip()) < 32:
+            issues.append("Configure uma SECRET_KEY forte e exclusiva em produção")
+
+        cors_origins = self.BACKEND_CORS_ORIGINS if isinstance(self.BACKEND_CORS_ORIGINS, list) else [self.BACKEND_CORS_ORIGINS]
+        if "*" in cors_origins:
+            issues.append("Defina BACKEND_CORS_ORIGINS explicitamente em produção; '*' não é permitido")
+
+        using_default_db = (
+            self.POSTGRES_SERVER == "103.63.28.155"
+            and self.POSTGRES_USER == "casaos"
+            and self.POSTGRES_PASSWORD == "casaos"
+            and self.POSTGRES_DB == "casaos"
+        )
+        if using_default_db:
+            issues.append("Altere as credenciais padrão do PostgreSQL em produção")
+
+        if issues:
+            raise ValueError("; ".join(issues))
+
+        return self
 
 settings = Settings()

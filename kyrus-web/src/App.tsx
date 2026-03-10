@@ -1,9 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import type { JSX } from 'react';
 
 // Components & Store
 import { Layout } from './components/Layout';
+import { api } from './services/api';
 import { useAuthStore } from './store/authStore';
 
 const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
@@ -31,16 +32,52 @@ const RouteFallback = () => (
 );
 
 function PrivateRoute({ children }: { children: JSX.Element }) {
+  const initialized = useAuthStore((state) => state.initialized);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
+
+  if (!initialized) {
+    return <RouteFallback />;
+  }
+
   return isAuthenticated ? children : <Navigate to="/" />;
 }
 
 function App() {
+  const initialized = useAuthStore((state) => state.initialized);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
+  const setAuthenticated = useAuthStore((state) => state.setAuthenticated);
+  const setInitialized = useAuthStore((state) => state.setInitialized);
+
+  useEffect(() => {
+    let active = true;
+
+    api.get('/usuarios/me')
+      .then(() => {
+        if (active) {
+          setAuthenticated(true);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAuthenticated(false);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setInitialized(true);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [setAuthenticated, setInitialized]);
+
   return (
     <BrowserRouter>
       <Suspense fallback={<RouteFallback />}>
         <Routes>
-          <Route path="/" element={<Login />} />
+          <Route path="/" element={initialized && isAuthenticated ? <Navigate to="/home" replace /> : <Login />} />
 
           <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
             <Route path="/home" element={<Home />} />

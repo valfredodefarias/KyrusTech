@@ -12,6 +12,7 @@ from app.models.anexo_lancamento import AnexoLancamento
 from app.models.lancamento import Lancamento
 from app.models.integracao_bancaria import IntegracaoBancaria
 from app.models.mapeamento_categoria import MapeamentoCategoria
+from app.models.plano_contas_template_config import PlanoContasTemplateConfig
 from app.models.audit_log import AuditLog
 from app.models.base_audit import AuditMixin
 from app.models.todo_item import TodoItem

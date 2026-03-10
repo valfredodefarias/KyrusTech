@@ -1,24 +1,25 @@
 import { create } from 'zustand';
 
 interface AuthState {
-  token: string | null;
-  setToken: (token: string) => void;
+  authenticated: boolean;
+  initialized: boolean;
+  setAuthenticated: (authenticated: boolean) => void;
+  setInitialized: (initialized: boolean) => void;
   logout: () => void;
   isAuthenticated: () => boolean;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  token: localStorage.getItem('access_token'),
+  authenticated: false,
+  initialized: false,
 
-  setToken: (token) => {
-    localStorage.setItem('access_token', token);
-    set({ token });
-  },
+  setAuthenticated: (authenticated) => set({ authenticated }),
+
+  setInitialized: (initialized) => set({ initialized }),
 
   logout: () => {
-    localStorage.removeItem('access_token');
-    set({ token: null });
+    set({ authenticated: false, initialized: true });
   },
 
-  isAuthenticated: () => !!get().token,
+  isAuthenticated: () => get().authenticated,
 }));

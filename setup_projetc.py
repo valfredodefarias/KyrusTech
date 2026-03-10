@@ -102,7 +102,8 @@ boto3
 # --- Configurações Gerais ---
 PROJECT_NAME="Kyrus ERP"
 SECRET_KEY="SUA_CHAVE_SECRETA_SUPER_LONGA_E_SEGURA_AQUI"
-ACCESS_TOKEN_EXPIRE_MINUTES=1440
+ACCESS_TOKEN_EXPIRE_MINUTES=720
+ACCESS_TOKEN_COOKIE_NAME="kyrus_access_token"
 
 # --- Banco de Dados PostgreSQL (deve ser igual ao docker-compose.yml) ---
 POSTGRES_SERVER=localhost
@@ -232,7 +233,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Kyrus ERP"
     SECRET_KEY: str
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 720
+    ACCESS_TOKEN_COOKIE_NAME: str = "kyrus_access_token"
     
     POSTGRES_SERVER: str
     POSTGRES_PORT: int

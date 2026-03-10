@@ -117,6 +117,14 @@ cors_origins = (
     else []
 )
 
+if "*" in cors_origins and settings.ENVIRONMENT.lower() != "production":
+    cors_origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
 if "*" not in cors_origins:
     cors_origins = [str(origin).strip().rstrip("/") for origin in cors_origins if str(origin).strip()]
 

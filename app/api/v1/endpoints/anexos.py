@@ -10,6 +10,8 @@ router = APIRouter()
 UPLOAD_DIR = Path("static/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_IMAGE_UPLOAD_SIZE = 2 * 1024 * 1024
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 @router.post("/upload", response_model=dict)
 async def upload_arquivo(
@@ -23,17 +25,16 @@ async def upload_arquivo(
     """
     
     # SEGURANÇA 2 (Correção Pylance): Valida se o content_type existe E se é imagem
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(400, detail="Apenas arquivos de imagem são permitidos.")
+    if not file.content_type or file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(400, detail="Apenas imagens JPG, PNG, WEBP ou GIF são permitidas.")
+
+    extensao = Path(file.filename or "arquivo").suffix.lower()
+    if not extensao or extensao not in ALLOWED_IMAGE_EXTS:
+        raise HTTPException(400, detail="Extensão de arquivo inválida para imagem.")
 
     # SEGURANÇA 3: Renomeia o arquivo com UUID.
     # Isso evita que arquivos com nomes maliciosos (ex: virus.exe) sejam salvos com o nome original.
-    try:
-        extensao = file.filename.split(".")[-1] if file.filename else "png"
-    except IndexError:
-        extensao = "png"
-        
-    novo_nome = f"{uuid.uuid4()}.{extensao}"
+    novo_nome = f"{uuid.uuid4()}{extensao}"
     caminho_arquivo = UPLOAD_DIR / novo_nome
 
     # Salva o arquivo no disco

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowRight,
+  Check,
   CheckCircle,
   FileSpreadsheet,
   Filter,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 
 import { useAssistentePage } from '../components/AssistentePageContext';
+import { BankAvatar } from '../components/BrandAvatar';
 import { api } from '../services/api';
 
 function normalizarDescricao(texto?: string | null) {
@@ -41,7 +43,10 @@ function formatDate(valor?: string | null) {
 interface ContaItem {
   id: number;
   nome: string;
-  banco?: string;
+  banco?: string | null;
+  logo_url?: string | null;
+  tipo_integracao?: string | null;
+  status?: 'ATIVO' | 'INATIVO' | string;
 }
 
 interface CategoriaItem {
@@ -156,6 +161,7 @@ export function ImportacaoOfx() {
   const [contas, setContas] = useState<ContaItem[]>([]);
   const [contaId, setContaId] = useState<number | ''>('');
   const [arquivo, setArquivo] = useState<File | null>(null);
+  const [dragActive, setDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [resultado, setResultado] = useState<ProcessarArquivoResponse | null>(null);
@@ -166,6 +172,7 @@ export function ImportacaoOfx() {
   const [sugestoes, setSugestoes] = useState<Record<string, LancamentoSugestao>>({});
   const [busca, setBusca] = useState('');
   const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>('todos');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const contaParam = searchParams.get('conta_id');
@@ -222,6 +229,22 @@ export function ImportacaoOfx() {
     () => contas.find((c) => c.id === contaId),
     [contaId, contas]
   );
+
+  const contasAtivas = useMemo(
+    () => contas.filter((conta) => String(conta.status || 'ATIVO').toUpperCase() !== 'INATIVO'),
+    [contas],
+  );
+
+  function handleArquivoSelecionado(file: File | null) {
+    if (!file) return;
+    const nome = String(file.name || '').toLowerCase();
+    if (!nome.endsWith('.ofx') && !nome.endsWith('.qfx')) {
+      setFeedback({ type: 'error', message: 'Selecione um arquivo OFX ou QFX válido.' });
+      return;
+    }
+    setArquivo(file);
+    setFeedback(null);
+  }
 
   const resumo = useMemo(() => {
     const items = lancamentosEditados;
@@ -358,10 +381,49 @@ export function ImportacaoOfx() {
   return (
     <div className="space-y-6 text-slate-800 dark:text-slate-100">
       <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a,#111827_55%,#022c22)] px-6 py-7 text-white shadow-[0_25px_80px_-45px_rgba(15,23,42,0.9)] dark:border-slate-800 md:px-8 md:py-8">
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-center">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_440px] xl:items-start">
           <div className="space-y-3">
             <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-emerald-200">OFX</p>
             <h1 className="max-w-3xl text-3xl font-black tracking-tight md:text-4xl">Importe, revise e confirme.</h1>
+            <p className="max-w-2xl text-sm text-slate-200/85">Escolha a conta por botão visual, envie o OFX por arrastar e soltar ou clique para selecionar, e depois revise as sugestões antes de confirmar.</p>
+
+            <div className="pt-2">
+              <label className="mb-3 block text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Conta bancária</label>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {contasAtivas.map((conta) => {
+                  const selected = Number(contaId) === conta.id;
+                  return (
+                    <button
+                      key={conta.id}
+                      type="button"
+                      onClick={() => setContaId(conta.id)}
+                      className={`rounded-3xl border px-4 py-4 text-left transition ${selected ? 'border-emerald-300 bg-emerald-400/15 shadow-lg shadow-emerald-950/15' : 'border-white/10 bg-white/8 hover:border-emerald-300/45 hover:bg-white/12'}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/10">
+                          <BankAvatar
+                            logoUrl={conta.logo_url}
+                            bankName={conta.banco}
+                            accountName={conta.nome}
+                            integrationType={conta.tipo_integracao}
+                            size="md"
+                            className="h-14 w-14"
+                            imageClassName="rounded-2xl bg-white p-1"
+                            fallbackClassName="rounded-2xl border-0 shadow-none"
+                            imageFit="contain"
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-black text-white">{conta.nome}</div>
+                          <div className="truncate text-xs uppercase tracking-[0.16em] text-slate-300">{conta.banco || 'Conta bancária'}</div>
+                        </div>
+                        {selected ? <Check className="h-4 w-4 shrink-0 text-emerald-200" /> : null}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
@@ -377,32 +439,46 @@ export function ImportacaoOfx() {
 
             <div className="mt-5 space-y-4">
               <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Conta bancária</label>
-                <select
-                  value={contaId}
-                  onChange={(e) => setContaId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full rounded-2xl border border-white/10 bg-slate-950/30 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400"
-                >
-                  <option value="">Selecione uma conta</option>
-                  {contas.map((conta) => (
-                    <option key={conta.id} value={conta.id} className="text-slate-900">
-                      {conta.nome} {conta.banco ? `(${conta.banco})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Arquivo OFX</label>
-                <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-dashed border-white/20 bg-slate-950/25 px-4 py-3 text-sm text-slate-100 transition hover:border-emerald-300/70 hover:bg-white/10">
-                  <span className="truncate pr-3">{arquivo ? arquivo.name : 'Clique para escolher o arquivo OFX ou QFX'}</span>
-                  <FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-200" />
+                <div
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setDragActive(true);
+                  }}
+                  onDragLeave={(event) => {
+                    event.preventDefault();
+                    setDragActive(false);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    setDragActive(false);
+                    handleArquivoSelecionado(event.dataTransfer.files?.[0] || null);
+                  }}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`cursor-pointer rounded-[28px] border border-dashed px-5 py-7 text-center transition ${dragActive ? 'border-emerald-300 bg-emerald-400/10' : 'border-white/20 bg-slate-950/25 hover:border-emerald-300/70 hover:bg-white/10'}`}
+                >
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10 text-emerald-200">
+                    <UploadCloud className="h-7 w-7" />
+                  </div>
+                  <p className="mt-4 text-sm font-bold text-white">{arquivo ? arquivo.name : 'Arraste o arquivo OFX aqui'}</p>
+                  <p className="mt-1 text-xs text-slate-300">ou clique para selecionar um arquivo .ofx ou .qfx</p>
+                  <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-200">
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                    OFX ou QFX
+                  </div>
                   <input
+                    ref={fileInputRef}
                     type="file"
                     accept=".ofx,.qfx"
-                    onChange={(e) => setArquivo(e.target.files?.[0] || null)}
+                    onChange={(e) => handleArquivoSelecionado(e.target.files?.[0] || null)}
                     className="hidden"
                   />
-                </label>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-slate-950/25 px-4 py-3 text-sm text-slate-200">
+                <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200">Conta selecionada</div>
+                <div className="mt-2 font-semibold text-white">{contaSelecionada ? `${contaSelecionada.nome}${contaSelecionada.banco ? ` • ${contaSelecionada.banco}` : ''}` : 'Escolha uma conta para continuar'}</div>
               </div>
 
               <button

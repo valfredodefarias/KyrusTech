@@ -3,6 +3,7 @@ import { api, toPublicAssetUrl } from '../services/api';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { useLookupStore } from '../store/lookupStore';
 import { BankAvatar } from '../components/BrandAvatar';
+import { CurrencyInput } from '../components/CurrencyInput';
 import { 
   Plus, Search, Filter, RefreshCw, ChevronLeft, ChevronRight, 
   ArrowRightLeft, Wallet, CreditCard, Layers, Calendar, 
@@ -307,6 +308,18 @@ const InputDark = (props: any) => (
   <div className="w-full">
     {props.label && <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{props.label}</label>}
     <input {...props} className={`w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed ${props.className || ''}`} />
+  </div>
+);
+
+const CurrencyInputDark = ({ label, className = '', value, onValueChange, ...props }: any) => (
+  <div className="w-full">
+    {label && <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{label}</label>}
+    <CurrencyInput
+      {...props}
+      value={value}
+      onValueChange={onValueChange}
+      className={`w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 ${className}`}
+    />
   </div>
 );
 
@@ -1819,7 +1832,7 @@ export function Lancamentos() {
             <div className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-slate-200 dark:border-slate-700 animate-scale-in">
               <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white flex items-center gap-2"><ArrowRightLeft className="w-5 h-5 text-blue-500"/> Nova Transferência</h3>
                 <div className="space-y-4">
-                    <InputDark label="Valor (R$)" type="number" step="0.01" value={transferData.valor} onChange={(e:any)=>setTransferData({...transferData, valor:e.target.value})} />
+                    <CurrencyInputDark label="Valor (R$)" value={transferData.valor} onValueChange={(value:string)=>setTransferData({...transferData, valor:value})} />
                     <InputDark label="Data" type="date" value={transferData.data} onChange={(e:any)=>setTransferData({...transferData, data:e.target.value})} />
                     
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -1970,7 +1983,7 @@ export function Lancamentos() {
               <InputDark label="Descrição" autoFocus value={formData.descricao} onChange={(e:any)=>setFormData({...formData, descricao:e.target.value})} placeholder="Ex: Conta de Luz" />
               <div className="grid grid-cols-2 gap-4">
                 <InputDark label={formData.cartao_id ? "Data da compra" : "Vencimento"} type="date" value={formData.data_vencimento} onChange={(e:any)=>handleVencimentoChange(e.target.value)} />
-                <InputDark label="Valor (R$)" type="number" step="0.01" className="font-bold text-lg text-blue-400" value={formData.valor_previsto} onChange={(e:any)=>handleValorPrevistoChange(e.target.value)} />
+                <CurrencyInputDark label="Valor (R$)" className="font-bold text-lg text-blue-400" value={formData.valor_previsto} onValueChange={(value:string)=>handleValorPrevistoChange(value)} />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -2046,7 +2059,7 @@ export function Lancamentos() {
                 {formData.status==='PAGO' && (
                   <div className="grid grid-cols-2 gap-4 mt-3 animate-in fade-in slide-in-from-top-2">
                     <InputDark label="Data da Baixa" type="date" value={formData.data_pagamento} onChange={(e:any)=>handleDataPagamentoChange(e.target.value)} />
-                    <InputDark label="Valor Pago (R$)" type="number" step="0.01" className="text-emerald-400 font-bold" value={formData.valor_pago} onChange={(e:any)=>handleValorPagoChange(e.target.value)} />
+                    <CurrencyInputDark label="Valor Pago (R$)" className="text-emerald-400 font-bold" value={formData.valor_pago} onValueChange={(value:string)=>handleValorPagoChange(value)} />
                   </div>
                 )}
               </div>

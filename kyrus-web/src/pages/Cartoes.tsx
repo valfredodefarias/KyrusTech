@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { BrandAvatar, CARD_BRAND_OPTIONS, inferCardBrand } from '../components/BrandAvatar';
+import { CurrencyInput } from '../components/CurrencyInput';
 import { 
   Plus, RefreshCw, Edit2, X, Check, Loader2, 
     ChevronLeft, ChevronRight, CheckCircle2, Building2, ChevronDown
@@ -51,6 +52,18 @@ const InputDark = (props: any) => (
     className={`w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 ${props.className || ''}`} 
     />
   </div>
+);
+
+const CurrencyInputDark = ({ label, className = '', value, onValueChange, ...props }: any) => (
+    <div className="w-full">
+        {label && <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{label}</label>}
+        <CurrencyInput
+            {...props}
+            value={value}
+            onValueChange={onValueChange}
+            className={`w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 ${className}`}
+        />
+    </div>
 );
 
 const SearchableSelect = ({ options, value, onChange, placeholder, label }: any) => {
@@ -676,7 +689,7 @@ export function Cartoes() {
 
                         <div className="space-y-4">
                             <InputDark label="Descrição" value={novoLancamento.descricao} onChange={(e:any)=>setNovoLancamento({...novoLancamento, descricao: e.target.value})} />
-                            <InputDark label="Valor (R$)" type="number" step="0.01" value={novoLancamento.valor} onChange={(e:any)=>setNovoLancamento({...novoLancamento, valor: e.target.value})} />
+                            <CurrencyInputDark label="Valor (R$)" value={novoLancamento.valor} onValueChange={(value:string)=>setNovoLancamento({...novoLancamento, valor: value})} />
                             <InputDark label="Data da compra" type="date" value={novoLancamento.data_compra} onChange={(e:any)=>setNovoLancamento({...novoLancamento, data_compra: e.target.value})} />
                             <div>
                                 <SearchableSelect
@@ -809,7 +822,7 @@ export function Cartoes() {
                                 Limpar bandeira selecionada
                             </button>
                         </div>
-                        <InputDark label="Limite Total (R$)" type="number" step="0.01" className="font-bold text-lg" value={formData.limite_total} onChange={(e:any) => setFormData({...formData, limite_total: e.target.value})} />
+                        <CurrencyInputDark label="Limite Total (R$)" className="font-bold text-lg" value={formData.limite_total} onValueChange={(value:string) => setFormData({...formData, limite_total: value})} />
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>

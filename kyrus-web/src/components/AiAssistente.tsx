@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { Bot, FileSpreadsheet, FileText, Image as ImageIcon, Loader2, Maximize2, Minimize2, Paperclip, PencilLine, Send, Sparkles, Trash2, User2, X } from 'lucide-react';
+import { CurrencyInput } from './CurrencyInput';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -609,7 +610,7 @@ export function AiAssistente({
                           </td>
                           <td className="px-2 py-2 text-right font-bold align-top">
                             {planoPendente.editando ? (
-                              <input type="number" step="0.01" value={item.valor_previsto} onChange={(event) => updatePlanoItem(idx, 'valor_previsto', Number(event.target.value || 0))} className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-right text-[11px] dark:border-slate-700 dark:bg-slate-900" />
+                              <CurrencyInput value={item.valor_previsto} onValueChange={(value) => updatePlanoItem(idx, 'valor_previsto', Number(value || 0))} className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-right text-[11px] dark:border-slate-700 dark:bg-slate-900" />
                             ) : BRL.format(Number(item.valor_previsto || 0))}
                           </td>
                           <td className="px-2 py-2 align-top">

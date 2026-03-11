@@ -11,6 +11,80 @@ from ofxparse import OfxParser
 import re
 
 
+def _build_encoding_candidates(header_text: str) -> list[str]:
+    header_upper = header_text.upper()
+    encoding_match = re.search(r"^ENCODING:(.+)$", header_upper, re.MULTILINE)
+    charset_match = re.search(r"^CHARSET:(.+)$", header_upper, re.MULTILINE)
+
+    candidates: list[str] = []
+    encoding_value = encoding_match.group(1).strip() if encoding_match else ""
+    charset_value = charset_match.group(1).strip() if charset_match else ""
+
+    if encoding_value in {"UNICODE", "UTF-8"}:
+        candidates.extend(["utf-8", "utf-8-sig"])
+    elif encoding_value == "USASCII":
+        if charset_value == "8859-1":
+            candidates.extend(["iso-8859-1", "latin1"])
+        elif charset_value.isdigit():
+            candidates.append(f"cp{charset_value}")
+
+    candidates.extend(["utf-8", "utf-8-sig", "cp1252", "iso-8859-1", "latin1"])
+
+    unique_candidates: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in unique_candidates:
+            unique_candidates.append(candidate)
+    return unique_candidates
+
+
+def _normalize_ofx_bytes(arquivo_bytes: bytes) -> bytes:
+    first_tag_index = arquivo_bytes.find(b"<")
+    header_slice = arquivo_bytes[:first_tag_index] if first_tag_index > 0 else arquivo_bytes[:10240]
+    header_text = header_slice.decode("ascii", errors="replace")
+    encoding_candidates = _build_encoding_candidates(header_text)
+
+    decoded_content: Optional[str] = None
+    selected_encoding: Optional[str] = None
+    last_error: Optional[Exception] = None
+
+    for encoding in encoding_candidates:
+        try:
+            decoded_content = arquivo_bytes.decode(encoding)
+            selected_encoding = encoding
+            break
+        except UnicodeDecodeError as exc:
+            last_error = exc
+
+    if decoded_content is None:
+        fallback_encoding = encoding_candidates[0] if encoding_candidates else "latin1"
+        decoded_content = arquivo_bytes.decode(fallback_encoding, errors="replace")
+        selected_encoding = f"{fallback_encoding} (replace)"
+        if last_error:
+            logger.warning(f"OFX com bytes invalidos para encoding declarado. Aplicando fallback seguro: {last_error}")
+
+    decoded_content = decoded_content.replace("\x00", "")
+    split_index = decoded_content.find("<")
+    if split_index >= 0:
+        header_part = decoded_content[:split_index]
+        body_part = decoded_content[split_index:]
+    else:
+        header_part = decoded_content
+        body_part = ""
+
+    if header_part:
+        if re.search(r"^ENCODING:", header_part, re.MULTILINE):
+            header_part = re.sub(r"^ENCODING:.*$", "ENCODING:UTF-8", header_part, count=1, flags=re.MULTILINE)
+        else:
+            header_part = f"ENCODING:UTF-8\n{header_part}"
+
+        if re.search(r"^CHARSET:", header_part, re.MULTILINE):
+            header_part = re.sub(r"^CHARSET:.*$", "CHARSET:NONE", header_part, count=1, flags=re.MULTILINE)
+
+    normalized_content = f"{header_part}{body_part}"
+    logger.info(f"OFX normalizado para UTF-8 usando encoding de origem: {selected_encoding}")
+    return normalized_content.encode("utf-8")
+
+
 def _to_date(value) -> tuple[date | None, str | None]:
     if not value:
         return None, None
@@ -94,7 +168,8 @@ def processar_ofx(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
     Retorna lista de lancamentos encontrados.
     """
     logger.info("Processando OFX...")
-    ofx = OfxParser.parse(BytesIO(arquivo_bytes))
+    arquivo_normalizado = _normalize_ofx_bytes(arquivo_bytes)
+    ofx = OfxParser.parse(BytesIO(arquivo_normalizado))
 
     lancamentos: List[Dict] = []
     linha = 1

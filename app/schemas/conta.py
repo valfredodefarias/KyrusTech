@@ -14,6 +14,7 @@ class ContaBase(SQLModel):
     saldo_inicial: float = 0.0
     data_saldo_inicial: Optional[datetime.date] = None
     status: str = 'ATIVO'
+    conta_como_disponibilidade: bool = True
     cor: Optional[str] = "#808080"
     tipo_integracao: Optional[str] = "MANUAL"
     
@@ -37,6 +38,7 @@ class ContaUpdate(SQLModel):
     logo_url: Optional[str] = None
     saldo_inicial: Optional[float] = None
     status: Optional[str] = None
+    conta_como_disponibilidade: Optional[bool] = None
     tipo_integracao: Optional[str] = None
     # --- NOVO CAMPO UPDATE ---
     centro_custo_id: Optional[int] = None

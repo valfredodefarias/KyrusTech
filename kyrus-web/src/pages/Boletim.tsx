@@ -23,6 +23,8 @@ interface ContaResumo {
   tipo: string;
   saldo_inicial: number;
   saldo_atual?: number;
+  status?: 'ATIVO' | 'INATIVO' | string;
+  conta_como_disponibilidade?: boolean;
 }
 
 interface LancamentoResumo {
@@ -338,8 +340,12 @@ export function Boletim() {
     const daysInEffectiveMonth = new Date(currentYear, effectiveMonthIndex + 1, 0).getDate();
     const entityMap = new Map(entidades.map((item) => [item.id, item.nome_fantasia || item.nome]));
     const bankBalances = contas
+      .filter((conta) => String(conta.status || 'ATIVO').toUpperCase() !== 'INATIVO')
       .map((conta) => ({ ...conta, saldo: Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0) }))
       .sort((left, right) => right.saldo - left.saldo);
+    const saldoDisponivel = bankBalances
+      .filter((conta) => conta.conta_como_disponibilidade !== false)
+      .reduce((acc, conta) => acc + conta.saldo, 0);
 
     const baseRows = lancamentos
       .filter((item) => selectedCentroCustoId === 'ALL' || Number(item.centro_custo_id) === selectedCentroCustoId)
@@ -462,6 +468,7 @@ export function Boletim() {
       monthLabels: MONTH_NAMES.map((label) => `${label}/${String(currentYear).slice(2)}`),
       banks: bankBalances,
       saldoBancario: bankBalances.reduce((acc, conta) => acc + conta.saldo, 0),
+      saldoDisponivel,
       operacional: receber.totalMes - pagar.totalMes,
       final: receber.realizadas - pagar.realizadas,
       endividamento: pagar.emAberto,
@@ -757,7 +764,7 @@ export function Boletim() {
               <div className="mb-5 flex items-center justify-between gap-3">
                 <div>
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Resultados e bancos</div>
-                  <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Os totais acompanham o centro de custo e os filtros ativos.</div>
+                  <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Os totais acompanham o centro de custo e os filtros ativos. Contas inativas ficam ocultas e as sem disponibilidade continuam visíveis, mas fora do saldo geral disponível.</div>
                 </div>
                 <Landmark className={`h-5 w-5 ${isDark ? 'text-amber-200' : 'text-amber-700'}`} />
               </div>
@@ -771,14 +778,32 @@ export function Boletim() {
                     </tr>
                   </thead>
                   <tbody>
-                    {dashboard.banks.slice(0, 6).map((conta) => {
+                    {dashboard.banks.length === 0 ? (
+                      <tr>
+                        <td colSpan={2} className={`px-4 py-10 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>
+                          Nenhum banco ativo para exibir.
+                        </td>
+                      </tr>
+                    ) : dashboard.banks.slice(0, 6).map((conta) => {
                       const logo = getFullLogoUrl(conta.logo_url || null);
+                      const foraDoDisponivel = conta.conta_como_disponibilidade === false;
                       return (
-                        <tr key={conta.id} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
+                        <tr key={conta.id} className={foraDoDisponivel ? isDark ? 'border-t border-amber-300/12 bg-amber-300/5 text-white' : 'border-t border-amber-100 bg-amber-50/60 text-slate-800' : isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
-                              <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={conta.nome} integrationType={conta.tipo} size="sm" className="h-9 w-9" imageClassName="rounded-2xl" fallbackClassName="rounded-2xl border-0 shadow-none" />
-                              <span>{conta.banco || conta.nome}</span>
+                              <div className={`flex h-9 w-9 items-center justify-center overflow-hidden rounded-2xl ${logo ? '' : isDark ? 'bg-white/8 text-white/55' : 'bg-slate-100 text-slate-400'}`}>
+                                {logo ? (
+                                  <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={conta.nome} integrationType={conta.tipo} size="sm" className="h-9 w-9" imageClassName="rounded-2xl" fallbackClassName="rounded-2xl border-0 shadow-none" />
+                                ) : (
+                                  <Landmark className="h-4 w-4" />
+                                )}
+                              </div>
+                              <div>
+                                <div>{conta.banco || conta.nome}</div>
+                                {foraDoDisponivel ? (
+                                  <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Nao soma no saldo disponivel</div>
+                                ) : null}
+                              </div>
                             </div>
                           </td>
                           <td className="px-4 py-3 text-right font-semibold">{BRL.format(Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0))}</td>
@@ -789,7 +814,8 @@ export function Boletim() {
                 </table>
               </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-3">
+                <ResultCard label="Saldo geral disponível" value={dashboard.saldoDisponivel} emphasis isDark={isDark} />
                 <ResultCard label="Operacional" value={dashboard.operacional} emphasis isDark={isDark} />
                 <ResultCard label="Final" value={dashboard.final} emphasis isDark={isDark} />
                 <ResultCard label="A receber" value={dashboard.aReceberAberto} isDark={isDark} />

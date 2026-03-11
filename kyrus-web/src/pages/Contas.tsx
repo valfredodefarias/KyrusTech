@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, toPublicAssetUrl } from '../services/api';
 import { BankAvatar } from '../components/BrandAvatar';
+import { CurrencyInput } from '../components/CurrencyInput';
 import { useBankPresetStore } from '../store/bankPresetStore';
 import { 
   Landmark, RefreshCw, Plus, Edit2, Trash2, ChevronRight, X, Check, Loader2, ChevronDown,
@@ -22,6 +23,7 @@ interface Conta {
   saldo_atual: number;
   centro_custo_id?: number;
   status: 'ATIVO' | 'INATIVO';
+  conta_como_disponibilidade?: boolean;
   tipo_integracao?: string | null;
 }
 
@@ -100,6 +102,7 @@ interface FormConta {
   saldo_inicial: string; 
   centro_custo_id: string;
   status: string;
+  conta_como_disponibilidade: boolean;
   logo_url?: string | null;
   tipo_integracao?: string | null;
 }
@@ -121,6 +124,64 @@ interface Notice {
   type: 'success' | 'error';
   message: string;
   details?: string[];
+}
+
+type ExtratoTipoFiltro = 'TODOS' | 'ENTRADAS' | 'SAIDAS';
+type ExtratoPeriodoFiltro = 'DIA' | 'SEMANA' | 'MES' | 'ANO' | 'PERSONALIZADO';
+
+function startOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function startOfWeek(date: Date) {
+  const next = startOfDay(date);
+  const weekDay = next.getDay();
+  const diff = weekDay === 0 ? -6 : 1 - weekDay;
+  next.setDate(next.getDate() + diff);
+  return next;
+}
+
+function endOfWeek(date: Date) {
+  const next = startOfWeek(date);
+  next.setDate(next.getDate() + 6);
+  return endOfDay(next);
+}
+
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+}
+
+function endOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+}
+
+function startOfYear(date: Date) {
+  return new Date(date.getFullYear(), 0, 1, 0, 0, 0, 0);
+}
+
+function endOfYear(date: Date) {
+  return new Date(date.getFullYear(), 11, 31, 23, 59, 59, 999);
+}
+
+function getDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateInput(value: string) {
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 const SearchableSelect = ({ options, value, onChange, placeholder, label }: any) => {
@@ -248,6 +309,10 @@ export function Contas() {
   const [extratoConta, setExtratoConta] = useState<Conta | null>(null);
   const [extratoLancamentos, setExtratoLancamentos] = useState<LancamentoItem[]>([]);
   const [extratoSaldoDetalhe, setExtratoSaldoDetalhe] = useState<ContaSaldoDetalhe | null>(null);
+  const [extratoTipoFiltro, setExtratoTipoFiltro] = useState<ExtratoTipoFiltro>('TODOS');
+  const [extratoPeriodoFiltro, setExtratoPeriodoFiltro] = useState<ExtratoPeriodoFiltro>('MES');
+  const [extratoPeriodoInicio, setExtratoPeriodoInicio] = useState<string>('');
+  const [extratoPeriodoFim, setExtratoPeriodoFim] = useState<string>('');
   const [extratoSelecionados, setExtratoSelecionados] = useState<number[]>([]);
   const [extratoFaturasExpandidas, setExtratoFaturasExpandidas] = useState<Record<string, boolean>>({});
   const [excluindoSelecionados, setExcluindoSelecionados] = useState(false);
@@ -277,6 +342,7 @@ export function Contas() {
     saldo_inicial: '',
     centro_custo_id: '',
     status: 'ATIVO',
+    conta_como_disponibilidade: true,
     tipo_integracao: 'MANUAL'
   });
 
@@ -317,12 +383,27 @@ export function Contas() {
     return list.length === 1 ? String(list[0].id) : '';
   }
 
+  function isUploadedContaLogo(url?: string | null) {
+    return String(url || '').includes('/static/uploads/contas/');
+  }
+
   function getFieldClass(hasError: boolean) {
     return `w-full px-4 py-3 rounded-lg border bg-white dark:bg-slate-800 outline-none transition focus:ring-1 ${hasError ? 'border-rose-400 bg-rose-50/60 dark:border-rose-500 dark:bg-rose-950/20' : 'border-slate-200 dark:border-slate-700'}`;
   }
 
   function getLabelClass(hasError: boolean) {
     return `block text-xs font-bold uppercase mb-1 ${hasError ? 'text-rose-600 dark:text-rose-300' : 'text-slate-500'}`;
+  }
+
+  function renderCurrencyInput(value: string, onValueChange: (value: string) => void, className: string, placeholder?: string) {
+    return (
+      <CurrencyInput
+        value={value}
+        onValueChange={onValueChange}
+        className={className}
+        placeholder={placeholder}
+      />
+    );
   }
 
   function validateContaForm(currentForm: FormConta) {
@@ -423,7 +504,7 @@ export function Contas() {
   function handleOpenCreate() {
     setIsEditing(false);
     setEditingId(null);
-    setForm({ nome: '', banco: '', agencia: '', conta_numero: '', conta_digito: '', tipo: 'CORRENTE', saldo_inicial: '', centro_custo_id: getSingleCentroId(centros), status: 'ATIVO', logo_url: null, tipo_integracao: 'MANUAL' });
+    setForm({ nome: '', banco: '', agencia: '', conta_numero: '', conta_digito: '', tipo: 'CORRENTE', saldo_inicial: '', centro_custo_id: getSingleCentroId(centros), status: 'ATIVO', conta_como_disponibilidade: true, logo_url: null, tipo_integracao: 'MANUAL' });
     setLogoFile(null);
     setLogoPreview('');
     setLogoRemoved(false);
@@ -446,6 +527,7 @@ export function Contas() {
       saldo_inicial: String(conta.saldo_inicial || 0),
       centro_custo_id: conta.centro_custo_id ? String(conta.centro_custo_id) : '',
       status: conta.status,
+      conta_como_disponibilidade: conta.conta_como_disponibilidade !== false,
       logo_url: conta.logo_url || null,
       tipo_integracao: conta.tipo_integracao || 'MANUAL'
     });
@@ -572,6 +654,10 @@ export function Contas() {
     setExtratoContaId(conta.id);
     setExtratoConta(conta);
     setExtratoOpen(true);
+    setExtratoTipoFiltro('TODOS');
+    setExtratoPeriodoFiltro('MES');
+    setExtratoPeriodoInicio('');
+    setExtratoPeriodoFim('');
     setExtratoLancamentos([]);
     if (categorias.length === 0) {
       await carregarCategorias();
@@ -583,6 +669,10 @@ export function Contas() {
     setExtratoOpen(false);
     setExtratoLancamentos([]);
     setExtratoSaldoDetalhe(null);
+    setExtratoTipoFiltro('TODOS');
+    setExtratoPeriodoFiltro('MES');
+    setExtratoPeriodoInicio('');
+    setExtratoPeriodoFim('');
     setExtratoSelecionados([]);
     setExtratoFaturasExpandidas({});
     setExtratoConta(null);
@@ -717,13 +807,70 @@ export function Contas() {
     return matchesSearch && matchesCentro;
   });
 
-  const saldoTotal = filteredContas.reduce((acc, curr) => acc + (parseFloat(String(curr.saldo_atual)) || 0), 0);
+  const saldoTotal = filteredContas
+    .filter((conta) => conta.status === 'ATIVO' && conta.conta_como_disponibilidade !== false)
+    .reduce((acc, curr) => acc + (parseFloat(String(curr.saldo_atual)) || 0), 0);
+
+  const extratoLancamentosFiltrados = useMemo(() => {
+    const now = new Date();
+
+    let rangeStart: Date | null = null;
+    let rangeEnd: Date | null = null;
+
+    if (extratoPeriodoFiltro === 'DIA') {
+      rangeStart = startOfDay(now);
+      rangeEnd = endOfDay(now);
+    } else if (extratoPeriodoFiltro === 'SEMANA') {
+      rangeStart = startOfWeek(now);
+      rangeEnd = endOfWeek(now);
+    } else if (extratoPeriodoFiltro === 'MES') {
+      rangeStart = startOfMonth(now);
+      rangeEnd = endOfMonth(now);
+    } else if (extratoPeriodoFiltro === 'ANO') {
+      rangeStart = startOfYear(now);
+      rangeEnd = endOfYear(now);
+    } else if (extratoPeriodoFiltro === 'PERSONALIZADO') {
+      rangeStart = extratoPeriodoInicio ? startOfDay(parseDateInput(extratoPeriodoInicio) || now) : null;
+      rangeEnd = extratoPeriodoFim ? endOfDay(parseDateInput(extratoPeriodoFim) || now) : null;
+    }
+
+    return extratoLancamentos.filter((item) => {
+      const isEntrada = Number(item.valor_entrada || 0) > 0;
+      const isSaida = Number(item.valor_saida || 0) > 0;
+
+      if (extratoTipoFiltro === 'ENTRADAS' && !isEntrada) return false;
+      if (extratoTipoFiltro === 'SAIDAS' && !isSaida) return false;
+
+      const movementDate = new Date(getExtratoBaseDate(item));
+      if (Number.isNaN(movementDate.getTime())) return false;
+      if (rangeStart && movementDate < rangeStart) return false;
+      if (rangeEnd && movementDate > rangeEnd) return false;
+      return true;
+    });
+  }, [extratoLancamentos, extratoPeriodoFim, extratoPeriodoFiltro, extratoPeriodoInicio, extratoTipoFiltro]);
+
+  const extratoResumoFiltrado = useMemo(() => {
+    return extratoLancamentosFiltrados.reduce(
+      (acc, item) => {
+        acc.entradas += Number(item.valor_entrada || 0);
+        acc.saidas += Number(item.valor_saida || 0);
+        acc.quantidade += 1;
+        return acc;
+      },
+      { entradas: 0, saidas: 0, quantidade: 0 },
+    );
+  }, [extratoLancamentosFiltrados]);
+
+  useEffect(() => {
+    const visibleIds = new Set(extratoLancamentosFiltrados.map((item) => item.id));
+    setExtratoSelecionados((prev) => prev.filter((id) => visibleIds.has(id)));
+  }, [extratoLancamentosFiltrados]);
 
   const extratoAgrupado = useMemo(() => {
     const singleRows: Array<{ type: 'single'; item: LancamentoItem }> = [];
     const grouped = new Map<string, ExtratoGrupoFatura>();
 
-    extratoLancamentos.forEach((item) => {
+    extratoLancamentosFiltrados.forEach((item) => {
       const isCardMovement = Number(item.cartao_id || 0) > 0;
       if (!isCardMovement) {
         singleRows.push({ type: 'single', item });
@@ -768,7 +915,7 @@ export function Contas() {
       const rightDate = right.type === 'invoice' ? right.group.dataBase : getExtratoBaseDate(right.item);
       return new Date(rightDate).getTime() - new Date(leftDate).getTime();
     });
-  }, [extratoLancamentos]);
+  }, [extratoLancamentosFiltrados]);
 
   const catOptions = [
     {
@@ -811,6 +958,8 @@ export function Contas() {
     if (isTransferencia(lancamento)) return 'Transferência interna';
     return categorias.find(c => c.id === lancamento.plano_contas_id)?.nome || '-';
   };
+
+  const extratoSaldoBanco = Number(extratoConta?.saldo_atual ?? extratoSaldoDetalhe?.saldo_atual ?? 0);
 
   return (
     <div className="flex flex-col h-full relative overflow-hidden bg-slate-50 dark:bg-slate-900">
@@ -907,28 +1056,93 @@ export function Contas() {
               <>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
                   <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Saldo inicial</p>
-                    <p className="mt-2 text-xl font-black text-slate-800 dark:text-white">{BRL.format(Number(extratoSaldoDetalhe.saldo_inicial || 0))}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Saldo do banco</p>
+                    <p className={`mt-2 text-xl font-black ${extratoSaldoBanco >= 0 ? 'text-slate-800 dark:text-white' : 'text-rose-600 dark:text-rose-300'}`}>{BRL.format(extratoSaldoBanco)}</p>
+                    <p className="mt-1 text-[11px] text-slate-400">Esse valor nao muda com os filtros.</p>
                   </div>
                   <div className="rounded-xl border border-emerald-200 bg-white p-4 shadow-sm dark:border-emerald-900 dark:bg-slate-800">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Entradas no saldo</p>
-                    <p className="mt-2 text-xl font-black text-emerald-600 dark:text-emerald-300">{BRL.format(Number(extratoSaldoDetalhe.total_entradas || 0))}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Entradas filtradas</p>
+                    <p className="mt-2 text-xl font-black text-emerald-600 dark:text-emerald-300">{BRL.format(Number(extratoResumoFiltrado.entradas || 0))}</p>
                   </div>
                   <div className="rounded-xl border border-rose-200 bg-white p-4 shadow-sm dark:border-rose-900 dark:bg-slate-800">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Saídas no saldo</p>
-                    <p className="mt-2 text-xl font-black text-rose-600 dark:text-rose-300">{BRL.format(Number(extratoSaldoDetalhe.total_saidas || 0))}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Saidas filtradas</p>
+                    <p className="mt-2 text-xl font-black text-rose-600 dark:text-rose-300">{BRL.format(Number(extratoResumoFiltrado.saidas || 0))}</p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Saldo calculado</p>
-                    <p className={`mt-2 text-xl font-black ${Number(extratoSaldoDetalhe.saldo_atual || 0) >= 0 ? 'text-slate-800 dark:text-white' : 'text-rose-600 dark:text-rose-300'}`}>{BRL.format(Number(extratoSaldoDetalhe.saldo_atual || 0))}</p>
-                    <p className="mt-1 text-[11px] text-slate-400">{extratoSaldoDetalhe.quantidade_movimentos} movimento(s) influenciando</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Movimentos no filtro</p>
+                    <p className="mt-2 text-xl font-black text-slate-800 dark:text-white">{extratoResumoFiltrado.quantidade}</p>
+                    <p className="mt-1 text-[11px] text-slate-400">De {extratoSaldoDetalhe.quantidade_movimentos} movimento(s) que influenciam o saldo.</p>
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
+                  <div className="space-y-3">
                     <p className="text-sm font-bold text-slate-700 dark:text-slate-100">Tudo abaixo entra no saldo atual desta conta.</p>
-                    <p className="text-xs text-slate-400">Se algo estiver errado aqui, é isso que precisa ser corrigido ou apagado.</p>
+                    <p className="text-xs text-slate-400">Os filtros mudam apenas a visualizacao das entradas e saidas. O saldo do banco permanece o saldo real da conta.</p>
+                    <div className="flex flex-wrap gap-2">
+                      {([
+                        { id: 'TODOS', label: 'Tudo' },
+                        { id: 'ENTRADAS', label: 'Entradas' },
+                        { id: 'SAIDAS', label: 'Saidas' },
+                      ] as Array<{ id: ExtratoTipoFiltro; label: string }>).map((option) => {
+                        const active = extratoTipoFiltro === option.id;
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() => setExtratoTipoFiltro(option.id)}
+                            className={`rounded-xl px-3 py-2 text-sm font-bold transition ${active ? 'text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                            style={active ? { backgroundColor: primaryColor } : undefined}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {([
+                        { id: 'DIA', label: 'Dia' },
+                        { id: 'SEMANA', label: 'Semana' },
+                        { id: 'MES', label: 'Mes' },
+                        { id: 'ANO', label: 'Ano' },
+                        { id: 'PERSONALIZADO', label: 'Periodo' },
+                      ] as Array<{ id: ExtratoPeriodoFiltro; label: string }>).map((option) => {
+                        const active = extratoPeriodoFiltro === option.id;
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() => setExtratoPeriodoFiltro(option.id)}
+                            className={`rounded-xl px-3 py-2 text-sm font-bold transition ${active ? 'text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                            style={active ? { backgroundColor: primaryColor } : undefined}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {extratoPeriodoFiltro === 'PERSONALIZADO' && (
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <input
+                          type="date"
+                          value={extratoPeriodoInicio}
+                          onChange={(event) => setExtratoPeriodoInicio(event.target.value)}
+                          max={extratoPeriodoFim || undefined}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:ring-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                          style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                          placeholder={getDateInputValue(new Date())}
+                        />
+                        <input
+                          type="date"
+                          value={extratoPeriodoFim}
+                          onChange={(event) => setExtratoPeriodoFim(event.target.value)}
+                          min={extratoPeriodoInicio || undefined}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:ring-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                          style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                          placeholder={getDateInputValue(new Date())}
+                        />
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -964,8 +1178,8 @@ export function Contas() {
                   <tbody className="text-sm divide-y divide-slate-100 dark:divide-slate-700">
                     {extratoLoading ? (
                       <tr><td colSpan={10} className="p-6 text-center text-slate-400">Carregando...</td></tr>
-                    ) : extratoLancamentos.length === 0 ? (
-                      <tr><td colSpan={10} className="p-6 text-center text-slate-400 italic">Nenhum movimento está influenciando o saldo desta conta.</td></tr>
+                    ) : extratoAgrupado.length === 0 ? (
+                      <tr><td colSpan={10} className="p-6 text-center text-slate-400 italic">Nenhum movimento encontrado para os filtros selecionados.</td></tr>
                     ) : (
                       extratoAgrupado.map((row) => {
                         if (row.type === 'invoice') {
@@ -1197,11 +1411,14 @@ export function Contas() {
                               <div className="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm overflow-hidden"
                                 style={{ backgroundColor: `${primaryColor}10`, color: primaryColor }}
                               >
-                                {c.tipo === 'CAIXA' ? <IconComp className="w-5 h-5" /> : <BankAvatar logoUrl={c.logo_url} bankName={c.banco} accountName={c.nome} integrationType={c.tipo_integracao} size="sm" className="h-10 w-10" imageClassName="rounded-lg" fallbackClassName="rounded-lg border-0 shadow-none" />}
+                                {c.tipo === 'CAIXA' ? <IconComp className="w-5 h-5" /> : c.logo_url ? <BankAvatar logoUrl={c.logo_url} bankName={c.banco} accountName={c.nome} integrationType={c.tipo_integracao} size="sm" className="h-10 w-10" imageClassName="rounded-lg" fallbackClassName="rounded-lg border-0 shadow-none" /> : <Banknote className="w-5 h-5" />}
                               </div>
                                 <div>
                                     <h3 className="font-bold text-slate-700 dark:text-slate-200 leading-tight">{c.nome}</h3>
                                     <p className="text-[10px] uppercase font-bold text-slate-400 mt-0.5">{c.banco || c.tipo}</p>
+                                    {c.conta_como_disponibilidade === false && (
+                                      <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-300">Fora do saldo disponivel</p>
+                                    )}
                                 </div>
                             </div>
                             
@@ -1314,7 +1531,11 @@ export function Contas() {
                         placeholder="Ex: Nubank" 
                         value={form.banco}
                         onChange={e => {
-                          setForm({...form, banco: e.target.value});
+                          setForm((prev) => ({
+                            ...prev,
+                            banco: e.target.value,
+                            logo_url: logoFile || isUploadedContaLogo(prev.logo_url) ? prev.logo_url : null,
+                          }));
                           setFormErrors((prev) => ({ ...prev, banco: undefined }));
                         }}
                       />
@@ -1333,7 +1554,8 @@ export function Contas() {
                               key={banco.id}
                               type="button"
                               onClick={() => {
-                                setForm({ ...form, banco: banco.banco, tipo_integracao: 'MANUAL' });
+                                setForm({ ...form, banco: banco.banco, tipo_integracao: 'MANUAL', logo_url: banco.logo_url || null });
+                                setLogoRemoved(false);
                                 setFormErrors((prev) => ({ ...prev, banco: undefined }));
                               }}
                               className={`rounded-2xl border px-3 py-3 text-left transition flex flex-col gap-3 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
@@ -1362,7 +1584,8 @@ export function Contas() {
                             key={banco.id}
                             type="button"
                             onClick={() => {
-                              setForm({ ...form, tipo_integracao: banco.value });
+                              setForm({ ...form, banco: banco.label, tipo_integracao: banco.value, logo_url: banco.logo });
+                              setLogoRemoved(false);
                               setFormErrors((prev) => ({ ...prev, banco: undefined }));
                             }}
                             className={`rounded-2xl border px-3 py-3 text-left transition flex flex-col gap-3 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
@@ -1424,8 +1647,14 @@ export function Contas() {
                       <div className="w-18 h-18 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 overflow-hidden flex items-center justify-center text-[10px] text-slate-400 shadow-sm">
                           {hasCustomLogo ? (
                             <img src={getFullLogoUrl(logoPreview || form.logo_url || '') || ''} alt="Logo" className="w-full h-full object-contain bg-white p-2 dark:bg-slate-900" />
+                          ) : form.tipo !== 'CAIXA' ? (
+                            <div className="flex h-full w-full items-center justify-center bg-white text-slate-400 dark:bg-slate-900 dark:text-slate-500">
+                              <Banknote className="h-8 w-8" />
+                            </div>
                           ) : (
-                            <BankAvatar bankName={form.banco} accountName={form.nome} integrationType={form.tipo_integracao} size="md" className="h-18 w-18 rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900" imageClassName="rounded-xl bg-white p-1 dark:bg-slate-900" fallbackClassName="rounded-2xl border-0 shadow-none" imageFit="contain" />
+                            <div className="flex h-full w-full items-center justify-center bg-white text-slate-400 dark:bg-slate-900 dark:text-slate-500">
+                              <Landmark className="h-8 w-8" />
+                            </div>
                           )}
                       </div>
                       <div className="flex gap-2 flex-wrap">
@@ -1444,14 +1673,12 @@ export function Contas() {
 
               <div>
                   <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Saldo Inicial</label>
-                  <input 
-                    type="number" step="0.01" 
-                    className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition font-bold text-lg focus:ring-1"
-                    style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
-                    placeholder="0.00" 
-                    value={form.saldo_inicial}
-                    onChange={e => setForm({...form, saldo_inicial: e.target.value})}
-                  />
+                  {renderCurrencyInput(
+                    form.saldo_inicial,
+                    (value) => setForm({ ...form, saldo_inicial: value }),
+                    'w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition font-bold text-lg focus:ring-1',
+                    '0,00',
+                  )}
               </div>
 
               <div>
@@ -1480,6 +1707,28 @@ export function Contas() {
                     })}
                   </div>
                   <p className="mt-2 text-xs text-slate-500">Se existir apenas um centro disponível, ele é preenchido automaticamente na nova conta.</p>
+              </div>
+
+              <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta como disponibilidade</label>
+                  <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, conta_como_disponibilidade: true })}
+                      className={`rounded-xl px-3 py-2 text-sm font-bold transition ${form.conta_como_disponibilidade ? 'text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                      style={form.conta_como_disponibilidade ? { backgroundColor: primaryColor } : undefined}
+                    >
+                      Sim
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, conta_como_disponibilidade: false })}
+                      className={`rounded-xl px-3 py-2 text-sm font-bold transition ${!form.conta_como_disponibilidade ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                    >
+                      Não
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">Quando marcada como não, a conta continua disponível em extratos e lançamentos, mas sai do saldo geral disponível.</p>
               </div>
 
               <div>
@@ -1578,22 +1827,18 @@ export function Contas() {
               </div>
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Valor previsto</label>
-                <input
-                  type="number"
-                  step="0.01"
+                <CurrencyInput
                   className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
                   value={lancamentoForm.valor_previsto}
-                  onChange={e => setLancamentoForm(prev => ({ ...prev, valor_previsto: e.target.value }))}
+                  onValueChange={(value) => setLancamentoForm(prev => ({ ...prev, valor_previsto: value }))}
                 />
               </div>
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Valor pago</label>
-                <input
-                  type="number"
-                  step="0.01"
+                <CurrencyInput
                   className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
                   value={lancamentoForm.valor_pago}
-                  onChange={e => setLancamentoForm(prev => ({ ...prev, valor_pago: e.target.value }))}
+                  onValueChange={(value) => setLancamentoForm(prev => ({ ...prev, valor_pago: value }))}
                 />
               </div>
               <div className="md:col-span-2">

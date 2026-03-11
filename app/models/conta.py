@@ -32,6 +32,7 @@ class Conta(AuditMixin, SQLModel, table=True):
     data_saldo_inicial: Optional[datetime.date] = None
     
     status: str = Field(default='ATIVO', index=True)
+    conta_como_disponibilidade: bool = Field(default=True, nullable=False)
     cor: Optional[str] = Field(default="#808080")
     
     # --- Integração ---

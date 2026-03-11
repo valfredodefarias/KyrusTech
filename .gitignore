@@ -2,7 +2,7 @@
 .env
 .env.local
 .env.*.local
-
+.gitignore
 # Python
 __pycache__/
 *.py[cod]
@@ -70,3 +70,5 @@ Thumbs.db
 # Alembic
 alembic/versions/*
 !alembic/versions/.gitkeep
+.env
+.gitignore

@@ -77,7 +77,15 @@ function App() {
     <BrowserRouter>
       <Suspense fallback={<RouteFallback />}>
         <Routes>
-          <Route path="/" element={initialized && isAuthenticated ? <Navigate to="/home" replace /> : <Login />} />
+          <Route
+            path="/"
+            element={
+              initialized
+                ? <Navigate to={isAuthenticated ? "/home" : "/login"} replace />
+                : <RouteFallback />
+            }
+          />
+          <Route path="/login" element={<Login />} />
 
           <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
             <Route path="/home" element={<Home />} />

@@ -247,6 +247,11 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
     }, [value]);
 
     useEffect(() => {
+        if (isOpen) {
+            setSearch('');
+            return;
+        }
+
         if (selectedItem) setSearch(selectedItem.searchText || selectedItem.nome);
         else setSearch('');
     }, [selectedItem, isOpen]);
@@ -478,6 +483,8 @@ export const PlanoContasManager = ({
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [draggedItem, setDraggedItem] = useState<ItemSistema | null>(null);
     const [managerFeedback, setManagerFeedback] = useState<Feedback | null>(null);
+        const [createTipoLocked, setCreateTipoLocked] = useState(false);
+        const nextTempIdRef = useRef(-1);
 
   // CRUD States
   const [modalOpen, setModalOpen] = useState(false);
@@ -543,16 +550,36 @@ export const PlanoContasManager = ({
       return flatten([...roots]); // Retorna lista plana com códigos novos
   };
 
+  const buildInitialLocalList = (source: ItemSistema[]) => {
+      const sorted = [...source].sort((a, b) => (a.codigo || 'z').localeCompare(b.codigo || 'z', undefined, { numeric: true }));
+      return recalcCodes(sorted);
+  };
+
+  const markDirty = (nextList: ItemSistema[]) => {
+      setLocalList(nextList);
+      setHasChanges(true);
+  };
+
+  const getResolvedItemId = (itemId: number, tempIdMap: Map<number, number>) => {
+      if (itemId > 0) return itemId;
+      const resolvedId = tempIdMap.get(itemId);
+      if (!resolvedId) {
+          throw new Error('Nao foi possivel resolver uma categoria criada localmente.');
+      }
+      return resolvedId;
+  };
+
+  const getResolvedParentId = (parentId: number | null | undefined, tempIdMap: Map<number, number>) => {
+      if (!parentId) return null;
+      return getResolvedItemId(parentId, tempIdMap);
+  };
+
   // Inicializa e já recalcula se tiver S/N
   useEffect(() => {
-    // Ordena inicialmente por código existente para manter estabilidade
-    const sorted = [...categorias].sort((a,b) => (a.codigo||'z').localeCompare(b.codigo||'z', undefined, {numeric:true}));
-    
-    // Se houver muitos itens "S/N", podemos forçar um recálculo inicial visual
-    // Mas para não marcar como "Alterado" logo de cara, apenas setamos.
-    // Se quiser corrigir visualmente na hora, chame recalcCodes aqui.
-    const calculated = recalcCodes(sorted); 
+    const calculated = buildInitialLocalList(categorias);
     setLocalList(calculated);
+    setHasChanges(false);
+    setSaving(false);
 
     // Expande raízes
     const ids = new Set(calculated.filter(c => !c.conta_pai_id).map(c => c.id));
@@ -650,7 +677,7 @@ export const PlanoContasManager = ({
       [formData.conta_pai_id, localList]
   );
 
-  const shouldShowTipoField = modalMode === 'CREATE' && !selectedParent;
+    const shouldShowTipoField = modalMode === 'CREATE' && !createTipoLocked && !selectedParent;
 
   const parentSelectGroups = useMemo<SearchOptionGroup[]>(() => {
       const options = parentOptions.map((item) => ({
@@ -723,8 +750,7 @@ export const PlanoContasManager = ({
       // 3. MÁGICA: Recalcula todos os códigos baseados na nova estrutura
       const reindexedList = recalcCodes(newList);
 
-      setLocalList(reindexedList);
-      setHasChanges(true);
+      markDirty(reindexedList);
       setDraggedItem(null);
   };
 
@@ -733,17 +759,57 @@ export const PlanoContasManager = ({
     setSaving(true);
         setManagerFeedback(null);
     try {
+        const originalMap = new Map(categorias.map((item) => [item.id, item]));
+        const currentPositiveIds = new Set(localList.filter((item) => item.id > 0).map((item) => item.id));
+        const createdItems = localList.filter((item) => item.id < 0);
+        const updatedItems = localList.filter((item) => {
+            if (item.id < 0) return false;
+            const original = originalMap.get(item.id);
+            if (!original) return false;
+            return (
+                original.nome !== item.nome ||
+                (original.considerar_nos_resultados ?? true) !== (item.considerar_nos_resultados ?? true)
+            );
+        });
+        const deletedItems = categorias
+            .filter((item) => !currentPositiveIds.has(item.id))
+            .sort((a, b) => (String(b.codigo || '').split('.').length - String(a.codigo || '').split('.').length));
+
+        const tempIdMap = new Map<number, number>();
+
+        for (const item of createdItems) {
+            const response = await api.post(`${apiBasePath}`, {
+                nome: item.nome,
+                tipo: normalizeTipo(item.tipo),
+                permite_lancamentos: true,
+                considerar_nos_resultados: item.considerar_nos_resultados ?? true,
+                conta_pai_id: getResolvedParentId(item.conta_pai_id ?? null, tempIdMap),
+            });
+            tempIdMap.set(item.id, response.data.id);
+        }
+
+        for (const item of updatedItems) {
+            await api.patch(`${apiBasePath}/${item.id}`, {
+                nome: item.nome,
+                considerar_nos_resultados: item.considerar_nos_resultados ?? true,
+            });
+        }
+
         const payload = localList.map((item) => ({
-            id: item.id,
-            codigo: item.codigo, 
-            conta_pai_id: item.conta_pai_id,
-            tipo: normalizeTipo(item.tipo)
+            id: getResolvedItemId(item.id, tempIdMap),
+            codigo: item.codigo,
+            conta_pai_id: getResolvedParentId(item.conta_pai_id ?? null, tempIdMap),
+            tipo: normalizeTipo(item.tipo),
         }));
 
         await api.post(`${apiBasePath}/reordenar`, payload);
+
+        for (const item of deletedItems) {
+            await api.delete(`${apiBasePath}/${item.id}`);
+        }
         
         setHasChanges(false);
-        setManagerFeedback({ type: 'success', message: 'Ordem do plano de contas salva com sucesso.' });
+        setManagerFeedback({ type: 'success', message: 'Plano de contas salvo com sucesso.' });
         
         const updated = await refreshRemoteList();
         onUpdateList(updated);
@@ -783,20 +849,13 @@ export const PlanoContasManager = ({
       }
 
       if(!confirm(`Excluir a categoria \"${item.nome}\"?`)) return;
-      try {
-          await api.delete(`${apiBasePath}/${item.id}`);
-          onUpdateList(localList.filter((categoria) => categoria.id !== item.id));
-          setManagerFeedback({ type: 'success', message: `Categoria \"${item.nome}\" excluida com sucesso.` });
-      } catch(e: any) {
-          setManagerFeedback({
-              type: 'error',
-              message: getApiErrorMessage(e, `Nao foi possivel excluir a categoria \"${item.nome}\".`),
-          });
-      }
+      markDirty(localList.filter((categoria) => categoria.id !== item.id));
+      setManagerFeedback({ type: 'success', message: `Categoria \"${item.nome}\" marcada para exclusao.` });
   };
 
-  const openCreateModal = (tipo: 'R' | 'D', contaPaiId: number | '' = '') => {
+  const openCreateModal = (tipo: 'R' | 'D', contaPaiId: number | '' = '', lockTipo = false) => {
       setModalMode('CREATE');
+      setCreateTipoLocked(lockTipo);
       setFormData({
           id: 0,
           nome: '',
@@ -810,50 +869,60 @@ export const PlanoContasManager = ({
 
   const handleSaveModal = async () => {
       setManagerFeedback(null);
-      try {
-          if (modalMode === 'CREATE') {
-                            const res = await api.post(`${apiBasePath}`, {
-                                nome: formData.nome,
-                                tipo: normalizeTipo(formData.tipo),
-                                permite_lancamentos: true,
-                                considerar_nos_resultados: formData.considerar_nos_resultados,
-                                conta_pai_id: formData.conta_pai_id || null,
-                            });
-              // Adiciona e recalcula
-              const newList = [...localList, res.data];
-              const reindexed = recalcCodes(newList);
-              setLocalList(reindexed);
-              setHasChanges(true); // Marca como alterado para forçar salvar a ordem nova
-          } else {
-                            await api.patch(`${apiBasePath}/${formData.id}`, {
-                                nome: formData.nome,
-                                considerar_nos_resultados: formData.considerar_nos_resultados,
-                                conta_pai_id: formData.conta_pai_id || null,
-                                tipo: normalizeTipo(formData.tipo),
-                            });
-                            onUpdateList(recalcCodes(localList.map(c => c.id === formData.id ? {
-                                ...c,
-                                nome: formData.nome,
-                                considerar_nos_resultados: formData.considerar_nos_resultados,
-                                conta_pai_id: formData.conta_pai_id || null,
-                                tipo: normalizeTipo(formData.tipo),
-                            } : c)));
-          }
-          setModalOpen(false);
-          setManagerFeedback({
-              type: 'success',
-              message: modalMode === 'CREATE'
-                  ? 'Categoria criada. Salve as mudancas para consolidar a ordem.'
-                  : modalMode === 'MOVE'
-                      ? 'Categoria movida. Salve as mudancas para consolidar a nova ordem.'
-                      : 'Categoria atualizada com sucesso.',
-          });
-      } catch(e: any) {
+      if (!formData.nome.trim() && modalMode !== 'MOVE') {
           setManagerFeedback({
               type: 'error',
-              message: getApiErrorMessage(e, 'Nao foi possivel salvar a categoria.'),
+              message: 'Informe o nome da categoria antes de continuar.',
           });
+          return;
       }
+
+      const normalizedTipo = normalizeTipo(formData.tipo);
+      if (modalMode === 'CREATE') {
+          const tempId = nextTempIdRef.current;
+          nextTempIdRef.current -= 1;
+          const reindexed = recalcCodes([
+              ...localList,
+              {
+                  id: tempId,
+                  nome: formData.nome.trim(),
+                  codigo: '',
+                  tipo: normalizedTipo,
+                  permite_lancamentos: true,
+                  considerar_nos_resultados: formData.considerar_nos_resultados,
+                  conta_pai_id: formData.conta_pai_id || null,
+              },
+          ]);
+          markDirty(reindexed);
+      } else {
+          const reindexed = recalcCodes(localList.map((categoria) => categoria.id === formData.id ? {
+              ...categoria,
+              nome: formData.nome.trim(),
+              considerar_nos_resultados: formData.considerar_nos_resultados,
+              conta_pai_id: formData.conta_pai_id || null,
+              tipo: normalizedTipo,
+          } : categoria));
+          markDirty(reindexed);
+      }
+
+      setModalOpen(false);
+      setCreateTipoLocked(false);
+      setManagerFeedback({
+          type: 'success',
+          message: modalMode === 'CREATE'
+              ? 'Categoria adicionada localmente. Salve as alteracoes para aplicar.'
+              : modalMode === 'MOVE'
+                  ? 'Categoria movida localmente. Salve as alteracoes para aplicar.'
+                  : 'Categoria atualizada localmente. Salve as alteracoes para aplicar.',
+      });
+  };
+
+  const handleCancelChanges = () => {
+      setManagerFeedback(null);
+      setModalOpen(false);
+      setCreateTipoLocked(false);
+      setLocalList(buildInitialLocalList(categorias));
+      setHasChanges(false);
   };
 
   return (
@@ -882,9 +951,19 @@ export const PlanoContasManager = ({
                       onDrop={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'transparent'; handleDrop(rootDropTarget); }}
                   >
                       <div className="mb-4 border-b border-slate-200 pb-3 dark:border-slate-700">
-                          <h3 className={`flex items-center gap-2 text-sm font-bold ${section.accentClassName}`}>
-                              {section.tipo === 'R' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />} {section.titulo}
-                          </h3>
+                          <div className="flex items-center justify-between gap-3">
+                              <h3 className={`flex items-center gap-2 text-sm font-bold ${section.accentClassName}`}>
+                                  {section.tipo === 'R' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />} {section.titulo}
+                              </h3>
+                              <button
+                                  type="button"
+                                  onClick={() => openCreateModal(section.tipo, '', true)}
+                                  className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-bold text-white shadow-lg transition ${section.tipo === 'R' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'}`}
+                              >
+                                  <Plus className="h-3.5 w-3.5" />
+                                  Nova categoria
+                              </button>
+                          </div>
                       </div>
 
                       <div className="flex-1 space-y-1">
@@ -895,7 +974,7 @@ export const PlanoContasManager = ({
                                   </div>
                                   <button
                                       type="button"
-                                      onClick={() => openCreateModal(section.tipo)}
+                                      onClick={() => openCreateModal(section.tipo, '', true)}
                                       className={`mt-2 inline-flex items-center gap-2 rounded-full px-4 py-3 text-sm font-bold text-white shadow-xl transition ${section.tipo === 'R' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'}`}
                                   >
                                       <Plus className="h-4 w-4" />
@@ -910,9 +989,9 @@ export const PlanoContasManager = ({
                                       inheritedExcluded={false}
                                       onDragStart={handleDragStart}
                                       onDrop={handleDrop}
-                                      onEdit={(i:any)=>{ setModalMode('EDIT'); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, considerar_nos_resultados: i.considerar_nos_resultados !== false, conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
-                                      onCreateChild={(i:any)=>{ setExpandedIds((prev) => new Set(prev).add(i.id)); openCreateModal(normalizeTipo(i.tipo), i.id); }}
-                                      onMove={(i:any)=>{ setModalMode('MOVE'); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, considerar_nos_resultados: i.considerar_nos_resultados !== false, conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
+                                      onEdit={(i:any)=>{ setModalMode('EDIT'); setCreateTipoLocked(false); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, considerar_nos_resultados: i.considerar_nos_resultados !== false, conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
+                                      onCreateChild={(i:any)=>{ setExpandedIds((prev) => new Set(prev).add(i.id)); openCreateModal(normalizeTipo(i.tipo), i.id, true); }}
+                                      onMove={(i:any)=>{ setModalMode('MOVE'); setCreateTipoLocked(false); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, considerar_nos_resultados: i.considerar_nos_resultados !== false, conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
                                       onDelete={handleDelete}
                                       onToggle={handleToggle}
                                       expandedIds={expandedIds}
@@ -932,6 +1011,15 @@ export const PlanoContasManager = ({
                   <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-300">Plano pendente</p>
                   <p className="text-sm font-semibold text-white">Salve a estrutura antes de sair.</p>
               </div>
+              <button
+                  type="button"
+                  onClick={handleCancelChanges}
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-slate-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                  <X className="h-4 w-4" />
+                  Cancelar
+              </button>
               <button
                   type="button"
                   onClick={handleSaveOrder}
@@ -1002,7 +1090,7 @@ export const PlanoContasManager = ({
                       </div>
 
                       <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
-                          <button onClick={()=>setModalOpen(false)} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold">Cancelar</button>
+                          <button onClick={()=>{ setModalOpen(false); setCreateTipoLocked(false); }} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold">Cancelar</button>
                           <button onClick={handleSaveModal} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold shadow-lg">Salvar</button>
                       </div>
                   </div>

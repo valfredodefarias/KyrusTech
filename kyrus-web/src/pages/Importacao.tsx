@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
-import { fetchCepAddress } from '../lib/cep';
 import { 
     UploadCloud, ArrowRight, CheckCircle, AlertTriangle, 
     FileSpreadsheet, Save, Loader2, Download,
@@ -175,6 +174,31 @@ const formatPhone = (value: string) => {
 };
 
 const formatCep = (value: string) => onlyDigits(value).slice(0, 8).replace(/(\d{5})(\d)/, '$1-$2');
+
+const fetchCepAddress = async (cep: string) => {
+    const digits = String(cep || '').replace(/\D/g, '');
+    if (digits.length !== 8) {
+        throw new Error('CEP inválido');
+    }
+
+    const response = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+    if (!response.ok) {
+        throw new Error('Falha ao consultar CEP');
+    }
+
+    const data = await response.json();
+    if (data?.erro) {
+        throw new Error('CEP não encontrado');
+    }
+
+    return {
+        cep: digits,
+        logradouro: String(data.logradouro || '').trim(),
+        bairro: String(data.bairro || '').trim(),
+        cidade: String(data.localidade || '').trim(),
+        uf: String(data.uf || '').trim().toUpperCase().slice(0, 2),
+    };
+};
 
 const nullableValue = (value: string) => {
     const trimmed = value.trim();

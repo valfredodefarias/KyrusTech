@@ -25,6 +25,43 @@ export interface ItemSistema {
 
 const normalizeTipo = (tipo?: string) => ((tipo || '').trim().toUpperCase().startsWith('R') ? 'R' : 'D');
 
+function getApiErrorMessage(error: any, fallback: string) {
+    const detail = error?.response?.data?.detail;
+    const message = error?.response?.data?.message;
+    const statusCode = error?.response?.status;
+
+    if (Array.isArray(detail)) {
+        const parsed = detail
+            .map((item) => item?.msg || item?.message || String(item))
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+        return parsed || fallback;
+    }
+
+    if (typeof detail === 'string' && detail.trim()) {
+        return detail.trim();
+    }
+
+    if (typeof message === 'string' && message.trim()) {
+        return message.trim();
+    }
+
+    if (statusCode === 405) {
+        return 'O endpoint recusou o metodo HTTP enviado. Verifique a compatibilidade da rota usada pela tela.';
+    }
+
+    if (statusCode) {
+        return `${fallback} (HTTP ${statusCode})`;
+    }
+
+    return fallback;
+}
+
+function getSingleCentroId(centros: ItemSistema[]) {
+    return centros.length === 1 ? Number(centros[0].id) : null;
+}
+
 interface SistemaData {
   contas: ItemSistema[];
   categorias: ItemSistema[];
@@ -1521,7 +1558,12 @@ export function Importacao() {
                             });
               setMapEntidades(prev => ({...prev, [modalPendingKey]: String(newItem.id)}));
           } else if (modalType === 'CONTA') {
-              res = await api.post('/contas/', { nome: modalValue, tipo: 'CORRENTE' });
+              const centroCustoId = getSingleCentroId(sistemaData.centros);
+              res = await api.post('/contas/', {
+                  nome: modalValue,
+                  tipo: 'CORRENTE',
+                  centro_custo_id: centroCustoId,
+              });
               newItem = res.data;
               setSistemaData(prev => ({...prev, contas: [...prev.contas, newItem]}));
               setMapContas(prev => ({...prev, [modalPendingKey]: String(newItem.id)}));
@@ -1536,7 +1578,10 @@ export function Importacao() {
           setEntityForm(initialQuickEntityForm);
           setEntityCepFeedback(null);
           lastEntityCepLookupRef.current = '';
-      } catch(e) { alert("Erro ao criar item."); } finally { setLoading(false); }
+      } catch(e) {
+          const message = getApiErrorMessage(e, 'Nao foi possivel criar o item.');
+          setFeedback({ type: 'error', message });
+      } finally { setLoading(false); }
   }
 
   async function handleBulkCreate(type: 'CATEGORIA' | 'ENTIDADE' | 'CONTA' | 'CENTRO') {
@@ -1579,7 +1624,11 @@ export function Importacao() {
                   return { name, data: response.data };
               }
               if (type === 'CONTA') {
-                  const response = await api.post('/contas/', { nome: name, tipo: 'CORRENTE' });
+                  const response = await api.post('/contas/', {
+                      nome: name,
+                      tipo: 'CORRENTE',
+                      centro_custo_id: getSingleCentroId(sistemaData.centros),
+                  });
                   return { name, data: response.data };
               }
               const response = await api.post('/centro-custo/', { nome: name });
@@ -1611,17 +1660,20 @@ export function Importacao() {
 
           if (failedResults.length > 0) {
               const plural = failedResults.length > 1 ? 'itens' : 'item';
+              const firstError = failedResults[0] as PromiseRejectedResult | undefined;
+              const detail = firstError?.reason ? getApiErrorMessage(firstError.reason, 'Falha ao criar um ou mais itens.') : undefined;
               setFeedback({
                   type: successResults.length > 0 ? 'success' : 'error',
                   message: successResults.length > 0
                       ? `${successResults.length} ${plural} criado(s), mas ${failedResults.length} falharam.`
                       : `Nao foi possivel criar ${failedResults.length} ${plural}.`,
+                  details: detail ? [detail] : undefined,
               });
           }
 
       } catch (e) {
           console.error(e);
-          alert("Erro ao criar itens em massa.");
+          setFeedback({ type: 'error', message: getApiErrorMessage(e, 'Erro ao criar itens em massa.') });
       } finally {
           setBulkLoading(null);
       }

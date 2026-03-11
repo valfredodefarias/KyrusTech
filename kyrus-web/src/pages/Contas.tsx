@@ -112,6 +112,17 @@ interface EmpresaData {
   cor_primaria: string;
 }
 
+interface FormErrors {
+  nome?: string;
+  banco?: string;
+}
+
+interface Notice {
+  type: 'success' | 'error';
+  message: string;
+  details?: string[];
+}
+
 const SearchableSelect = ({ options, value, onChange, placeholder, label }: any) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -224,6 +235,8 @@ export function Contas() {
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>('');
   const [logoRemoved, setLogoRemoved] = useState(false);
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
+  const [notice, setNotice] = useState<Notice | null>(null);
   
   // Confirmação de Exclusão
   const [itemToDelete, setItemToDelete] = useState<Conta | null>(null);
@@ -282,6 +295,51 @@ export function Contas() {
     return toPublicAssetUrl(url);
   }
 
+  function getApiErrorMessage(error: any, fallback: string) {
+    const detail = error?.response?.data?.detail;
+    const message = error?.response?.data?.message;
+
+    if (Array.isArray(detail)) {
+      const parsed = detail
+        .map((item) => item?.msg || item?.message || String(item))
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      return parsed || fallback;
+    }
+
+    if (typeof detail === 'string' && detail.trim()) return detail.trim();
+    if (typeof message === 'string' && message.trim()) return message.trim();
+    return fallback;
+  }
+
+  function getSingleCentroId(list: CentroCusto[]) {
+    return list.length === 1 ? String(list[0].id) : '';
+  }
+
+  function getFieldClass(hasError: boolean) {
+    return `w-full px-4 py-3 rounded-lg border bg-white dark:bg-slate-800 outline-none transition focus:ring-1 ${hasError ? 'border-rose-400 bg-rose-50/60 dark:border-rose-500 dark:bg-rose-950/20' : 'border-slate-200 dark:border-slate-700'}`;
+  }
+
+  function getLabelClass(hasError: boolean) {
+    return `block text-xs font-bold uppercase mb-1 ${hasError ? 'text-rose-600 dark:text-rose-300' : 'text-slate-500'}`;
+  }
+
+  function validateContaForm(currentForm: FormConta) {
+    const nextErrors: FormErrors = {};
+
+    if (!currentForm.nome.trim()) {
+      nextErrors.nome = 'Informe o nome da conta.';
+    }
+
+    const requiresBank = currentForm.tipo !== 'CAIXA' && (currentForm.tipo_integracao || 'MANUAL') === 'MANUAL';
+    if (requiresBank && !currentForm.banco.trim()) {
+      nextErrors.banco = 'Informe o banco da conta.';
+    }
+
+    return nextErrors;
+  }
+
   useEffect(() => {
     carregarDados();
     carregarTema();
@@ -297,9 +355,23 @@ export function Contas() {
     if (centros.length === 1) {
       const onlyId = String(centros[0].id);
       setFilterCentroId(prev => prev || onlyId);
-      setForm(prev => prev.centro_custo_id ? prev : { ...prev, centro_custo_id: onlyId });
     }
   }, [centros]);
+
+  useEffect(() => {
+    const onlyId = getSingleCentroId(centros);
+    const selectedStillExists = !form.centro_custo_id || centros.some((centro) => String(centro.id) === String(form.centro_custo_id));
+
+    if (!selectedStillExists) {
+      setForm((prev) => ({ ...prev, centro_custo_id: onlyId || '' }));
+    }
+  }, [centros, form.centro_custo_id]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   // --- TEMA DINÂMICO ---
   async function carregarTema() {
@@ -351,10 +423,11 @@ export function Contas() {
   function handleOpenCreate() {
     setIsEditing(false);
     setEditingId(null);
-    setForm({ nome: '', banco: '', agencia: '', conta_numero: '', conta_digito: '', tipo: 'CORRENTE', saldo_inicial: '', centro_custo_id: '', status: 'ATIVO', logo_url: null, tipo_integracao: 'MANUAL' });
+    setForm({ nome: '', banco: '', agencia: '', conta_numero: '', conta_digito: '', tipo: 'CORRENTE', saldo_inicial: '', centro_custo_id: getSingleCentroId(centros), status: 'ATIVO', logo_url: null, tipo_integracao: 'MANUAL' });
     setLogoFile(null);
     setLogoPreview('');
     setLogoRemoved(false);
+    setFormErrors({});
     setDrawerOpen(true);
   }
 
@@ -379,6 +452,7 @@ export function Contas() {
     setLogoPreview(conta.logo_url || '');
     setLogoFile(null);
     setLogoRemoved(false);
+    setFormErrors({});
     setDrawerOpen(true);
   }
 
@@ -400,7 +474,16 @@ export function Contas() {
   }
 
   async function handleSave() {
-    if (!form.nome) return alert("O nome da conta é obrigatório.");
+    const nextErrors = validateContaForm(form);
+    setFormErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      setNotice({
+        type: 'error',
+        message: 'Faltou preencher informacoes obrigatorias da conta.',
+        details: Object.values(nextErrors),
+      });
+      return;
+    }
     
     setSaving(true);
     try {
@@ -426,10 +509,12 @@ export function Contas() {
       }
       
       setDrawerOpen(false);
+      setFormErrors({});
+      setNotice({ type: 'success', message: isEditing ? 'Conta atualizada com sucesso.' : 'Conta criada com sucesso.' });
       carregarDados();
     } catch (error) {
       console.error("Erro ao salvar", error);
-      alert("Erro ao salvar conta.");
+      setNotice({ type: 'error', message: getApiErrorMessage(error, 'Erro ao salvar conta.') });
     } finally {
       setSaving(false);
     }
@@ -440,10 +525,11 @@ export function Contas() {
     try {
       await api.delete(`/contas/${itemToDelete.id}`);
       setItemToDelete(null);
+      setNotice({ type: 'success', message: 'Conta removida com sucesso.' });
       carregarDados();
     } catch (error) {
       console.error("Erro ao deletar", error);
-      alert("Não foi possível excluir. Verifique se há lançamentos vinculados.");
+      setNotice({ type: 'error', message: getApiErrorMessage(error, 'Nao foi possivel excluir a conta. Verifique se ha lancamentos vinculados.') });
     }
   }
 
@@ -728,6 +814,28 @@ export function Contas() {
 
   return (
     <div className="flex flex-col h-full relative overflow-hidden bg-slate-50 dark:bg-slate-900">
+      {notice && (
+        <div className="fixed right-6 top-6 z-120 max-w-md rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+          <div className="flex items-start gap-3">
+            <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${notice.type === 'success' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-rose-100 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300'}`}>
+              {notice.type === 'success' ? <Check className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-slate-900 dark:text-white">{notice.message}</p>
+              {notice.details && notice.details.length > 0 && (
+                <div className="mt-1 space-y-1">
+                  {notice.details.map((detail, index) => (
+                    <p key={`${detail}-${index}`} className="text-xs text-slate-500 dark:text-slate-300">{detail}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button type="button" onClick={() => setNotice(null)} className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
       
       {/* HEADER */}
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm z-20 gap-4">
@@ -1167,15 +1275,19 @@ export function Contas() {
 
           <div className="flex-1 overflow-y-auto p-6 space-y-5">
               <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Nome da Conta / Apelido</label>
+                  <label className={getLabelClass(Boolean(formErrors.nome))}>Nome da Conta / Apelido</label>
                   <input 
                     type="text" 
-                    className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
-                    style={{ '--tw-ring-color': primaryColor, borderColor: 'transparent' } as React.CSSProperties} // Trick for focus ring color
+                    className={getFieldClass(Boolean(formErrors.nome))}
+                    style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
                     placeholder="Ex: Itaú Principal" 
                     value={form.nome}
-                    onChange={e => setForm({...form, nome: e.target.value})}
+                    onChange={e => {
+                      setForm({...form, nome: e.target.value});
+                      setFormErrors((prev) => ({ ...prev, nome: undefined }));
+                    }}
                   />
+                  {formErrors.nome && <p className="mt-1 text-xs font-medium text-rose-600 dark:text-rose-300">{formErrors.nome}</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -1194,15 +1306,19 @@ export function Contas() {
                       </select>
                   </div>
                   <div>
-                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Banco</label>
+                      <label className={getLabelClass(Boolean(formErrors.banco))}>Banco</label>
                       <input 
                         type="text" 
-                        className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
+                        className={getFieldClass(Boolean(formErrors.banco))}
                         style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
                         placeholder="Ex: Nubank" 
                         value={form.banco}
-                        onChange={e => setForm({...form, banco: e.target.value})}
+                        onChange={e => {
+                          setForm({...form, banco: e.target.value});
+                          setFormErrors((prev) => ({ ...prev, banco: undefined }));
+                        }}
                       />
+                      {formErrors.banco && <p className="mt-1 text-xs font-medium text-rose-600 dark:text-rose-300">{formErrors.banco}</p>}
                   </div>
               </div>
 
@@ -1216,7 +1332,10 @@ export function Contas() {
                             <button
                               key={banco.id}
                               type="button"
-                              onClick={() => setForm({ ...form, banco: banco.banco, tipo_integracao: 'MANUAL' })}
+                              onClick={() => {
+                                setForm({ ...form, banco: banco.banco, tipo_integracao: 'MANUAL' });
+                                setFormErrors((prev) => ({ ...prev, banco: undefined }));
+                              }}
                               className={`rounded-2xl border px-3 py-3 text-left transition flex flex-col gap-3 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
                             >
                               <div className="flex items-center gap-3">
@@ -1242,7 +1361,10 @@ export function Contas() {
                           <button
                             key={banco.id}
                             type="button"
-                            onClick={() => setForm({ ...form, tipo_integracao: banco.value })}
+                            onClick={() => {
+                              setForm({ ...form, tipo_integracao: banco.value });
+                              setFormErrors((prev) => ({ ...prev, banco: undefined }));
+                            }}
                             className={`rounded-2xl border px-3 py-3 text-left transition flex flex-col gap-3 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
                           >
                             <div className="flex items-center gap-3">
@@ -1334,17 +1456,30 @@ export function Contas() {
 
               <div>
                   <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Vincular a Centro de Custo</label>
-                  <select 
-                    className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
-                    style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
-                    value={form.centro_custo_id}
-                    onChange={e => setForm({...form, centro_custo_id: e.target.value})}
-                  >
-                      <option value="">Sem vínculo</option>
-                      {centros.map(cc => (
-                        <option key={cc.id} value={cc.id}>{cc.nome}</option>
-                      ))}
-                  </select>
+                  <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, centro_custo_id: '' })}
+                      className={`rounded-xl px-3 py-2 text-sm font-bold transition ${!form.centro_custo_id ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                    >
+                      Sem vínculo
+                    </button>
+                    {centros.map((cc) => {
+                      const selected = String(form.centro_custo_id) === String(cc.id);
+                      return (
+                        <button
+                          key={cc.id}
+                          type="button"
+                          onClick={() => setForm({ ...form, centro_custo_id: String(cc.id) })}
+                          className={`rounded-xl px-3 py-2 text-sm font-bold transition ${selected ? 'text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                          style={selected ? { backgroundColor: primaryColor } : undefined}
+                        >
+                          {cc.nome}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">Se existir apenas um centro disponível, ele é preenchido automaticamente na nova conta.</p>
               </div>
 
               <div>

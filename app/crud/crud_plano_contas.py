@@ -4,6 +4,7 @@ import re
 from copy import deepcopy
 from typing import Any, Optional
 
+from sqlalchemy import inspect
 from sqlalchemy.exc import ProgrammingError
 from sqlmodel import Session, select
 
@@ -291,8 +292,17 @@ def _ensure_template_config_table(db: Session) -> None:
     PlanoContasTemplateConfig.__table__.create(bind=db.get_bind(), checkfirst=True)
 
 
+def _has_template_config_table(db: Session) -> bool:
+    try:
+        return inspect(db.get_bind()).has_table(PlanoContasTemplateConfig.__tablename__)
+    except Exception:
+        return False
+
+
 def get_template_config(db: Session, *, tipo_pessoa: str) -> Optional[PlanoContasTemplateConfig]:
     normalized = _normalizar_tipo_pessoa(tipo_pessoa)
+    if not _has_template_config_table(db):
+        _ensure_template_config_table(db)
     statement = select(PlanoContasTemplateConfig).where(
         PlanoContasTemplateConfig.tipo_pessoa == normalized,
         PlanoContasTemplateConfig.config_key == _template_config_key(normalized),

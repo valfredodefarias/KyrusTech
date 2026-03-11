@@ -493,6 +493,7 @@ export const PlanoContasManager = ({
     syncWithLookupStore?: boolean;
 }) => {
     const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
+    const normalizedApiBasePath = apiBasePath.endsWith('/') ? apiBasePath.slice(0, -1) : apiBasePath;
   const [localList, setLocalList] = useState<ItemSistema[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -643,7 +644,7 @@ export const PlanoContasManager = ({
                     return fetchPlanoContas(true);
             }
 
-            const response = await api.get(apiBasePath);
+            const response = await api.get(`${normalizedApiBasePath}/`);
             return response.data || [];
     };
 
@@ -794,7 +795,7 @@ export const PlanoContasManager = ({
         const tempIdMap = new Map<number, number>();
 
         for (const item of createdItems) {
-            const response = await api.post(`${apiBasePath}`, {
+            const response = await api.post(`${normalizedApiBasePath}/`, {
                 nome: item.nome,
                 tipo: normalizeTipo(item.tipo),
                 permite_lancamentos: true,
@@ -805,7 +806,7 @@ export const PlanoContasManager = ({
         }
 
         for (const item of updatedItems) {
-            await api.patch(`${apiBasePath}/${item.id}`, {
+            await api.patch(`${normalizedApiBasePath}/${item.id}`, {
                 nome: item.nome,
                 considerar_nos_resultados: item.considerar_nos_resultados ?? true,
             });
@@ -818,10 +819,10 @@ export const PlanoContasManager = ({
             tipo: normalizeTipo(item.tipo),
         }));
 
-        await api.post(`${apiBasePath}/reordenar`, payload);
+        await api.post(`${normalizedApiBasePath}/reordenar`, payload);
 
         for (const item of deletedItems) {
-            await api.delete(`${apiBasePath}/${item.id}`);
+            await api.delete(`${normalizedApiBasePath}/${item.id}`);
         }
         
         setHasChanges(false);
@@ -1410,25 +1411,43 @@ export function Importacao() {
                           type === 'ENTIDADE' ? conflitos.entidades.filter(k => !mapEntidades[k]) :
                           type === 'CONTA' ? conflitos.contas.filter(k => !mapContas[k]) :
                           conflitos.centros.filter(k => !mapCentros[k]);
+      const normalizedMissingList = Array.from(
+          new Map(
+              missingList
+                  .map((name) => String(name || '').trim())
+                  .filter(Boolean)
+                  .map((name) => [name.toLocaleUpperCase('pt-BR'), name]),
+          ).values(),
+      );
       
-      if (missingList.length === 0) return;
+      if (normalizedMissingList.length === 0) return;
       setBulkLoading(type);
 
       try {
-          const promises = missingList.map(name => {
+          const results = await Promise.allSettled(normalizedMissingList.map(async (name) => {
               if (type === 'CATEGORIA') {
-                  const tipo = (name || '').trim().toUpperCase().startsWith('R') ? 'R' : 'D';
-                  return api.post('/plano-contas/', { nome: name, tipo, permite_lancamentos: true, considerar_nos_resultados: true }).then(r => ({ name, data: r.data }));
+                  const tipo = name.toUpperCase().startsWith('R') ? 'R' : 'D';
+                  const response = await api.post('/plano-contas/', { nome: name, tipo, permite_lancamentos: true, considerar_nos_resultados: true });
+                  return { name, data: response.data };
               }
-              if (type === 'ENTIDADE') return api.post('/entidades/', { nome: name, tipo: 'AMBOS' }).then(r => ({ name, data: r.data }));
-              if (type === 'CONTA') return api.post('/contas/', { nome: name, tipo: 'CORRENTE' }).then(r => ({ name, data: r.data }));
-              if (type === 'CENTRO') return api.post('/centro-custo/', { nome: name }).then(r => ({ name, data: r.data }));
-              return Promise.resolve(null);
-          });
+              if (type === 'ENTIDADE') {
+                  const response = await api.post('/entidades/', { nome: name });
+                  return { name, data: response.data };
+              }
+              if (type === 'CONTA') {
+                  const response = await api.post('/contas/', { nome: name, tipo: 'CORRENTE' });
+                  return { name, data: response.data };
+              }
+              const response = await api.post('/centro-custo/', { nome: name });
+              return { name, data: response.data };
+          }));
 
-          const results = await Promise.all(promises);
+          const successResults = results
+              .filter((result): result is PromiseFulfilledResult<{ name: string; data: any }> => result.status === 'fulfilled')
+              .map((result) => result.value);
+          const failedResults = results.filter((result) => result.status === 'rejected');
 
-          results.forEach((res: any) => {
+          successResults.forEach((res) => {
               if (!res) return;
               if (type === 'CATEGORIA') {
                                     setSistemaData(prev => {
@@ -1453,6 +1472,16 @@ export function Importacao() {
                   setMapCentros(prev => ({ ...prev, [res.name]: String(res.data.id) }));
               }
           });
+
+          if (failedResults.length > 0) {
+              const plural = failedResults.length > 1 ? 'itens' : 'item';
+              setFeedback({
+                  type: successResults.length > 0 ? 'success' : 'error',
+                  message: successResults.length > 0
+                      ? `${successResults.length} ${plural} criado(s), mas ${failedResults.length} falharam.`
+                      : `Nao foi possivel criar ${failedResults.length} ${plural}.`,
+              });
+          }
 
       } catch (e) {
           console.error(e);

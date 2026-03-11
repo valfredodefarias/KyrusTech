@@ -50,10 +50,13 @@ export function getPublicBaseUrl() {
 export function toPublicAssetUrl(url?: string | null) {
   if (!url) return null;
   if (url.startsWith('blob:') || url.startsWith('data:')) return url;
+  if (url.startsWith('/static/')) {
+    return `${getPublicBaseUrl()}${url}`;
+  }
   if (url.startsWith('/')) return url;
-  if (url.startsWith('http://') && url.includes('/static/')) {
+  if ((url.startsWith('http://') || url.startsWith('https://')) && url.includes('/static/')) {
     try {
-      return new URL(url).pathname;
+      return `${getPublicBaseUrl()}${new URL(url).pathname}`;
     } catch {
       return url;
     }

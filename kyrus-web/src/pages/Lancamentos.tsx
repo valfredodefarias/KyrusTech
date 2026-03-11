@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../services/api';
+import { fetchCepAddress } from '../lib/cep';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { useLookupStore } from '../store/lookupStore';
 import { BankAvatar } from '../components/BrandAvatar';
@@ -411,6 +412,8 @@ export function Lancamentos() {
   const [isEditing, setIsEditing] = useState(false);
   const [filesToUpload, setFilesToUpload] = useState<FileList | null>(null);
   const [newEntityData, setNewEntityData] = useState<QuickEntityFormState>(initialQuickEntityData);
+  const [entityCepLoading, setEntityCepLoading] = useState(false);
+  const [entityCepFeedback, setEntityCepFeedback] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<any>({
     id: null, descricao: '', valor_previsto: '', data_vencimento: '',
@@ -429,6 +432,7 @@ export function Lancamentos() {
   const auxLoadedRef = useRef(false);
   const lancamentosAbortRef = useRef<AbortController | null>(null);
   const lastLancamentosKeyRef = useRef<string>('');
+  const lastEntityCepLookupRef = useRef('');
   const autoPagamentoRef = useRef(true);
   const autoCompetenciaRef = useRef(true);
 
@@ -461,6 +465,60 @@ export function Lancamentos() {
       tipo_pessoa: digits.length > 11 ? 'PJ' : prev.tipo_pessoa === 'PJ' && digits.length > 0 && digits.length <= 11 ? 'PF' : prev.tipo_pessoa,
     }));
   };
+
+  const closeEntityDrawer = () => {
+    setShowEntityDrawer(false);
+    setEntityCepLoading(false);
+    setEntityCepFeedback(null);
+    lastEntityCepLookupRef.current = '';
+  };
+
+  const openEntityDrawer = () => {
+    setNewEntityData(initialQuickEntityData);
+    setEntityCepLoading(false);
+    setEntityCepFeedback(null);
+    lastEntityCepLookupRef.current = '';
+    setShowEntityDrawer(true);
+  };
+
+  async function handleQuickEntityCepChange(value: string) {
+    const formatted = formatCep(value);
+    const digits = onlyDigits(formatted);
+
+    setNewEntityData((prev) => ({ ...prev, cep: formatted }));
+
+    if (digits.length < 8) {
+      lastEntityCepLookupRef.current = '';
+      setEntityCepFeedback(null);
+      setEntityCepLoading(false);
+      return;
+    }
+
+    if (digits === lastEntityCepLookupRef.current) {
+      return;
+    }
+
+    setEntityCepLoading(true);
+    setEntityCepFeedback(null);
+    try {
+      const address = await fetchCepAddress(digits);
+      lastEntityCepLookupRef.current = digits;
+      setNewEntityData((prev) => ({
+        ...prev,
+        cep: formatCep(address.cep),
+        logradouro: address.logradouro,
+        bairro: address.bairro,
+        cidade: address.cidade,
+        uf: address.uf,
+      }));
+      setEntityCepFeedback('Endereço preenchido automaticamente pelo CEP.');
+    } catch (error: any) {
+      lastEntityCepLookupRef.current = '';
+      setEntityCepFeedback(error?.message || 'Não foi possível consultar o CEP.');
+    } finally {
+      setEntityCepLoading(false);
+    }
+  }
 
   const getFullLogoUrl = (url?: string | null) => {
     if (!url) return null;
@@ -1028,7 +1086,7 @@ export function Lancamentos() {
       });
       setEntidades(prev => [...prev, res.data]);
       setFormData((prev:any) => ({...prev, entidade_id: res.data.id}));
-      setShowEntityDrawer(false); 
+      closeEntityDrawer();
       setNewEntityData(initialQuickEntityData);
       pushToast('success', 'Interessado criado com sucesso.');
     } catch(e) {
@@ -1791,7 +1849,7 @@ export function Lancamentos() {
       <div className={`fixed inset-y-0 right-0 w-full max-w-3xl bg-white dark:bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 ${showEntityDrawer?'translate-x-0':'translate-x-full'}`}>
         <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
           <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><User className="w-4 h-4 text-blue-500"/> Novo Interessado</h3>
-            <button onClick={()=>setShowEntityDrawer(false)}><X className="w-5 h-5 text-slate-400 hover:text-slate-700 dark:hover:text-white"/></button>
+            <button onClick={closeEntityDrawer}><X className="w-5 h-5 text-slate-400 hover:text-slate-700 dark:hover:text-white"/></button>
         </div>
         <div className="h-[calc(100%-65px)] overflow-y-auto p-6 custom-scrollbar">
           <div className="space-y-5">
@@ -1847,7 +1905,10 @@ export function Lancamentos() {
 
               <div className="space-y-5 rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900/60">
                 <div className="grid gap-5 sm:grid-cols-3">
-                  <InputDark label="CEP" placeholder="00000-000" value={newEntityData.cep} onChange={(e:any)=>setNewEntityData({...newEntityData, cep: formatCep(e.target.value)})} />
+                  <div>
+                    <InputDark label="CEP" placeholder="00000-000" value={newEntityData.cep} onChange={(e:any)=>void handleQuickEntityCepChange(e.target.value)} />
+                    <p className="mt-1 text-[10px] text-slate-400">{entityCepLoading ? 'Consultando CEP...' : entityCepFeedback || 'Digite o CEP para preencher logradouro, bairro, cidade e UF.'}</p>
+                  </div>
                   <div className="sm:col-span-2">
                     <InputDark label="Logradouro" placeholder="Rua, avenida, praça" value={newEntityData.logradouro} onChange={(e:any)=>setNewEntityData({...newEntityData, logradouro:e.target.value})} />
                   </div>
@@ -1874,7 +1935,7 @@ export function Lancamentos() {
             </div>
 
             <div className="flex gap-3 border-t border-slate-200 pt-5 dark:border-slate-700">
-              <button onClick={()=>setShowEntityDrawer(false)} className="flex-1 py-3 text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition">Cancelar</button>
+              <button onClick={closeEntityDrawer} className="flex-1 py-3 text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition">Cancelar</button>
               <button onClick={handleCreateEntity} disabled={saving} className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow-lg flex justify-center gap-2">
                 {saving?<Loader2 className="animate-spin w-4 h-4"/>:<Save className="w-4 h-4"/>} Salvar Interessado
               </button>
@@ -1990,7 +2051,7 @@ export function Lancamentos() {
                 <div>
                   <div className="flex justify-between items-center mb-1">
                     <label className="text-xs font-bold text-slate-400 uppercase">Interessado</label>
-                    <button onClick={()=>setShowEntityDrawer(true)} className="text-[10px] text-blue-400 font-bold hover:text-blue-300 flex items-center gap-1"><Plus className="w-3 h-3"/> Nova</button>
+                    <button onClick={openEntityDrawer} className="text-[10px] text-blue-400 font-bold hover:text-blue-300 flex items-center gap-1"><Plus className="w-3 h-3"/> Nova</button>
                   </div>
                   <select className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500 text-sm" value={formData.entidade_id} onChange={e=>{
                     const eid = e.target.value;

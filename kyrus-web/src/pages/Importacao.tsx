@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
+import { fetchCepAddress } from '../lib/cep';
 import { 
     UploadCloud, ArrowRight, CheckCircle, AlertTriangle, 
     FileSpreadsheet, Save, Loader2, Download,
@@ -1187,6 +1188,9 @@ export function Importacao() {
     const [modalValue, setModalValue] = useState('');
     const [modalPendingKey, setModalPendingKey] = useState('');
     const [entityForm, setEntityForm] = useState<QuickEntityFormState>(initialQuickEntityForm);
+    const [entityCepLoading, setEntityCepLoading] = useState(false);
+    const [entityCepFeedback, setEntityCepFeedback] = useState<string | null>(null);
+    const lastEntityCepLookupRef = useRef('');
 
     const categoriaSelectOptions = useMemo(() => buildCategoriaOptionGroups(sistemaData.categorias), [sistemaData.categorias]);
     const entidadeSelectOptions = useMemo<SearchOption[]>(() =>
@@ -1231,6 +1235,43 @@ export function Importacao() {
           cpf_cnpj: formatted,
           tipo_pessoa: digits.length > 11 ? 'PJ' : prev.tipo_pessoa === 'PJ' && digits.length > 0 && digits.length <= 11 ? 'PF' : prev.tipo_pessoa,
       }));
+  }
+
+  async function handleEntityCepChange(value: string) {
+      const formatted = formatCep(value);
+      const digits = onlyDigits(formatted);
+      setEntityForm((prev) => ({ ...prev, cep: formatted }));
+
+      if (digits.length < 8) {
+          lastEntityCepLookupRef.current = '';
+          setEntityCepFeedback(null);
+          return;
+      }
+
+      if (digits === lastEntityCepLookupRef.current) {
+          return;
+      }
+
+      setEntityCepLoading(true);
+      setEntityCepFeedback(null);
+      try {
+          const address = await fetchCepAddress(digits);
+          lastEntityCepLookupRef.current = digits;
+          setEntityForm((prev) => ({
+              ...prev,
+              cep: formatCep(address.cep),
+              logradouro: address.logradouro,
+              bairro: address.bairro,
+              cidade: address.cidade,
+              uf: address.uf,
+          }));
+          setEntityCepFeedback('Endereço preenchido automaticamente pelo CEP.');
+      } catch (error: any) {
+          lastEntityCepLookupRef.current = '';
+          setEntityCepFeedback(error?.message || 'Não foi possível consultar o CEP.');
+      } finally {
+          setEntityCepLoading(false);
+      }
   }
 
   async function carregarDadosIniciais() {
@@ -1418,6 +1459,8 @@ export function Importacao() {
           setModalOpen(false);
           setModalValue('');
           setEntityForm(initialQuickEntityForm);
+          setEntityCepFeedback(null);
+          lastEntityCepLookupRef.current = '';
       } catch(e) { alert("Erro ao criar item."); } finally { setLoading(false); }
   }
 
@@ -1514,6 +1557,8 @@ export function Importacao() {
       setModalPendingKey(excelKey);
       setModalValue(excelKey);
       setEntityForm({ ...initialQuickEntityForm, nome: excelKey, nome_fantasia: excelKey });
+      setEntityCepFeedback(null);
+      lastEntityCepLookupRef.current = '';
       setModalOpen(true);
   }
 
@@ -1783,8 +1828,7 @@ export function Importacao() {
                                     <div><label className="text-xs font-bold text-slate-500 uppercase">{documentoInteressadoLabel}</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition font-mono" value={entityForm.cpf_cnpj} onChange={e=>handleEntityDocumentoChange(e.target.value)} placeholder={entityForm.tipo_pessoa === 'PF' ? '000.000.000-00' : '00.000.000/0000-00'} /></div>
                                 </div>
 
-                                <div className="grid gap-4 sm:grid-cols-2">
-                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Nome fantasia / apelido</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.nome_fantasia} onChange={e=>setEntityForm(prev=>({...prev, nome_fantasia:e.target.value}))} /></div>
+                                <div className="grid gap-4 sm:grid-cols-1">
                                     <div><label className="text-xs font-bold text-slate-500 uppercase">Classificação</label><select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.tipo} onChange={e=>setEntityForm(prev=>({...prev, tipo:e.target.value as QuickEntityFormState['tipo']}))}><option value="CLIENTE">Cliente</option><option value="FORNECEDOR">Fornecedor</option><option value="AMBOS">Ambos</option></select></div>
                                 </div>
 
@@ -1801,19 +1845,18 @@ export function Importacao() {
 
                             <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900/60">
                                 <div className="grid gap-4 sm:grid-cols-3">
-                                    <div><label className="text-xs font-bold text-slate-500 uppercase">CEP</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.cep} onChange={e=>setEntityForm(prev=>({...prev, cep: formatCep(e.target.value)}))} /></div>
-                                    <div className="sm:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase">Logradouro</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.logradouro} onChange={e=>setEntityForm(prev=>({...prev, logradouro:e.target.value}))} /></div>
-                                </div>
-                                <div className="grid gap-4 sm:grid-cols-3">
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">CEP</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.cep} onChange={e=>void handleEntityCepChange(e.target.value)} placeholder="00000-000" /></div>
                                     <div><label className="text-xs font-bold text-slate-500 uppercase">Número</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.numero} onChange={e=>setEntityForm(prev=>({...prev, numero:e.target.value}))} /></div>
-                                    <div className="sm:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase">Complemento</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.complemento} onChange={e=>setEntityForm(prev=>({...prev, complemento:e.target.value}))} /></div>
+                                    <div className="flex items-end"><p className="text-[11px] text-slate-500 dark:text-slate-400">{entityCepLoading ? 'Consultando CEP...' : entityCepFeedback || 'Informe CEP e número. O restante do endereço é preenchido automaticamente.'}</p></div>
                                 </div>
                                 <div className="grid gap-4 sm:grid-cols-3">
-                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Bairro</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.bairro} onChange={e=>setEntityForm(prev=>({...prev, bairro:e.target.value}))} /></div>
-                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Cidade</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.cidade} onChange={e=>setEntityForm(prev=>({...prev, cidade:e.target.value}))} /></div>
-                                    <div><label className="text-xs font-bold text-slate-500 uppercase">UF</label><input type="text" maxLength={2} className="w-full p-3 uppercase bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.uf} onChange={e=>setEntityForm(prev=>({...prev, uf:e.target.value.toUpperCase()}))} /></div>
+                                    <div className="sm:col-span-3"><label className="text-xs font-bold text-slate-500 uppercase">Logradouro</label><input readOnly type="text" className="w-full p-3 bg-slate-100 dark:bg-slate-950/60 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-white mt-1 outline-none" value={entityForm.logradouro} placeholder="Preenchido automaticamente pelo CEP" /></div>
                                 </div>
-                                <div><label className="text-xs font-bold text-slate-500 uppercase">Observações</label><textarea className="min-h-32 w-full resize-y p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.observacoes} onChange={e=>setEntityForm(prev=>({...prev, observacoes:e.target.value}))} /></div>
+                                <div className="grid gap-4 sm:grid-cols-3">
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Bairro</label><input readOnly type="text" className="w-full p-3 bg-slate-100 dark:bg-slate-950/60 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-white mt-1 outline-none" value={entityForm.bairro} placeholder="Auto" /></div>
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Cidade</label><input readOnly type="text" className="w-full p-3 bg-slate-100 dark:bg-slate-950/60 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-white mt-1 outline-none" value={entityForm.cidade} placeholder="Auto" /></div>
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">UF</label><input readOnly type="text" className="w-full p-3 uppercase bg-slate-100 dark:bg-slate-950/60 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-white mt-1 outline-none" value={entityForm.uf} placeholder="UF" /></div>
+                                </div>
                             </div>
                         </div>
                         <div className="flex gap-2 justify-end mt-4"><button onClick={()=>{ setModalOpen(false); setEntityForm(initialQuickEntityForm); }} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold transition">Cancelar</button><button onClick={handleQuickCreate} disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex gap-2 items-center transition shadow-lg">{loading ? <Loader2 className="animate-spin w-4 h-4"/> : 'Criar interessado'}</button></div>

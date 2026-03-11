@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
+import { fetchCepAddress } from '../lib/cep';
 import { 
   Plus, Search, Edit2, Trash2, X, Check, Users, Truck, Briefcase, Loader2, AlertCircle
 } from 'lucide-react';
@@ -112,6 +113,9 @@ export function Entidades() {
   const [showModal, setShowModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [cepLoading, setCepLoading] = useState(false);
+  const [cepFeedback, setCepFeedback] = useState<string | null>(null);
+  const lastCepLookupRef = useRef('');
   
   // Estado inicial do formulário
   const initialFormState: EntidadeFormState = {
@@ -186,6 +190,8 @@ export function Entidades() {
   // --- ACTIONS ---
   function handleOpenCreate() {
     setForm(initialFormState);
+    setCepFeedback(null);
+    lastCepLookupRef.current = '';
     setIsEditing(false);
     setShowModal(true);
   }
@@ -213,6 +219,8 @@ export function Entidades() {
       observacoes: e.observacoes || '',
       status: e.status
     });
+    setCepFeedback(null);
+    lastCepLookupRef.current = onlyDigits(e.cep || '');
     setIsEditing(true);
     setShowModal(true);
   }
@@ -316,6 +324,43 @@ export function Entidades() {
       cpf_cnpj: formatted,
       tipo_pessoa: digits.length > 11 ? 'PJ' : prev.tipo_pessoa === 'PJ' && digits.length > 0 && digits.length <= 11 ? 'PF' : prev.tipo_pessoa,
     }));
+  }
+
+  async function handleCepChange(value: string) {
+    const formatted = formatCep(value);
+    const digits = onlyDigits(formatted);
+    setForm((prev) => ({ ...prev, cep: formatted }));
+
+    if (digits.length < 8) {
+      lastCepLookupRef.current = '';
+      setCepFeedback(null);
+      return;
+    }
+
+    if (digits === lastCepLookupRef.current) {
+      return;
+    }
+
+    setCepLoading(true);
+    setCepFeedback(null);
+    try {
+      const address = await fetchCepAddress(digits);
+      lastCepLookupRef.current = digits;
+      setForm((prev) => ({
+        ...prev,
+        cep: formatCep(address.cep),
+        logradouro: address.logradouro,
+        bairro: address.bairro,
+        cidade: address.cidade,
+        uf: address.uf,
+      }));
+      setCepFeedback('Endereço preenchido automaticamente pelo CEP.');
+    } catch (error: any) {
+      lastCepLookupRef.current = '';
+      setCepFeedback(error?.message || 'Não foi possível consultar o CEP.');
+    } finally {
+      setCepLoading(false);
+    }
   }
 
   const getBadge = (tipo: string) => {
@@ -533,7 +578,8 @@ export function Entidades() {
                   <div className="grid gap-5 sm:grid-cols-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">CEP</label>
-                      <input type="text" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all" value={form.cep} onChange={e => setForm({...form, cep: formatCep(e.target.value)})} placeholder="00000-000" />
+                      <input type="text" className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none transition-all" value={form.cep} onChange={e => void handleCepChange(e.target.value)} placeholder="00000-000" />
+                      <p className="mt-1 text-[10px] text-slate-400">{cepLoading ? 'Consultando CEP...' : cepFeedback || 'Digite o CEP para preencher logradouro, bairro, cidade e UF.'}</p>
                     </div>
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 tracking-wide">Logradouro</label>

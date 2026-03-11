@@ -495,9 +495,6 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
                 entidade_samples[entidade_nome][(descricao, tipo)] += 1
                 inference_keys.add((descricao.strip(), tipo.strip()))
 
-        if descricao:
-            inference_keys.add((descricao.strip(), tipo.strip()))
-
         if len(preview_source) < IMPORT_PREVIEW_LIMIT:
             preview_source.append(
                 {
@@ -627,7 +624,12 @@ def _execute_import_contents(
             }
         )
         if descricao:
-            inference_keys.add((descricao.strip(), tipo.strip()))
+            categoria_key = categoria_nome.upper().strip()
+            entidade_key = entidade_nome.upper().strip()
+            categoria_resolvida = not categoria_key or categoria_key in map_categorias or categoria_key in nomes_cats_sist
+            entidade_resolvida = not entidade_key or entidade_key in map_entidades or entidade_key in nomes_entidades_sist
+            if not categoria_resolvida or not entidade_resolvida:
+                inference_keys.add((descricao.strip(), tipo.strip()))
 
     total_rows = len(raw_rows)
     if progress_callback:

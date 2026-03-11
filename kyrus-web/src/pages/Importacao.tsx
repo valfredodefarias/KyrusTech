@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
@@ -140,7 +140,8 @@ const initialQuickEntityForm: QuickEntityFormState = {
     observacoes: '',
 };
 
-const ASYNC_IMPORT_THRESHOLD_BYTES = 2 * 1024 * 1024;
+const IMPORT_JOB_POLL_INTERVAL_MS = 1000;
+const PREVIEW_PAGE_SIZE = 200;
 
 const onlyDigits = (value: string) => value.replace(/\D/g, '');
 
@@ -1201,6 +1202,7 @@ export function Importacao() {
     const [suggestedCategorias, setSuggestedCategorias] = useState<Record<string, string>>({});
     const [suggestedEntidades, setSuggestedEntidades] = useState<Record<string, string>>({});
     const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
+        const [previewVisibleCount, setPreviewVisibleCount] = useState(PREVIEW_PAGE_SIZE);
     const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
     const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
     const setEntidadesCache = useLookupStore((state) => state.setEntidades);
@@ -1237,6 +1239,11 @@ export function Importacao() {
             entidade_auto: !mapEntidades[row.entidade_arquivo] && !!row.entidade_sugerida_id,
         };
     }), [previewRows, mapCategorias, mapEntidades, categoriasById, entidadesById]);
+    const visiblePreviewRows = useMemo(
+        () => previewResolvedRows.slice(0, previewVisibleCount),
+        [previewResolvedRows, previewVisibleCount],
+    );
+    const hasMorePreviewRows = visiblePreviewRows.length < previewResolvedRows.length;
 
     const documentoInteressadoLabel = entityForm.tipo_pessoa === 'PF' ? 'CPF' : 'CNPJ';
     const nomeInteressadoLabel = entityForm.tipo_pessoa === 'PF' ? 'Nome completo' : 'Razão social';
@@ -1259,6 +1266,18 @@ export function Importacao() {
           cpf_cnpj: formatted,
           tipo_pessoa: digits.length > 11 ? 'PJ' : prev.tipo_pessoa === 'PJ' && digits.length > 0 && digits.length <= 11 ? 'PF' : prev.tipo_pessoa,
       }));
+  }
+
+    function handlePreviewScroll(event: UIEvent<HTMLDivElement>) {
+      if (!hasMorePreviewRows) {
+          return;
+      }
+
+      const element = event.currentTarget;
+      const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
+      if (remaining <= 96) {
+          setPreviewVisibleCount((prev) => Math.min(prev + PREVIEW_PAGE_SIZE, previewResolvedRows.length));
+      }
   }
 
   async function handleEntityCepChange(value: string) {
@@ -1359,12 +1378,24 @@ export function Importacao() {
       }
 
       setPreviewRows(data.preview || []);
+      setPreviewVisibleCount(PREVIEW_PAGE_SIZE);
       setStep(2);
   }
 
   async function waitForImportJob(jobId: string) {
-      let attempt = 0;
       while (true) {
+          await new Promise((resolve) => window.setTimeout(resolve, IMPORT_JOB_POLL_INTERVAL_MS));
+          if (!isMountedRef.current) {
+              return {
+                  job_id: jobId,
+                  kind: 'ANALYZE',
+                  filename: '',
+                  status: 'ERROR',
+                  progress: 0,
+                  message: 'Importação interrompida.',
+              } as ImportJobStatus;
+          }
+
           const { data } = await api.get<ImportJobStatus>(`/lancamentos/importar/jobs/${jobId}`, {
               timeout: 0,
           });
@@ -1380,28 +1411,14 @@ export function Importacao() {
           if (data.status === 'ERROR') {
               throw new Error(data.error || data.message || 'Falha no processamento do arquivo.');
           }
-
-          attempt += 1;
-          const nextDelay = attempt <= 2 ? 1500 : attempt <= 6 ? 2500 : 4000;
-          await new Promise((resolve) => window.setTimeout(resolve, nextDelay));
       }
   }
 
   async function handleAnalise() {
     if (!file) return;
-        setLoading(true); setFeedback(null); setPreviewRows([]);
+                setLoading(true); setFeedback(null); setPreviewRows([]); setPreviewVisibleCount(PREVIEW_PAGE_SIZE);
     const fd = new FormData(); fd.append('file', file);
     try {
-            if (file.size <= ASYNC_IMPORT_THRESHOLD_BYTES) {
-                const { data } = await api.post('/lancamentos/importar/analisar', fd, {
-                    timeout: 0,
-                    maxBodyLength: Infinity,
-                    maxContentLength: Infinity,
-                });
-                applyAnalysisResult(data);
-                return;
-            }
-
             const { data } = await api.post<ImportJobAccepted>('/lancamentos/importar/analisar-async', fd, {
                 timeout: 0,
                 maxBodyLength: Infinity,
@@ -1592,20 +1609,6 @@ export function Importacao() {
       const fd = new FormData(); fd.append('file', file!);
       fd.append('mapeamento_json', JSON.stringify({ map_categorias: mapCategorias, map_contas: mapContas, map_centros: mapCentros, map_entidades: mapEntidades }));
       try {
-                    if ((file?.size || 0) <= ASYNC_IMPORT_THRESHOLD_BYTES) {
-                        const res = await api.post('/lancamentos/importar/executar', fd, {
-                            timeout: 0,
-                            maxBodyLength: Infinity,
-                            maxContentLength: Infinity,
-                        });
-                        setFeedback({ type: 'success', message: `${res.data.importados || 0} lançamentos importados com sucesso!`, details: res.data.erros });
-                        setStep(1); setFile(null); setPreviewRows([]);
-                        setConflitos({ contas: [], categorias: [], centros: [], entidades: [] });
-                        setMapCategorias({}); setMapContas({}); setMapCentros({}); setMapEntidades({});
-                        setSuggestedCategorias({}); setSuggestedEntidades({});
-                        return;
-                    }
-
                     const { data } = await api.post<ImportJobAccepted>('/lancamentos/importar/executar-async', fd, {
                         timeout: 0,
                         maxBodyLength: Infinity,
@@ -1623,7 +1626,7 @@ export function Importacao() {
                     const result = completedJob.result || {};
           setFeedback({ type: 'success', message: `${result.importados || 0} lançamentos importados com sucesso!`, details: result.erros });
           setImportJob(null);
-          setStep(1); setFile(null); setPreviewRows([]);
+          setStep(1); setFile(null); setPreviewRows([]); setPreviewVisibleCount(PREVIEW_PAGE_SIZE);
           setConflitos({ contas: [], categorias: [], centros: [], entidades: [] });
           setMapCategorias({}); setMapContas({}); setMapCentros({}); setMapEntidades({});
           setSuggestedCategorias({}); setSuggestedEntidades({});
@@ -1639,7 +1642,7 @@ export function Importacao() {
         <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
             <div><h1 className="text-2xl font-bold flex items-center gap-2 text-slate-900 dark:text-white"><UploadCloud className="w-8 h-8 text-blue-500" />Importação Inteligente</h1><p className="text-slate-500 dark:text-slate-400 mt-1">Concilie dados externos com seu sistema.</p></div>
             <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                <StepBadge num={1} current={step} label="Upload" /><StepBadge num={2} current={step} label="Classificação" /><StepBadge num={3} current={step} label="Origem" /><StepBadge num={4} current={step} label="Conclusão" />
+                <StepBadge num={1} current={step} label="Upload" /><StepBadge num={2} current={step} label="Classificação" /><StepBadge num={3} current={step} label="Origem" /><StepBadge num={4} current={step} label="Validação" />
             </div>
         </div>
         {feedback && (
@@ -1668,7 +1671,20 @@ export function Importacao() {
                 </div>
             </div>
         )}
-        <div className="grid grid-cols-1 gap-4 mb-8">
+        <div className="grid grid-cols-1 gap-4 mb-8 lg:grid-cols-2">
+            <Link to="/importacao_interessados" className="group rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+                <div className="flex items-start justify-between gap-4">
+                    <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-blue-500">Interessados</p>
+                        <h3 className="mt-2 text-lg font-bold text-slate-900 dark:text-white">Importar interessados</h3>
+                        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Suba uma planilha própria com CPF/CNPJ, contato responsável, e-mail, telefone, celular/WhatsApp, CEP e número.</p>
+                    </div>
+                    <div className="rounded-2xl bg-blue-50 p-3 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
+                        <Users className="w-6 h-6" />
+                    </div>
+                </div>
+                <div className="mt-4 text-sm font-bold text-blue-600 dark:text-blue-300">Abrir fluxo de interessados</div>
+            </Link>
             <Link to="/importacao_ofx" className="group rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
                 <div className="flex items-start justify-between gap-4">
                     <div>
@@ -1737,63 +1753,6 @@ export function Importacao() {
                     )}
                 </div>
 
-                {previewResolvedRows.length > 0 && (
-                    <div>
-                        <div className="flex items-center justify-between mb-4 gap-4">
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Prévia da importação</h3>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">As sugestões automáticas aparecem destacadas e a tabela já reflete seus mapeamentos atuais.</p>
-                            </div>
-                            <span className="text-xs font-bold px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800">{previewResolvedRows.length} linhas na prévia</span>
-                        </div>
-                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                            <div className="overflow-x-auto max-h-130 custom-scrollbar">
-                                <table className="w-full min-w-275 text-sm">
-                                    <thead className="bg-slate-50 dark:bg-slate-900/70 text-slate-500 dark:text-slate-400">
-                                        <tr>
-                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Linha</th>
-                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Descrição</th>
-                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Tipo</th>
-                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Valor</th>
-                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Vencimento</th>
-                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Categoria final</th>
-                                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Interessado final</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                                        {previewResolvedRows.map((row) => (
-                                            <tr key={`${row.linha}-${row.descricao}`} className="hover:bg-slate-50 dark:hover:bg-slate-900/40">
-                                                <td className="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{row.linha}</td>
-                                                <td className="px-4 py-3 min-w-70">
-                                                    <div className="font-semibold text-slate-800 dark:text-slate-100">{row.descricao || '-'}</div>
-                                                    {(row.categoria_arquivo || row.entidade_arquivo) && (
-                                                        <div className="mt-1 text-xs text-slate-400 dark:text-slate-500">{row.categoria_arquivo ? `Origem cat.: ${row.categoria_arquivo}` : 'Sem categoria no arquivo'}{row.entidade_arquivo ? ` • Origem int.: ${row.entidade_arquivo}` : ''}</div>
-                                                    )}
-                                                </td>
-                                                <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.tipo || '-'}</td>
-                                                <td className="px-4 py-3 font-medium text-slate-700 dark:text-slate-200">{row.valor || '-'}</td>
-                                                <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.data_vencimento || '-'}</td>
-                                                <td className="px-4 py-3">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="font-medium text-slate-700 dark:text-slate-200">{row.categoria_final}</span>
-                                                        {row.categoria_auto ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Auto</span> : null}
-                                                    </div>
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="font-medium text-slate-700 dark:text-slate-200">{row.entidade_final}</span>
-                                                        {row.entidade_auto ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Auto</span> : null}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
                 <div className="flex justify-between pt-6 border-t border-slate-200 dark:border-slate-800"><button onClick={()=>setStep(1)} className="px-6 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={()=>setStep(3)} className="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition">Próximo <ArrowRight className="w-4 h-4"/></button></div>
             </div>
         )}
@@ -1829,7 +1788,83 @@ export function Importacao() {
                     <div className="space-y-3">{conflitos.centros.map(k => (<MappingRow key={k} original={k} value={mapCentros[k]} options={sistemaData.centros} onChange={(v:string)=>setMapCentros(p=>({...p,[k]:String(v)}))} onCreate={()=>openCreateModal('CENTRO', k)} typeLabel="Centro" icon={Layers} />))}</div>
                 </div>
 
-                <div className="flex justify-between pt-6 border-t border-slate-200 dark:border-slate-800"><button onClick={()=>setStep(2)} className="px-6 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={handleExecutar} disabled={loading} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition disabled:opacity-50">{loading && importJob?.kind === 'EXECUTE' ? <Loader2 className="animate-spin w-5 h-5"/> : <CheckCircle className="w-5 h-5"/>} {loading && importJob?.kind === 'EXECUTE' ? 'Importando...' : 'Confirmar Importação'}</button></div>
+                <div className="flex justify-between pt-6 border-t border-slate-200 dark:border-slate-800"><button onClick={()=>setStep(2)} className="px-6 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={()=>setStep(4)} className="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition">Revisar prévia <ArrowRight className="w-4 h-4"/></button></div>
+            </div>
+        )}
+
+        {/* STEP 4: VALIDAÇÃO FINAL */}
+        {step === 4 && (
+            <div className="space-y-8 animate-in fade-in slide-in-from-right-8">
+                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                    <div>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white">Validação final da importação</h3>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">Revise as linhas finais antes de confirmar. Ao chegar no final da tabela, mais 200 registros são liberados automaticamente.</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
+                        <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                            Exibindo {visiblePreviewRows.length} de {previewResolvedRows.length} linhas
+                        </span>
+                        {hasMorePreviewRows ? (
+                            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                                Role até o fim para carregar mais 200
+                            </span>
+                        ) : null}
+                    </div>
+                </div>
+
+                {previewResolvedRows.length > 0 ? (
+                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                        <div onScroll={handlePreviewScroll} className="overflow-x-auto max-h-130 custom-scrollbar">
+                            <table className="w-full min-w-275 text-sm">
+                                <thead className="bg-slate-50 dark:bg-slate-900/70 text-slate-500 dark:text-slate-400">
+                                    <tr>
+                                        <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Linha</th>
+                                        <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Descrição</th>
+                                        <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Tipo</th>
+                                        <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Valor</th>
+                                        <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Vencimento</th>
+                                        <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Categoria final</th>
+                                        <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.16em]">Interessado final</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                                    {visiblePreviewRows.map((row) => (
+                                        <tr key={`${row.linha}-${row.descricao}`} className="hover:bg-slate-50 dark:hover:bg-slate-900/40">
+                                            <td className="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{row.linha}</td>
+                                            <td className="px-4 py-3 min-w-70">
+                                                <div className="font-semibold text-slate-800 dark:text-slate-100">{row.descricao || '-'}</div>
+                                                {(row.categoria_arquivo || row.entidade_arquivo) && (
+                                                    <div className="mt-1 text-xs text-slate-400 dark:text-slate-500">{row.categoria_arquivo ? `Origem cat.: ${row.categoria_arquivo}` : 'Sem categoria no arquivo'}{row.entidade_arquivo ? ` • Origem int.: ${row.entidade_arquivo}` : ''}</div>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.tipo || '-'}</td>
+                                            <td className="px-4 py-3 font-medium text-slate-700 dark:text-slate-200">{row.valor || '-'}</td>
+                                            <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.data_vencimento || '-'}</td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-medium text-slate-700 dark:text-slate-200">{row.categoria_final}</span>
+                                                    {row.categoria_auto ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Auto</span> : null}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-medium text-slate-700 dark:text-slate-200">{row.entidade_final}</span>
+                                                    {row.entidade_auto ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Auto</span> : null}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                        Nenhuma linha disponível para pré-visualização.
+                    </div>
+                )}
+
+                <div className="flex justify-between pt-6 border-t border-slate-200 dark:border-slate-800"><button onClick={()=>setStep(3)} className="px-6 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={handleExecutar} disabled={loading} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition disabled:opacity-50">{loading && importJob?.kind === 'EXECUTE' ? <Loader2 className="animate-spin w-5 h-5"/> : <CheckCircle className="w-5 h-5"/>} {loading && importJob?.kind === 'EXECUTE' ? 'Importando...' : 'Confirmar Importação'}</button></div>
             </div>
         )}
       </div>

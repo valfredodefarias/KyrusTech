@@ -48,7 +48,6 @@ from app.schemas.anexo import AnexoRead, AnexoCreate
 router = APIRouter()
 MAX_ANEXO_NOME_LEN = 180
 MAX_ANEXO_SIZE = 10 * 1024 * 1024
-IMPORT_PREVIEW_LIMIT = 200
 IMPORT_ANALYZE_SAMPLE_LIMIT = 24
 IMPORT_INSERT_BATCH_SIZE = 5000
 IMPORT_PREPARE_CHUNK_SIZE = 2000
@@ -495,18 +494,17 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
                 entidade_samples[entidade_nome][(descricao, tipo)] += 1
                 inference_keys.add((descricao.strip(), tipo.strip()))
 
-        if len(preview_source) < IMPORT_PREVIEW_LIMIT:
-            preview_source.append(
-                {
-                    "linha": row_idx,
-                    "descricao": descricao,
-                    "tipo": tipo if tipo else _coerce_row_value(row, col_tipo),
-                    "valor": _coerce_row_value(row, col_valor),
-                    "data_vencimento": _coerce_row_value(row, col_venc),
-                    "categoria_arquivo": categoria_nome,
-                    "entidade_arquivo": entidade_nome,
-                }
-            )
+        preview_source.append(
+            {
+                "linha": row_idx,
+                "descricao": descricao,
+                "tipo": tipo if tipo else _coerce_row_value(row, col_tipo),
+                "valor": _coerce_row_value(row, col_valor),
+                "data_vencimento": _coerce_row_value(row, col_venc),
+                "categoria_arquivo": categoria_nome,
+                "entidade_arquivo": entidade_nome,
+            }
+        )
 
     conflitos = {
         "contas": sorted(conflitos_contas),

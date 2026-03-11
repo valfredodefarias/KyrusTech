@@ -17,6 +17,7 @@ const Tarefas = lazy(() => import('./pages/Tarefas').then((module) => ({ default
 const CentroCusto = lazy(() => import('./pages/CentroCusto').then((module) => ({ default: module.CentroCusto })));
 const Contas = lazy(() => import('./pages/Contas').then((module) => ({ default: module.Contas })));
 const Importacao = lazy(() => import('./pages/Importacao').then((module) => ({ default: module.Importacao })));
+const ImportacaoEntidades = lazy(() => import('./pages/ImportacaoEntidades').then((module) => ({ default: module.ImportacaoEntidades })));
 const Lancamentos = lazy(() => import('./pages/Lancamentos').then((module) => ({ default: module.Lancamentos })));
 const Entidades = lazy(() => import('./pages/Entidades').then((module) => ({ default: module.Entidades })));
 const Cartoes = lazy(() => import('./pages/Cartoes').then((module) => ({ default: module.Cartoes })));
@@ -100,6 +101,7 @@ function App() {
             <Route path="/centro-custo" element={<CentroCusto />} />
             <Route path="/config" element={<Configuracoes />} />
             <Route path="/importacao" element={<Importacao />} />
+            <Route path="/importacao_interessados" element={<ImportacaoEntidades />} />
             <Route path="/importacao_ofx" element={<ImportacaoOfx />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/auditoria" element={<Auditoria />} />

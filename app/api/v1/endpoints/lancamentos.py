@@ -252,13 +252,14 @@ def _parse_import_date(raw_value: Any, cache: dict[str, Optional[date]]) -> Opti
 def _build_inference_cache_parallel(
     inference_keys: set[tuple[str, str]],
     learning_refs: list[dict[str, Any]],
+    learning_ref_index: dict[str, list[dict[str, Any]]],
 ) -> dict[tuple[str, str], dict[str, Optional[int] | float]]:
     if not inference_keys:
         return {}
 
     def resolve_inference(cache_key: tuple[str, str]) -> tuple[tuple[str, str], dict[str, Optional[int] | float]]:
         descricao, tipo = cache_key
-        return cache_key, _infer_learning_ids(descricao, tipo, learning_refs)
+        return cache_key, _infer_learning_ids(descricao, tipo, learning_refs, learning_ref_index)
 
     with ThreadPoolExecutor(max_workers=IMPORT_MAX_WORKERS) as executor:
         return dict(executor.map(resolve_inference, sorted(inference_keys)))
@@ -358,10 +359,16 @@ def _flush_lancamento_batch(db: Session, batch: list[Lancamento]) -> None:
         db.expunge(lancamento)
 
 
-def _infer_learning_ids_cached(descricao: str, tipo: str, refs: list[dict[str, Any]], cache: dict[tuple[str, str], dict[str, Optional[int] | float]]) -> dict[str, Optional[int] | float]:
+def _infer_learning_ids_cached(
+    descricao: str,
+    tipo: str,
+    refs: list[dict[str, Any]],
+    cache: dict[tuple[str, str], dict[str, Optional[int] | float]],
+    learning_ref_index: dict[str, list[dict[str, Any]]],
+) -> dict[str, Optional[int] | float]:
     cache_key = (descricao.strip(), tipo.strip())
     if cache_key not in cache:
-        cache[cache_key] = _infer_learning_ids(descricao, tipo, refs)
+        cache[cache_key] = _infer_learning_ids(descricao, tipo, refs, learning_ref_index)
     return cache[cache_key]
 
 
@@ -370,6 +377,7 @@ def _build_import_suggestions_from_samples(
     entidade_samples: dict[str, dict[tuple[str, str], int]],
     learning_refs: list[dict[str, Any]],
     inference_cache: dict[tuple[str, str], dict[str, Optional[int] | float]],
+    learning_ref_index: dict[str, list[dict[str, Any]]],
 ) -> dict[str, dict[str, int]]:
     categoria_votes: dict[str, dict[int, float]] = defaultdict(lambda: defaultdict(float))
     entidade_votes: dict[str, dict[int, float]] = defaultdict(lambda: defaultdict(float))
@@ -377,7 +385,7 @@ def _build_import_suggestions_from_samples(
     for categoria_nome, sample_map in categoria_samples.items():
         ranked_samples = sorted(sample_map.items(), key=lambda item: item[1], reverse=True)[:IMPORT_ANALYZE_SAMPLE_LIMIT]
         for (descricao, tipo), occurrences in ranked_samples:
-            suggestion = _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache)
+            suggestion = _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache, learning_ref_index)
             plano_sugerido = suggestion.get("plano_contas_id")
             if plano_sugerido is not None:
                 categoria_votes[categoria_nome][int(plano_sugerido)] += float(suggestion.get("plano_score") or 0) * occurrences
@@ -385,7 +393,7 @@ def _build_import_suggestions_from_samples(
     for entidade_nome, sample_map in entidade_samples.items():
         ranked_samples = sorted(sample_map.items(), key=lambda item: item[1], reverse=True)[:IMPORT_ANALYZE_SAMPLE_LIMIT]
         for (descricao, tipo), occurrences in ranked_samples:
-            suggestion = _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache)
+            suggestion = _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache, learning_ref_index)
             entidade_sugerida = suggestion.get("entidade_id")
             if entidade_sugerida is not None:
                 entidade_votes[entidade_nome][int(entidade_sugerida)] += float(suggestion.get("entidade_score") or 0) * occurrences
@@ -516,8 +524,9 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
     if progress_callback:
         progress_callback(55, "Calculando sugestões por amostragem")
     learning_refs = _load_learning_references(session, empresa_id)
-    inference_cache = _build_inference_cache_parallel(inference_keys, learning_refs)
-    sugestoes = _build_import_suggestions_from_samples(categoria_samples, entidade_samples, learning_refs, inference_cache)
+    learning_ref_index = _build_learning_reference_index(learning_refs)
+    inference_cache = _build_inference_cache_parallel(inference_keys, learning_refs, learning_ref_index)
+    sugestoes = _build_import_suggestions_from_samples(categoria_samples, entidade_samples, learning_refs, inference_cache, learning_ref_index)
     categorias_by_id = {int(item["id"]): item for item in sistema["categorias"] if item.get("id") is not None}
     entidades_by_id = {int(item["id"]): item for item in sistema["entidades"] if item.get("id") is not None}
     preview_rows: list[dict[str, Any]] = []
@@ -534,7 +543,7 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
         entidade_mapeada_id = sugestoes["entidades"].get(entidade_nome) if entidade_nome else None
 
         if descricao and (categoria_mapeada_id is None or entidade_mapeada_id is None):
-            inferencia = _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache)
+            inferencia = _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache, learning_ref_index)
             if categoria_mapeada_id is None and inferencia.get("plano_contas_id") is not None:
                 categoria_mapeada_id = int(cast(int, inferencia.get("plano_contas_id")))
             if entidade_mapeada_id is None and inferencia.get("entidade_id") is not None:
@@ -593,6 +602,7 @@ def _execute_import_contents(
     nomes_centros_sist = _build_import_name_map(sistema["centros"])
     nomes_entidades_sist = _build_import_name_map(sistema["entidades"])
     learning_refs = _load_learning_references(db, empresa_id)
+    learning_ref_index = _build_learning_reference_index(learning_refs)
 
     raw_rows: list[dict[str, Any]] = []
     inference_keys: set[tuple[str, str]] = set()
@@ -635,7 +645,7 @@ def _execute_import_contents(
 
     if progress_callback:
         progress_callback(24, "Calculando inferências reutilizáveis")
-    inference_cache = _build_inference_cache_parallel(inference_keys, learning_refs)
+    inference_cache = _build_inference_cache_parallel(inference_keys, learning_refs, learning_ref_index)
 
     missing_entities: dict[str, str] = {}
     missing_centers: dict[str, str] = {}
@@ -798,6 +808,13 @@ def _normalizar_descricao_aprendizado(value: Any) -> str:
     return " ".join(tokens[:10])
 
 
+def _tokenizar_descricao_aprendizado(value: Any) -> tuple[str, ...]:
+    normalized = _normalizar_descricao_aprendizado(value)
+    if not normalized:
+        return ()
+    return tuple(dict.fromkeys(token for token in normalized.split() if token))
+
+
 def _similaridade_texto_importacao(left: str, right: str) -> float:
     if not left or not right:
         return 0.0
@@ -823,15 +840,57 @@ def _append_learning_reference(
     descricao_norm = _normalizar_descricao_aprendizado(descricao)
     if not descricao_norm:
         return
+    tokens = tuple(dict.fromkeys(token for token in descricao_norm.split() if token))
     refs.append(
         {
             "descricao": descricao_norm,
+            "tokens": tokens,
             "tipo": tipo or "",
             "plano_contas_id": int(plano_contas_id) if plano_contas_id else None,
             "entidade_id": int(entidade_id) if entidade_id else None,
             "source": source,
         }
     )
+
+
+def _build_learning_reference_index(refs: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    token_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for ref in refs:
+        for token in cast(tuple[str, ...], ref.get("tokens") or ()): 
+            token_index[token].append(ref)
+    return token_index
+
+
+def _select_learning_candidates(
+    descricao_norm: str,
+    tipo: str,
+    refs: list[dict[str, Any]],
+    token_index: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    tokens = tuple(dict.fromkeys(token for token in descricao_norm.split() if token))
+    if not tokens:
+        return []
+
+    candidates: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+    for token in tokens:
+        for ref in token_index.get(token, []):
+            ref_id = id(ref)
+            if ref_id in seen_ids:
+                continue
+            ref_tipo = str(ref.get("tipo") or "")
+            if tipo and ref_tipo and ref_tipo != tipo:
+                continue
+            seen_ids.add(ref_id)
+            candidates.append(ref)
+
+    if candidates:
+        return candidates
+
+    if not tipo:
+        return []
+
+    return [ref for ref in refs if str(ref.get("tipo") or "") in {"", tipo}]
 
 
 def _load_learning_references(session: Session, empresa_id: int) -> list[dict[str, Any]]:
@@ -847,7 +906,12 @@ def _load_learning_references(session: Session, empresa_id: int) -> list[dict[st
     return refs
 
 
-def _infer_learning_ids(descricao: str, tipo: str, refs: list[dict[str, Any]]) -> dict[str, Optional[int] | float]:
+def _infer_learning_ids(
+    descricao: str,
+    tipo: str,
+    refs: list[dict[str, Any]],
+    learning_ref_index: dict[str, list[dict[str, Any]]],
+) -> dict[str, Optional[int] | float]:
     descricao_norm = _normalizar_descricao_aprendizado(descricao)
     if not descricao_norm:
         return {"plano_contas_id": None, "plano_score": 0.0, "entidade_id": None, "entidade_score": 0.0}
@@ -855,7 +919,8 @@ def _infer_learning_ids(descricao: str, tipo: str, refs: list[dict[str, Any]]) -
     categoria_scores: dict[int, float] = defaultdict(float)
     entidade_scores: dict[int, float] = defaultdict(float)
 
-    for ref in refs:
+    candidates = _select_learning_candidates(descricao_norm, tipo, refs, learning_ref_index)
+    for ref in candidates:
         score = _similaridade_texto_importacao(descricao_norm, str(ref.get("descricao") or ""))
         if score < 0.56:
             continue
@@ -904,6 +969,7 @@ def _build_import_suggestions(
 ) -> dict[str, dict[str, int]]:
     categoria_votes: dict[str, dict[int, float]] = defaultdict(lambda: defaultdict(float))
     entidade_votes: dict[str, dict[int, float]] = defaultdict(lambda: defaultdict(float))
+    learning_ref_index = _build_learning_reference_index(learning_refs)
 
     conflitos_categoria = {str(item).strip() for item in conflitos.get("categorias", []) if str(item).strip()}
     conflitos_entidade = {str(item).strip() for item in conflitos.get("entidades", []) if str(item).strip()}
@@ -916,7 +982,7 @@ def _build_import_suggestions(
         tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw.startswith("D") else "")
         categoria_nome = str(row[col_cat]).strip() if col_cat and pd.notna(row[col_cat]) else ""
         entidade_nome = str(row[col_entidade]).strip() if col_entidade and pd.notna(row[col_entidade]) else ""
-        suggestion = _infer_learning_ids(descricao, tipo, learning_refs)
+        suggestion = _infer_learning_ids(descricao, tipo, learning_refs, learning_ref_index)
 
         plano_sugerido = suggestion.get("plano_contas_id")
         if categoria_nome in conflitos_categoria and plano_sugerido is not None:

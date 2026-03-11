@@ -50,6 +50,19 @@ def create_entidade(
     logger.success(f"Entidade '{entidade.nome}' criada com ID: {entidade.id}")
     return entidade
 
+
+@router.post("/bulk", response_model=List[EntidadeRead], status_code=201)
+def create_entidades_bulk(
+    *,
+    db: Session = Depends(get_db),
+    obj_in_list: List[EntidadeCreate],
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    logger.info(f"Empresa {empresa_id} criando {len(obj_in_list)} entidade(s) em massa")
+    entidades = crud_entidade.create_bulk(db=db, items_in=obj_in_list, empresa_id=empresa_id)
+    logger.success(f"Empresa {empresa_id} processou {len(entidades)} entidade(s) no bulk")
+    return entidades
+
 @router.put("/{id}", response_model=EntidadeRead)
 def update_entidade(
     *,

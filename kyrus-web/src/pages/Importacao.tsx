@@ -1424,14 +1424,25 @@ export function Importacao() {
       setBulkLoading(type);
 
       try {
+          if (type === 'ENTIDADE') {
+              const { data } = await api.post('/entidades/bulk', normalizedMissingList.map((name) => ({ nome: name })));
+              const createdItems = Array.isArray(data) ? data : [];
+              setSistemaData(prev => {
+                  const next = [...prev.entidades, ...createdItems.filter((item) => !prev.entidades.some((existing) => existing.id === item.id))];
+                  setEntidadesCache(next);
+                  setEntidadesLookup(next);
+                  return { ...prev, entidades: next };
+              });
+              createdItems.forEach((item: any) => {
+                  setMapEntidades(prev => ({ ...prev, [item.nome]: String(item.id) }));
+              });
+              return;
+          }
+
           const results = await Promise.allSettled(normalizedMissingList.map(async (name) => {
               if (type === 'CATEGORIA') {
                   const tipo = name.toUpperCase().startsWith('R') ? 'R' : 'D';
                   const response = await api.post('/plano-contas/', { nome: name, tipo, permite_lancamentos: true, considerar_nos_resultados: true });
-                  return { name, data: response.data };
-              }
-              if (type === 'ENTIDADE') {
-                  const response = await api.post('/entidades/', { nome: name });
                   return { name, data: response.data };
               }
               if (type === 'CONTA') {
@@ -1456,14 +1467,6 @@ export function Importacao() {
                                         return { ...prev, categorias: next };
                                     });
                   setMapCategorias(prev => ({ ...prev, [res.name]: String(res.data.id) }));
-              } else if (type === 'ENTIDADE') {
-                                    setSistemaData(prev => {
-                                        const next = [...prev.entidades, res.data];
-                                        setEntidadesCache(next);
-                                        setEntidadesLookup(next);
-                                        return { ...prev, entidades: next };
-                                    });
-                  setMapEntidades(prev => ({ ...prev, [res.name]: String(res.data.id) }));
               } else if (type === 'CONTA') {
                   setSistemaData(prev => ({ ...prev, contas: [...prev.contas, res.data] }));
                   setMapContas(prev => ({ ...prev, [res.name]: String(res.data.id) }));

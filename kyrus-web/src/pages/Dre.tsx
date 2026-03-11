@@ -404,8 +404,8 @@ export function Dre() {
         ) : null}
 
         <section className="grid gap-4 xl:grid-cols-3">
-          <MetricCard label="Receita total" value={moneyFormatter.format(dre.receitaTotal)} tone="emerald" icon={<TrendingUp className="h-5 w-5" />} isDark={isDark} />
-          <MetricCard label="Despesa total" value={moneyFormatter.format(dre.despesaTotal)} tone="rose" icon={<TrendingDown className="h-5 w-5" />} isDark={isDark} />
+          <MetricCard label="Entradas totais" value={moneyFormatter.format(dre.receitaTotal)} tone="emerald" icon={<TrendingUp className="h-5 w-5" />} isDark={isDark} />
+          <MetricCard label="Saidas totais" value={moneyFormatter.format(dre.despesaTotal)} tone="rose" icon={<TrendingDown className="h-5 w-5" />} isDark={isDark} />
           <MetricCard label="Resultado" value={moneyFormatter.format(dre.resultadoTotal)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} />
         </section>
 
@@ -423,7 +423,7 @@ export function Dre() {
               </thead>
               <tbody>
                 <tr>
-                  <td className="sticky left-0 z-10 border-b border-r border-emerald-300/30 bg-emerald-600 px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white">Receitas</td>
+                  <td className="sticky left-0 z-10 border-b border-r border-emerald-300/30 bg-emerald-600 px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white">Entradas</td>
                   <td className={`border-b border-r border-emerald-300/30 px-4 py-3 text-right font-black ${isDark ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-50 text-emerald-700'}`}>{renderMoneyCell(dre.receitaTotal, 'receita')}</td>
                   {dre.receitaMonthly.map((value, index) => (
                     <td key={`receita-total-${index}`} className={`border-b border-r border-emerald-300/30 px-4 py-3 text-right font-bold last:border-r-0 ${isDark ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-50 text-emerald-700'}`}>{renderMoneyCell(value, 'receita')}</td>
@@ -436,7 +436,7 @@ export function Dre() {
                   </tr>
                 ) : dre.receitaRows.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className={`px-5 py-12 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Sem receitas classificadas para este ano.</td>
+                    <td colSpan={14} className={`px-5 py-12 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Sem entradas classificadas para este ano.</td>
                   </tr>
                 ) : dre.receitaRows.map((row, rowIndex) => {
                   const isSelected = selectedContaId === row.id;
@@ -479,7 +479,7 @@ export function Dre() {
                 })}
 
                 <tr>
-                  <td className="sticky left-0 z-10 border-b border-r border-rose-300/30 bg-rose-600 px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white">Despesas</td>
+                  <td className="sticky left-0 z-10 border-b border-r border-rose-300/30 bg-rose-600 px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white">Saidas</td>
                   <td className={`border-b border-r border-rose-300/30 px-4 py-3 text-right font-black ${isDark ? 'bg-rose-500/10 text-rose-200' : 'bg-rose-50 text-rose-700'}`}>{renderMoneyCell(dre.despesaTotal, 'despesa')}</td>
                   {dre.despesaMonthly.map((value, index) => (
                     <td key={`despesa-total-${index}`} className={`border-b border-r border-rose-300/30 px-4 py-3 text-right font-bold last:border-r-0 ${isDark ? 'bg-rose-500/10 text-rose-200' : 'bg-rose-50 text-rose-700'}`}>{renderMoneyCell(value, 'despesa')}</td>
@@ -488,7 +488,7 @@ export function Dre() {
 
                 {loading ? null : dre.despesaRows.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className={`px-5 py-12 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Sem despesas classificadas para este ano.</td>
+                    <td colSpan={14} className={`px-5 py-12 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Sem saídas classificadas para este ano.</td>
                   </tr>
                 ) : dre.despesaRows.map((row, rowIndex) => {
                   const isSelected = selectedContaId === row.id;

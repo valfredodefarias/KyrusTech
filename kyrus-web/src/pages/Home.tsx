@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
-import { BrandAvatar, inferBankBrand } from '../components/BrandAvatar';
+import { BankAvatar } from '../components/BrandAvatar';
 import { 
   PlusCircle, BarChart2, Users, Landmark, 
   CreditCard, Settings, Wallet, Banknote, Home as HomeIcon,
@@ -423,10 +423,10 @@ export function Home() {
                 {/* LADO ESQUERDO: ÍCONE E NOME */}
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 shrink-0 flex items-center justify-center overflow-hidden" style={{ color: primaryColor }}>
-                    {c.logo_url ? (
-                      <img src={getFullLogoUrl(c.logo_url) || ''} alt={c.nome} className="w-full h-full object-cover" />
+                    {c.tipo === 'CAIXA' ? (
+                      <Banknote size={20} />
                     ) : (
-                      c.tipo === 'CAIXA' ? <Banknote size={20} /> : <BrandAvatar visual={inferBankBrand(c.nome, c.tipo)} size="sm" className="rounded-full border-0 shadow-none" />
+                      <BankAvatar logoUrl={getFullLogoUrl(c.logo_url) || null} bankName={(c as any).banco} accountName={c.nome} integrationType={c.tipo} size="sm" className="w-10 h-10" imageClassName="rounded-full" fallbackClassName="rounded-full border-0 shadow-none" />
                     )}
                   </div>
                   <div className="min-w-0"> {/* min-w-0 é essencial para o truncate funcionar dentro do flex */}

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import { BrandAvatar, inferBankBrand } from '../components/BrandAvatar';
+import { BankAvatar } from '../components/BrandAvatar';
 import { 
   Landmark, RefreshCw, Plus, Edit2, Trash2, ChevronRight, X, Check, Loader2, ChevronDown,
   Banknote, TrendingUp, AlertTriangle, Filter, Search, Settings
@@ -193,23 +193,26 @@ export function Contas() {
   const navigate = useNavigate();
   const bancosEspeciais = [
     {
-      id: 'MANUAL',
-      label: 'Nenhum',
-      value: 'MANUAL',
-      logo: null
-    },
-    {
-      id: 'ITAU',
-      label: 'Itaú',
-      value: 'ITAU',
-      logo: '/itau.png'
-    },
-    {
       id: 'ASAAS',
       label: 'Asaas',
       value: 'ASAAS',
       logo: '/asaas-acelerados.png'
     }
+  ];
+  const bancosComuns = [
+    { id: 'itau', label: 'Itaú', banco: 'Itaú' },
+    { id: 'bradesco', label: 'Bradesco', banco: 'Bradesco' },
+    { id: 'santander', label: 'Santander', banco: 'Santander' },
+    { id: 'inter', label: 'Inter', banco: 'Inter' },
+    { id: 'bb', label: 'Banco do Brasil', banco: 'Banco do Brasil' },
+    { id: 'banpara', label: 'Banpará', banco: 'Banpará' },
+    { id: 'caixa', label: 'Caixa', banco: 'Caixa' },
+    { id: 'nubank', label: 'Nubank', banco: 'Nubank' },
+    { id: 'picpay', label: 'PicPay', banco: 'PicPay' },
+    { id: 'sicredi', label: 'Sicredi', banco: 'Sicredi' },
+    { id: 'sicoob', label: 'Sicoob', banco: 'Sicoob' },
+    { id: 'c6', label: 'C6 Bank', banco: 'C6 Bank' },
+    { id: 'mercadopago', label: 'Mercado Pago', banco: 'Mercado Pago' },
   ];
   const [loading, setLoading] = useState(true);
   const [contas, setContas] = useState<Conta[]>([]);
@@ -363,6 +366,8 @@ export function Contas() {
     setDrawerOpen(true);
   }
 
+  const hasCustomLogo = Boolean(logoPreview || form.logo_url) && !logoRemoved;
+
   function handleOpenEdit(conta: Conta) {
     setIsEditing(true);
     setEditingId(conta.id);
@@ -509,20 +514,6 @@ export function Contas() {
 
   function toggleExtratoSelecionado(id: number) {
     setExtratoSelecionados((prev) => prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]);
-  }
-
-  function toggleSelecionarTodosExtrato() {
-    setExtratoSelecionados((prev) => prev.length === extratoLancamentos.length ? [] : extratoLancamentos.map((item) => item.id));
-  }
-
-  function toggleExtratoGrupoSelecionado(ids: number[]) {
-    setExtratoSelecionados((prev) => {
-      const allSelected = ids.every((id) => prev.includes(id));
-      if (allSelected) {
-        return prev.filter((id) => !ids.includes(id));
-      }
-      return Array.from(new Set([...prev, ...ids]));
-    });
   }
 
   function toggleExtratoFatura(key: string) {
@@ -841,13 +832,6 @@ export function Contas() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={toggleSelecionarTodosExtrato}
-                      disabled={extratoLancamentos.length === 0}
-                      className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {extratoSelecionados.length === extratoLancamentos.length && extratoLancamentos.length > 0 ? 'Limpar seleção' : 'Selecionar todos'}
-                    </button>
-                    <button
                       onClick={handleExcluirSelecionadosExtrato}
                       disabled={extratoSelecionados.length === 0 || excluindoSelecionados}
                       className="px-4 py-2 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-2"
@@ -865,15 +849,7 @@ export function Contas() {
                 <table className="w-full text-left">
                   <thead className="bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-500 uppercase">
                     <tr>
-                      <th className="p-4 w-12">
-                        <button
-                          onClick={toggleSelecionarTodosExtrato}
-                          className="inline-flex items-center justify-center rounded-md border border-slate-200 p-1 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
-                          title="Selecionar todos os movimentos do saldo"
-                        >
-                          {extratoSelecionados.length === extratoLancamentos.length && extratoLancamentos.length > 0 ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                        </button>
-                      </th>
+                      <th className="p-4 w-12">Sel.</th>
                       <th className="p-4">Data base</th>
                       <th className="p-4">Descrição</th>
                       <th className="p-4">Categoria</th>
@@ -893,9 +869,7 @@ export function Contas() {
                     ) : (
                       extratoAgrupado.map((row) => {
                         if (row.type === 'invoice') {
-                          const ids = row.group.itens.map((item) => item.id);
                           const isExpanded = !!extratoFaturasExpandidas[row.group.key];
-                          const allSelected = ids.every((id) => extratoSelecionados.includes(id));
                           const competenciaLabel = row.group.competencia
                             ? new Date(`${row.group.competencia}-01T00:00:00`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
                             : '-';
@@ -904,12 +878,9 @@ export function Contas() {
                             <React.Fragment key={row.group.key}>
                               <tr className="bg-slate-50/80 dark:bg-slate-800/60">
                                 <td className="p-4 align-top">
-                                  <input
-                                    type="checkbox"
-                                    checked={allSelected}
-                                    onChange={() => toggleExtratoGrupoSelecionado(ids)}
-                                    className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
-                                  />
+                                  <span className="inline-flex min-w-7 items-center justify-center rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                                    {row.group.itens.length}
+                                  </span>
                                 </td>
                                 <td className="p-4 font-mono text-xs text-slate-500 align-top">
                                   {new Date(row.group.dataBase).toLocaleDateString('pt-BR')}
@@ -1110,7 +1081,6 @@ export function Contas() {
                    const IconComp = getIcon(c.tipo);
                    const saldo = parseFloat(String(c.saldo_atual || 0));
                    const nomeCentro = centros.find(ct => ct.id === c.centro_custo_id)?.nome;
-                   const bankBrand = inferBankBrand(c.banco, c.nome, c.tipo_integracao);
                    
                    return (
                      <div key={c.id} 
@@ -1127,11 +1097,7 @@ export function Contas() {
                               <div className="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm overflow-hidden"
                                 style={{ backgroundColor: `${primaryColor}10`, color: primaryColor }}
                               >
-                                {c.logo_url ? (
-                                  <img src={getFullLogoUrl(c.logo_url) || ''} alt={c.nome} className="w-full h-full object-cover" />
-                                ) : (
-                                  c.tipo === 'CAIXA' ? <IconComp className="w-5 h-5" /> : <BrandAvatar visual={bankBrand} size="sm" className="rounded-lg border-0 shadow-none" />
-                                )}
+                                {c.tipo === 'CAIXA' ? <IconComp className="w-5 h-5" /> : <BankAvatar logoUrl={getFullLogoUrl(c.logo_url)} bankName={c.banco} accountName={c.nome} integrationType={c.tipo_integracao} size="sm" className="h-10 w-10" imageClassName="rounded-lg" fallbackClassName="rounded-lg border-0 shadow-none" />}
                               </div>
                                 <div>
                                     <h3 className="font-bold text-slate-700 dark:text-slate-200 leading-tight">{c.nome}</h3>
@@ -1248,9 +1214,36 @@ export function Contas() {
                   </div>
               </div>
 
-              <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Bancos Especiais</label>
-                  <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Bancos comuns</label>
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                        {bancosComuns.map((banco) => {
+                          const selected = form.tipo_integracao === 'MANUAL' && String(form.banco || '').trim().toLowerCase() === banco.banco.toLowerCase();
+                          return (
+                            <button
+                              key={banco.id}
+                              type="button"
+                              onClick={() => setForm({ ...form, banco: banco.banco, tipo_integracao: 'MANUAL' })}
+                              className={`rounded-lg border px-3 py-3 text-left transition flex flex-col gap-2 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <BankAvatar bankName={banco.banco} accountName={banco.label} size="md" className="h-14 w-14 rounded-full" imageClassName="rounded-full" fallbackClassName="rounded-full border-0 shadow-none" />
+                                <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{banco.label}</div>
+                              </div>
+                              <div className={`text-[10px] uppercase font-bold ${selected ? 'text-blue-600 dark:text-blue-300' : 'text-slate-400'}`}>
+                                {selected ? 'Selecionado' : 'Usar logo padrão'}
+                              </div>
+                            </button>
+                          );
+                        })}
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">Se nenhuma foto for enviada, o sistema usa automaticamente a logo padrão do banco reconhecido.</p>
+                  </div>
+
+                  <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Bancos especiais</label>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {bancosEspeciais.map(banco => {
                         const selected = (form.tipo_integracao || 'MANUAL') === banco.value;
                         return (
@@ -1261,13 +1254,7 @@ export function Contas() {
                             className={`rounded-lg border px-3 py-3 text-left transition flex flex-col gap-2 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
                           >
                             <div className="flex items-center gap-3">
-                              <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center overflow-hidden shadow-sm">
-                                {banco.logo ? (
-                                  <img src={banco.logo} alt={banco.label} className="w-full h-full object-cover rounded-full" />
-                                ) : (
-                                  <span className="text-[12px] text-slate-500">—</span>
-                                )}
-                              </div>
+                              <BankAvatar logoUrl={banco.logo} bankName={banco.label} accountName={banco.label} integrationType={banco.value} size="lg" className="h-16 w-16 rounded-full" imageClassName="rounded-full" fallbackClassName="rounded-full border-0 shadow-none" />
                               <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{banco.label}</div>
                             </div>
                             <div className={`text-[10px] uppercase font-bold ${selected ? 'text-blue-600 dark:text-blue-300' : 'text-slate-400'}`}>
@@ -1277,7 +1264,8 @@ export function Contas() {
                         );
                       })}
                   </div>
-                  <p className="text-xs text-slate-500 mt-2">Selecione Itaú para aparecer em Bancos Especiais.</p>
+                  <p className="text-xs text-slate-500 mt-2">Use especial apenas para integrações. Hoje só o Asaas permanece aqui.</p>
+                  </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4">
@@ -1320,10 +1308,10 @@ export function Contas() {
                   <label className="block text-xs font-bold uppercase text-slate-500">Logo / Foto do Banco</label>
                   <div className="flex items-center gap-3">
                       <div className="w-16 h-16 rounded-lg bg-slate-100 dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 overflow-hidden flex items-center justify-center text-[10px] text-slate-400">
-                          {logoPreview || form.logo_url ? (
+                          {hasCustomLogo ? (
                             <img src={getFullLogoUrl(logoPreview || form.logo_url || '') || ''} alt="Logo" className="w-full h-full object-cover" />
                           ) : (
-                            <BrandAvatar visual={inferBankBrand(form.banco, form.nome, form.tipo_integracao)} size="md" className="rounded-lg border-0 shadow-none" />
+                            <BankAvatar bankName={form.banco} accountName={form.nome} integrationType={form.tipo_integracao} size="md" className="h-16 w-16" imageClassName="rounded-lg" fallbackClassName="rounded-lg border-0 shadow-none" />
                           )}
                       </div>
                       <div className="flex gap-2 flex-wrap">
@@ -1331,7 +1319,7 @@ export function Contas() {
                               Selecionar arquivo
                               <input type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
                           </label>
-                          {(logoPreview || form.logo_url) && (
+                          {hasCustomLogo && (
                             <button type="button" onClick={handleClearLogo} className="px-3 py-2 rounded-lg bg-red-50 text-red-600 text-sm font-bold hover:bg-red-100 dark:bg-red-900/30 dark:text-red-200">
                                 Remover
                             </button>

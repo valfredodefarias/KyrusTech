@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 
 export type BrandVisual = {
@@ -60,7 +61,16 @@ const BANK_BRANDS: BrandMatcher[] = [
     accent: '#ca8a04',
     background: 'linear-gradient(135deg, #fefce8 0%, #fde68a 100%)',
     text: '#854d0e',
-    aliases: ['banco do brasil', 'bb brasil', 'bb '],
+    aliases: ['banco do brasil', 'bb brasil', 'bb ', 'banco brasil'],
+  },
+  {
+    key: 'banpara',
+    label: 'Banpará',
+    shortLabel: 'BP',
+    accent: '#16a34a',
+    background: 'linear-gradient(135deg, #f0fdf4 0%, #86efac 100%)',
+    text: '#166534',
+    aliases: ['banpara', 'banpará', 'banco do estado do para'],
   },
   {
     key: 'caixa',
@@ -79,6 +89,33 @@ const BANK_BRANDS: BrandMatcher[] = [
     background: 'linear-gradient(135deg, #f5f3ff 0%, #ddd6fe 100%)',
     text: '#6d28d9',
     aliases: ['nubank', 'nu bank', 'nuconta'],
+  },
+  {
+    key: 'picpay',
+    label: 'PicPay',
+    shortLabel: 'PP',
+    accent: '#22c55e',
+    background: 'linear-gradient(135deg, #ecfdf5 0%, #86efac 100%)',
+    text: '#166534',
+    aliases: ['picpay', 'pic pay'],
+  },
+  {
+    key: 'c6',
+    label: 'C6 Bank',
+    shortLabel: 'C6',
+    accent: '#0f172a',
+    background: 'linear-gradient(135deg, #f8fafc 0%, #cbd5e1 100%)',
+    text: '#0f172a',
+    aliases: ['c6 bank', 'c6bank', 'c6'],
+  },
+  {
+    key: 'mercadopago',
+    label: 'Mercado Pago',
+    shortLabel: 'MP',
+    accent: '#0ea5e9',
+    background: 'linear-gradient(135deg, #ecfeff 0%, #93c5fd 100%)',
+    text: '#0c4a6e',
+    aliases: ['mercado pago', 'mercadopago'],
   },
   {
     key: 'inter',
@@ -273,4 +310,79 @@ export function BrandAvatar({ visual, size = 'md', className = '' }: BrandAvatar
       {visual.shortLabel}
     </div>
   );
+}
+
+function buildPublicLogoUrl(path: string) {
+  if (!path) return null;
+  return path.startsWith('/') ? path : `/${path}`;
+}
+
+export function getBankDefaultLogoPath(...values: Array<string | null | undefined>) {
+  const bank = findBrand(BANK_BRANDS, values);
+  if (!bank) return null;
+
+  const logoMap: Record<string, string> = {
+    itau: '/itau.png',
+    asaas: '/asaas-acelerados.png',
+    bradesco: '/bank-logos/bradesco.png',
+    santander: '/bank-logos/santander.png',
+    bb: '/bank-logos/banco-do-brasil.png',
+    banpara: '/bank-logos/banpara.png',
+    caixa: '/bank-logos/caixa.png',
+    nubank: '/bank-logos/nubank.png',
+    inter: '/bank-logos/inter.png',
+    sicredi: '/bank-logos/sicredi.png',
+    sicoob: '/bank-logos/sicoob.png',
+    picpay: '/bank-logos/picpay.png',
+    c6: '/bank-logos/c6-bank.png',
+    mercadopago: '/bank-logos/mercado-pago.png',
+  };
+
+  return buildPublicLogoUrl(logoMap[bank.key] || '');
+}
+
+interface BankAvatarProps {
+  logoUrl?: string | null;
+  bankName?: string | null;
+  accountName?: string | null;
+  integrationType?: string | null;
+  size?: 'sm' | 'md' | 'lg';
+  className?: string;
+  imageClassName?: string;
+  fallbackClassName?: string;
+}
+
+export function BankAvatar({
+  logoUrl,
+  bankName,
+  accountName,
+  integrationType,
+  size = 'md',
+  className = '',
+  imageClassName = 'rounded-2xl',
+  fallbackClassName = '',
+}: BankAvatarProps) {
+  const visual = inferBankBrand(bankName, accountName, integrationType);
+  const defaultLogoPath = useMemo(() => getBankDefaultLogoPath(bankName, accountName, integrationType), [bankName, accountName, integrationType]);
+  const [failedSources, setFailedSources] = useState<Record<string, true>>({});
+
+  const imageSrc = useMemo(() => {
+    const candidates = [logoUrl, defaultLogoPath].filter(Boolean) as string[];
+    return candidates.find((candidate) => !failedSources[candidate]) || null;
+  }, [defaultLogoPath, failedSources, logoUrl]);
+
+  if (imageSrc) {
+    return (
+      <div className={`overflow-hidden ${SIZE_CLASS[size]} ${className}`} title={visual.label}>
+        <img
+          src={imageSrc}
+          alt={accountName || bankName || visual.label}
+          className={`h-full w-full object-cover ${imageClassName}`}
+          onError={() => setFailedSources((prev) => ({ ...prev, [imageSrc]: true }))}
+        />
+      </div>
+    );
+  }
+
+  return <BrandAvatar visual={visual} size={size} className={`${fallbackClassName} ${className}`.trim()} />;
 }

@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { useLookupStore } from '../store/lookupStore';
+import { BankAvatar } from '../components/BrandAvatar';
 import { 
   Plus, Search, Filter, RefreshCw, ChevronLeft, ChevronRight, 
   ArrowRightLeft, Wallet, CreditCard, Layers, Calendar, 
@@ -383,8 +384,6 @@ export function Lancamentos() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
   const [filtrosRailCollapsed, setFiltrosRailCollapsed] = useState(() => localStorage.getItem('lancamentos.filtrosRailCollapsed') === '1');
-  const [didFallbackAll, setDidFallbackAll] = useState(false);
-
   // Barra/ações em lote
   const [showBulkPay, setShowBulkPay] = useState(false);
   const [showBulkDelete, setShowBulkDelete] = useState(false);
@@ -482,6 +481,39 @@ export function Lancamentos() {
   const getContaSaldo = (conta: any) => {
     const saldo = Number(conta?.saldo_atual ?? conta?.saldo ?? conta?.saldo_disponivel ?? conta?.saldo_inicial ?? 0);
     return Number.isFinite(saldo) ? saldo : 0;
+  };
+
+  const getTransferContaLabel = (conta: any) => conta?.banco || conta?.nome || 'Conta bancária';
+
+  const renderTransferContaButton = (conta: any, role: 'origem' | 'destino') => {
+    const selectedId = role === 'origem' ? transferData.conta_origem_id : transferData.conta_destino_id;
+    const isSelected = String(selectedId) === String(conta.id);
+    const isBlocked = role === 'origem'
+      ? String(transferData.conta_destino_id) === String(conta.id)
+      : String(transferData.conta_origem_id) === String(conta.id);
+    const logo = getFullLogoUrl(conta.logo_url);
+
+    return (
+      <button
+        key={`${role}-${conta.id}`}
+        type="button"
+        disabled={isBlocked}
+        onClick={() => setTransferData((prev) => ({
+          ...prev,
+          [role === 'origem' ? 'conta_origem_id' : 'conta_destino_id']: String(conta.id),
+        }))}
+        className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition ${isSelected ? 'border-blue-500 bg-blue-50 shadow-sm dark:border-blue-400 dark:bg-blue-500/10' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-500 dark:hover:bg-slate-800'} ${isBlocked ? 'cursor-not-allowed opacity-45' : ''}`}
+      >
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800">
+          <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={conta.nome} integrationType={conta.tipo_integracao} size="sm" className="h-11 w-11" imageClassName="rounded-2xl" fallbackClassName="rounded-2xl border-0 shadow-none" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold text-slate-700 dark:text-slate-100">{getTransferContaLabel(conta)}</p>
+          <p className="truncate text-xs text-slate-500 dark:text-slate-400">{conta.nome || conta.tipo || 'Conta bancária'}</p>
+        </div>
+        {isSelected ? <CheckCircle2 className="h-4 w-4 shrink-0 text-blue-500" /> : null}
+      </button>
+    );
   };
 
   const formatDateYMD = (date: Date) => {
@@ -632,11 +664,6 @@ export function Lancamentos() {
       const res = await api.get('/lancamentos/', { params, signal: controller.signal });
       setLancamentos(res.data);
 
-      const isEmpty = !res.data || res.data.length === 0;
-      if (!opts?.skipFallback && !opts?.force && isEmpty && ini && fim && !didFallbackAll && !filtroTexto && !filtroRapido && !centroCustoFiltro && filtrosAvancados.status.length === 0 && filtrosAvancados.contaIds.size === 0 && filtrosAvancados.categoriaIds.size === 0 && filtrosAvancados.centroCustoPresenca === 'TODOS') {
-        setDidFallbackAll(true);
-        await loadLancamentos(undefined, undefined, { force: true, skipFallback: true });
-      }
     } catch(e: any) {
       if (e?.code === 'ERR_CANCELED') return;
       console.error(e);
@@ -1023,7 +1050,7 @@ export function Lancamentos() {
         });
         pushToast('success', 'Transferência realizada com sucesso!');
         setShowTransfer(false);
-        await loadLancamentos(undefined, undefined, { force: true });
+        await refreshLancamentosVisiveis();
         await refreshContasComSaldo();
     } catch(e) {
       pushToast('error', 'Erro na transferência.');
@@ -1256,7 +1283,7 @@ export function Lancamentos() {
                                 });
                               }} className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${ativo ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-200 bg-slate-50 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950/80 dark:hover:border-slate-700'}`}>
                                 <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
-                                  {logo ? <img src={logo} alt={conta.nome} className="h-full w-full object-cover" /> : <Wallet className="h-4 w-4 text-slate-400" />}
+                                  <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={conta.nome} integrationType={conta.tipo_integracao} size="sm" className="h-9 w-9" imageClassName="rounded-full" fallbackClassName="rounded-full border-0 shadow-none" />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <p className="truncate text-sm font-bold text-slate-700 dark:text-slate-100">{conta.nome}</p>
@@ -1500,11 +1527,7 @@ export function Lancamentos() {
                         title={ativo ? 'Clique para remover filtro de extrato deste banco' : 'Clique para ver somente lançamentos pagos/recebidos deste banco'}
                       >
                         <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex items-center justify-center shrink-0">
-                          {logo ? (
-                            <img src={logo} alt={conta.nome} className="w-full h-full object-cover" />
-                          ) : (
-                            <Wallet className="w-4 h-4 text-slate-400" />
-                          )}
+                          <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={conta.nome} integrationType={conta.tipo_integracao} size="sm" className="w-9 h-9" imageClassName="rounded-full" fallbackClassName="rounded-full border-0 shadow-none" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className={`text-sm font-bold truncate ${ativo ? 'text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-100'}`}>{conta.nome}</p>
@@ -1731,20 +1754,18 @@ export function Lancamentos() {
                     <InputDark label="Valor (R$)" type="number" step="0.01" value={transferData.valor} onChange={(e:any)=>setTransferData({...transferData, valor:e.target.value})} />
                     <InputDark label="Data" type="date" value={transferData.data} onChange={(e:any)=>setTransferData({...transferData, data:e.target.value})} />
                     
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <div>
-                            <label className="text-xs font-bold text-slate-400 uppercase">De (Origem)</label>
-                            <select className="w-full p-2 rounded bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-white text-sm" value={transferData.conta_origem_id} onChange={e=>setTransferData({...transferData, conta_origem_id:e.target.value})}>
-                                <option value="">Selecione...</option>
-                                {contas.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
-                            </select>
+                        <label className="mb-2 block text-xs font-bold text-slate-400 uppercase">Origem</label>
+                        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                          {contas.map((conta) => renderTransferContaButton(conta, 'origem'))}
+                        </div>
                         </div>
                         <div>
-                            <label className="text-xs font-bold text-slate-400 uppercase">Para (Destino)</label>
-                            <select className="w-full p-2 rounded bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-white text-sm" value={transferData.conta_destino_id} onChange={e=>setTransferData({...transferData, conta_destino_id:e.target.value})}>
-                                <option value="">Selecione...</option>
-                                {contas.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
-                            </select>
+                        <label className="mb-2 block text-xs font-bold text-slate-400 uppercase">Destino</label>
+                        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                          {contas.map((conta) => renderTransferContaButton(conta, 'destino'))}
+                        </div>
                         </div>
                     </div>
 

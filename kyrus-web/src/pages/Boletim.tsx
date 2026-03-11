@@ -12,13 +12,14 @@ import {
 } from 'lucide-react';
 
 import { AsyncApexChart } from '../components/AsyncApexChart';
-import { BrandAvatar, inferBankBrand } from '../components/BrandAvatar';
+import { BankAvatar } from '../components/BrandAvatar';
 import { api } from '../services/api';
 
 interface ContaResumo {
   id: number;
   nome: string;
   banco?: string | null;
+  logo_url?: string | null;
   tipo: string;
   saldo_inicial: number;
   saldo_atual?: number;
@@ -777,12 +778,12 @@ export function Boletim() {
                   </thead>
                   <tbody>
                     {dashboard.banks.slice(0, 6).map((conta) => {
-                      const bankBrand = inferBankBrand(conta.banco, conta.nome, conta.tipo);
+                      const logo = getFullLogoUrl(conta.logo_url || null);
                       return (
                         <tr key={conta.id} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
-                              <BrandAvatar visual={bankBrand} size="sm" />
+                              <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={conta.nome} integrationType={conta.tipo} size="sm" className="h-9 w-9" imageClassName="rounded-2xl" fallbackClassName="rounded-2xl border-0 shadow-none" />
                               <span>{conta.banco || conta.nome}</span>
                             </div>
                           </td>

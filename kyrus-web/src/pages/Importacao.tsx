@@ -848,7 +848,6 @@ export const PlanoContasManager = ({
           return;
       }
 
-      if(!confirm(`Excluir a categoria \"${item.nome}\"?`)) return;
       markDirty(localList.filter((categoria) => categoria.id !== item.id));
       setManagerFeedback({ type: 'success', message: `Categoria \"${item.nome}\" marcada para exclusao.` });
   };
@@ -1239,7 +1238,11 @@ export function Importacao() {
     setLoading(true); setFeedback(null);
     const fd = new FormData(); fd.append('file', file);
     try {
-      const { data } = await api.post('/lancamentos/importar/analisar', fd);
+            const { data } = await api.post('/lancamentos/importar/analisar', fd, {
+                timeout: 0,
+                maxBodyLength: Infinity,
+                maxContentLength: Infinity,
+            });
       setConflitos({ ...data.conflitos, entidades: data.conflitos.entidades || [] });
       if (data.sistema) setSistemaData(prev => ({...prev, ...data.sistema}));
             if (data.sugestoes?.categorias) {
@@ -1407,7 +1410,11 @@ export function Importacao() {
       const fd = new FormData(); fd.append('file', file!);
       fd.append('mapeamento_json', JSON.stringify({ map_categorias: mapCategorias, map_contas: mapContas, map_centros: mapCentros, map_entidades: mapEntidades }));
       try {
-          const res = await api.post('/lancamentos/importar/executar', fd);
+                    const res = await api.post('/lancamentos/importar/executar', fd, {
+                        timeout: 0,
+                        maxBodyLength: Infinity,
+                        maxContentLength: Infinity,
+                    });
           setFeedback({ type: 'success', message: `${res.data.importados} lançamentos importados com sucesso!`, details: res.data.erros });
           setStep(1); setFile(null);
       } catch(e: any) { setFeedback({ type: 'error', message: e.response?.data?.detail || "Erro na importação." }); } finally { setLoading(false); }

@@ -37,6 +37,7 @@ from app.models.integracao_bancaria import IntegracaoBancaria
 from app.models.mapeamento_categoria import MapeamentoCategoria
 from app.models.dashboard_view_config import DashboardViewConfig
 from app.models.plano_contas_template_config import PlanoContasTemplateConfig
+from app.models.bank_preset_config import BankPresetConfig
 
 # --- 4. CONFIGURAÇÃO DO ALEMBIC ---
 config = context.config

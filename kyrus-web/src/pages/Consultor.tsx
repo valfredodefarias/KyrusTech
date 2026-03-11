@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../services/api';
+import { BankAvatar } from '../components/BrandAvatar';
+import { api, toPublicAssetUrl } from '../services/api';
+import { useBankPresetStore, type BankPreset } from '../store/bankPresetStore';
 import { PlanoContasManager } from './Importacao';
 import type { ItemSistema } from './Importacao';
 import { 
-  Building2, Search, UserPlus, ArrowRightLeft, Briefcase, Upload, X, Loader2, Pencil, Users, Shield, Plus, Trash2, ChevronDown, ChevronUp,
+  Building2, Search, UserPlus, ArrowRightLeft, Briefcase, Upload, X, Loader2, Pencil, Users, Shield, Plus, Trash2, ChevronDown, ChevronUp, Landmark,
   ClipboardList, CheckCircle2, Circle, KeyRound, Sparkles, BarChart3, Layers
 } from 'lucide-react';
 
@@ -94,16 +96,21 @@ interface FormEmpresa {
   logo_url: string; 
 }
 
+interface BankPresetForm {
+  key: string;
+  label: string;
+  bank_name: string;
+  aliases: string;
+  logo_url: string;
+  sort_order: string;
+  is_active: boolean;
+}
+
 // --- COMPONENTE AVATAR ---
 const AvatarEmpresa = ({ nome, src, cor }: { nome: string, src?: string, cor: string }) => {
   const [error, setError] = useState(false);
   const iniciais = nome.substring(0, 2).toUpperCase();
-
-  let fullSrc = src;
-  if (src && src.startsWith('/static')) {
-    const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
-    fullSrc = `${baseURL}${src}`;
-  }
+  const fullSrc = toPublicAssetUrl(src) || undefined;
 
   if (!src || error) {
     return (
@@ -130,6 +137,7 @@ const AvatarEmpresa = ({ nome, src, cor }: { nome: string, src?: string, cor: st
 
 export function Consultor() {
   const navigate = useNavigate();
+  const setBankPresetStore = useBankPresetStore((state) => state.setPresets);
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [consultores, setConsultores] = useState<Consultor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -147,7 +155,7 @@ export function Consultor() {
   const [consultorEmpresas, setConsultorEmpresas] = useState<ConsultorEmpresa[]>([]);
   const [loadingConsultorEmpresas, setLoadingConsultorEmpresas] = useState(false);
   const [expandedConsultorId, setExpandedConsultorId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<'empresas' | 'consultores' | 'planos-padrao' | 'usuarios' | 'tarefas'>('empresas');
+  const [activeTab, setActiveTab] = useState<'empresas' | 'consultores' | 'planos-padrao' | 'bancos' | 'usuarios' | 'tarefas'>('empresas');
 
   // Usuários
   const [usuarios, setUsuarios] = useState<UsuarioItem[]>([]);
@@ -198,6 +206,19 @@ export function Consultor() {
   const [templateTipoPessoa, setTemplateTipoPessoa] = useState<'PF' | 'PJ'>('PJ');
   const [templateCategorias, setTemplateCategorias] = useState<ItemSistema[]>([]);
   const [loadingTemplateCategorias, setLoadingTemplateCategorias] = useState(false);
+  const [bankPresets, setBankPresets] = useState<BankPreset[]>([]);
+  const [loadingBankPresets, setLoadingBankPresets] = useState(false);
+  const [savingBankPreset, setSavingBankPreset] = useState(false);
+  const [editingBankPresetKey, setEditingBankPresetKey] = useState<string | null>(null);
+  const [bankPresetForm, setBankPresetForm] = useState<BankPresetForm>({
+    key: '',
+    label: '',
+    bank_name: '',
+    aliases: '',
+    logo_url: '',
+    sort_order: '0',
+    is_active: true,
+  });
 
   useEffect(() => {
     carregarEmpresas();
@@ -212,6 +233,11 @@ export function Consultor() {
     if (!isSuperConsultor || activeTab !== 'planos-padrao') return;
     carregarTemplatePlanoContas(templateTipoPessoa);
   }, [activeTab, isSuperConsultor, templateTipoPessoa]);
+
+  useEffect(() => {
+    if (!isSuperConsultor || activeTab !== 'bancos') return;
+    void carregarBankPresets();
+  }, [activeTab, isSuperConsultor]);
 
   async function verificarSuperConsultor() {
     try {
@@ -278,6 +304,110 @@ export function Consultor() {
       setTemplateCategorias([]);
     } finally {
       setLoadingTemplateCategorias(false);
+    }
+  }
+
+  function resetBankPresetForm() {
+    setEditingBankPresetKey(null);
+    setBankPresetForm({
+      key: '',
+      label: '',
+      bank_name: '',
+      aliases: '',
+      logo_url: '',
+      sort_order: '0',
+      is_active: true,
+    });
+  }
+
+  async function carregarBankPresets() {
+    try {
+      setLoadingBankPresets(true);
+      const res = await api.get<BankPreset[]>('/bank-presets/', { params: { include_inactive: true } });
+      setBankPresets(res.data || []);
+      setBankPresetStore((res.data || []).filter((item) => item.is_active));
+    } catch (error) {
+      console.error('Erro ao listar presets de banco', error);
+    } finally {
+      setLoadingBankPresets(false);
+    }
+  }
+
+  function startEditBankPreset(item: BankPreset) {
+    setEditingBankPresetKey(item.key);
+    setBankPresetForm({
+      key: item.key,
+      label: item.label,
+      bank_name: item.bank_name,
+      aliases: (item.aliases || []).join(', '),
+      logo_url: item.logo_url || '',
+      sort_order: String(item.sort_order ?? 0),
+      is_active: item.is_active,
+    });
+  }
+
+  async function handleBankPresetLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await api.post('/anexos/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setBankPresetForm((prev) => ({ ...prev, logo_url: res.data.url || '' }));
+    } catch (error) {
+      console.error('Erro upload logo banco', error);
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  }
+
+  async function handleSubmitBankPreset(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      setSavingBankPreset(true);
+      const payload = {
+        ...(editingBankPresetKey ? {} : { key: bankPresetForm.key || undefined }),
+        label: bankPresetForm.label,
+        bank_name: bankPresetForm.bank_name,
+        aliases: bankPresetForm.aliases.split(',').map((item) => item.trim()).filter(Boolean),
+        logo_url: bankPresetForm.logo_url || null,
+        sort_order: Number(bankPresetForm.sort_order || 0),
+        is_active: bankPresetForm.is_active,
+      };
+
+      if (editingBankPresetKey) {
+        await api.patch(`/bank-presets/${editingBankPresetKey}`, payload);
+      } else {
+        await api.post('/bank-presets/', payload);
+      }
+
+      await carregarBankPresets();
+      resetBankPresetForm();
+    } catch (error) {
+      console.error('Erro ao salvar preset de banco', error);
+      alert('Nao foi possivel salvar o preset do banco.');
+    } finally {
+      setSavingBankPreset(false);
+    }
+  }
+
+  async function handleDeleteBankPreset(presetKey: string) {
+    if (!window.confirm('Deseja remover este banco global?')) return;
+    try {
+      await api.delete(`/bank-presets/${presetKey}`);
+      await carregarBankPresets();
+      if (editingBankPresetKey === presetKey) {
+        resetBankPresetForm();
+      }
+    } catch (error) {
+      console.error('Erro ao remover preset de banco', error);
+      alert('Nao foi possivel remover o preset do banco.');
     }
   }
 
@@ -555,9 +685,7 @@ export function Consultor() {
     });
 
     if (emp.logo_url) {
-      const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
-      const fullUrl = emp.logo_url.startsWith('/static') ? `${baseURL}${emp.logo_url}` : emp.logo_url;
-      setPreviewUrl(fullUrl);
+      setPreviewUrl(toPublicAssetUrl(emp.logo_url));
     } else {
       setPreviewUrl(null);
     }
@@ -587,8 +715,7 @@ export function Consultor() {
       });
       const serverUrl = res.data.url;
       setFormEmpresa({ ...formEmpresa, logo_url: serverUrl });
-      const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
-      setPreviewUrl(`${baseURL}${serverUrl}`);
+      setPreviewUrl(toPublicAssetUrl(serverUrl));
     } catch (error) {
       console.error("Erro upload", error);
     } finally {
@@ -757,6 +884,7 @@ export function Consultor() {
     { key: 'empresas' as const, label: 'Minhas Empresas', icon: Building2, visible: true },
     { key: 'consultores' as const, label: 'Gerenciar Consultores', icon: Users, visible: isSuperConsultor },
     { key: 'planos-padrao' as const, label: 'Planos Padrão', icon: Layers, visible: isSuperConsultor },
+    { key: 'bancos' as const, label: 'Bancos Globais', icon: Landmark, visible: isSuperConsultor },
     { key: 'usuarios' as const, label: 'Usuários', icon: Shield, visible: isSuperConsultor },
     { key: 'tarefas' as const, label: 'To-do', icon: ClipboardList, visible: true },
   ].filter((item) => item.visible);
@@ -1089,6 +1217,186 @@ export function Consultor() {
               />
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'bancos' && isSuperConsultor && (
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-emerald-700 dark:border-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-300">
+                  <Landmark className="h-3.5 w-3.5" />
+                  Presets globais
+                </div>
+                <h2 className="mt-3 text-xl font-black text-slate-900 dark:text-white">Bancos usados em todo o sistema</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">O que você alterar aqui passa a aparecer no formulário de contas e entra como segunda prioridade de imagem no boletim, atrás apenas da logo personalizada da conta.</p>
+              </div>
+              <button
+                type="button"
+                onClick={resetBankPresetForm}
+                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                Novo preset
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {loadingBankPresets ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-300">Carregando bancos globais...</div>
+              ) : bankPresets.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-300">Nenhum preset cadastrado.</div>
+              ) : (
+                bankPresets.map((item) => (
+                  <div key={item.key} className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-900/30">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <BankAvatar logoUrl={item.logo_url} bankName={item.bank_name} accountName={item.label} size="md" className="h-14 w-14" imageClassName="rounded-xl" fallbackClassName="rounded-xl border-0 shadow-none" />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-bold text-slate-900 dark:text-white">{item.label}</p>
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${item.is_active ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>
+                              {item.is_active ? 'ATIVO' : 'INATIVO'}
+                            </span>
+                          </div>
+                          <p className="text-sm text-slate-600 dark:text-slate-300">Banco base: {item.bank_name}</p>
+                          <p className="mt-1 text-xs text-slate-400">Aliases: {(item.aliases || []).join(', ') || 'Sem aliases'}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEditBankPreset(item)}
+                          className="inline-flex items-center gap-1 rounded-xl border border-blue-200 px-3 py-2 text-xs font-bold text-blue-600 transition hover:bg-blue-50 dark:border-blue-900 dark:text-blue-300 dark:hover:bg-blue-500/10"
+                        >
+                          <Pencil size={14} /> Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBankPreset(item.key)}
+                          className="inline-flex items-center gap-1 rounded-xl border border-red-200 px-3 py-2 text-xs font-bold text-red-600 transition hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-500/10"
+                        >
+                          <Trash2 size={14} /> Excluir
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">{editingBankPresetKey ? 'Editar banco global' : 'Cadastrar banco global'}</h3>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-300">Defina nome, aliases e imagem padrão para reaproveitar em todos os formulários.</p>
+              </div>
+              {editingBankPresetKey && (
+                <button type="button" onClick={resetBankPresetForm} className="text-xs font-bold text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-white">Cancelar edição</button>
+              )}
+            </div>
+
+            <form onSubmit={handleSubmitBankPreset} className="mt-5 space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome exibido</label>
+                  <input
+                    type="text"
+                    value={bankPresetForm.label}
+                    onChange={(e) => setBankPresetForm((prev) => ({ ...prev, label: e.target.value }))}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                    placeholder="Ex: Banco do Brasil"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Nome técnico do banco</label>
+                  <input
+                    type="text"
+                    value={bankPresetForm.bank_name}
+                    onChange={(e) => setBankPresetForm((prev) => ({ ...prev, bank_name: e.target.value }))}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                    placeholder="Ex: Banco do Brasil"
+                    required
+                  />
+                </div>
+                {!editingBankPresetKey && (
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Chave</label>
+                    <input
+                      type="text"
+                      value={bankPresetForm.key}
+                      onChange={(e) => setBankPresetForm((prev) => ({ ...prev, key: e.target.value }))}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                      placeholder="Ex: banco-do-brasil"
+                    />
+                  </div>
+                )}
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Ordem</label>
+                  <input
+                    type="number"
+                    value={bankPresetForm.sort_order}
+                    onChange={(e) => setBankPresetForm((prev) => ({ ...prev, sort_order: e.target.value }))}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Aliases</label>
+                <input
+                  type="text"
+                  value={bankPresetForm.aliases}
+                  onChange={(e) => setBankPresetForm((prev) => ({ ...prev, aliases: e.target.value }))}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                  placeholder="Ex: BB, Banco Brasil"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Logo padrão</label>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="flex items-center gap-3">
+                    <BankAvatar logoUrl={bankPresetForm.logo_url} bankName={bankPresetForm.bank_name} accountName={bankPresetForm.label} size="md" className="h-16 w-16" imageClassName="rounded-xl" fallbackClassName="rounded-xl border-0 shadow-none" />
+                    <div className="text-xs text-slate-500 dark:text-slate-300">Se a conta nao tiver imagem personalizada, essa logo sera usada no boletim e nas listas.</div>
+                  </div>
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700">
+                    <Upload size={16} /> Enviar imagem
+                    <input type="file" accept="image/*" className="hidden" onChange={handleBankPresetLogoUpload} />
+                  </label>
+                </div>
+                <input
+                  type="text"
+                  value={bankPresetForm.logo_url}
+                  onChange={(e) => setBankPresetForm((prev) => ({ ...prev, logo_url: e.target.value }))}
+                  className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                  placeholder="/static/... ou URL pública"
+                />
+              </div>
+
+              <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={bankPresetForm.is_active}
+                  onChange={(e) => setBankPresetForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                Preset ativo
+              </label>
+
+              <button
+                type="submit"
+                disabled={savingBankPreset || uploading}
+                className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {(savingBankPreset || uploading) && <Loader2 className="h-4 w-4 animate-spin" />}
+                {editingBankPresetKey ? 'Salvar alterações' : 'Criar preset'}
+              </button>
+            </form>
+          </div>
         </div>
       )}
 

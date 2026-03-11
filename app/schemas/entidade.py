@@ -1,5 +1,5 @@
 # app/schemas/entidade.py
-from typing import Optional
+from typing import Optional, List
 from sqlmodel import SQLModel
 from .base_audit import AuditReadMixin
 
@@ -60,3 +60,10 @@ class EntidadeLookup(SQLModel):
     nome: str
     tipo: str = "AMBOS"
     tipo_pessoa: str = "PJ"
+
+
+class EntidadePage(SQLModel):
+    items: List[EntidadeRead]
+    total: int
+    skip: int
+    limit: int

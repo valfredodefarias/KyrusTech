@@ -19,6 +19,7 @@ from app.api.v1.endpoints import (
     ai_assistente,
     dashboard_views,
     dre,
+    bank_presets,
 )
 
 api_router = APIRouter()
@@ -30,6 +31,7 @@ api_router.include_router(usuarios.router, prefix="/usuarios", tags=["Usuários"
 
 # --- Módulos Financeiros ---
 api_router.include_router(contas.router, prefix="/contas", tags=["Contas Bancárias"])
+api_router.include_router(bank_presets.router, prefix="/bank-presets", tags=["Bancos Padrão"])
 api_router.include_router(plano_contas.router, prefix="/plano-contas", tags=["Plano de Contas"])
 api_router.include_router(entidades.router, prefix="/entidades", tags=["Entidades"])
 api_router.include_router(cartoes.router, prefix="/cartoes", tags=["Cartões de Crédito"])

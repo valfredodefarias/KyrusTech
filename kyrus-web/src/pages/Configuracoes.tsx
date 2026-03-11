@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api } from '../services/api';
+import { api, toPublicAssetUrl } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
 import { 
   Building2, UploadCloud, Layers, Save, Loader2, 
@@ -90,8 +90,7 @@ const DadosEmpresa = () => {
       const { data: userData } = await api.get<UserInfo & { empresa_id?: number }>('/usuarios/me');
       setUser(userData);
       if (userData.foto_url) {
-        const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
-        setUserPhotoPreview(userData.foto_url.startsWith('http') ? userData.foto_url : `${baseURL}${userData.foto_url}`);
+        setUserPhotoPreview(toPublicAssetUrl(userData.foto_url));
       }
       if (userData.empresa_id) {
         const { data: emp } = await api.get(`/empresas/${userData.empresa_id}`);
@@ -100,9 +99,7 @@ const DadosEmpresa = () => {
         
         // Ajusta URL da logo se for relativa (vem do backend)
         if (emp.logo_url) {
-            const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
-            // Se já tiver http (S3/Cloud) usa direto, senão concatena base
-            setPreviewUrl(emp.logo_url.startsWith('http') ? emp.logo_url : `${baseURL}${emp.logo_url}`);
+          setPreviewUrl(toPublicAssetUrl(emp.logo_url));
         }
       }
     } catch (e) { console.error(e); } finally { setLoading(false); }

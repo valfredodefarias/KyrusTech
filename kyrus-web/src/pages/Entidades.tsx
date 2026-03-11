@@ -60,6 +60,13 @@ interface EntidadeFormState {
   status: 'ATIVO' | 'INATIVO';
 }
 
+interface EntidadePageResponse {
+  items: Entidade[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
 const onlyDigits = (value: string) => value.replace(/\D/g, '');
 
 const formatCpfCnpj = (value: string) => {
@@ -128,6 +135,9 @@ export function Entidades() {
   const [loading, setLoading] = useState(true);
   const [entidades, setEntidades] = useState<Entidade[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
+  const [total, setTotal] = useState(0);
   
   // Dados de Contexto (Empresa/Usuário)
   const [empresaId, setEmpresaId] = useState<number>(0);
@@ -166,8 +176,8 @@ export function Entidades() {
 
   const [form, setForm] = useState<EntidadeFormState>(initialFormState);
 
-  const fetchEntidades = useLookupStore((state) => state.fetchEntidades);
-  const setEntidadesCache = useLookupStore((state) => state.setEntidades);
+  const invalidateEntidades = useLookupStore((state) => state.invalidateEntidades);
+  const invalidateEntidadesLookup = useLookupStore((state) => state.invalidateEntidadesLookup);
 
   // --- INICIALIZAÇÃO ---
   useEffect(() => {
@@ -193,7 +203,7 @@ export function Entidades() {
       }
       
       // 3. Carregar Lista de Entidades
-      await carregarLista();
+      await carregarLista(0, pageSize, searchTerm);
       
     } catch (e) { 
       console.error("Falha na inicialização:", e);
@@ -202,14 +212,30 @@ export function Entidades() {
     }
   }
 
-  async function carregarLista() {
+  async function carregarLista(nextPage = page, nextPageSize = pageSize, nextSearch = searchTerm) {
     try {
-      const data = await fetchEntidades();
-      setEntidades(data);
+      const skip = nextPage * nextPageSize;
+      const { data } = await api.get<EntidadePageResponse>('/entidades/paged', {
+        params: {
+          skip,
+          limit: nextPageSize,
+          q: nextSearch.trim() || undefined,
+        },
+      });
+      setEntidades(data.items || []);
+      setTotal(data.total || 0);
+      setPage(Math.max(0, Math.floor((data.skip || 0) / (data.limit || nextPageSize || 1))));
     } catch (error) {
       console.error("Erro ao carregar lista:", error);
     }
   }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void carregarLista(page, pageSize, searchTerm);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [page, pageSize, searchTerm]);
 
   // --- ACTIONS ---
   function handleOpenCreate() {
@@ -288,9 +314,9 @@ export function Entidades() {
       }
 
       setShowModal(false);
-      const data = await fetchEntidades(true);
-      setEntidades(data);
-      setEntidadesCache(data);
+      invalidateEntidades();
+      invalidateEntidadesLookup();
+      await carregarLista(page, pageSize, searchTerm);
       
     } catch (error: any) {
       console.error(error);
@@ -316,12 +342,12 @@ export function Entidades() {
     if (!window.confirm("Deseja realmente excluir este registro?")) return;
     try {
       await api.delete(`/entidades/${id}`);
-      // Atualização otimista (remove da tela instantaneamente)
-      setEntidades(prev => {
-        const next = prev.filter(e => e.id !== id);
-        setEntidadesCache(next);
-        return next;
-      }); 
+      invalidateEntidades();
+      invalidateEntidadesLookup();
+      const nextTotal = Math.max(0, total - 1);
+      const totalPagesAfterDelete = Math.max(1, Math.ceil(nextTotal / pageSize));
+      const nextPage = Math.min(page, totalPagesAfterDelete - 1);
+      await carregarLista(nextPage, pageSize, searchTerm);
     } catch (error: any) {
       const errorMsg = error.response?.data?.detail || "Erro ao excluir. Verifique se há vínculos.";
       alert(errorMsg);
@@ -329,13 +355,9 @@ export function Entidades() {
   }
 
   // --- UI HELPERS ---
-  const filteredData = entidades.filter(e => 
-    e.nome.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (e.nome_fantasia || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (e.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (e.cidade || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (e.cpf_cnpj && e.cpf_cnpj.includes(searchTerm))
-  );
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pageStart = total === 0 ? 0 : page * pageSize + 1;
+  const pageEnd = Math.min(total, page * pageSize + entidades.length);
 
   const documentoLabel = form.tipo_pessoa === 'PF' ? 'CPF' : 'CNPJ';
   const nomePrincipalLabel = form.tipo_pessoa === 'PF' ? 'Nome Completo' : 'Razão Social';
@@ -410,7 +432,7 @@ export function Entidades() {
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-8 py-5 flex flex-col lg:flex-row lg:items-center justify-between shadow-sm z-10 gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white flex items-center gap-2">
-            Interessados <span className="text-sm font-normal text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">{entidades.length}</span>
+            Interessados <span className="text-sm font-normal text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">{total}</span>
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Gestão de clientes, fornecedores e demais interessados</p>
         </div>
@@ -460,7 +482,7 @@ export function Entidades() {
                     <span className="text-slate-500">Carregando registros...</span>
                   </td>
                 </tr>
-              ) : filteredData.length === 0 ? (
+              ) : entidades.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="p-12 text-center">
                     <div className="flex flex-col items-center justify-center text-slate-400">
@@ -470,7 +492,7 @@ export function Entidades() {
                   </td>
                 </tr>
               ) : (
-                filteredData.map(e => (
+                entidades.map(e => (
                   <tr key={e.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
                     <td className="p-4">
                       <span className="font-semibold text-slate-700 dark:text-slate-200 block">{e.nome}</span>
@@ -508,6 +530,48 @@ export function Entidades() {
               )}
             </tbody>
             </table>
+          </div>
+          <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 text-sm dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-slate-500 dark:text-slate-400">
+              {total === 0 ? 'Nenhum registro' : `Mostrando ${pageStart}-${pageEnd} de ${total}`}
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <label className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                <span>Por página</span>
+                <select
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                  value={pageSize}
+                  onChange={(e) => {
+                    const next = Number(e.target.value) || 50;
+                    setPage(0);
+                    setPageSize(next);
+                  }}
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </label>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((prev) => Math.max(0, prev - 1))}
+                  disabled={page === 0 || loading}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                >
+                  Anterior
+                </button>
+                <span className="min-w-20 text-center text-slate-500 dark:text-slate-400">{page + 1} / {totalPages}</span>
+                <button
+                  type="button"
+                  onClick={() => setPage((prev) => Math.min(totalPages - 1, prev + 1))}
+                  disabled={page + 1 >= totalPages || loading}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                >
+                  Próxima
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

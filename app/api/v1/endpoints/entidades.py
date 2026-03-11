@@ -1,11 +1,11 @@
 # app/api/v1/endpoints/entidades.py
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 from loguru import logger # <-- Import do logger
 
 from app.db.session import get_db
-from app.schemas.entidade import EntidadeCreate, EntidadeRead, EntidadeUpdate, EntidadeLookup
+from app.schemas.entidade import EntidadeCreate, EntidadeRead, EntidadeUpdate, EntidadeLookup, EntidadePage
 from app.crud import crud_entidade
 from app.api.v1.deps import get_empresa_id_from_user
 from app.models.entidade import Entidade
@@ -20,6 +20,20 @@ def read_entidades(
 ):
     logger.info(f"Listando entidades para empresa ID: {empresa_id}")
     return crud_entidade.get_multi(db=db, empresa_id=empresa_id)
+
+
+@router.get("/paged", response_model=EntidadePage)
+def read_entidades_paged(
+    *,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    q: Optional[str] = Query(None),
+):
+    items, total = crud_entidade.get_page(db=db, empresa_id=empresa_id, skip=skip, limit=limit, search=q)
+    logger.info(f"Listando entidades paginadas para empresa ID: {empresa_id} | skip={skip} limit={limit} q={q!r} total={total}")
+    return EntidadePage(items=items, total=total, skip=skip, limit=limit)
 
 
 @router.get("/lookup", response_model=List[EntidadeLookup])

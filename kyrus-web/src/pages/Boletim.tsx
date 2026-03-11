@@ -13,7 +13,7 @@ import {
 
 import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
-import { api } from '../services/api';
+import { api, toPublicAssetUrl } from '../services/api';
 
 interface ContaResumo {
   id: number;
@@ -118,13 +118,7 @@ function isPago(status?: string | null) {
 }
 
 function getFullLogoUrl(url?: string | null) {
-  if (!url) return null;
-  if (url.startsWith('blob:') || url.startsWith('data:')) return url;
-  if (url.startsWith('/static')) {
-    const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
-    return `${baseURL}${url}`;
-  }
-  return url;
+  return toPublicAssetUrl(url);
 }
 
 function useIsDarkMode() {

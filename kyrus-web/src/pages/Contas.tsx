@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../services/api';
+import { api, toPublicAssetUrl } from '../services/api';
 import { BankAvatar } from '../components/BrandAvatar';
+import { useBankPresetStore } from '../store/bankPresetStore';
 import { 
   Landmark, RefreshCw, Plus, Edit2, Trash2, ChevronRight, X, Check, Loader2, ChevronDown,
   Banknote, TrendingUp, AlertTriangle, Filter, Search, Settings
@@ -191,6 +192,9 @@ const SearchableSelect = ({ options, value, onChange, placeholder, label }: any)
 
 export function Contas() {
   const navigate = useNavigate();
+  const bankPresets = useBankPresetStore((state) => state.presets);
+  const bankPresetsLoaded = useBankPresetStore((state) => state.loaded);
+  const fetchBankPresets = useBankPresetStore((state) => state.fetchPresets);
   const bancosEspeciais = [
     {
       id: 'ASAAS',
@@ -198,21 +202,6 @@ export function Contas() {
       value: 'ASAAS',
       logo: '/asaas-acelerados.png'
     }
-  ];
-  const bancosComuns = [
-    { id: 'itau', label: 'Itaú', banco: 'Itaú' },
-    { id: 'bradesco', label: 'Bradesco', banco: 'Bradesco' },
-    { id: 'santander', label: 'Santander', banco: 'Santander' },
-    { id: 'inter', label: 'Inter', banco: 'Inter' },
-    { id: 'bb', label: 'Banco do Brasil', banco: 'Banco do Brasil' },
-    { id: 'banpara', label: 'Banpará', banco: 'Banpará' },
-    { id: 'caixa', label: 'Caixa', banco: 'Caixa' },
-    { id: 'nubank', label: 'Nubank', banco: 'Nubank' },
-    { id: 'picpay', label: 'PicPay', banco: 'PicPay' },
-    { id: 'sicredi', label: 'Sicredi', banco: 'Sicredi' },
-    { id: 'sicoob', label: 'Sicoob', banco: 'Sicoob' },
-    { id: 'c6', label: 'C6 Bank', banco: 'C6 Bank' },
-    { id: 'mercadopago', label: 'Mercado Pago', banco: 'Mercado Pago' },
   ];
   const [loading, setLoading] = useState(true);
   const [contas, setContas] = useState<Conta[]>([]);
@@ -279,27 +268,30 @@ export function Contas() {
   });
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+  const bancosComuns = useMemo(
+    () => bankPresets.map((preset) => ({
+      id: preset.key,
+      label: preset.label,
+      banco: preset.bank_name,
+      logo_url: preset.logo_url || null,
+    })),
+    [bankPresets],
+  );
 
   function getFullLogoUrl(url?: string | null) {
-    if (!url) return null;
-    if (url.startsWith('blob:') || url.startsWith('data:')) return url;
-    const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
-    if (url.startsWith('/static')) return `${baseURL}${url}`;
-    if (url.startsWith('http://') && url.includes('/static/')) {
-      try {
-        const path = new URL(url).pathname;
-        return `${baseURL}${path}`;
-      } catch {
-        return url;
-      }
-    }
-    return url;
+    return toPublicAssetUrl(url);
   }
 
   useEffect(() => {
     carregarDados();
     carregarTema();
   }, []);
+
+  useEffect(() => {
+    if (!bankPresetsLoaded) {
+      void fetchBankPresets();
+    }
+  }, [bankPresetsLoaded, fetchBankPresets]);
 
   useEffect(() => {
     if (centros.length === 1) {
@@ -1097,7 +1089,7 @@ export function Contas() {
                               <div className="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm overflow-hidden"
                                 style={{ backgroundColor: `${primaryColor}10`, color: primaryColor }}
                               >
-                                {c.tipo === 'CAIXA' ? <IconComp className="w-5 h-5" /> : <BankAvatar logoUrl={getFullLogoUrl(c.logo_url)} bankName={c.banco} accountName={c.nome} integrationType={c.tipo_integracao} size="sm" className="h-10 w-10" imageClassName="rounded-lg" fallbackClassName="rounded-lg border-0 shadow-none" />}
+                                {c.tipo === 'CAIXA' ? <IconComp className="w-5 h-5" /> : <BankAvatar logoUrl={c.logo_url} bankName={c.banco} accountName={c.nome} integrationType={c.tipo_integracao} size="sm" className="h-10 w-10" imageClassName="rounded-lg" fallbackClassName="rounded-lg border-0 shadow-none" />}
                               </div>
                                 <div>
                                     <h3 className="font-bold text-slate-700 dark:text-slate-200 leading-tight">{c.nome}</h3>
@@ -1228,7 +1220,7 @@ export function Contas() {
                               className={`rounded-lg border px-3 py-3 text-left transition flex flex-col gap-2 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
                             >
                               <div className="flex items-center gap-3">
-                                <BankAvatar bankName={banco.banco} accountName={banco.label} size="md" className="h-14 w-14 rounded-full" imageClassName="rounded-full" fallbackClassName="rounded-full border-0 shadow-none" />
+                                <BankAvatar logoUrl={banco.logo_url} bankName={banco.banco} accountName={banco.label} size="md" className="h-14 w-14 rounded-full" imageClassName="rounded-full" fallbackClassName="rounded-full border-0 shadow-none" />
                                 <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{banco.label}</div>
                               </div>
                               <div className={`text-[10px] uppercase font-bold ${selected ? 'text-blue-600 dark:text-blue-300' : 'text-slate-400'}`}>
@@ -1238,7 +1230,7 @@ export function Contas() {
                           );
                         })}
                     </div>
-                    <p className="mt-2 text-xs text-slate-500">Se nenhuma foto for enviada, o sistema usa automaticamente a logo padrão do banco reconhecido.</p>
+                    <p className="mt-2 text-xs text-slate-500">Essa lista vem do painel do consultor. Se nenhuma foto for enviada, o sistema usa a imagem configurada para o banco.</p>
                   </div>
 
                   <div>

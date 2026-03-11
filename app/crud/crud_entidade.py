@@ -18,12 +18,60 @@ def _apply_model_update(db_obj, update_data: dict) -> None:
 def _normalize_entity_name(value: str) -> str:
     return str(value or "").strip().upper()
 
+
+def _build_search_filter(search: Optional[str]):
+    normalized = str(search or "").strip()
+    if not normalized:
+        return None
+
+    term = f"%{normalized}%"
+    digits = "".join(ch for ch in normalized if ch.isdigit())
+    filters = [
+        Entidade.nome.ilike(term),
+        Entidade.nome_fantasia.ilike(term),
+        Entidade.email.ilike(term),
+        Entidade.cidade.ilike(term),
+        Entidade.contato_nome.ilike(term),
+    ]
+    if digits:
+        filters.append(Entidade.cpf_cnpj.ilike(f"%{digits}%"))
+    return filters
+
 def get_multi(db: Session, *, empresa_id: int) -> List[Entidade]:
-    statement = select(Entidade).where(Entidade.empresa_id == empresa_id).order_by(Entidade.nome)
+    statement = select(Entidade).where(Entidade.empresa_id == empresa_id, Entidade.is_deleted == False).order_by(Entidade.nome)
     return list(db.exec(statement).all())
 
+
+def get_page(
+    db: Session,
+    *,
+    empresa_id: int,
+    skip: int = 0,
+    limit: int = 50,
+    search: Optional[str] = None,
+) -> tuple[List[Entidade], int]:
+    filters = [Entidade.empresa_id == empresa_id, Entidade.is_deleted == False]
+    search_filters = _build_search_filter(search)
+
+    statement = select(Entidade).where(*filters)
+    count_statement = select(func.count()).select_from(Entidade).where(*filters)
+
+    if search_filters:
+        from sqlalchemy import or_
+
+        statement = statement.where(or_(*search_filters))
+        count_statement = count_statement.where(or_(*search_filters))
+
+    items = list(
+        db.exec(
+            statement.order_by(Entidade.nome).offset(skip).limit(limit)
+        ).all()
+    )
+    total = int(db.exec(count_statement).one() or 0)
+    return items, total
+
 def get_by_id(db: Session, *, id: int, empresa_id: int) -> Optional[Entidade]:
-    statement = select(Entidade).where(Entidade.id == id, Entidade.empresa_id == empresa_id)
+    statement = select(Entidade).where(Entidade.id == id, Entidade.empresa_id == empresa_id, Entidade.is_deleted == False)
     return db.exec(statement).first()
 
 def create(db: Session, *, obj_in: EntidadeCreate, empresa_id: int) -> Entidade:

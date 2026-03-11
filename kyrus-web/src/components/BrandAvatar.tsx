@@ -1,5 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
+
+import { toPublicAssetUrl } from '../services/api';
+import { useBankPresetStore } from '../store/bankPresetStore';
 
 export type BrandVisual = {
   key: string;
@@ -229,6 +232,26 @@ function normalizeText(value?: string | null) {
     .trim();
 }
 
+function matchBankPreset(
+  presets: Array<{ bank_name: string; label: string; aliases: string[]; logo_url?: string | null; is_active: boolean }>,
+  values: Array<string | null | undefined>,
+) {
+  const haystack = values
+    .map((value) => normalizeText(value))
+    .filter(Boolean)
+    .join(' ');
+
+  if (!haystack) return null;
+
+  return presets.find((preset) => {
+    if (!preset.is_active) return false;
+    const terms = [preset.bank_name, preset.label, ...(preset.aliases || [])]
+      .map((value) => normalizeText(value))
+      .filter(Boolean);
+    return terms.some((term) => haystack.includes(term) || term.includes(haystack));
+  }) || null;
+}
+
 function findBrand(matchers: BrandMatcher[], values: Array<string | null | undefined>) {
   const haystack = values
     .map((value) => normalizeText(value))
@@ -363,11 +386,29 @@ export function BankAvatar({
   fallbackClassName = '',
 }: BankAvatarProps) {
   const visual = inferBankBrand(bankName, accountName, integrationType);
-  const defaultLogoPath = useMemo(() => getBankDefaultLogoPath(bankName, accountName, integrationType), [bankName, accountName, integrationType]);
+  const presets = useBankPresetStore((state) => state.presets);
+  const presetsLoaded = useBankPresetStore((state) => state.loaded);
+  const fetchPresets = useBankPresetStore((state) => state.fetchPresets);
   const [failedSources, setFailedSources] = useState<Record<string, true>>({});
 
+  useEffect(() => {
+    if (!presetsLoaded) {
+      void fetchPresets();
+    }
+  }, [fetchPresets, presetsLoaded]);
+
+  const presetLogoPath = useMemo(() => {
+    const preset = matchBankPreset(presets, [bankName, accountName, integrationType]);
+    return toPublicAssetUrl(preset?.logo_url || null);
+  }, [accountName, bankName, integrationType, presets]);
+
+  const defaultLogoPath = useMemo(
+    () => presetLogoPath || getBankDefaultLogoPath(bankName, accountName, integrationType),
+    [bankName, accountName, integrationType, presetLogoPath],
+  );
+
   const imageSrc = useMemo(() => {
-    const candidates = [logoUrl, defaultLogoPath].filter(Boolean) as string[];
+    const candidates = [toPublicAssetUrl(logoUrl), defaultLogoPath].filter(Boolean) as string[];
     return candidates.find((candidate) => !failedSources[candidate]) || null;
   }, [defaultLogoPath, failedSources, logoUrl]);
 

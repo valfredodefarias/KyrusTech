@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../services/api';
+import { api, toPublicAssetUrl } from '../services/api';
 import { BankAvatar } from '../components/BrandAvatar';
 import { 
   PlusCircle, BarChart2, Users, Landmark, 
@@ -120,22 +120,7 @@ export function Home() {
   };
 
   function getFullLogoUrl(url?: string | null) {
-    if (!url) return null;
-    if (url.startsWith('blob:') || url.startsWith('data:')) return url;
-    if (url.startsWith('/static')) {
-      const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
-      return `${baseURL}${url}`;
-    }
-    if (url.startsWith('http://') && url.includes('/static/')) {
-      try {
-        const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
-        const path = new URL(url).pathname;
-        return `${baseURL}${path}`;
-      } catch {
-        return url;
-      }
-    }
-    return url;
+    return toPublicAssetUrl(url);
   }
 
   function parseDateOnly(value?: string | null) {

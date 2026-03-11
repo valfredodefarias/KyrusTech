@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { api } from '../services/api';
+import { api, toPublicAssetUrl } from '../services/api';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { useLookupStore } from '../store/lookupStore';
 import { BankAvatar } from '../components/BrandAvatar';
@@ -544,21 +544,7 @@ export function Lancamentos() {
     }
   }
 
-  const getFullLogoUrl = (url?: string | null) => {
-    if (!url) return null;
-    if (url.startsWith('blob:') || url.startsWith('data:')) return url;
-    const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
-    if (url.startsWith('/static')) return `${baseURL}${url}`;
-    if (url.startsWith('http://') && url.includes('/static/')) {
-      try {
-        const path = new URL(url).pathname;
-        return `${baseURL}${path}`;
-      } catch {
-        return url;
-      }
-    }
-    return url;
-  };
+  const getFullLogoUrl = (url?: string | null) => toPublicAssetUrl(url);
 
   const getContaSaldo = (conta: any) => {
     const saldo = Number(conta?.saldo_atual ?? conta?.saldo ?? conta?.saldo_disponivel ?? conta?.saldo_inicial ?? 0);

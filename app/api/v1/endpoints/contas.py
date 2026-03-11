@@ -90,11 +90,11 @@ def _normalize_logo_url(logo_url: Optional[str], base: str) -> Optional[str]:
     if not logo_url:
         return logo_url
     if str(logo_url).startswith("/"):
-        return f"{base}{logo_url}"
+        return str(logo_url)
     if str(logo_url).startswith("http://") and "/static/" in str(logo_url):
-        return f"{base}{urlparse(str(logo_url)).path}"
+        return urlparse(str(logo_url)).path
     if not str(logo_url).startswith("http"):
-        return f"{base}/{logo_url}"
+        return f"/{str(logo_url).lstrip('/')}"
     return logo_url
 
 
@@ -415,10 +415,8 @@ def upload_logo_conta(
                 raise HTTPException(status_code=413, detail="Arquivo muito grande. Máximo 2MB.")
             buffer.write(chunk)
 
-    # Salva URL absoluta para não depender do host do frontend
-    base = get_backend_url()
     relative_path = f"/static/uploads/contas/{filename}"
-    conta.logo_url = f"{base}{relative_path}"
+    conta.logo_url = relative_path
     db.add(conta)
     db.commit()
     db.refresh(conta)

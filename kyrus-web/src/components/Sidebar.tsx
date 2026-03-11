@@ -7,7 +7,7 @@ import {
   Sun, Moon
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { api } from '../services/api';
+import { api, toPublicAssetUrl } from '../services/api';
 
 // --- TIPAGEM ---
 interface EmpresaInfo {
@@ -104,11 +104,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
   // Helper para montar a URL da imagem
   const getLogoUrl = (url?: string) => {
     if (!url) return undefined;
-    if (url.startsWith('/static')) {
-        const baseURL = api.defaults.baseURL?.replace('/api/v1', '') || '';
-        return `${baseURL}${url}`;
-    }
-    return url;
+    return toPublicAssetUrl(url) || undefined;
   };
 
   const logoSrc = getLogoUrl(empresa?.logo_url);

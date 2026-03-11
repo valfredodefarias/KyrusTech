@@ -668,17 +668,19 @@ export const PlanoContasManager = ({
         },
     ];
 
-    const refreshRemoteList = async () => {
+        const refreshRemoteList = async () => {
             if (syncWithLookupStore && apiBasePath === '/plano-contas') {
-                    return fetchPlanoContas(true);
+                return fetchPlanoContas(true);
             }
 
-            const response = await api.get(`${normalizedApiBasePath}/`);
+            const response = await api.get(normalizedApiBasePath);
             return response.data || [];
-    };
+        };
 
   const getApiErrorMessage = (error: any, fallback: string) => {
       const detail = error?.response?.data?.detail;
+      const message = error?.response?.data?.message;
+      const statusCode = error?.response?.status;
 
       if (Array.isArray(detail)) {
           const parsed = detail
@@ -691,6 +693,18 @@ export const PlanoContasManager = ({
 
       if (typeof detail === 'string' && detail.trim()) {
           return detail.trim();
+      }
+
+      if (typeof message === 'string' && message.trim()) {
+          return message.trim();
+      }
+
+      if (statusCode === 405) {
+          return 'O endpoint recusou o metodo HTTP enviado. A tela tentou salvar com uma rota/método incompatível.';
+      }
+
+      if (statusCode) {
+          return `${fallback} (HTTP ${statusCode})`;
       }
 
       return fallback;
@@ -824,7 +838,7 @@ export const PlanoContasManager = ({
         const tempIdMap = new Map<number, number>();
 
         for (const item of createdItems) {
-            const response = await api.post(`${normalizedApiBasePath}/`, {
+            const response = await api.post(normalizedApiBasePath, {
                 nome: item.nome,
                 tipo: normalizeTipo(item.tipo),
                 permite_lancamentos: true,

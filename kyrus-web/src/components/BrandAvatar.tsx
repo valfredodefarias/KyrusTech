@@ -373,6 +373,7 @@ interface BankAvatarProps {
   className?: string;
   imageClassName?: string;
   fallbackClassName?: string;
+  imageFit?: 'cover' | 'contain';
 }
 
 export function BankAvatar({
@@ -384,6 +385,7 @@ export function BankAvatar({
   className = '',
   imageClassName = 'rounded-2xl',
   fallbackClassName = '',
+  imageFit = 'cover',
 }: BankAvatarProps) {
   const visual = inferBankBrand(bankName, accountName, integrationType);
   const presets = useBankPresetStore((state) => state.presets);
@@ -418,7 +420,7 @@ export function BankAvatar({
         <img
           src={imageSrc}
           alt={accountName || bankName || visual.label}
-          className={`h-full w-full object-cover ${imageClassName}`}
+          className={`h-full w-full ${imageFit === 'contain' ? 'object-contain' : 'object-cover'} ${imageClassName}`}
           onError={() => setFailedSources((prev) => ({ ...prev, [imageSrc]: true }))}
         />
       </div>

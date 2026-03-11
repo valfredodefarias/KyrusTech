@@ -1157,7 +1157,7 @@ export function Contas() {
         onClick={() => setDrawerOpen(false)}
       />
       
-      <div className={`fixed inset-y-0 right-0 w-full sm:w-125 bg-white dark:bg-slate-900 z-50 transform transition-transform duration-300 ease-out border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col ${drawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed inset-y-0 right-0 w-full sm:w-[min(50vw,58rem)] bg-white dark:bg-slate-900 z-50 transform transition-transform duration-300 ease-out border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col ${drawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
           <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
               <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing ? 'Editar Conta' : 'Nova Conta'}</h2>
               <button onClick={() => setDrawerOpen(false)} className="p-2 bg-slate-200 dark:bg-slate-700 rounded-full hover:opacity-80 transition">
@@ -1209,7 +1209,7 @@ export function Contas() {
               <div className="space-y-4">
                   <div>
                     <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Bancos comuns</label>
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
                         {bancosComuns.map((banco) => {
                           const selected = form.tipo_integracao === 'MANUAL' && String(form.banco || '').trim().toLowerCase() === banco.banco.toLowerCase();
                           return (
@@ -1217,10 +1217,10 @@ export function Contas() {
                               key={banco.id}
                               type="button"
                               onClick={() => setForm({ ...form, banco: banco.banco, tipo_integracao: 'MANUAL' })}
-                              className={`rounded-lg border px-3 py-3 text-left transition flex flex-col gap-2 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+                              className={`rounded-2xl border px-3 py-3 text-left transition flex flex-col gap-3 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
                             >
                               <div className="flex items-center gap-3">
-                                <BankAvatar logoUrl={banco.logo_url} bankName={banco.banco} accountName={banco.label} size="md" className="h-14 w-14 rounded-full" imageClassName="rounded-full" fallbackClassName="rounded-full border-0 shadow-none" />
+                                <BankAvatar logoUrl={banco.logo_url} bankName={banco.banco} accountName={banco.label} size="md" className="h-14 w-14 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900" imageClassName="rounded-xl bg-white p-1 dark:bg-slate-900" fallbackClassName="rounded-2xl border-0 shadow-none" imageFit="contain" />
                                 <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{banco.label}</div>
                               </div>
                               <div className={`text-[10px] uppercase font-bold ${selected ? 'text-blue-600 dark:text-blue-300' : 'text-slate-400'}`}>
@@ -1235,7 +1235,7 @@ export function Contas() {
 
                   <div>
                   <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Bancos especiais</label>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                       {bancosEspeciais.map(banco => {
                         const selected = (form.tipo_integracao || 'MANUAL') === banco.value;
                         return (
@@ -1243,10 +1243,10 @@ export function Contas() {
                             key={banco.id}
                             type="button"
                             onClick={() => setForm({ ...form, tipo_integracao: banco.value })}
-                            className={`rounded-lg border px-3 py-3 text-left transition flex flex-col gap-2 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+                            className={`rounded-2xl border px-3 py-3 text-left transition flex flex-col gap-3 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
                           >
                             <div className="flex items-center gap-3">
-                              <BankAvatar logoUrl={banco.logo} bankName={banco.label} accountName={banco.label} integrationType={banco.value} size="lg" className="h-16 w-16 rounded-full" imageClassName="rounded-full" fallbackClassName="rounded-full border-0 shadow-none" />
+                              <BankAvatar logoUrl={banco.logo} bankName={banco.label} accountName={banco.label} integrationType={banco.value} size="lg" className="h-16 w-16 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900" imageClassName="rounded-xl bg-white p-1 dark:bg-slate-900" fallbackClassName="rounded-2xl border-0 shadow-none" imageFit="contain" />
                               <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{banco.label}</div>
                             </div>
                             <div className={`text-[10px] uppercase font-bold ${selected ? 'text-blue-600 dark:text-blue-300' : 'text-slate-400'}`}>
@@ -1299,11 +1299,11 @@ export function Contas() {
               <div className="space-y-2">
                   <label className="block text-xs font-bold uppercase text-slate-500">Logo / Foto do Banco</label>
                   <div className="flex items-center gap-3">
-                      <div className="w-16 h-16 rounded-lg bg-slate-100 dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 overflow-hidden flex items-center justify-center text-[10px] text-slate-400">
+                      <div className="w-18 h-18 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 overflow-hidden flex items-center justify-center text-[10px] text-slate-400 shadow-sm">
                           {hasCustomLogo ? (
-                            <img src={getFullLogoUrl(logoPreview || form.logo_url || '') || ''} alt="Logo" className="w-full h-full object-cover" />
+                            <img src={getFullLogoUrl(logoPreview || form.logo_url || '') || ''} alt="Logo" className="w-full h-full object-contain bg-white p-2 dark:bg-slate-900" />
                           ) : (
-                            <BankAvatar bankName={form.banco} accountName={form.nome} integrationType={form.tipo_integracao} size="md" className="h-16 w-16" imageClassName="rounded-lg" fallbackClassName="rounded-lg border-0 shadow-none" />
+                            <BankAvatar bankName={form.banco} accountName={form.nome} integrationType={form.tipo_integracao} size="md" className="h-18 w-18 rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900" imageClassName="rounded-xl bg-white p-1 dark:bg-slate-900" fallbackClassName="rounded-2xl border-0 shadow-none" imageFit="contain" />
                           )}
                       </div>
                       <div className="flex gap-2 flex-wrap">

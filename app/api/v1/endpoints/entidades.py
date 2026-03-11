@@ -45,7 +45,7 @@ def read_entidades_lookup(
     """Lista entidades em formato leve (lookup)."""
     rows = db.exec(
         select(Entidade.id, Entidade.nome, Entidade.tipo, Entidade.tipo_pessoa)
-        .where(Entidade.empresa_id == empresa_id)
+        .where(Entidade.empresa_id == empresa_id, Entidade.is_deleted == False)
         .order_by(Entidade.nome)
     ).all()
 

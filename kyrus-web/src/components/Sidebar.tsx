@@ -122,7 +122,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
   return (
     <>
       {/* --- HEADER DA EMPRESA --- */}
-      <div className={`relative flex w-full flex-col items-center justify-center gap-2.5 border-b border-slate-100 text-center transition-all duration-300 dark:border-slate-700 ${collapsed ? 'min-h-32 px-2 py-4' : 'min-h-36 p-4'}`}>
+      <div className={`relative flex w-full flex-col items-center justify-center gap-2.5 border-b border-slate-100 text-center transition-all duration-300 dark:border-slate-700 ${collapsed ? 'min-h-32 px-0 py-4' : 'min-h-36 p-4'}`}>
         {showClose && (
           <button
             onClick={onNavigate}
@@ -134,7 +134,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
         )}
         
         {/* LOGO EM BOLINHA (CROPADA PERFEITA) */}
-        <div className={`${collapsed ? 'mt-2 h-16 w-8' : 'h-16 w-16'} flex items-center justify-center overflow-hidden shrink-0 transition-all duration-300`}>
+        <div className={`${collapsed ? 'mt-2 h-16 w-full -ml-8 justify-start' : 'h-16 w-16 justify-center'} flex items-center overflow-hidden shrink-0 transition-all duration-300`}>
           <div className="h-16 w-16 rounded-full bg-white dark:bg-slate-700 flex items-center justify-center overflow-hidden border-4 border-slate-100 dark:border-slate-600 shadow-md shrink-0">
               {logoSrc ? (
                 <img 
@@ -178,7 +178,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
       </div>
 
       {/* --- NAVEGAÇÃO --- */}
-      <nav className={`flex-1 overflow-y-auto custom-scrollbar mt-1 ${collapsed ? 'px-2 py-2 space-y-1.5' : 'p-3 space-y-1'}`}>
+      <nav className={`flex-1 overflow-y-auto custom-scrollbar mt-1 ${collapsed ? 'pl-0 pr-2 py-2 space-y-1.5' : 'pl-0 pr-3 py-3 space-y-1'}`}>
         {menuItems.map((item) => (
           <NavLink
             key={item.path}
@@ -197,7 +197,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
               };
             }}
             className={({ isActive }) => `
-              w-full grid items-center ${collapsed ? 'grid-cols-[2.25rem] justify-center justify-items-center px-2.5 rounded-2xl' : 'grid-cols-[2.25rem_minmax(0,1fr)] px-3 rounded-2xl'} py-2.5 transition-[background-color,color,transform] duration-200 font-medium text-sm group
+              w-full grid items-center ${collapsed ? 'grid-cols-[2.25rem] justify-start justify-items-center pl-3 pr-2 rounded-r-2xl rounded-l-none' : 'grid-cols-[2.25rem_minmax(0,1fr)] pl-4 pr-3 rounded-r-2xl rounded-l-none'} py-2.5 transition-[background-color,color,transform] duration-200 font-medium text-sm group
               ${!isActive 
                 ? collapsed
                   ? 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white hover:-translate-y-0.5'

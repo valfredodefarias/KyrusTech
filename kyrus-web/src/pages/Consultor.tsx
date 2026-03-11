@@ -106,6 +106,27 @@ interface BankPresetForm {
   is_active: boolean;
 }
 
+function getApiErrorDetails(error: any, fallback: string) {
+  const detail = error?.response?.data?.detail;
+  const message = error?.response?.data?.message;
+  const status = error?.response?.status;
+
+  if (Array.isArray(detail)) {
+    const parsed = detail
+      .map((item) => item?.msg || item?.message || String(item))
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    if (parsed) return parsed;
+  }
+
+  if (typeof detail === 'string' && detail.trim()) return detail.trim();
+  if (typeof message === 'string' && message.trim()) return message.trim();
+  if (status === 405) return 'O servidor recusou o metodo HTTP dessa operacao. Isso normalmente indica incompatibilidade entre a rota da tela e a rota publicada no backend.';
+  if (status) return `${fallback} (HTTP ${status})`;
+  return fallback;
+}
+
 // --- COMPONENTE AVATAR ---
 const AvatarEmpresa = ({ nome, src, cor }: { nome: string, src?: string, cor: string }) => {
   const [error, setError] = useState(false);
@@ -206,6 +227,7 @@ export function Consultor() {
   const [templateTipoPessoa, setTemplateTipoPessoa] = useState<'PF' | 'PJ'>('PJ');
   const [templateCategorias, setTemplateCategorias] = useState<ItemSistema[]>([]);
   const [loadingTemplateCategorias, setLoadingTemplateCategorias] = useState(false);
+  const [templateCategoriasError, setTemplateCategoriasError] = useState<string | null>(null);
   const [bankPresets, setBankPresets] = useState<BankPreset[]>([]);
   const [loadingBankPresets, setLoadingBankPresets] = useState(false);
   const [savingBankPreset, setSavingBankPreset] = useState(false);
@@ -297,10 +319,17 @@ export function Consultor() {
   async function carregarTemplatePlanoContas(tipoPessoa: 'PF' | 'PJ') {
     try {
       setLoadingTemplateCategorias(true);
+      setTemplateCategoriasError(null);
       const res = await api.get(`/consultor/super/plano-contas-templates/${tipoPessoa}`);
       setTemplateCategorias(res.data || []);
     } catch (error) {
-      console.error(`Erro ao carregar template ${tipoPessoa}`, error);
+      const message = getApiErrorDetails(error, `Nao foi possivel carregar o template ${tipoPessoa}.`);
+      console.error(`[CONSULTOR][TEMPLATE] Falha ao carregar template ${tipoPessoa}`, {
+        status: (error as any)?.response?.status,
+        detail: (error as any)?.response?.data,
+        error,
+      });
+      setTemplateCategoriasError(message);
       setTemplateCategorias([]);
     } finally {
       setLoadingTemplateCategorias(false);
@@ -1209,6 +1238,11 @@ export function Consultor() {
             </div>
           ) : (
             <div className="rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
+              {templateCategoriasError && (
+                <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 dark:border-rose-900 dark:bg-rose-500/10 dark:text-rose-300">
+                  {templateCategoriasError}
+                </div>
+              )}
               <PlanoContasManager
                 categorias={templateCategorias}
                 onUpdateList={setTemplateCategorias}

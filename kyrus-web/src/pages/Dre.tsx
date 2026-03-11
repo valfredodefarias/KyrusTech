@@ -70,6 +70,18 @@ function parseMonthIndex(dateValue?: string | null) {
   return Number.isFinite(month) && month >= 1 && month <= 12 ? month - 1 : -1;
 }
 
+function resolveCompetenciaDate(lancamento: LancamentoResumo) {
+  return lancamento.data_competencia || lancamento.data_vencimento || null;
+}
+
+function resolveLancamentoValue(lancamento: LancamentoResumo) {
+  const valorPago = Number(lancamento.valor_pago || 0);
+  if (lancamento.data_pagamento || valorPago !== 0) {
+    return valorPago !== 0 ? valorPago : Number(lancamento.valor_previsto || 0);
+  }
+  return Number(lancamento.valor_previsto || 0);
+}
+
 function sumValues(values: number[]) {
   return values.reduce((acc, value) => acc + value, 0);
 }
@@ -211,10 +223,10 @@ export function Dre() {
     lancamentosFiltrados.forEach((lancamento) => {
       const contaId = Number(lancamento.plano_contas_id);
       if (!contaPorId.has(contaId)) return;
-      const monthIndex = parseMonthIndex(lancamento.data_vencimento);
+      const monthIndex = parseMonthIndex(resolveCompetenciaDate(lancamento));
       if (monthIndex < 0) return;
       const values = valoresDiretos.get(contaId) || Array.from({ length: 12 }, () => 0);
-      values[monthIndex] += Number(lancamento.valor_previsto || 0);
+      values[monthIndex] += resolveLancamentoValue(lancamento);
       valoresDiretos.set(contaId, values);
     });
 
@@ -323,8 +335,12 @@ export function Dre() {
     if (!selectedContaId) return [] as LancamentoResumo[];
     const ids = new Set(dre.descendantsById.get(selectedContaId) || [selectedContaId]);
     return lancamentosFiltrados
-      .filter((item) => ids.has(Number(item.plano_contas_id)) && (selectedMonth === null || parseMonthIndex(item.data_vencimento) === selectedMonth))
-      .sort((left, right) => new Date(`${right.data_vencimento.slice(0, 10)}T00:00:00`).getTime() - new Date(`${left.data_vencimento.slice(0, 10)}T00:00:00`).getTime());
+      .filter((item) => ids.has(Number(item.plano_contas_id)) && (selectedMonth === null || parseMonthIndex(resolveCompetenciaDate(item)) === selectedMonth))
+      .sort((left, right) => {
+        const rightDate = resolveCompetenciaDate(right) || right.data_vencimento;
+        const leftDate = resolveCompetenciaDate(left) || left.data_vencimento;
+        return new Date(`${rightDate.slice(0, 10)}T00:00:00`).getTime() - new Date(`${leftDate.slice(0, 10)}T00:00:00`).getTime();
+      });
   }, [dre.descendantsById, lancamentosFiltrados, selectedContaId, selectedMonth]);
 
   const selectedMonthly = useMemo(() => {
@@ -333,9 +349,9 @@ export function Dre() {
     const monthly = Array.from({ length: 12 }, () => 0);
     lancamentosFiltrados.forEach((item) => {
       if (!ids.has(Number(item.plano_contas_id))) return;
-      const monthIndex = parseMonthIndex(item.data_vencimento);
+      const monthIndex = parseMonthIndex(resolveCompetenciaDate(item));
       if (monthIndex < 0) return;
-      monthly[monthIndex] += Number(item.valor_previsto || 0);
+      monthly[monthIndex] += resolveLancamentoValue(item);
     });
     return monthly;
   }, [dre.descendantsById, lancamentosFiltrados, selectedContaId]);
@@ -604,7 +620,7 @@ export function Dre() {
                       const itemConta = dre.contaPorId.get(Number(item.plano_contas_id));
                       return (
                         <tr key={item.id} className={isDark ? 'bg-slate-950/20 hover:bg-slate-900/40' : 'bg-white hover:bg-slate-50'}>
-                          <td className={`px-4 py-3 font-mono text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{formatDate(item.data_pagamento || item.data_vencimento)}</td>
+                          <td className={`px-4 py-3 font-mono text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{formatDate(resolveCompetenciaDate(item))}</td>
                           <td className={`px-4 py-3 font-semibold ${isDark ? 'text-slate-100' : 'text-slate-700'}`}>{item.descricao}</td>
                           <td className={`px-4 py-3 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{itemConta?.nome || '-'}</td>
                           <td className="px-4 py-3">
@@ -612,7 +628,7 @@ export function Dre() {
                               {item.status || 'PENDENTE'}
                             </span>
                           </td>
-                          <td className={`px-4 py-3 text-right font-black ${isReceita(item.tipo) ? 'text-emerald-500' : 'text-rose-500'}`}>{moneyFormatter.format(Number(item.valor_previsto || item.valor_pago || 0))}</td>
+                          <td className={`px-4 py-3 text-right font-black ${isReceita(item.tipo) ? 'text-emerald-500' : 'text-rose-500'}`}>{moneyFormatter.format(resolveLancamentoValue(item))}</td>
                         </tr>
                       );
                     })}

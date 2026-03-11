@@ -18,6 +18,7 @@ class PlanoContasCreate(PlanoContasBase):
 # --- READ ---
 class PlanoContasRead(PlanoContasBase):
     id: int
+    eh_cabecalho: bool = False
 
 # --- UPDATE (CORRIGIDO) ---
 class PlanoContasUpdate(SQLModel):

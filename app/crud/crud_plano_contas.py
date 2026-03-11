@@ -361,16 +361,40 @@ def normalize_company_operational_categories(db: Session, *, empresa_id: int) ->
         select(PlanoContas).where(
             PlanoContas.empresa_id == empresa_id,
             PlanoContas.oculta == False,
-            PlanoContas.considerar_nos_resultados == False,
         )
     ).all()
     if not contas:
         return
 
+    parent_ids = {
+        int(conta.conta_pai_id)
+        for conta in contas
+        if conta.conta_pai_id is not None
+    }
+
+    updated = False
     for conta in contas:
-        conta.considerar_nos_resultados = True
-        db.add(conta)
-    db.commit()
+        changed = False
+
+        if conta.considerar_nos_resultados is False:
+            conta.considerar_nos_resultados = True
+            changed = True
+
+        has_children = conta.id is not None and int(conta.id) in parent_ids
+        if has_children and conta.permite_lancamentos is not False:
+            conta.permite_lancamentos = False
+            changed = True
+
+        if not has_children and conta.eh_cabecalho is not True and conta.permite_lancamentos is False:
+            conta.permite_lancamentos = True
+            changed = True
+
+        if changed:
+            db.add(conta)
+            updated = True
+
+    if updated:
+        db.commit()
 
 
 def create(db: Session, *, obj_in: PlanoContasCreate, empresa_id: int) -> PlanoContas:

@@ -37,6 +37,7 @@ from app.models.entidade import Entidade
 from app.api.deps import get_current_user, get_empresa_id_from_user 
 
 from app.services.lancamento_service import LancamentoService
+from app.crud import crud_plano_contas
 
 # --- Schemas ---
 from app.schemas.lancamento import (
@@ -110,6 +111,7 @@ def _serialize_import_job(job: ImportJobState) -> dict[str, Any]:
 
 
 def _load_import_system_rows(session: Session, empresa_id: int) -> dict[str, list[dict[str, Any]]]:
+    crud_plano_contas.normalize_company_operational_categories(db=session, empresa_id=empresa_id)
     contas = session.exec(
         select(Conta.id, Conta.nome).where(Conta.empresa_id == empresa_id)
     ).all()

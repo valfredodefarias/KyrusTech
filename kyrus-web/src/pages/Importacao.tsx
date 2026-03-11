@@ -229,7 +229,8 @@ const buildCategoriaOptionGroups = (items: ItemSistema[]): SearchOptionGroup[] =
 
     const flatten = (nodes: TreeCategoriaItem[], depth = 0): SearchOption[] => {
         return nodes.flatMap((node) => {
-            const disabled = node.eh_cabecalho === true || node.permite_lancamentos === false;
+            const hasChildren = node.children.length > 0;
+            const disabled = node.eh_cabecalho === true || hasChildren;
             const helperText = disabled ? 'Categoria pai / agrupadora' : undefined;
             const current: SearchOption = {
                 id: node.id,

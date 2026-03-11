@@ -87,8 +87,14 @@ class Settings(BaseSettings):
         if "*" in normalized_origins or "[*]" in normalized_origins:
             raise ValueError("BACKEND_CORS_ORIGINS não pode ser '*' em produção.")
 
-        if self.POSTGRES_PASSWORD == "casaos":
-            raise ValueError("POSTGRES_PASSWORD padrão detectada em produção. Configure uma senha própria.")
+        using_default_db = (
+            self.POSTGRES_SERVER == "103.63.28.155"
+            and self.POSTGRES_USER == "casaos"
+            and self.POSTGRES_PASSWORD == "casaos"
+            and self.POSTGRES_DB == "casaos"
+        )
+        if using_default_db:
+            raise ValueError("Credenciais padrão do PostgreSQL detectadas em produção. Configure seu banco externo com valores próprios.")
 
         return self
     # --- BANCO DE DADOS (POSTGRES) ---

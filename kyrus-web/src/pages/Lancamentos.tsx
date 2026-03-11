@@ -19,6 +19,7 @@ interface Lancamento {
   data_vencimento: string; data_pagamento?: string; tipo: 'RECEITA' | 'DESPESA';
   competencia?: string; previsto?: boolean;
   status: 'PAGO' | 'PENDENTE' | 'EM ABERTO'; ipp: boolean;
+  origem?: string;
   plano_contas_id: number; entidade_id?: number; conta_id?: number;
   cartao_id?: number; centro_custo_id?: number; anexos: Anexo[];
   numero_parcela?: number;
@@ -423,7 +424,7 @@ export function Lancamentos() {
   const [transferData, setTransferData] = useState({
     valor: '', data: new Date().toISOString().split('T')[0], 
     conta_origem_id: '', conta_destino_id: '', observacao: '',
-    plano_contas_id: '', centro_custo_id: ''
+    centro_custo_id: ''
   });
 
   const auxLoadedRef = useRef(false);
@@ -521,6 +522,13 @@ export function Lancamentos() {
     const [y, m] = ymd.split('-');
     if (!y || !m) return '';
     return `${m}-${y}`;
+  };
+
+  const isTransferencia = (lancamento?: Pick<Lancamento, 'origem'> | null) => String(lancamento?.origem || '').toUpperCase() === 'TRANSFERENCIA';
+
+  const getCategoriaLabel = (lancamento: Pick<Lancamento, 'origem' | 'plano_contas_id'>) => {
+    if (isTransferencia(lancamento)) return 'Transferência interna';
+    return categorias.find(c => c.id === lancamento.plano_contas_id)?.nome || '-';
   };
 
   const computeCartaoVencimento = (purchaseDate?: string, cartaoId?: string) => {
@@ -933,6 +941,7 @@ export function Lancamentos() {
   
   function openDrawer(l?: Lancamento) {
     if(l) {
+      if (isTransferencia(l)) return;
       setIsEditing(true);
       autoPagamentoRef.current = !l.data_pagamento;
       autoCompetenciaRef.current = !l.competencia;
@@ -1010,7 +1019,6 @@ export function Lancamentos() {
         await api.post('/lancamentos/transferir', {
             ...transferData, 
             valor: parseFloat(transferData.valor),
-            plano_contas_id: transferData.plano_contas_id ? parseInt(transferData.plano_contas_id) : null,
             centro_custo_id: transferData.centro_custo_id ? parseInt(transferData.centro_custo_id) : null
         });
         pushToast('success', 'Transferência realizada com sucesso!');
@@ -1173,10 +1181,6 @@ export function Lancamentos() {
         ) : (
           <div className="flex-1 space-y-5 overflow-y-auto p-4 custom-scrollbar">
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
-              <div className="relative mb-3">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                <input type="text" placeholder="Buscar descrição ou valor" className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" value={filtroTexto} onChange={e=>setFiltroTexto(e.target.value)} />
-              </div>
               <select className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" value={centroCustoFiltro} onChange={e=>setCentroCustoFiltro(e.target.value)}>
                 <option value="">Todos os centros de custo</option>
                 {centros.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
@@ -1360,14 +1364,26 @@ export function Lancamentos() {
       
       {/* 1. TOP HEADER */}
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-20 shadow-md">
-        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-          <div className="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1 shadow-inner border border-slate-200 dark:border-transparent">
+        <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1 shadow-inner border border-slate-200 dark:border-transparent">
             <button onClick={()=>setMesAtual(new Date(mesAtual.setMonth(mesAtual.getMonth()-1)))} className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md text-slate-600 dark:text-slate-300 transition-colors"><ChevronLeft className="w-4 h-4"/></button>
             <span className="w-32 text-center text-xs font-bold uppercase pt-1 text-slate-800 dark:text-white">{mesAtual.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</span>
             <button onClick={()=>setMesAtual(new Date(mesAtual.setMonth(mesAtual.getMonth()+1)))} className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md text-slate-600 dark:text-slate-300 transition-colors"><ChevronRight className="w-4 h-4"/></button>
           </div>
           <button onClick={()=>loadLancamentos(undefined, undefined, { force: true })} className="p-2 text-slate-500 hover:text-blue-500 border border-slate-300 dark:border-slate-600 rounded-lg hover:border-blue-500 transition-colors" title="Sincronizar lançamentos"><RefreshCw className={`w-4 h-4 ${loading?'animate-spin':''}`}/></button>
           <button onClick={syncCadastros} className="p-2 text-slate-500 hover:text-emerald-500 border border-slate-300 dark:border-slate-600 rounded-lg hover:border-emerald-500 transition-colors" title="Sincronizar cadastros"><Layers className="w-4 h-4"/></button>
+          </div>
+          <div className="relative hidden min-w-0 flex-1 xl:block xl:max-w-xl">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Buscar valor ou descrição"
+              className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+              value={filtroTexto}
+              onChange={e=>setFiltroTexto(e.target.value)}
+            />
+          </div>
         </div>
 
         <div className="flex-1 w-full flex flex-col sm:flex-row gap-2 sm:items-center xl:hidden">
@@ -1544,7 +1560,7 @@ export function Lancamentos() {
                                     const pago = String(l.status).toUpperCase() === 'PAGO';
                                     const statusLabel = pago ? 'PAGO' : atrasado ? 'ATRASADO' : l.status;
                                     return (
-                                    <tr key={l.id} onClick={() => openDrawer(l)} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer group ${selectedIds.has(l.id)?'bg-blue-100/80 dark:bg-blue-900/25': pago ? 'bg-emerald-100/70 dark:bg-emerald-900/25' : atrasado ? 'bg-red-200/80 dark:bg-red-900/40' : ''}`}>
+                                    <tr key={l.id} onClick={() => { if (!isTransferencia(l)) openDrawer(l); }} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition group ${isTransferencia(l) ? 'cursor-default' : 'cursor-pointer'} ${selectedIds.has(l.id)?'bg-blue-100/80 dark:bg-blue-900/25': pago ? 'bg-emerald-100/70 dark:bg-emerald-900/25' : atrasado ? 'bg-red-200/80 dark:bg-red-900/40' : ''}`}>
                                       <td className="p-2.5 w-12 text-center" onClick={e=>e.stopPropagation()}>
                                         <button
                                           type="button"
@@ -1564,7 +1580,8 @@ export function Lancamentos() {
                                             type="button"
                                             onMouseDown={(e)=>e.stopPropagation()}
                                             onClick={(e)=>{e.stopPropagation(); toggleIpp(l);}}
-                                            className={`w-7 h-7 rounded border flex items-center justify-center transition pointer-events-auto ${l.ipp?'bg-purple-600 border-purple-600 text-white':'border-slate-300 dark:border-slate-600 text-slate-500 hover:border-purple-400'}`}
+                                            disabled={isTransferencia(l)}
+                                            className={`w-7 h-7 rounded border flex items-center justify-center transition pointer-events-auto ${l.ipp?'bg-purple-600 border-purple-600 text-white':'border-slate-300 dark:border-slate-600 text-slate-500 hover:border-purple-400'} ${isTransferencia(l) ? 'cursor-not-allowed opacity-40' : ''}`}
                                             title="Marcar como IPP"
                                             aria-pressed={l.ipp}
                                           >
@@ -1577,7 +1594,7 @@ export function Lancamentos() {
                                         </td>
                                         <td className="p-2.5 hidden md:table-cell">
                                           <div className="text-sm font-bold text-slate-700 dark:text-slate-300">{entidades.find(e=>e.id===l.entidade_id)?.nome || '-'}</div>
-                                          <div className="text-[12px] text-slate-500">{categorias.find(c=>c.id===l.plano_contas_id)?.nome}</div>
+                                          <div className="text-[12px] text-slate-500">{getCategoriaLabel(l)}</div>
                                         </td>
                                         <td className={`p-2.5 text-right font-bold ${l.tipo==='RECEITA'?'text-emerald-400':'text-red-400'}`}>{BRL.format(l.valor_previsto)}</td>
                                         <td className="p-2.5 text-center w-24">
@@ -1731,8 +1748,6 @@ export function Lancamentos() {
                         </div>
                     </div>
 
-                    <SearchableSelect label="Categoria (Classificação)" placeholder="Selecione..." options={catOptions} value={transferData.plano_contas_id} onChange={(id:any)=>setTransferData({...transferData, plano_contas_id:id})} />
-                    
                     <div>
                         <label className="text-xs font-bold text-slate-400 uppercase mb-1">Centro de Custo</label>
                         <select className="w-full p-2 rounded bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-white text-sm" value={transferData.centro_custo_id} onChange={e=>setTransferData({...transferData, centro_custo_id:e.target.value})}>

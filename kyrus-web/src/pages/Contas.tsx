@@ -74,6 +74,10 @@ function getExtratoBaseDate(item: Pick<LancamentoItem, 'data_pagamento' | 'data_
   return item.data_pagamento || item.data_vencimento;
 }
 
+function isTransferencia(item?: Pick<LancamentoItem, 'origem'> | null) {
+  return String(item?.origem || '').toUpperCase() === 'TRANSFERENCIA';
+}
+
 interface ContaSaldoDetalhe {
   conta_id: number;
   conta_nome: string;
@@ -548,6 +552,9 @@ export function Contas() {
   }
 
   function handleAbrirLancamentoModal(lancamento?: LancamentoItem) {
+    if (lancamento && isTransferencia(lancamento)) {
+      return;
+    }
     if (lancamento) {
       setLancamentoEditing(lancamento);
       setLancamentoForm({
@@ -729,6 +736,11 @@ export function Contas() {
       case 'INVESTIMENTO': return TrendingUp;
       default: return Landmark;
     }
+  };
+
+  const getCategoriaLabel = (lancamento: LancamentoItem) => {
+    if (isTransferencia(lancamento)) return 'Transferência interna';
+    return categorias.find(c => c.id === lancamento.plano_contas_id)?.nome || '-';
   };
 
   return (
@@ -944,7 +956,7 @@ export function Contas() {
                                     <div>{l.descricao}</div>
                                     <div className="text-xs text-slate-400">{l.numero_parcela ? `${l.numero_parcela}a parcela` : 'À vista'}</div>
                                   </td>
-                                  <td className="p-4 text-slate-500">{categorias.find(c => c.id === l.plano_contas_id)?.nome || '-'}</td>
+                                  <td className="p-4 text-slate-500">{getCategoriaLabel(l)}</td>
                                   <td className="p-4 text-slate-500">{l.origem || '-'}</td>
                                   <td className="p-4">
                                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -956,12 +968,14 @@ export function Contas() {
                                   <td className={`p-4 text-right font-bold ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{BRL.format(Number(l.saldo_apos_movimento || 0))}</td>
                                   <td className="p-4 text-right">
                                     <div className="flex items-center justify-end gap-2">
-                                      <button
-                                        onClick={() => handleAbrirLancamentoModal(l)}
-                                        className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
-                                      >
-                                        <Edit2 className="w-4 h-4" />
-                                      </button>
+                                      {!isTransferencia(l) && (
+                                        <button
+                                          onClick={() => handleAbrirLancamentoModal(l)}
+                                          className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                        >
+                                          <Edit2 className="w-4 h-4" />
+                                        </button>
+                                      )}
                                       <button
                                         onClick={() => handleExcluirLancamento(l.id)}
                                         className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
@@ -991,7 +1005,7 @@ export function Contas() {
                               {new Date((l.data_pagamento || l.data_vencimento)).toLocaleDateString('pt-BR')}
                             </td>
                             <td className="p-4 font-medium text-slate-700 dark:text-slate-200">{l.descricao}</td>
-                            <td className="p-4 text-slate-500">{categorias.find(c => c.id === l.plano_contas_id)?.nome || '-'}</td>
+                            <td className="p-4 text-slate-500">{getCategoriaLabel(l)}</td>
                             <td className="p-4 text-slate-500">{l.origem || '-'}</td>
                             <td className="p-4">
                               <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -1003,12 +1017,14 @@ export function Contas() {
                             <td className={`p-4 text-right font-bold ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{BRL.format(Number(l.saldo_apos_movimento || 0))}</td>
                             <td className="p-4 text-right">
                               <div className="flex items-center justify-end gap-2">
-                                <button
-                                  onClick={() => handleAbrirLancamentoModal(l)}
-                                  className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
-                                >
-                                  <Edit2 className="w-4 h-4" />
-                                </button>
+                                {!isTransferencia(l) && (
+                                  <button
+                                    onClick={() => handleAbrirLancamentoModal(l)}
+                                    className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => handleExcluirLancamento(l.id)}
                                   className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"

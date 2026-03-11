@@ -2,6 +2,7 @@
 
 from datetime import datetime, date
 import re
+import uuid
 from decimal import Decimal
 from typing import List, Optional
 from sqlmodel import Session, select, func, asc, desc, col 
@@ -12,6 +13,7 @@ from app.models.lancamento import Lancamento
 from app.models.anexo_lancamento import AnexoLancamento
 from app.models.plano_contas import PlanoContas 
 from app.models.conta import Conta
+from app.crud import crud_plano_contas
 
 # Schemas 
 from app.schemas.lancamento import (
@@ -48,6 +50,39 @@ class LancamentoService:
             lancamento.status = "EM ABERTO"
             # Se está em aberto, não tem valor pago ainda
             lancamento.valor_pago = Decimal("0.00")
+
+    def _is_transferencia(self, lancamento: Lancamento) -> bool:
+        return str(lancamento.origem or "").upper() == "TRANSFERENCIA"
+
+    def _find_transfer_related_ids(self, lancamento: Lancamento) -> set[int]:
+        ids = {int(lancamento.id)} if lancamento.id is not None else set()
+
+        if lancamento.transferencia_grupo_id:
+            related = self.session.exec(
+                select(Lancamento.id).where(
+                    Lancamento.empresa_id == lancamento.empresa_id,
+                    Lancamento.is_deleted == False,
+                    Lancamento.transferencia_grupo_id == lancamento.transferencia_grupo_id,
+                )
+            ).all()
+            ids.update(int(item_id) for item_id in related if item_id is not None)
+            return ids
+
+        counterpart_tipo = "RECEITA" if str(lancamento.tipo).upper() == "DESPESA" else "DESPESA"
+        related = self.session.exec(
+            select(Lancamento.id).where(
+                Lancamento.empresa_id == lancamento.empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.origem == "TRANSFERENCIA",
+                Lancamento.id != lancamento.id,
+                Lancamento.descricao == lancamento.descricao,
+                Lancamento.data_vencimento == lancamento.data_vencimento,
+                Lancamento.valor_previsto == lancamento.valor_previsto,
+                Lancamento.tipo == counterpart_tipo,
+            )
+        ).all()
+        ids.update(int(item_id) for item_id in related if item_id is not None)
+        return ids
 
     # --- Métodos CRUD Básicos ---
 
@@ -106,6 +141,8 @@ class LancamentoService:
 
     def update(self, lancamento_id: int, dados_atualizacao: LancamentoUpdate, empresa_id: int, user_id: int) -> Lancamento:
         db_lancamento = self.get_by_id(lancamento_id, empresa_id)
+        if self._is_transferencia(db_lancamento):
+            raise HTTPException(status_code=400, detail="Transferências internas não podem ser editadas.")
         dados_dict = dados_atualizacao.dict(exclude_unset=True)
 
         if "competencia" in dados_dict:
@@ -134,10 +171,19 @@ class LancamentoService:
 
     def delete(self, lancamento_id: int, empresa_id: int, user_id: int):
         lancamento = self.get_by_id(lancamento_id, empresa_id)
-        lancamento.is_deleted = True
-        lancamento.deleted_at = datetime.utcnow()
-        lancamento.deleted_by_id = user_id
-        self.session.add(lancamento)
+        delete_ids = self._find_transfer_related_ids(lancamento) if self._is_transferencia(lancamento) else {int(lancamento.id)}
+        related = self.session.exec(
+            select(Lancamento).where(
+                col(Lancamento.id).in_(list(delete_ids)),
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+            )
+        ).all()
+        for item in related:
+            item.is_deleted = True
+            item.deleted_at = datetime.utcnow()
+            item.deleted_by_id = user_id
+            self.session.add(item)
         self.session.commit()
 
     # --- Gestão de Anexos ---
@@ -186,10 +232,28 @@ class LancamentoService:
     def deletar_em_massa(self, ids: List[int], empresa_id: int, user_id: int):
         statement = select(Lancamento).where(
             col(Lancamento.id).in_(ids),
-            Lancamento.empresa_id == empresa_id
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
         )
         lancamentos = self.session.exec(statement).all()
+        ids_para_deletar: set[int] = set()
         for lanc in lancamentos:
+            if self._is_transferencia(lanc):
+                ids_para_deletar.update(self._find_transfer_related_ids(lanc))
+            elif lanc.id is not None:
+                ids_para_deletar.add(int(lanc.id))
+
+        if not ids_para_deletar:
+            return
+
+        related = self.session.exec(
+            select(Lancamento).where(
+                col(Lancamento.id).in_(list(ids_para_deletar)),
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+            )
+        ).all()
+        for lanc in related:
             lanc.is_deleted = True
             lanc.deleted_at = datetime.utcnow()
             lanc.deleted_by_id = user_id
@@ -203,6 +267,8 @@ class LancamentoService:
             Lancamento.is_deleted == False
         )
         lancamentos = self.session.exec(statement).all()
+        if any(self._is_transferencia(lanc) for lanc in lancamentos):
+            raise HTTPException(status_code=400, detail="Transferências internas não podem ser alteradas em lote.")
         count = 0
         data_efetiva = data_pagamento or date.today()
 
@@ -227,6 +293,8 @@ class LancamentoService:
             Lancamento.empresa_id == empresa_id
         )
         lancamentos = self.session.exec(statement).all()
+        if any(self._is_transferencia(lanc) for lanc in lancamentos):
+            raise HTTPException(status_code=400, detail="Transferências internas não podem ser alteradas em lote.")
         
         sucesso = 0
         erros = []
@@ -262,19 +330,12 @@ class LancamentoService:
 
         if not conta_origem or not conta_destino:
             raise HTTPException(status_code=404, detail="Conta de origem ou destino não encontrada.")
+        if dados.conta_origem_id == dados.conta_destino_id:
+            raise HTTPException(status_code=400, detail="Selecione contas diferentes para a transferência.")
 
         descricao_transf = f"Transf de {conta_origem.nome} para {conta_destino.nome}"
-
-        # 2. Correção: Usando o nome correto do campo 'plano_contas_id'
-        categoria_id = dados.plano_contas_id 
-        if not categoria_id:
-            cat_padrao = self.session.exec(
-                select(PlanoContas).where(PlanoContas.empresa_id == empresa_id).limit(1)
-            ).first()
-            if cat_padrao:
-                categoria_id = cat_padrao.id
-            else:
-                 raise HTTPException(status_code=400, detail="Crie pelo menos um Plano de Contas antes de transferir.")
+        categoria_transferencia = crud_plano_contas.ensure_transfer_category(self.session, empresa_id=empresa_id)
+        grupo_id = str(uuid.uuid4())
 
         saida = Lancamento(
             descricao=descricao_transf,
@@ -290,7 +351,9 @@ class LancamentoService:
             status="PAGO",
             origem="TRANSFERENCIA",
             empresa_id=empresa_id,
-            plano_contas_id=categoria_id, 
+            plano_contas_id=int(categoria_transferencia.id), 
+            centro_custo_id=dados.centro_custo_id,
+            transferencia_grupo_id=grupo_id,
             created_by_id=user_id,
             observacao=dados.observacao
         )
@@ -309,7 +372,9 @@ class LancamentoService:
             status="PAGO",
             origem="TRANSFERENCIA",
             empresa_id=empresa_id,
-            plano_contas_id=categoria_id,
+            plano_contas_id=int(categoria_transferencia.id),
+            centro_custo_id=dados.centro_custo_id,
+            transferencia_grupo_id=grupo_id,
             created_by_id=user_id,
             observacao=dados.observacao
         )

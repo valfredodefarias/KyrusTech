@@ -100,4 +100,5 @@ class TransferenciaCreate(SQLModel):
     data: date
     # Aqui é opcional, se não enviar pegamos a categoria padrão do sistema
     plano_contas_id: Optional[int] = None 
+    centro_custo_id: Optional[int] = None
     observacao: Optional[str] = None

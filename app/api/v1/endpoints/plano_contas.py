@@ -40,14 +40,16 @@ def read_plano_contas(
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """Lista todas as categorias do plano de contas da empresa."""
+    crud_plano_contas.normalize_company_operational_categories(db=db, empresa_id=empresa_id)
     # Ordena pelo código para garantir a árvore correta na leitura
     contas = db.exec(
         select(PlanoContas)
-        .where(PlanoContas.empresa_id == empresa_id)
+        .where(PlanoContas.empresa_id == empresa_id, PlanoContas.oculta == False)
         .order_by(PlanoContas.codigo)
     ).all()
     return contas
 
+@router.post("", response_model=PlanoContasRead, status_code=201, include_in_schema=False)
 @router.post("/", response_model=PlanoContasRead, status_code=201)
 def create_plano_contas(
     *,
@@ -146,6 +148,8 @@ def update_plano_contas(
     db_obj = crud_plano_contas.get(db=db, id=conta_id, empresa_id=empresa_id)
     if not db_obj:
         raise HTTPException(status_code=404, detail="Categoria não encontrada")
+    if db_obj.oculta:
+        raise HTTPException(status_code=400, detail="Categoria técnica do sistema não pode ser alterada")
 
     # 2. VERIFICAÇÃO DE SEGURANÇA (Se tentar mudar o código)
     if conta_in.codigo is not None and conta_in.codigo != db_obj.codigo:
@@ -182,6 +186,10 @@ def delete_plano_contas(
     filhos = db.exec(select(PlanoContas).where(PlanoContas.conta_pai_id == conta_id)).first()
     if filhos:
         raise HTTPException(status_code=400, detail="Não é possível excluir uma categoria que possui subcategorias.")
+
+    conta = crud_plano_contas.get(db=db, id=conta_id, empresa_id=empresa_id)
+    if conta and conta.oculta:
+        raise HTTPException(status_code=400, detail="Categoria técnica do sistema não pode ser excluída")
 
     # Verifica se tem lançamentos
     uso = db.exec(select(Lancamento).where(Lancamento.plano_contas_id == conta_id)).first()

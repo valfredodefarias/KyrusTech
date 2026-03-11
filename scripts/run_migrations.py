@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT_DIR))
 
 def apply_legacy_schema_compatibility() -> None:
     from app.core.config import settings
+    from app.models.plano_contas_template_config import PlanoContasTemplateConfig
 
     engine = create_engine(settings.DATABASE_URL)
     statements = [
@@ -39,11 +40,19 @@ def apply_legacy_schema_compatibility() -> None:
         "CREATE INDEX IF NOT EXISTS ix_entidades_tipo_pessoa ON entidades (tipo_pessoa)",
         "ALTER TABLE cartoes ADD COLUMN IF NOT EXISTS bandeira VARCHAR",
         "CREATE INDEX IF NOT EXISTS ix_cartoes_bandeira ON cartoes (bandeira)",
+        "ALTER TABLE plano_contas ADD COLUMN IF NOT EXISTS oculta BOOLEAN DEFAULT FALSE",
+        "UPDATE plano_contas SET oculta = FALSE WHERE oculta IS NULL",
+        "CREATE INDEX IF NOT EXISTS ix_plano_contas_oculta ON plano_contas (oculta)",
+        "UPDATE plano_contas SET considerar_nos_resultados = TRUE WHERE coalesce(oculta, FALSE) = FALSE",
+        "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS transferencia_grupo_id VARCHAR",
+        "CREATE INDEX IF NOT EXISTS ix_lancamentos_transferencia_grupo_id ON lancamentos (transferencia_grupo_id)",
     ]
 
     with engine.begin() as connection:
         for statement in statements:
             connection.execute(text(statement))
+
+    PlanoContasTemplateConfig.__table__.create(bind=engine, checkfirst=True)
 
 def run_migrations():
     """Executa Alembic upgrade"""

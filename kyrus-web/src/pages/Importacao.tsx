@@ -48,12 +48,9 @@ interface Feedback {
 interface PlanoSectionState {
         tipo: 'R' | 'D';
         titulo: string;
-        descricao: string;
         accentClassName: string;
         surfaceClassName: string;
         dropClassName: string;
-        emptyTitle: string;
-        emptyDescription: string;
 }
 
 interface PreviewRow {
@@ -228,7 +225,7 @@ const StepBadge = ({ num, current, label }: { num: number, current: number, labe
     );
 };
 
-const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..." }: any) => {
+const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione...", label }: any) => {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState('');
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -266,15 +263,16 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
 
     return (
         <div className="relative w-full" ref={wrapperRef}>
+            {label ? <label className="mb-1 block text-xs font-bold uppercase text-slate-500 dark:text-slate-400">{label}</label> : null}
             <div 
-                className={`flex items-center justify-between w-full p-3 rounded-lg border bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm cursor-pointer transition
-                ${isOpen ? 'ring-2 ring-blue-500 border-transparent' : !value ? 'border-red-500/30' : 'border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500'}`}
+                className={`flex min-h-11.5 items-center justify-between rounded-xl border bg-white px-3 py-3 text-sm text-slate-800 shadow-sm transition dark:bg-slate-900 dark:text-white
+                ${isOpen ? 'border-blue-500 ring-2 ring-blue-500/20' : !value ? 'border-red-500/30' : 'border-slate-300 hover:border-blue-500 dark:border-slate-600 dark:hover:border-blue-500'}`}
                 onClick={() => setIsOpen(!isOpen)}
             >
                 {isOpen ? (
                     <input 
                         autoFocus
-                        className="bg-transparent outline-none w-full text-slate-800 dark:text-white placeholder-slate-500"
+                        className="w-full bg-transparent text-slate-800 outline-none placeholder:text-slate-400 dark:text-white"
                         placeholder="Digite para buscar..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
@@ -285,23 +283,24 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
                         {selectedItem ? (selectedItem.codigo ? `${selectedItem.codigo} - ${selectedItem.nome}` : selectedItem.nome) : placeholder}
                     </span>
                 )}
-                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}/>
+                <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}/>
             </div>
 
             {isOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95">
+                <div className="absolute z-50 mt-1 flex max-h-72 w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 dark:border-slate-700 dark:bg-slate-800">
                     {filteredGroups.length === 0 ? (
                         <div className="p-3 text-slate-500 text-center text-xs italic">Nenhum item encontrado.</div>
                     ) : (
-                        filteredGroups.map((group: SearchOptionGroup) => (
-                            <div key={group.label || 'default'}>
-                                {group.label ? <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-blue-500 bg-slate-50 dark:bg-slate-900/80 dark:text-blue-300">{group.label}</div> : null}
+                        <div className="max-h-72 overflow-y-auto custom-scrollbar p-1">
+                        {filteredGroups.map((group: SearchOptionGroup) => (
+                            <div key={group.label || 'default'} className="mb-1">
+                                {group.label ? <div className="mb-1 rounded-lg bg-slate-100 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-900 dark:text-slate-300">{group.label}</div> : null}
                                 {group.options.map((opt: SearchOption) => {
                                     const isDisabled = !!opt.disabled;
                                     return (
                                         <div 
                                             key={opt.id}
-                                            className={`p-3 text-sm transition flex justify-between items-center gap-3 ${isDisabled ? 'cursor-not-allowed opacity-45 text-slate-400' : 'cursor-pointer hover:bg-blue-600 hover:text-white'} ${String(opt.id) === String(value) ? 'bg-blue-500/20 text-blue-700 dark:text-blue-200' : 'text-slate-700 dark:text-slate-300'}`}
+                                            className={`flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-sm transition ${isDisabled ? 'cursor-not-allowed opacity-45 text-slate-400' : 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700'} ${String(opt.id) === String(value) ? 'bg-blue-600 text-white' : 'text-slate-700 dark:text-slate-300'}`}
                                             onClick={() => {
                                                 if (isDisabled) return;
                                                 onChange(opt.id);
@@ -311,17 +310,18 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
                                         >
                                             <div className="min-w-0" style={{ paddingLeft: `${(opt.depth || 0) * 14}px` }}>
                                                 <div className="truncate">
-                                                    {opt.codigo ? <span className="font-mono opacity-70 mr-2">{opt.codigo}</span> : ''}
+                                                    {opt.codigo ? <span className="mr-2 font-mono opacity-70">{opt.codigo}</span> : ''}
                                                     {opt.nome}
                                                 </div>
                                                 {opt.helperText ? <div className="text-[10px] opacity-70">{opt.helperText}</div> : null}
                                             </div>
-                                            {String(opt.id) === String(value) && <Check className="w-4 h-4 shrink-0"/>}
+                                            {String(opt.id) === String(value) && <Check className="h-4 w-4 shrink-0"/>}
                                         </div>
                                     );
                                 })}
                             </div>
-                        ))
+                        ))}
+                        </div>
                     )}
                 </div>
             )}
@@ -582,22 +582,16 @@ export const PlanoContasManager = ({
         {
             tipo: 'R',
             titulo: 'ENTRADAS',
-            descricao: 'Receitas, recebimentos e fontes que aumentam caixa.',
             accentClassName: 'text-emerald-400',
             surfaceClassName: 'bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/50',
             dropClassName: 'rgba(16, 185, 129, 0.05)',
-            emptyTitle: 'Nenhuma categoria de entrada',
-            emptyDescription: 'Crie a primeira categoria de entrada para começar a estruturar esse lado do plano.',
         },
         {
             tipo: 'D',
             titulo: 'SAIDAS',
-            descricao: 'Custos, despesas e compromissos que reduzem caixa.',
             accentClassName: 'text-red-400',
             surfaceClassName: 'bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/50',
             dropClassName: 'rgba(239, 68, 68, 0.05)',
-            emptyTitle: 'Nenhuma categoria de saida',
-            emptyDescription: 'Crie a primeira categoria de saida para manter a estrutura completa do plano.',
         },
     ];
 
@@ -650,6 +644,32 @@ export const PlanoContasManager = ({
           .filter((item) => !descendantsMap.get(formData.id)?.has(item.id))
           .sort((a, b) => (a.codigo || '').localeCompare(b.codigo || '', undefined, { numeric: true }) || a.nome.localeCompare(b.nome));
   }, [descendantsMap, formData.id, formData.tipo, localList]);
+
+  const selectedParent = useMemo(
+      () => (formData.conta_pai_id ? localList.find((item) => item.id === Number(formData.conta_pai_id)) || null : null),
+      [formData.conta_pai_id, localList]
+  );
+
+  const shouldShowTipoField = modalMode === 'CREATE' && !selectedParent;
+
+  const parentSelectGroups = useMemo<SearchOptionGroup[]>(() => {
+      const options = parentOptions.map((item) => ({
+          id: item.id,
+          nome: item.nome,
+          codigo: item.codigo,
+          searchText: `${item.codigo || ''} ${item.nome}`.trim(),
+      }));
+
+      return [{ label: 'Categorias', options }];
+  }, [parentOptions]);
+
+  useEffect(() => {
+      if (!selectedParent) return;
+      const parentTipo = normalizeTipo(selectedParent.tipo);
+      if (normalizeTipo(formData.tipo) !== parentTipo) {
+          setFormData((prev) => ({ ...prev, tipo: parentTipo }));
+      }
+  }, [formData.tipo, selectedParent]);
 
   // --- DRAG HANDLERS ---
   const handleDragStart = (e: React.DragEvent, item: ItemSistema) => {
@@ -838,24 +858,14 @@ export const PlanoContasManager = ({
 
   return (
     <div className="relative">
-      <div className="mb-6 rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div className="space-y-2">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-700 dark:border-cyan-900/60 dark:bg-cyan-500/10 dark:text-cyan-300">
-                      <Layers className="h-3.5 w-3.5" />
-                      Estrutura editavel
-                  </div>
-                  <h3 className="text-lg font-black text-slate-900 dark:text-white">Plano de contas hierarquico</h3>
-                  <p className="max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">Arraste categorias para reorganizar a estrutura, edite operacao e tipo quando fizer sentido e crie novas categorias apenas no lado que estiver vazio.</p>
+      {hasChanges && (
+          <div className="mb-6 flex justify-end">
+              <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 dark:border-amber-900/50 dark:bg-amber-500/10 dark:text-amber-300">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Estrutura alterada. Falta salvar.
               </div>
-              {hasChanges && (
-                  <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 dark:border-amber-900/50 dark:bg-amber-500/10 dark:text-amber-300">
-                      <AlertTriangle className="h-3.5 w-3.5" />
-                      Estrutura alterada. Falta salvar.
-                  </div>
-              )}
           </div>
-      </div>
+      )}
 
       {/* DUAS COLUNAS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -872,15 +882,9 @@ export const PlanoContasManager = ({
                       onDrop={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'transparent'; handleDrop(rootDropTarget); }}
                   >
                       <div className="mb-4 border-b border-slate-200 pb-3 dark:border-slate-700">
-                          <div className="flex items-start justify-between gap-3">
-                              <div>
-                                  <h3 className={`flex items-center gap-2 text-sm font-bold ${section.accentClassName}`}>
-                                      {section.tipo === 'R' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />} {section.titulo}
-                                  </h3>
-                                  <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{section.descricao}</p>
-                              </div>
-                              <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">{tree.length} raizes</span>
-                          </div>
+                          <h3 className={`flex items-center gap-2 text-sm font-bold ${section.accentClassName}`}>
+                              {section.tipo === 'R' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />} {section.titulo}
+                          </h3>
                       </div>
 
                       <div className="flex-1 space-y-1">
@@ -889,12 +893,10 @@ export const PlanoContasManager = ({
                                   <div className={`mb-4 flex h-14 w-14 items-center justify-center rounded-2xl ${section.tipo === 'R' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
                                       {section.tipo === 'R' ? <TrendingUp className="h-6 w-6" /> : <TrendingDown className="h-6 w-6" />}
                                   </div>
-                                  <h4 className="text-sm font-black text-slate-900 dark:text-white">{section.emptyTitle}</h4>
-                                  <p className="mt-2 max-w-xs text-xs leading-5 text-slate-500 dark:text-slate-400">{section.emptyDescription}</p>
                                   <button
                                       type="button"
                                       onClick={() => openCreateModal(section.tipo)}
-                                      className={`mt-5 inline-flex items-center gap-2 rounded-full px-4 py-3 text-sm font-bold text-white shadow-xl transition ${section.tipo === 'R' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'}`}
+                                      className={`mt-2 inline-flex items-center gap-2 rounded-full px-4 py-3 text-sm font-bold text-white shadow-xl transition ${section.tipo === 'R' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'}`}
                                   >
                                       <Plus className="h-4 w-4" />
                                       Criar primeira categoria
@@ -962,7 +964,7 @@ export const PlanoContasManager = ({
                           </div>
                       )}
                       
-                      {modalMode === 'CREATE' && (
+                      {shouldShowTipoField && (
                           <div>
                               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tipo</label>
                               <select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white" value={formData.tipo} onChange={e=>setFormData({...formData, tipo:e.target.value})}>
@@ -973,21 +975,32 @@ export const PlanoContasManager = ({
                       )}
 
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Categoria pai</label>
-                          <select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white" value={formData.conta_pai_id} onChange={e=>setFormData({...formData, conta_pai_id: e.target.value ? Number(e.target.value) : ''})}>
-                              <option value="">Sem categoria pai</option>
-                              {parentOptions.map((item) => <option key={item.id} value={item.id}>{item.codigo ? `${item.codigo} - ` : ''}{item.nome}</option>)}
-                          </select>
+                          <SearchableSelect
+                              label="Categoria pai"
+                              value={formData.conta_pai_id}
+                              options={parentSelectGroups}
+                              placeholder="Sem categoria pai"
+                              onChange={(id: number | string) => {
+                                  const nextParentId = id ? Number(id) : '';
+                                  const parent = nextParentId ? localList.find((item) => item.id === nextParentId) : null;
+                                  setFormData({
+                                      ...formData,
+                                      conta_pai_id: nextParentId,
+                                      tipo: parent ? normalizeTipo(parent.tipo) : formData.tipo,
+                                  });
+                              }}
+                          />
+                          {!!formData.conta_pai_id && (
+                              <button
+                                  type="button"
+                                  onClick={() => setFormData({ ...formData, conta_pai_id: '' })}
+                                  className="mt-2 text-xs font-bold text-slate-500 transition hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                              >
+                                  Remover categoria pai
+                              </button>
+                          )}
                       </div>
 
-                      {modalMode !== 'MOVE' && <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Operacional?</label>
-                          <div className="grid grid-cols-2 gap-2">
-                              <button type="button" onClick={()=>setFormData({...formData, considerar_nos_resultados:true})} className={`py-3 rounded-lg text-sm font-bold border transition ${formData.considerar_nos_resultados ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-900/20' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>Sim</button>
-                              <button type="button" onClick={()=>setFormData({...formData, considerar_nos_resultados:false})} className={`py-3 rounded-lg text-sm font-bold border transition ${!formData.considerar_nos_resultados ? 'bg-rose-600 text-white border-rose-600 shadow-lg shadow-rose-900/20' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>Nao</button>
-                          </div>
-                      </div>}
-                      
                       <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
                           <button onClick={()=>setModalOpen(false)} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold">Cancelar</button>
                           <button onClick={handleSaveModal} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold shadow-lg">Salvar</button>

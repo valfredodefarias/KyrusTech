@@ -4,6 +4,7 @@ import re
 from copy import deepcopy
 from typing import Any, Optional
 
+from sqlalchemy.exc import ProgrammingError
 from sqlmodel import Session, select
 
 from app.models.plano_contas import PlanoContas
@@ -18,6 +19,7 @@ TEMPLATE_CONFIG_KEYS = {
     "PF": "template-default-pf",
     "PJ": "template-default-pj",
 }
+TRANSFER_CATEGORY_NAME = "Transferencias internas"
 
 
 def _apply_model_update(db_obj, update_data: dict) -> None:
@@ -285,14 +287,24 @@ def _sanitize_template_item(item: dict[str, Any]) -> TemplateItem:
     }
 
 
+def _ensure_template_config_table(db: Session) -> None:
+    PlanoContasTemplateConfig.__table__.create(bind=db.get_bind(), checkfirst=True)
+
+
 def get_template_config(db: Session, *, tipo_pessoa: str) -> Optional[PlanoContasTemplateConfig]:
     normalized = _normalizar_tipo_pessoa(tipo_pessoa)
-    return db.exec(
-        select(PlanoContasTemplateConfig).where(
-            PlanoContasTemplateConfig.tipo_pessoa == normalized,
-            PlanoContasTemplateConfig.config_key == _template_config_key(normalized),
-        )
-    ).first()
+    statement = select(PlanoContasTemplateConfig).where(
+        PlanoContasTemplateConfig.tipo_pessoa == normalized,
+        PlanoContasTemplateConfig.config_key == _template_config_key(normalized),
+    )
+    try:
+        return db.exec(statement).first()
+    except ProgrammingError as exc:
+        if "plano_contas_template_configs" not in str(exc).lower():
+            raise
+        db.rollback()
+        _ensure_template_config_table(db)
+        return db.exec(statement).first()
 
 
 def get_template_items(db: Session, *, tipo_pessoa: str) -> list[TemplateItem]:
@@ -308,6 +320,7 @@ def get_template_items(db: Session, *, tipo_pessoa: str) -> list[TemplateItem]:
 def save_template_items(db: Session, *, tipo_pessoa: str, items: list[dict[str, Any]]) -> list[TemplateItem]:
     normalized = _normalizar_tipo_pessoa(tipo_pessoa)
     sanitized_items = [_sanitize_template_item(item) for item in items]
+    _ensure_template_config_table(db)
     config = get_template_config(db=db, tipo_pessoa=normalized)
     if not config:
         config = PlanoContasTemplateConfig(
@@ -329,14 +342,33 @@ def get(db: Session, *, id: int, empresa_id: int) -> Optional[PlanoContas]:
 
 
 def get_by_empresa(db: Session, *, empresa_id: int) -> list[PlanoContas]:
-    statement = select(PlanoContas).where(PlanoContas.empresa_id == empresa_id).order_by(PlanoContas.nome)
+    statement = select(PlanoContas).where(PlanoContas.empresa_id == empresa_id, PlanoContas.oculta == False).order_by(PlanoContas.nome)
     return list(db.exec(statement).all())
+
+
+def normalize_company_operational_categories(db: Session, *, empresa_id: int) -> None:
+    contas = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.oculta == False,
+            PlanoContas.considerar_nos_resultados == False,
+        )
+    ).all()
+    if not contas:
+        return
+
+    for conta in contas:
+        conta.considerar_nos_resultados = True
+        db.add(conta)
+    db.commit()
 
 
 def create(db: Session, *, obj_in: PlanoContasCreate, empresa_id: int) -> PlanoContas:
     data = obj_in.model_dump()
     data["tipo"] = _normalizar_tipo_plano(data.get("tipo"), default="D")
     data["empresa_id"] = empresa_id
+    data["considerar_nos_resultados"] = True
+    data["oculta"] = False
     db_obj = PlanoContas.model_validate(data)
     db.add(db_obj)
     db.commit()
@@ -350,6 +382,8 @@ def update(db: Session, *, db_obj: PlanoContas, obj_in: PlanoContasUpdate) -> Pl
         update_data.pop("codigo")
     if "tipo" in update_data and update_data["tipo"] is not None:
         update_data["tipo"] = _normalizar_tipo_plano(update_data["tipo"], default=db_obj.tipo)
+    if not db_obj.oculta:
+        update_data["considerar_nos_resultados"] = True
     _apply_model_update(db_obj, update_data)
     db.add(db_obj)
     db.commit()
@@ -363,6 +397,36 @@ def delete(db: Session, *, id: int, empresa_id: int) -> Optional[PlanoContas]:
         db.delete(db_obj)
         db.commit()
     return db_obj
+
+
+def ensure_transfer_category(db: Session, *, empresa_id: int) -> PlanoContas:
+    categoria = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.oculta == True,
+            PlanoContas.nome == TRANSFER_CATEGORY_NAME,
+        )
+    ).first()
+
+    if categoria is None:
+        categoria = PlanoContas(
+            nome=TRANSFER_CATEGORY_NAME,
+            tipo="D",
+            codigo=None,
+            empresa_id=empresa_id,
+            permite_lancamentos=False,
+            considerar_nos_resultados=False,
+            oculta=True,
+        )
+    else:
+        categoria.tipo = "D"
+        categoria.permite_lancamentos = False
+        categoria.considerar_nos_resultados = False
+        categoria.oculta = True
+
+    db.add(categoria)
+    db.flush()
+    return categoria
 
 
 def seed_plano_contas_padrao(db: Session, *, empresa_id: int, tipo_pessoa: str = "PJ"):
@@ -379,8 +443,11 @@ def seed_plano_contas_padrao(db: Session, *, empresa_id: int, tipo_pessoa: str =
             empresa_id=empresa_id,
             conta_pai_id=created_ids.get(int(parent_template_id)) if parent_template_id is not None else None,
             permite_lancamentos=bool(item.get("permite_lancamentos", True)),
-            considerar_nos_resultados=bool(item.get("considerar_nos_resultados", True)),
+            considerar_nos_resultados=True,
         )
         db.add(conta)
         db.flush()
         created_ids[template_id] = int(conta.id)
+
+    ensure_transfer_category(db=db, empresa_id=empresa_id)
+    db.commit()

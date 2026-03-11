@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
+import { buildOperationalCategoriaIds } from '../utils/planoContas';
 import { 
     UploadCloud, ArrowRight, CheckCircle, AlertTriangle, 
     FileSpreadsheet, Save, Loader2, Download,
@@ -16,12 +17,15 @@ export interface ItemSistema {
     nome: string; 
     tipo?: string; 
     codigo?: string; 
+    eh_operacional?: boolean;
     considerar_nos_resultados?: boolean;
     permite_lancamentos?: boolean;
     eh_cabecalho?: boolean;
     conta_pai_id?: number | null; 
     children?: ItemSistema[];     
 } 
+
+const OPERATIONAL_EDIT_EMAIL = 'cirocaue12@gmail.com';
 
 const normalizeTipo = (tipo?: string) => ((tipo || '').trim().toUpperCase().startsWith('R') ? 'R' : 'D');
 
@@ -418,12 +422,12 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
 
 // --- ÁRVORE DRAGGABLE ---
 
-const DraggableTreeItem = ({ item, depth = 0, inheritedExcluded = false, onDragStart, onDrop, onEdit, onDelete, onCreateChild, onMove, onToggle, expandedIds }: any) => {
+const DraggableTreeItem = ({ item, depth = 0, inheritedOperational = false, canManageOperational = false, onDragStart, onDrop, onEdit, onDelete, onCreateChild, onMove, onToggle, expandedIds }: any) => {
     const isExpanded = expandedIds.has(item.id);
     const hasChildren = item.children && item.children.length > 0;
-    const ownExcluded = item.considerar_nos_resultados === false;
-    const effectiveExcluded = inheritedExcluded || ownExcluded;
-    const inheritedOnly = inheritedExcluded && !ownExcluded;
+    const ownOperational = item.eh_operacional !== false;
+    const effectiveOperational = inheritedOperational || ownOperational;
+    const inheritedOnly = inheritedOperational && item.eh_operacional === false;
 
     return (
         <div className="select-none">
@@ -470,12 +474,20 @@ const DraggableTreeItem = ({ item, depth = 0, inheritedExcluded = false, onDragS
                         <span className="text-[10px] font-bold text-orange-500 bg-orange-900/20 px-1.5 py-0.5 rounded border border-orange-900/30">Novo</span>
                     )}
                     <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{item.nome}</span>
-                    {effectiveExcluded && (
+                    {canManageOperational && item.eh_operacional !== false && (
                         <span
-                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${inheritedOnly ? 'text-amber-300 bg-amber-900/20 border-amber-900/40' : 'text-red-300 bg-red-900/20 border-red-900/40'}`}
-                            title={inheritedOnly ? 'Nao operacional por heranca da categoria pai' : 'Marcado como nao operacional'}
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded border text-emerald-300 bg-emerald-900/20 border-emerald-900/40"
+                            title="Categoria marcada como operacional"
                         >
-                            {inheritedOnly ? 'Nao op. (herdado)' : 'Nao operacional'}
+                            Operacional
+                        </span>
+                    )}
+                    {canManageOperational && effectiveOperational && inheritedOnly && (
+                        <span
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded border text-emerald-300 bg-emerald-900/20 border-emerald-900/40"
+                            title="Categoria operacional por heranca da categoria pai"
+                        >
+                            Operacional (herdado)
                         </span>
                     )}
                 </div>
@@ -498,7 +510,8 @@ const DraggableTreeItem = ({ item, depth = 0, inheritedExcluded = false, onDragS
                             key={child.id} 
                             item={child} 
                             depth={depth + 1} 
-                            inheritedExcluded={effectiveExcluded}
+                            inheritedOperational={effectiveOperational}
+                            canManageOperational={canManageOperational}
                             onDragStart={onDragStart}
                             onDrop={onDrop}
                             onEdit={onEdit}
@@ -560,6 +573,7 @@ export const PlanoContasManager = ({
 }) => {
     const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
     const normalizedApiBasePath = apiBasePath.endsWith('/') ? apiBasePath.slice(0, -1) : apiBasePath;
+    const [currentUserEmail, setCurrentUserEmail] = useState('');
   const [localList, setLocalList] = useState<ItemSistema[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -572,13 +586,31 @@ export const PlanoContasManager = ({
   // CRUD States
   const [modalOpen, setModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'CREATE'|'EDIT'|'MOVE'>('CREATE');
-        const [formData, setFormData] = useState({ id: 0, nome: '', codigo: '', tipo: 'D', considerar_nos_resultados: true, conta_pai_id: '' as number | '' });
+        const [formData, setFormData] = useState({ id: 0, nome: '', codigo: '', tipo: 'D', eh_operacional: true, considerar_nos_resultados: true, conta_pai_id: '' as number | '' });
 
     useEffect(() => {
             if (!managerFeedback) return;
             const timer = window.setTimeout(() => setManagerFeedback(null), 4500);
             return () => window.clearTimeout(timer);
     }, [managerFeedback]);
+
+  useEffect(() => {
+      let active = true;
+
+      api.get('/usuarios/me')
+          .then((response) => {
+              if (!active) return;
+              setCurrentUserEmail(String(response?.data?.email || ''));
+          })
+          .catch(() => {
+              if (!active) return;
+              setCurrentUserEmail('');
+          });
+
+      return () => {
+          active = false;
+      };
+  }, []);
 
   // --- ALGORITMO DE RECALCULO DE CÓDIGOS ---
   // Esta função mágica recebe a lista plana desordenada, remonta a árvore visual
@@ -761,7 +793,11 @@ export const PlanoContasManager = ({
       return map;
   }, [roots]);
 
-  const parentOptions = useMemo(() => {
+    const operationalIds = useMemo(() => buildOperationalCategoriaIds(localList), [localList]);
+
+    const canManageOperational = currentUserEmail.trim().toLowerCase() === OPERATIONAL_EDIT_EMAIL;
+
+    const parentOptions = useMemo(() => {
       return localList
           .filter((item) => item.id !== formData.id)
           .filter((item) => normalizeTipo(item.tipo) === normalizeTipo(formData.tipo))
@@ -773,6 +809,12 @@ export const PlanoContasManager = ({
       () => (formData.conta_pai_id ? localList.find((item) => item.id === Number(formData.conta_pai_id)) || null : null),
       [formData.conta_pai_id, localList]
   );
+
+  const resolveOperationalValue = (parentId: number | '' | null | undefined, explicitValue: boolean) => {
+      if (canManageOperational) return explicitValue;
+      if (!parentId) return true;
+      return operationalIds.has(Number(parentId));
+  };
 
     const shouldShowTipoField = modalMode === 'CREATE' && !createTipoLocked && !selectedParent;
 
@@ -837,6 +879,7 @@ export const PlanoContasManager = ({
           item.conta_pai_id = targetId;
           const parent = localList.find(i => i.id === targetId);
           if (parent) item.tipo = normalizeTipo(parent.tipo);
+          item.eh_operacional = resolveOperationalValue(targetId, item.eh_operacional !== false);
           
           // Lógica simples: adiciona ao final da lista para ser reprocessado pelo recalcCodes
           // O recalcCodes vai colocar ele como filho do targetId corretamente na árvore
@@ -865,7 +908,7 @@ export const PlanoContasManager = ({
             if (!original) return false;
             return (
                 original.nome !== item.nome ||
-                (original.considerar_nos_resultados ?? true) !== (item.considerar_nos_resultados ?? true)
+                (original.eh_operacional !== false) !== (item.eh_operacional !== false)
             );
         });
         const deletedItems = categorias
@@ -879,6 +922,7 @@ export const PlanoContasManager = ({
                 nome: item.nome,
                 tipo: normalizeTipo(item.tipo),
                 permite_lancamentos: true,
+                eh_operacional: item.eh_operacional !== false,
                 considerar_nos_resultados: item.considerar_nos_resultados ?? true,
                 conta_pai_id: getResolvedParentId(item.conta_pai_id ?? null, tempIdMap),
             });
@@ -888,6 +932,7 @@ export const PlanoContasManager = ({
         for (const item of updatedItems) {
             await api.patch(`${normalizedApiBasePath}/${item.id}`, {
                 nome: item.nome,
+                eh_operacional: item.eh_operacional !== false,
                 considerar_nos_resultados: item.considerar_nos_resultados ?? true,
             });
         }
@@ -957,6 +1002,7 @@ export const PlanoContasManager = ({
           nome: '',
           codigo: '',
           tipo,
+          eh_operacional: resolveOperationalValue(contaPaiId, true),
           considerar_nos_resultados: true,
           conta_pai_id: contaPaiId,
       });
@@ -974,6 +1020,7 @@ export const PlanoContasManager = ({
       }
 
       const normalizedTipo = normalizeTipo(formData.tipo);
+    const operationalValue = resolveOperationalValue(formData.conta_pai_id, formData.eh_operacional);
       if (modalMode === 'CREATE') {
           const tempId = nextTempIdRef.current;
           nextTempIdRef.current -= 1;
@@ -985,6 +1032,7 @@ export const PlanoContasManager = ({
                   codigo: '',
                   tipo: normalizedTipo,
                   permite_lancamentos: true,
+                  eh_operacional: operationalValue,
                   considerar_nos_resultados: formData.considerar_nos_resultados,
                   conta_pai_id: formData.conta_pai_id || null,
               },
@@ -994,6 +1042,7 @@ export const PlanoContasManager = ({
           const reindexed = recalcCodes(localList.map((categoria) => categoria.id === formData.id ? {
               ...categoria,
               nome: formData.nome.trim(),
+              eh_operacional: operationalValue,
               considerar_nos_resultados: formData.considerar_nos_resultados,
               conta_pai_id: formData.conta_pai_id || null,
               tipo: normalizedTipo,
@@ -1020,6 +1069,8 @@ export const PlanoContasManager = ({
       setLocalList(buildInitialLocalList(categorias));
       setHasChanges(false);
   };
+
+    const selectedParentIsOperational = !!(selectedParent && operationalIds.has(Number(selectedParent.id)));
 
   return (
     <div className="relative">
@@ -1082,12 +1133,13 @@ export const PlanoContasManager = ({
                                   <DraggableTreeItem
                                       key={item.id}
                                       item={item}
-                                      inheritedExcluded={false}
+                                      inheritedOperational={false}
+                                      canManageOperational={canManageOperational}
                                       onDragStart={handleDragStart}
                                       onDrop={handleDrop}
-                                      onEdit={(i:any)=>{ setModalMode('EDIT'); setCreateTipoLocked(false); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, considerar_nos_resultados: i.considerar_nos_resultados !== false, conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
+                                      onEdit={(i:any)=>{ setModalMode('EDIT'); setCreateTipoLocked(false); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, eh_operacional: i.eh_operacional !== false, considerar_nos_resultados: i.considerar_nos_resultados !== false, conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
                                       onCreateChild={(i:any)=>{ setExpandedIds((prev) => new Set(prev).add(i.id)); openCreateModal(normalizeTipo(i.tipo), i.id, true); }}
-                                      onMove={(i:any)=>{ setModalMode('MOVE'); setCreateTipoLocked(false); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, considerar_nos_resultados: i.considerar_nos_resultados !== false, conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
+                                      onMove={(i:any)=>{ setModalMode('MOVE'); setCreateTipoLocked(false); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, eh_operacional: i.eh_operacional !== false, considerar_nos_resultados: i.considerar_nos_resultados !== false, conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
                                       onDelete={handleDelete}
                                       onToggle={handleToggle}
                                       expandedIds={expandedIds}
@@ -1184,6 +1236,33 @@ export const PlanoContasManager = ({
                               </button>
                           )}
                       </div>
+
+                      {modalMode !== 'MOVE' && canManageOperational && (
+                          <div>
+                              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Categoria operacional</label>
+                              <div className="grid grid-cols-2 gap-2">
+                                  <button
+                                      type="button"
+                                      onClick={() => setFormData({ ...formData, eh_operacional: true })}
+                                      className={`py-3 rounded-lg text-sm font-bold border transition ${formData.eh_operacional ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-900/20' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                                  >
+                                      Sim
+                                  </button>
+                                  <button
+                                      type="button"
+                                      onClick={() => setFormData({ ...formData, eh_operacional: false })}
+                                      className={`py-3 rounded-lg text-sm font-bold border transition ${!formData.eh_operacional ? 'bg-rose-600 text-white border-rose-600 shadow-lg shadow-rose-900/20' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                                  >
+                                      Nao
+                                  </button>
+                              </div>
+                              {selectedParentIsOperational && !formData.eh_operacional && (
+                                  <p className="mt-2 text-xs font-semibold text-emerald-600 dark:text-emerald-300">
+                                      A categoria pai ja esta marcada como operacional. Esta categoria herdara esse comportamento.
+                                  </p>
+                              )}
+                          </div>
+                      )}
 
                       <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
                           <button onClick={()=>{ setModalOpen(false); setCreateTipoLocked(false); }} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold">Cancelar</button>
@@ -1520,7 +1599,7 @@ export function Importacao() {
           let res: any; let newItem: any;
           if(modalType === 'CATEGORIA') {
               const tipo = (modalValue || '').trim().toUpperCase().startsWith('R') ? 'R' : 'D';
-              res = await api.post('/plano-contas/', { nome: modalValue, tipo: tipo, permite_lancamentos: true, considerar_nos_resultados: true }); 
+              res = await api.post('/plano-contas/', { nome: modalValue, tipo: tipo, permite_lancamentos: true, eh_operacional: true, considerar_nos_resultados: true }); 
               newItem = res.data;
               setSistemaData(prev => {
                 const next = [...prev.categorias, newItem];
@@ -1620,7 +1699,7 @@ export function Importacao() {
           const results = await Promise.allSettled(normalizedMissingList.map(async (name) => {
               if (type === 'CATEGORIA') {
                   const tipo = name.toUpperCase().startsWith('R') ? 'R' : 'D';
-                  const response = await api.post('/plano-contas/', { nome: name, tipo, permite_lancamentos: true, considerar_nos_resultados: true });
+                  const response = await api.post('/plano-contas/', { nome: name, tipo, permite_lancamentos: true, eh_operacional: true, considerar_nos_resultados: true });
                   return { name, data: response.data };
               }
               if (type === 'CONTA') {

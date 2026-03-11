@@ -21,6 +21,7 @@ TEMPLATE_CONFIG_KEYS = {
     "PJ": "template-default-pj",
 }
 TRANSFER_CATEGORY_NAME = "Transferencias internas"
+AUTHORIZED_OPERATIONAL_EMAIL = "cirocaue12@gmail.com"
 
 
 def _apply_model_update(db_obj, update_data: dict) -> None:
@@ -51,6 +52,84 @@ def _strip_codigo_prefixo(nome: str) -> str:
     if match:
         return match.group(1).strip()
     return texto
+
+
+def can_manage_operational_flag(user_email: Optional[str]) -> bool:
+    return (user_email or "").strip().lower() == AUTHORIZED_OPERATIONAL_EMAIL
+
+
+def _sort_items_by_code(items: list[Any]) -> list[Any]:
+    return sorted(items, key=lambda item: (str(getattr(item, "codigo", None) if not isinstance(item, dict) else item.get("codigo") or "zzz"), str(getattr(item, "nome", None) if not isinstance(item, dict) else item.get("nome") or "")))
+
+
+def sync_company_operational_hierarchy(db: Session, *, empresa_id: int) -> None:
+    contas = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.oculta == False,
+        )
+    ).all()
+    if not contas:
+        return
+
+    filhos_por_pai: dict[int, list[PlanoContas]] = {}
+    roots: list[PlanoContas] = []
+    for conta in contas:
+        parent_id = int(conta.conta_pai_id) if conta.conta_pai_id is not None else None
+        if parent_id is None:
+            roots.append(conta)
+            continue
+        filhos_por_pai.setdefault(parent_id, []).append(conta)
+
+    updated = False
+
+    def walk(conta: PlanoContas, parent_effective: Optional[bool]) -> None:
+        nonlocal updated
+        current_value = bool(conta.eh_operacional)
+        effective_value = current_value if parent_effective is None else parent_effective
+
+        if parent_effective is not None and conta.eh_operacional != effective_value:
+            conta.eh_operacional = effective_value
+            db.add(conta)
+            updated = True
+
+        for child in _sort_items_by_code(filhos_por_pai.get(int(conta.id or 0), [])):
+            walk(child, effective_value)
+
+    for root in _sort_items_by_code(roots):
+        walk(root, None)
+
+    if updated:
+        db.commit()
+
+
+def sync_template_operational_hierarchy(items: list[TemplateItem]) -> list[TemplateItem]:
+    filhos_por_pai: dict[int, list[TemplateItem]] = {}
+    roots: list[TemplateItem] = []
+    items_index = {int(item["id"]): item for item in items}
+
+    for item in items:
+        parent_id = item.get("conta_pai_id")
+        if parent_id is None or int(parent_id) not in items_index:
+            roots.append(item)
+            continue
+        filhos_por_pai.setdefault(int(parent_id), []).append(item)
+
+    def item_sort_key(item: TemplateItem) -> tuple[str, str]:
+        return (str(item.get("codigo") or "zzz"), str(item.get("nome") or ""))
+
+    def walk(item: TemplateItem, parent_effective: Optional[bool]) -> None:
+        current_value = bool(item.get("eh_operacional", True))
+        effective_value = current_value if parent_effective is None else parent_effective
+        if parent_effective is not None:
+            item["eh_operacional"] = effective_value
+        for child in sorted(filhos_por_pai.get(int(item["id"]), []), key=item_sort_key):
+            walk(child, effective_value)
+
+    for root in sorted(roots, key=item_sort_key):
+        walk(root, None)
+
+    return items
 
 
 def _pf_template_nodes() -> list[TemplateNode]:
@@ -252,6 +331,7 @@ def _flatten_template_nodes(nodes: list[TemplateNode]) -> list[TemplateItem]:
                     "tipo": _normalizar_tipo_plano(node.get("tipo"), default="D"),
                     "codigo": codigo,
                     "permite_lancamentos": bool(node.get("permite_lancamentos", not bool(node.get("children")))),
+                    "eh_operacional": bool(node.get("eh_operacional", True)),
                     "considerar_nos_resultados": bool(node.get("considerar_nos_resultados", True)),
                     "conta_pai_id": parent_id,
                 }
@@ -283,18 +363,22 @@ def _sanitize_template_item(item: dict[str, Any]) -> TemplateItem:
         "tipo": _normalizar_tipo_plano(item.get("tipo"), default="D"),
         "codigo": item.get("codigo"),
         "permite_lancamentos": bool(item.get("permite_lancamentos", True)),
+        "eh_operacional": bool(item.get("eh_operacional", True)),
         "considerar_nos_resultados": bool(item.get("considerar_nos_resultados", True)),
         "conta_pai_id": item.get("conta_pai_id"),
     }
 
 
 def _ensure_template_config_table(db: Session) -> None:
-    PlanoContasTemplateConfig.__table__.create(bind=db.get_bind(), checkfirst=True)
+    table = getattr(PlanoContasTemplateConfig, "__table__", None)
+    if table is None:
+        return
+    table.create(bind=db.get_bind(), checkfirst=True)
 
 
 def _has_template_config_table(db: Session) -> bool:
     try:
-        return inspect(db.get_bind()).has_table(PlanoContasTemplateConfig.__tablename__)
+        return inspect(db.get_bind()).has_table(str(PlanoContasTemplateConfig.__tablename__))
     except Exception:
         return False
 
@@ -401,6 +485,7 @@ def create(db: Session, *, obj_in: PlanoContasCreate, empresa_id: int) -> PlanoC
     data = obj_in.model_dump()
     data["tipo"] = _normalizar_tipo_plano(data.get("tipo"), default="D")
     data["empresa_id"] = empresa_id
+    data["eh_operacional"] = bool(data.get("eh_operacional", True))
     data["considerar_nos_resultados"] = True
     data["oculta"] = False
     db_obj = PlanoContas.model_validate(data)
@@ -416,6 +501,8 @@ def update(db: Session, *, db_obj: PlanoContas, obj_in: PlanoContasUpdate) -> Pl
         update_data.pop("codigo")
     if "tipo" in update_data and update_data["tipo"] is not None:
         update_data["tipo"] = _normalizar_tipo_plano(update_data["tipo"], default=db_obj.tipo)
+    if "eh_operacional" in update_data and update_data["eh_operacional"] is not None:
+        update_data["eh_operacional"] = bool(update_data["eh_operacional"])
     if not db_obj.oculta:
         update_data["considerar_nos_resultados"] = True
     _apply_model_update(db_obj, update_data)
@@ -449,12 +536,14 @@ def ensure_transfer_category(db: Session, *, empresa_id: int) -> PlanoContas:
             codigo=None,
             empresa_id=empresa_id,
             permite_lancamentos=False,
+            eh_operacional=False,
             considerar_nos_resultados=False,
             oculta=True,
         )
     else:
         categoria.tipo = "D"
         categoria.permite_lancamentos = False
+        categoria.eh_operacional = False
         categoria.considerar_nos_resultados = False
         categoria.oculta = True
 
@@ -477,10 +566,13 @@ def seed_plano_contas_padrao(db: Session, *, empresa_id: int, tipo_pessoa: str =
             empresa_id=empresa_id,
             conta_pai_id=created_ids.get(int(parent_template_id)) if parent_template_id is not None else None,
             permite_lancamentos=bool(item.get("permite_lancamentos", True)),
+            eh_operacional=bool(item.get("eh_operacional", True)),
             considerar_nos_resultados=True,
         )
         db.add(conta)
         db.flush()
+        if conta.id is None:
+            raise ValueError("Falha ao gerar ID da categoria do plano de contas")
         created_ids[template_id] = int(conta.id)
 
     ensure_transfer_category(db=db, empresa_id=empresa_id)

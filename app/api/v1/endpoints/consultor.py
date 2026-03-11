@@ -866,10 +866,13 @@ def criar_item_template_plano_contas(
             "tipo": parent["tipo"] if parent else conta_in.tipo,
             "codigo": None,
             "permite_lancamentos": conta_in.permite_lancamentos,
+            "eh_operacional": conta_in.eh_operacional,
             "considerar_nos_resultados": conta_in.considerar_nos_resultados,
             "conta_pai_id": conta_pai_id,
         }
         items.append(new_item)
+        if not crud_plano_contas.can_manage_operational_flag(super_consultor.email):
+            items = crud_plano_contas.sync_template_operational_hierarchy(items)
         crud_plano_contas.save_template_items(db=db, tipo_pessoa=normalized, items=items)
         logger.warning(f"[SUPER] {super_consultor.email} criou item no template {normalized}: {conta_in.nome}")
         return new_item
@@ -910,6 +913,8 @@ def atualizar_item_template_plano_contas(
             item["nome"] = update_data["nome"]
         if "considerar_nos_resultados" in update_data and update_data["considerar_nos_resultados"] is not None:
             item["considerar_nos_resultados"] = update_data["considerar_nos_resultados"]
+        if "eh_operacional" in update_data and update_data["eh_operacional"] is not None:
+            item["eh_operacional"] = update_data["eh_operacional"]
         if "permite_lancamentos" in update_data and update_data["permite_lancamentos"] is not None:
             item["permite_lancamentos"] = update_data["permite_lancamentos"]
         if "tipo" in update_data and update_data["tipo"] is not None:
@@ -918,6 +923,9 @@ def atualizar_item_template_plano_contas(
             item["conta_pai_id"] = new_parent_id
             if parent:
                 item["tipo"] = parent["tipo"]
+
+        if not crud_plano_contas.can_manage_operational_flag(super_consultor.email):
+            items = crud_plano_contas.sync_template_operational_hierarchy(items)
 
         crud_plano_contas.save_template_items(db=db, tipo_pessoa=normalized, items=items)
         logger.warning(f"[SUPER] {super_consultor.email} atualizou item {conta_id} do template {normalized}")
@@ -986,6 +994,9 @@ def reordenar_template_plano_contas(
                     "tipo": payload.tipo,
                 }
             )
+
+        if not crud_plano_contas.can_manage_operational_flag(super_consultor.email):
+            updated_items = crud_plano_contas.sync_template_operational_hierarchy(updated_items)
 
         crud_plano_contas.save_template_items(db=db, tipo_pessoa=normalized, items=updated_items)
         logger.warning(f"[SUPER] {super_consultor.email} reordenou template {normalized}")

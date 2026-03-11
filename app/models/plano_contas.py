@@ -30,6 +30,7 @@ class PlanoContas(AuditMixin, SQLModel, table=True):
     eh_divida: bool = Field(default=False) 
     
     permite_lancamentos: bool = Field(default=True)
+    eh_operacional: bool = Field(default=True)
     considerar_nos_resultados: bool = Field(default=True)
     oculta: bool = Field(default=False, index=True)
     

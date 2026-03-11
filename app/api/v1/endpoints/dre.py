@@ -42,6 +42,9 @@ class DREResponse(BaseModel):
     receita_total: float
     despesa_total: float
     resultado_total: float
+    receita_operacional_total: float
+    despesa_operacional_total: float
+    resultado_operacional_total: float
     margem_percentual: float
     categorias_receita: List[DRECategoriaItem]
     categorias_despesa: List[DRECategoriaItem]
@@ -90,19 +93,43 @@ def read_dre(
         prev_year = inicio_serie.year - 1 if inicio_serie.month == 1 else inicio_serie.year
         inicio_serie = date(prev_year, prev_month, 1)
 
+    categorias = db.exec(
+        select(PlanoContas)
+        .where(PlanoContas.empresa_id == empresa_id)
+        .where(PlanoContas.is_deleted == False)
+        .where(PlanoContas.oculta == False)
+    ).all()
+    filhos_por_pai: Dict[int, List[int]] = {}
+    categorias_operacionais_ids: set[int] = set()
+    for categoria in categorias:
+        if categoria.id is None:
+            continue
+        if categoria.conta_pai_id is not None:
+            filhos_por_pai.setdefault(int(categoria.conta_pai_id), []).append(int(categoria.id))
+        if categoria.eh_operacional:
+            categorias_operacionais_ids.add(int(categoria.id))
+
+    fila = list(categorias_operacionais_ids)
+    while fila:
+        atual = fila.pop(0)
+        for filho_id in filhos_por_pai.get(atual, []):
+            if filho_id not in categorias_operacionais_ids:
+                categorias_operacionais_ids.add(filho_id)
+                fila.append(filho_id)
+
+    categorias_por_id = {int(categoria.id): categoria for categoria in categorias if categoria.id is not None}
     rows = db.exec(
-        select(Lancamento, PlanoContas)
-        .join(PlanoContas, PlanoContas.id == Lancamento.plano_contas_id)
+        select(Lancamento)
         .where(Lancamento.empresa_id == empresa_id)
         .where(Lancamento.is_deleted == False)
-        .where(PlanoContas.is_deleted == False)
-        .where(PlanoContas.considerar_nos_resultados == True)
         .where(Lancamento.data_vencimento >= inicio_serie)
         .where(Lancamento.data_vencimento <= fim_mes)
     ).all()
 
     receitas_mes = Decimal("0")
     despesas_mes = Decimal("0")
+    receitas_operacionais_mes = Decimal("0")
+    despesas_operacionais_mes = Decimal("0")
     categorias_receita: Dict[int, DRECategoriaItem] = {}
     categorias_despesa: Dict[int, DRECategoriaItem] = {}
     serie_dict: Dict[str, Dict[str, Decimal]] = {}
@@ -115,7 +142,10 @@ def read_dre(
         next_year = cursor.year + 1 if next_month == 13 else cursor.year
         cursor = date(next_year, 1 if next_month == 13 else next_month, 1)
 
-    for lancamento, categoria in rows:
+    for lancamento in rows:
+        categoria = categorias_por_id.get(int(lancamento.plano_contas_id or 0))
+        if categoria is None:
+            continue
         competencia = _resolve_competencia(lancamento)
         valor = _resolve_valor(lancamento)
         key = _month_key(competencia)
@@ -128,6 +158,8 @@ def read_dre(
             serie_dict[key]["receitas"] += valor
             if inicio_mes <= competencia <= fim_mes:
                 receitas_mes += valor
+                if (categoria.id or 0) in categorias_operacionais_ids:
+                    receitas_operacionais_mes += valor
                 categoria_item = categorias_receita.get(categoria.id or 0)
                 if not categoria_item:
                     categoria_item = DRECategoriaItem(
@@ -143,6 +175,8 @@ def read_dre(
             serie_dict[key]["despesas"] += valor
             if inicio_mes <= competencia <= fim_mes:
                 despesas_mes += valor
+                if (categoria.id or 0) in categorias_operacionais_ids:
+                    despesas_operacionais_mes += valor
                 categoria_item = categorias_despesa.get(categoria.id or 0)
                 if not categoria_item:
                     categoria_item = DRECategoriaItem(
@@ -178,6 +212,9 @@ def read_dre(
         receita_total=float(receitas_mes),
         despesa_total=float(despesas_mes),
         resultado_total=float(resultado),
+        receita_operacional_total=float(receitas_operacionais_mes),
+        despesa_operacional_total=float(despesas_operacionais_mes),
+        resultado_operacional_total=float(receitas_operacionais_mes - despesas_operacionais_mes),
         margem_percentual=margem,
         categorias_receita=categorias_receita_sorted,
         categorias_despesa=categorias_despesa_sorted,

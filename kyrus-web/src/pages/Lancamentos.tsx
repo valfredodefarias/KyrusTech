@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { api, toPublicAssetUrl } from '../services/api';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { useLookupStore } from '../store/lookupStore';
+import { buildOperationalCategoriaIds } from '../utils/planoContas';
 import { BankAvatar } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
 import { 
@@ -356,38 +357,6 @@ const ToggleSimNao = ({
     </div>
   </div>
 );
-
-const buildExcludedCategoriaIds = (categorias: any[]) => {
-  const filhosPorPai = new Map<number, number[]>();
-  const excluidas = new Set<number>();
-
-  categorias.forEach((cat: any) => {
-    const catId = Number(cat.id);
-    const parentId = Number(cat.conta_pai_id);
-    if (Number.isFinite(parentId) && parentId > 0) {
-      const filhos = filhosPorPai.get(parentId) || [];
-      filhos.push(catId);
-      filhosPorPai.set(parentId, filhos);
-    }
-    if (cat.considerar_nos_resultados === false) {
-      excluidas.add(catId);
-    }
-  });
-
-  const fila = Array.from(excluidas);
-  while (fila.length > 0) {
-    const atual = fila.shift()!;
-    const filhos = filhosPorPai.get(atual) || [];
-    filhos.forEach((filhoId) => {
-      if (!excluidas.has(filhoId)) {
-        excluidas.add(filhoId);
-        fila.push(filhoId);
-      }
-    });
-  }
-
-  return excluidas;
-};
 
 export function Lancamentos() {
   // --- DADOS ---
@@ -888,13 +857,13 @@ export function Lancamentos() {
   const { grouped, kpis } = useMemo(() => {
     const groups: Record<string, Lancamento[]> = {};
     let r = 0, d = 0;
-    const categoriasExcluidasResultado = buildExcludedCategoriaIds(categorias);
+    const categoriasOperacionaisResultado = buildOperationalCategoriaIds(categorias);
 
     filteredList.forEach(l => {
       if (!groups[l.data_vencimento]) groups[l.data_vencimento] = [];
       groups[l.data_vencimento].push(l);
       const origem = String((l as any).origem || '').toUpperCase();
-      const contaNosResultados = !categoriasExcluidasResultado.has(Number(l.plano_contas_id));
+      const contaNosResultados = categoriasOperacionaisResultado.has(Number(l.plano_contas_id));
       if (origem !== 'TRANSFERENCIA' && contaNosResultados) {
         if (l.tipo === 'RECEITA') r += Number(l.valor_previsto);
         else d += Number(l.valor_previsto);

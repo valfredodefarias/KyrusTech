@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select, func, case, or_
+from sqlalchemy import text
 from sqlalchemy.orm import selectinload
 from loguru import logger
 from pydantic import BaseModel
@@ -27,6 +28,11 @@ router = APIRouter()
 UPLOAD_DIR = Path("static/uploads/contas")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_CONTA_LOGO_SIZE = 2 * 1024 * 1024
+
+
+def _ensure_legacy_conta_columns(db: Session) -> None:
+    db.execute(text("ALTER TABLE contas ADD COLUMN IF NOT EXISTS conta_como_disponibilidade BOOLEAN NOT NULL DEFAULT TRUE"))
+    db.commit()
 
 # Schema para retorno do saldo
 class ContaSaldo(ContaRead):
@@ -108,6 +114,7 @@ def read_all_contas(
     """
     Lista contas com SALDO CALCULADO (Inicial + Entradas - Saídas).
     """
+    _ensure_legacy_conta_columns(db)
     # Lista todas as contas da empresa
     contas = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
     resultado = []

@@ -179,7 +179,7 @@ function SoftMetricGrid({
   const titleClass = accent === 'rose' ? isDark ? 'text-rose-200' : 'text-rose-700' : isDark ? 'text-sky-200' : 'text-sky-700';
 
   return (
-    <section className={`rounded-[28px] border bg-gradient-to-br px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${toneClass}`}>
+    <section className={`rounded-[28px] border bg-linear-to-br px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${toneClass}`}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className={`text-sm font-black uppercase tracking-[0.18em] ${titleClass}`}>{title}</h2>
         <div className={`h-2.5 w-2.5 rounded-full ${accent === 'rose' ? 'bg-rose-400' : 'bg-sky-400'}`} />
@@ -261,6 +261,7 @@ function applyFilters(
 
 export function Boletim() {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [contas, setContas] = useState<ContaResumo[]>([]);
   const [lancamentos, setLancamentos] = useState<LancamentoResumo[]>([]);
   const [entidades, setEntidades] = useState<EntidadeResumo[]>([]);
@@ -279,6 +280,7 @@ export function Boletim() {
 
     async function loadData() {
       setLoading(true);
+      setLoadError(null);
       try {
         const today = new Date();
         const yearStart = `${today.getFullYear()}-01-01`;
@@ -301,7 +303,7 @@ export function Boletim() {
           empresaAtual = contextoRes.data.empresa_atual;
         }
 
-        const [contasRes, lancamentosRes, entidadesRes, centrosCustoRes] = await Promise.all([
+        const [contasRes, lancamentosRes, entidadesRes, centrosCustoRes] = await Promise.allSettled([
           api.get<ContaResumo[]>('/contas/'),
           api.get<LancamentoResumo[]>('/lancamentos/', { params: { limit: 10000, data_inicio: yearStart, data_fim: yearEnd } }),
           api.get<EntidadeResumo[]>('/entidades/'),
@@ -311,12 +313,20 @@ export function Boletim() {
         if (!active) return;
 
         setEmpresa(empresaAtual);
-        setContas(contasRes.data || []);
-        setLancamentos(lancamentosRes.data || []);
-        setEntidades(entidadesRes.data || []);
-        setCentrosCusto(centrosCustoRes.data || []);
+        setContas(contasRes.status === 'fulfilled' ? (contasRes.value.data || []) : []);
+        setLancamentos(lancamentosRes.status === 'fulfilled' ? (lancamentosRes.value.data || []) : []);
+        setEntidades(entidadesRes.status === 'fulfilled' ? (entidadesRes.value.data || []) : []);
+        setCentrosCusto(centrosCustoRes.status === 'fulfilled' ? (centrosCustoRes.value.data || []) : []);
+
+        const failures = [contasRes, lancamentosRes, entidadesRes, centrosCustoRes].filter((result) => result.status === 'rejected');
+        if (failures.length > 0) {
+          setLoadError('Parte dos dados do boletim nao pôde ser carregada. A tela continuou com o que estava disponível.');
+        }
       } catch (error) {
         console.error('Erro ao carregar boletim', error);
+        if (active) {
+          setLoadError('Nao foi possivel carregar o boletim financeiro.');
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -666,7 +676,7 @@ export function Boletim() {
   return (
     <div className={`min-h-full px-3 py-6 sm:px-4 lg:px-6 ${pageClass}`}>
       <div className="mx-auto w-full space-y-5">
-        <header className={`overflow-hidden rounded-[32px] border px-6 py-5 shadow-[0_35px_100px_-70px_rgba(15,23,42,0.95)] ${shellClass}`}>
+        <header className={`overflow-hidden rounded-4xl border px-6 py-5 shadow-[0_35px_100px_-70px_rgba(15,23,42,0.95)] ${shellClass}`}>
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center gap-4">
               <div className={`flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border ${isDark ? 'border-white/10 bg-white/95' : 'border-slate-200 bg-slate-100'}`}>
@@ -729,6 +739,12 @@ export function Boletim() {
             </div>
           ) : null}
         </header>
+
+        {loadError ? (
+          <div className={`rounded-3xl border px-5 py-4 text-sm font-semibold ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+            {loadError}
+          </div>
+        ) : null}
 
         {viewMode === 'executivo' ? (
           <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_420px]">
@@ -915,7 +931,7 @@ export function Boletim() {
 
                 <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[920px] text-sm">
+                    <table className="w-full min-w-230 text-sm">
                       <thead className={isDark ? 'bg-[#f2c94c] text-slate-950' : 'bg-amber-300 text-slate-950'}>
                         <tr>
                           <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.14em]">Data Vcto</th>
@@ -931,10 +947,10 @@ export function Boletim() {
                             <td colSpan={5} className={`px-4 py-12 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Nenhum lançamento para os filtros atuais.</td>
                           </tr>
                         ) : dashboard.tableRows.map((row) => (
-                          <tr key={row.id} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/[0.04]' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
+                          <tr key={row.id} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
                             <td className="px-4 py-3 font-medium">{formatDate(row.dataVencimento)}</td>
                             <td className="px-4 py-3 font-semibold">{row.interessado}</td>
-                            <td className="px-4 py-3 max-w-[340px] truncate" title={row.descricao}>{row.descricao}</td>
+                            <td className="max-w-85 truncate px-4 py-3" title={row.descricao}>{row.descricao}</td>
                             <td className={`px-4 py-3 font-semibold ${row.flowType === 'RECEBIMENTO' ? 'text-[#4d8cf3]' : 'text-[#ff5a47]'}`}>{row.flowType === 'RECEBIMENTO' ? 'Recebimento' : 'Pagamento'}</td>
                             <td className={`px-4 py-3 text-right font-black ${row.valor >= 0 ? 'text-[#4d8cf3]' : 'text-[#ff5a47]'}`}>{BRL.format(row.valor)}</td>
                           </tr>
@@ -969,7 +985,7 @@ export function Boletim() {
                         key={item.key}
                         type="button"
                         onClick={() => setStatusFilter((current) => current === item.key ? 'TODOS' : item.key)}
-                        className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-3 text-left transition ${active ? isDark ? 'border-amber-300/50 bg-amber-300/10' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035] hover:bg-white/[0.06]' : 'border-slate-200 bg-white/85 hover:bg-slate-50'}`}
+                        className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-3 text-left transition ${active ? isDark ? 'border-amber-300/50 bg-amber-300/10' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035] hover:bg-white/6' : 'border-slate-200 bg-white/85 hover:bg-slate-50'}`}
                       >
                         <span className={`font-black ${isDark ? 'text-white/85' : 'text-slate-800'}`}>{item.label}</span>
                         <span className={`font-black ${active ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white' : 'text-slate-900'}`}>{BRL.format(item.value)}</span>

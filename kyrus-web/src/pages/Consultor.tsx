@@ -1210,7 +1210,7 @@ export function Consultor() {
                   Templates globais
                 </div>
                 <h2 className="text-xl font-black text-slate-900 dark:text-white">Plano de contas padrão PF e PJ</h2>
-                <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">O que você editar aqui passa a ser a base usada em novas empresas. Super consultor pode estruturar, mover, criar subcategorias e marcar o que entra no resultado.</p>
+                <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">O que você editar aqui passa a ser a base usada em novas empresas. Super consultor pode estruturar, mover, criar subcategorias e marcar categorias operacionais com herança para as filhas.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button

@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Sigma, TrendingDown, TrendingUp } from 'lucide-react';
 
 import { api } from '../services/api';
+import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
 interface PlanoConta {
   id: number;
   nome: string;
   tipo: string;
   codigo?: string | null;
+  eh_operacional?: boolean;
   considerar_nos_resultados?: boolean;
   permite_lancamentos?: boolean;
   conta_pai_id?: number | null;
@@ -41,6 +43,7 @@ interface DreNode {
   monthly: number[];
   total: number;
   hasChildren: boolean;
+  isOperationalInherited: boolean;
 }
 
 type DreBranch = {
@@ -203,14 +206,14 @@ export function Dre() {
   }, [lancamentos, selectedCentroCustoId]);
 
   const dre = useMemo(() => {
-    const relevantes = categorias.filter((conta) => {
-      if (conta.considerar_nos_resultados === false) return false;
-      return isReceita(conta.tipo) || isDespesa(conta.tipo);
-    });
+    const relevantes = categorias.filter((conta) => isReceita(conta.tipo) || isDespesa(conta.tipo));
+    const categoriasOperacionais = buildOperationalCategoriaIds(relevantes);
 
     const contaPorId = new Map<number, PlanoConta>();
     const filhosPorPai = new Map<number | null, PlanoConta[]>();
     const valoresDiretos = new Map<number, number[]>();
+    const receitaOperacionalMonthly = Array.from({ length: 12 }, () => 0);
+    const despesaOperacionalMonthly = Array.from({ length: 12 }, () => 0);
 
     relevantes.forEach((conta) => {
       contaPorId.set(conta.id, conta);
@@ -225,9 +228,16 @@ export function Dre() {
       if (!contaPorId.has(contaId)) return;
       const monthIndex = parseMonthIndex(resolveCompetenciaDate(lancamento));
       if (monthIndex < 0) return;
+      const conta = contaPorId.get(contaId);
+      const value = resolveLancamentoValue(lancamento);
       const values = valoresDiretos.get(contaId) || Array.from({ length: 12 }, () => 0);
-      values[monthIndex] += resolveLancamentoValue(lancamento);
+      values[monthIndex] += value;
       valoresDiretos.set(contaId, values);
+
+      if (categoriasOperacionais.has(contaId) && conta) {
+        if (isReceita(conta.tipo)) receitaOperacionalMonthly[monthIndex] += value;
+        if (isDespesa(conta.tipo)) despesaOperacionalMonthly[monthIndex] += value;
+      }
     });
 
     const sortAccounts = (accounts: PlanoConta[]) => [...accounts].sort((left, right) => {
@@ -249,14 +259,17 @@ export function Dre() {
     };
     relevantes.forEach((conta) => collectDescendants(conta.id));
 
-    const buildBranch = (conta: PlanoConta, depth: number): DreBranch | null => {
+    const buildBranch = (conta: PlanoConta, depth: number, parentOperational: boolean): DreBranch | null => {
       const ownValues = [...(valoresDiretos.get(conta.id) || Array.from({ length: 12 }, () => 0))];
       const children = sortAccounts(filhosPorPai.get(conta.id) || []);
       const childRows: DreNode[] = [];
       const totalValues = [...ownValues];
+      const ownOperational = conta.eh_operacional !== false;
+      const effectiveOperational = parentOperational || ownOperational;
+      const inheritedOnly = parentOperational && conta.eh_operacional === false;
 
       children.forEach((child) => {
-        const branch = buildBranch(child, depth + 1);
+        const branch = buildBranch(child, depth + 1, effectiveOperational);
         if (!branch) return;
         branch.monthly.forEach((value, index) => {
           totalValues[index] += value;
@@ -274,6 +287,7 @@ export function Dre() {
         monthly: totalValues,
         total: sumValues(totalValues),
         hasChildren: childRows.length > 0,
+        isOperationalInherited: inheritedOnly,
       };
 
       return { rows: [row, ...childRows], monthly: totalValues };
@@ -282,8 +296,8 @@ export function Dre() {
     const receitaRoots = roots.filter((conta) => isReceita(conta.tipo));
     const despesaRoots = roots.filter((conta) => isDespesa(conta.tipo));
 
-    const receitaBranches = receitaRoots.map((conta) => buildBranch(conta, 0)).filter(Boolean) as DreBranch[];
-    const despesaBranches = despesaRoots.map((conta) => buildBranch(conta, 0)).filter(Boolean) as DreBranch[];
+    const receitaBranches = receitaRoots.map((conta) => buildBranch(conta, 0, false)).filter(Boolean) as DreBranch[];
+    const despesaBranches = despesaRoots.map((conta) => buildBranch(conta, 0, false)).filter(Boolean) as DreBranch[];
 
     const receitaRows = receitaBranches.flatMap((branch) => branch.rows);
     const despesaRows = despesaBranches.flatMap((branch) => branch.rows);
@@ -304,6 +318,7 @@ export function Dre() {
     });
 
     const resultadoMonthly = receitaMonthly.map((value, index) => value - despesaMonthly[index]);
+    const resultadoOperacionalMonthly = receitaOperacionalMonthly.map((value, index) => value - despesaOperacionalMonthly[index]);
 
     return {
       contaPorId,
@@ -313,9 +328,11 @@ export function Dre() {
       receitaMonthly,
       despesaMonthly,
       resultadoMonthly,
+      resultadoOperacionalMonthly,
       receitaTotal: sumValues(receitaMonthly),
       despesaTotal: sumValues(despesaMonthly),
       resultadoTotal: sumValues(resultadoMonthly),
+      resultadoOperacionalTotal: sumValues(resultadoOperacionalMonthly),
     };
   }, [categorias, lancamentosFiltrados]);
 
@@ -419,10 +436,11 @@ export function Dre() {
           </div>
         ) : null}
 
-        <section className="grid gap-4 xl:grid-cols-3">
+        <section className="grid gap-4 xl:grid-cols-4">
           <MetricCard label="Entradas totais" value={moneyFormatter.format(dre.receitaTotal)} tone="emerald" icon={<TrendingUp className="h-5 w-5" />} isDark={isDark} />
           <MetricCard label="Saidas totais" value={moneyFormatter.format(dre.despesaTotal)} tone="rose" icon={<TrendingDown className="h-5 w-5" />} isDark={isDark} />
           <MetricCard label="Resultado" value={moneyFormatter.format(dre.resultadoTotal)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} />
+          <MetricCard label="Resultado operacional" value={moneyFormatter.format(dre.resultadoOperacionalTotal)} tone="slate" icon={<CalendarDays className="h-5 w-5" />} isDark={isDark} />
         </section>
 
         <section className={`overflow-hidden rounded-[30px] border shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] ${isDark ? 'border-slate-800 bg-slate-950/75' : 'border-slate-200 bg-white'}`}>
@@ -467,6 +485,7 @@ export function Dre() {
                       >
                         <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 18}px` }}>
                           <span className="min-w-0 truncate">{row.codigo ? `${row.codigo} ${row.nome}` : row.nome}</span>
+                          {row.isOperationalInherited ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Operacional herdado</span> : null}
                         </div>
                       </td>
                       <td
@@ -519,6 +538,7 @@ export function Dre() {
                       >
                         <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 18}px` }}>
                           <span className="min-w-0 truncate">{row.codigo ? `${row.codigo} ${row.nome}` : row.nome}</span>
+                          {row.isOperationalInherited ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Operacional herdado</span> : null}
                         </div>
                       </td>
                       <td
@@ -553,6 +573,18 @@ export function Dre() {
                   </td>
                   {dre.resultadoMonthly.map((value, index) => (
                     <td key={`resultado-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${value >= 0 ? isDark ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-50 text-emerald-700' : isDark ? 'bg-rose-500/10 text-rose-200' : 'bg-rose-50 text-rose-700'}`}>
+                      {renderMoneyCell(value, 'resultado')}
+                    </td>
+                  ))}
+                </tr>
+
+                <tr>
+                  <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado operacional</td>
+                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black ${dre.resultadoOperacionalTotal >= 0 ? isDark ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-100 text-emerald-700' : isDark ? 'bg-rose-500/10 text-rose-200' : 'bg-rose-100 text-rose-700'}`}>
+                    {renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')}
+                  </td>
+                  {dre.resultadoOperacionalMonthly.map((value, index) => (
+                    <td key={`resultado-operacional-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${value >= 0 ? isDark ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-50 text-emerald-700' : isDark ? 'bg-rose-500/10 text-rose-200' : 'bg-rose-50 text-rose-700'}`}>
                       {renderMoneyCell(value, 'resultado')}
                     </td>
                   ))}

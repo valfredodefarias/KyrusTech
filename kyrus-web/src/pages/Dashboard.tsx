@@ -4,6 +4,7 @@ import GridLayout from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { api } from '../services/api';
+import { buildOperationalCategoriaIds } from '../utils/planoContas';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { AsyncApexChart } from '../components/AsyncApexChart';
 import {
@@ -34,6 +35,8 @@ interface Categoria {
   id: number;
   nome: string;
   tipo: string;
+  conta_pai_id?: number | null;
+  eh_operacional?: boolean;
   considerar_nos_resultados?: boolean;
 }
 
@@ -864,38 +867,6 @@ const getHeatCellClass = (ratio: number, tone: 'receita' | 'despesa') => {
   return 'border-rose-100 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-500/10 dark:text-rose-300';
 };
 
-const buildExcludedCategoriaIds = (categorias: Categoria[]) => {
-  const filhosPorPai = new Map<number, number[]>();
-  const excluidas = new Set<number>();
-
-  categorias.forEach((cat) => {
-    const catId = Number(cat.id);
-    const parentId = Number((cat as any).conta_pai_id);
-    if (Number.isFinite(parentId) && parentId > 0) {
-      const filhos = filhosPorPai.get(parentId) || [];
-      filhos.push(catId);
-      filhosPorPai.set(parentId, filhos);
-    }
-    if (cat.considerar_nos_resultados === false) {
-      excluidas.add(catId);
-    }
-  });
-
-  const fila = Array.from(excluidas);
-  while (fila.length > 0) {
-    const atual = fila.shift()!;
-    const filhos = filhosPorPai.get(atual) || [];
-    filhos.forEach((filhoId) => {
-      if (!excluidas.has(filhoId)) {
-        excluidas.add(filhoId);
-        fila.push(filhoId);
-      }
-    });
-  }
-
-  return excluidas;
-};
-
 const formatTreemapLabel = (label: string, value: number, total: number) => {
   if (!label || total <= 0) return '';
   const ratio = value / total;
@@ -1426,12 +1397,12 @@ export function Dashboard() {
     return 12;
   }, [dashboardGridWidth]);
 
-  const categoriasExcluidasResultado = useMemo(() => buildExcludedCategoriaIds(categorias), [categorias]);
+  const categoriasOperacionaisResultado = useMemo(() => buildOperationalCategoriaIds(categorias), [categorias]);
 
   const matchesDashboardFilters = (l: Lancamento, includeOperational = false) => {
     const hoje = toDateOnly(new Date());
     if ((l.origem || '').toUpperCase() === 'TRANSFERENCIA') return false;
-    if (includeOperational && categoriasExcluidasResultado.has(Number(l.plano_contas_id))) return false;
+    if (includeOperational && !categoriasOperacionaisResultado.has(Number(l.plano_contas_id))) return false;
     if (filtroHojeAtivo && toDateOnlyStr(l.data_vencimento) !== hoje) return false;
     const isPrevisto = l.previsto !== false;
     if (previstoFiltro === 'SIM' && !isPrevisto) return false;
@@ -1456,7 +1427,7 @@ export function Dashboard() {
   const matchesDashboardFiltersNoDate = (l: Lancamento, includeOperational = false) => {
     const hoje = toDateOnly(new Date());
     if ((l.origem || '').toUpperCase() === 'TRANSFERENCIA') return false;
-    if (includeOperational && categoriasExcluidasResultado.has(Number(l.plano_contas_id))) return false;
+    if (includeOperational && !categoriasOperacionaisResultado.has(Number(l.plano_contas_id))) return false;
     if (filtroHojeAtivo && toDateOnlyStr(l.data_vencimento) !== hoje) return false;
     const isPrevisto = l.previsto !== false;
     if (previstoFiltro === 'SIM' && !isPrevisto) return false;
@@ -1597,19 +1568,19 @@ export function Dashboard() {
 
   const filteredLancamentos = useMemo(() => {
     return lancamentos.filter((l) => matchesDashboardFilters(l, false));
-  }, [lancamentos, selectedCategorias, selectedCentro, selectedConta, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, categoriasExcluidasResultado]);
+  }, [lancamentos, selectedCategorias, selectedCentro, selectedConta, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, categoriasOperacionaisResultado]);
 
   const operationalFilteredLancamentos = useMemo(() => {
     return lancamentos.filter((l) => matchesDashboardFilters(l, true));
-  }, [lancamentos, selectedCategorias, selectedCentro, selectedConta, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, categoriasExcluidasResultado]);
+  }, [lancamentos, selectedCategorias, selectedCentro, selectedConta, selectedDate, selectedMonth, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, categoriasOperacionaisResultado]);
 
   const operationalBaseFilteredNoDate = useMemo(() => {
     return lancamentosAno.filter((l) => matchesDashboardFiltersNoDate(l, true));
-  }, [lancamentosAno, selectedCategorias, selectedCentro, selectedConta, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, categoriasExcluidasResultado]);
+  }, [lancamentosAno, selectedCategorias, selectedCentro, selectedConta, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, categoriasOperacionaisResultado]);
 
   const operationalBaseFilteredAnoAnterior = useMemo(() => {
     return lancamentosAnoAnterior.filter((l) => matchesDashboardFiltersNoDate(l, true));
-  }, [lancamentosAnoAnterior, selectedCategorias, selectedCentro, selectedConta, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, categoriasExcluidasResultado]);
+  }, [lancamentosAnoAnterior, selectedCategorias, selectedCentro, selectedConta, statusFiltro, tipoFiltro, previstoFiltro, competenciaFiltro, filtroHojeAtivo, categoriasOperacionaisResultado]);
 
   const kpis = useMemo(() => {
     let receitas = 0; let despesas = 0; let pagos = 0; let pendentes = 0;
@@ -2147,7 +2118,7 @@ export function Dashboard() {
         centroNome: centroPorId.get(Number(lancamento.centro_custo_id)) || 'Sem centro',
         contaNome: contaPorId.get(Number((lancamento as any).conta_id))?.nome || 'Sem conta',
         bancoNome: contaPorId.get(Number((lancamento as any).conta_id))?.banco || 'Sem banco',
-        naoOperacional: categoriasExcluidasResultado.has(Number(lancamento.plano_contas_id)),
+        naoOperacional: !categoriasOperacionaisResultado.has(Number(lancamento.plano_contas_id)),
       }))
       .filter((lancamento) => {
         if (!query) return true;
@@ -2161,7 +2132,7 @@ export function Dashboard() {
         ].join(' ').toLowerCase();
         return haystack.includes(query);
       });
-  }, [analysisQuery, categoriaPorId, centroPorId, contaPorId, filteredLancamentos, categoriasExcluidasResultado]);
+  }, [analysisQuery, categoriaPorId, centroPorId, contaPorId, filteredLancamentos, categoriasOperacionaisResultado]);
 
   const linhasAnaliticasResumo = useMemo(() => {
     const receitasOperacionais = linhasAnaliticas

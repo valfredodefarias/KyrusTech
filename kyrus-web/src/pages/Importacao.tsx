@@ -140,6 +140,8 @@ const initialQuickEntityForm: QuickEntityFormState = {
     observacoes: '',
 };
 
+const ASYNC_IMPORT_THRESHOLD_BYTES = 2 * 1024 * 1024;
+
 const onlyDigits = (value: string) => value.replace(/\D/g, '');
 
 const formatCpfCnpj = (value: string) => {
@@ -1296,6 +1298,7 @@ export function Importacao() {
   }
 
   async function waitForImportJob(jobId: string) {
+      let attempt = 0;
       while (true) {
           const { data } = await api.get<ImportJobStatus>(`/lancamentos/importar/jobs/${jobId}`, {
               timeout: 0,
@@ -1313,7 +1316,9 @@ export function Importacao() {
               throw new Error(data.error || data.message || 'Falha no processamento do arquivo.');
           }
 
-          await new Promise((resolve) => window.setTimeout(resolve, 1200));
+          attempt += 1;
+          const nextDelay = attempt <= 2 ? 1500 : attempt <= 6 ? 2500 : 4000;
+          await new Promise((resolve) => window.setTimeout(resolve, nextDelay));
       }
   }
 
@@ -1322,6 +1327,16 @@ export function Importacao() {
         setLoading(true); setFeedback(null); setPreviewRows([]);
     const fd = new FormData(); fd.append('file', file);
     try {
+            if (file.size <= ASYNC_IMPORT_THRESHOLD_BYTES) {
+                const { data } = await api.post('/lancamentos/importar/analisar', fd, {
+                    timeout: 0,
+                    maxBodyLength: Infinity,
+                    maxContentLength: Infinity,
+                });
+                applyAnalysisResult(data);
+                return;
+            }
+
             const { data } = await api.post<ImportJobAccepted>('/lancamentos/importar/analisar-async', fd, {
                 timeout: 0,
                 maxBodyLength: Infinity,
@@ -1508,6 +1523,20 @@ export function Importacao() {
       const fd = new FormData(); fd.append('file', file!);
       fd.append('mapeamento_json', JSON.stringify({ map_categorias: mapCategorias, map_contas: mapContas, map_centros: mapCentros, map_entidades: mapEntidades }));
       try {
+                    if ((file?.size || 0) <= ASYNC_IMPORT_THRESHOLD_BYTES) {
+                        const res = await api.post('/lancamentos/importar/executar', fd, {
+                            timeout: 0,
+                            maxBodyLength: Infinity,
+                            maxContentLength: Infinity,
+                        });
+                        setFeedback({ type: 'success', message: `${res.data.importados || 0} lançamentos importados com sucesso!`, details: res.data.erros });
+                        setStep(1); setFile(null); setPreviewRows([]);
+                        setConflitos({ contas: [], categorias: [], centros: [], entidades: [] });
+                        setMapCategorias({}); setMapContas({}); setMapCentros({}); setMapEntidades({});
+                        setSuggestedCategorias({}); setSuggestedEntidades({});
+                        return;
+                    }
+
                     const { data } = await api.post<ImportJobAccepted>('/lancamentos/importar/executar-async', fd, {
                         timeout: 0,
                         maxBodyLength: Infinity,

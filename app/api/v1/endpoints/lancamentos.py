@@ -1,18 +1,21 @@
 import pandas as pd
 import io
 import json
-import csv
+import os
 import re
 import threading
 import uuid
+import zipfile
 import unicodedata
 from pathlib import Path
-from typing import List, Optional, Any, cast, Tuple, Callable
+from typing import List, Optional, Any, cast, Tuple, Callable, Iterator
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from difflib import SequenceMatcher
+from openpyxl import load_workbook
 
 from fastapi import APIRouter, Depends, Query, UploadFile, File, status, Form, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -47,7 +50,9 @@ MAX_ANEXO_NOME_LEN = 180
 MAX_ANEXO_SIZE = 10 * 1024 * 1024
 IMPORT_PREVIEW_LIMIT = 200
 IMPORT_ANALYZE_SAMPLE_LIMIT = 24
-IMPORT_INSERT_BATCH_SIZE = 1000
+IMPORT_INSERT_BATCH_SIZE = 5000
+IMPORT_PREPARE_CHUNK_SIZE = 2000
+IMPORT_MAX_WORKERS = max(2, min(4, os.cpu_count() or 2))
 
 
 @dataclass
@@ -146,17 +151,58 @@ def _build_import_name_map(rows: list[dict[str, Any]], selectable_only: bool = F
     }
 
 
-def _read_excel_as_internal_csv(file_bytes: bytes) -> tuple[str, list[str]]:
+def _normalize_import_headers(header_values: tuple[Any, ...] | list[Any]) -> list[str]:
+    headers: list[str] = []
+    seen: dict[str, int] = {}
+    for index, value in enumerate(header_values):
+        header = str(value or f"COLUNA_{index + 1}").upper().strip() or f"COLUNA_{index + 1}"
+        if header in seen:
+            seen[header] += 1
+            header = f"{header}_{seen[header]}"
+        else:
+            seen[header] = 1
+        headers.append(header)
+    return headers
+
+
+def _iter_spreadsheet_rows(file_bytes: bytes) -> tuple[list[str], Iterator[dict[str, str]]]:
+    buffer = io.BytesIO(file_bytes)
+    if zipfile.is_zipfile(buffer):
+        workbook = load_workbook(buffer, read_only=True, data_only=True)
+        worksheet = workbook.worksheets[0]
+        row_iter = worksheet.iter_rows(values_only=True)
+        try:
+            header_row = next(row_iter)
+        except StopIteration:
+            workbook.close()
+            return [], iter(())
+
+        headers = _normalize_import_headers(header_row or [])
+
+        def generator() -> Iterator[dict[str, str]]:
+            try:
+                for row in row_iter:
+                    values = list(row or [])
+                    padded = values + [""] * max(0, len(headers) - len(values))
+                    yield {
+                        headers[index]: _format_preview_value(padded[index] if index < len(padded) else "")
+                        for index in range(len(headers))
+                    }
+            finally:
+                workbook.close()
+
+        return headers, generator()
+
     dataframe = pd.read_excel(io.BytesIO(file_bytes), sheet_name=0, dtype=str, keep_default_na=False)
     dataframe.columns = [str(column).upper().strip() for column in dataframe.columns]
     dataframe = dataframe.fillna("")
-    csv_buffer = io.StringIO()
-    dataframe.to_csv(csv_buffer, index=False, date_format="%Y-%m-%d")
-    return csv_buffer.getvalue(), [str(column).upper().strip() for column in dataframe.columns]
+    headers = [str(column).upper().strip() for column in dataframe.columns]
 
+    def fallback_generator() -> Iterator[dict[str, str]]:
+        for row in dataframe.to_dict(orient="records"):
+            yield {str(key).upper().strip(): _format_preview_value(value) for key, value in row.items()}
 
-def _iter_internal_csv_rows(csv_text: str):
-    return csv.DictReader(io.StringIO(csv_text))
+    return headers, fallback_generator()
 
 
 def _find_column_in_headers(headers: list[str], possiveis_nomes: list[str]) -> str:
@@ -202,6 +248,115 @@ def _parse_import_date(raw_value: Any, cache: dict[str, Optional[date]]) -> Opti
     parsed = pd.to_datetime(key, dayfirst=True, errors="coerce")
     cache[key] = parsed.date() if parsed is not None and not pd.isna(parsed) else None
     return cache[key]
+
+
+def _build_inference_cache_parallel(
+    inference_keys: set[tuple[str, str]],
+    learning_refs: list[dict[str, Any]],
+) -> dict[tuple[str, str], dict[str, Optional[int] | float]]:
+    if not inference_keys:
+        return {}
+
+    def resolve_inference(cache_key: tuple[str, str]) -> tuple[tuple[str, str], dict[str, Optional[int] | float]]:
+        descricao, tipo = cache_key
+        return cache_key, _infer_learning_ids(descricao, tipo, learning_refs)
+
+    with ThreadPoolExecutor(max_workers=IMPORT_MAX_WORKERS) as executor:
+        return dict(executor.map(resolve_inference, sorted(inference_keys)))
+
+
+def _prepare_import_chunk(
+    raw_chunk: list[dict[str, Any]],
+    map_categorias: dict[str, Any],
+    map_contas: dict[str, Any],
+    map_centros: dict[str, Any],
+    map_entidades: dict[str, Any],
+    nomes_cats_sist: dict[str, int],
+    nomes_contas_sist: dict[str, int],
+    nomes_centros_sist: dict[str, int],
+    nomes_entidades_sist: dict[str, int],
+    cache_tipos: dict[int, Any],
+    inference_cache: dict[tuple[str, str], dict[str, Optional[int] | float]],
+) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, str]]:
+    prepared_rows: list[dict[str, Any]] = []
+    missing_entities: dict[str, str] = {}
+    missing_centers: dict[str, str] = {}
+
+    for raw in raw_chunk:
+        descricao = str(raw["descricao"] or "")
+        tipo = str(raw["tipo"] or "")
+        categoria_nome = str(raw["categoria_nome"] or "")
+        entidade_nome = str(raw["entidade_nome"] or "")
+        conta_nome = str(raw["conta_nome"] or "")
+        centro_nome = str(raw["centro_nome"] or "")
+        inferencia = inference_cache.get((descricao.strip(), tipo.strip()), {"plano_contas_id": None, "entidade_id": None}) if descricao else {"plano_contas_id": None, "entidade_id": None}
+
+        plano_contas_id: Optional[int] = None
+        cat_key = categoria_nome.upper().strip()
+        if cat_key and cat_key in map_categorias:
+            plano_contas_id = int(map_categorias[cat_key])
+        elif cat_key and cat_key in nomes_cats_sist:
+            plano_contas_id = int(nomes_cats_sist[cat_key])
+        elif inferencia.get("plano_contas_id") is not None:
+            plano_contas_id = int(cast(int, inferencia.get("plano_contas_id")))
+
+        if not tipo and plano_contas_id is not None:
+            tipo = "RECEITA" if cache_tipos.get(int(plano_contas_id)) == "R" else "DESPESA"
+        if not tipo:
+            tipo = "DESPESA"
+
+        entidade_id: Optional[int] = None
+        ent_key = entidade_nome.upper().strip()
+        if ent_key and ent_key in map_entidades:
+            entidade_id = int(map_entidades[ent_key])
+        elif ent_key and ent_key in nomes_entidades_sist:
+            entidade_id = int(nomes_entidades_sist[ent_key])
+        elif inferencia.get("entidade_id") is not None:
+            entidade_id = int(cast(int, inferencia.get("entidade_id")))
+        elif ent_key:
+            missing_entities[ent_key] = entidade_nome
+
+        conta_id: Optional[int] = None
+        conta_key = conta_nome.upper().strip()
+        if conta_key:
+            if conta_key in map_contas:
+                conta_id = int(map_contas[conta_key])
+            elif conta_key in nomes_contas_sist:
+                conta_id = int(nomes_contas_sist[conta_key])
+
+        centro_custo_id: Optional[int] = None
+        centro_key = centro_nome.upper().strip()
+        if centro_key:
+            if centro_key in map_centros:
+                centro_custo_id = int(map_centros[centro_key])
+            elif centro_key in nomes_centros_sist:
+                centro_custo_id = int(nomes_centros_sist[centro_key])
+            else:
+                missing_centers[centro_key] = centro_nome
+
+        prepared_rows.append(
+            {
+                **raw,
+                "tipo": tipo,
+                "plano_contas_id": plano_contas_id,
+                "entidade_id": entidade_id,
+                "conta_id": conta_id,
+                "centro_custo_id": centro_custo_id,
+                "entidade_key": ent_key,
+                "centro_key": centro_key,
+            }
+        )
+
+    return prepared_rows, missing_entities, missing_centers
+
+
+def _flush_lancamento_batch(db: Session, batch: list[Lancamento]) -> None:
+    if not batch:
+        return
+    db.add_all(batch)
+    db.flush()
+    for lancamento in batch:
+        db.expunge(lancamento)
 
 
 def _infer_learning_ids_cached(descricao: str, tipo: str, refs: list[dict[str, Any]], cache: dict[tuple[str, str], dict[str, Optional[int] | float]]) -> dict[str, Optional[int] | float]:
@@ -284,8 +439,8 @@ def _ensure_a_categorizar(db: Session, empresa_id: int, tipo_lancamento: str, ca
 
 def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: int, progress_callback: Optional[Callable[[int, str], None]] = None) -> dict[str, Any]:
     if progress_callback:
-        progress_callback(5, "Lendo arquivo XLSX e convertendo internamente")
-    csv_text, headers = _read_excel_as_internal_csv(file_bytes)
+        progress_callback(5, "Lendo arquivo XLSX em streaming")
+    headers, row_iter = _iter_spreadsheet_rows(file_bytes)
 
     col_desc = _find_column_in_headers(headers, ["DESCRIÇÃO", "DESCRICAO", "HISTÓRICO", "HISTORICO"])
     col_tipo = _find_column_in_headers(headers, ["TIPO"])
@@ -309,9 +464,10 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
     conflitos_entidades: set[str] = set()
     categoria_samples: dict[str, dict[tuple[str, str], int]] = defaultdict(lambda: defaultdict(int))
     entidade_samples: dict[str, dict[tuple[str, str], int]] = defaultdict(lambda: defaultdict(int))
+    inference_keys: set[tuple[str, str]] = set()
     total_rows = 0
 
-    for row_idx, row in enumerate(_iter_internal_csv_rows(csv_text), start=2):
+    for row_idx, row in enumerate(row_iter, start=2):
         total_rows += 1
         if progress_callback and total_rows % 1000 == 0:
             progress_callback(min(40, 8 + min(32, total_rows // 1000)), f"Indexando planilha ({total_rows} linhas lidas)")
@@ -330,12 +486,17 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
             conflitos_categorias.add(categoria_nome)
             if descricao:
                 categoria_samples[categoria_nome][(descricao, tipo)] += 1
+                inference_keys.add((descricao.strip(), tipo.strip()))
         if centro_nome and centro_nome.upper().strip() not in nomes_centros:
             conflitos_centros.add(centro_nome)
         if entidade_nome and entidade_nome.upper().strip() not in nomes_entidades:
             conflitos_entidades.add(entidade_nome)
             if descricao:
                 entidade_samples[entidade_nome][(descricao, tipo)] += 1
+                inference_keys.add((descricao.strip(), tipo.strip()))
+
+        if descricao:
+            inference_keys.add((descricao.strip(), tipo.strip()))
 
         if len(preview_source) < IMPORT_PREVIEW_LIMIT:
             preview_source.append(
@@ -360,7 +521,7 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
     if progress_callback:
         progress_callback(55, "Calculando sugestões por amostragem")
     learning_refs = _load_learning_references(session, empresa_id)
-    inference_cache: dict[tuple[str, str], dict[str, Optional[int] | float]] = {}
+    inference_cache = _build_inference_cache_parallel(inference_keys, learning_refs)
     sugestoes = _build_import_suggestions_from_samples(categoria_samples, entidade_samples, learning_refs, inference_cache)
     categorias_by_id = {int(item["id"]): item for item in sistema["categorias"] if item.get("id") is not None}
     entidades_by_id = {int(item["id"]): item for item in sistema["entidades"] if item.get("id") is not None}
@@ -412,8 +573,8 @@ def _execute_import_contents(
     progress_callback: Optional[Callable[[int, str], None]] = None,
 ) -> dict[str, Any]:
     if progress_callback:
-        progress_callback(5, "Lendo arquivo XLSX e convertendo internamente")
-    csv_text, headers = _read_excel_as_internal_csv(file_bytes)
+        progress_callback(5, "Lendo arquivo XLSX em streaming")
+    headers, row_iter = _iter_spreadsheet_rows(file_bytes)
 
     map_categorias = {str(k).upper().strip(): v for k, v in mapeamento.get("map_categorias", {}).items() if v is not None}
     map_contas = {str(k).upper().strip(): v for k, v in mapeamento.get("map_contas", {}).items() if v is not None}
@@ -439,11 +600,11 @@ def _execute_import_contents(
     learning_refs = _load_learning_references(db, empresa_id)
 
     raw_rows: list[dict[str, Any]] = []
-    inference_cache: dict[tuple[str, str], dict[str, Optional[int] | float]] = {}
+    inference_keys: set[tuple[str, str]] = set()
     parse_date_cache: dict[str, Optional[date]] = {}
     parse_decimal_cache: dict[str, Decimal] = {}
 
-    for row_idx, row in enumerate(_iter_internal_csv_rows(csv_text), start=2):
+    for row_idx, row in enumerate(row_iter, start=2):
         descricao = _coerce_row_value(row, col_desc)
         categoria_nome = _coerce_row_value(row, col_cat)
         entidade_nome = _coerce_row_value(row, col_ent)
@@ -466,83 +627,46 @@ def _execute_import_contents(
             }
         )
         if descricao:
-            _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache)
+            inference_keys.add((descricao.strip(), tipo.strip()))
 
     total_rows = len(raw_rows)
     if progress_callback:
-        progress_callback(20, f"Preparando {total_rows} linha(s) para importação")
+        progress_callback(18, f"Preparando {total_rows} linha(s) para importação")
+
+    if progress_callback:
+        progress_callback(24, "Calculando inferências reutilizáveis")
+    inference_cache = _build_inference_cache_parallel(inference_keys, learning_refs)
 
     missing_entities: dict[str, str] = {}
     missing_centers: dict[str, str] = {}
     prepared_rows: list[dict[str, Any]] = []
-
-    for index, raw in enumerate(raw_rows, start=1):
-        if progress_callback and index % 2000 == 0:
-            progress_callback(20 + int((index / max(total_rows, 1)) * 20), f"Resolvendo mapeamentos ({index}/{total_rows})")
-
-        descricao = str(raw["descricao"] or "")
-        tipo = str(raw["tipo"] or "")
-        categoria_nome = str(raw["categoria_nome"] or "")
-        entidade_nome = str(raw["entidade_nome"] or "")
-        conta_nome = str(raw["conta_nome"] or "")
-        centro_nome = str(raw["centro_nome"] or "")
-        inferencia = _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache) if descricao else {"plano_contas_id": None, "entidade_id": None}
-
-        plano_contas_id: Optional[int] = None
-        cat_key = categoria_nome.upper().strip()
-        if cat_key and cat_key in map_categorias:
-            plano_contas_id = int(map_categorias[cat_key])
-        elif cat_key and cat_key in nomes_cats_sist:
-            plano_contas_id = int(nomes_cats_sist[cat_key])
-        elif inferencia.get("plano_contas_id") is not None:
-            plano_contas_id = int(cast(int, inferencia.get("plano_contas_id")))
-
-        if not tipo and plano_contas_id is not None:
-            tipo = "RECEITA" if cache_tipos.get(int(plano_contas_id)) == "R" else "DESPESA"
-        if not tipo:
-            tipo = "DESPESA"
-
-        entidade_id: Optional[int] = None
-        ent_key = entidade_nome.upper().strip()
-        if ent_key and ent_key in map_entidades:
-            entidade_id = int(map_entidades[ent_key])
-        elif ent_key and ent_key in nomes_entidades_sist:
-            entidade_id = int(nomes_entidades_sist[ent_key])
-        elif inferencia.get("entidade_id") is not None:
-            entidade_id = int(cast(int, inferencia.get("entidade_id")))
-        elif ent_key:
-            missing_entities[ent_key] = entidade_nome
-
-        conta_id: Optional[int] = None
-        conta_key = conta_nome.upper().strip()
-        if conta_key:
-            if conta_key in map_contas:
-                conta_id = int(map_contas[conta_key])
-            elif conta_key in nomes_contas_sist:
-                conta_id = int(nomes_contas_sist[conta_key])
-
-        centro_custo_id: Optional[int] = None
-        centro_key = centro_nome.upper().strip()
-        if centro_key:
-            if centro_key in map_centros:
-                centro_custo_id = int(map_centros[centro_key])
-            elif centro_key in nomes_centros_sist:
-                centro_custo_id = int(nomes_centros_sist[centro_key])
-            else:
-                missing_centers[centro_key] = centro_nome
-
-        prepared_rows.append(
-            {
-                **raw,
-                "tipo": tipo,
-                "plano_contas_id": plano_contas_id,
-                "entidade_id": entidade_id,
-                "conta_id": conta_id,
-                "centro_custo_id": centro_custo_id,
-                "entidade_key": ent_key,
-                "centro_key": centro_key,
-            }
+    raw_chunks = [raw_rows[index:index + IMPORT_PREPARE_CHUNK_SIZE] for index in range(0, total_rows, IMPORT_PREPARE_CHUNK_SIZE)]
+    with ThreadPoolExecutor(max_workers=IMPORT_MAX_WORKERS) as executor:
+        prepared_chunks = list(
+            executor.map(
+                lambda chunk: _prepare_import_chunk(
+                    chunk,
+                    map_categorias,
+                    map_contas,
+                    map_centros,
+                    map_entidades,
+                    nomes_cats_sist,
+                    nomes_contas_sist,
+                    nomes_centros_sist,
+                    nomes_entidades_sist,
+                    cache_tipos,
+                    inference_cache,
+                ),
+                raw_chunks,
+            )
         )
+
+    for index, (chunk_rows, chunk_missing_entities, chunk_missing_centers) in enumerate(prepared_chunks, start=1):
+        prepared_rows.extend(chunk_rows)
+        missing_entities.update(chunk_missing_entities)
+        missing_centers.update(chunk_missing_centers)
+        if progress_callback:
+            progress_callback(24 + int((index / max(len(prepared_chunks), 1)) * 21), f"Resolvendo mapeamentos por lote ({index}/{max(len(prepared_chunks), 1)})")
 
     if progress_callback:
         progress_callback(45, "Criando entidades e centros ausentes")
@@ -606,8 +730,7 @@ def _execute_import_contents(
             importados += 1
 
             if len(batch) >= IMPORT_INSERT_BATCH_SIZE:
-                db.add_all(batch)
-                db.flush()
+                _flush_lancamento_batch(db, batch)
                 batch = []
 
             if progress_callback and index % 1000 == 0:
@@ -617,8 +740,7 @@ def _execute_import_contents(
             erros.append(f"Linha {row['linha']}: {str(exc)}")
 
     if batch:
-        db.add_all(batch)
-        db.flush()
+        _flush_lancamento_batch(db, batch)
 
     db.commit()
     return {"sucesso": True, "importados": importados, "erros": erros, "meta": {"total_linhas": total_rows}}

@@ -67,6 +67,22 @@ interface PreviewRow {
         entidade_sugerida_nome?: string | null;
 }
 
+interface ImportJobAccepted {
+    job_id: string;
+    status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'ERROR';
+}
+
+interface ImportJobStatus {
+    job_id: string;
+    kind: 'ANALYZE' | 'EXECUTE';
+    filename: string;
+    status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'ERROR';
+    progress: number;
+    message: string;
+    error?: string | null;
+    result?: any;
+}
+
 interface SearchOption {
     id: number | string;
     nome: string;
@@ -1144,6 +1160,8 @@ export function Importacao() {
   const [bulkLoading, setBulkLoading] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [file, setFile] = useState<File | null>(null);
+    const [importJob, setImportJob] = useState<ImportJobStatus | null>(null);
+    const isMountedRef = useRef(true);
   
   const [sistemaData, setSistemaData] = useState<SistemaData>({ contas: [], categorias: [], centros: [], entidades: [] });
   const [conflitos, setConflitos] = useState<Conflitos>({ contas: [], categorias: [], centros: [], entidades: [] });
@@ -1196,6 +1214,12 @@ export function Importacao() {
         carregarDadosIniciais();
     }, []);
 
+    useEffect(() => {
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
+
   function handleEntityDocumentoChange(value: string) {
       const formatted = formatCpfCnpj(value);
       const digits = onlyDigits(formatted);
@@ -1233,49 +1257,90 @@ export function Importacao() {
     } catch (error) { setFeedback({ type: 'error', message: 'Erro ao baixar o modelo.' }); }
   }
 
+  function applyAnalysisResult(data: any) {
+      setConflitos({ ...data.conflitos, entidades: data.conflitos.entidades || [] });
+      if (data.sistema) setSistemaData(prev => ({ ...prev, ...data.sistema }));
+      if (data.sugestoes?.categorias) {
+          const nextSuggestions: Record<string, string> = {};
+          Object.entries(data.sugestoes.categorias).forEach(([key, value]) => { nextSuggestions[key] = String(value); });
+          setSuggestedCategorias(nextSuggestions);
+          setMapCategorias((prev) => {
+              const next = { ...prev };
+              Object.entries(data.sugestoes.categorias).forEach(([key, value]) => {
+                  if (!next[key]) next[key] = String(value);
+              });
+              return next;
+          });
+      } else {
+          setSuggestedCategorias({});
+      }
+
+      if (data.sugestoes?.entidades) {
+          const nextSuggestions: Record<string, string> = {};
+          Object.entries(data.sugestoes.entidades).forEach(([key, value]) => { nextSuggestions[key] = String(value); });
+          setSuggestedEntidades(nextSuggestions);
+          setMapEntidades((prev) => {
+              const next = { ...prev };
+              Object.entries(data.sugestoes.entidades).forEach(([key, value]) => {
+                  if (!next[key]) next[key] = String(value);
+              });
+              return next;
+          });
+      } else {
+          setSuggestedEntidades({});
+      }
+
+      setPreviewRows(data.preview || []);
+      setStep(2);
+  }
+
+  async function waitForImportJob(jobId: string) {
+      while (true) {
+          const { data } = await api.get<ImportJobStatus>(`/lancamentos/importar/jobs/${jobId}`, {
+              timeout: 0,
+          });
+          if (!isMountedRef.current) {
+              return data;
+          }
+          setImportJob(data);
+
+          if (data.status === 'COMPLETED') {
+              return data;
+          }
+
+          if (data.status === 'ERROR') {
+              throw new Error(data.error || data.message || 'Falha no processamento do arquivo.');
+          }
+
+          await new Promise((resolve) => window.setTimeout(resolve, 1200));
+      }
+  }
+
   async function handleAnalise() {
     if (!file) return;
-    setLoading(true); setFeedback(null);
+        setLoading(true); setFeedback(null); setPreviewRows([]);
     const fd = new FormData(); fd.append('file', file);
     try {
-            const { data } = await api.post('/lancamentos/importar/analisar', fd, {
+            const { data } = await api.post<ImportJobAccepted>('/lancamentos/importar/analisar-async', fd, {
                 timeout: 0,
                 maxBodyLength: Infinity,
                 maxContentLength: Infinity,
             });
-      setConflitos({ ...data.conflitos, entidades: data.conflitos.entidades || [] });
-      if (data.sistema) setSistemaData(prev => ({...prev, ...data.sistema}));
-            if (data.sugestoes?.categorias) {
-                const nextSuggestions: Record<string, string> = {};
-                Object.entries(data.sugestoes.categorias).forEach(([key, value]) => { nextSuggestions[key] = String(value); });
-                setSuggestedCategorias(nextSuggestions);
-                setMapCategorias((prev) => {
-                        const next = { ...prev };
-                        Object.entries(data.sugestoes.categorias).forEach(([key, value]) => {
-                                if (!next[key]) next[key] = String(value);
-                        });
-                        return next;
-                });
-            } else {
-                setSuggestedCategorias({});
-            }
-            if (data.sugestoes?.entidades) {
-                const nextSuggestions: Record<string, string> = {};
-                Object.entries(data.sugestoes.entidades).forEach(([key, value]) => { nextSuggestions[key] = String(value); });
-                setSuggestedEntidades(nextSuggestions);
-                setMapEntidades((prev) => {
-                        const next = { ...prev };
-                        Object.entries(data.sugestoes.entidades).forEach(([key, value]) => {
-                                if (!next[key]) next[key] = String(value);
-                        });
-                        return next;
-                });
-            } else {
-                setSuggestedEntidades({});
-            }
-            setPreviewRows(data.preview || []);
-      setStep(2);
-    } catch (e: any) { setFeedback({ type: 'error', message: e.response?.data?.detail || "Erro ao analisar arquivo." }); } finally { setLoading(false); }
+            setImportJob({
+                job_id: data.job_id,
+                kind: 'ANALYZE',
+                filename: file.name,
+                status: data.status,
+                progress: 0,
+                message: 'Arquivo enviado. Iniciando análise...',
+            });
+            const completedJob = await waitForImportJob(data.job_id);
+            applyAnalysisResult(completedJob.result || {});
+            setImportJob(null);
+    } catch (e: any) {
+        setImportJob(null);
+        setFeedback({ type: 'error', message: e.response?.data?.detail || e.message || 'Erro ao analisar arquivo.' });
+    } finally { setLoading(false); }
   }
 
   async function handleQuickCreate() {
@@ -1407,17 +1472,35 @@ export function Importacao() {
 
   async function handleExecutar() {
       setLoading(true);
+      setFeedback(null);
       const fd = new FormData(); fd.append('file', file!);
       fd.append('mapeamento_json', JSON.stringify({ map_categorias: mapCategorias, map_contas: mapContas, map_centros: mapCentros, map_entidades: mapEntidades }));
       try {
-                    const res = await api.post('/lancamentos/importar/executar', fd, {
+                    const { data } = await api.post<ImportJobAccepted>('/lancamentos/importar/executar-async', fd, {
                         timeout: 0,
                         maxBodyLength: Infinity,
                         maxContentLength: Infinity,
                     });
-          setFeedback({ type: 'success', message: `${res.data.importados} lançamentos importados com sucesso!`, details: res.data.erros });
-          setStep(1); setFile(null);
-      } catch(e: any) { setFeedback({ type: 'error', message: e.response?.data?.detail || "Erro na importação." }); } finally { setLoading(false); }
+                    setImportJob({
+                        job_id: data.job_id,
+                        kind: 'EXECUTE',
+                        filename: file?.name || 'arquivo.xlsx',
+                        status: data.status,
+                        progress: 0,
+                        message: 'Arquivo enviado. Iniciando importação...',
+                    });
+                    const completedJob = await waitForImportJob(data.job_id);
+                    const result = completedJob.result || {};
+          setFeedback({ type: 'success', message: `${result.importados || 0} lançamentos importados com sucesso!`, details: result.erros });
+          setImportJob(null);
+          setStep(1); setFile(null); setPreviewRows([]);
+          setConflitos({ contas: [], categorias: [], centros: [], entidades: [] });
+          setMapCategorias({}); setMapContas({}); setMapCentros({}); setMapEntidades({});
+          setSuggestedCategorias({}); setSuggestedEntidades({});
+      } catch(e: any) {
+          setImportJob(null);
+          setFeedback({ type: 'error', message: e.response?.data?.detail || e.message || 'Erro na importação.' });
+      } finally { setLoading(false); }
   }
 
   return (
@@ -1433,6 +1516,26 @@ export function Importacao() {
             <div className={`p-4 rounded-xl border flex items-start gap-3 mb-6 animate-in slide-in-from-top-2 ${feedback.type === 'success' ? 'bg-emerald-900/20 border-emerald-800 text-emerald-300' : 'bg-red-900/20 border-red-800 text-red-300'}`}>
                 {feedback.type === 'success' ? <CheckCircle className="w-5 h-5 shrink-0"/> : <AlertTriangle className="w-5 h-5 shrink-0"/>}
                 <div className="flex-1"><strong className="block text-sm">{feedback.message}</strong>{feedback.details && <ul className="mt-2 list-disc list-inside text-xs opacity-80 max-h-32 overflow-y-auto custom-scrollbar">{feedback.details.map((d,i)=><li key={i}>{d}</li>)}</ul>}</div><button onClick={()=>setFeedback(null)}><X className="w-4 h-4 hover:text-white"/></button>
+            </div>
+        )}
+        {importJob && (importJob.status === 'PENDING' || importJob.status === 'RUNNING') && (
+            <div className="mb-6 rounded-2xl border border-blue-200 bg-white p-5 shadow-sm dark:border-blue-900/60 dark:bg-slate-800">
+                <div className="flex items-start justify-between gap-4">
+                    <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-blue-600 dark:text-blue-300">
+                            {importJob.kind === 'ANALYZE' ? 'Analisando planilha' : 'Importando lançamentos'}
+                        </p>
+                        <h3 className="mt-1 text-base font-bold text-slate-900 dark:text-white">{importJob.message}</h3>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{importJob.filename}</p>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-sm font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {importJob.progress}%
+                    </div>
+                </div>
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                    <div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{ width: `${Math.max(importJob.progress, 4)}%` }} />
+                </div>
             </div>
         )}
         <div className="grid grid-cols-1 gap-4 mb-8">
@@ -1461,7 +1564,7 @@ export function Importacao() {
                 </div>
                 <div className="mt-10 z-20 flex gap-4">
                     <button onClick={handleDownloadModelo} className="px-5 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white font-bold flex gap-2 items-center transition"><Download className="w-4 h-4"/> Baixar Modelo</button>
-                    <button onClick={handleAnalise} disabled={!file||loading} className="px-8 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg shadow-blue-900/20 flex gap-2 items-center disabled:opacity-50 disabled:cursor-not-allowed transition hover:scale-105 active:scale-95">{loading ? <Loader2 className="animate-spin w-5 h-5"/> : <ArrowRight className="w-5 h-5"/>} Continuar</button>
+                    <button onClick={handleAnalise} disabled={!file||loading} className="px-8 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg shadow-blue-900/20 flex gap-2 items-center disabled:opacity-50 disabled:cursor-not-allowed transition hover:scale-105 active:scale-95">{loading && importJob?.kind === 'ANALYZE' ? <Loader2 className="animate-spin w-5 h-5"/> : <ArrowRight className="w-5 h-5"/>} {loading && importJob?.kind === 'ANALYZE' ? 'Analisando...' : 'Continuar'}</button>
                 </div>
             </div>
         )}
@@ -1596,7 +1699,7 @@ export function Importacao() {
                     <div className="space-y-3">{conflitos.centros.map(k => (<MappingRow key={k} original={k} value={mapCentros[k]} options={sistemaData.centros} onChange={(v:string)=>setMapCentros(p=>({...p,[k]:String(v)}))} onCreate={()=>openCreateModal('CENTRO', k)} typeLabel="Centro" icon={Layers} />))}</div>
                 </div>
 
-                <div className="flex justify-between pt-6 border-t border-slate-200 dark:border-slate-800"><button onClick={()=>setStep(2)} className="px-6 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={handleExecutar} disabled={loading} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition disabled:opacity-50">{loading ? <Loader2 className="animate-spin w-5 h-5"/> : <CheckCircle className="w-5 h-5"/>} Confirmar Importação</button></div>
+                <div className="flex justify-between pt-6 border-t border-slate-200 dark:border-slate-800"><button onClick={()=>setStep(2)} className="px-6 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={handleExecutar} disabled={loading} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition disabled:opacity-50">{loading && importJob?.kind === 'EXECUTE' ? <Loader2 className="animate-spin w-5 h-5"/> : <CheckCircle className="w-5 h-5"/>} {loading && importJob?.kind === 'EXECUTE' ? 'Importando...' : 'Confirmar Importação'}</button></div>
             </div>
         )}
       </div>

@@ -1,16 +1,20 @@
 import pandas as pd
 import io
 import json
+import csv
 import re
+import threading
+import uuid
 import unicodedata
 from pathlib import Path
-from typing import List, Optional, Any, cast, Tuple
+from typing import List, Optional, Any, cast, Tuple, Callable
 from collections import defaultdict
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from difflib import SequenceMatcher
 
-from fastapi import APIRouter, Depends, Query, UploadFile, File, status, Form, HTTPException
+from fastapi import APIRouter, Depends, Query, UploadFile, File, status, Form, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select, col
 from sqlalchemy.orm import selectinload
@@ -18,7 +22,7 @@ from loguru import logger
 
 # --- Imports do Projeto ---
 # Padronizando tudo para get_db para evitar erros de importação
-from app.db.session import get_db
+from app.db.session import get_db, engine
 from app.models.usuario import Usuario
 from app.models.lancamento import Lancamento
 from app.models.plano_contas import PlanoContas 
@@ -41,6 +45,64 @@ from app.schemas.anexo import AnexoRead, AnexoCreate
 router = APIRouter()
 MAX_ANEXO_NOME_LEN = 180
 MAX_ANEXO_SIZE = 10 * 1024 * 1024
+IMPORT_PREVIEW_LIMIT = 200
+IMPORT_ANALYZE_SAMPLE_LIMIT = 24
+IMPORT_INSERT_BATCH_SIZE = 1000
+
+
+@dataclass
+class ImportJobState:
+    job_id: str
+    kind: str
+    empresa_id: int
+    user_id: int
+    filename: str
+    status: str = "PENDING"
+    progress: int = 0
+    message: str = "Aguardando processamento"
+    error: Optional[str] = None
+    result: Optional[dict[str, Any]] = None
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+
+IMPORT_JOBS: dict[str, ImportJobState] = {}
+IMPORT_JOBS_LOCK = threading.Lock()
+
+
+def _create_import_job(kind: str, empresa_id: int, user_id: int, filename: str) -> ImportJobState:
+    job = ImportJobState(
+        job_id=str(uuid.uuid4()),
+        kind=kind,
+        empresa_id=empresa_id,
+        user_id=user_id,
+        filename=filename,
+    )
+    with IMPORT_JOBS_LOCK:
+        IMPORT_JOBS[job.job_id] = job
+    return job
+
+
+def _update_import_job(job_id: str, *, status: Optional[str] = None, progress: Optional[int] = None, message: Optional[str] = None, error: Optional[str] = None, result: Optional[dict[str, Any]] = None) -> None:
+    with IMPORT_JOBS_LOCK:
+        job = IMPORT_JOBS.get(job_id)
+        if not job:
+            return
+        if status is not None:
+            job.status = status
+        if progress is not None:
+            job.progress = max(0, min(100, int(progress)))
+        if message is not None:
+            job.message = message
+        if error is not None:
+            job.error = error
+        if result is not None:
+            job.result = result
+        job.updated_at = datetime.utcnow().isoformat()
+
+
+def _serialize_import_job(job: ImportJobState) -> dict[str, Any]:
+    return asdict(job)
 
 
 def _load_import_system_rows(session: Session, empresa_id: int) -> dict[str, list[dict[str, Any]]]:
@@ -82,6 +144,520 @@ def _build_import_name_map(rows: list[dict[str, Any]], selectable_only: bool = F
         if not selectable_only or (row.get("permite_lancamentos", True) and not row.get("eh_cabecalho", False))
         if row.get("id") is not None and str(row.get("nome") or "").strip()
     }
+
+
+def _read_excel_as_internal_csv(file_bytes: bytes) -> tuple[str, list[str]]:
+    dataframe = pd.read_excel(io.BytesIO(file_bytes), sheet_name=0, dtype=str, keep_default_na=False)
+    dataframe.columns = [str(column).upper().strip() for column in dataframe.columns]
+    dataframe = dataframe.fillna("")
+    csv_buffer = io.StringIO()
+    dataframe.to_csv(csv_buffer, index=False, date_format="%Y-%m-%d")
+    return csv_buffer.getvalue(), [str(column).upper().strip() for column in dataframe.columns]
+
+
+def _iter_internal_csv_rows(csv_text: str):
+    return csv.DictReader(io.StringIO(csv_text))
+
+
+def _find_column_in_headers(headers: list[str], possiveis_nomes: list[str]) -> str:
+    header_map = {str(header).upper().strip(): str(header).upper().strip() for header in headers}
+    for nome in possiveis_nomes:
+        normalized = str(nome).upper().strip()
+        if normalized in header_map:
+            return header_map[normalized]
+    return ""
+
+
+def _coerce_row_value(row: dict[str, Any], column: str) -> str:
+    if not column:
+        return ""
+    value = row.get(column, "")
+    return _format_preview_value(value)
+
+
+def _parse_import_decimal(raw_value: Any, cache: dict[str, Decimal]) -> Decimal:
+    key = _format_preview_value(raw_value)
+    if key in cache:
+        return cache[key]
+    cleaned = key.replace("R$", "").replace(" ", "")
+    if "," in cleaned and "." in cleaned:
+        if cleaned.rfind(",") > cleaned.rfind("."):
+            cleaned = cleaned.replace(".", "").replace(",", ".")
+        else:
+            cleaned = cleaned.replace(",", "")
+    elif "," in cleaned:
+        cleaned = cleaned.replace(",", ".")
+    cleaned = cleaned or "0"
+    cache[key] = Decimal(cleaned)
+    return cache[key]
+
+
+def _parse_import_date(raw_value: Any, cache: dict[str, Optional[date]]) -> Optional[date]:
+    key = _format_preview_value(raw_value)
+    if key in cache:
+        return cache[key]
+    if not key:
+        cache[key] = None
+        return None
+    parsed = pd.to_datetime(key, dayfirst=True, errors="coerce")
+    cache[key] = parsed.date() if parsed is not None and not pd.isna(parsed) else None
+    return cache[key]
+
+
+def _infer_learning_ids_cached(descricao: str, tipo: str, refs: list[dict[str, Any]], cache: dict[tuple[str, str], dict[str, Optional[int] | float]]) -> dict[str, Optional[int] | float]:
+    cache_key = (descricao.strip(), tipo.strip())
+    if cache_key not in cache:
+        cache[cache_key] = _infer_learning_ids(descricao, tipo, refs)
+    return cache[cache_key]
+
+
+def _build_import_suggestions_from_samples(
+    categoria_samples: dict[str, dict[tuple[str, str], int]],
+    entidade_samples: dict[str, dict[tuple[str, str], int]],
+    learning_refs: list[dict[str, Any]],
+    inference_cache: dict[tuple[str, str], dict[str, Optional[int] | float]],
+) -> dict[str, dict[str, int]]:
+    categoria_votes: dict[str, dict[int, float]] = defaultdict(lambda: defaultdict(float))
+    entidade_votes: dict[str, dict[int, float]] = defaultdict(lambda: defaultdict(float))
+
+    for categoria_nome, sample_map in categoria_samples.items():
+        ranked_samples = sorted(sample_map.items(), key=lambda item: item[1], reverse=True)[:IMPORT_ANALYZE_SAMPLE_LIMIT]
+        for (descricao, tipo), occurrences in ranked_samples:
+            suggestion = _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache)
+            plano_sugerido = suggestion.get("plano_contas_id")
+            if plano_sugerido is not None:
+                categoria_votes[categoria_nome][int(plano_sugerido)] += float(suggestion.get("plano_score") or 0) * occurrences
+
+    for entidade_nome, sample_map in entidade_samples.items():
+        ranked_samples = sorted(sample_map.items(), key=lambda item: item[1], reverse=True)[:IMPORT_ANALYZE_SAMPLE_LIMIT]
+        for (descricao, tipo), occurrences in ranked_samples:
+            suggestion = _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache)
+            entidade_sugerida = suggestion.get("entidade_id")
+            if entidade_sugerida is not None:
+                entidade_votes[entidade_nome][int(entidade_sugerida)] += float(suggestion.get("entidade_score") or 0) * occurrences
+
+    def consolidate(votes: dict[str, dict[int, float]]) -> dict[str, int]:
+        resolved: dict[str, int] = {}
+        for external_name, score_map in votes.items():
+            ranked = sorted(score_map.items(), key=lambda item: item[1], reverse=True)
+            if not ranked:
+                continue
+            best_id, best_score = ranked[0]
+            second_score = ranked[1][1] if len(ranked) > 1 else 0.0
+            if best_score < 0.72:
+                continue
+            if second_score and best_score < second_score * 1.08:
+                continue
+            resolved[external_name] = int(best_id)
+        return resolved
+
+    return {
+        "categorias": consolidate(categoria_votes),
+        "entidades": consolidate(entidade_votes),
+    }
+
+
+def _ensure_a_categorizar(db: Session, empresa_id: int, tipo_lancamento: str, cache_tipos: dict[int, Any], nomes_cats_sist: dict[str, int]) -> int:
+    tipo_plano = "R" if str(tipo_lancamento).upper() == "RECEITA" else "D"
+    categoria = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.nome == "A Categorizar",
+            PlanoContas.tipo == tipo_plano,
+        )
+    ).first()
+    if not categoria:
+        categoria = PlanoContas(
+            nome="A Categorizar",
+            codigo=None,
+            tipo=tipo_plano,
+            empresa_id=empresa_id,
+            permite_lancamentos=True,
+        )
+        db.add(categoria)
+        db.flush()
+    categoria_id = int(categoria.id)
+    cache_tipos[categoria_id] = categoria.tipo
+    nomes_cats_sist[f"A CATEGORIZAR::{tipo_plano}"] = categoria_id
+    return categoria_id
+
+
+def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: int, progress_callback: Optional[Callable[[int, str], None]] = None) -> dict[str, Any]:
+    if progress_callback:
+        progress_callback(5, "Lendo arquivo XLSX e convertendo internamente")
+    csv_text, headers = _read_excel_as_internal_csv(file_bytes)
+
+    col_desc = _find_column_in_headers(headers, ["DESCRIÇÃO", "DESCRICAO", "HISTÓRICO", "HISTORICO"])
+    col_tipo = _find_column_in_headers(headers, ["TIPO"])
+    col_venc = _find_column_in_headers(headers, ["DATA VENCIMENTO", "VENCIMENTO", "DATA"])
+    col_valor = _find_column_in_headers(headers, ["VALOR", "VALOR PAGO", "VALOR PREVISTO"])
+    col_conta = _find_column_in_headers(headers, ["CONTA", "BANCO"])
+    col_cat = _find_column_in_headers(headers, ["CATEGORIA", "PLANO DE CONTAS"])
+    col_centro = _find_column_in_headers(headers, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO"])
+    col_entidade = _find_column_in_headers(headers, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
+
+    sistema = _load_import_system_rows(session, empresa_id)
+    nomes_contas = _build_import_name_map(sistema["contas"])
+    nomes_cats = _build_import_name_map(sistema["categorias"], selectable_only=True)
+    nomes_centros = _build_import_name_map(sistema["centros"])
+    nomes_entidades = _build_import_name_map(sistema["entidades"])
+
+    preview_source: list[dict[str, Any]] = []
+    conflitos_contas: set[str] = set()
+    conflitos_categorias: set[str] = set()
+    conflitos_centros: set[str] = set()
+    conflitos_entidades: set[str] = set()
+    categoria_samples: dict[str, dict[tuple[str, str], int]] = defaultdict(lambda: defaultdict(int))
+    entidade_samples: dict[str, dict[tuple[str, str], int]] = defaultdict(lambda: defaultdict(int))
+    total_rows = 0
+
+    for row_idx, row in enumerate(_iter_internal_csv_rows(csv_text), start=2):
+        total_rows += 1
+        if progress_callback and total_rows % 1000 == 0:
+            progress_callback(min(40, 8 + min(32, total_rows // 1000)), f"Indexando planilha ({total_rows} linhas lidas)")
+
+        descricao = _coerce_row_value(row, col_desc)
+        tipo_raw = _coerce_row_value(row, col_tipo).upper()
+        tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw.startswith("D") else "")
+        categoria_nome = _coerce_row_value(row, col_cat)
+        entidade_nome = _coerce_row_value(row, col_entidade)
+        conta_nome = _coerce_row_value(row, col_conta)
+        centro_nome = _coerce_row_value(row, col_centro)
+
+        if conta_nome and conta_nome.upper().strip() not in nomes_contas:
+            conflitos_contas.add(conta_nome)
+        if categoria_nome and categoria_nome.upper().strip() not in nomes_cats:
+            conflitos_categorias.add(categoria_nome)
+            if descricao:
+                categoria_samples[categoria_nome][(descricao, tipo)] += 1
+        if centro_nome and centro_nome.upper().strip() not in nomes_centros:
+            conflitos_centros.add(centro_nome)
+        if entidade_nome and entidade_nome.upper().strip() not in nomes_entidades:
+            conflitos_entidades.add(entidade_nome)
+            if descricao:
+                entidade_samples[entidade_nome][(descricao, tipo)] += 1
+
+        if len(preview_source) < IMPORT_PREVIEW_LIMIT:
+            preview_source.append(
+                {
+                    "linha": row_idx,
+                    "descricao": descricao,
+                    "tipo": tipo if tipo else _coerce_row_value(row, col_tipo),
+                    "valor": _coerce_row_value(row, col_valor),
+                    "data_vencimento": _coerce_row_value(row, col_venc),
+                    "categoria_arquivo": categoria_nome,
+                    "entidade_arquivo": entidade_nome,
+                }
+            )
+
+    conflitos = {
+        "contas": sorted(conflitos_contas),
+        "categorias": sorted(conflitos_categorias),
+        "centros": sorted(conflitos_centros),
+        "entidades": sorted(conflitos_entidades),
+    }
+
+    if progress_callback:
+        progress_callback(55, "Calculando sugestões por amostragem")
+    learning_refs = _load_learning_references(session, empresa_id)
+    inference_cache: dict[tuple[str, str], dict[str, Optional[int] | float]] = {}
+    sugestoes = _build_import_suggestions_from_samples(categoria_samples, entidade_samples, learning_refs, inference_cache)
+    categorias_by_id = {int(item["id"]): item for item in sistema["categorias"] if item.get("id") is not None}
+    entidades_by_id = {int(item["id"]): item for item in sistema["entidades"] if item.get("id") is not None}
+    preview_rows: list[dict[str, Any]] = []
+
+    if progress_callback:
+        progress_callback(75, "Montando prévia das primeiras linhas")
+    for row in preview_source:
+        descricao = str(row.get("descricao") or "")
+        tipo = str(row.get("tipo") or "")
+        categoria_nome = str(row.get("categoria_arquivo") or "")
+        entidade_nome = str(row.get("entidade_arquivo") or "")
+
+        categoria_mapeada_id = sugestoes["categorias"].get(categoria_nome) if categoria_nome else None
+        entidade_mapeada_id = sugestoes["entidades"].get(entidade_nome) if entidade_nome else None
+
+        if descricao and (categoria_mapeada_id is None or entidade_mapeada_id is None):
+            inferencia = _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache)
+            if categoria_mapeada_id is None and inferencia.get("plano_contas_id") is not None:
+                categoria_mapeada_id = int(cast(int, inferencia.get("plano_contas_id")))
+            if entidade_mapeada_id is None and inferencia.get("entidade_id") is not None:
+                entidade_mapeada_id = int(cast(int, inferencia.get("entidade_id")))
+
+        preview_rows.append(
+            {
+                **row,
+                "categoria_sugerida_id": categoria_mapeada_id,
+                "categoria_sugerida_nome": categorias_by_id.get(int(categoria_mapeada_id), {}).get("nome") if categoria_mapeada_id is not None else None,
+                "entidade_sugerida_id": entidade_mapeada_id,
+                "entidade_sugerida_nome": entidades_by_id.get(int(entidade_mapeada_id), {}).get("nome") if entidade_mapeada_id is not None else None,
+            }
+        )
+
+    return {
+        "conflitos": conflitos,
+        "sistema": sistema,
+        "sugestoes": sugestoes,
+        "preview": preview_rows,
+        "meta": {"total_linhas": total_rows, "linhas_preview": len(preview_rows)},
+    }
+
+
+def _execute_import_contents(
+    db: Session,
+    file_bytes: bytes,
+    empresa_id: int,
+    user_id: int,
+    mapeamento: dict[str, Any],
+    progress_callback: Optional[Callable[[int, str], None]] = None,
+) -> dict[str, Any]:
+    if progress_callback:
+        progress_callback(5, "Lendo arquivo XLSX e convertendo internamente")
+    csv_text, headers = _read_excel_as_internal_csv(file_bytes)
+
+    map_categorias = {str(k).upper().strip(): v for k, v in mapeamento.get("map_categorias", {}).items() if v is not None}
+    map_contas = {str(k).upper().strip(): v for k, v in mapeamento.get("map_contas", {}).items() if v is not None}
+    map_centros = {str(k).upper().strip(): v for k, v in mapeamento.get("map_centros", {}).items() if v is not None}
+    map_entidades = {str(k).upper().strip(): v for k, v in mapeamento.get("map_entidades", {}).items() if v is not None}
+
+    col_venc = _find_column_in_headers(headers, ["DATA VENCIMENTO", "VENCIMENTO", "DATA"])
+    col_pag = _find_column_in_headers(headers, ["DATA PAGAMENTO", "PAGAMENTO"])
+    col_desc = _find_column_in_headers(headers, ["DESCRIÇÃO", "DESCRICAO", "HISTÓRICO", "HISTORICO"])
+    col_valor = _find_column_in_headers(headers, ["VALOR", "VALOR PAGO", "VALOR PREVISTO"])
+    col_cat = _find_column_in_headers(headers, ["CATEGORIA", "PLANO DE CONTAS"])
+    col_ent = _find_column_in_headers(headers, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
+    col_conta = _find_column_in_headers(headers, ["CONTA", "BANCO"])
+    col_centro = _find_column_in_headers(headers, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO"])
+    col_tipo = _find_column_in_headers(headers, ["TIPO"])
+
+    sistema = _load_import_system_rows(db, empresa_id)
+    cache_tipos = {int(item["id"]): item.get("tipo") for item in sistema["categorias"] if item.get("id") is not None}
+    nomes_cats_sist = _build_import_name_map(sistema["categorias"], selectable_only=True)
+    nomes_contas_sist = _build_import_name_map(sistema["contas"])
+    nomes_centros_sist = _build_import_name_map(sistema["centros"])
+    nomes_entidades_sist = _build_import_name_map(sistema["entidades"])
+    learning_refs = _load_learning_references(db, empresa_id)
+
+    raw_rows: list[dict[str, Any]] = []
+    inference_cache: dict[tuple[str, str], dict[str, Optional[int] | float]] = {}
+    parse_date_cache: dict[str, Optional[date]] = {}
+    parse_decimal_cache: dict[str, Decimal] = {}
+
+    for row_idx, row in enumerate(_iter_internal_csv_rows(csv_text), start=2):
+        descricao = _coerce_row_value(row, col_desc)
+        categoria_nome = _coerce_row_value(row, col_cat)
+        entidade_nome = _coerce_row_value(row, col_ent)
+        conta_nome = _coerce_row_value(row, col_conta)
+        centro_nome = _coerce_row_value(row, col_centro)
+        tipo_raw = _coerce_row_value(row, col_tipo).upper()
+        tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw.startswith("D") else "")
+        raw_rows.append(
+            {
+                "linha": row_idx,
+                "descricao": descricao,
+                "categoria_nome": categoria_nome,
+                "entidade_nome": entidade_nome,
+                "conta_nome": conta_nome,
+                "centro_nome": centro_nome,
+                "tipo": tipo,
+                "valor_raw": _coerce_row_value(row, col_valor),
+                "data_venc_raw": _coerce_row_value(row, col_venc),
+                "data_pag_raw": _coerce_row_value(row, col_pag),
+            }
+        )
+        if descricao:
+            _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache)
+
+    total_rows = len(raw_rows)
+    if progress_callback:
+        progress_callback(20, f"Preparando {total_rows} linha(s) para importação")
+
+    missing_entities: dict[str, str] = {}
+    missing_centers: dict[str, str] = {}
+    prepared_rows: list[dict[str, Any]] = []
+
+    for index, raw in enumerate(raw_rows, start=1):
+        if progress_callback and index % 2000 == 0:
+            progress_callback(20 + int((index / max(total_rows, 1)) * 20), f"Resolvendo mapeamentos ({index}/{total_rows})")
+
+        descricao = str(raw["descricao"] or "")
+        tipo = str(raw["tipo"] or "")
+        categoria_nome = str(raw["categoria_nome"] or "")
+        entidade_nome = str(raw["entidade_nome"] or "")
+        conta_nome = str(raw["conta_nome"] or "")
+        centro_nome = str(raw["centro_nome"] or "")
+        inferencia = _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache) if descricao else {"plano_contas_id": None, "entidade_id": None}
+
+        plano_contas_id: Optional[int] = None
+        cat_key = categoria_nome.upper().strip()
+        if cat_key and cat_key in map_categorias:
+            plano_contas_id = int(map_categorias[cat_key])
+        elif cat_key and cat_key in nomes_cats_sist:
+            plano_contas_id = int(nomes_cats_sist[cat_key])
+        elif inferencia.get("plano_contas_id") is not None:
+            plano_contas_id = int(cast(int, inferencia.get("plano_contas_id")))
+
+        if not tipo and plano_contas_id is not None:
+            tipo = "RECEITA" if cache_tipos.get(int(plano_contas_id)) == "R" else "DESPESA"
+        if not tipo:
+            tipo = "DESPESA"
+
+        entidade_id: Optional[int] = None
+        ent_key = entidade_nome.upper().strip()
+        if ent_key and ent_key in map_entidades:
+            entidade_id = int(map_entidades[ent_key])
+        elif ent_key and ent_key in nomes_entidades_sist:
+            entidade_id = int(nomes_entidades_sist[ent_key])
+        elif inferencia.get("entidade_id") is not None:
+            entidade_id = int(cast(int, inferencia.get("entidade_id")))
+        elif ent_key:
+            missing_entities[ent_key] = entidade_nome
+
+        conta_id: Optional[int] = None
+        conta_key = conta_nome.upper().strip()
+        if conta_key:
+            if conta_key in map_contas:
+                conta_id = int(map_contas[conta_key])
+            elif conta_key in nomes_contas_sist:
+                conta_id = int(nomes_contas_sist[conta_key])
+
+        centro_custo_id: Optional[int] = None
+        centro_key = centro_nome.upper().strip()
+        if centro_key:
+            if centro_key in map_centros:
+                centro_custo_id = int(map_centros[centro_key])
+            elif centro_key in nomes_centros_sist:
+                centro_custo_id = int(nomes_centros_sist[centro_key])
+            else:
+                missing_centers[centro_key] = centro_nome
+
+        prepared_rows.append(
+            {
+                **raw,
+                "tipo": tipo,
+                "plano_contas_id": plano_contas_id,
+                "entidade_id": entidade_id,
+                "conta_id": conta_id,
+                "centro_custo_id": centro_custo_id,
+                "entidade_key": ent_key,
+                "centro_key": centro_key,
+            }
+        )
+
+    if progress_callback:
+        progress_callback(45, "Criando entidades e centros ausentes")
+    if missing_entities:
+        novos = [Entidade(nome=nome, tipo="AMBOS", cpf_cnpj=None, status="ATIVO", empresa_id=empresa_id) for nome in missing_entities.values()]
+        db.add_all(novos)
+        db.flush()
+        for ent_key, entidade in zip(missing_entities.keys(), novos):
+            nomes_entidades_sist[ent_key] = int(cast(int, entidade.id))
+
+    if missing_centers:
+        novos_centros = [CentroCusto(nome=nome, empresa_id=empresa_id) for nome in missing_centers.values()]
+        db.add_all(novos_centros)
+        db.flush()
+        for centro_key, centro in zip(missing_centers.keys(), novos_centros):
+            nomes_centros_sist[centro_key] = int(cast(int, centro.id))
+
+    if progress_callback:
+        progress_callback(55, "Inserindo lançamentos em lotes")
+    erros: list[str] = []
+    importados = 0
+    batch: list[Lancamento] = []
+
+    for index, row in enumerate(prepared_rows, start=1):
+        try:
+            data_vencimento = _parse_import_date(row["data_venc_raw"], parse_date_cache)
+            if data_vencimento is None:
+                continue
+            data_pagamento = _parse_import_date(row["data_pag_raw"], parse_date_cache)
+            valor = _parse_import_decimal(row["valor_raw"], parse_decimal_cache)
+            plano_contas_id = row["plano_contas_id"]
+            if plano_contas_id is None:
+                plano_contas_id = _ensure_a_categorizar(db, empresa_id, str(row["tipo"]), cache_tipos, nomes_cats_sist)
+
+            entidade_id = row["entidade_id"]
+            if entidade_id is None and row["entidade_key"]:
+                entidade_id = nomes_entidades_sist.get(str(row["entidade_key"]))
+
+            centro_custo_id = row["centro_custo_id"]
+            if centro_custo_id is None and row["centro_key"]:
+                centro_custo_id = nomes_centros_sist.get(str(row["centro_key"]))
+
+            batch.append(
+                Lancamento(
+                    descricao=str(row["descricao"] or "").strip(),
+                    tipo=str(row["tipo"]),
+                    origem="IMPORTACAO",
+                    valor_previsto=valor,
+                    valor_pago=valor if data_pagamento else Decimal("0.00"),
+                    data_vencimento=data_vencimento,
+                    data_pagamento=data_pagamento,
+                    data_competencia=data_vencimento,
+                    empresa_id=empresa_id,
+                    plano_contas_id=int(plano_contas_id),
+                    entidade_id=int(entidade_id) if entidade_id else None,
+                    conta_id=int(row["conta_id"]) if row["conta_id"] else None,
+                    centro_custo_id=int(centro_custo_id) if centro_custo_id else None,
+                    ipp=False,
+                )
+            )
+            importados += 1
+
+            if len(batch) >= IMPORT_INSERT_BATCH_SIZE:
+                db.add_all(batch)
+                db.flush()
+                batch = []
+
+            if progress_callback and index % 1000 == 0:
+                progress_callback(55 + int((index / max(total_rows, 1)) * 40), f"Importando lançamentos ({index}/{total_rows})")
+        except Exception as exc:
+            logger.error(f"Erro na linha {row['linha']}: {exc}")
+            erros.append(f"Linha {row['linha']}: {str(exc)}")
+
+    if batch:
+        db.add_all(batch)
+        db.flush()
+
+    db.commit()
+    return {"sucesso": True, "importados": importados, "erros": erros, "meta": {"total_linhas": total_rows}}
+
+
+def _run_import_analysis_job(job_id: str, empresa_id: int, user_id: int, file_bytes: bytes) -> None:
+    try:
+        _update_import_job(job_id, status="RUNNING", progress=1, message="Preparando análise")
+        with Session(engine) as session:
+            session.info["audit_user_id"] = user_id
+            result = _analyze_import_contents(
+                session,
+                file_bytes,
+                empresa_id,
+                progress_callback=lambda progress, message: _update_import_job(job_id, status="RUNNING", progress=progress, message=message),
+            )
+        _update_import_job(job_id, status="COMPLETED", progress=100, message="Análise concluída", result=result)
+    except Exception as exc:
+        logger.exception("Erro no job de análise de importação")
+        _update_import_job(job_id, status="ERROR", progress=100, message="Falha na análise", error=str(exc))
+
+
+def _run_import_execute_job(job_id: str, empresa_id: int, user_id: int, file_bytes: bytes, mapeamento: dict[str, Any]) -> None:
+    try:
+        _update_import_job(job_id, status="RUNNING", progress=1, message="Preparando importação")
+        with Session(engine) as session:
+            session.info["audit_user_id"] = user_id
+            result = _execute_import_contents(
+                session,
+                file_bytes,
+                empresa_id,
+                user_id,
+                mapeamento,
+                progress_callback=lambda progress, message: _update_import_job(job_id, status="RUNNING", progress=progress, message=message),
+            )
+        _update_import_job(job_id, status="COMPLETED", progress=100, message="Importação concluída", result=result)
+    except Exception as exc:
+        logger.exception("Erro no job de execução de importação")
+        _update_import_job(job_id, status="ERROR", progress=100, message="Falha na importação", error=str(exc))
 
 
 def _normalizar_texto_importacao(value: Any) -> str:
@@ -408,95 +984,32 @@ def download_modelo_importacao():
 @router.post("/importar/analisar")
 def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     empresa_id, _ = require_empresa_user(current_user)
-    df = pd.read_excel(io.BytesIO(file.file.read()))
-    df.columns = [str(c).upper().strip() for c in df.columns]
-    col_desc = encontrar_coluna(df, ["DESCRIÇÃO", "DESCRICAO", "HISTÓRICO", "HISTORICO"])
-    col_tipo = encontrar_coluna(df, ["TIPO"])
-    col_venc = encontrar_coluna(df, ["DATA VENCIMENTO", "VENCIMENTO", "DATA"])
-    col_valor = encontrar_coluna(df, ["VALOR", "VALOR PAGO", "VALOR PREVISTO"])
-    col_conta = encontrar_coluna(df, ["CONTA", "BANCO"])
-    col_cat = encontrar_coluna(df, ["CATEGORIA", "PLANO DE CONTAS"])
-    col_centro = encontrar_coluna(df, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO"])
-    col_entidade = encontrar_coluna(df, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
-    sistema = _load_import_system_rows(session, empresa_id)
-    nomes_contas = _build_import_name_map(sistema["contas"])
-    nomes_cats = _build_import_name_map(sistema["categorias"], selectable_only=True)
-    nomes_centros = _build_import_name_map(sistema["centros"])
-    nomes_entidades = _build_import_name_map(sistema["entidades"])
-    conflitos = {
-        "contas": [c for c in df[col_conta].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_contas] if col_conta else [],
-        "categorias": [c for c in df[col_cat].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_cats] if col_cat else [],
-        "centros": [c for c in df[col_centro].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_centros] if col_centro else [],
-        "entidades": [c for c in df[col_entidade].unique().tolist() if pd.notna(c) and str(c).strip() and str(c).upper().strip() not in nomes_entidades] if col_entidade else []
-    }
+    return _analyze_import_contents(session, file.file.read(), empresa_id)
 
-    cache_tipos = {int(item["id"]): item.get("tipo") for item in sistema["categorias"] if item.get("id") is not None}
-    learning_refs = _load_learning_references(session, empresa_id)
 
-    for _, row in df.iterrows():
-        descricao = str(row[col_desc]).strip() if col_desc and pd.notna(row[col_desc]) else ""
-        tipo_raw = str(row[col_tipo]).upper().strip() if col_tipo and pd.notna(row[col_tipo]) else ""
-        tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw.startswith("D") else "")
-        categoria_nome = str(row[col_cat]).strip() if col_cat and pd.notna(row[col_cat]) else ""
-        entidade_nome = str(row[col_entidade]).strip() if col_entidade and pd.notna(row[col_entidade]) else ""
+@router.post("/importar/analisar-async", status_code=status.HTTP_202_ACCEPTED)
+async def analisar_arquivo_importacao_async(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    current_user: Usuario = Depends(get_current_user),
+):
+    empresa_id, user_id = require_empresa_user(current_user)
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser XLSX ou XLS")
+    file_bytes = await file.read()
+    job = _create_import_job("ANALYZE", empresa_id, user_id, file.filename)
+    background_tasks.add_task(_run_import_analysis_job, job.job_id, empresa_id, user_id, file_bytes)
+    return {"job_id": job.job_id, "status": job.status}
 
-        plano_contas_id = nomes_cats.get(categoria_nome.upper().strip()) if categoria_nome else None
-        entidade_id = nomes_entidades.get(entidade_nome.upper().strip()) if entidade_nome else None
 
-        if not tipo and plano_contas_id is not None:
-            tipo = "RECEITA" if cache_tipos.get(int(plano_contas_id)) == "R" else "DESPESA"
-
-        if plano_contas_id or entidade_id:
-            _append_learning_reference(learning_refs, descricao, tipo, plano_contas_id, entidade_id, "lote")
-
-    sugestoes = _build_import_suggestions(df, col_desc, col_tipo, col_cat, col_entidade, conflitos, learning_refs)
-    categorias_by_id = {int(item["id"]): item for item in sistema["categorias"] if item.get("id") is not None}
-    entidades_by_id = {int(item["id"]): item for item in sistema["entidades"] if item.get("id") is not None}
-    preview_rows = []
-
-    for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
-        descricao = str(row[col_desc]).strip() if col_desc and pd.notna(row[col_desc]) else ""
-        tipo_raw = str(row[col_tipo]).upper().strip() if col_tipo and pd.notna(row[col_tipo]) else ""
-        tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw.startswith("D") else "")
-        categoria_nome = str(row[col_cat]).strip() if col_cat and pd.notna(row[col_cat]) else ""
-        entidade_nome = str(row[col_entidade]).strip() if col_entidade and pd.notna(row[col_entidade]) else ""
-
-        categoria_mapeada_id = sugestoes["categorias"].get(categoria_nome) if categoria_nome else None
-        entidade_mapeada_id = sugestoes["entidades"].get(entidade_nome) if entidade_nome else None
-
-        if descricao and (categoria_mapeada_id is None or entidade_mapeada_id is None):
-            inferencia = _infer_learning_ids(descricao, tipo, learning_refs)
-            if categoria_mapeada_id is None:
-                plano_sugerido = inferencia.get("plano_contas_id")
-                if plano_sugerido is not None:
-                    categoria_mapeada_id = int(plano_sugerido)
-            if entidade_mapeada_id is None:
-                entidade_sugerida = inferencia.get("entidade_id")
-                if entidade_sugerida is not None:
-                    entidade_mapeada_id = int(entidade_sugerida)
-
-        preview_rows.append(
-            {
-                "linha": row_idx,
-                "descricao": descricao,
-                "tipo": tipo if tipo else (_format_preview_value(row.get(col_tipo)) if col_tipo else ""),
-                "valor": _format_preview_value(row.get(col_valor)) if col_valor else "",
-                "data_vencimento": _format_preview_value(row.get(col_venc)) if col_venc else "",
-                "categoria_arquivo": categoria_nome,
-                "categoria_sugerida_id": categoria_mapeada_id,
-                "categoria_sugerida_nome": categorias_by_id.get(int(categoria_mapeada_id), {}).get("nome") if categoria_mapeada_id is not None else None,
-                "entidade_arquivo": entidade_nome,
-                "entidade_sugerida_id": entidade_mapeada_id,
-                "entidade_sugerida_nome": entidades_by_id.get(int(entidade_mapeada_id), {}).get("nome") if entidade_mapeada_id is not None else None,
-            }
-        )
-
-    return {
-        "conflitos": conflitos,
-        "sistema": sistema,
-        "sugestoes": sugestoes,
-        "preview": preview_rows[:200],
-    }
+@router.get("/importar/jobs/{job_id}")
+def obter_status_job_importacao(job_id: str, current_user: Usuario = Depends(get_current_user)):
+    empresa_id, user_id = require_empresa_user(current_user)
+    with IMPORT_JOBS_LOCK:
+        job = IMPORT_JOBS.get(job_id)
+    if not job or job.empresa_id != empresa_id or job.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job de importação não encontrado")
+    return _serialize_import_job(job)
 
 
 # ==========================================
@@ -527,217 +1040,34 @@ async def importar_executar(
         )
     
     try:
-        # Parse do mapeamento
         mapeamento = json.loads(mapeamento_json)
-        map_categorias = {str(k).upper().strip(): v for k, v in mapeamento.get('map_categorias', {}).items() if v is not None}
-        map_contas = {str(k).upper().strip(): v for k, v in mapeamento.get('map_contas', {}).items() if v is not None}
-        map_centros = {str(k).upper().strip(): v for k, v in mapeamento.get('map_centros', {}).items() if v is not None}
-        map_entidades = {str(k).upper().strip(): v for k, v in mapeamento.get('map_entidades', {}).items() if v is not None}
-        
-        # Lê o arquivo
+        empresa_id, user_id = require_empresa_user(current_user)
         conteudo = await file.read()
-        df = pd.read_excel(io.BytesIO(conteudo))
-        df.columns = [str(c).upper().strip() for c in df.columns]
-        
-        empresa_id, _ = require_empresa_user(current_user)
-        erros = []
-        importados = 0
-        
-        # Colunas principais (com fallback)
-        col_venc = encontrar_coluna(df, ["DATA VENCIMENTO", "VENCIMENTO", "DATA"])
-        col_pag = encontrar_coluna(df, ["DATA PAGAMENTO", "PAGAMENTO"])
-        col_desc = encontrar_coluna(df, ["DESCRIÇÃO", "DESCRICAO", "HISTÓRICO", "HISTORICO"])
-        col_valor = encontrar_coluna(df, ["VALOR", "VALOR PAGO", "VALOR PREVISTO"])
-        col_cat = encontrar_coluna(df, ["CATEGORIA", "PLANO DE CONTAS"])
-        col_ent = encontrar_coluna(df, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
-        col_conta = encontrar_coluna(df, ["CONTA", "BANCO"])
-        col_centro = encontrar_coluna(df, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO"])
-        col_tipo = encontrar_coluna(df, ["TIPO"])
-
-        # Caches do sistema
-        sistema = _load_import_system_rows(db, empresa_id)
-        cache_tipos = {int(item["id"]): item.get("tipo") for item in sistema["categorias"] if item.get("id") is not None}
-        nomes_cats_sist = _build_import_name_map(sistema["categorias"], selectable_only=True)
-        nomes_contas_sist = _build_import_name_map(sistema["contas"])
-        nomes_centros_sist = _build_import_name_map(sistema["centros"])
-        nomes_entidades_sist = _build_import_name_map(sistema["entidades"])
-        learning_refs = _load_learning_references(db, empresa_id)
-
-        for _, row in df.iterrows():
-            descricao = str(row[col_desc]).strip() if col_desc and pd.notna(row[col_desc]) else ""
-            tipo_raw = str(row[col_tipo]).upper().strip() if col_tipo and pd.notna(row[col_tipo]) else ""
-            tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw.startswith("D") else "")
-            categoria_nome = str(row[col_cat]).strip() if col_cat and pd.notna(row[col_cat]) else ""
-            entidade_nome = str(row[col_ent]).strip() if col_ent and pd.notna(row[col_ent]) else ""
-
-            plano_contas_id = None
-            if categoria_nome:
-                cat_key = categoria_nome.upper().strip()
-                if cat_key in map_categorias and map_categorias[cat_key] is not None:
-                    plano_contas_id = int(map_categorias[cat_key])
-                elif cat_key in nomes_cats_sist and nomes_cats_sist[cat_key] is not None:
-                    plano_contas_id = int(nomes_cats_sist[cat_key])
-
-            entidade_id = None
-            if entidade_nome:
-                ent_key = entidade_nome.upper().strip()
-                if ent_key in map_entidades and map_entidades[ent_key] is not None:
-                    entidade_id = int(map_entidades[ent_key])
-                elif ent_key in nomes_entidades_sist and nomes_entidades_sist[ent_key] is not None:
-                    entidade_id = int(nomes_entidades_sist[ent_key])
-
-            if not tipo and plano_contas_id is not None:
-                tipo = "RECEITA" if cache_tipos.get(int(plano_contas_id)) == "R" else "DESPESA"
-
-            if plano_contas_id or entidade_id:
-                _append_learning_reference(learning_refs, descricao, tipo, plano_contas_id, entidade_id, "lote")
-
-        for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
-            try:
-                if col_venc and pd.isna(row[col_venc]):
-                    continue
-
-                descricao = str(row[col_desc]).strip() if col_desc and pd.notna(row[col_desc]) else ""
-                tipo_raw = str(row[col_tipo]).upper().strip() if col_tipo and pd.notna(row[col_tipo]) else ""
-                tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw else "")
-                valor_raw = row[col_valor] if col_valor else None
-                valor = Decimal(str(valor_raw).replace(',', '.')) if pd.notna(valor_raw) else Decimal("0.00")
-                data_venc_raw = row[col_venc] if col_venc else None
-                data_pag_raw = row[col_pag] if col_pag else None
-                categoria_nome = str(row[col_cat]).strip() if col_cat and pd.notna(row[col_cat]) else "A Categorizar"
-                entidade_nome = str(row[col_ent]).strip() if col_ent and pd.notna(row[col_ent]) else ""
-                conta_nome = str(row[col_conta]).strip() if col_conta and pd.notna(row[col_conta]) else ""
-                centro_nome = str(row[col_centro]).strip() if col_centro and pd.notna(row[col_centro]) else ""
-                
-                # Mapeia para IDs usando mapeamento
-                plano_contas_id = None
-                cat_key = categoria_nome.upper().strip()
-                if cat_key in map_categorias and map_categorias[cat_key] is not None:
-                    plano_contas_id = int(map_categorias[cat_key])
-                elif cat_key in nomes_cats_sist and nomes_cats_sist[cat_key] is not None:
-                    plano_contas_id = int(nomes_cats_sist[cat_key])
-                elif descricao:
-                    inferencia = _infer_learning_ids(descricao, tipo, learning_refs)
-                    plano_sugerido = inferencia.get("plano_contas_id")
-                    if plano_sugerido is not None:
-                        plano_contas_id = int(plano_sugerido)
-                else:
-                    # Busca categoria no sistema ou cria "A Categorizar"
-                    categoria = db.exec(
-                        select(PlanoContas).where(
-                            PlanoContas.empresa_id == empresa_id,
-                            PlanoContas.nome == "A Categorizar",
-                            PlanoContas.tipo == ("R" if tipo == "RECEITA" else "D")
-                        )
-                    ).first()
-                    if not categoria:
-                        categoria = PlanoContas(
-                            nome="A Categorizar",
-                            codigo=None,
-                            tipo=("R" if tipo == "RECEITA" else "D"),
-                            empresa_id=empresa_id,
-                            permite_lancamentos=True
-                        )
-                        db.add(categoria)
-                        db.flush()
-                    plano_contas_id = categoria.id
-
-                if not tipo and plano_contas_id is not None:
-                    tipo = "RECEITA" if cache_tipos.get(int(plano_contas_id)) == "R" else "DESPESA"
-                
-                # Mapeia entidade
-                entidade_id = None
-                entidade_id = None
-                ent_key = entidade_nome.upper().strip() if entidade_nome else ""
-                if ent_key and ent_key in map_entidades and map_entidades[ent_key] is not None:
-                    entidade_id = int(map_entidades[ent_key])
-                elif ent_key and ent_key in nomes_entidades_sist and nomes_entidades_sist[ent_key] is not None:
-                    entidade_id = int(nomes_entidades_sist[ent_key])
-                elif descricao:
-                    inferencia = _infer_learning_ids(descricao, tipo, learning_refs)
-                    entidade_sugerida = inferencia.get("entidade_id")
-                    if entidade_sugerida is not None:
-                        entidade_id = int(entidade_sugerida)
-                elif ent_key:
-                    nova_ent = Entidade(nome=entidade_nome, tipo="AMBOS", cpf_cnpj=None, status="ATIVO", empresa_id=empresa_id)
-                    db.add(nova_ent)
-                    db.flush()
-                    if nova_ent.id is None:
-                        raise Exception("Falha ao criar entidade")
-                    entidade_id = int(nova_ent.id)
-                    nomes_entidades_sist[ent_key] = entidade_id
-                
-                # Mapeia conta
-                conta_id = None
-                conta_id = None
-                conta_key = conta_nome.upper().strip() if conta_nome else ""
-                if conta_key:
-                    if conta_key in map_contas and map_contas[conta_key] is not None:
-                        conta_id = int(map_contas[conta_key])
-                    elif conta_key in nomes_contas_sist and nomes_contas_sist[conta_key] is not None:
-                        conta_id = int(nomes_contas_sist[conta_key])
-                
-                # Mapeia centro de custo
-                centro_custo_id = None
-                centro_custo_id = None
-                centro_key = centro_nome.upper().strip() if centro_nome else ""
-                if centro_key:
-                    if centro_key in map_centros and map_centros[centro_key] is not None:
-                        centro_custo_id = int(map_centros[centro_key])
-                    elif centro_key in nomes_centros_sist and nomes_centros_sist[centro_key] is not None:
-                        centro_custo_id = int(nomes_centros_sist[centro_key])
-                    else:
-                        novo_centro = CentroCusto(nome=centro_nome, empresa_id=empresa_id)
-                        db.add(novo_centro)
-                        db.flush()
-                        if novo_centro.id is None:
-                            raise Exception("Falha ao criar centro de custo")
-                        centro_custo_id = int(novo_centro.id)
-                        nomes_centros_sist[centro_key] = centro_custo_id
-                
-                # Parse da data
-                data_vencimento = pd.to_datetime(data_venc_raw, dayfirst=True).date() if pd.notna(data_venc_raw) else None
-                data_pagamento = pd.to_datetime(data_pag_raw, dayfirst=True).date() if pd.notna(data_pag_raw) and str(data_pag_raw).strip() != '' else None
-                if not data_vencimento:
-                    raise Exception("Data de vencimento inválida")
-                
-                # Cria lançamento
-                novo_lancamento = Lancamento(
-                    descricao=descricao,
-                    tipo=tipo,
-                    origem="IMPORTACAO",
-                    valor_previsto=Decimal(str(valor)),
-                    valor_pago=Decimal(str(valor)) if data_pagamento else Decimal("0.00"),
-                    data_vencimento=data_vencimento,
-                    data_pagamento=data_pagamento,
-                    data_competencia=data_vencimento,
-                    empresa_id=empresa_id,
-                    plano_contas_id=plano_contas_id,
-                    entidade_id=entidade_id,
-                    conta_id=conta_id,
-                    centro_custo_id=centro_custo_id,
-                    ipp=False
-                )
-                
-                db.add(novo_lancamento)
-                importados += 1
-                _append_learning_reference(learning_refs, descricao, tipo, plano_contas_id, entidade_id, "lote")
-                
-            except Exception as e:
-                logger.error(f"Erro na linha {row_idx}: {e}")
-                erros.append(f"Linha {row_idx}: {str(e)}")
-        
-        db.commit()
-        
-        return {
-            "sucesso": True,
-            "importados": importados,
-            "erros": erros
-        }
-        
+        return _execute_import_contents(db, conteudo, empresa_id, user_id, mapeamento)
     except Exception as e:
         logger.error(f"Erro ao processar importação: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Erro ao processar arquivo: {str(e)}"
         )
+
+
+@router.post("/importar/executar-async", status_code=status.HTTP_202_ACCEPTED)
+async def importar_executar_async(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    mapeamento_json: str = Form(...),
+    current_user: Usuario = Depends(get_current_user),
+):
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser XLSX ou XLS")
+    try:
+        mapeamento = json.loads(mapeamento_json)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mapeamento inválido") from exc
+
+    empresa_id, user_id = require_empresa_user(current_user)
+    file_bytes = await file.read()
+    job = _create_import_job("EXECUTE", empresa_id, user_id, file.filename)
+    background_tasks.add_task(_run_import_execute_job, job.job_id, empresa_id, user_id, file_bytes, mapeamento)
+    return {"job_id": job.job_id, "status": job.status}

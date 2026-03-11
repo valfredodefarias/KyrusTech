@@ -1186,6 +1186,8 @@ const MappingRow = ({ label, original, value, options, onChange, onCreate, typeL
 export function Importacao() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+    const [isDragActive, setIsDragActive] = useState(false);
+    const dragCounterRef = useRef(0);
   const [bulkLoading, setBulkLoading] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -1278,6 +1280,23 @@ export function Importacao() {
       if (remaining <= 96) {
           setPreviewVisibleCount((prev) => Math.min(prev + PREVIEW_PAGE_SIZE, previewResolvedRows.length));
       }
+  }
+
+  function handleUploadDragEnter() {
+      dragCounterRef.current += 1;
+      setIsDragActive(true);
+  }
+
+  function handleUploadDragLeave() {
+      dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+      if (dragCounterRef.current === 0) {
+          setIsDragActive(false);
+      }
+  }
+
+  function handleUploadDrop() {
+      dragCounterRef.current = 0;
+      setIsDragActive(false);
   }
 
   async function handleEntityCepChange(value: string) {
@@ -1702,11 +1721,22 @@ export function Importacao() {
         
         {/* STEP 1: UPLOAD */}
         {step === 1 && (
-            <div className="bg-white dark:bg-slate-800 p-10 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center min-h-100 border-dashed relative hover:border-blue-500/50 transition-colors">
+            <div
+                onDragEnter={handleUploadDragEnter}
+                onDragLeave={handleUploadDragLeave}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={handleUploadDrop}
+                className={`bg-white dark:bg-slate-800 p-10 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center min-h-100 border-dashed relative overflow-hidden transition-all duration-300 ${isDragActive ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/20 scale-[1.01] shadow-2xl shadow-blue-900/10' : 'hover:border-blue-500/50'}`}
+            >
                 <input type="file" accept=".xlsx,.xls" onChange={e=>setFile(e.target.files?.[0]||null)} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10" />
+                <div className={`pointer-events-none absolute inset-0 transition-opacity duration-300 ${isDragActive ? 'opacity-100' : 'opacity-0'}`}>
+                    <div className="absolute inset-x-8 inset-y-6 rounded-[28px] border-2 border-dashed border-blue-400/70 bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.18),transparent_58%)]" />
+                    <div className="absolute left-1/2 top-1/2 h-32 w-32 -translate-x-1/2 -translate-y-1/2 rounded-full border border-blue-300/60 animate-ping" />
+                    <div className="absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-500/15 backdrop-blur-sm" />
+                </div>
                 <div className="text-center space-y-4 pointer-events-none">
-                    <div className="w-24 h-24 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse-slow"><FileSpreadsheet className="w-12 h-12 text-blue-500"/></div>
-                    {file ? (<div className="animate-in fade-in zoom-in-95"><h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">{file.name}</h3><p className="text-emerald-400 font-mono text-sm">{(file.size/1024).toFixed(1)} KB • Pronto para envio</p></div>) : (<div><h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Arraste ou clique para selecionar</h3><p className="text-slate-500 dark:text-slate-400">Suporta arquivos Excel (.xlsx, .xls)</p></div>)}
+                    <div className={`w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4 transition-all duration-300 ${isDragActive ? 'bg-blue-500 text-white shadow-xl shadow-blue-500/25 -translate-y-1' : 'bg-blue-500/10 text-blue-500 animate-pulse-slow'}`}><FileSpreadsheet className="w-12 h-12"/></div>
+                    {file ? (<div className="animate-in fade-in zoom-in-95"><h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">{file.name}</h3><p className="text-emerald-400 font-mono text-sm">{(file.size/1024).toFixed(1)} KB • Pronto para envio</p></div>) : isDragActive ? (<div className="animate-in fade-in zoom-in-95"><h3 className="text-2xl font-bold text-blue-700 dark:text-blue-300 mb-2">Solte a planilha aqui</h3><p className="text-blue-600/80 dark:text-blue-200/80">O arquivo será anexado assim que você soltar, com destaque visual no estilo de conversa.</p></div>) : (<div><h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Arraste ou clique para selecionar</h3><p className="text-slate-500 dark:text-slate-400">Suporta arquivos Excel (.xlsx, .xls)</p></div>)}
                 </div>
                 <div className="mt-10 z-20 flex gap-4">
                     <button onClick={handleDownloadModelo} className="px-5 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white font-bold flex gap-2 items-center transition"><Download className="w-4 h-4"/> Baixar Modelo</button>

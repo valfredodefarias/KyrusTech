@@ -1,15 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import ExcelJS from 'exceljs';
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   CheckCircle2,
   Download,
   FileSpreadsheet,
   Loader2,
   MapPin,
-  UploadCloud,
   Users,
 } from 'lucide-react';
 
@@ -174,6 +174,23 @@ function getCellText(row: ExcelJS.Row, indexMap: Map<string, number>, target: st
   return String(cell?.text || cell?.value || '').trim();
 }
 
+const StepBadge = ({ num, current, label }: { num: number; current: number; label: string }) => {
+  const active = num === current;
+  const done = num < current;
+
+  return (
+    <div className={`flex items-center gap-2 ${active ? 'text-slate-900 dark:text-white' : done ? 'text-emerald-500' : 'text-slate-500'}`}>
+      <div
+        className={`flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-bold transition-all ${active ? 'border-emerald-500 bg-emerald-500 text-white' : done ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-800'}`}
+      >
+        {done ? <CheckCircle2 className="h-4 w-4" /> : num}
+      </div>
+      <span className="hidden text-sm font-bold sm:block">{label}</span>
+      {num < 4 ? <div className={`h-0.5 w-8 ${done ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`} /> : null}
+    </div>
+  );
+};
+
 async function parseEntityWorkbook(file: File): Promise<ImportedEntityRow[]> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(await file.arrayBuffer());
@@ -252,14 +269,46 @@ export function ImportacaoEntidades() {
   const invalidateEntidades = useLookupStore((state) => state.invalidateEntidades);
   const invalidateEntidadesLookup = useLookupStore((state) => state.invalidateEntidadesLookup);
 
+  const [step, setStep] = useState(1);
   const [file, setFile] = useState<File | null>(null);
   const [rows, setRows] = useState<ImportedEntityRow[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [importing, setImporting] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
+  const [isDragActive, setIsDragActive] = useState(false);
+  const dragCounterRef = useRef(0);
 
   const validRows = useMemo(() => rows.filter((row) => row.errors.length === 0), [rows]);
   const invalidRows = useMemo(() => rows.filter((row) => row.errors.length > 0), [rows]);
+
+  function handleUploadDragEnter() {
+    dragCounterRef.current += 1;
+    setIsDragActive(true);
+  }
+
+  function handleUploadDragLeave() {
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) {
+      setIsDragActive(false);
+    }
+  }
+
+  function handleFileSelection(nextFile: File | null) {
+    setFile(nextFile);
+    setRows([]);
+    setFeedback(null);
+    setStep(1);
+  }
+
+  function handleUploadDrop(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragActive(false);
+    const droppedFile = event.dataTransfer.files?.[0] || null;
+    if (droppedFile) {
+      handleFileSelection(droppedFile);
+    }
+  }
 
   async function handleDownloadTemplate() {
     const workbook = new ExcelJS.Workbook();
@@ -305,6 +354,7 @@ export function ImportacaoEntidades() {
     try {
       const parsed = await parseEntityWorkbook(file);
       setRows(parsed);
+      setStep(2);
       setFeedback({
         type: parsed.some((row) => row.errors.length > 0) ? 'error' : 'success',
         message: `${parsed.length} interessado(s) lido(s) da planilha.`,
@@ -367,6 +417,9 @@ export function ImportacaoEntidades() {
         message: `${Array.isArray(data) ? data.length : validRows.length} interessado(s) processado(s) com sucesso.`,
         details: invalidRows.length > 0 ? [`${invalidRows.length} linha(s) ficaram de fora por inconsistências na planilha.`] : undefined,
       });
+      setStep(1);
+      setFile(null);
+      setRows([]);
     } catch (error: any) {
       setFeedback({ type: 'error', message: error?.response?.data?.detail || error?.message || 'Erro ao importar interessados.' });
     } finally {
@@ -397,6 +450,12 @@ export function ImportacaoEntidades() {
             </button>
           </div>
         </div>
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/50">
+          <StepBadge num={1} current={step} label="Upload" />
+          <StepBadge num={2} current={step} label="Leitura" />
+          <StepBadge num={3} current={step} label="Revisão" />
+          <StepBadge num={4} current={step} label="Validação" />
+        </div>
       </div>
 
       {feedback && (
@@ -415,33 +474,65 @@ export function ImportacaoEntidades() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+      {step === 1 && (
+        <section
+          onDragEnter={handleUploadDragEnter}
+          onDragLeave={handleUploadDragLeave}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={handleUploadDrop}
+          className={`relative overflow-hidden rounded-3xl border border-dashed bg-white/90 p-10 text-center shadow-sm transition-all duration-300 dark:bg-slate-800/90 ${isDragActive ? 'scale-[1.01] border-emerald-500 bg-emerald-50/80 shadow-2xl shadow-emerald-900/10 dark:bg-emerald-950/20' : 'border-slate-300 hover:border-emerald-400 dark:border-slate-700'}`}
+        >
+          <div className={`pointer-events-none absolute inset-0 transition-opacity duration-300 ${isDragActive ? 'opacity-100' : 'opacity-0'}`}>
+            <div className="absolute inset-x-8 inset-y-6 rounded-[28px] border-2 border-dashed border-emerald-400/70 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.18),transparent_58%)]" />
+            <div className="absolute left-1/2 top-1/2 h-32 w-32 -translate-x-1/2 -translate-y-1/2 rounded-full border border-emerald-300/60 animate-ping" />
+            <div className="absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500/15 backdrop-blur-sm" />
+          </div>
+
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={(event) => handleFileSelection(event.target.files?.[0] || null)}
+            className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+          />
+
+          <div className="pointer-events-none relative z-0 space-y-4">
+            <div className={`mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-full transition-all duration-300 ${isDragActive ? 'bg-emerald-500 text-white shadow-xl shadow-emerald-500/25 -translate-y-1' : 'bg-emerald-500/10 text-emerald-500 animate-pulse-slow'}`}>
+              <FileSpreadsheet className="h-12 w-12" />
+            </div>
+            {file ? (
+              <div className="animate-in zoom-in-95 fade-in">
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white">{file.name}</h2>
+                <p className="mt-2 text-sm font-mono text-emerald-600 dark:text-emerald-300">{(file.size / 1024).toFixed(1)} KB • Planilha pronta para leitura</p>
+              </div>
+            ) : isDragActive ? (
+              <div className="animate-in zoom-in-95 fade-in">
+                <h2 className="text-2xl font-black text-emerald-700 dark:text-emerald-300">Solte a planilha aqui</h2>
+                <p className="mt-2 text-sm text-emerald-700/80 dark:text-emerald-200/80">A área reage igual à de importação de lançamentos, com destaque visual durante o arraste.</p>
+              </div>
+            ) : (
+              <div>
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white">Arraste ou clique para selecionar</h2>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">Formato aceito: .xlsx ou .xls. Colunas principais: nome, cpf_cnpj, contato_responsavel, email, telefone, celular_whatsapp, cep e numero.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="relative z-20 mt-10 flex flex-wrap justify-center gap-3">
+            <button onClick={handleDownloadTemplate} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800">
+              <Download className="h-4 w-4" />
+              Baixar modelo
+            </button>
+            <button onClick={handlePreview} disabled={!file || loadingPreview} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">
+              {loadingPreview ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+              {loadingPreview ? 'Lendo planilha...' : 'Continuar'}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {step === 2 && (
         <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
-          <div className="flex items-start gap-4">
-            <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300">
-              <UploadCloud className="h-6 w-6" />
-            </div>
-            <div>
-              <h2 className="text-lg font-black text-slate-900 dark:text-white">Enviar planilha</h2>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-300">Trabalhe com o modelo padrão para evitar mapeamento manual e garantir a importação dos dados completos do interessado.</p>
-            </div>
-          </div>
-
-          <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50/80 p-8 text-center transition hover:border-emerald-400 dark:border-slate-700 dark:bg-slate-900/40">
-            <input type="file" accept=".xlsx" onChange={(event) => setFile(event.target.files?.[0] || null)} className="absolute opacity-0 pointer-events-none" />
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300">
-              <FileSpreadsheet className="h-8 w-8" />
-            </div>
-            <p className="mt-4 text-lg font-bold text-slate-900 dark:text-white">{file ? file.name : 'Selecione a planilha de interessados'}</p>
-            <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">Formato aceito: .xlsx. Colunas principais: nome, cpf_cnpj, contato_responsavel, email, telefone, celular_whatsapp, cep e numero.</p>
-            <label className="mt-6 inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800">
-              <UploadCloud className="h-4 w-4" />
-              Escolher arquivo
-              <input type="file" accept=".xlsx" onChange={(event) => setFile(event.target.files?.[0] || null)} className="hidden" />
-            </label>
-          </div>
-
-          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Linhas lidas</p>
               <p className="mt-2 text-3xl font-black text-slate-900 dark:text-white">{rows.length}</p>
@@ -456,18 +547,34 @@ export function ImportacaoEntidades() {
             </div>
           </div>
 
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button onClick={handlePreview} disabled={!file || loadingPreview} className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
-              {loadingPreview ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
-              Ler planilha
-            </button>
-            <button onClick={handleImport} disabled={validRows.length === 0 || importing} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">
-              {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
-              Importar interessados
-            </button>
+          <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50/80 p-5 dark:border-slate-700 dark:bg-slate-900/40">
+            <h2 className="text-lg font-black text-slate-900 dark:text-white">Resultado da leitura</h2>
+            <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">Nesta etapa você confirma se a planilha foi lida corretamente e quantas linhas já estão prontas para seguir.</p>
+            {invalidRows.length > 0 ? (
+              <div className="mt-4 space-y-3">
+                {invalidRows.slice(0, 6).map((row) => (
+                  <div key={row.rowNumber} className="rounded-2xl border border-red-200 bg-white px-4 py-3 dark:border-red-900 dark:bg-slate-950/40">
+                    <p className="text-sm font-bold text-slate-900 dark:text-white">Linha #{row.rowNumber} • {row.nome || 'Sem nome'}</p>
+                    <p className="mt-1 text-xs text-red-600 dark:text-red-300">{row.errors.join(' • ')}</p>
+                  </div>
+                ))}
+                {invalidRows.length > 6 ? <p className="text-xs text-slate-500 dark:text-slate-400">+ {invalidRows.length - 6} linha(s) com revisão aparecerão na próxima etapa.</p> : null}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-300">
+                Nenhuma inconsistência encontrada. Você pode seguir para revisar a prévia completa.
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-between border-t border-slate-200 pt-6 dark:border-slate-700">
+              <button onClick={() => setStep(1)} className="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800">Voltar</button>
+              <button onClick={() => setStep(3)} disabled={rows.length === 0} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">Revisar prévia <ArrowRight className="h-4 w-4" /></button>
+            </div>
           </div>
         </section>
+      )}
 
+      {step === 3 && (
         <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
           <div className="flex items-start gap-4">
             <div className="rounded-2xl bg-blue-50 p-3 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
@@ -492,56 +599,93 @@ export function ImportacaoEntidades() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-10 text-center text-slate-500 dark:text-slate-300">Leia uma planilha para exibir a prévia dos interessados.</td>
-                    </tr>
-                  ) : (
-                    rows.map((row) => (
-                      <tr key={row.rowNumber} className="border-t border-slate-200 align-top dark:border-slate-700">
-                        <td className="px-4 py-4 font-mono text-xs text-slate-400">#{row.rowNumber}</td>
-                        <td className="px-4 py-4">
-                          <p className="font-bold text-slate-900 dark:text-white">{row.nome || 'Sem nome'}</p>
-                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-300">{row.tipo_pessoa} • {row.tipo}</p>
-                          <p className="mt-1 text-xs text-slate-400">{row.cpf_cnpj || 'Sem CPF/CNPJ'}</p>
-                        </td>
-                        <td className="px-4 py-4 text-xs text-slate-600 dark:text-slate-300">
-                          <p>{row.contato_nome || 'Sem responsável'}</p>
-                          <p className="mt-1">{row.email || 'Sem e-mail'}</p>
-                          <p className="mt-1">{row.telefone || row.celular || 'Sem telefone'}</p>
-                        </td>
-                        <td className="px-4 py-4 text-xs text-slate-600 dark:text-slate-300">
-                          <p>{row.cep || 'Sem CEP'} {row.numero ? `• ${row.numero}` : ''}</p>
-                          <p className="mt-1">{row.logradouro || 'Logradouro será buscado pelo CEP se estiver vazio'}</p>
-                          <p className="mt-1">{[row.bairro, row.cidade, row.uf].filter(Boolean).join(' • ') || 'Bairro, cidade e UF serão buscados pelo CEP se estiverem vazios'}</p>
-                        </td>
-                        <td className="px-4 py-4">
-                          {row.errors.length === 0 ? (
-                            <span className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              Pronta para importar
+                  {rows.map((row) => (
+                    <tr key={row.rowNumber} className="border-t border-slate-200 align-top dark:border-slate-700">
+                      <td className="px-4 py-4 font-mono text-xs text-slate-400">#{row.rowNumber}</td>
+                      <td className="px-4 py-4">
+                        <p className="font-bold text-slate-900 dark:text-white">{row.nome || 'Sem nome'}</p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-300">{row.tipo_pessoa} • {row.tipo}</p>
+                        <p className="mt-1 text-xs text-slate-400">{row.cpf_cnpj || 'Sem CPF/CNPJ'}</p>
+                      </td>
+                      <td className="px-4 py-4 text-xs text-slate-600 dark:text-slate-300">
+                        <p>{row.contato_nome || 'Sem responsável'}</p>
+                        <p className="mt-1">{row.email || 'Sem e-mail'}</p>
+                        <p className="mt-1">{row.telefone || row.celular || 'Sem telefone'}</p>
+                      </td>
+                      <td className="px-4 py-4 text-xs text-slate-600 dark:text-slate-300">
+                        <p>{row.cep || 'Sem CEP'} {row.numero ? `• ${row.numero}` : ''}</p>
+                        <p className="mt-1">{row.logradouro || 'Logradouro será buscado pelo CEP se estiver vazio'}</p>
+                        <p className="mt-1">{[row.bairro, row.cidade, row.uf].filter(Boolean).join(' • ') || 'Bairro, cidade e UF serão buscados pelo CEP se estiverem vazios'}</p>
+                      </td>
+                      <td className="px-4 py-4">
+                        {row.errors.length === 0 ? (
+                          <span className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Pronta para importar
+                          </span>
+                        ) : (
+                          <div className="space-y-2">
+                            <span className="inline-flex items-center gap-2 rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700 dark:bg-red-500/10 dark:text-red-300">
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                              Revisar linha
                             </span>
-                          ) : (
-                            <div className="space-y-2">
-                              <span className="inline-flex items-center gap-2 rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700 dark:bg-red-500/10 dark:text-red-300">
-                                <AlertTriangle className="h-3.5 w-3.5" />
-                                Revisar linha
-                              </span>
-                              <ul className="space-y-1 text-xs text-red-600 dark:text-red-300">
-                                {row.errors.map((error) => <li key={error}>{error}</li>)}
-                              </ul>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                            <ul className="space-y-1 text-xs text-red-600 dark:text-red-300">
+                              {row.errors.map((error) => <li key={error}>{error}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           </div>
+
+          <div className="mt-6 flex justify-between border-t border-slate-200 pt-6 dark:border-slate-700">
+            <button onClick={() => setStep(2)} className="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800">Voltar</button>
+            <button onClick={() => setStep(4)} disabled={validRows.length === 0} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">Ir para validação <ArrowRight className="h-4 w-4" /></button>
+          </div>
         </section>
-      </div>
+      )}
+
+      {step === 4 && (
+        <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
+          <h2 className="text-lg font-black text-slate-900 dark:text-white">Validação final</h2>
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">Confira o resumo final antes de confirmar a importação dos interessados.</p>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Arquivo</p>
+              <p className="mt-2 text-sm font-bold text-slate-900 dark:text-white">{file?.name || 'Sem arquivo'}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Linhas lidas</p>
+              <p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{rows.length}</p>
+            </div>
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-500/10">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-500">Importadas</p>
+              <p className="mt-2 text-2xl font-black text-emerald-700 dark:text-emerald-300">{validRows.length}</p>
+            </div>
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-500/10">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-red-500">Ignoradas</p>
+              <p className="mt-2 text-2xl font-black text-red-700 dark:text-red-300">{invalidRows.length}</p>
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50/80 p-5 dark:border-slate-700 dark:bg-slate-900/40">
+            <p className="text-sm text-slate-600 dark:text-slate-300">Os dados de endereço serão completados pelo CEP quando necessário. Linhas com inconsistência não entram no lote de importação.</p>
+          </div>
+
+          <div className="mt-6 flex justify-between border-t border-slate-200 pt-6 dark:border-slate-700">
+            <button onClick={() => setStep(3)} className="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800">Voltar</button>
+            <button onClick={handleImport} disabled={validRows.length === 0 || importing} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">
+              {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+              {importing ? 'Importando...' : 'Confirmar importação'}
+            </button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

@@ -855,6 +855,10 @@ export const PlanoContasManager = ({
             });
         }
 
+        for (const item of deletedItems) {
+            await api.delete(`${normalizedApiBasePath}/${item.id}`);
+        }
+
         const payload = localList.map((item) => ({
             id: getResolvedItemId(item.id, tempIdMap),
             codigo: item.codigo,
@@ -863,10 +867,6 @@ export const PlanoContasManager = ({
         }));
 
         await api.post(`${normalizedApiBasePath}/reordenar`, payload);
-
-        for (const item of deletedItems) {
-            await api.delete(`${normalizedApiBasePath}/${item.id}`);
-        }
         
         setHasChanges(false);
         setManagerFeedback({ type: 'success', message: 'Plano de contas salvo com sucesso.' });

@@ -1,7 +1,6 @@
 """
 Endpoints para importacao de arquivos OFX (multibancos).
 """
-import json
 import re
 import unicodedata
 from datetime import date, datetime, timedelta
@@ -9,7 +8,6 @@ from difflib import SequenceMatcher
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-import requests
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from sqlmodel import Session, or_, select
 from loguru import logger
@@ -17,7 +15,6 @@ from pydantic import BaseModel, Field
 
 from app.db.session import get_db
 from app.api.v1.deps import get_empresa_id_from_user
-from app.core.config import settings
 from app.services.integracao_ofx import processar_ofx
 from app.services.importacao_bancaria_service import (
     verificar_duplicata,
@@ -40,8 +37,6 @@ MATCH_TOLERANCIA_PERCENTUAL = Decimal("0.05")
 MATCH_DIAS_ATRASO = 30
 STATUS_ABERTOS = ("PENDENTE", "EM ABERTO")
 HISTORICO_SUGESTAO_LIMITE = 1500
-GEMINI_BATCH_LIMIT = 20
-GEMINI_CATEGORIA_LIMITE = 8
 
 TOKEN_MAP_INTERESSADO = {
     "MAST": "Master",
@@ -578,167 +573,104 @@ def _aplicar_sugestao_historica(
     return ranked
 
 
-def _json_from_llm(raw_text: str) -> Optional[Dict[str, Any]]:
-    texto = str(raw_text or "").strip()
-    if not texto:
-        return None
-    if texto.startswith("```"):
-        texto = re.sub(r"^```(?:json)?", "", texto).strip()
-        texto = re.sub(r"```$", "", texto).strip()
-    inicio = texto.find("{")
-    fim = texto.rfind("}")
-    if inicio >= 0 and fim > inicio:
-        texto = texto[inicio:fim + 1]
+def _score_historico_deterministico(
+    lancamento_ofx: Dict,
+    historico: Lancamento,
+    entidades_por_id: Dict[int, Entidade],
+) -> float:
+    if historico.tipo != lancamento_ofx.get("tipo") or not historico.plano_contas_id:
+        return 0.0
+
+    interessado_ofx = _normalizar_texto(lancamento_ofx.get("razao_social") or lancamento_ofx.get("interessado_sugerido"))
+    descricao_ofx = _normalizar_texto(lancamento_ofx.get("descricao"))
+    descricao_relevante_ofx = _normalizar_texto_boleto_relevante(lancamento_ofx.get("descricao")) or descricao_ofx
+
+    entidade_historica = entidades_por_id.get(int(historico.entidade_id or 0))
+    interessado_historico = _normalizar_texto(entidade_historica.nome if entidade_historica else "")
+    descricao_historica = _normalizar_texto(historico.descricao)
+    descricao_relevante_historica = _normalizar_texto_boleto_relevante(
+        f"{historico.descricao or ''} {historico.observacao or ''} {entidade_historica.nome if entidade_historica else ''}"
+    ) or descricao_historica
+
+    score = 0.0
+    if interessado_ofx and interessado_historico:
+        if interessado_ofx in interessado_historico or interessado_historico in interessado_ofx:
+            score += 58
+        else:
+            score += SequenceMatcher(None, interessado_ofx, interessado_historico).ratio() * 42
+
+    if descricao_relevante_ofx and descricao_relevante_historica:
+        score += SequenceMatcher(None, descricao_relevante_ofx, descricao_relevante_historica).ratio() * 36
+        tokens_ofx = set(descricao_relevante_ofx.split())
+        tokens_hist = set(descricao_relevante_historica.split())
+        if tokens_ofx and tokens_hist:
+            score += len(tokens_ofx & tokens_hist) * 4
+
+    if descricao_ofx and descricao_historica:
+        score += SequenceMatcher(None, descricao_ofx, descricao_historica).ratio() * 18
+
     try:
-        parsed = json.loads(texto)
-        return parsed if isinstance(parsed, dict) else None
+        valor_origem = Decimal(str(lancamento_ofx.get("valor") or "0"))
+        valor_historico = _valor_lancamento_existente(historico)
+        if _valor_dentro_tolerancia(valor_historico, valor_origem):
+            score += 12
     except Exception:
+        pass
+
+    return score
+
+
+def _buscar_melhor_historico_deterministico(
+    lancamento_ofx: Dict,
+    historico: List[Lancamento],
+    entidades_por_id: Dict[int, Entidade],
+) -> Optional[Lancamento]:
+    melhor: Optional[Lancamento] = None
+    melhor_score = 0.0
+    for item in historico:
+        score = _score_historico_deterministico(lancamento_ofx, item, entidades_por_id)
+        if score > melhor_score:
+            melhor_score = score
+            melhor = item
+
+    if not melhor:
         return None
 
-
-def _chamar_gemini_classificacao(items: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
-    if not settings.GEMINI_API_KEY or not items:
-        return {}
-
-    prompt = (
-        "Voce classifica movimentos OFX. Responda JSON puro no formato "
-        '{"items":[{"linha_arquivo":1,"plano_contas_id":123,"interessado_sugerido":"Nome"}]}'
-        " sem markdown. Escolha apenas IDs de plano_contas presentes nas categorias candidatas de cada item. "
-        "Preencha categoria e interessado antes da tela de validacao sempre que houver confianca suficiente. "
-        "Considere que o operador so deve revisar o que voce sugeriu. "
-        "Retorne apenas o nome limpo do interessado, sem prefixos como sugerido, explicacoes ou observacoes. "
-        "Melhore o nome do interessado quando a descricao vier abreviada como cartao/maquininha, por exemplo MAST CD -> Master Credito, DB -> Debito. "
-        "Se a descricao indicar PIX, chave, QR Code, maquininha, cartao, transferencia, TED, DOC, boleto, taxa ou tarifa, use isso para decidir a categoria candidata mais aderente. "
-        "Nunca escolha categoria de despesa para item do tipo RECEITA nem categoria de receita para item do tipo DESPESA. "
-        "Use o historico parecido para reaproveitar a categoria mais provavel.\n\n"
-        f"Itens:\n{json.dumps(items, ensure_ascii=False)}"
-    )
-
-    try:
-        response = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent",
-            params={"key": settings.GEMINI_API_KEY},
-            headers={"Content-Type": "application/json"},
-            json={
-                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2000},
-            },
-            timeout=settings.AI_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        data = response.json()
-        candidates = data.get("candidates") or []
-        if not candidates:
-            return {}
-        parts = candidates[0].get("content", {}).get("parts") or []
-        text = "\n".join(str(part.get("text", "")) for part in parts if isinstance(part, dict))
-        payload = _json_from_llm(text) or {}
-        result: Dict[int, Dict[str, Any]] = {}
-        for item in payload.get("items", []):
-            if isinstance(item, dict) and item.get("linha_arquivo"):
-                result[int(item["linha_arquivo"])] = item
-        return result
-    except Exception as exc:
-        logger.warning(f"Gemini indisponivel para classificacao OFX: {exc}")
-        return {}
+    limiar = 42 if "boleto" in _normalizar_texto(lancamento_ofx.get("descricao")) else 52
+    return melhor if melhor_score >= limiar else None
 
 
-def _aplicar_sugestoes_gemini(
+def _aplicar_sugestoes_deterministicas(
     lancamentos: List[Dict[str, Any]],
     categorias: List[PlanoContas],
-    historico_por_linha: Dict[int, List[Lancamento]],
+    historico_empresa: List[Lancamento],
     entidades_por_id: Dict[int, Entidade],
 ) -> None:
-    categorias_por_tipo: Dict[str, List[PlanoContas]] = {"RECEITA": [], "DESPESA": []}
-    for categoria in categorias:
-        tipo = "RECEITA" if str(categoria.tipo or "").upper().startswith("R") else "DESPESA"
-        categorias_por_tipo[tipo].append(categoria)
-
-    pendentes: List[Dict[str, Any]] = []
     for item in lancamentos:
         if item.get("duplicata_id"):
             continue
         if item.get("sugestao_acao") != "CRIAR_NOVO":
             continue
-        if item.get("plano_contas_id") and item.get("entidade_id"):
-            continue
-        historico_rel = historico_por_linha.get(int(item["linha_arquivo"]), [])
-        categorias_base = categorias_por_tipo.get(str(item.get("tipo") or "").upper(), [])
-        candidatos = []
-        vistos: set[int] = set()
-        for hist in historico_rel:
-            if hist.plano_contas_id and int(hist.plano_contas_id) not in vistos:
-                vistos.add(int(hist.plano_contas_id))
-                categoria = next((cat for cat in categorias_base if int(cat.id or 0) == int(hist.plano_contas_id)), None)
-                if categoria:
-                    candidatos.append({
-                        "id": int(categoria.id or 0),
-                        "nome": categoria.nome,
-                        "codigo": categoria.codigo,
-                    })
-        texto_item = _normalizar_texto(item.get("descricao"))
-        for categoria in categorias_base:
-            if len(candidatos) >= GEMINI_CATEGORIA_LIMITE:
-                break
-            if int(categoria.id or 0) in vistos:
-                continue
-            if _normalizar_texto(categoria.nome) and any(token in texto_item for token in _normalizar_texto(categoria.nome).split()):
-                vistos.add(int(categoria.id or 0))
-                candidatos.append({
-                    "id": int(categoria.id or 0),
-                    "nome": categoria.nome,
-                    "codigo": categoria.codigo,
-                })
-        if not candidatos:
-            for categoria in categorias_base[:GEMINI_CATEGORIA_LIMITE]:
-                candidatos.append({
-                    "id": int(categoria.id or 0),
-                    "nome": categoria.nome,
-                    "codigo": categoria.codigo,
-                })
 
-        exemplos = []
-        for hist in historico_rel[:3]:
-            entidade = entidades_por_id.get(int(hist.entidade_id or 0))
-            exemplos.append({
-                "descricao": hist.descricao,
-                "plano_contas_id": hist.plano_contas_id,
-                "entidade": entidade.nome if entidade else None,
-            })
-
-        pendentes.append({
-            "linha_arquivo": int(item["linha_arquivo"]),
-            "tipo": item.get("tipo"),
-            "descricao_ofx": item.get("descricao"),
-            "interessado_atual": item.get("razao_social") or item.get("interessado_sugerido") or "",
-            "categorias_candidatas": candidatos,
-            "historico_parecido": exemplos,
-        })
-
-    if not pendentes:
-        return
-
-    resposta: Dict[int, Dict[str, Any]] = {}
-    for inicio in range(0, len(pendentes), GEMINI_BATCH_LIMIT):
-        lote = pendentes[inicio:inicio + GEMINI_BATCH_LIMIT]
-        resposta.update(_chamar_gemini_classificacao(lote))
-
-    for item in lancamentos:
-        sugestao = resposta.get(int(item["linha_arquivo"]))
-        if not sugestao:
-            continue
-        if item.get("sugestao_acao") != "CRIAR_NOVO":
-            continue
-        plano_contas_id = sugestao.get("plano_contas_id")
-        if plano_contas_id and not item.get("plano_contas_id"):
-            item["plano_contas_id"] = int(plano_contas_id)
-        interessado = str(sugestao.get("interessado_sugerido") or "").strip()
+        interessado = str(item.get("razao_social") or item.get("interessado_sugerido") or "").strip()
+        if not interessado:
+            interessado = _extrair_interessado_sugerido(item)
         if interessado:
             interessado_limpo = _normalizar_nome_entidade(interessado) or interessado
             item["interessado_sugerido"] = interessado_limpo
             item["razao_social"] = interessado_limpo
-        if (plano_contas_id or interessado) and not item.get("motivo_classificacao"):
-            item["motivo_classificacao"] = "Sugestao automatica Gemini aplicada antes da tela de validacao."
+
+        melhor_historico = _buscar_melhor_historico_deterministico(item, historico_empresa, entidades_por_id)
+        if melhor_historico:
+            if not item.get("plano_contas_id") and melhor_historico.plano_contas_id:
+                item["plano_contas_id"] = int(melhor_historico.plano_contas_id)
+            if not item.get("entidade_id") and melhor_historico.entidade_id:
+                item["entidade_id"] = int(melhor_historico.entidade_id)
+            if not item.get("motivo_classificacao"):
+                item["motivo_classificacao"] = f"Sugestao deterministica por descricao/interessado parecidos com '{melhor_historico.descricao}'."
+
+        if not item.get("plano_contas_id"):
+            _aplicar_sugestao_categoria_por_descricao(item, categorias)
 
 
 def _build_match_reason(data_diferenca: int, valor_diferenca: Decimal, similaridade: float, kind: str) -> str:
@@ -864,7 +796,6 @@ async def upload_ofx(
         previstos = 0
         atrasados = 0
         hashes_vistos: set[str] = set()
-        historico_relacionado_por_linha: Dict[int, List[Lancamento]] = {}
 
         for lanc_raw in lancamentos_raw:
             lanc_raw["conta_id"] = conta_db_id
@@ -953,8 +884,6 @@ async def upload_ofx(
                 conta_db_id,
             )
             _aplicar_sugestao_categoria_por_descricao(lanc_raw, categorias_empresa)
-            historico_relacionado_por_linha[int(lanc_raw["linha_arquivo"])] = historico_relacionado
-
             entidade_id = criar_entidade_se_nao_existir(
                 db,
                 lanc_raw.get("razao_social", "") or lanc_raw.get("interessado_sugerido", ""),
@@ -965,7 +894,7 @@ async def upload_ofx(
 
             lancamentos_processados.append(lanc_raw)
 
-        _aplicar_sugestoes_gemini(lancamentos_processados, categorias_empresa, historico_relacionado_por_linha, entidades_por_id)
+        _aplicar_sugestoes_deterministicas(lancamentos_processados, categorias_empresa, historico_empresa, entidades_por_id)
 
         lancamentos_serializados = []
         for lancamento in lancamentos_processados:

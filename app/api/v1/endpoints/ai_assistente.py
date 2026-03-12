@@ -26,7 +26,7 @@ from app.models.plano_contas import PlanoContas
 from app.models.usuario import Usuario
 from app.schemas.lancamento import LancamentoCreate, LancamentoUpdate
 from app.services.lancamento_service import LancamentoService
-from app.services.integracao_itau import (
+from app.services.importacao_bancaria_service import (
     buscar_lancamento_atrasado_mesmo_valor,
     buscar_lancamento_previsto_mesmo_dia_valor,
 )

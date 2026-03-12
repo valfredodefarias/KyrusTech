@@ -19,7 +19,7 @@ from app.db.session import get_db
 from app.api.v1.deps import get_empresa_id_from_user
 from app.core.config import settings
 from app.services.integracao_ofx import processar_ofx
-from app.services.integracao_itau import (
+from app.services.importacao_bancaria_service import (
     verificar_duplicata,
     verificar_duplicata_ofx_por_fallback,
     buscar_lancamento_previsto_mesmo_dia_valor,
@@ -72,8 +72,24 @@ TOKEN_MAP_INTERESSADO = {
 TOKENS_GENERICOS_INTERESSADO = {
     "OFX",
     "COMPRA",
+    "BOLETO",
+    "PAGO",
+    "PAGA",
     "PAGAMENTO",
     "PAGTO",
+    "PIX",
+    "QR",
+    "QRCODE",
+    "CODE",
+    "CHAVE",
+    "RECEBIDO",
+    "RECEBIDA",
+    "RECEIDO",
+    "RECEIDA",
+    "ENVIADO",
+    "ENVIADA",
+    "TRANSFERENCIA",
+    "TRANSFERÊNCIA",
     "TRANSACAO",
     "TRANS",
     "AUT",
@@ -86,6 +102,39 @@ TOKENS_GENERICOS_INTERESSADO = {
     "BANCO",
     "AG",
     "CC",
+    "REDE",
+}
+
+PADROES_CATEGORIA_PRIORITARIA: List[tuple[str, tuple[str, ...]]] = [
+    ("BOLETO", ("boleto",)),
+    ("PAGAMENTO BOLETO", ("pagamento", "boleto")),
+    ("PIX QR", ("pix", "qr")),
+    ("PIX CHAVE", ("pix", "chave")),
+    ("TED", ("ted",)),
+    ("DOC", ("doc",)),
+    ("BOLETO", ("boleto",)),
+    ("TARIFA", ("tarifa",)),
+    ("TAXA", ("taxa",)),
+    ("MAQUININHA", ("maquininha",)),
+    ("CARTAO CREDITO", ("mast", "cd")),
+    ("CARTAO CREDITO", ("master", "cd")),
+    ("CARTAO CREDITO", ("visa", "cd")),
+    ("CARTAO CREDITO", ("elo", "cd")),
+    ("CARTAO DEBITO", ("mast", "db")),
+    ("CARTAO DEBITO", ("master", "db")),
+    ("CARTAO DEBITO", ("visa", "db")),
+    ("CARTAO DEBITO", ("elo", "db")),
+    ("CARTAO CREDITO", ("cartao", "credito")),
+    ("CARTAO DEBITO", ("cartao", "debito")),
+]
+
+BANDEIRAS_CARTAO = {
+    "MAST": "Master",
+    "MASTER": "Master",
+    "MC": "Master",
+    "VISA": "Visa",
+    "ELO": "Elo",
+    "AMEX": "Amex",
 }
 
 
@@ -169,6 +218,35 @@ def _title_case_inteligente(tokens: List[str]) -> str:
     return " ".join(palavras).strip()
 
 
+def _extrair_interessado_cartao(descricao: str) -> str:
+    tokens = _tokenizar_texto(descricao)
+    if not tokens:
+        return ""
+
+    bandeira = next((BANDEIRAS_CARTAO[token] for token in tokens if token in BANDEIRAS_CARTAO), "")
+    if not bandeira:
+        return ""
+
+    if any(token in {"CD", "CRED", "CREDITO"} or token.startswith(("CD", "CRED")) for token in tokens):
+        return f"{bandeira} Credito"
+    if any(token in {"DB", "DEB", "DEBITO"} or token.startswith(("DB", "DEB")) for token in tokens):
+        return f"{bandeira} Debito"
+    return bandeira
+
+
+def _classificar_movimento_cartao(descricao: str) -> str:
+    tokens = set(_tokenizar_texto(descricao))
+    possui_bandeira = any(token in BANDEIRAS_CARTAO for token in tokens)
+    possui_adquirente = "REDE" in tokens
+    if not (possui_bandeira or possui_adquirente):
+        return ""
+    if any(token in {"CD", "CRED", "CREDITO"} or token.startswith(("CD", "CRED")) for token in tokens):
+        return "CREDITO"
+    if any(token in {"DB", "DEB", "DEBITO"} or token.startswith(("DB", "DEB")) for token in tokens):
+        return "DEBITO"
+    return ""
+
+
 def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
     candidato = str(lancamento_ofx.get("razao_social") or "").strip()
     if len(_normalizar_texto(candidato)) >= 3:
@@ -176,6 +254,10 @@ def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
         return normalizado or _title_case_inteligente(_tokenizar_texto(candidato)) or candidato
 
     descricao = str(lancamento_ofx.get("descricao") or "")
+    interessado_cartao = _extrair_interessado_cartao(descricao)
+    if interessado_cartao:
+        return interessado_cartao
+
     tokens = []
     for token in _tokenizar_texto(descricao):
         if token in TOKENS_GENERICOS_INTERESSADO:
@@ -187,14 +269,111 @@ def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
     if not tokens:
         return ""
 
-    if len(tokens) > 5:
-        tokens = tokens[:5]
+    if len(tokens) > 12:
+        tokens = tokens[:12]
 
     interessado = _title_case_inteligente(tokens)
     interessado = _normalizar_nome_entidade(interessado)
     if len(_normalizar_texto(interessado)) < 3:
         return ""
     return interessado
+
+
+def _texto_contem_todos(texto_normalizado: str, termos: tuple[str, ...]) -> bool:
+    return all(termo in texto_normalizado for termo in termos)
+
+
+def _normalizar_texto_boleto_relevante(texto: Optional[str]) -> str:
+    base = _normalizar_texto(texto)
+    if not base:
+        return ""
+    tokens_genericos = {
+        "boleto",
+        "pago",
+        "paga",
+        "pagamento",
+        "pagamentos",
+        "pagto",
+        "recebimento",
+        "pro",
+        "para",
+        "pg",
+        "titulo",
+        "titulos",
+        "cobranca",
+        "cobrancas",
+    }
+    tokens = [token for token in base.split() if token not in tokens_genericos and not token.isdigit()]
+    return " ".join(tokens)
+
+
+def _score_categoria_por_descricao(lancamento_ofx: Dict, categoria: PlanoContas) -> int:
+    descricao = _normalizar_texto(lancamento_ofx.get("descricao"))
+    categoria_nome = _normalizar_texto(categoria.nome)
+    if not descricao or not categoria_nome:
+        return 0
+
+    categoria_tokens = [token for token in categoria_nome.split() if token]
+    descricao_tokens = set(descricao.split())
+    intersecao = sum(1 for token in categoria_tokens if token in descricao_tokens)
+    score = intersecao * 8
+
+    if categoria_nome in descricao:
+        score += 20
+
+    for _, termos in PADROES_CATEGORIA_PRIORITARIA:
+        if _texto_contem_todos(descricao, termos) and _texto_contem_todos(categoria_nome, termos):
+            score += 24
+
+    tipo_cartao = _classificar_movimento_cartao(str(lancamento_ofx.get("descricao") or ""))
+    if tipo_cartao == "CREDITO" and all(token in categoria_nome for token in ["cartao", "credito"]):
+        score += 30
+    if tipo_cartao == "DEBITO" and all(token in categoria_nome for token in ["cartao", "debito"]):
+        score += 30
+
+    possui_boleto = "boleto" in descricao_tokens
+    if possui_boleto and "boleto" in categoria_tokens:
+        score += 32
+    if possui_boleto and any(token in categoria_tokens for token in ["pagamento", "pagamentos", "titulo", "titulos", "cobranca", "cobrancas"]):
+        score += 18
+    if any(token in descricao_tokens for token in ["pago", "paga", "pagamento"]) and any(token in categoria_tokens for token in ["pagamento", "pagamentos"]):
+        score += 12
+
+    if "pix" in descricao and "pix" in categoria_tokens:
+        score += 6
+
+    return score
+
+
+def _aplicar_sugestao_categoria_por_descricao(lancamento_ofx: Dict, categorias: List[PlanoContas]) -> None:
+    tipo_item = str(lancamento_ofx.get("tipo") or "").upper()
+    categorias_base = [
+        categoria for categoria in categorias
+        if ("RECEITA" if str(categoria.tipo or "").upper().startswith("R") else "DESPESA") == tipo_item
+    ]
+    if not categorias_base:
+        return
+
+    melhor_categoria = None
+    melhor_score = 0
+    for categoria in categorias_base:
+        score = _score_categoria_por_descricao(lancamento_ofx, categoria)
+        if score > melhor_score:
+            melhor_score = score
+            melhor_categoria = categoria
+
+    if not melhor_categoria or melhor_score < 24:
+        return
+
+    categoria_atual = lancamento_ofx.get("plano_contas_id")
+    motivo_atual = str(lancamento_ofx.get("motivo_classificacao") or "")
+    historico_boleto_forte = motivo_atual.lower().startswith("sugestao por historico de boleto")
+    pode_substituir = not categoria_atual or (motivo_atual.startswith("Sugestao por historico") and not historico_boleto_forte)
+    if not pode_substituir:
+        return
+
+    lancamento_ofx["plano_contas_id"] = int(melhor_categoria.id or 0)
+    lancamento_ofx["motivo_classificacao"] = f"Sugestao por descricao OFX aderente a '{melhor_categoria.nome}'."
 
 
 def _valor_lancamento_existente(lancamento: Lancamento) -> Decimal:
@@ -327,6 +506,33 @@ def _score_historico(lancamento_ofx: Dict, historico: Lancamento, entidades_por_
         score += 10
     if historico.conta_id == conta_id:
         score += 8
+
+    descricao_ofx = _normalizar_texto(str(lancamento_ofx.get("descricao") or ""))
+    boleto_ofx = "boleto" in descricao_ofx
+    interessado_ofx = _normalizar_texto(lancamento_ofx.get("razao_social") or lancamento_ofx.get("interessado_sugerido"))
+    entidade_historica_nome = _normalizar_texto(entidade_historica.nome if entidade_historica else "")
+    descricao_origem_relevante = _normalizar_texto_boleto_relevante(lancamento_ofx.get("descricao"))
+    descricao_historico_relevante = _normalizar_texto_boleto_relevante(
+        f"{historico.descricao or ''} {historico.observacao or ''} {entidade_historica.nome if entidade_historica else ''}"
+    )
+
+    if boleto_ofx:
+        if interessado_ofx and entidade_historica_nome:
+            if interessado_ofx in entidade_historica_nome or entidade_historica_nome in interessado_ofx:
+                score += 42
+            else:
+                score += SequenceMatcher(None, interessado_ofx, entidade_historica_nome).ratio() * 38
+
+        if descricao_origem_relevante and descricao_historico_relevante:
+            similaridade_boleto = SequenceMatcher(None, descricao_origem_relevante, descricao_historico_relevante).ratio()
+            score += similaridade_boleto * 34
+
+            tokens_origem = set(descricao_origem_relevante.split())
+            tokens_historico = set(descricao_historico_relevante.split())
+            if tokens_origem and tokens_historico:
+                intersecao = len(tokens_origem & tokens_historico)
+                score += intersecao * 5
+
     try:
         valor_origem = Decimal(str(lancamento_ofx.get("valor") or "0"))
         valor_historico = _valor_lancamento_existente(historico)
@@ -355,7 +561,9 @@ def _aplicar_sugestao_historica(
 
     melhor = ranked[0]
     melhor_score = _score_historico(lancamento_ofx, melhor, entidades_por_id, conta_id)
-    if melhor_score < 55:
+    descricao_ofx = _normalizar_texto(str(lancamento_ofx.get("descricao") or ""))
+    limiar_score = 48 if "boleto" in descricao_ofx else 55
+    if melhor_score < limiar_score:
         return []
 
     if not lancamento_ofx.get("plano_contas_id") and melhor.plano_contas_id:
@@ -363,7 +571,10 @@ def _aplicar_sugestao_historica(
     if not lancamento_ofx.get("entidade_id") and melhor.entidade_id:
         lancamento_ofx["entidade_id"] = melhor.entidade_id
     if not lancamento_ofx.get("motivo_classificacao"):
-        lancamento_ofx["motivo_classificacao"] = f"Sugestao por historico parecido com '{melhor.descricao}'."
+        if "boleto" in descricao_ofx:
+            lancamento_ofx["motivo_classificacao"] = f"Sugestao por historico de boleto parecido com '{melhor.descricao}'."
+        else:
+            lancamento_ofx["motivo_classificacao"] = f"Sugestao por historico parecido com '{melhor.descricao}'."
     return ranked
 
 
@@ -741,6 +952,7 @@ async def upload_ofx(
                 entidades_por_id,
                 conta_db_id,
             )
+            _aplicar_sugestao_categoria_por_descricao(lanc_raw, categorias_empresa)
             historico_relacionado_por_linha[int(lanc_raw["linha_arquivo"])] = historico_relacionado
 
             entidade_id = criar_entidade_se_nao_existir(
@@ -895,7 +1107,7 @@ async def confirmar_lancamentos(
             if import_hash:
                 import_hashes_processados.add(import_hash)
 
-            from app.services.integracao_itau import parsear_data
+            from app.services.importacao_bancaria_service import parsear_data
 
             if lanc_data.get("lancamento_previsto_id"):
                 lanc_existente = db.get(Lancamento, int(lanc_data["lancamento_previsto_id"]))

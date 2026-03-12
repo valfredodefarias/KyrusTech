@@ -229,6 +229,10 @@ def _extrair_interessado_cartao(descricao: str) -> str:
     return bandeira
 
 
+def _categoria_tem_tokens(categoria_tokens: List[str], grupos: List[List[str]]) -> bool:
+    return all(any(token in categoria_tokens for token in grupo) for grupo in grupos)
+
+
 def _classificar_movimento_cartao(descricao: str) -> str:
     tokens = set(_tokenizar_texto(descricao))
     possui_bandeira = any(token in BANDEIRAS_CARTAO for token in tokens)
@@ -269,6 +273,9 @@ def _classificar_movimento_descricao(lancamento_ofx: Dict) -> str:
 def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
     candidato = str(lancamento_ofx.get("razao_social") or "").strip()
     if len(_normalizar_texto(candidato)) >= 3:
+        interessado_cartao = _extrair_interessado_cartao(candidato)
+        if interessado_cartao:
+            return interessado_cartao
         normalizado = _normalizar_nome_entidade(candidato)
         return normalizado or _title_case_inteligente(_tokenizar_texto(candidato)) or candidato
 
@@ -361,9 +368,9 @@ def _score_categoria_por_descricao(lancamento_ofx: Dict, categoria: PlanoContas)
         if any(token in categoria_tokens for token in ["dinheiro", "especie", "caixa"]):
             score -= 18
 
-    if classe == "CARTAO_CREDITO" and all(token in categoria_nome for token in ["cartao", "credito"]):
+    if classe == "CARTAO_CREDITO" and _categoria_tem_tokens(categoria_tokens, [["cartao", "cartoes", "adquirencia", "adquirencias", "recebiveis", "recebivel"], ["credito", "cred"]]):
         score += 90
-    if classe == "CARTAO_DEBITO" and all(token in categoria_nome for token in ["cartao", "debito"]):
+    if classe == "CARTAO_DEBITO" and _categoria_tem_tokens(categoria_tokens, [["cartao", "cartoes", "adquirencia", "adquirencias", "recebiveis", "recebivel"], ["debito", "deb"]]):
         score += 90
 
     possui_boleto = "boleto" in descricao_tokens
@@ -708,7 +715,8 @@ def _aplicar_sugestoes_deterministicas(
         if not interessado:
             interessado = _extrair_interessado_sugerido(item)
         if interessado:
-            interessado_limpo = _normalizar_nome_entidade(interessado) or interessado
+            interessado_cartao = _extrair_interessado_cartao(interessado) or _extrair_interessado_cartao(str(item.get("descricao") or ""))
+            interessado_limpo = interessado_cartao or _normalizar_nome_entidade(interessado) or interessado
             item["interessado_sugerido"] = interessado_limpo
             item["razao_social"] = interessado_limpo
 

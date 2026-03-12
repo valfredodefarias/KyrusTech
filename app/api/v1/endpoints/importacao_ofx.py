@@ -200,6 +200,16 @@ def _valor_lancamento_existente(lancamento: Lancamento) -> Decimal:
     return Decimal(str(lancamento.valor_previsto or "0"))
 
 
+def _calcular_margem_match(valor: Decimal) -> Decimal:
+    base = abs(valor)
+    margem_percentual = base * MATCH_TOLERANCIA_PERCENTUAL
+    return max(margem_percentual, Decimal("0.01"))
+
+
+def _valor_dentro_tolerancia(valor_a: Decimal, valor_b: Decimal) -> bool:
+    return abs(valor_a - valor_b) <= _calcular_margem_match(valor_b)
+
+
 def _calcular_similaridade_texto(origem: Dict, lancamento: Lancamento) -> float:
     descricao_ofx = _normalizar_texto(origem.get("descricao"))
     descricao_sistema = _normalizar_texto(lancamento.descricao)
@@ -247,13 +257,16 @@ def _buscar_duplicata_historica(
             continue
 
         valor_candidato = _valor_lancamento_existente(candidato)
-        if abs(valor_candidato - valor) > Decimal("0.01"):
+        valor_exato = abs(valor_candidato - valor) <= Decimal("0.01")
+        valor_compativel = _valor_dentro_tolerancia(valor_candidato, valor)
+        if not valor_compativel:
             continue
 
         similaridade = _calcular_similaridade_texto(lancamento_ofx, candidato)
         contexto_candidato = _normalizar_texto(f"{candidato.descricao} {candidato.observacao or ''}")
         entidade_bate = bool(interessado_norm and interessado_norm in contexto_candidato)
-        if similaridade >= 0.68 or entidade_bate:
+        mesmo_dia = data_candidata == data_base
+        if (mesmo_dia and valor_exato) or similaridade >= 0.68 or entidade_bate:
             motivo = "Mesmo valor, mesma conta e data muito proxima de um lancamento ja registrado"
             if similaridade >= 0.8:
                 motivo += " com descricao muito parecida"
@@ -314,7 +327,7 @@ def _score_historico(lancamento_ofx: Dict, historico: Lancamento, entidades_por_
     try:
         valor_origem = Decimal(str(lancamento_ofx.get("valor") or "0"))
         valor_historico = _valor_lancamento_existente(historico)
-        if abs(valor_historico - valor_origem) <= max(Decimal("5.00"), abs(valor_origem) * Decimal("0.03")):
+        if _valor_dentro_tolerancia(valor_historico, valor_origem):
             score += 12
     except Exception:
         pass
@@ -375,8 +388,9 @@ def _chamar_gemini_classificacao(items: List[Dict[str, Any]]) -> Dict[int, Dict[
 
     prompt = (
         "Voce classifica movimentos OFX. Responda JSON puro no formato "
-        '{"items":[{"linha_arquivo":1,"plano_contas_id":123,"interessado_sugerido":"Nome","motivo":"..."}]}'
+        '{"items":[{"linha_arquivo":1,"plano_contas_id":123,"interessado_sugerido":"Nome"}]}'
         " sem markdown. Escolha apenas IDs de plano_contas presentes nas categorias candidatas de cada item. "
+        "Retorne apenas o nome limpo do interessado, sem prefixos como sugerido, explicacoes ou observacoes. "
         "Melhore o nome do interessado quando a descricao vier abreviada como cartao/maquininha, por exemplo MAST CD -> Master Credito, DB -> Debito. "
         "Use o historico parecido para reaproveitar a categoria mais provavel.\n\n"
         f"Itens:\n{json.dumps(items, ensure_ascii=False)}"
@@ -496,9 +510,6 @@ def _aplicar_sugestoes_gemini(
         if interessado:
             item["interessado_sugerido"] = interessado
             item["razao_social"] = interessado
-        motivo = str(sugestao.get("motivo") or "").strip()
-        if motivo and not item.get("motivo_classificacao"):
-            item["motivo_classificacao"] = motivo
 
 
 def _build_match_reason(data_diferenca: int, valor_diferenca: Decimal, similaridade: float, kind: str) -> str:
@@ -704,7 +715,7 @@ async def upload_ofx(
 
             if not melhor_previsto and not melhores_atrasados:
                 lanc_raw["sugestao_acao"] = "CRIAR_NOVO"
-                lanc_raw["motivo_conciliacao"] = "Nenhum previsto ou atraso compativel foi encontrado com o mesmo tipo e tolerancia de R$ 1,00."
+                lanc_raw["motivo_conciliacao"] = "Nenhum previsto ou atraso compativel foi encontrado com o mesmo tipo e tolerancia de 5% no valor."
 
             historico_relacionado = _aplicar_sugestao_historica(
                 lanc_raw,

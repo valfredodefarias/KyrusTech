@@ -376,14 +376,16 @@ export function Boletim() {
       .map((item) => {
         const due = parseDateOnly(item.data_vencimento);
         const flowType: FlowFilter = isReceita(item.tipo) ? 'RECEBIMENTO' : 'PAGAMENTO';
-        const baseValue = Number(item.valor_pago ?? item.valor_previsto ?? 0);
+        const statusKey = getStatusKey(item, todayIso, tomorrowIso);
+        const hasPaidValue = item.valor_pago !== null && item.valor_pago !== undefined && Number(item.valor_pago) > 0;
+        const baseValue = Number(statusKey === 'PAGO' && hasPaidValue ? item.valor_pago : item.valor_previsto ?? item.valor_pago ?? 0);
         const signedValue = flowType === 'RECEBIMENTO' ? baseValue : baseValue * -1;
         return {
           id: item.id,
           descricao: item.descricao,
           flowType,
-          statusKey: getStatusKey(item, todayIso, tomorrowIso),
-          statusLabel: getStatusLabel(getStatusKey(item, todayIso, tomorrowIso)),
+          statusKey,
+          statusLabel: getStatusLabel(statusKey),
           dataVencimento: item.data_vencimento,
           monthIndex: due ? due.getMonth() : -1,
           dayOfMonth: due ? due.getDate() : -1,

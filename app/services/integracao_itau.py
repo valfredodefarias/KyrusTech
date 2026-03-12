@@ -411,7 +411,7 @@ def verificar_duplicata_ofx_por_fallback(
         return None
 
     referencia = _normalizar_texto(lancamento.get("referencia"))
-    if referencia and not referencia.startswith("fallback-"):
+    if referencia and not referencia.startswith("fallback"):
         return None
 
     conta_resolvida = conta_id or lancamento.get("conta_id")

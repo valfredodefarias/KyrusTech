@@ -239,16 +239,88 @@ def _parse_import_decimal(raw_value: Any, cache: dict[str, Decimal]) -> Decimal:
     return cache[key]
 
 
-def _parse_import_date(raw_value: Any, cache: dict[str, Optional[date]]) -> Optional[date]:
-    key = _format_preview_value(raw_value)
-    if key in cache:
-        return cache[key]
-    if not key:
-        cache[key] = None
+def _split_import_date_parts(raw_value: str) -> Optional[tuple[int, int, int]]:
+    cleaned = str(raw_value or "").strip()
+    if not cleaned:
         return None
-    parsed = pd.to_datetime(key, dayfirst=True, errors="coerce")
-    cache[key] = parsed.date() if parsed is not None and not pd.isna(parsed) else None
-    return cache[key]
+
+    match = re.match(r"^(\d{1,4})[\/-](\d{1,2})[\/-](\d{1,4})$", cleaned)
+    if not match:
+        return None
+
+    left, middle, right = (int(part) for part in match.groups())
+    if left >= 1000 or right >= 1000:
+        return left, middle, right
+    return None
+
+
+def _infer_import_dayfirst(date_values: list[Any]) -> bool:
+    dayfirst_votes = 0
+    monthfirst_votes = 0
+
+    for raw_value in date_values:
+        key = _format_preview_value(raw_value)
+        if not key:
+            continue
+
+        parts = _split_import_date_parts(key)
+        if not parts:
+            continue
+
+        left, middle, right = parts
+        if left >= 1000 or right < 1000:
+            continue
+        if left > 12 and middle <= 12:
+            dayfirst_votes += 1
+        elif middle > 12 and left <= 12:
+            monthfirst_votes += 1
+
+    return dayfirst_votes >= monthfirst_votes
+
+
+def _parse_import_date(raw_value: Any, cache: dict[str, Optional[date]], dayfirst: bool = True) -> Optional[date]:
+    key = _format_preview_value(raw_value)
+    cache_key = f"{'DMY' if dayfirst else 'MDY'}::{key}"
+    if cache_key in cache:
+        return cache[cache_key]
+    if not key:
+        cache[cache_key] = None
+        return None
+
+    if isinstance(raw_value, datetime):
+        cache[cache_key] = raw_value.date()
+        return cache[cache_key]
+    if isinstance(raw_value, date):
+        cache[cache_key] = raw_value
+        return cache[cache_key]
+
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M"):
+        try:
+            cache[cache_key] = datetime.strptime(key, fmt).date()
+            return cache[cache_key]
+        except ValueError:
+            pass
+
+    parts = _split_import_date_parts(key)
+    if parts:
+        left, middle, right = parts
+        try:
+            if left >= 1000:
+                cache[cache_key] = date(left, middle, right)
+            elif right >= 1000:
+                day = left if dayfirst else middle
+                month = middle if dayfirst else left
+                cache[cache_key] = date(right, month, day)
+            else:
+                cache[cache_key] = None
+            return cache[cache_key]
+        except ValueError:
+            cache[cache_key] = None
+            return None
+
+    parsed = pd.to_datetime(key, dayfirst=dayfirst, errors="coerce")
+    cache[cache_key] = parsed.date() if parsed is not None and not pd.isna(parsed) else None
+    return cache[cache_key]
 
 
 def _build_inference_cache_parallel(
@@ -516,6 +588,8 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
             }
         )
 
+    inferred_dayfirst = _infer_import_dayfirst([item.get("data_vencimento") for item in preview_source])
+
     conflitos = {
         "contas": sorted(conflitos_contas),
         "categorias": sorted(conflitos_categorias),
@@ -566,7 +640,11 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
         "sistema": sistema,
         "sugestoes": sugestoes,
         "preview": preview_rows,
-        "meta": {"total_linhas": total_rows, "linhas_preview": len(preview_rows)},
+        "meta": {
+            "total_linhas": total_rows,
+            "linhas_preview": len(preview_rows),
+            "date_format_detected": "DD/MM/YYYY" if inferred_dayfirst else "MM/DD/YYYY",
+        },
     }
 
 
@@ -642,6 +720,10 @@ def _execute_import_contents(
                 inference_keys.add((descricao.strip(), tipo.strip()))
 
     total_rows = len(raw_rows)
+    inferred_dayfirst = _infer_import_dayfirst([
+        *(row.get("data_venc_raw") for row in raw_rows),
+        *(row.get("data_pag_raw") for row in raw_rows),
+    ])
     if progress_callback:
         progress_callback(18, f"Preparando {total_rows} linha(s) para importação")
 
@@ -704,10 +786,10 @@ def _execute_import_contents(
 
     for index, row in enumerate(prepared_rows, start=1):
         try:
-            data_vencimento = _parse_import_date(row["data_venc_raw"], parse_date_cache)
+            data_vencimento = _parse_import_date(row["data_venc_raw"], parse_date_cache, dayfirst=inferred_dayfirst)
             if data_vencimento is None:
                 continue
-            data_pagamento = _parse_import_date(row["data_pag_raw"], parse_date_cache)
+            data_pagamento = _parse_import_date(row["data_pag_raw"], parse_date_cache, dayfirst=inferred_dayfirst)
             valor = _parse_import_decimal(row["valor_raw"], parse_decimal_cache)
             plano_contas_id = row["plano_contas_id"]
             if plano_contas_id is None:
@@ -755,7 +837,15 @@ def _execute_import_contents(
         _flush_lancamento_batch(db, batch)
 
     db.commit()
-    return {"sucesso": True, "importados": importados, "erros": erros, "meta": {"total_linhas": total_rows}}
+    return {
+        "sucesso": True,
+        "importados": importados,
+        "erros": erros,
+        "meta": {
+            "total_linhas": total_rows,
+            "date_format_detected": "DD/MM/YYYY" if inferred_dayfirst else "MM/DD/YYYY",
+        },
+    }
 
 
 def _run_import_analysis_job(job_id: str, empresa_id: int, user_id: int, file_bytes: bytes) -> None:

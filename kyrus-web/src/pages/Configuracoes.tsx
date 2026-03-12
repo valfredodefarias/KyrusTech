@@ -4,7 +4,7 @@ import { useLookupStore } from '../store/lookupStore';
 import { 
   Building2, UploadCloud, Layers, Save, Loader2, 
   Palette, Check, AlertCircle, Camera, RefreshCw,
-  Download, CalendarRange, Landmark
+  Download, CalendarRange, Landmark, Trash2
 } from 'lucide-react';
 
 // Importa os componentes do arquivo de Importação
@@ -60,11 +60,14 @@ const DadosEmpresa = () => {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [cor, setCor] = useState('#2563eb');
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [userPhotoFile, setUserPhotoFile] = useState<File | null>(null);
   const [userPhotoPreview, setUserPhotoPreview] = useState<string | null>(null);
+  const invalidatePlanoContas = useLookupStore((state) => state.invalidatePlanoContas);
+  const canResetEmpresa = (user?.email || '').trim().toLowerCase() === 'cirocue12@gmail.com';
 
   useEffect(() => { loadEmpresa(); }, []);
 
@@ -162,6 +165,34 @@ const DadosEmpresa = () => {
         alert("Erro ao salvar configurações."); 
     } finally { 
         setSaving(false); 
+    }
+  }
+
+  async function handleResetEmpresa() {
+    if (!empresa || !canResetEmpresa || resetting) return;
+
+    const confirmed = window.confirm(
+      'Esse reset vai apagar definitivamente entidades, lançamentos, contas, cartões, integrações bancárias, centros de custo e plano de contas da empresa. O nome, a logo e os usuários com acesso serão mantidos. Deseja continuar?'
+    );
+    if (!confirmed) return;
+
+    const typed = window.prompt('Digite RESETAR EMPRESA para confirmar o reset total da base financeira.');
+    if (typed !== 'RESETAR EMPRESA') {
+      alert('Confirmação inválida. O reset foi cancelado.');
+      return;
+    }
+
+    setResetting(true);
+    try {
+      const { data } = await api.post(`/empresas/${empresa.id}/resetar-base`);
+      invalidatePlanoContas();
+      alert(data?.message || 'Empresa resetada com sucesso.');
+      window.location.reload();
+    } catch (error: any) {
+      console.error(error);
+      alert(error?.response?.data?.detail || 'Erro ao resetar a empresa.');
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -304,6 +335,27 @@ const DadosEmpresa = () => {
             {saving ? 'Salvando...' : 'Salvar Alterações'}
           </button>
         </div>
+
+        {canResetEmpresa ? (
+          <div className="mt-8 rounded-2xl border border-red-200 bg-red-50 p-6 dark:border-red-900/60 dark:bg-red-950/20">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-red-500">Zona crítica</p>
+                <h3 className="mt-1 text-xl font-black text-slate-900 dark:text-white">Reset completo da empresa</h3>
+                <p className="mt-2 max-w-3xl text-sm text-slate-600 dark:text-slate-300">Apaga definitivamente entidades, lançamentos, contas, cartões, integrações bancárias, centros de custo e o plano de contas atual. A empresa, a logo e os usuários com acesso continuam.</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleResetEmpresa}
+                disabled={resetting}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-red-900/20 transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {resetting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                {resetting ? 'Resetando base...' : 'Resetar empresa'}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

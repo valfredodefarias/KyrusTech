@@ -10,6 +10,7 @@ import {
   Landmark,
   Loader2,
   Search,
+  Trash2,
   UploadCloud,
   Wand2,
 } from 'lucide-react';
@@ -602,13 +603,6 @@ export function ImportacaoOfx() {
                       </div>
 
                       <p className="max-w-3xl text-sm text-slate-600 dark:text-slate-300">{lanc.motivo_conciliacao || 'Movimento carregado para revisão.'}</p>
-                      {lanc.motivo_classificacao ? (
-                        <p className="max-w-3xl text-sm text-emerald-700 dark:text-emerald-300">{lanc.motivo_classificacao}</p>
-                      ) : null}
-                      {lanc.interessado_sugerido ? (
-                        <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Interessado sugerido: <span className="text-slate-700 dark:text-slate-200">{lanc.interessado_sugerido}</span></p>
-                      ) : null}
-
                       <div className="flex flex-wrap gap-2 pt-1">
                         {lanc.lancamento_previsto_id ? (
                           <button
@@ -641,8 +635,9 @@ export function ImportacaoOfx() {
                           <button
                             type="button"
                             onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'DESCARTAR', relacionar_apenas_atrasados: false, lancamentos_atrasados_relacionados: [] })}
-                            className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${descartado ? 'border-zinc-400 bg-zinc-100 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
+                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${descartado ? 'border-zinc-400 bg-zinc-100 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                           >
+                            <Trash2 className="h-3.5 w-3.5" />
                             Descartar
                           </button>
                         ) : null}

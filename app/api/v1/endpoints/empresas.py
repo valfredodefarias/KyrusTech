@@ -28,7 +28,7 @@ from app.crud.crud_consultor_empresa import tem_acesso
 from app.enums import ConsultorRole
 
 router = APIRouter()
-AUTHORIZED_COMPANY_RESET_EMAIL = "cirocue12@gmail.com"
+AUTHORIZED_COMPANY_RESET_EMAILS = {"cirocue12@gmail.com", "cirocaue12@gmail.com"}
 
 
 def _is_super_consultor(current_user) -> bool:
@@ -48,7 +48,7 @@ def _ensure_empresa_access(current_user, db: Session, empresa_id: int) -> None:
 
 
 def _can_reset_company(current_user) -> bool:
-    return (getattr(current_user, "email", "") or "").strip().lower() == AUTHORIZED_COMPANY_RESET_EMAIL
+    return (getattr(current_user, "email", "") or "").strip().lower() in AUTHORIZED_COMPANY_RESET_EMAILS
 
 
 def _seed_company_chart_of_accounts(db: Session, *, empresa_id: int, tipo_pessoa: str) -> None:

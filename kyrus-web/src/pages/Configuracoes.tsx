@@ -54,6 +54,8 @@ interface LancamentoExportacao {
   previsto?: boolean;
 }
 
+const AUTHORIZED_COMPANY_RESET_EMAILS = ['cirocue12@gmail.com', 'cirocaue12@gmail.com'];
+
 // --- SUB-COMPONENTE: DADOS DA EMPRESA ---
 const DadosEmpresa = () => {
   const [empresa, setEmpresa] = useState<Empresa | null>(null);
@@ -67,7 +69,7 @@ const DadosEmpresa = () => {
   const [userPhotoFile, setUserPhotoFile] = useState<File | null>(null);
   const [userPhotoPreview, setUserPhotoPreview] = useState<string | null>(null);
   const invalidatePlanoContas = useLookupStore((state) => state.invalidatePlanoContas);
-  const canResetEmpresa = (user?.email || '').trim().toLowerCase() === 'cirocue12@gmail.com';
+  const canResetEmpresa = AUTHORIZED_COMPANY_RESET_EMAILS.includes((user?.email || '').trim().toLowerCase());
 
   useEffect(() => { loadEmpresa(); }, []);
 

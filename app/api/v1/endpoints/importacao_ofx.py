@@ -242,6 +242,30 @@ def _classificar_movimento_cartao(descricao: str) -> str:
     return ""
 
 
+def _classificar_movimento_descricao(lancamento_ofx: Dict) -> str:
+    descricao = _normalizar_texto(lancamento_ofx.get("descricao"))
+    tokens = set(descricao.split())
+
+    if "pix" in tokens:
+        if "qr" in tokens or "qrcode" in tokens or "code" in tokens:
+            return "PIX_QR"
+        return "PIX_CHAVE"
+
+    tipo_cartao = _classificar_movimento_cartao(str(lancamento_ofx.get("descricao") or ""))
+    if tipo_cartao == "CREDITO":
+        return "CARTAO_CREDITO"
+    if tipo_cartao == "DEBITO":
+        return "CARTAO_DEBITO"
+
+    if "boleto" in tokens:
+        return "BOLETO"
+    if "ted" in tokens:
+        return "TED"
+    if "doc" in tokens:
+        return "DOC"
+    return ""
+
+
 def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
     candidato = str(lancamento_ofx.get("razao_social") or "").strip()
     if len(_normalizar_texto(candidato)) >= 3:
@@ -320,11 +344,27 @@ def _score_categoria_por_descricao(lancamento_ofx: Dict, categoria: PlanoContas)
         if _texto_contem_todos(descricao, termos) and _texto_contem_todos(categoria_nome, termos):
             score += 24
 
-    tipo_cartao = _classificar_movimento_cartao(str(lancamento_ofx.get("descricao") or ""))
-    if tipo_cartao == "CREDITO" and all(token in categoria_nome for token in ["cartao", "credito"]):
-        score += 30
-    if tipo_cartao == "DEBITO" and all(token in categoria_nome for token in ["cartao", "debito"]):
-        score += 30
+    classe = _classificar_movimento_descricao(lancamento_ofx)
+    if classe == "PIX_QR":
+        if "pix" in categoria_tokens and any(token in categoria_tokens for token in ["qr", "qrcode", "code"]):
+            score += 80
+        elif "pix" in categoria_tokens:
+            score += 22
+        if any(token in categoria_tokens for token in ["dinheiro", "especie", "caixa"]):
+            score -= 18
+
+    if classe == "PIX_CHAVE":
+        if "pix" in categoria_tokens and any(token in categoria_tokens for token in ["chave", "transferencia", "transferencia", "recebimento"]):
+            score += 78
+        elif "pix" in categoria_tokens:
+            score += 26
+        if any(token in categoria_tokens for token in ["dinheiro", "especie", "caixa"]):
+            score -= 18
+
+    if classe == "CARTAO_CREDITO" and all(token in categoria_nome for token in ["cartao", "credito"]):
+        score += 90
+    if classe == "CARTAO_DEBITO" and all(token in categoria_nome for token in ["cartao", "debito"]):
+        score += 90
 
     possui_boleto = "boleto" in descricao_tokens
     if possui_boleto and "boleto" in categoria_tokens:
@@ -363,7 +403,19 @@ def _aplicar_sugestao_categoria_por_descricao(lancamento_ofx: Dict, categorias: 
     categoria_atual = lancamento_ofx.get("plano_contas_id")
     motivo_atual = str(lancamento_ofx.get("motivo_classificacao") or "")
     historico_boleto_forte = motivo_atual.lower().startswith("sugestao por historico de boleto")
-    pode_substituir = not categoria_atual or (motivo_atual.startswith("Sugestao por historico") and not historico_boleto_forte)
+    classe = _classificar_movimento_descricao(lancamento_ofx)
+    categoria_atual_score = 0
+    if categoria_atual:
+        categoria_obj = next((categoria for categoria in categorias_base if int(categoria.id or 0) == int(categoria_atual)), None)
+        if categoria_obj:
+            categoria_atual_score = _score_categoria_por_descricao(lancamento_ofx, categoria_obj)
+
+    override_por_sinal = classe in {"PIX_QR", "PIX_CHAVE", "CARTAO_CREDITO", "CARTAO_DEBITO"} and melhor_score >= max(42, categoria_atual_score + 18)
+    pode_substituir = (
+        not categoria_atual
+        or (motivo_atual.startswith("Sugestao por historico") and not historico_boleto_forte)
+        or override_por_sinal
+    )
     if not pode_substituir:
         return
 
@@ -669,8 +721,7 @@ def _aplicar_sugestoes_deterministicas(
             if not item.get("motivo_classificacao"):
                 item["motivo_classificacao"] = f"Sugestao deterministica por descricao/interessado parecidos com '{melhor_historico.descricao}'."
 
-        if not item.get("plano_contas_id"):
-            _aplicar_sugestao_categoria_por_descricao(item, categorias)
+        _aplicar_sugestao_categoria_por_descricao(item, categorias)
 
 
 def _build_match_reason(data_diferenca: int, valor_diferenca: Decimal, similaridade: float, kind: str) -> str:

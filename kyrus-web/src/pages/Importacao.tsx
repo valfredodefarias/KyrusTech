@@ -37,6 +37,16 @@ const DRE_GRUPO_OPTIONS = [
     { value: 'NAO_OPERACIONAL', label: 'Não operacional / fora da DRE' },
 ] as const;
 
+const DRE_GRUPO_BADGE: Record<string, { label: string; className: string }> = {
+    RECEITA_BRUTA:         { label: 'Rec. Bruta',  className: 'text-emerald-400 bg-emerald-900/20 border-emerald-900/40' },
+    DEDUCOES_RECEITA:      { label: 'Deduções',    className: 'text-amber-400 bg-amber-900/20 border-amber-900/40' },
+    CUSTOS_VARIAVEIS:      { label: 'Custos Var.', className: 'text-orange-400 bg-orange-900/20 border-orange-900/40' },
+    DESPESAS_OPERACIONAIS: { label: 'Desp. Op.',   className: 'text-blue-400 bg-blue-900/20 border-blue-900/40' },
+    OUTRAS_RECEITAS:       { label: 'Out. Rec.',   className: 'text-teal-400 bg-teal-900/20 border-teal-900/40' },
+    OUTRAS_DESPESAS:       { label: 'Out. Desp.',  className: 'text-purple-400 bg-purple-900/20 border-purple-900/40' },
+    NAO_OPERACIONAL:       { label: 'Não Op.',     className: 'text-slate-400 bg-slate-700/30 border-slate-600/40' },
+};
+
 const normalizeDreGrupo = (dreGrupo: string | undefined, tipo: string | undefined) => {
     const normalized = String(dreGrupo || '').trim().toUpperCase();
     if (DRE_GRUPO_OPTIONS.some((option) => option.value === normalized)) return normalized;
@@ -490,22 +500,19 @@ const DraggableTreeItem = ({ item, depth = 0, inheritedOperational = false, canM
                         <span className="text-[10px] font-bold text-orange-500 bg-orange-900/20 px-1.5 py-0.5 rounded border border-orange-900/30">Novo</span>
                     )}
                     <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{item.nome}</span>
-                    {canManageOperational && item.eh_operacional !== false && (
-                        <span
-                            className="text-[10px] font-bold px-1.5 py-0.5 rounded border text-emerald-300 bg-emerald-900/20 border-emerald-900/40"
-                            title="Categoria marcada como operacional"
-                        >
-                            Operacional
-                        </span>
-                    )}
-                    {canManageOperational && effectiveOperational && inheritedOnly && (
-                        <span
-                            className="text-[10px] font-bold px-1.5 py-0.5 rounded border text-emerald-300 bg-emerald-900/20 border-emerald-900/40"
-                            title="Categoria operacional por heranca da categoria pai"
-                        >
-                            Operacional (herdado)
-                        </span>
-                    )}
+                    {(() => {
+                        const dreKey = normalizeDreGrupo(item.dre_grupo, item.tipo);
+                        const badge = DRE_GRUPO_BADGE[dreKey];
+                        const inherited = inheritedOnly && effectiveOperational;
+                        return badge ? (
+                            <span
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${badge.className}`}
+                                title={`Grupo DRE: ${dreKey}${inherited ? ' (herdado do pai)' : ''}`}
+                            >
+                                {badge.label}{inherited ? ' ↑' : ''}
+                            </span>
+                        ) : null;
+                    })()}
                 </div>
 
                 {/* Actions */}
@@ -1055,14 +1062,15 @@ export const PlanoContasManager = ({
   const openCreateModal = (tipo: 'R' | 'D', contaPaiId: number | '' = '', lockTipo = false) => {
       setModalMode('CREATE');
       setCreateTipoLocked(lockTipo);
+      const resolvedDreGrupo = resolveDreGrupoValue(contaPaiId, '', tipo);
       setFormData({
           id: 0,
           nome: '',
           codigo: '',
           tipo,
-          eh_operacional: resolveOperationalValue(contaPaiId, true),
+          eh_operacional: resolvedDreGrupo !== 'NAO_OPERACIONAL',
           considerar_nos_resultados: true,
-          dre_grupo: resolveDreGrupoValue(contaPaiId, '', tipo),
+          dre_grupo: resolvedDreGrupo,
           conta_pai_id: contaPaiId,
       });
       setModalOpen(true);
@@ -1079,8 +1087,8 @@ export const PlanoContasManager = ({
       }
 
       const normalizedTipo = normalizeTipo(formData.tipo);
-    const operationalValue = resolveOperationalValue(formData.conta_pai_id, formData.eh_operacional);
         const dreGrupoValue = resolveDreGrupoValue(formData.conta_pai_id, formData.dre_grupo, normalizedTipo);
+    const operationalValue = dreGrupoValue !== 'NAO_OPERACIONAL';
       if (modalMode === 'CREATE') {
           const tempId = nextTempIdRef.current;
           nextTempIdRef.current -= 1;
@@ -1307,42 +1315,17 @@ export const PlanoContasManager = ({
                               <select
                                   className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white"
                                   value={normalizeDreGrupo(formData.dre_grupo, formData.tipo)}
-                                  onChange={(e) => setFormData({ ...formData, dre_grupo: e.target.value })}
+                                  onChange={(e) => setFormData({ ...formData, dre_grupo: e.target.value, eh_operacional: e.target.value !== 'NAO_OPERACIONAL' })}
                               >
                                   {DRE_GRUPO_OPTIONS.map((option) => (
                                       <option key={option.value} value={option.value}>{option.label}</option>
                                   ))}
                               </select>
-                              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Esse grupo define como a categoria entra no cálculo da DRE e dos indicadores (MC, lucratividade e ponto de equilíbrio).</p>
+                              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Define onde esta categoria entra na DRE. Selecionar <strong>Não operacional</strong> exclui a categoria de todos os indicadores.</p>
                           </div>
                       )}
 
-                      {modalMode !== 'MOVE' && canManageOperational && (
-                          <div>
-                              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Categoria operacional</label>
-                              <div className="grid grid-cols-2 gap-2">
-                                  <button
-                                      type="button"
-                                      onClick={() => setFormData({ ...formData, eh_operacional: true })}
-                                      className={`py-3 rounded-lg text-sm font-bold border transition ${formData.eh_operacional ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-900/20' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                                  >
-                                      Sim
-                                  </button>
-                                  <button
-                                      type="button"
-                                      onClick={() => setFormData({ ...formData, eh_operacional: false })}
-                                      className={`py-3 rounded-lg text-sm font-bold border transition ${!formData.eh_operacional ? 'bg-rose-600 text-white border-rose-600 shadow-lg shadow-rose-900/20' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                                  >
-                                      Nao
-                                  </button>
-                              </div>
-                              {selectedParentIsOperational && !formData.eh_operacional && (
-                                  <p className="mt-2 text-xs font-semibold text-emerald-600 dark:text-emerald-300">
-                                      A categoria pai ja esta marcada como operacional. Esta categoria herdara esse comportamento.
-                                  </p>
-                              )}
-                          </div>
-                      )}
+
 
                       <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
                           <button onClick={()=>{ setModalOpen(false); setCreateTipoLocked(false); }} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold">Cancelar</button>

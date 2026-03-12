@@ -62,7 +62,7 @@ def create_plano_contas(
     """Cria uma nova categoria no plano de contas."""
     logger.info(f"Empresa {empresa_id} criando categoria: '{conta_in.nome}'")
     conta = crud_plano_contas.create(db=db, obj_in=conta_in, empresa_id=empresa_id)
-    if not crud_plano_contas.can_manage_operational_flag(current_user.email):
+    if conta_in.conta_pai_id is not None or not crud_plano_contas.can_manage_operational_flag(current_user.email):
         crud_plano_contas.sync_company_operational_hierarchy(db=db, empresa_id=empresa_id)
         conta = crud_plano_contas.get(db=db, id=int(conta.id or 0), empresa_id=empresa_id) or conta
     logger.success(f"Categoria '{conta.nome}' criada com ID: {conta.id}")
@@ -128,8 +128,7 @@ def reordenar_plano_contas(
                     updates += 1
         
         db.commit()
-        if not crud_plano_contas.can_manage_operational_flag(current_user.email):
-            crud_plano_contas.sync_company_operational_hierarchy(db=db, empresa_id=empresa_id)
+        crud_plano_contas.sync_company_operational_hierarchy(db=db, empresa_id=empresa_id)
         logger.info(f"Reordenação concluída. {updates} categorias atualizadas.")
         return {"message": "Ordem salva com sucesso"}
         
@@ -179,7 +178,7 @@ def update_plano_contas(
     
     # 3. Atualiza
     conta = crud_plano_contas.update(db=db, db_obj=db_obj, obj_in=conta_in)
-    if not crud_plano_contas.can_manage_operational_flag(current_user.email):
+    if conta_in.conta_pai_id is not None or not crud_plano_contas.can_manage_operational_flag(current_user.email):
         crud_plano_contas.sync_company_operational_hierarchy(db=db, empresa_id=empresa_id)
         conta = crud_plano_contas.get(db=db, id=conta_id, empresa_id=empresa_id) or conta
     logger.success(f"Categoria ID {conta.id} atualizada com sucesso.")

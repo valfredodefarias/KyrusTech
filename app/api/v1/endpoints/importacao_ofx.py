@@ -26,6 +26,7 @@ from app.services.integracao_itau import (
     buscar_lancamento_atrasado_mesmo_valor,
     criar_entidade_se_nao_existir,
     gerar_import_hash,
+    _normalizar_nome_entidade,
 )
 from app.models.lancamento import Lancamento
 from app.models.conta import Conta
@@ -171,7 +172,8 @@ def _title_case_inteligente(tokens: List[str]) -> str:
 def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
     candidato = str(lancamento_ofx.get("razao_social") or "").strip()
     if len(_normalizar_texto(candidato)) >= 3:
-        return _title_case_inteligente(_tokenizar_texto(candidato)) or candidato
+        normalizado = _normalizar_nome_entidade(candidato)
+        return normalizado or _title_case_inteligente(_tokenizar_texto(candidato)) or candidato
 
     descricao = str(lancamento_ofx.get("descricao") or "")
     tokens = []
@@ -189,6 +191,7 @@ def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
         tokens = tokens[:5]
 
     interessado = _title_case_inteligente(tokens)
+    interessado = _normalizar_nome_entidade(interessado)
     if len(_normalizar_texto(interessado)) < 3:
         return ""
     return interessado
@@ -390,8 +393,12 @@ def _chamar_gemini_classificacao(items: List[Dict[str, Any]]) -> Dict[int, Dict[
         "Voce classifica movimentos OFX. Responda JSON puro no formato "
         '{"items":[{"linha_arquivo":1,"plano_contas_id":123,"interessado_sugerido":"Nome"}]}'
         " sem markdown. Escolha apenas IDs de plano_contas presentes nas categorias candidatas de cada item. "
+        "Preencha categoria e interessado antes da tela de validacao sempre que houver confianca suficiente. "
+        "Considere que o operador so deve revisar o que voce sugeriu. "
         "Retorne apenas o nome limpo do interessado, sem prefixos como sugerido, explicacoes ou observacoes. "
         "Melhore o nome do interessado quando a descricao vier abreviada como cartao/maquininha, por exemplo MAST CD -> Master Credito, DB -> Debito. "
+        "Se a descricao indicar PIX, chave, QR Code, maquininha, cartao, transferencia, TED, DOC, boleto, taxa ou tarifa, use isso para decidir a categoria candidata mais aderente. "
+        "Nunca escolha categoria de despesa para item do tipo RECEITA nem categoria de receita para item do tipo DESPESA. "
         "Use o historico parecido para reaproveitar a categoria mais provavel.\n\n"
         f"Itens:\n{json.dumps(items, ensure_ascii=False)}"
     )
@@ -439,6 +446,8 @@ def _aplicar_sugestoes_gemini(
     pendentes: List[Dict[str, Any]] = []
     for item in lancamentos:
         if item.get("duplicata_id"):
+            continue
+        if item.get("sugestao_acao") != "CRIAR_NOVO":
             continue
         if item.get("plano_contas_id") and item.get("entidade_id"):
             continue
@@ -507,13 +516,18 @@ def _aplicar_sugestoes_gemini(
         sugestao = resposta.get(int(item["linha_arquivo"]))
         if not sugestao:
             continue
+        if item.get("sugestao_acao") != "CRIAR_NOVO":
+            continue
         plano_contas_id = sugestao.get("plano_contas_id")
         if plano_contas_id and not item.get("plano_contas_id"):
             item["plano_contas_id"] = int(plano_contas_id)
         interessado = str(sugestao.get("interessado_sugerido") or "").strip()
         if interessado:
-            item["interessado_sugerido"] = interessado
-            item["razao_social"] = interessado
+            interessado_limpo = _normalizar_nome_entidade(interessado) or interessado
+            item["interessado_sugerido"] = interessado_limpo
+            item["razao_social"] = interessado_limpo
+        if (plano_contas_id or interessado) and not item.get("motivo_classificacao"):
+            item["motivo_classificacao"] = "Sugestao automatica Gemini aplicada antes da tela de validacao."
 
 
 def _build_match_reason(data_diferenca: int, valor_diferenca: Decimal, similaridade: float, kind: str) -> str:
@@ -815,3 +829,192 @@ def _resolver_conta_e_centro(
         )
 
     return conta, centro_custo_resolvido
+
+
+def _buscar_lancamento_por_import_hash(db: Session, empresa_id: int, import_hash: Optional[str]) -> Optional[Lancamento]:
+    if not import_hash:
+        return None
+    return db.exec(
+        select(Lancamento).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.import_hash == import_hash,
+        )
+    ).first()
+
+
+class ConfirmarLancamentosRequest(BaseModel):
+    lancamentos: List[Dict[str, Any]]
+    conta_id: Optional[int] = None
+    centro_custo_id: Optional[int] = None
+
+
+@router.post("/confirmar-lancamentos")
+async def confirmar_lancamentos(
+    request: ConfirmarLancamentosRequest,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    lancamentos_criados = 0
+    lancamentos_atualizados = 0
+    erros: List[str] = []
+    import_hashes_processados: set[str] = set()
+
+    conta_resolvida = None
+    centro_custo_resolvido = None
+    if request.conta_id:
+        conta_resolvida, centro_custo_resolvido = _resolver_conta_e_centro(
+            db,
+            empresa_id,
+            request.conta_id,
+            request.centro_custo_id,
+        )
+
+    for lanc_data in request.lancamentos:
+        try:
+            if lanc_data.get("sugestao_acao") in {"IGNORAR_DUPLICATA", "DESCARTAR"}:
+                continue
+
+            if lanc_data.get("duplicata_id"):
+                continue
+
+            import_hash = str(lanc_data.get("import_hash") or "").strip()
+            if import_hash and import_hash in import_hashes_processados:
+                logger.warning(
+                    "Importacao OFX ignorada por idempotencia no mesmo lote: "
+                    f"hash={import_hash} descricao={lanc_data.get('descricao')}"
+                )
+                continue
+
+            if _buscar_lancamento_por_import_hash(db, empresa_id, import_hash or None):
+                logger.warning(
+                    "Importacao OFX ignorada por idempotencia: movimento ja confirmado anteriormente. "
+                    f"hash={import_hash} descricao={lanc_data.get('descricao')}"
+                )
+                continue
+
+            if import_hash:
+                import_hashes_processados.add(import_hash)
+
+            from app.services.integracao_itau import parsear_data
+
+            if lanc_data.get("lancamento_previsto_id"):
+                lanc_existente = db.get(Lancamento, int(lanc_data["lancamento_previsto_id"]))
+                if lanc_existente:
+                    data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
+                    data_vencimento = parsear_data(lanc_data["data_vencimento"]) if lanc_data.get("data_vencimento") else None
+
+                    if data_vencimento:
+                        lanc_existente.data_vencimento = data_vencimento
+
+                    lanc_existente.data_pagamento = data_pagamento
+                    lanc_existente.status = "PAGO"
+                    lanc_existente.conciliado = True
+                    lanc_existente.valor_pago = Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"]))
+                    if lanc_data.get("plano_contas_id"):
+                        lanc_existente.plano_contas_id = int(lanc_data["plano_contas_id"])
+                    if lanc_data.get("entidade_id"):
+                        lanc_existente.entidade_id = int(lanc_data["entidade_id"])
+                    if conta_resolvida:
+                        lanc_existente.conta_id = conta_resolvida.id
+                    if centro_custo_resolvido:
+                        lanc_existente.centro_custo_id = centro_custo_resolvido
+                    if import_hash and not lanc_existente.import_hash:
+                        lanc_existente.import_hash = import_hash
+                    db.add(lanc_existente)
+                    lancamentos_atualizados += 1
+                    continue
+
+            if lanc_data.get("lancamentos_atrasados_relacionados"):
+                for atrasado_id in lanc_data["lancamentos_atrasados_relacionados"]:
+                    lanc_atrasado = db.get(Lancamento, int(atrasado_id))
+                    if not lanc_atrasado:
+                        continue
+
+                    data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
+                    lanc_atrasado.data_pagamento = data_pagamento
+                    lanc_atrasado.status = "PAGO"
+                    lanc_atrasado.conciliado = True
+                    lanc_atrasado.valor_pago = Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"]))
+                    if lanc_data.get("plano_contas_id"):
+                        lanc_atrasado.plano_contas_id = int(lanc_data["plano_contas_id"])
+                    if lanc_data.get("entidade_id"):
+                        lanc_atrasado.entidade_id = int(lanc_data["entidade_id"])
+                    if conta_resolvida:
+                        lanc_atrasado.conta_id = conta_resolvida.id
+                    if centro_custo_resolvido:
+                        lanc_atrasado.centro_custo_id = centro_custo_resolvido
+                    if import_hash and not lanc_atrasado.import_hash:
+                        lanc_atrasado.import_hash = import_hash
+                    db.add(lanc_atrasado)
+                    lancamentos_atualizados += 1
+
+                if lanc_data.get("relacionar_apenas_atrasados"):
+                    continue
+
+            plano_contas_id = lanc_data.get("plano_contas_id")
+            if not plano_contas_id:
+                plano_contas_table = getattr(PlanoContas, "__table__")
+                categoria = db.exec(
+                    select(PlanoContas).where(
+                        plano_contas_table.c.empresa_id == empresa_id,
+                        plano_contas_table.c.nome.ilike("%categorizar%")
+                    )
+                ).first()
+                if categoria:
+                    plano_contas_id = categoria.id
+                else:
+                    tipo_categoria = "R" if lanc_data.get("tipo") == "RECEITA" else "D"
+                    categoria_nova = PlanoContas(
+                        nome="A Categorizar",
+                        codigo=None,
+                        tipo=tipo_categoria,
+                        empresa_id=empresa_id,
+                        permite_lancamentos=True,
+                    )
+                    db.add(categoria_nova)
+                    db.commit()
+                    db.refresh(categoria_nova)
+                    plano_contas_id = categoria_nova.id
+
+            if not plano_contas_id:
+                erros.append(f"Lancamento {lanc_data.get('descricao')} sem categoria")
+                continue
+
+            data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
+            data_vencimento = parsear_data(lanc_data["data_vencimento"]) if lanc_data.get("data_vencimento") else (data_pagamento or parsear_data(lanc_data.get("data") or ""))
+            data_vencimento = data_vencimento or data_pagamento or date.today()
+            data_pagamento = data_pagamento or data_vencimento or date.today()
+
+            novo_lancamento = Lancamento(
+                descricao=str(lanc_data["descricao"]),
+                tipo=str(lanc_data["tipo"]),
+                status="PAGO",
+                origem=str(lanc_data["origem"]),
+                valor_previsto=Decimal(str(lanc_data.get("valor_previsto") or lanc_data["valor"])),
+                valor_pago=Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"])),
+                data_vencimento=data_vencimento,
+                data_pagamento=data_pagamento,
+                data_competencia=data_pagamento or data_vencimento or date.today(),
+                empresa_id=empresa_id,
+                plano_contas_id=int(plano_contas_id),
+                entidade_id=int(lanc_data["entidade_id"]) if lanc_data.get("entidade_id") else None,
+                conta_id=(conta_resolvida.id if conta_resolvida else lanc_data.get("conta_id") or request.conta_id),
+                centro_custo_id=(centro_custo_resolvido or lanc_data.get("centro_custo_id") or request.centro_custo_id),
+                import_hash=import_hash or None,
+                conciliado=True,
+                ipp=False,
+            )
+            db.add(novo_lancamento)
+            lancamentos_criados += 1
+        except Exception as exc:
+            logger.error(f"Erro ao confirmar lancamento OFX: {exc}")
+            erros.append(str(exc))
+
+    db.commit()
+
+    return {
+        "sucesso": True,
+        "lancamentos_criados": lancamentos_criados,
+        "lancamentos_atualizados": lancamentos_atualizados,
+        "erros": erros,
+    }

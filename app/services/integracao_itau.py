@@ -118,6 +118,65 @@ def _limpar_cpf_cnpj(cpf_cnpj: Optional[str]) -> str:
     return re.sub(r"[^0-9]", "", cpf_cnpj or "")
 
 
+def _normalizar_nome_entidade(texto: Optional[str]) -> str:
+    if not texto:
+        return ""
+
+    nome = re.sub(r"\s+", " ", str(texto).strip())
+    if not nome:
+        return ""
+
+    nome = re.sub(
+        r"^(?:pix|transferencia|transferência|ted|doc|pagamento)\s+(?:recebido|recebida|enviado|enviada|pix)?\s*",
+        "",
+        nome,
+        flags=re.IGNORECASE,
+    ).strip(" -")
+
+    tokens_brutos = re.split(r"\s+", nome)
+    tokens_genericos = {
+        "PIX",
+        "RECEBIDO",
+        "RECEBIDA",
+        "ENVIADO",
+        "ENVIADA",
+        "TRANSFERENCIA",
+        "TRANSFERÊNCIA",
+        "PAGAMENTO",
+        "TED",
+        "DOC",
+    }
+
+    tokens: list[str] = []
+    for token in tokens_brutos:
+        limpo = re.sub(r"[^A-Za-zÀ-ÿ0-9]", "", token)
+        if not limpo:
+            continue
+
+        if re.search(r"\d", limpo):
+            somente_letras = re.sub(r"\d", "", limpo)
+            if len(somente_letras) < 2:
+                continue
+            limpo = somente_letras
+
+        if limpo.upper() in tokens_genericos:
+            continue
+
+        if tokens and _normalizar_cabecalho(tokens[-1]) == _normalizar_cabecalho(limpo):
+            continue
+
+        tokens.append(limpo)
+
+    if len(tokens) >= 2 and _normalizar_cabecalho(tokens[0]) == _normalizar_cabecalho(tokens[-1]):
+        tokens.pop()
+
+    resultado = " ".join(token.title() for token in tokens).strip()
+    if len(resultado) >= 3:
+        return resultado
+
+    return nome[:120]
+
+
 def _status_aberto_clause() -> tuple[str, ...]:
     return ("PENDENTE", "EM ABERTO")
 
@@ -550,6 +609,8 @@ def criar_entidade_se_nao_existir(
     """
     if not razao_social and not cpf_cnpj:
         return None
+
+    razao_social = _normalizar_nome_entidade(razao_social)
     
     # Limpa CPF/CNPJ
     cpf_cnpj_limpo = re.sub(r'[^0-9]', '', cpf_cnpj) if cpf_cnpj else ""

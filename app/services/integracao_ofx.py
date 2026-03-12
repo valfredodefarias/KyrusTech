@@ -101,14 +101,25 @@ def _to_date(value) -> tuple[date | None, str | None]:
 
 def _iterar_contas(ofx) -> list:
     contas = []
-    if getattr(ofx, "accounts", None):
-        contas.extend(ofx.accounts)
-    if getattr(ofx, "account", None):
-        contas.append(ofx.account)
-    if getattr(ofx, "creditcards", None):
-        contas.extend(ofx.creditcards)
-    if getattr(ofx, "creditcard", None):
-        contas.append(ofx.creditcard)
+    vistos: set[int] = set()
+
+    for grupo in [getattr(ofx, "accounts", None), getattr(ofx, "creditcards", None)]:
+        for conta in grupo or []:
+            conta_obj_id = id(conta)
+            if conta_obj_id in vistos:
+                continue
+            vistos.add(conta_obj_id)
+            contas.append(conta)
+
+    for conta in [getattr(ofx, "account", None), getattr(ofx, "creditcard", None)]:
+        if conta is None:
+            continue
+        conta_obj_id = id(conta)
+        if conta_obj_id in vistos:
+            continue
+        vistos.add(conta_obj_id)
+        contas.append(conta)
+
     return contas
 
 
@@ -162,6 +173,29 @@ def _resolve_transaction_reference(txn: object, linha: int, data_lanc: date, val
     return f"fallback-{data_lanc.isoformat()}-{valor_abs}-{linha}-{descricao_base}"
 
 
+def _build_transaction_dedupe_key(conta_metadata: Dict[str, Optional[str]], txn: object, data_lanc: date, data_hora: str | None, valor: Decimal, descricao: str) -> str:
+    raw_identity = [
+        _safe_text(getattr(txn, "id", None)),
+        _safe_text(getattr(txn, "fitid", None)),
+        _safe_text(getattr(txn, "reference", None)),
+    ]
+    identidade = next((item for item in raw_identity if item), "")
+
+    base_parts = [
+        conta_metadata.get("ofx_bank_id") or "",
+        conta_metadata.get("ofx_agencia") or "",
+        conta_metadata.get("ofx_conta_numero") or "",
+        data_lanc.isoformat(),
+        data_hora or "",
+        str(valor),
+        identidade,
+        re.sub(r"\s+", " ", descricao.lower()).strip(),
+        re.sub(r"\s+", " ", _safe_text(getattr(txn, "payee", None)).lower()).strip(),
+        re.sub(r"\s+", " ", _safe_text(getattr(txn, "type", None)).lower()).strip(),
+    ]
+    return "|".join(base_parts)
+
+
 def processar_ofx(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
     """
     Processa arquivo OFX (extrato de transacoes) para qualquer banco.
@@ -173,6 +207,7 @@ def processar_ofx(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
 
     lancamentos: List[Dict] = []
     linha = 1
+    movimentos_vistos: set[str] = set()
 
     for conta in _iterar_contas(ofx):
         account_metadata = _extract_account_metadata(conta)
@@ -203,6 +238,12 @@ def processar_ofx(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
             payee = (getattr(txn, "payee", "") or "").strip()
             tipo_txn = (getattr(txn, "type", "") or "").strip()
             descricao = memo or payee or tipo_txn or "Transacao OFX"
+            dedupe_key = _build_transaction_dedupe_key(account_metadata, txn, data_lanc, data_hora, valor_abs, descricao)
+            if dedupe_key in movimentos_vistos:
+                logger.warning(f"Movimento OFX duplicado ignorado no parser: {descricao} | {data_lanc.isoformat()} | {valor_abs}")
+                linha += 1
+                continue
+            movimentos_vistos.add(dedupe_key)
             referencia_txn = _resolve_transaction_reference(txn, linha, data_lanc, valor_abs, descricao)
 
             lancamentos.append({

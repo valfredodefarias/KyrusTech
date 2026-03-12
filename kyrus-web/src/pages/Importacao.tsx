@@ -816,6 +816,32 @@ export const PlanoContasManager = ({
       return operationalIds.has(Number(parentId));
   };
 
+  const syncOperationalHierarchyLocal = (items: ItemSistema[]) => {
+      if (canManageOperational) return items;
+
+      const itemsMap = new Map(items.map((item) => [item.id, { ...item }]));
+      const childrenByParent = new Map<number, ItemSistema[]>();
+      const roots: ItemSistema[] = [];
+
+      itemsMap.forEach((item) => {
+          if (item.conta_pai_id && itemsMap.has(Number(item.conta_pai_id))) {
+              const parentId = Number(item.conta_pai_id);
+              childrenByParent.set(parentId, [...(childrenByParent.get(parentId) || []), item]);
+              return;
+          }
+          roots.push(item);
+      });
+
+      const walk = (item: ItemSistema, inheritedValue?: boolean) => {
+          const effectiveValue = inheritedValue == null ? item.eh_operacional !== false : inheritedValue;
+          item.eh_operacional = effectiveValue;
+          (childrenByParent.get(item.id) || []).forEach((child) => walk(child, effectiveValue));
+      };
+
+      roots.forEach((root) => walk(root));
+      return items.map((item) => itemsMap.get(item.id) || item);
+  };
+
     const shouldShowTipoField = modalMode === 'CREATE' && !createTipoLocked && !selectedParent;
 
   const parentSelectGroups = useMemo<SearchOptionGroup[]>(() => {
@@ -888,7 +914,7 @@ export const PlanoContasManager = ({
       }
 
       // 3. MÁGICA: Recalcula todos os códigos baseados na nova estrutura
-      const reindexedList = recalcCodes(newList);
+    const reindexedList = syncOperationalHierarchyLocal(recalcCodes(newList));
 
       markDirty(reindexedList);
       setDraggedItem(null);
@@ -1024,7 +1050,7 @@ export const PlanoContasManager = ({
       if (modalMode === 'CREATE') {
           const tempId = nextTempIdRef.current;
           nextTempIdRef.current -= 1;
-          const reindexed = recalcCodes([
+          const reindexed = syncOperationalHierarchyLocal(recalcCodes([
               ...localList,
               {
                   id: tempId,
@@ -1036,17 +1062,17 @@ export const PlanoContasManager = ({
                   considerar_nos_resultados: formData.considerar_nos_resultados,
                   conta_pai_id: formData.conta_pai_id || null,
               },
-          ]);
+          ]));
           markDirty(reindexed);
       } else {
-          const reindexed = recalcCodes(localList.map((categoria) => categoria.id === formData.id ? {
+          const reindexed = syncOperationalHierarchyLocal(recalcCodes(localList.map((categoria) => categoria.id === formData.id ? {
               ...categoria,
               nome: formData.nome.trim(),
               eh_operacional: operationalValue,
               considerar_nos_resultados: formData.considerar_nos_resultados,
               conta_pai_id: formData.conta_pai_id || null,
               tipo: normalizedTipo,
-          } : categoria));
+          } : categoria)));
           markDirty(reindexed);
       }
 

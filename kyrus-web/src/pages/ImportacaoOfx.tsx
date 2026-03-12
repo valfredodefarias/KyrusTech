@@ -292,6 +292,15 @@ export function ImportacaoOfx() {
 
   useAssistentePage(assistenteConfig);
 
+  const reloadEntidadesLookup = async () => {
+    try {
+      const { data } = await api.get<EntidadeItem[]>('/entidades/lookup');
+      setEntidades(data || []);
+    } catch (error) {
+      console.error('Erro ao recarregar entidades', error);
+    }
+  };
+
   const handleUpload = async () => {
     if (loading) return;
     if (!arquivo || !contaId) {
@@ -309,6 +318,7 @@ export function ImportacaoOfx() {
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );
       setResultado(data);
+      await reloadEntidadesLookup();
       setFeedback({ type: 'success', message: 'Arquivo OFX processado com sucesso.' });
     } catch (error: any) {
       setResultado(null);
@@ -354,8 +364,7 @@ export function ImportacaoOfx() {
       const sugestao = sugestoes[key] || {};
       const plano_contas_id = lanc.plano_contas_id ?? sugestao.plano_contas_id ?? null;
       const entidade_id = lanc.entidade_id ?? sugestao.entidade_id ?? null;
-      const auto_preenchido = (lanc.plano_contas_id == null && sugestao.plano_contas_id != null)
-        || (lanc.entidade_id == null && sugestao.entidade_id != null);
+      const auto_preenchido = plano_contas_id != null || entidade_id != null;
 
       return {
         ...lanc,

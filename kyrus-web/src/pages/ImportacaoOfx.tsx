@@ -35,7 +35,7 @@ function formatCurrency(valor: number) {
 
 function formatDate(valor?: string | null) {
   if (!valor) return '-';
-  const iso = valor.includes('T') ? valor : `${valor}T00:00:00`;
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(valor) ? `${valor}T00:00:00` : valor;
   const data = new Date(iso);
   if (Number.isNaN(data.getTime())) return valor;
   return data.toLocaleDateString('pt-BR');

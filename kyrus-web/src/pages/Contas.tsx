@@ -77,6 +77,32 @@ function getExtratoBaseDate(item: Pick<LancamentoItem, 'data_pagamento' | 'data_
   return item.data_pagamento || item.data_vencimento;
 }
 
+function parseDateLike(value?: string | null) {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+
+  const dateOnlyMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch;
+    return new Date(Number(year), Number(month) - 1, Number(day), 0, 0, 0, 0);
+  }
+
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(trimmed.slice(0, 10))
+    ? `${trimmed.slice(0, 10)}T00:00:00`
+    : trimmed;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getDateTimestamp(value?: string | null) {
+  return parseDateLike(value)?.getTime() || 0;
+}
+
+function formatDateLike(value?: string | null) {
+  return parseDateLike(value)?.toLocaleDateString('pt-BR') || '-';
+}
+
 function isTransferencia(item?: Pick<LancamentoItem, 'origem'> | null) {
   return String(item?.origem || '').toUpperCase() === 'TRANSFERENCIA';
 }
@@ -841,8 +867,8 @@ export function Contas() {
       if (extratoTipoFiltro === 'ENTRADAS' && !isEntrada) return false;
       if (extratoTipoFiltro === 'SAIDAS' && !isSaida) return false;
 
-      const movementDate = new Date(getExtratoBaseDate(item));
-      if (Number.isNaN(movementDate.getTime())) return false;
+      const movementDate = parseDateLike(getExtratoBaseDate(item));
+      if (!movementDate) return false;
       if (rangeStart && movementDate < rangeStart) return false;
       if (rangeEnd && movementDate > rangeEnd) return false;
       return true;
@@ -902,18 +928,18 @@ export function Contas() {
     });
 
     grouped.forEach((group) => {
-      group.itens.sort((left, right) => new Date(getExtratoBaseDate(right)).getTime() - new Date(getExtratoBaseDate(left)).getTime());
+      group.itens.sort((left, right) => getDateTimestamp(getExtratoBaseDate(right)) - getDateTimestamp(getExtratoBaseDate(left)));
       group.dataBase = getExtratoBaseDate(group.itens[0] || { data_pagamento: group.dataBase, data_vencimento: group.dataBase });
       group.saldoApos = Number(group.itens[0]?.saldo_apos_movimento || group.saldoApos || 0);
     });
 
-    const invoiceRows = Array.from(grouped.values()).sort((left, right) => new Date(right.dataBase).getTime() - new Date(left.dataBase).getTime());
-    const singles = [...singleRows].sort((left, right) => new Date(getExtratoBaseDate(right.item)).getTime() - new Date(getExtratoBaseDate(left.item)).getTime());
+    const invoiceRows = Array.from(grouped.values()).sort((left, right) => getDateTimestamp(right.dataBase) - getDateTimestamp(left.dataBase));
+    const singles = [...singleRows].sort((left, right) => getDateTimestamp(getExtratoBaseDate(right.item)) - getDateTimestamp(getExtratoBaseDate(left.item)));
 
     return [...invoiceRows.map((group) => ({ type: 'invoice' as const, group })), ...singles].sort((left, right) => {
       const leftDate = left.type === 'invoice' ? left.group.dataBase : getExtratoBaseDate(left.item);
       const rightDate = right.type === 'invoice' ? right.group.dataBase : getExtratoBaseDate(right.item);
-      return new Date(rightDate).getTime() - new Date(leftDate).getTime();
+      return getDateTimestamp(rightDate) - getDateTimestamp(leftDate);
     });
   }, [extratoLancamentosFiltrados]);
 
@@ -1197,7 +1223,7 @@ export function Contas() {
                                   </span>
                                 </td>
                                 <td className="p-4 font-mono text-xs text-slate-500 align-top">
-                                  {new Date(row.group.dataBase).toLocaleDateString('pt-BR')}
+                                  {formatDateLike(row.group.dataBase)}
                                 </td>
                                 <td className="p-4 align-top">
                                   <button
@@ -1235,7 +1261,7 @@ export function Contas() {
                                     />
                                   </td>
                                   <td className="p-4 font-mono text-xs text-slate-500">
-                                    {new Date((l.data_pagamento || l.data_vencimento)).toLocaleDateString('pt-BR')}
+                                    {formatDateLike(l.data_pagamento || l.data_vencimento)}
                                   </td>
                                   <td className="p-4 font-medium text-slate-700 dark:text-slate-200">
                                     <div>{l.descricao}</div>
@@ -1287,7 +1313,7 @@ export function Contas() {
                               />
                             </td>
                             <td className="p-4 font-mono text-xs text-slate-500">
-                              {new Date((l.data_pagamento || l.data_vencimento)).toLocaleDateString('pt-BR')}
+                              {formatDateLike(l.data_pagamento || l.data_vencimento)}
                             </td>
                             <td className="p-4 font-medium text-slate-700 dark:text-slate-200">{l.descricao}</td>
                             <td className="p-4 text-slate-500">{getCategoriaLabel(l)}</td>

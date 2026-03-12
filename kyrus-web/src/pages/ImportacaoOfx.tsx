@@ -163,6 +163,10 @@ function categoriaCompativel(cat: CategoriaItem, tipo: string) {
   return true;
 }
 
+function isConciliacaoAutomatica(acao?: LancamentoImportado['sugestao_acao']) {
+  return acao === 'BAIXAR_PREVISTO' || acao === 'RELACIONAR_ATRASADOS';
+}
+
 export function ImportacaoOfx() {
   const [searchParams] = useSearchParams();
   const [contas, setContas] = useState<ContaItem[]>([]);
@@ -255,11 +259,11 @@ export function ImportacaoOfx() {
 
   const resumo = useMemo(() => {
     const items = lancamentosEditados.filter((item) => item.sugestao_acao !== 'IGNORAR_DUPLICATA' && item.sugestao_acao !== 'DESCARTAR');
-    const conciliaveis = items.filter((item) => item.sugestao_acao && item.sugestao_acao !== 'CRIAR_NOVO').length;
+    const conciliaveis = items.filter((item) => isConciliacaoAutomatica(item.sugestao_acao)).length;
     const novos = items.filter((item) => item.sugestao_acao === 'CRIAR_NOVO').length;
     const receitas = items.filter((item) => item.tipo === 'RECEITA').reduce((acc, item) => acc + Number(item.valor || 0), 0);
     const despesas = items.filter((item) => item.tipo === 'DESPESA').reduce((acc, item) => acc + Number(item.valor || 0), 0);
-    const semCategoria = items.filter((item) => !item.plano_contas_id).length;
+    const semCategoria = items.filter((item) => item.sugestao_acao === 'CRIAR_NOVO' && !item.plano_contas_id).length;
     return { conciliaveis, novos, receitas, despesas, semCategoria };
   }, [lancamentosEditados]);
 
@@ -289,6 +293,7 @@ export function ImportacaoOfx() {
   useAssistentePage(assistenteConfig);
 
   const handleUpload = async () => {
+    if (loading) return;
     if (!arquivo || !contaId) {
       setFeedback({ type: 'error', message: 'Selecione uma conta e um arquivo OFX.' });
       return;
@@ -314,6 +319,7 @@ export function ImportacaoOfx() {
   };
 
   const handleConfirmar = async () => {
+    if (confirming) return;
     if (!resultado || !contaId) return;
     setConfirming(true);
     setFeedback(null);
@@ -327,6 +333,9 @@ export function ImportacaoOfx() {
         type: 'success',
         message: `Importação concluída. Criados: ${data?.lancamentos_criados || 0}, atualizados: ${data?.lancamentos_atualizados || 0}.`
       });
+      setResultado(null);
+      setLancamentosEditados([]);
+      setArquivo(null);
     } catch (error: any) {
       setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao confirmar importação.' });
     } finally {
@@ -370,7 +379,7 @@ export function ImportacaoOfx() {
       if (filtroStatus === 'novo' && item.sugestao_acao !== 'CRIAR_NOVO') {
         return false;
       }
-      if (filtroStatus === 'duplicado' && item.sugestao_acao !== 'IGNORAR_DUPLICATA') {
+      if (filtroStatus === 'duplicado' && !item.duplicata_id && item.sugestao_acao !== 'IGNORAR_DUPLICATA') {
         return false;
       }
       if (filtroStatus === 'descartado' && item.sugestao_acao !== 'DESCARTAR') {
@@ -584,6 +593,7 @@ export function ImportacaoOfx() {
               const categoriasCompativeis = categorias.filter((cat) => categoriaCompativel(cat, lanc.tipo));
               const valorClass = lanc.tipo === 'RECEITA' ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300';
               const descartado = lanc.sugestao_acao === 'DESCARTAR';
+              const conciliacaoAutomatica = isConciliacaoAutomatica(lanc.sugestao_acao);
 
               return (
                 <article key={`${lanc.linha_arquivo}-${lanc.movimento_uid || 'ofx'}`} className={`rounded-3xl border bg-white p-5 shadow-sm transition dark:bg-slate-900 ${descartado ? 'opacity-65' : ''} ${lanc.auto_preenchido ? 'border-emerald-200 dark:border-emerald-900/50' : 'border-slate-200 dark:border-slate-800'}`}>
@@ -730,38 +740,38 @@ export function ImportacaoOfx() {
                     </div>
                   )}
 
-                  <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                    <div>
-                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Categoria compatível</label>
-                      <select
-                        value={lanc.plano_contas_id || ''}
-                        onChange={(e) => updateLancamento(lanc.linha_arquivo, { plano_contas_id: e.target.value ? Number(e.target.value) : null })}
-                        disabled={descartado}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950"
-                      >
-                        <option value="">A categorizar</option>
-                        {categoriasCompativeis.map((cat) => (
-                          <option key={cat.id} value={cat.id}>
-                            {cat.codigo ? `${cat.codigo} - ${cat.nome}` : cat.nome}
-                          </option>
-                        ))}
-                      </select>
+                  {!descartado && !conciliacaoAutomatica ? (
+                    <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Categoria compatível</label>
+                        <select
+                          value={lanc.plano_contas_id || ''}
+                          onChange={(e) => updateLancamento(lanc.linha_arquivo, { plano_contas_id: e.target.value ? Number(e.target.value) : null })}
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950"
+                        >
+                          <option value="">A categorizar</option>
+                          {categoriasCompativeis.map((cat) => (
+                            <option key={cat.id} value={cat.id}>
+                              {cat.codigo ? `${cat.codigo} - ${cat.nome}` : cat.nome}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Interessado</label>
+                        <select
+                          value={lanc.entidade_id || ''}
+                          onChange={(e) => updateLancamento(lanc.linha_arquivo, { entidade_id: e.target.value ? Number(e.target.value) : null })}
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950"
+                        >
+                          <option value="">Sem interessado</option>
+                          {entidades.map((ent) => (
+                            <option key={ent.id} value={ent.id}>{ent.nome}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Interessado</label>
-                      <select
-                        value={lanc.entidade_id || ''}
-                        onChange={(e) => updateLancamento(lanc.linha_arquivo, { entidade_id: e.target.value ? Number(e.target.value) : null })}
-                        disabled={descartado}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950"
-                      >
-                        <option value="">Sem interessado</option>
-                        {entidades.map((ent) => (
-                          <option key={ent.id} value={ent.id}>{ent.nome}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
+                  ) : null}
                 </article>
               );
             })}
@@ -778,7 +788,7 @@ export function ImportacaoOfx() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Resumo para confirmação</p>
-                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{lancamentosEditados.length} item(ns) prontos para seguir. {resumo.semCategoria === 0 ? 'Sem pendências de categoria.' : `${resumo.semCategoria} item(ns) ainda exigem categoria.`}</p>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{lancamentosEditados.length} item(ns) analisados. {resumo.semCategoria === 0 ? 'Os novos lançamentos já têm categoria.' : `${resumo.semCategoria} novo(s) ainda exigem categoria.`}</p>
               </div>
               <button
                 onClick={handleConfirmar}

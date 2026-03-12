@@ -103,6 +103,14 @@ function formatDateLike(value?: string | null) {
   return parseDateLike(value)?.toLocaleDateString('pt-BR') || '-';
 }
 
+function getExtratoSignedValue(entrada?: number | null, saida?: number | null) {
+  const valorEntrada = Number(entrada || 0);
+  const valorSaida = Number(saida || 0);
+  if (valorEntrada > 0) return valorEntrada;
+  if (valorSaida > 0) return -valorSaida;
+  return 0;
+}
+
 function isTransferencia(item?: Pick<LancamentoItem, 'origem'> | null) {
   return String(item?.origem || '').toUpperCase() === 'TRANSFERENCIA';
 }
@@ -1195,17 +1203,16 @@ export function Contas() {
                       <th className="p-4">Categoria</th>
                       <th className="p-4">Origem</th>
                       <th className="p-4">Status</th>
-                      <th className="p-4 text-right">Entrada</th>
-                      <th className="p-4 text-right">Saída</th>
+                      <th className="p-4 text-right">Entrada/Saída</th>
                       <th className="p-4 text-right">Saldo após</th>
                       <th className="p-4 text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="text-sm divide-y divide-slate-100 dark:divide-slate-700">
                     {extratoLoading ? (
-                      <tr><td colSpan={10} className="p-6 text-center text-slate-400">Carregando...</td></tr>
+                      <tr><td colSpan={9} className="p-6 text-center text-slate-400">Carregando...</td></tr>
                     ) : extratoAgrupado.length === 0 ? (
-                      <tr><td colSpan={10} className="p-6 text-center text-slate-400 italic">Nenhum movimento encontrado para os filtros selecionados.</td></tr>
+                      <tr><td colSpan={9} className="p-6 text-center text-slate-400 italic">Nenhum movimento encontrado para os filtros selecionados.</td></tr>
                     ) : (
                       extratoAgrupado.map((row) => {
                         if (row.type === 'invoice') {
@@ -1244,8 +1251,7 @@ export function Contas() {
                                     AGRUPADO
                                   </span>
                                 </td>
-                                <td className="p-4 text-right font-bold text-emerald-600 align-top">{BRL.format(0)}</td>
-                                <td className="p-4 text-right font-bold text-rose-600 align-top">{BRL.format(row.group.totalSaida)}</td>
+                                <td className="p-4 text-right font-bold text-rose-600 align-top">{BRL.format(-Math.abs(row.group.totalSaida))}</td>
                                 <td className={`p-4 text-right font-bold align-top ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{BRL.format(row.group.saldoApos)}</td>
                                 <td className="p-4" />
                               </tr>
@@ -1274,8 +1280,7 @@ export function Contas() {
                                       {l.status}
                                     </span>
                                   </td>
-                                  <td className="p-4 text-right font-bold text-emerald-600">{BRL.format(Number(l.valor_entrada || 0))}</td>
-                                  <td className="p-4 text-right font-bold text-rose-600">{BRL.format(Number(l.valor_saida || 0))}</td>
+                                  <td className={`p-4 text-right font-bold ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{BRL.format(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
                                   <td className={`p-4 text-right font-bold ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{BRL.format(Number(l.saldo_apos_movimento || 0))}</td>
                                   <td className="p-4 text-right">
                                     <div className="flex items-center justify-end gap-2">
@@ -1323,8 +1328,7 @@ export function Contas() {
                                 {l.status}
                               </span>
                             </td>
-                            <td className="p-4 text-right font-bold text-emerald-600">{BRL.format(Number(l.valor_entrada || 0))}</td>
-                            <td className="p-4 text-right font-bold text-rose-600">{BRL.format(Number(l.valor_saida || 0))}</td>
+                            <td className={`p-4 text-right font-bold ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{BRL.format(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
                             <td className={`p-4 text-right font-bold ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{BRL.format(Number(l.saldo_apos_movimento || 0))}</td>
                             <td className="p-4 text-right">
                               <div className="flex items-center justify-end gap-2">

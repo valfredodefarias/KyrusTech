@@ -498,7 +498,11 @@ def _aplicar_sugestoes_gemini(
     if not pendentes:
         return
 
-    resposta = _chamar_gemini_classificacao(pendentes[:GEMINI_BATCH_LIMIT])
+    resposta: Dict[int, Dict[str, Any]] = {}
+    for inicio in range(0, len(pendentes), GEMINI_BATCH_LIMIT):
+        lote = pendentes[inicio:inicio + GEMINI_BATCH_LIMIT]
+        resposta.update(_chamar_gemini_classificacao(lote))
+
     for item in lancamentos:
         sugestao = resposta.get(int(item["linha_arquivo"]))
         if not sugestao:
@@ -651,7 +655,7 @@ async def upload_ofx(
 
             if lanc_raw["import_hash"] in hashes_vistos:
                 duplicatas += 1
-                lanc_raw["sugestao_acao"] = "IGNORAR_DUPLICATA"
+                lanc_raw["sugestao_acao"] = "DESCARTAR"
                 lanc_raw["motivo_conciliacao"] = "Movimento repetido dentro do mesmo arquivo OFX."
                 lanc_raw["duplicata_resumo"] = DuplicataResumo(
                     descricao=lanc_raw["descricao"],
@@ -673,7 +677,7 @@ async def upload_ofx(
             if duplicata:
                 duplicatas += 1
                 lanc_raw["duplicata_id"] = duplicata.id
-                lanc_raw["sugestao_acao"] = "IGNORAR_DUPLICATA"
+                lanc_raw["sugestao_acao"] = "DESCARTAR"
                 lanc_raw["motivo_conciliacao"] = duplicata_historica_motivo or "Movimento ja importado anteriormente para esta conta."
                 lanc_raw["duplicata_resumo"] = DuplicataResumo(
                     descricao=duplicata.descricao,

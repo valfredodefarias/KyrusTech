@@ -48,6 +48,12 @@ const formatDateExtenso = (dateString: string) => {
     return date.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'long' });
 };
 
+const formatDateShort = (dateString?: string) => {
+  if (!dateString) return '';
+  const date = fixDate(dateString);
+  return date ? date.toLocaleDateString('pt-BR') : '';
+};
+
 const getTodayLocalYmd = () => {
   const now = new Date();
   const y = now.getFullYear();
@@ -793,9 +799,31 @@ export function Lancamentos() {
 
   // --- LOGICA FILTRO ---
   const filteredList = useMemo(() => {
+    const termoBusca = filtroTexto.trim().toLowerCase();
+    const categoriasPorId = new Map(categorias.map((categoria: any) => [Number(categoria.id), String(categoria.nome || '')]));
+    const entidadesPorId = new Map(entidades.map((entidade: any) => [Number(entidade.id), String(entidade.nome || entidade.razao_social || '')]));
+
     return lancamentos.filter(l => {
       // 1. Texto Global
-      if (filtroTexto && !l.descricao.toLowerCase().includes(filtroTexto.toLowerCase()) && !String(l.valor_previsto).includes(filtroTexto)) return false;
+      if (termoBusca) {
+        const categoriaNome = categoriasPorId.get(Number(l.plano_contas_id)) || '';
+        const interessadoNome = entidadesPorId.get(Number(l.entidade_id || 0)) || '';
+        const blocoBusca = [
+          l.descricao,
+          categoriaNome,
+          interessadoNome,
+          l.data_vencimento,
+          l.data_pagamento || '',
+          formatDateShort(l.data_vencimento),
+          formatDateShort(l.data_pagamento),
+          formatDateExtenso(l.data_vencimento),
+          l.data_pagamento ? formatDateExtenso(l.data_pagamento) : '',
+          String(l.valor_previsto || ''),
+          String(l.valor_pago || ''),
+        ].join(' ').toLowerCase();
+
+        if (!blocoBusca.includes(termoBusca)) return false;
+      }
       
       // 2. Centro de Custo (Header)
       if (centroCustoFiltro && String(l.centro_custo_id) !== centroCustoFiltro) return false;
@@ -831,7 +859,7 @@ export function Lancamentos() {
 
       return true;
     });
-  }, [lancamentos, filtroTexto, centroCustoFiltro, filtroRapido, filtrosAvancados, contaExtratoAtivaId]);
+  }, [lancamentos, filtroTexto, centroCustoFiltro, filtroRapido, filtrosAvancados, contaExtratoAtivaId, categorias, entidades]);
 
   const contasFiltradas = useMemo(() => {
     return contas.filter(c => !centroCustoFiltro || String(c.centro_custo_id) === String(centroCustoFiltro));
@@ -1455,7 +1483,7 @@ export function Lancamentos() {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Buscar valor ou descrição"
+              placeholder="Buscar descrição, data, categoria, interessado ou valor"
               className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
               value={filtroTexto}
               onChange={e=>setFiltroTexto(e.target.value)}
@@ -1466,7 +1494,7 @@ export function Lancamentos() {
         <div className="flex-1 w-full flex flex-col sm:flex-row gap-2 sm:items-center xl:hidden">
             <div className="relative flex-1">
                 <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500"/>
-                <input type="text" placeholder="Pesquisar..." className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition" value={filtroTexto} onChange={e=>setFiltroTexto(e.target.value)}/>
+                <input type="text" placeholder="Pesquisar descrição, data, categoria, interessado ou valor" className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition" value={filtroTexto} onChange={e=>setFiltroTexto(e.target.value)}/>
             </div>
             <div className="w-full sm:w-48">
                 <select className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-white outline-none focus:border-blue-500" value={centroCustoFiltro} onChange={e=>setCentroCustoFiltro(e.target.value)}>

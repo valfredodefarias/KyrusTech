@@ -236,10 +236,11 @@ function matchBankPreset(
   presets: Array<{ bank_name: string; label: string; aliases: string[]; logo_url?: string | null; is_active: boolean }>,
   values: Array<string | null | undefined>,
 ) {
-  const haystack = values
+  const normalizedValues = values
     .map((value) => normalizeText(value))
-    .filter(Boolean)
-    .join(' ');
+    .filter(Boolean);
+
+  const haystack = normalizedValues.join(' ');
 
   if (!haystack) return null;
 
@@ -247,8 +248,8 @@ function matchBankPreset(
     if (!preset.is_active) return false;
     const terms = [preset.bank_name, preset.label, ...(preset.aliases || [])]
       .map((value) => normalizeText(value))
-      .filter(Boolean);
-    return terms.some((term) => haystack.includes(term) || term.includes(haystack));
+      .filter((term) => Boolean(term) && term.length >= 3);
+    return terms.some((term) => normalizedValues.some((value) => value === term || value.includes(term) || (value.length >= 5 && term.includes(value))));
   }) || null;
 }
 
@@ -404,15 +405,16 @@ export function BankAvatar({
     return toPublicAssetUrl(preset?.logo_url || null);
   }, [accountName, bankName, integrationType, presets]);
 
+  const explicitLogoSrc = useMemo(() => toPublicAssetUrl(logoUrl), [logoUrl]);
   const defaultLogoPath = useMemo(
-    () => presetLogoPath || getBankDefaultLogoPath(bankName, accountName, integrationType),
-    [bankName, accountName, integrationType, presetLogoPath],
+    () => (explicitLogoSrc ? (presetLogoPath || getBankDefaultLogoPath(bankName, accountName, integrationType)) : null),
+    [bankName, accountName, explicitLogoSrc, integrationType, presetLogoPath],
   );
 
   const imageSrc = useMemo(() => {
-    const candidates = [toPublicAssetUrl(logoUrl), defaultLogoPath].filter(Boolean) as string[];
+    const candidates = [explicitLogoSrc, defaultLogoPath].filter(Boolean) as string[];
     return candidates.find((candidate) => !failedSources[candidate]) || null;
-  }, [defaultLogoPath, failedSources, logoUrl]);
+  }, [defaultLogoPath, explicitLogoSrc, failedSources]);
 
   if (imageSrc) {
     return (

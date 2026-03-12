@@ -29,6 +29,17 @@ from pydantic import BaseModel
 router = APIRouter()
 
 
+def _buscar_lancamento_por_import_hash(db: Session, empresa_id: int, import_hash: Optional[str]) -> Optional[Lancamento]:
+    if not import_hash:
+        return None
+    return db.exec(
+        select(Lancamento).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.import_hash == import_hash,
+        )
+    ).first()
+
+
 def _serializar_lancamento(lanc_raw: Dict) -> Dict:
     payload = dict(lanc_raw)
     data_val = payload.get("data")
@@ -279,6 +290,13 @@ async def confirmar_lancamentos(
 
             # Se tem duplicata, pula
             if lanc_data.get("duplicata_id"):
+                continue
+
+            if _buscar_lancamento_por_import_hash(db, empresa_id, lanc_data.get("import_hash")):
+                logger.warning(
+                    "Importacao ignorada por idempotencia: movimento ja confirmado anteriormente. "
+                    f"hash={lanc_data.get('import_hash')} descricao={lanc_data.get('descricao')}"
+                )
                 continue
             
             # Importa funções necessárias

@@ -273,6 +273,10 @@ async def confirmar_lancamentos(
 
     for lanc_data in request.lancamentos:
         try:
+            # Ignora duplicatas e itens descartados manualmente na fila
+            if lanc_data.get("sugestao_acao") in {"IGNORAR_DUPLICATA", "DESCARTAR"}:
+                continue
+
             # Se tem duplicata, pula
             if lanc_data.get("duplicata_id"):
                 continue

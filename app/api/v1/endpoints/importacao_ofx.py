@@ -1,17 +1,23 @@
 """
 Endpoints para importacao de arquivos OFX (multibancos).
 """
-from datetime import date, datetime
+import json
+import re
+import unicodedata
+from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from decimal import Decimal
-from typing import List, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+import requests
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
-from sqlmodel import Session, select
+from sqlmodel import Session, or_, select
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.db.session import get_db
 from app.api.v1.deps import get_empresa_id_from_user
+from app.core.config import settings
 from app.services.integracao_ofx import processar_ofx
 from app.services.integracao_itau import (
     verificar_duplicata,
@@ -24,12 +30,62 @@ from app.services.integracao_itau import (
 from app.models.lancamento import Lancamento
 from app.models.conta import Conta
 from app.models.centro_custo import CentroCusto
+from app.models.entidade import Entidade
+from app.models.plano_contas import PlanoContas
 
 router = APIRouter()
 OFX_FILE_SIZE_LIMIT = 10 * 1024 * 1024
 MATCH_TOLERANCIA_PERCENTUAL = Decimal("0.05")
 MATCH_DIAS_ATRASO = 30
 STATUS_ABERTOS = ("PENDENTE", "EM ABERTO")
+HISTORICO_SUGESTAO_LIMITE = 1500
+GEMINI_BATCH_LIMIT = 20
+GEMINI_CATEGORIA_LIMITE = 8
+
+TOKEN_MAP_INTERESSADO = {
+    "MAST": "Master",
+    "MASTER": "Master",
+    "MC": "Master",
+    "CRED": "Credito",
+    "CD": "Credito",
+    "CREDITO": "Credito",
+    "DEB": "Debito",
+    "DB": "Debito",
+    "DEBITO": "Debito",
+    "VISA": "Visa",
+    "ELO": "Elo",
+    "AMEX": "Amex",
+    "PIX": "Pix",
+    "TED": "Ted",
+    "DOC": "Doc",
+    "REDE": "Rede",
+    "STONE": "Stone",
+    "CIELO": "Cielo",
+    "GETNET": "Getnet",
+    "PAGSEGURO": "PagSeguro",
+    "MERCADOPAGO": "Mercado Pago",
+    "MERCADO": "Mercado",
+    "PAGO": "Pago",
+}
+
+TOKENS_GENERICOS_INTERESSADO = {
+    "OFX",
+    "COMPRA",
+    "PAGAMENTO",
+    "PAGTO",
+    "TRANSACAO",
+    "TRANS",
+    "AUT",
+    "NSU",
+    "PARC",
+    "PARCELA",
+    "ESTAB",
+    "ESTABELECIMENTO",
+    "LOJA",
+    "BANCO",
+    "AG",
+    "CC",
+}
 
 
 class RelacionamentoResumo(BaseModel):
@@ -74,6 +130,8 @@ class LancamentoImportado(BaseModel):
     sugestao_acao: str = "CRIAR_NOVO"
     score_conciliacao: int = 0
     motivo_conciliacao: Optional[str] = None
+    motivo_classificacao: Optional[str] = None
+    interessado_sugerido: Optional[str] = None
     lancamento_previsto_resumo: Optional[RelacionamentoResumo] = None
     lancamentos_atrasados_resumo: List[RelacionamentoResumo] = Field(default_factory=list)
     duplicata_resumo: Optional[DuplicataResumo] = None
@@ -93,7 +151,53 @@ def _serializar_lancamento(lanc_raw: Dict) -> Dict:
 def _normalizar_texto(texto: Optional[str]) -> str:
     if not texto:
         return ""
-    return " ".join(str(texto).lower().split())
+    base = unicodedata.normalize("NFKD", str(texto))
+    sem_acento = "".join(char for char in base if not unicodedata.combining(char))
+    limpo = re.sub(r"[^a-zA-Z0-9]+", " ", sem_acento.lower())
+    return " ".join(limpo.split())
+
+
+def _tokenizar_texto(texto: Optional[str]) -> List[str]:
+    return [token for token in re.split(r"[^A-Za-z0-9]+", str(texto or "").upper()) if token]
+
+
+def _title_case_inteligente(tokens: List[str]) -> str:
+    palavras: List[str] = []
+    for token in tokens:
+        palavras.append(TOKEN_MAP_INTERESSADO.get(token, token.title()))
+    return " ".join(palavras).strip()
+
+
+def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
+    candidato = str(lancamento_ofx.get("razao_social") or "").strip()
+    if len(_normalizar_texto(candidato)) >= 3:
+        return _title_case_inteligente(_tokenizar_texto(candidato)) or candidato
+
+    descricao = str(lancamento_ofx.get("descricao") or "")
+    tokens = []
+    for token in _tokenizar_texto(descricao):
+        if token in TOKENS_GENERICOS_INTERESSADO:
+            continue
+        if token.isdigit():
+            continue
+        tokens.append(token)
+
+    if not tokens:
+        return ""
+
+    if len(tokens) > 5:
+        tokens = tokens[:5]
+
+    interessado = _title_case_inteligente(tokens)
+    if len(_normalizar_texto(interessado)) < 3:
+        return ""
+    return interessado
+
+
+def _valor_lancamento_existente(lancamento: Lancamento) -> Decimal:
+    if lancamento.valor_pago not in (None, Decimal("0.00")):
+        return Decimal(str(lancamento.valor_pago))
+    return Decimal(str(lancamento.valor_previsto or "0"))
 
 
 def _calcular_similaridade_texto(origem: Dict, lancamento: Lancamento) -> float:
@@ -106,6 +210,295 @@ def _calcular_similaridade_texto(origem: Dict, lancamento: Lancamento) -> float:
     if not base or not alvo:
         return 0.0
     return SequenceMatcher(None, base, alvo).ratio()
+
+
+def _buscar_duplicata_historica(
+    db: Session,
+    lancamento_ofx: Dict,
+    empresa_id: int,
+    conta_id: int,
+) -> tuple[Optional[Lancamento], Optional[str]]:
+    data_base = lancamento_ofx.get("data")
+    if not isinstance(data_base, date):
+        return None, None
+
+    try:
+        valor = Decimal(str(lancamento_ofx.get("valor") or "0"))
+    except Exception:
+        return None, None
+
+    candidatos = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.conta_id == conta_id,
+            Lancamento.tipo == lancamento_ofx.get("tipo"),
+        )
+        .limit(500)
+    ).all()
+
+    interessado_norm = _normalizar_texto(lancamento_ofx.get("razao_social") or lancamento_ofx.get("interessado_sugerido"))
+    for candidato in candidatos:
+        if candidato.data_pagamento is None and str(candidato.status or "").upper() in STATUS_ABERTOS:
+            continue
+
+        data_candidata = candidato.data_pagamento or candidato.data_vencimento
+        if not data_candidata or abs((data_candidata - data_base).days) > 2:
+            continue
+
+        valor_candidato = _valor_lancamento_existente(candidato)
+        if abs(valor_candidato - valor) > Decimal("0.01"):
+            continue
+
+        similaridade = _calcular_similaridade_texto(lancamento_ofx, candidato)
+        contexto_candidato = _normalizar_texto(f"{candidato.descricao} {candidato.observacao or ''}")
+        entidade_bate = bool(interessado_norm and interessado_norm in contexto_candidato)
+        if similaridade >= 0.68 or entidade_bate:
+            motivo = "Mesmo valor, mesma conta e data muito proxima de um lancamento ja registrado"
+            if similaridade >= 0.8:
+                motivo += " com descricao muito parecida"
+            return candidato, motivo
+
+    return None, None
+
+
+def _carregar_contexto_classificacao(
+    db: Session,
+    empresa_id: int,
+) -> tuple[List[PlanoContas], Dict[int, Entidade], List[Lancamento]]:
+    categorias = list(db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.permite_lancamentos == True,
+            PlanoContas.oculta == False,
+        )
+    ).all())
+    entidades = list(db.exec(
+        select(Entidade).where(
+            Entidade.empresa_id == empresa_id,
+            Entidade.status == "ATIVO",
+        )
+    ).all())
+    historico = list(db.exec(
+        select(Lancamento)
+        .where(Lancamento.empresa_id == empresa_id)
+        .limit(HISTORICO_SUGESTAO_LIMITE)
+    ).all())
+    return categorias, {int(entidade.id): entidade for entidade in entidades if entidade.id is not None}, historico
+
+
+def _score_historico(lancamento_ofx: Dict, historico: Lancamento, entidades_por_id: Dict[int, Entidade], conta_id: int) -> float:
+    texto_origem = " ".join(
+        part for part in [
+            _normalizar_texto(lancamento_ofx.get("descricao")),
+            _normalizar_texto(lancamento_ofx.get("razao_social")),
+            _normalizar_texto(lancamento_ofx.get("interessado_sugerido")),
+        ]
+        if part
+    ).strip()
+    entidade_historica = entidades_por_id.get(int(historico.entidade_id or 0))
+    texto_historico = " ".join(
+        part for part in [
+            _normalizar_texto(historico.descricao),
+            _normalizar_texto(entidade_historica.nome if entidade_historica else ""),
+            _normalizar_texto(historico.observacao),
+        ]
+        if part
+    ).strip()
+    similaridade = SequenceMatcher(None, texto_origem, texto_historico).ratio() if texto_origem and texto_historico else 0.0
+    score = similaridade * 70
+    if historico.tipo == lancamento_ofx.get("tipo"):
+        score += 10
+    if historico.conta_id == conta_id:
+        score += 8
+    try:
+        valor_origem = Decimal(str(lancamento_ofx.get("valor") or "0"))
+        valor_historico = _valor_lancamento_existente(historico)
+        if abs(valor_historico - valor_origem) <= max(Decimal("5.00"), abs(valor_origem) * Decimal("0.03")):
+            score += 12
+    except Exception:
+        pass
+    return score
+
+
+def _aplicar_sugestao_historica(
+    lancamento_ofx: Dict,
+    historico: List[Lancamento],
+    entidades_por_id: Dict[int, Entidade],
+    conta_id: int,
+) -> List[Lancamento]:
+    candidatos = [item for item in historico if item.tipo == lancamento_ofx.get("tipo") and item.plano_contas_id]
+    ranked = sorted(
+        candidatos,
+        key=lambda item: _score_historico(lancamento_ofx, item, entidades_por_id, conta_id),
+        reverse=True,
+    )[:3]
+
+    if not ranked:
+        return []
+
+    melhor = ranked[0]
+    melhor_score = _score_historico(lancamento_ofx, melhor, entidades_por_id, conta_id)
+    if melhor_score < 55:
+        return []
+
+    if not lancamento_ofx.get("plano_contas_id") and melhor.plano_contas_id:
+        lancamento_ofx["plano_contas_id"] = melhor.plano_contas_id
+    if not lancamento_ofx.get("entidade_id") and melhor.entidade_id:
+        lancamento_ofx["entidade_id"] = melhor.entidade_id
+    if not lancamento_ofx.get("motivo_classificacao"):
+        lancamento_ofx["motivo_classificacao"] = f"Sugestao por historico parecido com '{melhor.descricao}'."
+    return ranked
+
+
+def _json_from_llm(raw_text: str) -> Optional[Dict[str, Any]]:
+    texto = str(raw_text or "").strip()
+    if not texto:
+        return None
+    if texto.startswith("```"):
+        texto = re.sub(r"^```(?:json)?", "", texto).strip()
+        texto = re.sub(r"```$", "", texto).strip()
+    inicio = texto.find("{")
+    fim = texto.rfind("}")
+    if inicio >= 0 and fim > inicio:
+        texto = texto[inicio:fim + 1]
+    try:
+        parsed = json.loads(texto)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        return None
+
+
+def _chamar_gemini_classificacao(items: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
+    if not settings.GEMINI_API_KEY or not items:
+        return {}
+
+    prompt = (
+        "Voce classifica movimentos OFX. Responda JSON puro no formato "
+        '{"items":[{"linha_arquivo":1,"plano_contas_id":123,"interessado_sugerido":"Nome","motivo":"..."}]}'
+        " sem markdown. Escolha apenas IDs de plano_contas presentes nas categorias candidatas de cada item. "
+        "Melhore o nome do interessado quando a descricao vier abreviada como cartao/maquininha, por exemplo MAST CD -> Master Credito, DB -> Debito. "
+        "Use o historico parecido para reaproveitar a categoria mais provavel.\n\n"
+        f"Itens:\n{json.dumps(items, ensure_ascii=False)}"
+    )
+
+    try:
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent",
+            params={"key": settings.GEMINI_API_KEY},
+            headers={"Content-Type": "application/json"},
+            json={
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2000},
+            },
+            timeout=settings.AI_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        data = response.json()
+        candidates = data.get("candidates") or []
+        if not candidates:
+            return {}
+        parts = candidates[0].get("content", {}).get("parts") or []
+        text = "\n".join(str(part.get("text", "")) for part in parts if isinstance(part, dict))
+        payload = _json_from_llm(text) or {}
+        result: Dict[int, Dict[str, Any]] = {}
+        for item in payload.get("items", []):
+            if isinstance(item, dict) and item.get("linha_arquivo"):
+                result[int(item["linha_arquivo"])] = item
+        return result
+    except Exception as exc:
+        logger.warning(f"Gemini indisponivel para classificacao OFX: {exc}")
+        return {}
+
+
+def _aplicar_sugestoes_gemini(
+    lancamentos: List[Dict[str, Any]],
+    categorias: List[PlanoContas],
+    historico_por_linha: Dict[int, List[Lancamento]],
+    entidades_por_id: Dict[int, Entidade],
+) -> None:
+    categorias_por_tipo: Dict[str, List[PlanoContas]] = {"RECEITA": [], "DESPESA": []}
+    for categoria in categorias:
+        tipo = "RECEITA" if str(categoria.tipo or "").upper().startswith("R") else "DESPESA"
+        categorias_por_tipo[tipo].append(categoria)
+
+    pendentes: List[Dict[str, Any]] = []
+    for item in lancamentos:
+        if item.get("duplicata_id"):
+            continue
+        if item.get("plano_contas_id") and item.get("entidade_id"):
+            continue
+        historico_rel = historico_por_linha.get(int(item["linha_arquivo"]), [])
+        categorias_base = categorias_por_tipo.get(str(item.get("tipo") or "").upper(), [])
+        candidatos = []
+        vistos: set[int] = set()
+        for hist in historico_rel:
+            if hist.plano_contas_id and int(hist.plano_contas_id) not in vistos:
+                vistos.add(int(hist.plano_contas_id))
+                categoria = next((cat for cat in categorias_base if int(cat.id or 0) == int(hist.plano_contas_id)), None)
+                if categoria:
+                    candidatos.append({
+                        "id": int(categoria.id or 0),
+                        "nome": categoria.nome,
+                        "codigo": categoria.codigo,
+                    })
+        texto_item = _normalizar_texto(item.get("descricao"))
+        for categoria in categorias_base:
+            if len(candidatos) >= GEMINI_CATEGORIA_LIMITE:
+                break
+            if int(categoria.id or 0) in vistos:
+                continue
+            if _normalizar_texto(categoria.nome) and any(token in texto_item for token in _normalizar_texto(categoria.nome).split()):
+                vistos.add(int(categoria.id or 0))
+                candidatos.append({
+                    "id": int(categoria.id or 0),
+                    "nome": categoria.nome,
+                    "codigo": categoria.codigo,
+                })
+        if not candidatos:
+            for categoria in categorias_base[:GEMINI_CATEGORIA_LIMITE]:
+                candidatos.append({
+                    "id": int(categoria.id or 0),
+                    "nome": categoria.nome,
+                    "codigo": categoria.codigo,
+                })
+
+        exemplos = []
+        for hist in historico_rel[:3]:
+            entidade = entidades_por_id.get(int(hist.entidade_id or 0))
+            exemplos.append({
+                "descricao": hist.descricao,
+                "plano_contas_id": hist.plano_contas_id,
+                "entidade": entidade.nome if entidade else None,
+            })
+
+        pendentes.append({
+            "linha_arquivo": int(item["linha_arquivo"]),
+            "tipo": item.get("tipo"),
+            "descricao_ofx": item.get("descricao"),
+            "interessado_atual": item.get("razao_social") or item.get("interessado_sugerido") or "",
+            "categorias_candidatas": candidatos,
+            "historico_parecido": exemplos,
+        })
+
+    if not pendentes:
+        return
+
+    resposta = _chamar_gemini_classificacao(pendentes[:GEMINI_BATCH_LIMIT])
+    for item in lancamentos:
+        sugestao = resposta.get(int(item["linha_arquivo"]))
+        if not sugestao:
+            continue
+        plano_contas_id = sugestao.get("plano_contas_id")
+        if plano_contas_id and not item.get("plano_contas_id"):
+            item["plano_contas_id"] = int(plano_contas_id)
+        interessado = str(sugestao.get("interessado_sugerido") or "").strip()
+        if interessado:
+            item["interessado_sugerido"] = interessado
+            item["razao_social"] = interessado
+        motivo = str(sugestao.get("motivo") or "").strip()
+        if motivo and not item.get("motivo_classificacao"):
+            item["motivo_classificacao"] = motivo
 
 
 def _build_match_reason(data_diferenca: int, valor_diferenca: Decimal, similaridade: float, kind: str) -> str:
@@ -216,6 +609,7 @@ async def upload_ofx(
 
     try:
         conta, centro_custo_id_resolvido = _resolver_conta_e_centro(db, empresa_id, conta_id, centro_custo_id)
+        conta_db_id = int(conta.id or 0)
         conteudo = await arquivo.read()
         if len(conteudo) > OFX_FILE_SIZE_LIMIT:
             raise HTTPException(
@@ -223,21 +617,26 @@ async def upload_ofx(
                 detail="Arquivo OFX excede o limite de 10 MB.",
             )
         lancamentos_raw = processar_ofx(conteudo, empresa_id)
+        categorias_empresa, entidades_por_id, historico_empresa = _carregar_contexto_classificacao(db, empresa_id)
 
         lancamentos_processados = []
         duplicatas = 0
         previstos = 0
         atrasados = 0
         hashes_vistos: set[str] = set()
+        historico_relacionado_por_linha: Dict[int, List[Lancamento]] = {}
 
         for lanc_raw in lancamentos_raw:
-            lanc_raw["conta_id"] = conta.id
+            lanc_raw["conta_id"] = conta_db_id
             lanc_raw["centro_custo_id"] = centro_custo_id_resolvido
+            lanc_raw["interessado_sugerido"] = _extrair_interessado_sugerido(lanc_raw)
+            if lanc_raw.get("interessado_sugerido"):
+                lanc_raw["razao_social"] = lanc_raw["interessado_sugerido"]
             referencia_movimento = str(lanc_raw.get("referencia") or "").strip()
-            lanc_raw["movimento_uid"] = referencia_movimento or f"fallback:{conta.id}:{lanc_raw['linha_arquivo']}"
-            lanc_raw["referencia_externa"] = f"{conta.id}:{lanc_raw['movimento_uid']}"
+            lanc_raw["movimento_uid"] = referencia_movimento or f"fallback:{conta_db_id}:{lanc_raw['linha_arquivo']}"
+            lanc_raw["referencia_externa"] = f"{conta_db_id}:{lanc_raw['movimento_uid']}"
             lanc_raw["referencia"] = lanc_raw["referencia_externa"]
-            lanc_raw["import_hash"] = gerar_import_hash(lanc_raw, conta_id=conta.id)
+            lanc_raw["import_hash"] = gerar_import_hash(lanc_raw, conta_id=conta_db_id)
 
             if lanc_raw["import_hash"] in hashes_vistos:
                 duplicatas += 1
@@ -250,24 +649,29 @@ async def upload_ofx(
                     origem="OFX_EXTRATO",
                     motivo="Movimento repetido no arquivo",
                 )
+                lancamentos_processados.append(lanc_raw)
                 continue
             hashes_vistos.add(lanc_raw["import_hash"])
 
-            duplicata = verificar_duplicata(db, lanc_raw, empresa_id, conta_id=conta.id)
+            duplicata = verificar_duplicata(db, lanc_raw, empresa_id, conta_id=conta_db_id)
             if not duplicata:
-                duplicata = verificar_duplicata_ofx_por_fallback(db, lanc_raw, empresa_id, conta_id=conta.id)
+                duplicata = verificar_duplicata_ofx_por_fallback(db, lanc_raw, empresa_id, conta_id=conta_db_id)
+            duplicata_historica_motivo = None
+            if not duplicata:
+                duplicata, duplicata_historica_motivo = _buscar_duplicata_historica(db, lanc_raw, empresa_id, conta_db_id)
             if duplicata:
                 duplicatas += 1
                 lanc_raw["duplicata_id"] = duplicata.id
                 lanc_raw["sugestao_acao"] = "IGNORAR_DUPLICATA"
-                lanc_raw["motivo_conciliacao"] = "Movimento ja importado anteriormente para esta conta."
+                lanc_raw["motivo_conciliacao"] = duplicata_historica_motivo or "Movimento ja importado anteriormente para esta conta."
                 lanc_raw["duplicata_resumo"] = DuplicataResumo(
                     descricao=duplicata.descricao,
                     data_pagamento=duplicata.data_pagamento.isoformat() if duplicata.data_pagamento else None,
                     valor_pago=float(duplicata.valor_pago) if duplicata.valor_pago is not None else None,
                     origem=duplicata.origem,
-                    motivo="Mesmo banco selecionado e mesmo identificador de movimentacao",
+                    motivo=duplicata_historica_motivo or "Mesmo banco selecionado e mesmo identificador de movimentacao",
                 )
+                lancamentos_processados.append(lanc_raw)
                 continue
 
             melhor_previsto, melhores_atrasados = _buscar_melhores_relacionamentos(
@@ -298,22 +702,44 @@ async def upload_ofx(
                     lanc_raw["score_conciliacao"] = melhores_atrasados[0][1]
                     lanc_raw["motivo_conciliacao"] = melhores_atrasados[0][2]
 
-            entidade_id = criar_entidade_se_nao_existir(
-                db,
-                lanc_raw.get("razao_social", ""),
-                lanc_raw.get("cpf_cnpj", ""),
-                empresa_id,
-            )
-            lanc_raw["entidade_id"] = entidade_id
-
             if not melhor_previsto and not melhores_atrasados:
                 lanc_raw["sugestao_acao"] = "CRIAR_NOVO"
                 lanc_raw["motivo_conciliacao"] = "Nenhum previsto ou atraso compativel foi encontrado com o mesmo tipo e tolerancia de R$ 1,00."
 
-            lancamentos_processados.append(LancamentoImportado(**_serializar_lancamento(lanc_raw)))
+            historico_relacionado = _aplicar_sugestao_historica(
+                lanc_raw,
+                historico_empresa,
+                entidades_por_id,
+                conta_db_id,
+            )
+            historico_relacionado_por_linha[int(lanc_raw["linha_arquivo"])] = historico_relacionado
+
+            entidade_id = criar_entidade_se_nao_existir(
+                db,
+                lanc_raw.get("razao_social", "") or lanc_raw.get("interessado_sugerido", ""),
+                lanc_raw.get("cpf_cnpj", ""),
+                empresa_id,
+            )
+            lanc_raw["entidade_id"] = lanc_raw.get("entidade_id") or entidade_id
+
+            lancamentos_processados.append(lanc_raw)
+
+        _aplicar_sugestoes_gemini(lancamentos_processados, categorias_empresa, historico_relacionado_por_linha, entidades_por_id)
+
+        lancamentos_serializados = []
+        for lancamento in lancamentos_processados:
+            if not lancamento.get("entidade_id") and (lancamento.get("razao_social") or lancamento.get("interessado_sugerido")):
+                entidade_id = criar_entidade_se_nao_existir(
+                    db,
+                    lancamento.get("razao_social", "") or lancamento.get("interessado_sugerido", ""),
+                    lancamento.get("cpf_cnpj", ""),
+                    empresa_id,
+                )
+                lancamento["entidade_id"] = entidade_id
+            lancamentos_serializados.append(LancamentoImportado(**_serializar_lancamento(lancamento)))
 
         return ProcessarArquivoResponse(
-            lancamentos=lancamentos_processados,
+            lancamentos=lancamentos_serializados,
             total_processado=len(lancamentos_raw),
             duplicatas_encontradas=duplicatas,
             lancamentos_previstos_encontrados=previstos,

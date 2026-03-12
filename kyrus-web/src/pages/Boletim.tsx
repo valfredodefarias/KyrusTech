@@ -78,6 +78,7 @@ interface NormalizedRow {
   descricao: string;
   flowType: FlowFilter;
   statusKey: StatusFilter;
+  statusLabel: string;
   dataVencimento: string;
   monthIndex: number;
   dayOfMonth: number;
@@ -109,6 +110,28 @@ function toIsoDate(value: Date) {
 function formatDate(value?: string | null) {
   const parsed = parseDateOnly(value);
   return parsed ? parsed.toLocaleDateString('pt-BR') : '-';
+}
+
+function formatCurrency(value: number) {
+  return BRL.format(value).replace(/\s/g, '\u00A0');
+}
+
+function getValueTone(value: number, isDark: boolean) {
+  if (value < 0) return isDark ? 'text-rose-300' : 'text-rose-600';
+  if (value > 0) return isDark ? 'text-emerald-300' : 'text-emerald-600';
+  return isDark ? 'text-white' : 'text-slate-900';
+}
+
+function getStatusLabel(status: StatusFilter) {
+  const labels: Record<StatusFilter, string> = {
+    TODOS: 'Todos',
+    PAGO: 'Pago',
+    EM_ABERTO: 'Em aberto',
+    ATRASADO: 'Atrasado',
+    HOJE: 'Vence hoje',
+    AMANHA: 'Vence amanhã',
+  };
+  return labels[status];
 }
 
 function isReceita(tipo?: string | null) {
@@ -188,20 +211,11 @@ function SoftMetricGrid({
         {metrics.map((metric) => (
           <div key={metric.label} className={`rounded-2xl border px-4 py-4 transition hover:-translate-y-0.5 ${isDark ? 'border-white/10 bg-white/[0.035]' : 'border-slate-200 bg-white/85'}`}>
             <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{metric.label}</div>
-            <div className={`mt-2 text-2xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{BRL.format(metric.value)}</div>
+            <div className={`mt-2 whitespace-nowrap text-2xl font-black tracking-tight ${getValueTone(metric.value, isDark)}`}>{formatCurrency(metric.value)}</div>
           </div>
         ))}
       </div>
     </section>
-  );
-}
-
-function ResultCard({ label, value, emphasis, isDark }: { label: string; value: number; emphasis?: boolean; isDark: boolean }) {
-  return (
-    <div className={`rounded-2xl border px-4 py-4 transition hover:-translate-y-0.5 ${emphasis ? isDark ? 'border-amber-300/30 bg-amber-400/10' : 'border-amber-200 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035]' : 'border-slate-200 bg-white/85'}`}>
-      <div className={`text-[11px] font-black uppercase tracking-[0.16em] ${emphasis ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white/55' : 'text-slate-500'}`}>{label}</div>
-      <div className={`mt-2 text-2xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{BRL.format(value)}</div>
-    </div>
   );
 }
 
@@ -369,6 +383,7 @@ export function Boletim() {
           descricao: item.descricao,
           flowType,
           statusKey: getStatusKey(item, todayIso, tomorrowIso),
+          statusLabel: getStatusLabel(getStatusKey(item, todayIso, tomorrowIso)),
           dataVencimento: item.data_vencimento,
           monthIndex: due ? due.getMonth() : -1,
           dayOfMonth: due ? due.getDate() : -1,
@@ -387,27 +402,19 @@ export function Boletim() {
       fallbackMonthIndex,
     });
 
-    const payables = activeRows.filter((item) => item.flowType === 'PAGAMENTO');
-    const receivables = activeRows.filter((item) => item.flowType === 'RECEBIMENTO');
+    const payableRows = baseRows.filter((item) => item.flowType === 'PAGAMENTO');
+    const receivableRows = baseRows.filter((item) => item.flowType === 'RECEBIMENTO');
     const sumValues = (rows: NormalizedRow[]) => rows.reduce((acc, item) => acc + item.valorAbsoluto, 0);
 
-    const pagar = {
-      hoje: sumValues(payables.filter((item) => item.statusKey === 'HOJE')),
-      amanha: sumValues(payables.filter((item) => item.statusKey === 'AMANHA')),
-      atrasadas: sumValues(payables.filter((item) => item.statusKey === 'ATRASADO')),
-      totalMes: sumValues(payables.filter((item) => item.monthIndex === effectiveMonthIndex)),
-      realizadas: sumValues(payables.filter((item) => item.statusKey === 'PAGO')),
-      emAberto: sumValues(payables.filter((item) => item.statusKey !== 'PAGO')),
-    };
+    const buildExecutiveMetrics = (rows: NormalizedRow[]) => ({
+      hoje: sumValues(rows.filter((item) => item.statusKey === 'HOJE' && item.monthIndex === effectiveMonthIndex)),
+      amanha: sumValues(rows.filter((item) => item.statusKey === 'AMANHA')),
+      atrasadas: sumValues(rows.filter((item) => item.statusKey === 'ATRASADO')),
+      emAberto: sumValues(rows.filter((item) => item.statusKey === 'EM_ABERTO' && item.monthIndex === effectiveMonthIndex)),
+    });
 
-    const receber = {
-      hoje: sumValues(receivables.filter((item) => item.statusKey === 'HOJE')),
-      amanha: sumValues(receivables.filter((item) => item.statusKey === 'AMANHA')),
-      atrasadas: sumValues(receivables.filter((item) => item.statusKey === 'ATRASADO')),
-      totalMes: sumValues(receivables.filter((item) => item.monthIndex === effectiveMonthIndex)),
-      realizadas: sumValues(receivables.filter((item) => item.statusKey === 'PAGO')),
-      emAberto: sumValues(receivables.filter((item) => item.statusKey !== 'PAGO')),
-    };
+    const pagar = buildExecutiveMetrics(payableRows);
+    const receber = buildExecutiveMetrics(receivableRows);
 
     const monthlyRows = applyFilters(baseRows, {
       flowType: flowFilter,
@@ -479,10 +486,6 @@ export function Boletim() {
       banks: bankBalances,
       saldoBancario: bankBalances.reduce((acc, conta) => acc + conta.saldo, 0),
       saldoDisponivel,
-      operacional: receber.totalMes - pagar.totalMes,
-      final: receber.realizadas - pagar.realizadas,
-      endividamento: pagar.emAberto,
-      aReceberAberto: receber.emAberto,
       pagar,
       receber,
       tableRows,
@@ -747,42 +750,69 @@ export function Boletim() {
         ) : null}
 
         {viewMode === 'executivo' ? (
-          <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_420px]">
-            <SoftMetricGrid
-              title="Contas a pagar"
-              accent="rose"
-              isDark={isDark}
-              metrics={[
-                { label: 'Para hoje', value: dashboard.pagar.hoje },
-                { label: 'Para amanhã', value: dashboard.pagar.amanha },
-                { label: 'Atrasadas', value: dashboard.pagar.atrasadas },
-                { label: `Total ${dashboard.effectiveMonthLabel}`, value: dashboard.pagar.totalMes },
-                { label: 'Realizadas', value: dashboard.pagar.realizadas },
-                { label: 'Em aberto', value: dashboard.pagar.emAberto },
-              ]}
-            />
+          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_420px] xl:items-start">
+            <div className="grid gap-4">
+              <div className="grid gap-4 xl:grid-cols-2">
+                <SoftMetricGrid
+                  title="Contas a pagar"
+                  accent="rose"
+                  isDark={isDark}
+                  metrics={[
+                    { label: 'Para hoje', value: dashboard.pagar.hoje },
+                    { label: 'Para amanhã', value: dashboard.pagar.amanha },
+                    { label: 'Atrasadas', value: dashboard.pagar.atrasadas },
+                    { label: 'Em aberto no mês', value: dashboard.pagar.emAberto },
+                  ]}
+                />
 
-            <SoftMetricGrid
-              title="Contas a receber"
-              accent="cyan"
-              isDark={isDark}
-              metrics={[
-                { label: 'Para hoje', value: dashboard.receber.hoje },
-                { label: 'Para amanhã', value: dashboard.receber.amanha },
-                { label: 'Atrasadas', value: dashboard.receber.atrasadas },
-                { label: `Total ${dashboard.effectiveMonthLabel}`, value: dashboard.receber.totalMes },
-                { label: 'Realizadas', value: dashboard.receber.realizadas },
-                { label: 'Em aberto', value: dashboard.receber.emAberto },
-              ]}
-            />
+                <SoftMetricGrid
+                  title="Contas a receber"
+                  accent="cyan"
+                  isDark={isDark}
+                  metrics={[
+                    { label: 'Para hoje', value: dashboard.receber.hoje },
+                    { label: 'Para amanhã', value: dashboard.receber.amanha },
+                    { label: 'Atrasadas', value: dashboard.receber.atrasadas },
+                    { label: 'Em aberto no mês', value: dashboard.receber.emAberto },
+                  ]}
+                />
+              </div>
+
+              <section className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
+                <div className="mb-4 flex items-center justify-between gap-4">
+                  <div>
+                    <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>Histórico mensal</div>
+                    <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Clique numa barra para combinar tipo e mês no restante do boletim.</div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-[#ff5a47]"><TrendingDown className="h-4 w-4" />Pagamento</span>
+                    <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-[#4d8cf3]"><TrendingUp className="h-4 w-4" />Recebimento</span>
+                  </div>
+                </div>
+                <AsyncApexChart
+                  type="bar"
+                  height={340}
+                  series={[
+                    { name: 'Pagamento', data: dashboard.monthlyPagar },
+                    { name: 'Recebimento', data: dashboard.monthlyReceber },
+                  ]}
+                  options={monthlyChartOptions}
+                />
+              </section>
+            </div>
 
             <section className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
               <div className="mb-5 flex items-center justify-between gap-3">
                 <div>
-                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Resultados e bancos</div>
-                  <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Os totais acompanham o centro de custo e os filtros ativos. Contas inativas ficam ocultas e as sem disponibilidade continuam visíveis, mas fora do saldo geral disponível.</div>
+                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Bancos</div>
+                  <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Amanhã considera o vencimento real de amanhã, mesmo se cair fora do mês atual. Em aberto continua restrito ao mês.</div>
                 </div>
                 <Landmark className={`h-5 w-5 ${isDark ? 'text-amber-200' : 'text-amber-700'}`} />
+              </div>
+
+              <div className={`mb-4 rounded-2xl border px-4 py-4 ${isDark ? 'border-amber-300/30 bg-amber-400/10' : 'border-amber-200 bg-amber-50'}`}>
+                <div className={`text-[11px] font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Saldo disponível</div>
+                <div className={`mt-2 whitespace-nowrap text-3xl font-black tracking-tight ${getValueTone(dashboard.saldoDisponivel, isDark)}`}>{formatCurrency(dashboard.saldoDisponivel)}</div>
               </div>
 
               <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
@@ -822,43 +852,13 @@ export function Boletim() {
                               </div>
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-right font-semibold">{BRL.format(Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0))}</td>
+                          <td className={`px-4 py-3 text-right font-semibold ${getValueTone(Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0), isDark)} whitespace-nowrap`}>{formatCurrency(Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0))}</td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-3">
-                <ResultCard label="Saldo geral disponível" value={dashboard.saldoDisponivel} emphasis isDark={isDark} />
-                <ResultCard label="Operacional" value={dashboard.operacional} emphasis isDark={isDark} />
-                <ResultCard label="Final" value={dashboard.final} emphasis isDark={isDark} />
-                <ResultCard label="A receber" value={dashboard.aReceberAberto} isDark={isDark} />
-                <ResultCard label="Endividamento" value={dashboard.endividamento} isDark={isDark} />
-              </div>
-            </section>
-
-            <section className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] xl:col-span-3 ${shellClass}`}>
-              <div className="mb-4 flex items-center justify-between gap-4">
-                <div>
-                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>Histórico mensal</div>
-                  <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Clique numa barra para combinar tipo e mês no restante do boletim.</div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-[#ff5a47]"><TrendingDown className="h-4 w-4" />Pagamento</span>
-                  <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-[#4d8cf3]"><TrendingUp className="h-4 w-4" />Recebimento</span>
-                </div>
-              </div>
-              <AsyncApexChart
-                type="bar"
-                height={340}
-                series={[
-                  { name: 'Pagamento', data: dashboard.monthlyPagar },
-                  { name: 'Recebimento', data: dashboard.monthlyReceber },
-                ]}
-                options={monthlyChartOptions}
-              />
             </section>
           </section>
         ) : (
@@ -938,13 +938,14 @@ export function Boletim() {
                           <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.14em]">Nome Interessado</th>
                           <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.14em]">Descrição</th>
                           <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.14em]">Tipo</th>
-                          <th className="px-4 py-3 text-right text-[11px] font-black uppercase tracking-[0.14em]">Valor Saldo</th>
+                          <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.14em]">Status</th>
+                          <th className="px-4 py-3 text-right text-[11px] font-black uppercase tracking-[0.14em]">Valor</th>
                         </tr>
                       </thead>
                       <tbody>
                         {dashboard.tableRows.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className={`px-4 py-12 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Nenhum lançamento para os filtros atuais.</td>
+                            <td colSpan={6} className={`px-4 py-12 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Nenhum lançamento para os filtros atuais.</td>
                           </tr>
                         ) : dashboard.tableRows.map((row) => (
                           <tr key={row.id} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
@@ -952,12 +953,17 @@ export function Boletim() {
                             <td className="px-4 py-3 font-semibold">{row.interessado}</td>
                             <td className="max-w-85 truncate px-4 py-3" title={row.descricao}>{row.descricao}</td>
                             <td className={`px-4 py-3 font-semibold ${row.flowType === 'RECEBIMENTO' ? 'text-[#4d8cf3]' : 'text-[#ff5a47]'}`}>{row.flowType === 'RECEBIMENTO' ? 'Recebimento' : 'Pagamento'}</td>
-                            <td className={`px-4 py-3 text-right font-black ${row.valor >= 0 ? 'text-[#4d8cf3]' : 'text-[#ff5a47]'}`}>{BRL.format(row.valor)}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${row.statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : row.statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                                {row.statusLabel}
+                              </span>
+                            </td>
+                            <td className={`px-4 py-3 text-right font-black whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrency(row.valor)}</td>
                           </tr>
                         ))}
                         <tr className={isDark ? 'border-t border-white/10 bg-black/25 text-white' : 'border-t border-slate-200 bg-slate-50 text-slate-900'}>
-                          <td colSpan={4} className="px-4 py-3 text-right font-black uppercase tracking-[0.14em]">Total geral</td>
-                          <td className="px-4 py-3 text-right font-black">{BRL.format(dashboard.tableRows.reduce((sum, row) => sum + row.valor, 0))}</td>
+                          <td colSpan={5} className="px-4 py-3 text-right font-black uppercase tracking-[0.14em]">Total geral</td>
+                          <td className={`px-4 py-3 text-right font-black whitespace-nowrap ${getValueTone(dashboard.tableRows.reduce((sum, row) => sum + row.valor, 0), isDark)}`}>{formatCurrency(dashboard.tableRows.reduce((sum, row) => sum + row.valor, 0))}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -988,7 +994,7 @@ export function Boletim() {
                         className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-3 text-left transition ${active ? isDark ? 'border-amber-300/50 bg-amber-300/10' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035] hover:bg-white/6' : 'border-slate-200 bg-white/85 hover:bg-slate-50'}`}
                       >
                         <span className={`font-black ${isDark ? 'text-white/85' : 'text-slate-800'}`}>{item.label}</span>
-                        <span className={`font-black ${active ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white' : 'text-slate-900'}`}>{BRL.format(item.value)}</span>
+                        <span className={`font-black whitespace-nowrap ${active ? isDark ? 'text-amber-200' : 'text-amber-700' : getValueTone(item.value, isDark)}`}>{formatCurrency(item.value)}</span>
                       </button>
                     );
                   })}

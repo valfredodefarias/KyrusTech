@@ -105,9 +105,11 @@ interface LancamentoImportado {
   plano_contas_id?: number | null;
   entidade_id?: number | null;
   era_previsto?: boolean;
-  sugestao_acao?: 'BAIXAR_PREVISTO' | 'RELACIONAR_ATRASADOS' | 'CRIAR_NOVO' | 'IGNORAR_DUPLICATA';
+  sugestao_acao?: 'BAIXAR_PREVISTO' | 'RELACIONAR_ATRASADOS' | 'CRIAR_NOVO' | 'IGNORAR_DUPLICATA' | 'DESCARTAR';
   score_conciliacao?: number;
   motivo_conciliacao?: string | null;
+  motivo_classificacao?: string | null;
+  interessado_sugerido?: string | null;
   lancamento_previsto_resumo?: RelacionamentoResumo | null;
   lancamentos_atrasados_resumo?: RelacionamentoResumo[];
   duplicata_resumo?: DuplicataResumo | null;
@@ -127,7 +129,7 @@ interface ProcessarArquivoResponse {
   lancamentos_atrasados_encontrados: number;
 }
 
-type FiltroStatus = 'todos' | 'conciliar' | 'novo' | 'duplicado';
+type FiltroStatus = 'todos' | 'conciliar' | 'novo' | 'duplicado' | 'descartado';
 
 const ACAO_META = {
   BAIXAR_PREVISTO: {
@@ -143,8 +145,12 @@ const ACAO_META = {
     tone: 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-300 dark:border-sky-900/60',
   },
   IGNORAR_DUPLICATA: {
-    label: 'Duplicata detectada',
+    label: 'Ignorar duplicata',
     tone: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+  },
+  DESCARTAR: {
+    label: 'Descartado',
+    tone: 'bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-700',
   },
 } as const;
 
@@ -247,12 +253,12 @@ export function ImportacaoOfx() {
   }
 
   const resumo = useMemo(() => {
-    const items = lancamentosEditados;
-    const conciliaveis = items.filter((item) => item.sugestao_acao && item.sugestao_acao !== 'CRIAR_NOVO' && item.sugestao_acao !== 'IGNORAR_DUPLICATA').length;
+    const items = lancamentosEditados.filter((item) => item.sugestao_acao !== 'IGNORAR_DUPLICATA' && item.sugestao_acao !== 'DESCARTAR');
+    const conciliaveis = items.filter((item) => item.sugestao_acao && item.sugestao_acao !== 'CRIAR_NOVO').length;
     const novos = items.filter((item) => item.sugestao_acao === 'CRIAR_NOVO').length;
     const receitas = items.filter((item) => item.tipo === 'RECEITA').reduce((acc, item) => acc + Number(item.valor || 0), 0);
     const despesas = items.filter((item) => item.tipo === 'DESPESA').reduce((acc, item) => acc + Number(item.valor || 0), 0);
-    const semCategoria = items.filter((item) => !item.plano_contas_id && item.sugestao_acao !== 'IGNORAR_DUPLICATA').length;
+    const semCategoria = items.filter((item) => !item.plano_contas_id).length;
     return { conciliaveis, novos, receitas, despesas, semCategoria };
   }, [lancamentosEditados]);
 
@@ -364,6 +370,9 @@ export function ImportacaoOfx() {
         return false;
       }
       if (filtroStatus === 'duplicado' && item.sugestao_acao !== 'IGNORAR_DUPLICATA') {
+        return false;
+      }
+      if (filtroStatus === 'descartado' && item.sugestao_acao !== 'DESCARTAR') {
         return false;
       }
       if (!termo) return true;
@@ -536,6 +545,7 @@ export function ImportacaoOfx() {
                 ['conciliar', 'Conciliar'],
                 ['novo', 'Criar novo'],
                 ['duplicado', 'Duplicatas'],
+                ['descartado', 'Descartados'],
               ] as [FiltroStatus, string][]).map(([value, label]) => (
                 <button
                   key={value}
@@ -572,9 +582,10 @@ export function ImportacaoOfx() {
               const acao = ACAO_META[lanc.sugestao_acao || 'CRIAR_NOVO'];
               const categoriasCompativeis = categorias.filter((cat) => categoriaCompativel(cat, lanc.tipo));
               const valorClass = lanc.tipo === 'RECEITA' ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300';
+              const descartado = lanc.sugestao_acao === 'DESCARTAR';
 
               return (
-                <article key={`${lanc.linha_arquivo}-${lanc.movimento_uid || 'ofx'}`} className={`rounded-3xl border bg-white p-5 shadow-sm transition dark:bg-slate-900 ${lanc.auto_preenchido ? 'border-emerald-200 dark:border-emerald-900/50' : 'border-slate-200 dark:border-slate-800'}`}>
+                <article key={`${lanc.linha_arquivo}-${lanc.movimento_uid || 'ofx'}`} className={`rounded-3xl border bg-white p-5 shadow-sm transition dark:bg-slate-900 ${descartado ? 'opacity-65' : ''} ${lanc.auto_preenchido ? 'border-emerald-200 dark:border-emerald-900/50' : 'border-slate-200 dark:border-slate-800'}`}>
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
@@ -591,6 +602,51 @@ export function ImportacaoOfx() {
                       </div>
 
                       <p className="max-w-3xl text-sm text-slate-600 dark:text-slate-300">{lanc.motivo_conciliacao || 'Movimento carregado para revisão.'}</p>
+                      {lanc.motivo_classificacao ? (
+                        <p className="max-w-3xl text-sm text-emerald-700 dark:text-emerald-300">{lanc.motivo_classificacao}</p>
+                      ) : null}
+                      {lanc.interessado_sugerido ? (
+                        <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Interessado sugerido: <span className="text-slate-700 dark:text-slate-200">{lanc.interessado_sugerido}</span></p>
+                      ) : null}
+
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {lanc.lancamento_previsto_id ? (
+                          <button
+                            type="button"
+                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'BAIXAR_PREVISTO', relacionar_apenas_atrasados: false })}
+                            className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'BAIXAR_PREVISTO' ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
+                          >
+                            Baixar previsto
+                          </button>
+                        ) : null}
+                        {!!lanc.lancamentos_atrasados_ids?.length ? (
+                          <button
+                            type="button"
+                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'RELACIONAR_ATRASADOS' })}
+                            className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
+                          >
+                            Relacionar atrasados
+                          </button>
+                        ) : null}
+                        {!lanc.duplicata_id ? (
+                          <button
+                            type="button"
+                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', relacionar_apenas_atrasados: false })}
+                            className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
+                          >
+                            Criar novo
+                          </button>
+                        ) : null}
+                        {!lanc.duplicata_id ? (
+                          <button
+                            type="button"
+                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'DESCARTAR', relacionar_apenas_atrasados: false, lancamentos_atrasados_relacionados: [] })}
+                            className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${descartado ? 'border-zinc-400 bg-zinc-100 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
+                          >
+                            Descartar
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
 
                     <div className="min-w-60 rounded-[22px] border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
@@ -685,6 +741,7 @@ export function ImportacaoOfx() {
                       <select
                         value={lanc.plano_contas_id || ''}
                         onChange={(e) => updateLancamento(lanc.linha_arquivo, { plano_contas_id: e.target.value ? Number(e.target.value) : null })}
+                        disabled={descartado}
                         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950"
                       >
                         <option value="">A categorizar</option>
@@ -700,6 +757,7 @@ export function ImportacaoOfx() {
                       <select
                         value={lanc.entidade_id || ''}
                         onChange={(e) => updateLancamento(lanc.linha_arquivo, { entidade_id: e.target.value ? Number(e.target.value) : null })}
+                        disabled={descartado}
                         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950"
                       >
                         <option value="">Sem interessado</option>

@@ -58,18 +58,20 @@ def _seed_company_chart_of_accounts(db: Session, *, empresa_id: int, tipo_pessoa
     for item in sorted(template_items, key=lambda current: ((current.get("codigo") or "zzz"), current.get("nome") or "")):
         template_id = int(item["id"])
         parent_template_id = item.get("conta_pai_id")
-        conta = PlanoContas.model_construct()
-        conta.nome = str(item.get("nome") or "").strip()
-        conta.tipo = str(item.get("tipo") or "D").strip().upper()[:1] or "D"
-        conta.codigo = item.get("codigo")
-        conta.empresa_id = empresa_id
-        conta.conta_pai_id = created_ids.get(int(parent_template_id)) if parent_template_id is not None else None
-        conta.permite_lancamentos = bool(item.get("permite_lancamentos", True))
-        conta.eh_operacional = bool(item.get("eh_operacional", True))
-        conta.considerar_nos_resultados = bool(item.get("considerar_nos_resultados", True))
-        conta.oculta = bool(item.get("oculta", False))
-        conta.eh_cabecalho = bool(item.get("eh_cabecalho", False))
-        conta.eh_divida = bool(item.get("eh_divida", False))
+        payload: dict[str, Any] = {
+            "nome": str(item.get("nome") or "").strip(),
+            "tipo": str(item.get("tipo") or "D").strip().upper()[:1] or "D",
+            "codigo": item.get("codigo"),
+            "empresa_id": empresa_id,
+            "conta_pai_id": created_ids.get(int(parent_template_id)) if parent_template_id is not None else None,
+            "permite_lancamentos": bool(item.get("permite_lancamentos", True)),
+            "eh_operacional": bool(item.get("eh_operacional", True)),
+            "considerar_nos_resultados": bool(item.get("considerar_nos_resultados", True)),
+            "oculta": bool(item.get("oculta", False)),
+            "eh_cabecalho": bool(item.get("eh_cabecalho", False)),
+            "eh_divida": bool(item.get("eh_divida", False)),
+        }
+        conta = PlanoContas(**payload)
         db.add(conta)
         db.flush()
         if conta.id is None:

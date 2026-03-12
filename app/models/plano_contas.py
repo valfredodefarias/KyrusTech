@@ -32,6 +32,7 @@ class PlanoContas(AuditMixin, SQLModel, table=True):
     permite_lancamentos: bool = Field(default=True)
     eh_operacional: bool = Field(default=True)
     considerar_nos_resultados: bool = Field(default=True)
+    dre_grupo: str = Field(default="DESPESAS_OPERACIONAIS", index=True)
     oculta: bool = Field(default=False, index=True)
     
     # Hierarquia (Auto-relacionamento)

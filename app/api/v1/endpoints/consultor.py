@@ -117,6 +117,11 @@ def _template_descendants(items_index: dict[int, dict], node_id: int) -> set[int
     return descendants
 
 
+def _assert_seed_template_manager(user: Usuario) -> None:
+    if not crud_plano_contas.can_manage_operational_flag(user.email):
+        raise HTTPException(status_code=403, detail="Sem permissao para gerenciar o template global do plano de contas")
+
+
 class RoleChangeRequest(BaseModel):
     """Schema para mudança de role"""
     role: str
@@ -831,6 +836,7 @@ def listar_template_plano_contas(
     super_consultor: Usuario = Depends(get_super_consultor_user),
 ):
     try:
+        _assert_seed_template_manager(super_consultor)
         normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
         items = crud_plano_contas.get_template_items(db=db, tipo_pessoa=normalized)
         logger.info(f"[SUPER] {super_consultor.email} listou template de plano de contas {normalized}")
@@ -850,6 +856,7 @@ def criar_item_template_plano_contas(
     super_consultor: Usuario = Depends(get_super_consultor_user),
 ):
     try:
+        _assert_seed_template_manager(super_consultor)
         normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
         items = crud_plano_contas.get_template_items(db=db, tipo_pessoa=normalized)
         items_index = _template_items_index(items)
@@ -868,6 +875,7 @@ def criar_item_template_plano_contas(
             "permite_lancamentos": conta_in.permite_lancamentos,
             "eh_operacional": conta_in.eh_operacional,
             "considerar_nos_resultados": conta_in.considerar_nos_resultados,
+            "dre_grupo": parent.get("dre_grupo") if parent else conta_in.dre_grupo,
             "conta_pai_id": conta_pai_id,
         }
         items.append(new_item)
@@ -892,6 +900,7 @@ def atualizar_item_template_plano_contas(
     super_consultor: Usuario = Depends(get_super_consultor_user),
 ):
     try:
+        _assert_seed_template_manager(super_consultor)
         normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
         items = crud_plano_contas.get_template_items(db=db, tipo_pessoa=normalized)
         items_index = _template_items_index(items)
@@ -917,12 +926,15 @@ def atualizar_item_template_plano_contas(
             item["eh_operacional"] = update_data["eh_operacional"]
         if "permite_lancamentos" in update_data and update_data["permite_lancamentos"] is not None:
             item["permite_lancamentos"] = update_data["permite_lancamentos"]
+        if "dre_grupo" in update_data and update_data["dre_grupo"] is not None:
+            item["dre_grupo"] = update_data["dre_grupo"]
         if "tipo" in update_data and update_data["tipo"] is not None:
             item["tipo"] = update_data["tipo"]
         if "conta_pai_id" in update_data:
             item["conta_pai_id"] = new_parent_id
             if parent:
                 item["tipo"] = parent["tipo"]
+                item["dre_grupo"] = parent.get("dre_grupo", item.get("dre_grupo"))
 
         if not crud_plano_contas.can_manage_operational_flag(super_consultor.email):
             items = crud_plano_contas.sync_template_operational_hierarchy(items)
@@ -945,6 +957,7 @@ def deletar_item_template_plano_contas(
     super_consultor: Usuario = Depends(get_super_consultor_user),
 ):
     try:
+        _assert_seed_template_manager(super_consultor)
         normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
         items = crud_plano_contas.get_template_items(db=db, tipo_pessoa=normalized)
         item = next((current for current in items if int(current["id"]) == conta_id), None)
@@ -974,6 +987,7 @@ def reordenar_template_plano_contas(
     super_consultor: Usuario = Depends(get_super_consultor_user),
 ):
     try:
+        _assert_seed_template_manager(super_consultor)
         normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
         items = crud_plano_contas.get_template_items(db=db, tipo_pessoa=normalized)
         items_index = _template_items_index(items)

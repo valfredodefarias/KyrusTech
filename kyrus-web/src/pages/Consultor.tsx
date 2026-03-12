@@ -252,9 +252,10 @@ export function Consultor() {
   }, [currentUser, todoConsultorId]);
 
   useEffect(() => {
-    if (!isSuperConsultor || activeTab !== 'planos-padrao') return;
+    const canManageSeedTemplates = currentUser?.email?.trim().toLowerCase() === 'cirocaue12@gmail.com';
+    if (!isSuperConsultor || !canManageSeedTemplates || activeTab !== 'planos-padrao') return;
     carregarTemplatePlanoContas(templateTipoPessoa);
-  }, [activeTab, isSuperConsultor, templateTipoPessoa]);
+  }, [activeTab, isSuperConsultor, templateTipoPessoa, currentUser?.email]);
 
   useEffect(() => {
     if (!isSuperConsultor || activeTab !== 'bancos') return;
@@ -909,10 +910,11 @@ export function Consultor() {
   const empresasAtivas = empresas.filter((empresa) => empresa.is_active !== false).length;
   const usuariosAtivos = usuarios.filter((usuario) => usuario.is_active).length;
   const modeLabel = isSuperConsultor ? 'Super consultoria com visão global' : 'Consultoria com escopo autorizado';
+  const canManageSeedTemplates = currentUser?.email?.trim().toLowerCase() === 'cirocaue12@gmail.com';
   const tabItems = [
     { key: 'empresas' as const, label: 'Minhas Empresas', icon: Building2, visible: true },
     { key: 'consultores' as const, label: 'Gerenciar Consultores', icon: Users, visible: isSuperConsultor },
-    { key: 'planos-padrao' as const, label: 'Planos Padrão', icon: Layers, visible: isSuperConsultor },
+    { key: 'planos-padrao' as const, label: 'Planos Padrão', icon: Layers, visible: isSuperConsultor && !!canManageSeedTemplates },
     { key: 'bancos' as const, label: 'Bancos Globais', icon: Landmark, visible: isSuperConsultor },
     { key: 'usuarios' as const, label: 'Usuários', icon: Shield, visible: isSuperConsultor },
     { key: 'tarefas' as const, label: 'To-do', icon: ClipboardList, visible: true },
@@ -1200,7 +1202,7 @@ export function Consultor() {
       </div>
       )}
 
-      {activeTab === 'planos-padrao' && isSuperConsultor && (
+      {activeTab === 'planos-padrao' && isSuperConsultor && canManageSeedTemplates && (
         <div className="space-y-6">
           <div className="rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

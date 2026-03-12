@@ -391,7 +391,7 @@ const GestaoPlanoContas = () => {
   if(loading) return <div className="p-20 text-center"><Loader2 className="animate-spin w-10 h-10 text-blue-500 mx-auto"/></div>;
 
   return (
-    <div className="max-w-6xl mx-auto animate-in fade-in">
+    <div className="w-full animate-in fade-in">
         <div className="mb-8 rounded-4xl border border-slate-200 bg-white/90 p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-2xl font-black text-slate-900 dark:text-white">Plano de Contas</h2>

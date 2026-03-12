@@ -19,6 +19,7 @@ export interface ItemSistema {
     codigo?: string; 
     eh_operacional?: boolean;
     considerar_nos_resultados?: boolean;
+    dre_grupo?: string;
     permite_lancamentos?: boolean;
     eh_cabecalho?: boolean;
     conta_pai_id?: number | null; 
@@ -26,6 +27,21 @@ export interface ItemSistema {
 } 
 
 const OPERATIONAL_EDIT_EMAIL = 'cirocaue12@gmail.com';
+const DRE_GRUPO_OPTIONS = [
+    { value: 'RECEITA_BRUTA', label: 'Receita Bruta' },
+    { value: 'DEDUCOES_RECEITA', label: 'Deduções da Receita' },
+    { value: 'CUSTOS_VARIAVEIS', label: 'Custos Variáveis' },
+    { value: 'DESPESAS_OPERACIONAIS', label: 'Despesas Operacionais' },
+    { value: 'OUTRAS_RECEITAS', label: 'Outras Receitas' },
+    { value: 'OUTRAS_DESPESAS', label: 'Outras Despesas' },
+    { value: 'NAO_OPERACIONAL', label: 'Não operacional / fora da DRE' },
+] as const;
+
+const normalizeDreGrupo = (dreGrupo: string | undefined, tipo: string | undefined) => {
+    const normalized = String(dreGrupo || '').trim().toUpperCase();
+    if (DRE_GRUPO_OPTIONS.some((option) => option.value === normalized)) return normalized;
+    return normalizeTipo(tipo) === 'R' ? 'RECEITA_BRUTA' : 'DESPESAS_OPERACIONAIS';
+};
 
 const normalizeTipo = (tipo?: string) => ((tipo || '').trim().toUpperCase().startsWith('R') ? 'R' : 'D');
 
@@ -586,7 +602,7 @@ export const PlanoContasManager = ({
   // CRUD States
   const [modalOpen, setModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'CREATE'|'EDIT'|'MOVE'>('CREATE');
-        const [formData, setFormData] = useState({ id: 0, nome: '', codigo: '', tipo: 'D', eh_operacional: true, considerar_nos_resultados: true, conta_pai_id: '' as number | '' });
+        const [formData, setFormData] = useState({ id: 0, nome: '', codigo: '', tipo: 'D', eh_operacional: true, considerar_nos_resultados: true, dre_grupo: 'DESPESAS_OPERACIONAIS', conta_pai_id: '' as number | '' });
 
     useEffect(() => {
             if (!managerFeedback) return;
@@ -816,6 +832,13 @@ export const PlanoContasManager = ({
       return operationalIds.has(Number(parentId));
   };
 
+  const resolveDreGrupoValue = (parentId: number | '' | null | undefined, explicitValue: string, tipo: string) => {
+      if (canManageOperational) return normalizeDreGrupo(explicitValue, tipo);
+      if (!parentId) return normalizeDreGrupo(explicitValue, tipo);
+      const parent = localList.find((item) => item.id === Number(parentId));
+      return normalizeDreGrupo(parent?.dre_grupo, tipo);
+  };
+
   const syncOperationalHierarchyLocal = (items: ItemSistema[]) => {
       if (canManageOperational) return items;
 
@@ -832,13 +855,18 @@ export const PlanoContasManager = ({
           roots.push(item);
       });
 
-      const walk = (item: ItemSistema, inheritedValue?: boolean) => {
-          const effectiveValue = inheritedValue == null ? item.eh_operacional !== false : inheritedValue;
+      const walk = (item: ItemSistema, inheritedValue?: boolean, inheritedDreGrupo?: string) => {
+          // Regra: pai operacional propaga True para baixo; pai nao operacional nao forca False.
+          const currentValue = item.eh_operacional !== false;
+          const effectiveValue = inheritedValue == null ? currentValue : (inheritedValue || currentValue);
           item.eh_operacional = effectiveValue;
-          (childrenByParent.get(item.id) || []).forEach((child) => walk(child, effectiveValue));
+          const currentDre = normalizeDreGrupo(item.dre_grupo, item.tipo);
+          const effectiveDre = inheritedDreGrupo || currentDre;
+          item.dre_grupo = effectiveDre;
+          (childrenByParent.get(item.id) || []).forEach((child) => walk(child, effectiveValue, effectiveDre));
       };
 
-      roots.forEach((root) => walk(root));
+      roots.forEach((root) => walk(root, undefined, normalizeDreGrupo(root.dre_grupo, root.tipo)));
       return items.map((item) => itemsMap.get(item.id) || item);
   };
 
@@ -859,7 +887,7 @@ export const PlanoContasManager = ({
       if (!selectedParent) return;
       const parentTipo = normalizeTipo(selectedParent.tipo);
       if (normalizeTipo(formData.tipo) !== parentTipo) {
-          setFormData((prev) => ({ ...prev, tipo: parentTipo }));
+          setFormData((prev) => ({ ...prev, tipo: parentTipo, dre_grupo: normalizeDreGrupo(selectedParent.dre_grupo, parentTipo) }));
       }
   }, [formData.tipo, selectedParent]);
 
@@ -906,6 +934,7 @@ export const PlanoContasManager = ({
           const parent = localList.find(i => i.id === targetId);
           if (parent) item.tipo = normalizeTipo(parent.tipo);
           item.eh_operacional = resolveOperationalValue(targetId, item.eh_operacional !== false);
+          item.dre_grupo = resolveDreGrupoValue(targetId, item.dre_grupo || '', item.tipo || 'D');
           
           // Lógica simples: adiciona ao final da lista para ser reprocessado pelo recalcCodes
           // O recalcCodes vai colocar ele como filho do targetId corretamente na árvore
@@ -934,7 +963,8 @@ export const PlanoContasManager = ({
             if (!original) return false;
             return (
                 original.nome !== item.nome ||
-                (original.eh_operacional !== false) !== (item.eh_operacional !== false)
+                (original.eh_operacional !== false) !== (item.eh_operacional !== false) ||
+                normalizeDreGrupo(original.dre_grupo, original.tipo) !== normalizeDreGrupo(item.dre_grupo, item.tipo)
             );
         });
         const deletedItems = categorias
@@ -950,6 +980,7 @@ export const PlanoContasManager = ({
                 permite_lancamentos: true,
                 eh_operacional: item.eh_operacional !== false,
                 considerar_nos_resultados: item.considerar_nos_resultados ?? true,
+                dre_grupo: normalizeDreGrupo(item.dre_grupo, item.tipo),
                 conta_pai_id: getResolvedParentId(item.conta_pai_id ?? null, tempIdMap),
             });
             tempIdMap.set(item.id, response.data.id);
@@ -960,6 +991,7 @@ export const PlanoContasManager = ({
                 nome: item.nome,
                 eh_operacional: item.eh_operacional !== false,
                 considerar_nos_resultados: item.considerar_nos_resultados ?? true,
+                dre_grupo: normalizeDreGrupo(item.dre_grupo, item.tipo),
             });
         }
 
@@ -1030,6 +1062,7 @@ export const PlanoContasManager = ({
           tipo,
           eh_operacional: resolveOperationalValue(contaPaiId, true),
           considerar_nos_resultados: true,
+          dre_grupo: resolveDreGrupoValue(contaPaiId, '', tipo),
           conta_pai_id: contaPaiId,
       });
       setModalOpen(true);
@@ -1047,6 +1080,7 @@ export const PlanoContasManager = ({
 
       const normalizedTipo = normalizeTipo(formData.tipo);
     const operationalValue = resolveOperationalValue(formData.conta_pai_id, formData.eh_operacional);
+        const dreGrupoValue = resolveDreGrupoValue(formData.conta_pai_id, formData.dre_grupo, normalizedTipo);
       if (modalMode === 'CREATE') {
           const tempId = nextTempIdRef.current;
           nextTempIdRef.current -= 1;
@@ -1060,6 +1094,7 @@ export const PlanoContasManager = ({
                   permite_lancamentos: true,
                   eh_operacional: operationalValue,
                   considerar_nos_resultados: formData.considerar_nos_resultados,
+                  dre_grupo: dreGrupoValue,
                   conta_pai_id: formData.conta_pai_id || null,
               },
           ]));
@@ -1070,6 +1105,7 @@ export const PlanoContasManager = ({
               nome: formData.nome.trim(),
               eh_operacional: operationalValue,
               considerar_nos_resultados: formData.considerar_nos_resultados,
+              dre_grupo: dreGrupoValue,
               conta_pai_id: formData.conta_pai_id || null,
               tipo: normalizedTipo,
           } : categoria)));
@@ -1110,7 +1146,7 @@ export const PlanoContasManager = ({
       )}
 
       {/* DUAS COLUNAS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-6">
           {sectionStates.map((section) => {
               const tree = section.tipo === 'R' ? receitasTree : despesasTree;
               const rootDropTarget = section.tipo === 'R' ? 'ROOT_R' : 'ROOT_D';
@@ -1118,7 +1154,7 @@ export const PlanoContasManager = ({
               return (
                   <div
                       key={section.tipo}
-                      className={`flex min-h-125 flex-col rounded-[28px] p-4 ${section.surfaceClassName}`}
+                      className={`flex min-h-125 min-w-0 flex-col rounded-[28px] p-4 ${section.surfaceClassName}`}
                       onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = section.dropClassName; }}
                       onDragLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
                       onDrop={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'transparent'; handleDrop(rootDropTarget); }}
@@ -1163,9 +1199,9 @@ export const PlanoContasManager = ({
                                       canManageOperational={canManageOperational}
                                       onDragStart={handleDragStart}
                                       onDrop={handleDrop}
-                                      onEdit={(i:any)=>{ setModalMode('EDIT'); setCreateTipoLocked(false); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, eh_operacional: i.eh_operacional !== false, considerar_nos_resultados: i.considerar_nos_resultados !== false, conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
+                                      onEdit={(i:any)=>{ setModalMode('EDIT'); setCreateTipoLocked(false); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, eh_operacional: i.eh_operacional !== false, considerar_nos_resultados: i.considerar_nos_resultados !== false, dre_grupo: normalizeDreGrupo(i.dre_grupo, i.tipo), conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
                                       onCreateChild={(i:any)=>{ setExpandedIds((prev) => new Set(prev).add(i.id)); openCreateModal(normalizeTipo(i.tipo), i.id, true); }}
-                                      onMove={(i:any)=>{ setModalMode('MOVE'); setCreateTipoLocked(false); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, eh_operacional: i.eh_operacional !== false, considerar_nos_resultados: i.considerar_nos_resultados !== false, conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
+                                      onMove={(i:any)=>{ setModalMode('MOVE'); setCreateTipoLocked(false); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, eh_operacional: i.eh_operacional !== false, considerar_nos_resultados: i.considerar_nos_resultados !== false, dre_grupo: normalizeDreGrupo(i.dre_grupo, i.tipo), conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
                                       onDelete={handleDelete}
                                       onToggle={handleToggle}
                                       expandedIds={expandedIds}
@@ -1245,10 +1281,12 @@ export const PlanoContasManager = ({
                               onChange={(id: number | string) => {
                                   const nextParentId = id ? Number(id) : '';
                                   const parent = nextParentId ? localList.find((item) => item.id === nextParentId) : null;
+                                  const nextTipo = parent ? normalizeTipo(parent.tipo) : formData.tipo;
                                   setFormData({
                                       ...formData,
                                       conta_pai_id: nextParentId,
-                                      tipo: parent ? normalizeTipo(parent.tipo) : formData.tipo,
+                                      tipo: nextTipo,
+                                      dre_grupo: resolveDreGrupoValue(nextParentId, formData.dre_grupo, nextTipo),
                                   });
                               }}
                           />
@@ -1262,6 +1300,22 @@ export const PlanoContasManager = ({
                               </button>
                           )}
                       </div>
+
+                      {modalMode !== 'MOVE' && canManageOperational && (
+                          <div>
+                              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Grupo da DRE</label>
+                              <select
+                                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white"
+                                  value={normalizeDreGrupo(formData.dre_grupo, formData.tipo)}
+                                  onChange={(e) => setFormData({ ...formData, dre_grupo: e.target.value })}
+                              >
+                                  {DRE_GRUPO_OPTIONS.map((option) => (
+                                      <option key={option.value} value={option.value}>{option.label}</option>
+                                  ))}
+                              </select>
+                              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Esse grupo define como a categoria entra no cálculo da DRE e dos indicadores (MC, lucratividade e ponto de equilíbrio).</p>
+                          </div>
+                      )}
 
                       {modalMode !== 'MOVE' && canManageOperational && (
                           <div>

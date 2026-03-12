@@ -22,6 +22,15 @@ TEMPLATE_CONFIG_KEYS = {
 }
 TRANSFER_CATEGORY_NAME = "Transferencias internas"
 AUTHORIZED_OPERATIONAL_EMAIL = "cirocaue12@gmail.com"
+DRE_GRUPOS_VALIDOS = {
+    "RECEITA_BRUTA",
+    "DEDUCOES_RECEITA",
+    "CUSTOS_VARIAVEIS",
+    "DESPESAS_OPERACIONAIS",
+    "OUTRAS_RECEITAS",
+    "OUTRAS_DESPESAS",
+    "NAO_OPERACIONAL",
+}
 
 
 def _apply_model_update(db_obj, update_data: dict) -> None:
@@ -58,6 +67,17 @@ def can_manage_operational_flag(user_email: Optional[str]) -> bool:
     return (user_email or "").strip().lower() == AUTHORIZED_OPERATIONAL_EMAIL
 
 
+def _default_dre_grupo_por_tipo(tipo: Optional[str]) -> str:
+    return "RECEITA_BRUTA" if _normalizar_tipo_plano(tipo, default="D") == "R" else "DESPESAS_OPERACIONAIS"
+
+
+def _normalizar_dre_grupo(valor: Optional[str], tipo: Optional[str]) -> str:
+    normalized = (valor or "").strip().upper()
+    if normalized in DRE_GRUPOS_VALIDOS:
+        return normalized
+    return _default_dre_grupo_por_tipo(tipo)
+
+
 def _sort_items_by_code(items: list[Any]) -> list[Any]:
     return sorted(items, key=lambda item: (str(getattr(item, "codigo", None) if not isinstance(item, dict) else item.get("codigo") or "zzz"), str(getattr(item, "nome", None) if not isinstance(item, dict) else item.get("nome") or "")))
 
@@ -86,9 +106,10 @@ def sync_company_operational_hierarchy(db: Session, *, empresa_id: int) -> None:
     def walk(conta: PlanoContas, parent_effective: Optional[bool]) -> None:
         nonlocal updated
         current_value = bool(conta.eh_operacional)
-        effective_value = current_value if parent_effective is None else parent_effective
+        # Regra: pai operacional propaga True para os filhos; pai nao operacional nao forca False.
+        effective_value = current_value if parent_effective is None else (parent_effective or current_value)
 
-        if parent_effective is not None and conta.eh_operacional != effective_value:
+        if conta.eh_operacional != effective_value:
             conta.eh_operacional = effective_value
             db.add(conta)
             updated = True
@@ -120,9 +141,9 @@ def sync_template_operational_hierarchy(items: list[TemplateItem]) -> list[Templ
 
     def walk(item: TemplateItem, parent_effective: Optional[bool]) -> None:
         current_value = bool(item.get("eh_operacional", True))
-        effective_value = current_value if parent_effective is None else parent_effective
-        if parent_effective is not None:
-            item["eh_operacional"] = effective_value
+        # Regra alinhada ao frontend: heranca so propaga operacional=True.
+        effective_value = current_value if parent_effective is None else (parent_effective or current_value)
+        item["eh_operacional"] = effective_value
         for child in sorted(filhos_por_pai.get(int(item["id"]), []), key=item_sort_key):
             walk(child, effective_value)
 
@@ -137,11 +158,13 @@ def _pf_template_nodes() -> list[TemplateNode]:
         {
             "nome": "Receitas",
             "tipo": "R",
+            "dre_grupo": "RECEITA_BRUTA",
             "permite_lancamentos": False,
             "children": [
                 {
                     "nome": "Renda Principal",
                     "tipo": "R",
+                    "dre_grupo": "RECEITA_BRUTA",
                     "permite_lancamentos": False,
                     "children": [
                         {"nome": "Salario", "tipo": "R"},
@@ -151,6 +174,7 @@ def _pf_template_nodes() -> list[TemplateNode]:
                 {
                     "nome": "Rendas Extras",
                     "tipo": "R",
+                    "dre_grupo": "OUTRAS_RECEITAS",
                     "permite_lancamentos": False,
                     "children": [
                         {"nome": "Freelance", "tipo": "R"},
@@ -162,6 +186,7 @@ def _pf_template_nodes() -> list[TemplateNode]:
         {
             "nome": "Despesas",
             "tipo": "D",
+            "dre_grupo": "DESPESAS_OPERACIONAIS",
             "permite_lancamentos": False,
             "children": [
                 {
@@ -202,6 +227,7 @@ def _pj_template_nodes() -> list[TemplateNode]:
         {
             "nome": "Receitas Operacionais",
             "tipo": "R",
+            "dre_grupo": "RECEITA_BRUTA",
             "permite_lancamentos": False,
             "children": [
                 {"nome": "Cartoes de Credito", "tipo": "R"},
@@ -217,11 +243,13 @@ def _pj_template_nodes() -> list[TemplateNode]:
         {
             "nome": "Abatimento de Vendas",
             "tipo": "D",
+            "dre_grupo": "DEDUCOES_RECEITA",
             "permite_lancamentos": False,
             "children": [
                 {
                     "nome": "Imposto sobre Faturamento",
                     "tipo": "D",
+                    "dre_grupo": "DEDUCOES_RECEITA",
                     "permite_lancamentos": False,
                     "children": [
                         {"nome": "ICMS", "tipo": "D"},
@@ -239,6 +267,7 @@ def _pj_template_nodes() -> list[TemplateNode]:
         {
             "nome": "Custos",
             "tipo": "D",
+            "dre_grupo": "CUSTOS_VARIAVEIS",
             "permite_lancamentos": False,
             "children": [
                 {
@@ -291,6 +320,7 @@ def _pj_template_nodes() -> list[TemplateNode]:
         {
             "nome": "Despesas",
             "tipo": "D",
+            "dre_grupo": "DESPESAS_OPERACIONAIS",
             "permite_lancamentos": False,
             "children": [
                 {
@@ -318,28 +348,36 @@ def _flatten_template_nodes(nodes: list[TemplateNode]) -> list[TemplateItem]:
     flat_items: list[TemplateItem] = []
     next_id = 1
 
-    def traverse(group_nodes: list[TemplateNode], prefix: str, parent_id: Optional[int] = None) -> None:
+    def traverse(
+        group_nodes: list[TemplateNode],
+        prefix: str,
+        parent_id: Optional[int] = None,
+        inherited_dre_grupo: Optional[str] = None,
+    ) -> None:
         nonlocal next_id
         for index, node in enumerate(group_nodes, start=1):
             node_id = next_id
             next_id += 1
             codigo = f"{prefix}.{str(index).zfill(2)}"
+            tipo_normalizado = _normalizar_tipo_plano(node.get("tipo"), default="D")
+            dre_grupo = _normalizar_dre_grupo(node.get("dre_grupo") or inherited_dre_grupo, tipo_normalizado)
             flat_items.append(
                 {
                     "id": node_id,
                     "nome": _strip_codigo_prefixo(str(node.get("nome", ""))),
-                    "tipo": _normalizar_tipo_plano(node.get("tipo"), default="D"),
+                    "tipo": tipo_normalizado,
                     "codigo": codigo,
                     "permite_lancamentos": bool(node.get("permite_lancamentos", not bool(node.get("children")))),
                     "eh_operacional": bool(node.get("eh_operacional", True)),
                     "considerar_nos_resultados": bool(node.get("considerar_nos_resultados", True)),
+                    "dre_grupo": dre_grupo,
                     "conta_pai_id": parent_id,
                 }
             )
 
             children = node.get("children") or []
             if children:
-                traverse(children, codigo, node_id)
+                traverse(children, codigo, node_id, dre_grupo)
 
     receitas = [node for node in nodes if _normalizar_tipo_plano(node.get("tipo"), default="D") == "R"]
     despesas = [node for node in nodes if _normalizar_tipo_plano(node.get("tipo"), default="D") == "D"]
@@ -357,14 +395,16 @@ def _template_config_key(tipo_pessoa: str) -> str:
 
 
 def _sanitize_template_item(item: dict[str, Any]) -> TemplateItem:
+    tipo_normalizado = _normalizar_tipo_plano(item.get("tipo"), default="D")
     return {
         "id": int(item["id"]),
         "nome": _strip_codigo_prefixo(str(item.get("nome", "")).strip()),
-        "tipo": _normalizar_tipo_plano(item.get("tipo"), default="D"),
+        "tipo": tipo_normalizado,
         "codigo": item.get("codigo"),
         "permite_lancamentos": bool(item.get("permite_lancamentos", True)),
         "eh_operacional": bool(item.get("eh_operacional", True)),
         "considerar_nos_resultados": bool(item.get("considerar_nos_resultados", True)),
+        "dre_grupo": _normalizar_dre_grupo(item.get("dre_grupo"), tipo_normalizado),
         "conta_pai_id": item.get("conta_pai_id"),
     }
 
@@ -464,6 +504,11 @@ def normalize_company_operational_categories(db: Session, *, empresa_id: int) ->
             conta.considerar_nos_resultados = True
             changed = True
 
+        expected_dre = _normalizar_dre_grupo(getattr(conta, "dre_grupo", None), conta.tipo)
+        if getattr(conta, "dre_grupo", None) != expected_dre:
+            conta.dre_grupo = expected_dre
+            changed = True
+
         has_children = conta.id is not None and int(conta.id) in parent_ids
         if has_children and conta.permite_lancamentos is not False:
             conta.permite_lancamentos = False
@@ -487,6 +532,7 @@ def create(db: Session, *, obj_in: PlanoContasCreate, empresa_id: int) -> PlanoC
     data["empresa_id"] = empresa_id
     data["eh_operacional"] = bool(data.get("eh_operacional", True))
     data["considerar_nos_resultados"] = True
+    data["dre_grupo"] = _normalizar_dre_grupo(data.get("dre_grupo"), data.get("tipo"))
     data["oculta"] = False
     db_obj = PlanoContas.model_validate(data)
     db.add(db_obj)
@@ -503,6 +549,9 @@ def update(db: Session, *, db_obj: PlanoContas, obj_in: PlanoContasUpdate) -> Pl
         update_data["tipo"] = _normalizar_tipo_plano(update_data["tipo"], default=db_obj.tipo)
     if "eh_operacional" in update_data and update_data["eh_operacional"] is not None:
         update_data["eh_operacional"] = bool(update_data["eh_operacional"])
+    if "dre_grupo" in update_data:
+        tipo_referencia = update_data.get("tipo") or db_obj.tipo
+        update_data["dre_grupo"] = _normalizar_dre_grupo(update_data.get("dre_grupo"), tipo_referencia)
     if not db_obj.oculta:
         update_data["considerar_nos_resultados"] = True
     _apply_model_update(db_obj, update_data)
@@ -538,6 +587,7 @@ def ensure_transfer_category(db: Session, *, empresa_id: int) -> PlanoContas:
             permite_lancamentos=False,
             eh_operacional=False,
             considerar_nos_resultados=False,
+            dre_grupo="NAO_OPERACIONAL",
             oculta=True,
         )
     else:
@@ -545,6 +595,7 @@ def ensure_transfer_category(db: Session, *, empresa_id: int) -> PlanoContas:
         categoria.permite_lancamentos = False
         categoria.eh_operacional = False
         categoria.considerar_nos_resultados = False
+        categoria.dre_grupo = "NAO_OPERACIONAL"
         categoria.oculta = True
 
     db.add(categoria)
@@ -568,6 +619,7 @@ def seed_plano_contas_padrao(db: Session, *, empresa_id: int, tipo_pessoa: str =
             permite_lancamentos=bool(item.get("permite_lancamentos", True)),
             eh_operacional=bool(item.get("eh_operacional", True)),
             considerar_nos_resultados=True,
+            dre_grupo=_normalizar_dre_grupo(item.get("dre_grupo"), item.get("tipo")),
         )
         db.add(conta)
         db.flush()

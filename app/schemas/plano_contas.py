@@ -9,6 +9,7 @@ class PlanoContasBase(SQLModel):
     permite_lancamentos: bool = True
     eh_operacional: bool = True
     considerar_nos_resultados: bool = True
+    dre_grupo: str = "DESPESAS_OPERACIONAIS"
     conta_pai_id: Optional[int] = None
     # empresa_id geralmente é injetado pelo backend, mas se seu base precisa, mantenha.
 
@@ -28,6 +29,7 @@ class PlanoContasUpdate(SQLModel):
     permite_lancamentos: Optional[bool] = None
     eh_operacional: Optional[bool] = None
     considerar_nos_resultados: Optional[bool] = None
+    dre_grupo: Optional[str] = None
     
     # Adicionados para corrigir o erro 500 e permitir reordenação:
     codigo: Optional[str] = None       

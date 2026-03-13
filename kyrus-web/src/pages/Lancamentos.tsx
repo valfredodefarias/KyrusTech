@@ -20,6 +20,7 @@ interface Anexo { id: number; nome_arquivo: string; url: string; tipo: string; }
 interface Lancamento {
   id: number; descricao: string; valor_previsto: number; valor_pago: number;
   data_vencimento: string; data_pagamento?: string; tipo: 'RECEITA' | 'DESPESA';
+  data_competencia?: string;
   competencia?: string; previsto?: boolean;
   status: 'PAGO' | 'PENDENTE' | 'EM ABERTO'; ipp: boolean;
   origem?: string;
@@ -432,7 +433,7 @@ export function Lancamentos() {
     tipo: 'DESPESA', plano_contas_id: '', centro_custo_id: '', entidade_id: '',
     conta_id: '', cartao_id: '', status: 'PENDENTE', 
     valor_pago: '', data_pagamento: '', ipp: false, previsto: true, competencia: '',
-    is_parcelado: false, qtd_parcelas: 2, modo_calculo: 'TOTAL', anexos: []
+    is_parcelado: false, qtd_parcelas: 2, modo_calculo: 'TOTAL', competencia_modo_parcelamento: 'POR_PARCELA', anexos: []
   });
 
   const [transferData, setTransferData] = useState({
@@ -1052,11 +1053,13 @@ export function Lancamentos() {
       autoCompetenciaRef.current = !l.competencia;
       setFormData({
         ...l, 
+        data_vencimento: l.cartao_id ? (l.data_competencia || l.data_vencimento) : l.data_vencimento,
         conta_id: l.conta_id||'', cartao_id: l.cartao_id||'', centro_custo_id: l.centro_custo_id||'', entidade_id: l.entidade_id||'',
         plano_contas_id: l.plano_contas_id, valor_previsto: l.valor_previsto, 
         valor_pago: l.valor_pago||l.valor_previsto, data_pagamento: l.data_pagamento||l.data_vencimento,
         previsto: l.previsto ?? true,
-        competencia: l.competencia || formatCompetencia(l.data_vencimento)
+        competencia: l.competencia || formatCompetencia(l.data_competencia || l.data_vencimento),
+        competencia_modo_parcelamento: 'POR_PARCELA'
       });
     } else {
       setIsEditing(false);
@@ -1069,7 +1072,7 @@ export function Lancamentos() {
         entidade_id: '', conta_id: '', cartao_id: '',
         status: 'PENDENTE', valor_pago: '', data_pagamento: new Date().toISOString().split('T')[0], ipp: false, previsto: true,
         competencia: formatCompetencia(new Date().toISOString().split('T')[0]),
-        is_parcelado: false, qtd_parcelas: 2, modo_calculo: 'TOTAL', anexos: []
+        is_parcelado: false, qtd_parcelas: 2, modo_calculo: 'TOTAL', competencia_modo_parcelamento: 'POR_PARCELA', anexos: []
       });
     }
     setFilesToUpload(null);
@@ -1171,9 +1174,19 @@ export function Lancamentos() {
         
         for(let i=0; i<qtd; i++) {
           const dt = new Date(ano, (mes-1)+i, dia);
+          const dataParcela = dt.toISOString().split('T')[0];
+          const vencimentoParcela = formData.cartao_id
+            ? (computeCartaoVencimento(dataParcela, formData.cartao_id) || dataParcela)
+            : dataParcela;
+          const competenciaBase = formData.competencia_modo_parcelamento === 'MES_COMPRA'
+            ? formData.data_vencimento
+            : dataParcela;
           lista.push({
-            ...payload, valor_previsto: val, data_vencimento: dt.toISOString().split('T')[0],
-            competencia: formatCompetencia(dt.toISOString().split('T')[0]),
+            ...payload,
+            valor_previsto: val,
+            data_vencimento: vencimentoParcela,
+            data_competencia: competenciaBase,
+            competencia: formatCompetencia(competenciaBase),
             descricao: `${payload.descricao} (${i+1}/${qtd})`, numero_parcela: i+1,
             status: (i===0 && payload.status==='PAGO') ? 'PAGO' : 'PENDENTE',
             valor_pago: (i===0 && payload.status==='PAGO') ? payload.valor_pago : 0
@@ -2060,6 +2073,29 @@ export function Lancamentos() {
                       </div>
                     </div>
 
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Competência das parcelas</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={()=>setFormData({...formData, competencia_modo_parcelamento: 'POR_PARCELA'})}
+                          className={`py-2 rounded-lg text-xs font-bold border transition ${formData.competencia_modo_parcelamento==='POR_PARCELA' ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                        >
+                          Por parcela
+                        </button>
+                        <button
+                          type="button"
+                          onClick={()=>setFormData({...formData, competencia_modo_parcelamento: 'MES_COMPRA'})}
+                          className={`py-2 rounded-lg text-xs font-bold border transition ${formData.competencia_modo_parcelamento==='MES_COMPRA' ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                        >
+                          Mês da compra
+                        </button>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-400">
+                        Por parcela: cada parcela entra no mês correspondente. Mês da compra: todas as parcelas ficam na competência da compra.
+                      </p>
+                    </div>
+
                     {formData.valor_previsto && formData.qtd_parcelas && (
                       <div className="text-xs text-slate-400">
                         {formData.modo_calculo === 'TOTAL' ? (
@@ -2103,7 +2139,18 @@ export function Lancamentos() {
                   <select className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500 text-sm" value={formData.entidade_id} onChange={e=>{
                     const eid = e.target.value;
                     const last = lancamentos.find(l=>String(l.entidade_id)===eid);
-                    setFormData((prev: any) => ({...prev, entidade_id:eid, plano_contas_id: last ? last.plano_contas_id : prev.plano_contas_id, tipo: last ? last.tipo : prev.tipo}));
+                    setFormData((prev: any) => {
+                      const hasCategoriaSelecionada = Boolean(prev.plano_contas_id);
+                      if (!last || hasCategoriaSelecionada) {
+                        return { ...prev, entidade_id: eid };
+                      }
+                      return {
+                        ...prev,
+                        entidade_id: eid,
+                        plano_contas_id: last.plano_contas_id,
+                        tipo: last.tipo,
+                      };
+                    });
                   }}>
                     <option value="">Selecione...</option>
                     {entidades.map(e=><option key={e.id} value={e.id}>{e.nome}</option>)}

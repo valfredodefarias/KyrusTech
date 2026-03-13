@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Check,
   CheckCircle,
+  ChevronDown,
   FileSpreadsheet,
   Filter,
   Landmark,
@@ -50,11 +51,22 @@ interface ContaItem {
   status?: 'ATIVO' | 'INATIVO' | string;
 }
 
+interface CartaoItem {
+  id: number;
+  nome_cartao: string;
+  bandeira?: string | null;
+  dia_fechamento: number;
+  dia_vencimento: number;
+  status?: 'ATIVO' | 'INATIVO' | string;
+}
+
 interface CategoriaItem {
   id: number;
   nome: string;
   tipo?: string;
   codigo?: string | null;
+  eh_cabecalho?: boolean;
+  permite_lancamentos?: boolean;
 }
 
 interface EntidadeItem {
@@ -167,10 +179,113 @@ function isConciliacaoAutomatica(acao?: LancamentoImportado['sugestao_acao']) {
   return acao === 'BAIXAR_PREVISTO' || acao === 'RELACIONAR_ATRASADOS';
 }
 
+type SearchableOption = {
+  id: number;
+  label: string;
+  disabled?: boolean;
+  searchText?: string;
+};
+
+function SearchableDropdown({
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  value: number | null | undefined;
+  options: SearchableOption[];
+  placeholder: string;
+  onChange: (value: number | null) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  const selected = options.find((option) => Number(option.id) === Number(value));
+  const normalizedQuery = query.trim().toLowerCase();
+  const filtered = options.filter((option) => {
+    if (!normalizedQuery) return true;
+    const haystack = `${String(option.label || '').toLowerCase()} ${String(option.searchText || '').toLowerCase()}`;
+    return haystack.includes(normalizedQuery);
+  });
+
+  return (
+    <div className="relative" ref={wrapperRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate text-slate-700 dark:text-slate-200">{selected?.label || placeholder}</span>
+          <ChevronDown className={`h-4 w-4 text-slate-400 transition ${isOpen ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+
+      {isOpen ? (
+        <div className="absolute z-40 mt-2 w-full rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-950">
+          <div className="relative mb-2">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Pesquisar..."
+              className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-700 outline-none focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+            />
+          </div>
+
+          <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => {
+                onChange(null);
+                setIsOpen(false);
+              }}
+              className="w-full border-b border-slate-100 px-3 py-2 text-left text-sm text-slate-500 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900"
+            >
+              {placeholder}
+            </button>
+            {filtered.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                disabled={!!option.disabled}
+                onClick={() => {
+                  if (option.disabled) return;
+                  onChange(option.id);
+                  setIsOpen(false);
+                }}
+                className={`w-full border-b border-slate-100 px-3 py-2 text-left text-sm transition last:border-b-0 dark:border-slate-800 ${option.disabled ? 'cursor-not-allowed bg-slate-50 text-slate-400 dark:bg-slate-900 dark:text-slate-500' : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900'}`}
+              >
+                <span className="truncate">{option.label}</span>
+              </button>
+            ))}
+            {filtered.length === 0 ? <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">Nenhum resultado.</div> : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ImportacaoOfx() {
   const [searchParams] = useSearchParams();
   const [contas, setContas] = useState<ContaItem[]>([]);
+  const [cartoes, setCartoes] = useState<CartaoItem[]>([]);
+  const [modoImportacao, setModoImportacao] = useState<'CONTA' | 'CARTAO'>('CONTA');
   const [contaId, setContaId] = useState<number | ''>('');
+  const [cartaoId, setCartaoId] = useState<number | ''>('');
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -195,10 +310,14 @@ export function ImportacaoOfx() {
   useEffect(() => {
     async function loadContas() {
       try {
-        const { data } = await api.get<ContaItem[]>('/contas/?include_saldo=false');
-        setContas(data || []);
+        const [contasRes, cartoesRes] = await Promise.all([
+          api.get<ContaItem[]>('/contas/?include_saldo=false'),
+          api.get<CartaoItem[]>('/cartoes/'),
+        ]);
+        setContas(contasRes.data || []);
+        setCartoes(cartoesRes.data || []);
       } catch (error) {
-        console.error('Erro ao carregar contas', error);
+        console.error('Erro ao carregar contas/cartoes', error);
       }
     }
     loadContas();
@@ -241,9 +360,19 @@ export function ImportacaoOfx() {
     [contaId, contas]
   );
 
+  const cartaoSelecionado = useMemo(
+    () => cartoes.find((c) => c.id === cartaoId),
+    [cartaoId, cartoes]
+  );
+
   const contasAtivas = useMemo(
     () => contas.filter((conta) => String(conta.status || 'ATIVO').toUpperCase() !== 'INATIVO'),
     [contas],
+  );
+
+  const cartoesAtivos = useMemo(
+    () => cartoes.filter((cartao) => String(cartao.status || 'ATIVO').toUpperCase() !== 'INATIVO'),
+    [cartoes],
   );
 
   function handleArquivoSelecionado(file: File | null) {
@@ -272,7 +401,9 @@ export function ImportacaoOfx() {
     titulo: 'Assistente KyrusTECH',
     contexto: {
       pagina: 'importacao_ofx',
+      destino_importacao: modoImportacao,
       conta_selecionada: contaSelecionada ? `${contaSelecionada.nome}${contaSelecionada.banco ? ` (${contaSelecionada.banco})` : ''}` : null,
+      cartao_selecionado: cartaoSelecionado ? `${cartaoSelecionado.nome_cartao}${cartaoSelecionado.bandeira ? ` (${cartaoSelecionado.bandeira})` : ''}` : null,
       resumo_importacao_ofx: resultado ? {
         total_processado: resultado.total_processado,
         duplicatas: resultado.duplicatas_encontradas,
@@ -288,7 +419,7 @@ export function ImportacaoOfx() {
       'Onde existem atrasos relevantes que merecem conciliação manual?',
       'O que ainda precisa de classificação antes de confirmar?',
     ],
-  }), [contaSelecionada, resultado, resumo.conciliaveis, resumo.novos]);
+  }), [modoImportacao, contaSelecionada, cartaoSelecionado, resultado, resumo.conciliaveis, resumo.novos]);
 
   useAssistentePage(assistenteConfig);
 
@@ -303,8 +434,9 @@ export function ImportacaoOfx() {
 
   const handleUpload = async () => {
     if (loading) return;
-    if (!arquivo || !contaId) {
-      setFeedback({ type: 'error', message: 'Selecione uma conta e um arquivo OFX.' });
+    const missingTarget = modoImportacao === 'CONTA' ? !contaId : !cartaoId;
+    if (!arquivo || missingTarget) {
+      setFeedback({ type: 'error', message: modoImportacao === 'CONTA' ? 'Selecione uma conta e um arquivo OFX.' : 'Selecione um cartao e um arquivo OFX.' });
       return;
     }
     setFeedback(null);
@@ -312,10 +444,13 @@ export function ImportacaoOfx() {
     try {
       const fd = new FormData();
       fd.append('arquivo', arquivo);
+      const params: Record<string, string | number> = {};
+      if (modoImportacao === 'CONTA') params.conta_id = Number(contaId);
+      if (modoImportacao === 'CARTAO') params.cartao_id = Number(cartaoId);
       const { data } = await api.post<ProcessarArquivoResponse>(
-        `/importacao/ofx/upload?conta_id=${contaId}`,
+        '/importacao/ofx/upload',
         fd,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
+        { headers: { 'Content-Type': 'multipart/form-data' }, params }
       );
       setResultado(data);
       await reloadEntidadesLookup();
@@ -336,7 +471,9 @@ export function ImportacaoOfx() {
     try {
       const payload = {
         lancamentos: lancamentosEditados,
-        conta_id: contaId,
+        conta_id: modoImportacao === 'CONTA' ? Number(contaId) : null,
+        cartao_id: modoImportacao === 'CARTAO' ? Number(cartaoId) : null,
+        modo_importacao: modoImportacao,
       };
       const { data } = await api.post('/importacao/confirmar-lancamentos', payload);
       setFeedback({
@@ -415,42 +552,89 @@ export function ImportacaoOfx() {
             <h1 className="max-w-3xl text-3xl font-black tracking-tight md:text-4xl">Importe, revise e confirme.</h1>
             <p className="max-w-2xl text-sm text-slate-200/85">Escolha a conta por botão visual, envie o OFX por arrastar e soltar ou clique para selecionar, e depois revise as sugestões antes de confirmar.</p>
 
-            <div className="pt-2">
-              <label className="mb-3 block text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Conta bancária</label>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {contasAtivas.map((conta) => {
-                  const selected = Number(contaId) === conta.id;
-                  return (
-                    <button
-                      key={conta.id}
-                      type="button"
-                      onClick={() => setContaId(conta.id)}
-                      className={`rounded-3xl border px-4 py-4 text-left transition ${selected ? 'border-emerald-300 bg-emerald-400/15 shadow-lg shadow-emerald-950/15' : 'border-white/10 bg-white/8 hover:border-emerald-300/45 hover:bg-white/12'}`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/10">
-                          <BankAvatar
-                            logoUrl={conta.logo_url}
-                            bankName={conta.banco}
-                            accountName={conta.nome}
-                            integrationType={conta.tipo_integracao}
-                            size="md"
-                            className="h-14 w-14"
-                            imageClassName="rounded-2xl bg-white p-1"
-                            fallbackClassName="rounded-2xl border-0 shadow-none"
-                            imageFit="contain"
-                          />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-black text-white">{conta.nome}</div>
-                          <div className="truncate text-xs uppercase tracking-[0.16em] text-slate-300">{conta.banco || 'Conta bancária'}</div>
-                        </div>
-                        {selected ? <Check className="h-4 w-4 shrink-0 text-emerald-200" /> : null}
-                      </div>
-                    </button>
-                  );
-                })}
+            <div className="pt-2 space-y-3">
+              <div className="inline-flex rounded-full border border-white/15 bg-white/10 p-1">
+                <button
+                  type="button"
+                  onClick={() => setModoImportacao('CONTA')}
+                  className={`rounded-full px-4 py-1.5 text-xs font-bold uppercase tracking-[0.14em] transition ${modoImportacao === 'CONTA' ? 'bg-emerald-500 text-slate-950' : 'text-slate-200 hover:bg-white/10'}`}
+                >
+                  Importar para conta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModoImportacao('CARTAO')}
+                  className={`rounded-full px-4 py-1.5 text-xs font-bold uppercase tracking-[0.14em] transition ${modoImportacao === 'CARTAO' ? 'bg-emerald-500 text-slate-950' : 'text-slate-200 hover:bg-white/10'}`}
+                >
+                  Importar para fatura
+                </button>
               </div>
+
+              <label className="mb-3 block text-xs font-bold uppercase tracking-[0.18em] text-slate-300">
+                {modoImportacao === 'CONTA' ? 'Conta bancária' : 'Cartão de crédito'}
+              </label>
+
+              {modoImportacao === 'CONTA' ? (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {contasAtivas.map((conta) => {
+                    const selected = Number(contaId) === conta.id;
+                    return (
+                      <button
+                        key={conta.id}
+                        type="button"
+                        onClick={() => setContaId(conta.id)}
+                        className={`rounded-3xl border px-4 py-4 text-left transition ${selected ? 'border-emerald-300 bg-emerald-400/15 shadow-lg shadow-emerald-950/15' : 'border-white/10 bg-white/8 hover:border-emerald-300/45 hover:bg-white/12'}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/10">
+                            <BankAvatar
+                              logoUrl={conta.logo_url}
+                              bankName={conta.banco}
+                              accountName={conta.nome}
+                              integrationType={conta.tipo_integracao}
+                              size="md"
+                              className="h-14 w-14"
+                              imageClassName="rounded-2xl bg-white p-1"
+                              fallbackClassName="rounded-2xl border-0 shadow-none"
+                              imageFit="contain"
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-black text-white">{conta.nome}</div>
+                            <div className="truncate text-xs uppercase tracking-[0.16em] text-slate-300">{conta.banco || 'Conta bancária'}</div>
+                          </div>
+                          {selected ? <Check className="h-4 w-4 shrink-0 text-emerald-200" /> : null}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {cartoesAtivos.map((cartao) => {
+                    const selected = Number(cartaoId) === cartao.id;
+                    return (
+                      <button
+                        key={cartao.id}
+                        type="button"
+                        onClick={() => setCartaoId(cartao.id)}
+                        className={`rounded-3xl border px-4 py-4 text-left transition ${selected ? 'border-emerald-300 bg-emerald-400/15 shadow-lg shadow-emerald-950/15' : 'border-white/10 bg-white/8 hover:border-emerald-300/45 hover:bg-white/12'}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/10 text-sm font-black text-white">
+                            {String(cartao.bandeira || 'CC').slice(0, 2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-black text-white">{cartao.nome_cartao}</div>
+                            <div className="truncate text-xs uppercase tracking-[0.16em] text-slate-300">Fecha dia {cartao.dia_fechamento} • Vence dia {cartao.dia_vencimento}</div>
+                          </div>
+                          {selected ? <Check className="h-4 w-4 shrink-0 text-emerald-200" /> : null}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -505,13 +689,19 @@ export function ImportacaoOfx() {
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-slate-950/25 px-4 py-3 text-sm text-slate-200">
-                <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200">Conta selecionada</div>
-                <div className="mt-2 font-semibold text-white">{contaSelecionada ? `${contaSelecionada.nome}${contaSelecionada.banco ? ` • ${contaSelecionada.banco}` : ''}` : 'Escolha uma conta para continuar'}</div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200">
+                  {modoImportacao === 'CONTA' ? 'Conta selecionada' : 'Cartao selecionado'}
+                </div>
+                <div className="mt-2 font-semibold text-white">
+                  {modoImportacao === 'CONTA'
+                    ? (contaSelecionada ? `${contaSelecionada.nome}${contaSelecionada.banco ? ` • ${contaSelecionada.banco}` : ''}` : 'Escolha uma conta para continuar')
+                    : (cartaoSelecionado ? `${cartaoSelecionado.nome_cartao}${cartaoSelecionado.bandeira ? ` • ${cartaoSelecionado.bandeira}` : ''}` : 'Escolha um cartao para continuar')}
+                </div>
               </div>
 
               <button
                 onClick={handleUpload}
-                disabled={loading || !contaId || !arquivo}
+                disabled={loading || !(modoImportacao === 'CONTA' ? contaId : cartaoId) || !arquivo}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
@@ -531,8 +721,12 @@ export function ImportacaoOfx() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Conta</p>
-          <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">{contaSelecionada ? `${contaSelecionada.nome}${contaSelecionada.banco ? ` • ${contaSelecionada.banco}` : ''}` : 'Selecione a conta'}</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Destino</p>
+          <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
+            {modoImportacao === 'CONTA'
+              ? (contaSelecionada ? `${contaSelecionada.nome}${contaSelecionada.banco ? ` • ${contaSelecionada.banco}` : ''}` : 'Selecione a conta')
+              : (cartaoSelecionado ? `${cartaoSelecionado.nome_cartao}${cartaoSelecionado.bandeira ? ` • ${cartaoSelecionado.bandeira}` : ''}` : 'Selecione o cartao')}
+          </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Total processado</p>
@@ -600,6 +794,17 @@ export function ImportacaoOfx() {
             {lancamentosFiltrados.map((lanc) => {
               const acao = ACAO_META[lanc.sugestao_acao || 'CRIAR_NOVO'];
               const categoriasCompativeis = categorias.filter((cat) => categoriaCompativel(cat, lanc.tipo));
+              const categoriaOptions: SearchableOption[] = categoriasCompativeis.map((cat) => ({
+                id: cat.id,
+                label: cat.codigo ? `${cat.codigo} - ${cat.nome}` : cat.nome,
+                disabled: !!cat.eh_cabecalho || cat.permite_lancamentos === false,
+                searchText: `${cat.nome || ''} ${cat.codigo || ''} ${cat.tipo || ''}`,
+              }));
+              const entidadeOptions: SearchableOption[] = entidades.map((ent) => ({
+                id: ent.id,
+                label: ent.nome,
+                searchText: ent.nome,
+              }));
               const valorClass = lanc.tipo === 'RECEITA' ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300';
               const descartado = lanc.sugestao_acao === 'DESCARTAR';
               const conciliacaoAutomatica = isConciliacaoAutomatica(lanc.sugestao_acao);
@@ -753,31 +958,21 @@ export function ImportacaoOfx() {
                     <div className="mt-5 grid gap-4 lg:grid-cols-2">
                       <div>
                         <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Categoria compatível</label>
-                        <select
-                          value={lanc.plano_contas_id || ''}
-                          onChange={(e) => updateLancamento(lanc.linha_arquivo, { plano_contas_id: e.target.value ? Number(e.target.value) : null })}
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950"
-                        >
-                          <option value="">A categorizar</option>
-                          {categoriasCompativeis.map((cat) => (
-                            <option key={cat.id} value={cat.id}>
-                              {cat.codigo ? `${cat.codigo} - ${cat.nome}` : cat.nome}
-                            </option>
-                          ))}
-                        </select>
+                        <SearchableDropdown
+                          value={lanc.plano_contas_id}
+                          options={categoriaOptions}
+                          placeholder="A categorizar"
+                          onChange={(value) => updateLancamento(lanc.linha_arquivo, { plano_contas_id: value })}
+                        />
                       </div>
                       <div>
                         <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Interessado</label>
-                        <select
-                          value={lanc.entidade_id || ''}
-                          onChange={(e) => updateLancamento(lanc.linha_arquivo, { entidade_id: e.target.value ? Number(e.target.value) : null })}
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950"
-                        >
-                          <option value="">Sem interessado</option>
-                          {entidades.map((ent) => (
-                            <option key={ent.id} value={ent.id}>{ent.nome}</option>
-                          ))}
-                        </select>
+                        <SearchableDropdown
+                          value={lanc.entidade_id}
+                          options={entidadeOptions}
+                          placeholder="Sem interessado"
+                          onChange={(value) => updateLancamento(lanc.linha_arquivo, { entidade_id: value })}
+                        />
                       </div>
                     </div>
                   ) : null}

@@ -28,6 +28,7 @@ interface LancamentoResumo {
   data_vencimento: string;
   data_pagamento?: string | null;
   data_competencia?: string | null;
+  competencia?: string | null;
 }
 
 interface CentroCustoResumo {
@@ -80,6 +81,14 @@ function parseMonthIndex(dateValue?: string | null) {
   return Number.isFinite(month) && month >= 1 && month <= 12 ? month - 1 : -1;
 }
 
+function parseCompetenciaMonthIndex(competencia?: string | null) {
+  if (!competencia) return -1;
+  const match = String(competencia).trim().match(/^(\d{2})-(\d{4})$/);
+  if (!match) return -1;
+  const month = Number(match[1]);
+  return Number.isFinite(month) && month >= 1 && month <= 12 ? month - 1 : -1;
+}
+
 function isLancamentoPago(lancamento: LancamentoResumo) {
   const status = String(lancamento.status || '').toUpperCase();
   const valorPago = Number(lancamento.valor_pago || 0);
@@ -89,6 +98,14 @@ function isLancamentoPago(lancamento: LancamentoResumo) {
 function resolveCompetenciaDate(lancamento: LancamentoResumo, somentePagos = false) {
   if (somentePagos) return lancamento.data_pagamento || null;
   return lancamento.data_competencia || lancamento.data_vencimento || null;
+}
+
+function resolveMonthIndex(lancamento: LancamentoResumo, somentePagos = false) {
+  if (!somentePagos) {
+    const competenciaIndex = parseCompetenciaMonthIndex(lancamento.competencia);
+    if (competenciaIndex >= 0) return competenciaIndex;
+  }
+  return parseMonthIndex(resolveCompetenciaDate(lancamento, somentePagos));
 }
 
 function resolveLancamentoValue(lancamento: LancamentoResumo, somentePagos = false) {
@@ -312,7 +329,7 @@ export function Dre() {
     lancamentosFiltrados.forEach((lancamento) => {
       const contaId = Number(lancamento.plano_contas_id);
       if (!contaPorId.has(contaId)) return;
-      const monthIndex = parseMonthIndex(resolveCompetenciaDate(lancamento, somentePagos));
+      const monthIndex = resolveMonthIndex(lancamento, somentePagos);
       if (monthIndex < 0) return;
       const conta = contaPorId.get(contaId);
       if (!conta) return;
@@ -556,7 +573,7 @@ export function Dre() {
     if (!selectedContaId) return [] as LancamentoResumo[];
     const ids = new Set(dre.descendantsById.get(selectedContaId) || [selectedContaId]);
     return lancamentosFiltrados
-      .filter((item) => ids.has(Number(item.plano_contas_id)) && (selectedMonth === null || parseMonthIndex(resolveCompetenciaDate(item, somentePagos)) === selectedMonth))
+      .filter((item) => ids.has(Number(item.plano_contas_id)) && (selectedMonth === null || resolveMonthIndex(item, somentePagos) === selectedMonth))
       .sort((left, right) => {
         const rightDate = resolveCompetenciaDate(right, somentePagos) || right.data_vencimento || right.data_pagamento || '1900-01-01';
         const leftDate = resolveCompetenciaDate(left, somentePagos) || left.data_vencimento || left.data_pagamento || '1900-01-01';
@@ -570,7 +587,7 @@ export function Dre() {
     const monthly = Array.from({ length: 12 }, () => 0);
     lancamentosFiltrados.forEach((item) => {
       if (!ids.has(Number(item.plano_contas_id))) return;
-      const monthIndex = parseMonthIndex(resolveCompetenciaDate(item, somentePagos));
+      const monthIndex = resolveMonthIndex(item, somentePagos);
       if (monthIndex < 0) return;
       monthly[monthIndex] += resolveLancamentoValue(item, somentePagos);
     });

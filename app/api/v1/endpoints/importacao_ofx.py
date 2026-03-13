@@ -27,6 +27,7 @@ from app.services.importacao_bancaria_service import (
 )
 from app.models.lancamento import Lancamento
 from app.models.conta import Conta
+from app.models.cartao import Cartao
 from app.models.centro_custo import CentroCusto
 from app.models.entidade import Entidade
 from app.models.plano_contas import PlanoContas
@@ -822,6 +823,7 @@ class ProcessarArquivoResponse(BaseModel):
 async def upload_ofx(
     arquivo: UploadFile = File(...),
     conta_id: Optional[int] = Query(None),
+    cartao_id: Optional[int] = Query(None),
     centro_custo_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
@@ -839,8 +841,18 @@ async def upload_ofx(
         )
 
     try:
-        conta, centro_custo_id_resolvido = _resolver_conta_e_centro(db, empresa_id, conta_id, centro_custo_id)
-        conta_db_id = int(conta.id or 0)
+        modo_cartao = bool(cartao_id)
+        conta = None
+        cartao = None
+        centro_custo_id_resolvido = None
+        conta_db_id = 0
+
+        if modo_cartao:
+            cartao, centro_custo_id_resolvido = _resolver_cartao_e_centro(db, empresa_id, cartao_id, centro_custo_id)
+            conta_db_id = int(cartao.conta_id or 0)
+        else:
+            conta, centro_custo_id_resolvido = _resolver_conta_e_centro(db, empresa_id, conta_id, centro_custo_id)
+            conta_db_id = int(conta.id or 0)
         conteudo = await arquivo.read()
         if len(conteudo) > OFX_FILE_SIZE_LIMIT:
             raise HTTPException(
@@ -858,15 +870,21 @@ async def upload_ofx(
 
         for lanc_raw in lancamentos_raw:
             lanc_raw["conta_id"] = conta_db_id
+            lanc_raw["cartao_id"] = int(cartao.id) if cartao and cartao.id is not None else None
             lanc_raw["centro_custo_id"] = centro_custo_id_resolvido
             lanc_raw["interessado_sugerido"] = _extrair_interessado_sugerido(lanc_raw)
             if lanc_raw.get("interessado_sugerido"):
                 lanc_raw["razao_social"] = lanc_raw["interessado_sugerido"]
             referencia_movimento = str(lanc_raw.get("referencia") or "").strip()
-            lanc_raw["movimento_uid"] = referencia_movimento or f"fallback:{conta_db_id}:{lanc_raw['linha_arquivo']}"
-            lanc_raw["referencia_externa"] = f"{conta_db_id}:{lanc_raw['movimento_uid']}"
+            contexto_uid = f"cartao:{int(cartao.id)}" if cartao and cartao.id is not None else f"conta:{conta_db_id}"
+            lanc_raw["movimento_uid"] = referencia_movimento or f"fallback:{contexto_uid}:{lanc_raw['linha_arquivo']}"
+            lanc_raw["referencia_externa"] = f"{contexto_uid}:{lanc_raw['movimento_uid']}"
             lanc_raw["referencia"] = lanc_raw["referencia_externa"]
-            lanc_raw["import_hash"] = gerar_import_hash(lanc_raw, conta_id=conta_db_id)
+            lanc_raw["import_hash"] = gerar_import_hash(
+                lanc_raw,
+                conta_id=conta_db_id,
+                cartao_id=(int(cartao.id) if cartao and cartao.id is not None else None),
+            )
 
             if lanc_raw["import_hash"] in hashes_vistos:
                 duplicatas += 1
@@ -887,7 +905,7 @@ async def upload_ofx(
             if not duplicata:
                 duplicata = verificar_duplicata_ofx_por_fallback(db, lanc_raw, empresa_id, conta_id=conta_db_id)
             duplicata_historica_motivo = None
-            if not duplicata:
+            if not duplicata and not modo_cartao:
                 duplicata, duplicata_historica_motivo = _buscar_duplicata_historica(db, lanc_raw, empresa_id, conta_db_id)
             if duplicata:
                 duplicatas += 1
@@ -1031,6 +1049,74 @@ def _resolver_conta_e_centro(
     return conta, centro_custo_resolvido
 
 
+def _resolver_cartao_e_centro(
+    db: Session,
+    empresa_id: int,
+    cartao_id: Optional[int],
+    centro_custo_id: Optional[int],
+) -> tuple[Cartao, int]:
+    if not cartao_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Selecione um cartao para importar."
+        )
+
+    cartao = db.exec(
+        select(Cartao).where(
+            Cartao.id == cartao_id,
+            Cartao.empresa_id == empresa_id,
+        )
+    ).first()
+
+    if not cartao:
+        raise HTTPException(status_code=404, detail="Cartao nao encontrado")
+
+    centro_custo_resolvido = centro_custo_id or cartao.centro_custo_id
+    if not centro_custo_resolvido:
+        centros = db.exec(
+            select(CentroCusto.id).where(CentroCusto.empresa_id == empresa_id)
+        ).all()
+        if len(centros) == 1:
+            centro_custo_resolvido = centros[0]
+            cartao.centro_custo_id = centro_custo_resolvido
+            db.add(cartao)
+            db.commit()
+            db.refresh(cartao)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cartao precisa estar vinculado a um centro de custo."
+            )
+
+    if centro_custo_resolvido is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nao foi possivel resolver o centro de custo do cartao selecionado.",
+        )
+
+    return cartao, centro_custo_resolvido
+
+
+def _compute_cartao_vencimento(data_compra: date, cartao: Cartao) -> date:
+    fechamento = int(cartao.dia_fechamento or 1)
+    vencimento = int(cartao.dia_vencimento or 10)
+    statement_offset = 1 if data_compra.day > fechamento else 0
+    due_offset = statement_offset + (1 if vencimento <= fechamento else 0)
+
+    base_month = (data_compra.month - 1) + due_offset
+    base_year = data_compra.year + (base_month // 12)
+    month = (base_month % 12) + 1
+
+    if month == 12:
+        next_month = date(base_year + 1, 1, 1)
+    else:
+        next_month = date(base_year, month + 1, 1)
+    ultimo_dia = (next_month - timedelta(days=1)).day
+    dia = min(vencimento, ultimo_dia)
+
+    return date(base_year, month, dia)
+
+
 def _buscar_lancamento_por_import_hash(db: Session, empresa_id: int, import_hash: Optional[str]) -> Optional[Lancamento]:
     if not import_hash:
         return None
@@ -1045,7 +1131,9 @@ def _buscar_lancamento_por_import_hash(db: Session, empresa_id: int, import_hash
 class ConfirmarLancamentosRequest(BaseModel):
     lancamentos: List[Dict[str, Any]]
     conta_id: Optional[int] = None
+    cartao_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
+    modo_importacao: Optional[str] = None
 
 
 @router.post("/confirmar-lancamentos")
@@ -1060,8 +1148,18 @@ async def confirmar_lancamentos(
     import_hashes_processados: set[str] = set()
 
     conta_resolvida = None
+    cartao_resolvido = None
     centro_custo_resolvido = None
-    if request.conta_id:
+    modo_cartao = str(request.modo_importacao or "").strip().upper() == "CARTAO" or bool(request.cartao_id)
+
+    if modo_cartao:
+        cartao_resolvido, centro_custo_resolvido = _resolver_cartao_e_centro(
+            db,
+            empresa_id,
+            request.cartao_id,
+            request.centro_custo_id,
+        )
+    elif request.conta_id:
         conta_resolvida, centro_custo_resolvido = _resolver_conta_e_centro(
             db,
             empresa_id,
@@ -1097,7 +1195,7 @@ async def confirmar_lancamentos(
 
             from app.services.importacao_bancaria_service import parsear_data
 
-            if lanc_data.get("lancamento_previsto_id"):
+            if lanc_data.get("lancamento_previsto_id") and not modo_cartao:
                 lanc_existente = db.get(Lancamento, int(lanc_data["lancamento_previsto_id"]))
                 if lanc_existente:
                     data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
@@ -1124,7 +1222,7 @@ async def confirmar_lancamentos(
                     lancamentos_atualizados += 1
                     continue
 
-            if lanc_data.get("lancamentos_atrasados_relacionados"):
+            if lanc_data.get("lancamentos_atrasados_relacionados") and not modo_cartao:
                 for atrasado_id in lanc_data["lancamentos_atrasados_relacionados"]:
                     lanc_atrasado = db.get(Lancamento, int(atrasado_id))
                     if not lanc_atrasado:
@@ -1181,27 +1279,46 @@ async def confirmar_lancamentos(
                 continue
 
             data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
-            data_vencimento = parsear_data(lanc_data["data_vencimento"]) if lanc_data.get("data_vencimento") else (data_pagamento or parsear_data(lanc_data.get("data") or ""))
-            data_vencimento = data_vencimento or data_pagamento or date.today()
+            data_compra_base = parsear_data(lanc_data.get("data") or "") or parsear_data(lanc_data.get("data_vencimento") or "") or date.today()
+            data_vencimento = parsear_data(lanc_data["data_vencimento"]) if lanc_data.get("data_vencimento") else (data_pagamento or data_compra_base)
+            data_vencimento = data_vencimento or data_pagamento or data_compra_base or date.today()
             data_pagamento = data_pagamento or data_vencimento or date.today()
+
+            status_novo = "PAGO"
+            origem_nova = str(lanc_data["origem"])
+            data_competencia_nova = data_pagamento or data_vencimento or date.today()
+            valor_pago_novo = Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"]))
+            conta_nova_id = (conta_resolvida.id if conta_resolvida else lanc_data.get("conta_id") or request.conta_id)
+            cartao_novo_id = None
+
+            if modo_cartao and cartao_resolvido:
+                status_novo = "EM ABERTO"
+                origem_nova = "OFX_FATURA_CARTAO"
+                data_competencia_nova = data_compra_base
+                data_vencimento = _compute_cartao_vencimento(data_compra_base, cartao_resolvido)
+                data_pagamento = None
+                valor_pago_novo = Decimal("0.00")
+                conta_nova_id = int(cartao_resolvido.conta_id) if cartao_resolvido.conta_id else None
+                cartao_novo_id = int(cartao_resolvido.id) if cartao_resolvido.id is not None else None
 
             novo_lancamento = Lancamento(
                 descricao=str(lanc_data["descricao"]),
                 tipo=str(lanc_data["tipo"]),
-                status="PAGO",
-                origem=str(lanc_data["origem"]),
+                status=status_novo,
+                origem=origem_nova,
                 valor_previsto=Decimal(str(lanc_data.get("valor_previsto") or lanc_data["valor"])),
-                valor_pago=Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"])),
+                valor_pago=valor_pago_novo,
                 data_vencimento=data_vencimento,
                 data_pagamento=data_pagamento,
-                data_competencia=data_pagamento or data_vencimento or date.today(),
+                data_competencia=data_competencia_nova,
                 empresa_id=empresa_id,
                 plano_contas_id=int(plano_contas_id),
                 entidade_id=int(lanc_data["entidade_id"]) if lanc_data.get("entidade_id") else None,
-                conta_id=(conta_resolvida.id if conta_resolvida else lanc_data.get("conta_id") or request.conta_id),
+                conta_id=conta_nova_id,
+                cartao_id=cartao_novo_id,
                 centro_custo_id=(centro_custo_resolvido or lanc_data.get("centro_custo_id") or request.centro_custo_id),
                 import_hash=import_hash or None,
-                conciliado=True,
+                conciliado=not modo_cartao,
                 ipp=False,
             )
             db.add(novo_lancamento)

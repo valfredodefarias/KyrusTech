@@ -174,7 +174,7 @@ def _status_aberto_clause() -> tuple[str, ...]:
     return ("PENDENTE", "EM ABERTO")
 
 
-def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None) -> str:
+def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None, cartao_id: Optional[int] = None) -> str:
     payload = {
         "origem": lancamento.get("origem"),
         "tipo": lancamento.get("tipo"),
@@ -187,6 +187,7 @@ def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None) -> str:
         "referencia": _normalizar_texto(lancamento.get("referencia")),
         "linha_arquivo": lancamento.get("linha_arquivo"),
         "conta_id": conta_id or lancamento.get("conta_id"),
+        "cartao_id": cartao_id or lancamento.get("cartao_id"),
     }
     payload_str = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload_str.encode("utf-8")).hexdigest()

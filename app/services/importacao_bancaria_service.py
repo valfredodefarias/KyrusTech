@@ -206,6 +206,7 @@ def verificar_duplicata(
     return db.exec(
         select(Lancamento).where(
             Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
             Lancamento.import_hash == import_hash,
         )
     ).first()
@@ -249,6 +250,7 @@ def verificar_duplicata_ofx_por_fallback(
     candidatos = db.exec(
         select(Lancamento).where(
             Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
             Lancamento.conta_id == conta_resolvida,
             Lancamento.origem == "OFX_EXTRATO",
             Lancamento.tipo == lancamento.get("tipo"),
@@ -285,6 +287,7 @@ def buscar_lancamento_previsto_mesmo_dia_valor(
     lancamento_table = getattr(Lancamento, "__table__")
     query = select(Lancamento).where(
         lancamento_table.c.empresa_id == empresa_id,
+        lancamento_table.c.is_deleted == False,
         lancamento_table.c.tipo == lancamento.get("tipo"),
         lancamento_table.c.data_vencimento == data_lancamento,
         lancamento_table.c.valor_previsto >= valor_min,
@@ -316,6 +319,7 @@ def buscar_lancamento_atrasado_mesmo_valor(
     lancamento_table = getattr(Lancamento, "__table__")
     query = select(Lancamento).where(
         lancamento_table.c.empresa_id == empresa_id,
+        lancamento_table.c.is_deleted == False,
         lancamento_table.c.tipo == lancamento.get("tipo"),
         lancamento_table.c.data_vencimento < data_lancamento,
         lancamento_table.c.data_vencimento >= data_limite,

@@ -478,6 +478,7 @@ def _buscar_duplicata_historica(
         select(Lancamento)
         .where(
             Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
             Lancamento.conta_id == conta_id,
             Lancamento.tipo == lancamento_ofx.get("tipo"),
         )
@@ -519,6 +520,7 @@ def _carregar_contexto_classificacao(
     categorias = list(db.exec(
         select(PlanoContas).where(
             PlanoContas.empresa_id == empresa_id,
+            PlanoContas.is_deleted == False,
             PlanoContas.permite_lancamentos == True,
             PlanoContas.oculta == False,
         )
@@ -526,12 +528,16 @@ def _carregar_contexto_classificacao(
     entidades = list(db.exec(
         select(Entidade).where(
             Entidade.empresa_id == empresa_id,
+            Entidade.is_deleted == False,
             Entidade.status == "ATIVO",
         )
     ).all())
     historico = list(db.exec(
         select(Lancamento)
-        .where(Lancamento.empresa_id == empresa_id)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+        )
         .limit(HISTORICO_SUGESTAO_LIMITE)
     ).all())
     return categorias, {int(entidade.id): entidade for entidade in entidades if entidade.id is not None}, historico
@@ -1123,6 +1129,7 @@ def _buscar_lancamento_por_import_hash(db: Session, empresa_id: int, import_hash
     return db.exec(
         select(Lancamento).where(
             Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
             Lancamento.import_hash == import_hash,
         )
     ).first()
@@ -1197,7 +1204,7 @@ async def confirmar_lancamentos(
 
             if lanc_data.get("lancamento_previsto_id") and not modo_cartao:
                 lanc_existente = db.get(Lancamento, int(lanc_data["lancamento_previsto_id"]))
-                if lanc_existente:
+                if lanc_existente and not lanc_existente.is_deleted and int(lanc_existente.empresa_id) == int(empresa_id):
                     data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
                     data_vencimento = parsear_data(lanc_data["data_vencimento"]) if lanc_data.get("data_vencimento") else None
 
@@ -1225,7 +1232,7 @@ async def confirmar_lancamentos(
             if lanc_data.get("lancamentos_atrasados_relacionados") and not modo_cartao:
                 for atrasado_id in lanc_data["lancamentos_atrasados_relacionados"]:
                     lanc_atrasado = db.get(Lancamento, int(atrasado_id))
-                    if not lanc_atrasado:
+                    if not lanc_atrasado or lanc_atrasado.is_deleted or int(lanc_atrasado.empresa_id) != int(empresa_id):
                         continue
 
                     data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")

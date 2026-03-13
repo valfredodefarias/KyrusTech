@@ -840,15 +840,15 @@ export const PlanoContasManager = ({
   };
 
   const resolveDreGrupoValue = (parentId: number | '' | null | undefined, explicitValue: string, tipo: string) => {
-      if (canManageOperational) return normalizeDreGrupo(explicitValue, tipo);
-      if (!parentId) return normalizeDreGrupo(explicitValue, tipo);
-      const parent = localList.find((item) => item.id === Number(parentId));
-      return normalizeDreGrupo(parent?.dre_grupo, tipo);
+      // Sempre herda do pai quando há pai, independente de permissão
+      if (parentId) {
+          const parent = localList.find((item) => item.id === Number(parentId));
+          if (parent?.dre_grupo) return normalizeDreGrupo(parent.dre_grupo, tipo);
+      }
+      return normalizeDreGrupo(explicitValue, tipo);
   };
 
   const syncOperationalHierarchyLocal = (items: ItemSistema[]) => {
-      if (canManageOperational) return items;
-
       const itemsMap = new Map(items.map((item) => [item.id, { ...item }]));
       const childrenByParent = new Map<number, ItemSistema[]>();
       const roots: ItemSistema[] = [];
@@ -863,12 +863,13 @@ export const PlanoContasManager = ({
       });
 
       const walk = (item: ItemSistema, inheritedValue?: boolean, inheritedDreGrupo?: string) => {
-          // Regra: pai operacional propaga True para baixo; pai nao operacional nao forca False.
+          // Regra operacional: pai=true propaga true; pai=false não força false.
           const currentValue = item.eh_operacional !== false;
           const effectiveValue = inheritedValue == null ? currentValue : (inheritedValue || currentValue);
-          item.eh_operacional = effectiveValue;
+          if (!canManageOperational) item.eh_operacional = effectiveValue;
+          // Regra DRE: pai sempre propaga seu grupo para os filhos.
           const currentDre = normalizeDreGrupo(item.dre_grupo, item.tipo);
-          const effectiveDre = inheritedDreGrupo || currentDre;
+          const effectiveDre = inheritedDreGrupo ?? currentDre;
           item.dre_grupo = effectiveDre;
           (childrenByParent.get(item.id) || []).forEach((child) => walk(child, effectiveValue, effectiveDre));
       };
@@ -893,10 +894,14 @@ export const PlanoContasManager = ({
   useEffect(() => {
       if (!selectedParent) return;
       const parentTipo = normalizeTipo(selectedParent.tipo);
-      if (normalizeTipo(formData.tipo) !== parentTipo) {
-          setFormData((prev) => ({ ...prev, tipo: parentTipo, dre_grupo: normalizeDreGrupo(selectedParent.dre_grupo, parentTipo) }));
+      const parentDre = normalizeDreGrupo(selectedParent.dre_grupo, parentTipo);
+      const tipoChanged = normalizeTipo(formData.tipo) !== parentTipo;
+      const dreChanged = normalizeDreGrupo(formData.dre_grupo, formData.tipo) !== parentDre;
+      if (tipoChanged || dreChanged) {
+          setFormData((prev) => ({ ...prev, tipo: parentTipo, dre_grupo: parentDre, eh_operacional: parentDre !== 'NAO_OPERACIONAL' }));
       }
-  }, [formData.tipo, selectedParent]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedParent?.id]);
 
   // --- DRAG HANDLERS ---
   const handleDragStart = (e: React.DragEvent, item: ItemSistema) => {

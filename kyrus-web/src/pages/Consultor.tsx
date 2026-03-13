@@ -118,6 +118,27 @@ interface AutoAdjustmentConfig {
   descontos_dre_grupo: string;
 }
 
+interface AutoAdjustmentEmpresaConfig {
+  empresa_id: number;
+  tipo_pessoa: 'PF' | 'PJ';
+  juros_multa_plano_contas_id: number | null;
+  descontos_plano_contas_id: number | null;
+  juros_multa_categoria_nome: string;
+  descontos_categoria_nome: string;
+  juros_multa_tipo: string;
+  descontos_tipo: string;
+  juros_multa_dre_grupo: string;
+  descontos_dre_grupo: string;
+}
+
+interface EmpresaPlanoContasOption {
+  id: number;
+  nome: string;
+  tipo: string;
+  dre_grupo: string;
+  conta_pai_id?: number | null;
+}
+
 function getApiErrorDetails(error: any, fallback: string) {
   const detail = error?.response?.data?.detail;
   const message = error?.response?.data?.message;
@@ -345,6 +366,11 @@ export function Consultor() {
   const [autoAdjustConfig, setAutoAdjustConfig] = useState<AutoAdjustmentConfig | null>(null);
   const [loadingAutoAdjustConfig, setLoadingAutoAdjustConfig] = useState(false);
   const [savingAutoAdjustConfig, setSavingAutoAdjustConfig] = useState(false);
+  const [selectedEmpresaAutoAdjustId, setSelectedEmpresaAutoAdjustId] = useState<number | null>(null);
+  const [empresaAutoAdjustConfig, setEmpresaAutoAdjustConfig] = useState<AutoAdjustmentEmpresaConfig | null>(null);
+  const [empresaPlanoOptions, setEmpresaPlanoOptions] = useState<EmpresaPlanoContasOption[]>([]);
+  const [loadingEmpresaAutoAdjust, setLoadingEmpresaAutoAdjust] = useState(false);
+  const [savingEmpresaAutoAdjust, setSavingEmpresaAutoAdjust] = useState(false);
   const [bankPresets, setBankPresets] = useState<BankPreset[]>([]);
   const [loadingBankPresets, setLoadingBankPresets] = useState(false);
   const [savingBankPreset, setSavingBankPreset] = useState(false);
@@ -374,6 +400,21 @@ export function Consultor() {
     carregarTemplatePlanoContas(templateTipoPessoa);
     carregarAutoAdjustmentConfig(templateTipoPessoa);
   }, [activeTab, isSuperConsultor, templateTipoPessoa, currentUser?.email]);
+
+  useEffect(() => {
+    if (!isSuperConsultor) return;
+    if (selectedEmpresaAutoAdjustId) return;
+    if (!empresas.length) return;
+    setSelectedEmpresaAutoAdjustId(Number(empresas[0].id));
+  }, [isSuperConsultor, empresas, selectedEmpresaAutoAdjustId]);
+
+  useEffect(() => {
+    const canManageSeedTemplates = currentUser?.email?.trim().toLowerCase() === 'cirocaue12@gmail.com';
+    if (!isSuperConsultor || !canManageSeedTemplates || activeTab !== 'planos-padrao') return;
+    if (!selectedEmpresaAutoAdjustId) return;
+    carregarAutoAdjustmentEmpresaConfig(selectedEmpresaAutoAdjustId);
+    carregarPlanoContasEmpresaOpcoes(selectedEmpresaAutoAdjustId);
+  }, [activeTab, isSuperConsultor, currentUser?.email, selectedEmpresaAutoAdjustId]);
 
   useEffect(() => {
     if (!isSuperConsultor || activeTab !== 'bancos') return;
@@ -484,6 +525,51 @@ export function Consultor() {
       alert('Nao foi possivel salvar a configuração de ajuste automático.');
     } finally {
       setSavingAutoAdjustConfig(false);
+    }
+  }
+
+  async function carregarAutoAdjustmentEmpresaConfig(empresaId: number) {
+    try {
+      setLoadingEmpresaAutoAdjust(true);
+      const res = await api.get<AutoAdjustmentEmpresaConfig>(`/consultor/super/empresas/${empresaId}/auto-adjustment-config`);
+      setEmpresaAutoAdjustConfig(res.data);
+    } catch (error) {
+      console.error('[CONSULTOR][AUTO-AJUSTE][EMPRESA] Falha ao carregar config', error);
+      setEmpresaAutoAdjustConfig(null);
+    } finally {
+      setLoadingEmpresaAutoAdjust(false);
+    }
+  }
+
+  async function carregarPlanoContasEmpresaOpcoes(empresaId: number) {
+    try {
+      const res = await api.get<EmpresaPlanoContasOption[]>(`/consultor/super/empresas/${empresaId}/plano-contas-opcoes`);
+      setEmpresaPlanoOptions(res.data || []);
+    } catch (error) {
+      console.error('[CONSULTOR][AUTO-AJUSTE][EMPRESA] Falha ao carregar categorias', error);
+      setEmpresaPlanoOptions([]);
+    }
+  }
+
+  async function salvarAutoAdjustmentEmpresaConfig() {
+    if (!selectedEmpresaAutoAdjustId || !empresaAutoAdjustConfig) return;
+    try {
+      setSavingEmpresaAutoAdjust(true);
+      const payload = {
+        juros_multa_plano_contas_id: empresaAutoAdjustConfig.juros_multa_plano_contas_id,
+        descontos_plano_contas_id: empresaAutoAdjustConfig.descontos_plano_contas_id,
+      };
+      const res = await api.put<AutoAdjustmentEmpresaConfig>(
+        `/consultor/super/empresas/${selectedEmpresaAutoAdjustId}/auto-adjustment-config`,
+        payload,
+      );
+      setEmpresaAutoAdjustConfig(res.data);
+      alert('Configuração por empresa salva com sucesso.');
+    } catch (error) {
+      console.error('[CONSULTOR][AUTO-AJUSTE][EMPRESA] Falha ao salvar config', error);
+      alert('Nao foi possivel salvar a configuração por empresa.');
+    } finally {
+      setSavingEmpresaAutoAdjust(false);
     }
   }
 
@@ -1064,6 +1150,14 @@ export function Consultor() {
     return walk(templateCategorias || [], 0, '');
   }, [templateCategorias]);
 
+  const empresaCategoriaOptions = useMemo(() => {
+    return (empresaPlanoOptions || []).map((item) => ({
+      id: Number(item.id),
+      label: String(item.nome || ''),
+      searchText: `${String(item.nome || '').toLowerCase()} ${String(item.tipo || '').toLowerCase()} ${String(item.dre_grupo || '').toLowerCase()}`,
+    }));
+  }, [empresaPlanoOptions]);
+
   if (loading) return <div className="p-8 text-center text-slate-500 animate-pulse">Carregando...</div>;
 
   const canCreateTodo = (() => {
@@ -1448,6 +1542,81 @@ export function Consultor() {
             ) : (
               <div className="mt-4 text-sm text-rose-600 dark:text-rose-300">Nao foi possivel carregar a configuracao de ajuste automatico.</div>
             )}
+          </div>
+
+          <div className="rounded-3xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900 dark:bg-emerald-500/10">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">Ajuste automatico por empresa</p>
+                <h3 className="mt-2 text-lg font-black text-slate-900 dark:text-white">Selecionar categorias no plano de contas da empresa</h3>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Se a categoria escolhida não existir mais, o sistema cria automaticamente usando os defaults salvos.</p>
+              </div>
+              <button
+                type="button"
+                onClick={salvarAutoAdjustmentEmpresaConfig}
+                disabled={!empresaAutoAdjustConfig || !selectedEmpresaAutoAdjustId || loadingEmpresaAutoAdjust || savingEmpresaAutoAdjust}
+                className="rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {savingEmpresaAutoAdjust ? 'Salvando...' : 'Salvar por empresa'}
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_2fr_2fr]">
+              <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 dark:border-slate-700 dark:bg-slate-900/30">
+                <p className="mb-2 text-sm font-bold text-slate-800 dark:text-slate-100">Empresa</p>
+                <select
+                  value={selectedEmpresaAutoAdjustId ?? ''}
+                  onChange={(e) => setSelectedEmpresaAutoAdjustId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                >
+                  <option value="">Selecione a empresa</option>
+                  {empresas.map((empresa) => (
+                    <option key={empresa.id} value={empresa.id}>{empresa.nome_fantasia}</option>
+                  ))}
+                </select>
+                {empresaAutoAdjustConfig?.tipo_pessoa ? (
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Tipo pessoa: {empresaAutoAdjustConfig.tipo_pessoa}</p>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 dark:border-slate-700 dark:bg-slate-900/30">
+                {loadingEmpresaAutoAdjust ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-300">Carregando configuração da empresa...</p>
+                ) : empresaAutoAdjustConfig ? (
+                  <>
+                    <SearchableCategorySelect
+                      label="Juros e multa (empresa)"
+                      placeholder="Sem categoria fixa (criar automaticamente)"
+                      value={empresaAutoAdjustConfig.juros_multa_plano_contas_id}
+                      options={empresaCategoriaOptions}
+                      onChange={(nextValue) => setEmpresaAutoAdjustConfig((prev) => prev ? ({ ...prev, juros_multa_plano_contas_id: nextValue }) : prev)}
+                    />
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Atual: {empresaAutoAdjustConfig.juros_multa_categoria_nome} ({empresaAutoAdjustConfig.juros_multa_dre_grupo})</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-rose-600 dark:text-rose-300">Selecione uma empresa para carregar.</p>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 dark:border-slate-700 dark:bg-slate-900/30">
+                {loadingEmpresaAutoAdjust ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-300">Carregando configuração da empresa...</p>
+                ) : empresaAutoAdjustConfig ? (
+                  <>
+                    <SearchableCategorySelect
+                      label="Descontos (empresa)"
+                      placeholder="Sem categoria fixa (criar automaticamente)"
+                      value={empresaAutoAdjustConfig.descontos_plano_contas_id}
+                      options={empresaCategoriaOptions}
+                      onChange={(nextValue) => setEmpresaAutoAdjustConfig((prev) => prev ? ({ ...prev, descontos_plano_contas_id: nextValue }) : prev)}
+                    />
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Atual: {empresaAutoAdjustConfig.descontos_categoria_nome} ({empresaAutoAdjustConfig.descontos_dre_grupo})</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-rose-600 dark:text-rose-300">Selecione uma empresa para carregar.</p>
+                )}
+              </div>
+            </div>
           </div>
 
           {loadingTemplateCategorias ? (

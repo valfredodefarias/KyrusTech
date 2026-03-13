@@ -12,6 +12,7 @@ from typing import List, Optional
 
 from app.db.session import get_db
 from app.models.empresa import Empresa
+from app.models.plano_contas import PlanoContas
 from app.models.usuario import Usuario
 from app.models.consultor_empresa import ConsultorEmpresa
 from app.models.todo_item import TodoItem
@@ -159,6 +160,32 @@ class AutoAdjustmentConfigRead(BaseModel):
     descontos_tipo: str
     juros_multa_dre_grupo: str
     descontos_dre_grupo: str
+
+
+class AutoAdjustmentEmpresaConfigWrite(BaseModel):
+    juros_multa_plano_contas_id: Optional[int] = None
+    descontos_plano_contas_id: Optional[int] = None
+
+
+class AutoAdjustmentEmpresaConfigRead(BaseModel):
+    empresa_id: int
+    tipo_pessoa: str
+    juros_multa_plano_contas_id: Optional[int] = None
+    descontos_plano_contas_id: Optional[int] = None
+    juros_multa_categoria_nome: str
+    descontos_categoria_nome: str
+    juros_multa_tipo: str
+    descontos_tipo: str
+    juros_multa_dre_grupo: str
+    descontos_dre_grupo: str
+
+
+class EmpresaPlanoContasOptionRead(BaseModel):
+    id: int
+    nome: str
+    tipo: str
+    dre_grupo: str
+    conta_pai_id: Optional[int] = None
 
 
 @router.get("/empresas", response_model=List[EmpresaRead])
@@ -1112,6 +1139,135 @@ def salvar_config_ajuste_automatico(
         tipo_pessoa=normalized,
         juros_multa_template_id=juros.get("template_id"),
         descontos_template_id=descontos.get("template_id"),
+        juros_multa_categoria_nome=str(juros.get("categoria_nome") or "Juros e Multas"),
+        descontos_categoria_nome=str(descontos.get("categoria_nome") or "Descontos Concedidos"),
+        juros_multa_tipo=str(juros.get("tipo") or "D"),
+        descontos_tipo=str(descontos.get("tipo") or "D"),
+        juros_multa_dre_grupo=str(juros.get("dre_grupo") or "OUTRAS_DESPESAS"),
+        descontos_dre_grupo=str(descontos.get("dre_grupo") or "DEDUCOES_RECEITA"),
+    )
+
+
+@router.get("/super/empresas/{empresa_id}/plano-contas-opcoes", response_model=List[EmpresaPlanoContasOptionRead])
+def listar_plano_contas_opcoes_empresa(
+    empresa_id: int,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    _assert_seed_template_manager(super_consultor)
+    empresa = db.get(Empresa, empresa_id)
+    if not empresa or empresa.is_deleted:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    rows = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.is_deleted == False,
+            PlanoContas.permite_lancamentos == True,
+        )
+    ).all()
+    ordered = sorted(list(rows), key=lambda item: ((item.codigo or ""), str(item.nome or "").lower(), int(item.id or 0)))
+    return [
+        EmpresaPlanoContasOptionRead(
+            id=int(item.id),
+            nome=str(item.nome),
+            tipo=str(item.tipo or "D"),
+            dre_grupo=str(item.dre_grupo or "DESPESAS_OPERACIONAIS"),
+            conta_pai_id=item.conta_pai_id,
+        )
+        for item in ordered
+        if item.id is not None
+    ]
+
+
+@router.get("/super/empresas/{empresa_id}/auto-adjustment-config", response_model=AutoAdjustmentEmpresaConfigRead)
+def obter_config_ajuste_automatico_empresa(
+    empresa_id: int,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    _assert_seed_template_manager(super_consultor)
+    empresa = db.get(Empresa, empresa_id)
+    if not empresa or empresa.is_deleted:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    tipo = _normalizar_tipo_pessoa_template(str(empresa.tipo_pessoa or "PJ"))
+    config = crud_auto_adjustment_config.get_for_empresa(db=db, empresa_id=empresa_id, tipo_pessoa=tipo)
+    juros = config.get("juros_multa") or {}
+    descontos = config.get("descontos") or {}
+    return AutoAdjustmentEmpresaConfigRead(
+        empresa_id=empresa_id,
+        tipo_pessoa=tipo,
+        juros_multa_plano_contas_id=juros.get("plano_contas_id"),
+        descontos_plano_contas_id=descontos.get("plano_contas_id"),
+        juros_multa_categoria_nome=str(juros.get("categoria_nome") or "Juros e Multas"),
+        descontos_categoria_nome=str(descontos.get("categoria_nome") or "Descontos Concedidos"),
+        juros_multa_tipo=str(juros.get("tipo") or "D"),
+        descontos_tipo=str(descontos.get("tipo") or "D"),
+        juros_multa_dre_grupo=str(juros.get("dre_grupo") or "OUTRAS_DESPESAS"),
+        descontos_dre_grupo=str(descontos.get("dre_grupo") or "DEDUCOES_RECEITA"),
+    )
+
+
+@router.put("/super/empresas/{empresa_id}/auto-adjustment-config", response_model=AutoAdjustmentEmpresaConfigRead)
+def salvar_config_ajuste_automatico_empresa(
+    empresa_id: int,
+    payload: AutoAdjustmentEmpresaConfigWrite,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    _assert_seed_template_manager(super_consultor)
+    empresa = db.get(Empresa, empresa_id)
+    if not empresa or empresa.is_deleted:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    tipo = _normalizar_tipo_pessoa_template(str(empresa.tipo_pessoa or "PJ"))
+    rows = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.is_deleted == False,
+            PlanoContas.permite_lancamentos == True,
+        )
+    ).all()
+    index = {int(item.id): item for item in rows if item.id is not None}
+
+    juros_item = index.get(int(payload.juros_multa_plano_contas_id)) if payload.juros_multa_plano_contas_id is not None else None
+    descontos_item = index.get(int(payload.descontos_plano_contas_id)) if payload.descontos_plano_contas_id is not None else None
+
+    if payload.juros_multa_plano_contas_id is not None and juros_item is None:
+        raise HTTPException(status_code=404, detail="Categoria de juros/multa não encontrada na empresa")
+    if payload.descontos_plano_contas_id is not None and descontos_item is None:
+        raise HTTPException(status_code=404, detail="Categoria de descontos não encontrada na empresa")
+
+    juros_payload = {
+        "plano_contas_id": int(juros_item.id) if juros_item and juros_item.id is not None else None,
+        "categoria_nome": str((juros_item.nome if juros_item else None) or "Juros e Multas"),
+        "tipo": str((juros_item.tipo if juros_item else None) or "D"),
+        "dre_grupo": str((juros_item.dre_grupo if juros_item else None) or "OUTRAS_DESPESAS"),
+    }
+    descontos_payload = {
+        "plano_contas_id": int(descontos_item.id) if descontos_item and descontos_item.id is not None else None,
+        "categoria_nome": str((descontos_item.nome if descontos_item else None) or "Descontos Concedidos"),
+        "tipo": str((descontos_item.tipo if descontos_item else None) or "D"),
+        "dre_grupo": str((descontos_item.dre_grupo if descontos_item else None) or "DEDUCOES_RECEITA"),
+    }
+
+    saved = crud_auto_adjustment_config.save_for_empresa(
+        db=db,
+        empresa_id=empresa_id,
+        tipo_pessoa=tipo,
+        juros_multa=juros_payload,
+        descontos=descontos_payload,
+    )
+
+    juros = saved.get("juros_multa") or {}
+    descontos = saved.get("descontos") or {}
+    logger.warning(f"[SUPER] {super_consultor.email} salvou config por empresa de ajuste automático empresa={empresa_id}")
+    return AutoAdjustmentEmpresaConfigRead(
+        empresa_id=empresa_id,
+        tipo_pessoa=tipo,
+        juros_multa_plano_contas_id=juros.get("plano_contas_id"),
+        descontos_plano_contas_id=descontos.get("plano_contas_id"),
         juros_multa_categoria_nome=str(juros.get("categoria_nome") or "Juros e Multas"),
         descontos_categoria_nome=str(descontos.get("categoria_nome") or "Descontos Concedidos"),
         juros_multa_tipo=str(juros.get("tipo") or "D"),

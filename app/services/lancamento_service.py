@@ -95,10 +95,34 @@ class LancamentoService:
         value = str(empresa.tipo_pessoa or "PJ").strip().upper()
         return value if value in {"PF", "PJ"} else "PJ"
 
-    def _resolve_adjust_category(self, *, empresa_id: int, nome: str, tipo: str, dre_grupo: str, user_id: int) -> int:
+    def _resolve_adjust_category(
+        self,
+        *,
+        empresa_id: int,
+        nome: str,
+        tipo: str,
+        dre_grupo: str,
+        user_id: int,
+        preferred_category_id: Optional[int] = None,
+    ) -> int:
         normalized_name = str(nome or "").strip()
         normalized_tipo = (str(tipo or "D").strip().upper() or "D")[:1]
         normalized_dre = str(dre_grupo or "DESPESAS_OPERACIONAIS").strip().upper()
+
+        if preferred_category_id is not None:
+            preferred = self.session.exec(
+                select(PlanoContas).where(
+                    PlanoContas.id == int(preferred_category_id),
+                    PlanoContas.empresa_id == empresa_id,
+                    PlanoContas.is_deleted == False,
+                )
+            ).first()
+            if preferred and preferred.id is not None:
+                preferred.permite_lancamentos = True
+                preferred.updated_by_id = user_id
+                self.session.add(preferred)
+                self.session.flush()
+                return int(preferred.id)
 
         existing = self.session.exec(
             select(PlanoContas).where(
@@ -184,7 +208,11 @@ class LancamentoService:
             return
 
         empresa_tipo = self._get_empresa_tipo_pessoa(int(lancamento.empresa_id))
-        config = crud_auto_adjustment_config.get_for_tipo_pessoa(self.session, tipo_pessoa=empresa_tipo)
+        config = crud_auto_adjustment_config.get_for_empresa(
+            self.session,
+            empresa_id=int(lancamento.empresa_id),
+            tipo_pessoa=empresa_tipo,
+        )
 
         if not lancamento.data_pagamento:
             self._soft_delete_adjustment(empresa_id=int(lancamento.empresa_id), lancamento_id=int(lancamento.id), kind="juros_multa", user_id=user_id)
@@ -214,6 +242,7 @@ class LancamentoService:
             return
 
         target_cfg = (config or {}).get(kind) or {}
+        preferred_category_id = int(target_cfg.get("plano_contas_id")) if target_cfg.get("plano_contas_id") is not None else None
         categoria_nome = str(target_cfg.get("categoria_nome") or ("Juros e Multas" if kind == "juros_multa" else "Descontos Concedidos"))
         categoria_tipo = str(target_cfg.get("tipo") or "D")
         categoria_dre = str(target_cfg.get("dre_grupo") or ("OUTRAS_DESPESAS" if kind == "juros_multa" else "DEDUCOES_RECEITA"))
@@ -223,6 +252,7 @@ class LancamentoService:
             tipo=categoria_tipo,
             dre_grupo=categoria_dre,
             user_id=user_id,
+            preferred_category_id=preferred_category_id,
         )
 
         token = self._auto_adjust_token(int(lancamento.id), kind)

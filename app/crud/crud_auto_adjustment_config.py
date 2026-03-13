@@ -10,6 +10,10 @@ from app.models.bank_preset_config import BankPresetConfig
 
 AUTO_ADJUST_CONFIG_KEY = "global-auto-adjustment-config-v1"
 
+
+def _company_key(empresa_id: int) -> str:
+    return f"company-auto-adjustment-config-v1:{int(empresa_id)}"
+
 DEFAULT_ITEM = {
     "juros_multa": {
         "template_id": None,
@@ -41,6 +45,7 @@ def _normalize_tipo_pessoa(tipo_pessoa: str) -> str:
 def _normalize_item(item: Any, fallback: dict[str, Any]) -> dict[str, Any]:
     source = item if isinstance(item, dict) else {}
     return {
+        "plano_contas_id": int(source["plano_contas_id"]) if source.get("plano_contas_id") is not None else None,
         "template_id": int(source["template_id"]) if source.get("template_id") is not None else None,
         "categoria_nome": str(source.get("categoria_nome") or fallback.get("categoria_nome") or "").strip() or str(fallback.get("categoria_nome") or ""),
         "tipo": str(source.get("tipo") or fallback.get("tipo") or "D").strip().upper()[:1] or "D",
@@ -87,6 +92,32 @@ def _ensure_config(db: Session) -> BankPresetConfig:
     return config
 
 
+def _ensure_company_config(db: Session, *, empresa_id: int, base_defaults: dict[str, Any]) -> BankPresetConfig:
+    _ensure_table(db)
+    key = _company_key(empresa_id)
+    config = db.exec(select(BankPresetConfig).where(BankPresetConfig.config_key == key)).first()
+    sanitized_defaults = {
+        "juros_multa": _normalize_item((base_defaults or {}).get("juros_multa") or {}, DEFAULT_ITEM["juros_multa"]),
+        "descontos": _normalize_item((base_defaults or {}).get("descontos") or {}, DEFAULT_ITEM["descontos"]),
+    }
+    if config:
+        current = config.items if isinstance(config.items, dict) else {}
+        config.items = {
+            "juros_multa": _normalize_item(current.get("juros_multa") or {}, sanitized_defaults["juros_multa"]),
+            "descontos": _normalize_item(current.get("descontos") or {}, sanitized_defaults["descontos"]),
+        }
+        db.add(config)
+        db.commit()
+        db.refresh(config)
+        return config
+
+    config = BankPresetConfig(config_key=key, items=sanitized_defaults)  # type: ignore[call-arg]
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+    return config
+
+
 def get_all(db: Session) -> dict[str, Any]:
     config = _ensure_config(db)
     return _sanitize_payload(config.items if isinstance(config.items, dict) else {})
@@ -117,3 +148,34 @@ def save_for_tipo_pessoa(
     db.commit()
     db.refresh(config)
     return deepcopy(payload[tipo])
+
+
+def get_for_empresa(db: Session, *, empresa_id: int, tipo_pessoa: str) -> dict[str, Any]:
+    base = get_for_tipo_pessoa(db=db, tipo_pessoa=tipo_pessoa)
+    config = _ensure_company_config(db, empresa_id=int(empresa_id), base_defaults=base)
+    items = config.items if isinstance(config.items, dict) else {}
+    return {
+        "juros_multa": _normalize_item(items.get("juros_multa") or {}, base.get("juros_multa") or DEFAULT_ITEM["juros_multa"]),
+        "descontos": _normalize_item(items.get("descontos") or {}, base.get("descontos") or DEFAULT_ITEM["descontos"]),
+    }
+
+
+def save_for_empresa(
+    db: Session,
+    *,
+    empresa_id: int,
+    tipo_pessoa: str,
+    juros_multa: dict[str, Any],
+    descontos: dict[str, Any],
+) -> dict[str, Any]:
+    base = get_for_tipo_pessoa(db=db, tipo_pessoa=tipo_pessoa)
+    config = _ensure_company_config(db, empresa_id=int(empresa_id), base_defaults=base)
+    payload = {
+        "juros_multa": _normalize_item(juros_multa or {}, base.get("juros_multa") or DEFAULT_ITEM["juros_multa"]),
+        "descontos": _normalize_item(descontos or {}, base.get("descontos") or DEFAULT_ITEM["descontos"]),
+    }
+    config.items = payload
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+    return deepcopy(payload)

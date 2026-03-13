@@ -1140,8 +1140,6 @@ export const PlanoContasManager = ({
       setHasChanges(false);
   };
 
-    const selectedParentIsOperational = !!(selectedParent && operationalIds.has(Number(selectedParent.id)));
-
   return (
     <div className="relative">
       {hasChanges && (

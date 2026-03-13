@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BankAvatar } from '../components/BrandAvatar';
 import { api, toPublicAssetUrl } from '../services/api';
@@ -164,6 +164,108 @@ const AvatarEmpresa = ({ nome, src, cor }: { nome: string, src?: string, cor: st
         className="w-full h-full object-contain p-1" 
         onError={() => setError(true)}
       />
+    </div>
+  );
+};
+
+type CategoryOption = {
+  id: number;
+  label: string;
+  searchText: string;
+};
+
+const SearchableCategorySelect = ({
+  label,
+  placeholder,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  value: number | null;
+  options: CategoryOption[];
+  onChange: (value: number | null) => void;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  const selected = options.find((item) => item.id === value) || null;
+  const filtered = options.filter((item) => {
+    if (!query.trim()) return true;
+    const normalized = query.trim().toLowerCase();
+    return item.searchText.includes(normalized) || item.label.toLowerCase().includes(normalized);
+  });
+
+  return (
+    <div className="space-y-2" ref={wrapperRef}>
+      <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{label}</p>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate">{selected ? selected.label : placeholder}</span>
+          <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition ${isOpen ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+          <div className="relative mb-2">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Pesquisar categoria..."
+              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-sm text-slate-700 outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+            />
+          </div>
+          <div className="max-h-60 overflow-y-auto rounded-lg border border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => {
+                onChange(null);
+                setIsOpen(false);
+              }}
+              className="flex w-full items-center justify-between border-b border-slate-100 px-3 py-2 text-left text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <span>{placeholder}</span>
+              {value === null ? <CheckCircle2 className="h-4 w-4 text-amber-500" /> : null}
+            </button>
+            {filtered.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  onChange(item.id);
+                  setIsOpen(false);
+                }}
+                className="flex w-full items-center justify-between border-b border-slate-100 px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 last:border-b-0 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                <span className="truncate">{item.label}</span>
+                {value === item.id ? <CheckCircle2 className="h-4 w-4 text-amber-500" /> : null}
+              </button>
+            ))}
+            {filtered.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">Nenhuma categoria encontrada.</div>
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -944,20 +1046,22 @@ export function Consultor() {
   );
 
   const templateCategoriaOptions = useMemo(() => {
-    const walk = (items: ItemSistema[], depth: number): Array<{ id: number; label: string }> => {
-      const out: Array<{ id: number; label: string }> = [];
+    const walk = (items: ItemSistema[], depth: number, trail: string): CategoryOption[] => {
+      const out: CategoryOption[] = [];
       for (const item of items || []) {
+        const currentTrail = trail ? `${trail} ${item.nome}` : item.nome;
         out.push({
           id: Number(item.id),
-          label: `${'\u00A0\u00A0'.repeat(depth)}${item.nome}`,
+          label: `${'  '.repeat(depth)}${item.nome}`,
+          searchText: currentTrail.toLowerCase(),
         });
         if (item.children?.length) {
-          out.push(...walk(item.children, depth + 1));
+          out.push(...walk(item.children, depth + 1, currentTrail));
         }
       }
       return out;
     };
-    return walk(templateCategorias || [], 0);
+    return walk(templateCategorias || [], 0, '');
   }, [templateCategorias]);
 
   if (loading) return <div className="p-8 text-center text-slate-500 animate-pulse">Carregando...</div>;
@@ -1320,32 +1424,24 @@ export function Consultor() {
             ) : autoAdjustConfig ? (
               <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 dark:border-slate-700 dark:bg-slate-900/30">
-                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Juros e multa (despesa maior que prevista)</p>
-                  <select
-                    value={autoAdjustConfig.juros_multa_template_id ?? ''}
-                    onChange={(e) => setAutoAdjustConfig((prev) => prev ? ({ ...prev, juros_multa_template_id: e.target.value ? Number(e.target.value) : null }) : prev)}
-                    className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                  >
-                    <option value="">Sem categoria fixa (usar padrao interno)</option>
-                    {templateCategoriaOptions.map((item) => (
-                      <option key={`jm-${item.id}`} value={item.id}>{item.label}</option>
-                    ))}
-                  </select>
+                  <SearchableCategorySelect
+                    label="Juros e multa (despesa maior que prevista)"
+                    placeholder="Sem categoria fixa (usar padrao interno)"
+                    value={autoAdjustConfig.juros_multa_template_id}
+                    options={templateCategoriaOptions}
+                    onChange={(nextValue) => setAutoAdjustConfig((prev) => prev ? ({ ...prev, juros_multa_template_id: nextValue }) : prev)}
+                  />
                   <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Atual: {autoAdjustConfig.juros_multa_categoria_nome} ({autoAdjustConfig.juros_multa_dre_grupo})</p>
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 dark:border-slate-700 dark:bg-slate-900/30">
-                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Descontos (receita menor que prevista)</p>
-                  <select
-                    value={autoAdjustConfig.descontos_template_id ?? ''}
-                    onChange={(e) => setAutoAdjustConfig((prev) => prev ? ({ ...prev, descontos_template_id: e.target.value ? Number(e.target.value) : null }) : prev)}
-                    className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                  >
-                    <option value="">Sem categoria fixa (usar padrao interno)</option>
-                    {templateCategoriaOptions.map((item) => (
-                      <option key={`dc-${item.id}`} value={item.id}>{item.label}</option>
-                    ))}
-                  </select>
+                  <SearchableCategorySelect
+                    label="Descontos (receita menor que prevista)"
+                    placeholder="Sem categoria fixa (usar padrao interno)"
+                    value={autoAdjustConfig.descontos_template_id}
+                    options={templateCategoriaOptions}
+                    onChange={(nextValue) => setAutoAdjustConfig((prev) => prev ? ({ ...prev, descontos_template_id: nextValue }) : prev)}
+                  />
                   <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Atual: {autoAdjustConfig.descontos_categoria_nome} ({autoAdjustConfig.descontos_dre_grupo})</p>
                 </div>
               </div>

@@ -12,7 +12,7 @@ import {
   Trash2, Check, X, UploadCloud, FileText, Loader2, 
   CalendarClock, User, ChevronDown, Save, Paperclip, Download,
   Image as ImageIcon, FileSpreadsheet, Presentation, LayoutGrid, CheckSquare, Square,
-  Landmark, Info
+  Landmark, Info, Copy
 } from 'lucide-react';
 
 // --- INTERFACES ---
@@ -1971,7 +1971,34 @@ export function Lancamentos() {
           <div className="relative w-full max-w-xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700">
             <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
               <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing?'Editar':'Novo'} Lançamento</h2>
-              <button onClick={()=>setShowDrawer(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-400"><X className="w-5 h-5"/></button>
+              <div className="flex items-center gap-1">
+                {isEditing && (
+                  <button
+                    type="button"
+                    title="Duplicar este lançamento"
+                    onClick={() => {
+                      setIsEditing(false);
+                      autoPagamentoRef.current = true;
+                      autoCompetenciaRef.current = true;
+                      setFormData((prev: any) => ({
+                        ...prev,
+                        id: null,
+                        status: 'PENDENTE',
+                        data_pagamento: prev.data_vencimento,
+                        valor_pago: '',
+                        is_parcelado: false,
+                        anexos: [],
+                      }));
+                      setFilesToUpload(null);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    Duplicar
+                  </button>
+                )}
+                <button onClick={()=>setShowDrawer(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-400"><X className="w-5 h-5"/></button>
+              </div>
             </div>
             
             <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative">

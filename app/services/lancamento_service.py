@@ -13,7 +13,8 @@ from app.models.lancamento import Lancamento
 from app.models.anexo_lancamento import AnexoLancamento
 from app.models.plano_contas import PlanoContas 
 from app.models.conta import Conta
-from app.crud import crud_plano_contas
+from app.models.empresa import Empresa
+from app.crud import crud_plano_contas, crud_auto_adjustment_config
 
 # Schemas 
 from app.schemas.lancamento import (
@@ -84,6 +85,206 @@ class LancamentoService:
         ids.update(int(item_id) for item_id in related if item_id is not None)
         return ids
 
+    def _auto_adjust_token(self, lancamento_id: int, kind: str) -> str:
+        return f"AUTO_AJUSTE:{lancamento_id}:{kind}"
+
+    def _get_empresa_tipo_pessoa(self, empresa_id: int) -> str:
+        empresa = self.session.get(Empresa, empresa_id)
+        if not empresa:
+            return "PJ"
+        value = str(empresa.tipo_pessoa or "PJ").strip().upper()
+        return value if value in {"PF", "PJ"} else "PJ"
+
+    def _resolve_adjust_category(self, *, empresa_id: int, nome: str, tipo: str, dre_grupo: str, user_id: int) -> int:
+        normalized_name = str(nome or "").strip()
+        normalized_tipo = (str(tipo or "D").strip().upper() or "D")[:1]
+        normalized_dre = str(dre_grupo or "DESPESAS_OPERACIONAIS").strip().upper()
+
+        existing = self.session.exec(
+            select(PlanoContas).where(
+                PlanoContas.empresa_id == empresa_id,
+                PlanoContas.is_deleted == False,
+                func.lower(PlanoContas.nome) == normalized_name.lower(),
+            )
+        ).first()
+        if existing and existing.id is not None:
+            if existing.tipo != normalized_tipo:
+                existing.tipo = normalized_tipo
+            existing.dre_grupo = normalized_dre
+            existing.eh_operacional = normalized_dre != "NAO_OPERACIONAL"
+            existing.permite_lancamentos = True
+            existing.considerar_nos_resultados = True
+            existing.updated_by_id = user_id
+            self.session.add(existing)
+            self.session.flush()
+            return int(existing.id)
+
+        created = PlanoContas(
+            nome=normalized_name,
+            tipo=normalized_tipo,
+            codigo=None,
+            empresa_id=empresa_id,
+            permite_lancamentos=True,
+            eh_operacional=normalized_dre != "NAO_OPERACIONAL",
+            considerar_nos_resultados=True,
+            dre_grupo=normalized_dre,
+            created_by_id=user_id,
+            updated_by_id=user_id,
+        )
+        self.session.add(created)
+        self.session.flush()
+        if created.id is None:
+            raise HTTPException(status_code=500, detail="Nao foi possivel criar categoria de ajuste automatico")
+        return int(created.id)
+
+    def _find_adjustment_by_token(self, *, empresa_id: int, token: str) -> Optional[Lancamento]:
+        return self.session.exec(
+            select(Lancamento).where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.origem == "AJUSTE_DIFERENCA",
+                Lancamento.observacao == token,
+            )
+        ).first()
+
+    def _soft_delete_adjustment(self, *, empresa_id: int, lancamento_id: int, kind: str, user_id: int) -> None:
+        token = self._auto_adjust_token(lancamento_id, kind)
+        existing = self._find_adjustment_by_token(empresa_id=empresa_id, token=token)
+        if not existing:
+            return
+        existing.is_deleted = True
+        existing.deleted_at = datetime.utcnow()
+        existing.deleted_by_id = user_id
+        existing.updated_by_id = user_id
+        self.session.add(existing)
+
+    def _soft_delete_all_adjustments_for_lancamento(self, *, empresa_id: int, lancamento_id: int, user_id: int) -> None:
+        token_prefix = f"AUTO_AJUSTE:{lancamento_id}:"
+        related = self.session.exec(
+            select(Lancamento).where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.origem == "AJUSTE_DIFERENCA",
+                Lancamento.observacao.like(f"{token_prefix}%"),
+            )
+        ).all()
+        for item in related:
+            item.is_deleted = True
+            item.deleted_at = datetime.utcnow()
+            item.deleted_by_id = user_id
+            item.updated_by_id = user_id
+            self.session.add(item)
+
+    def _upsert_auto_adjustment(self, lancamento: Lancamento, *, user_id: int) -> None:
+        if lancamento.id is None:
+            return
+        if self._is_transferencia(lancamento):
+            return
+        if str(lancamento.origem or "").upper() == "AJUSTE_DIFERENCA":
+            return
+
+        empresa_tipo = self._get_empresa_tipo_pessoa(int(lancamento.empresa_id))
+        config = crud_auto_adjustment_config.get_for_tipo_pessoa(self.session, tipo_pessoa=empresa_tipo)
+
+        if not lancamento.data_pagamento:
+            self._soft_delete_adjustment(empresa_id=int(lancamento.empresa_id), lancamento_id=int(lancamento.id), kind="juros_multa", user_id=user_id)
+            self._soft_delete_adjustment(empresa_id=int(lancamento.empresa_id), lancamento_id=int(lancamento.id), kind="descontos", user_id=user_id)
+            return
+
+        valor_previsto = Decimal(lancamento.valor_previsto or Decimal("0.00"))
+        valor_pago = Decimal(lancamento.valor_pago or Decimal("0.00"))
+        delta = valor_pago - valor_previsto
+
+        kind: Optional[str] = None
+        amount = Decimal("0.00")
+        tipo_lanc = str(lancamento.tipo or "").upper()
+
+        if tipo_lanc == "DESPESA" and delta > 0:
+            kind = "juros_multa"
+            amount = delta
+        elif tipo_lanc == "RECEITA" and delta < 0:
+            kind = "descontos"
+            amount = abs(delta)
+
+        for extra_kind in ("juros_multa", "descontos"):
+            if extra_kind != kind:
+                self._soft_delete_adjustment(empresa_id=int(lancamento.empresa_id), lancamento_id=int(lancamento.id), kind=extra_kind, user_id=user_id)
+
+        if not kind or amount <= 0:
+            return
+
+        target_cfg = (config or {}).get(kind) or {}
+        categoria_nome = str(target_cfg.get("categoria_nome") or ("Juros e Multas" if kind == "juros_multa" else "Descontos Concedidos"))
+        categoria_tipo = str(target_cfg.get("tipo") or "D")
+        categoria_dre = str(target_cfg.get("dre_grupo") or ("OUTRAS_DESPESAS" if kind == "juros_multa" else "DEDUCOES_RECEITA"))
+        categoria_id = self._resolve_adjust_category(
+            empresa_id=int(lancamento.empresa_id),
+            nome=categoria_nome,
+            tipo=categoria_tipo,
+            dre_grupo=categoria_dre,
+            user_id=user_id,
+        )
+
+        token = self._auto_adjust_token(int(lancamento.id), kind)
+        existing = self._find_adjustment_by_token(empresa_id=int(lancamento.empresa_id), token=token)
+        descricao_kind = "Juros/Multa" if kind == "juros_multa" else "Desconto"
+        base_date = lancamento.data_pagamento or lancamento.data_vencimento
+
+        if existing:
+            existing.descricao = f"Ajuste automatico ({descricao_kind}) - {lancamento.descricao}"
+            existing.tipo = "DESPESA" if categoria_tipo.upper().startswith("D") else "RECEITA"
+            existing.valor_previsto = amount
+            existing.valor_pago = amount
+            existing.valor_juros = amount if kind == "juros_multa" else Decimal("0.00")
+            existing.valor_multa = Decimal("0.00")
+            existing.valor_desconto = amount if kind == "descontos" else Decimal("0.00")
+            existing.status = "PAGO"
+            existing.previsto = True
+            existing.data_pagamento = base_date
+            existing.data_vencimento = base_date
+            existing.data_competencia = base_date
+            existing.competencia = self._format_competencia(base_date)
+            existing.plano_contas_id = categoria_id
+            existing.conta_id = lancamento.conta_id
+            existing.entidade_id = lancamento.entidade_id
+            existing.centro_custo_id = lancamento.centro_custo_id
+            existing.cartao_id = lancamento.cartao_id
+            existing.updated_by_id = user_id
+            existing.is_deleted = False
+            existing.deleted_at = None
+            existing.deleted_by_id = None
+            self.session.add(existing)
+            return
+
+        ajuste = Lancamento(
+            descricao=f"Ajuste automatico ({descricao_kind}) - {lancamento.descricao}",
+            tipo="DESPESA" if categoria_tipo.upper().startswith("D") else "RECEITA",
+            status="PAGO",
+            origem="AJUSTE_DIFERENCA",
+            ipp=False,
+            previsto=True,
+            valor_previsto=amount,
+            valor_pago=amount,
+            valor_juros=amount if kind == "juros_multa" else Decimal("0.00"),
+            valor_multa=Decimal("0.00"),
+            valor_desconto=amount if kind == "descontos" else Decimal("0.00"),
+            data_vencimento=base_date,
+            data_pagamento=base_date,
+            data_competencia=base_date,
+            competencia=self._format_competencia(base_date),
+            observacao=token,
+            conciliado=lancamento.conciliado,
+            empresa_id=lancamento.empresa_id,
+            plano_contas_id=categoria_id,
+            conta_id=lancamento.conta_id,
+            entidade_id=lancamento.entidade_id,
+            cartao_id=lancamento.cartao_id,
+            centro_custo_id=lancamento.centro_custo_id,
+            created_by_id=user_id,
+            updated_by_id=user_id,
+        )
+        self.session.add(ajuste)
+
     # --- Métodos CRUD Básicos ---
 
     def create(self, dados: LancamentoCreate, empresa_id: int, user_id: int) -> Lancamento:
@@ -109,10 +310,11 @@ class LancamentoService:
         self._aplicar_regras_negocio(db_lancamento)
 
         self.session.add(db_lancamento)
+        self.session.flush()
+        self._upsert_auto_adjustment(db_lancamento, user_id=user_id)
         self.session.commit()
         self.session.refresh(db_lancamento)
         return db_lancamento
-
     def get_by_id(self, lancamento_id: int, empresa_id: int) -> Lancamento:
         query = select(Lancamento).where(
             Lancamento.id == lancamento_id,
@@ -165,10 +367,11 @@ class LancamentoService:
         db_lancamento.updated_at = datetime.utcnow()
 
         self.session.add(db_lancamento)
+        self.session.flush()
+        self._upsert_auto_adjustment(db_lancamento, user_id=user_id)
         self.session.commit()
         self.session.refresh(db_lancamento)
         return db_lancamento
-
     def delete(self, lancamento_id: int, empresa_id: int, user_id: int):
         lancamento = self.get_by_id(lancamento_id, empresa_id)
         delete_ids = self._find_transfer_related_ids(lancamento) if self._is_transferencia(lancamento) else {int(lancamento.id)}
@@ -184,6 +387,12 @@ class LancamentoService:
             item.deleted_at = datetime.utcnow()
             item.deleted_by_id = user_id
             self.session.add(item)
+            if item.id is not None:
+                self._soft_delete_all_adjustments_for_lancamento(
+                    empresa_id=empresa_id,
+                    lancamento_id=int(item.id),
+                    user_id=user_id,
+                )
         self.session.commit()
 
     # --- Gestão de Anexos ---
@@ -224,11 +433,13 @@ class LancamentoService:
             self.session.add(obj)
             novos_objetos.append(obj)
         
+        self.session.flush()
+        for obj in novos_objetos:
+            self._upsert_auto_adjustment(obj, user_id=user_id)
         self.session.commit()
         for obj in novos_objetos:
             self.session.refresh(obj)
         return novos_objetos
-
     def deletar_em_massa(self, ids: List[int], empresa_id: int, user_id: int):
         statement = select(Lancamento).where(
             col(Lancamento.id).in_(ids),
@@ -258,6 +469,12 @@ class LancamentoService:
             lanc.deleted_at = datetime.utcnow()
             lanc.deleted_by_id = user_id
             self.session.add(lanc)
+            if lanc.id is not None:
+                self._soft_delete_all_adjustments_for_lancamento(
+                    empresa_id=empresa_id,
+                    lancamento_id=int(lanc.id),
+                    user_id=user_id,
+                )
         self.session.commit()
 
     def baixar_em_massa(self, ids: List[int], data_pagamento: date, conta_id: Optional[int], empresa_id: int, user_id: int) -> int:
@@ -282,11 +499,12 @@ class LancamentoService:
             lanc.updated_by_id = user_id
             lanc.updated_at = datetime.utcnow()
             self.session.add(lanc)
+            self.session.flush()
+            self._upsert_auto_adjustment(lanc, user_id=user_id)
             count += 1
             
         self.session.commit()
         return count
-
     def atualizar_em_massa(self, payload: BulkUpdateSchema, empresa_id: int, user_id: int) -> dict:
         statement = select(Lancamento).where(
             col(Lancamento.id).in_(payload.ids),
@@ -316,6 +534,8 @@ class LancamentoService:
 
                 lanc.updated_by_id = user_id
                 self.session.add(lanc)
+                self.session.flush()
+                self._upsert_auto_adjustment(lanc, user_id=user_id)
                 sucesso += 1
             except Exception as e:
                 erros.append(f"Erro ID {lanc.id}: {str(e)}")

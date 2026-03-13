@@ -106,6 +106,18 @@ interface BankPresetForm {
   is_active: boolean;
 }
 
+interface AutoAdjustmentConfig {
+  tipo_pessoa: 'PF' | 'PJ';
+  juros_multa_template_id: number | null;
+  descontos_template_id: number | null;
+  juros_multa_categoria_nome: string;
+  descontos_categoria_nome: string;
+  juros_multa_tipo: string;
+  descontos_tipo: string;
+  juros_multa_dre_grupo: string;
+  descontos_dre_grupo: string;
+}
+
 function getApiErrorDetails(error: any, fallback: string) {
   const detail = error?.response?.data?.detail;
   const message = error?.response?.data?.message;
@@ -228,6 +240,9 @@ export function Consultor() {
   const [templateCategorias, setTemplateCategorias] = useState<ItemSistema[]>([]);
   const [loadingTemplateCategorias, setLoadingTemplateCategorias] = useState(false);
   const [templateCategoriasError, setTemplateCategoriasError] = useState<string | null>(null);
+  const [autoAdjustConfig, setAutoAdjustConfig] = useState<AutoAdjustmentConfig | null>(null);
+  const [loadingAutoAdjustConfig, setLoadingAutoAdjustConfig] = useState(false);
+  const [savingAutoAdjustConfig, setSavingAutoAdjustConfig] = useState(false);
   const [bankPresets, setBankPresets] = useState<BankPreset[]>([]);
   const [loadingBankPresets, setLoadingBankPresets] = useState(false);
   const [savingBankPreset, setSavingBankPreset] = useState(false);
@@ -255,6 +270,7 @@ export function Consultor() {
     const canManageSeedTemplates = currentUser?.email?.trim().toLowerCase() === 'cirocaue12@gmail.com';
     if (!isSuperConsultor || !canManageSeedTemplates || activeTab !== 'planos-padrao') return;
     carregarTemplatePlanoContas(templateTipoPessoa);
+    carregarAutoAdjustmentConfig(templateTipoPessoa);
   }, [activeTab, isSuperConsultor, templateTipoPessoa, currentUser?.email]);
 
   useEffect(() => {
@@ -334,6 +350,38 @@ export function Consultor() {
       setTemplateCategorias([]);
     } finally {
       setLoadingTemplateCategorias(false);
+    }
+  }
+
+  async function carregarAutoAdjustmentConfig(tipoPessoa: 'PF' | 'PJ') {
+    try {
+      setLoadingAutoAdjustConfig(true);
+      const res = await api.get<AutoAdjustmentConfig>(`/consultor/super/auto-adjustment-config/${tipoPessoa}`);
+      setAutoAdjustConfig(res.data);
+    } catch (error) {
+      console.error(`[CONSULTOR][AUTO-AJUSTE] Falha ao carregar config ${tipoPessoa}`, error);
+      setAutoAdjustConfig(null);
+    } finally {
+      setLoadingAutoAdjustConfig(false);
+    }
+  }
+
+  async function salvarAutoAdjustmentConfig() {
+    if (!autoAdjustConfig) return;
+    try {
+      setSavingAutoAdjustConfig(true);
+      const payload = {
+        juros_multa_template_id: autoAdjustConfig.juros_multa_template_id,
+        descontos_template_id: autoAdjustConfig.descontos_template_id,
+      };
+      const res = await api.put<AutoAdjustmentConfig>(`/consultor/super/auto-adjustment-config/${templateTipoPessoa}`, payload);
+      setAutoAdjustConfig(res.data);
+      alert('Configuração de ajuste automático salva com sucesso.');
+    } catch (error) {
+      console.error('[CONSULTOR][AUTO-AJUSTE] Falha ao salvar config', error);
+      alert('Nao foi possivel salvar a configuração de ajuste automático.');
+    } finally {
+      setSavingAutoAdjustConfig(false);
     }
   }
 
@@ -895,6 +943,23 @@ export function Consultor() {
     emp.cnpj?.includes(searchTerm)
   );
 
+  const templateCategoriaOptions = useMemo(() => {
+    const walk = (items: ItemSistema[], depth: number): Array<{ id: number; label: string }> => {
+      const out: Array<{ id: number; label: string }> = [];
+      for (const item of items || []) {
+        out.push({
+          id: Number(item.id),
+          label: `${'\u00A0\u00A0'.repeat(depth)}${item.nome}`,
+        });
+        if (item.children?.length) {
+          out.push(...walk(item.children, depth + 1));
+        }
+      }
+      return out;
+    };
+    return walk(templateCategorias || [], 0);
+  }, [templateCategorias]);
+
   if (loading) return <div className="p-8 text-center text-slate-500 animate-pulse">Carregando...</div>;
 
   const canCreateTodo = (() => {
@@ -1231,6 +1296,62 @@ export function Consultor() {
                 </button>
               </div>
             </div>
+          </div>
+
+          <div className="rounded-3xl border border-amber-200 bg-amber-50/70 p-5 shadow-sm dark:border-amber-900 dark:bg-amber-500/10">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">Ajuste automatico global</p>
+                <h3 className="mt-2 text-lg font-black text-slate-900 dark:text-white">Categorias padrao para diferencas de pagamento</h3>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Despesa paga acima do previsto gera Juros/Multa. Receita recebida abaixo do previsto gera Desconto.</p>
+              </div>
+              <button
+                type="button"
+                onClick={salvarAutoAdjustmentConfig}
+                disabled={!autoAdjustConfig || loadingAutoAdjustConfig || savingAutoAdjustConfig}
+                className="rounded-2xl bg-amber-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {savingAutoAdjustConfig ? 'Salvando...' : 'Salvar configuracao'}
+              </button>
+            </div>
+
+            {loadingAutoAdjustConfig ? (
+              <div className="mt-4 text-sm text-slate-500 dark:text-slate-300">Carregando configuracao de ajuste automatico...</div>
+            ) : autoAdjustConfig ? (
+              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 dark:border-slate-700 dark:bg-slate-900/30">
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Juros e multa (despesa maior que prevista)</p>
+                  <select
+                    value={autoAdjustConfig.juros_multa_template_id ?? ''}
+                    onChange={(e) => setAutoAdjustConfig((prev) => prev ? ({ ...prev, juros_multa_template_id: e.target.value ? Number(e.target.value) : null }) : prev)}
+                    className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                  >
+                    <option value="">Sem categoria fixa (usar padrao interno)</option>
+                    {templateCategoriaOptions.map((item) => (
+                      <option key={`jm-${item.id}`} value={item.id}>{item.label}</option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Atual: {autoAdjustConfig.juros_multa_categoria_nome} ({autoAdjustConfig.juros_multa_dre_grupo})</p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 dark:border-slate-700 dark:bg-slate-900/30">
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Descontos (receita menor que prevista)</p>
+                  <select
+                    value={autoAdjustConfig.descontos_template_id ?? ''}
+                    onChange={(e) => setAutoAdjustConfig((prev) => prev ? ({ ...prev, descontos_template_id: e.target.value ? Number(e.target.value) : null }) : prev)}
+                    className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                  >
+                    <option value="">Sem categoria fixa (usar padrao interno)</option>
+                    {templateCategoriaOptions.map((item) => (
+                      <option key={`dc-${item.id}`} value={item.id}>{item.label}</option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Atual: {autoAdjustConfig.descontos_categoria_nome} ({autoAdjustConfig.descontos_dre_grupo})</p>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 text-sm text-rose-600 dark:text-rose-300">Nao foi possivel carregar a configuracao de ajuste automatico.</div>
+            )}
           </div>
 
           {loadingTemplateCategorias ? (

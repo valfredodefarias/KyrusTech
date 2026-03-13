@@ -21,7 +21,7 @@ from app.schemas.plano_contas import PlanoContasCreate, PlanoContasRead, PlanoCo
 from app.schemas.todo import TodoCreate, TodoUpdate, TodoRead
 from app.enums import ConsultorRole
 from app.core.security import get_password_hash
-from app.crud import crud_plano_contas
+from app.crud import crud_plano_contas, crud_auto_adjustment_config
 from app.crud.crud_consultor_empresa import tem_acesso
 from pydantic import BaseModel
 
@@ -142,6 +142,23 @@ class PlanoContasTemplateReordenacaoItem(BaseModel):
     codigo: str
     conta_pai_id: Optional[int] = None
     tipo: str
+
+
+class AutoAdjustmentConfigWrite(BaseModel):
+    juros_multa_template_id: Optional[int] = None
+    descontos_template_id: Optional[int] = None
+
+
+class AutoAdjustmentConfigRead(BaseModel):
+    tipo_pessoa: str
+    juros_multa_template_id: Optional[int] = None
+    descontos_template_id: Optional[int] = None
+    juros_multa_categoria_nome: str
+    descontos_categoria_nome: str
+    juros_multa_tipo: str
+    descontos_tipo: str
+    juros_multa_dre_grupo: str
+    descontos_dre_grupo: str
 
 
 @router.get("/empresas", response_model=List[EmpresaRead])
@@ -1020,6 +1037,88 @@ def reordenar_template_plano_contas(
     except Exception as exc:
         logger.exception(f"[SUPER][TEMPLATE] Falha ao reordenar template {tipo_pessoa} para {super_consultor.email}: {exc}")
         raise HTTPException(status_code=500, detail=f"Erro ao reordenar template de plano de contas {tipo_pessoa}")
+
+
+@router.get("/super/auto-adjustment-config/{tipo_pessoa}", response_model=AutoAdjustmentConfigRead)
+def obter_config_ajuste_automatico(
+    tipo_pessoa: str,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    _assert_seed_template_manager(super_consultor)
+    normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
+    config = crud_auto_adjustment_config.get_for_tipo_pessoa(db=db, tipo_pessoa=normalized)
+    juros = config.get("juros_multa") or {}
+    descontos = config.get("descontos") or {}
+    return AutoAdjustmentConfigRead(
+        tipo_pessoa=normalized,
+        juros_multa_template_id=juros.get("template_id"),
+        descontos_template_id=descontos.get("template_id"),
+        juros_multa_categoria_nome=str(juros.get("categoria_nome") or "Juros e Multas"),
+        descontos_categoria_nome=str(descontos.get("categoria_nome") or "Descontos Concedidos"),
+        juros_multa_tipo=str(juros.get("tipo") or "D"),
+        descontos_tipo=str(descontos.get("tipo") or "D"),
+        juros_multa_dre_grupo=str(juros.get("dre_grupo") or "OUTRAS_DESPESAS"),
+        descontos_dre_grupo=str(descontos.get("dre_grupo") or "DEDUCOES_RECEITA"),
+    )
+
+
+@router.put("/super/auto-adjustment-config/{tipo_pessoa}", response_model=AutoAdjustmentConfigRead)
+def salvar_config_ajuste_automatico(
+    tipo_pessoa: str,
+    payload: AutoAdjustmentConfigWrite,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    _assert_seed_template_manager(super_consultor)
+    normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
+
+    template_items = crud_plano_contas.get_template_items(db=db, tipo_pessoa=normalized)
+    template_index = _template_items_index(template_items)
+
+    juros_item = template_index.get(int(payload.juros_multa_template_id)) if payload.juros_multa_template_id is not None else None
+    descontos_item = template_index.get(int(payload.descontos_template_id)) if payload.descontos_template_id is not None else None
+
+    if payload.juros_multa_template_id is not None and juros_item is None:
+        raise HTTPException(status_code=404, detail="Categoria de juros/multa não encontrada no template")
+    if payload.descontos_template_id is not None and descontos_item is None:
+        raise HTTPException(status_code=404, detail="Categoria de descontos não encontrada no template")
+
+    juros_payload = {
+        "template_id": int(juros_item["id"]) if juros_item else None,
+        "categoria_nome": str((juros_item or {}).get("nome") or "Juros e Multas"),
+        "tipo": str((juros_item or {}).get("tipo") or "D"),
+        "dre_grupo": str((juros_item or {}).get("dre_grupo") or "OUTRAS_DESPESAS"),
+    }
+    descontos_payload = {
+        "template_id": int(descontos_item["id"]) if descontos_item else None,
+        "categoria_nome": str((descontos_item or {}).get("nome") or "Descontos Concedidos"),
+        "tipo": str((descontos_item or {}).get("tipo") or "D"),
+        "dre_grupo": str((descontos_item or {}).get("dre_grupo") or "DEDUCOES_RECEITA"),
+    }
+
+    saved = crud_auto_adjustment_config.save_for_tipo_pessoa(
+        db=db,
+        tipo_pessoa=normalized,
+        juros_multa=juros_payload,
+        descontos=descontos_payload,
+    )
+
+    logger.warning(f"[SUPER] {super_consultor.email} salvou config global de ajuste automático {normalized}")
+
+    juros = saved.get("juros_multa") or {}
+    descontos = saved.get("descontos") or {}
+    return AutoAdjustmentConfigRead(
+        tipo_pessoa=normalized,
+        juros_multa_template_id=juros.get("template_id"),
+        descontos_template_id=descontos.get("template_id"),
+        juros_multa_categoria_nome=str(juros.get("categoria_nome") or "Juros e Multas"),
+        descontos_categoria_nome=str(descontos.get("categoria_nome") or "Descontos Concedidos"),
+        juros_multa_tipo=str(juros.get("tipo") or "D"),
+        descontos_tipo=str(descontos.get("tipo") or "D"),
+        juros_multa_dre_grupo=str(juros.get("dre_grupo") or "OUTRAS_DESPESAS"),
+        descontos_dre_grupo=str(descontos.get("dre_grupo") or "DEDUCOES_RECEITA"),
+    )
 
 
 # ==========================================

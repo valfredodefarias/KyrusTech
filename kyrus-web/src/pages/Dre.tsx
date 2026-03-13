@@ -80,12 +80,20 @@ function parseMonthIndex(dateValue?: string | null) {
   return Number.isFinite(month) && month >= 1 && month <= 12 ? month - 1 : -1;
 }
 
-function resolveCompetenciaDate(lancamento: LancamentoResumo) {
+function isLancamentoPago(lancamento: LancamentoResumo) {
+  const status = String(lancamento.status || '').toUpperCase();
+  const valorPago = Number(lancamento.valor_pago || 0);
+  return status === 'PAGO' || Boolean(lancamento.data_pagamento) || valorPago !== 0;
+}
+
+function resolveCompetenciaDate(lancamento: LancamentoResumo, somentePagos = false) {
+  if (somentePagos) return lancamento.data_pagamento || null;
   return lancamento.data_competencia || lancamento.data_vencimento || null;
 }
 
-function resolveLancamentoValue(lancamento: LancamentoResumo) {
+function resolveLancamentoValue(lancamento: LancamentoResumo, somentePagos = false) {
   const valorPago = Number(lancamento.valor_pago || 0);
+  if (somentePagos) return valorPago;
   if (lancamento.data_pagamento || valorPago !== 0) {
     return valorPago !== 0 ? valorPago : Number(lancamento.valor_previsto || 0);
   }
@@ -203,6 +211,7 @@ export function Dre() {
   const [selectedContaId, setSelectedContaId] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [hoveredKpi, setHoveredKpi] = useState<string | null>(null);
+  const [somentePagos, setSomentePagos] = useState(true);
   const isDark = useIsDarkMode();
 
   useEffect(() => {
@@ -240,9 +249,12 @@ export function Dre() {
   }, [ano]);
 
   const lancamentosFiltrados = useMemo(() => {
-    if (selectedCentroCustoId === 'ALL') return lancamentos;
-    return lancamentos.filter((item) => Number(item.centro_custo_id) === selectedCentroCustoId);
-  }, [lancamentos, selectedCentroCustoId]);
+    return lancamentos.filter((item) => {
+      if (selectedCentroCustoId !== 'ALL' && Number(item.centro_custo_id) !== selectedCentroCustoId) return false;
+      if (somentePagos && !isLancamentoPago(item)) return false;
+      return true;
+    });
+  }, [lancamentos, selectedCentroCustoId, somentePagos]);
 
   const dre = useMemo(() => {
     const relevantes = categorias.filter((conta) => isReceita(conta.tipo) || isDespesa(conta.tipo));
@@ -300,13 +312,13 @@ export function Dre() {
     lancamentosFiltrados.forEach((lancamento) => {
       const contaId = Number(lancamento.plano_contas_id);
       if (!contaPorId.has(contaId)) return;
-      const monthIndex = parseMonthIndex(resolveCompetenciaDate(lancamento));
+      const monthIndex = parseMonthIndex(resolveCompetenciaDate(lancamento, somentePagos));
       if (monthIndex < 0) return;
       const conta = contaPorId.get(contaId);
       if (!conta) return;
       const dreGrupo = resolverDreGrupo(contaId);
       if (dreGrupo === 'NAO_OPERACIONAL') return;
-      const value = resolveLancamentoValue(lancamento);
+      const value = resolveLancamentoValue(lancamento, somentePagos);
       const values = valoresDiretos.get(contaId) || Array.from({ length: 12 }, () => 0);
       values[monthIndex] += value;
       valoresDiretos.set(contaId, values);
@@ -476,49 +488,49 @@ export function Dre() {
       lucratividadeFinalTotal,
       pontoEquilibrioTotal,
     };
-  }, [categorias, lancamentosFiltrados]);
+  }, [categorias, lancamentosFiltrados, somentePagos]);
 
   const kpiBreakdown = useMemo(() => {
     const mcPercent = dre.percentualMcTotal;
     const peExplanation = mcPercent && mcPercent > 0
-      ? `${renderMoneyCell(dre.despesaOperacionalCoreTotal, 'resultado')} / ${renderPercentCell(mcPercent)}`
+      ? `${moneyFormatter.format(dre.despesaOperacionalCoreTotal)} / ${percentFormatter.format(mcPercent)}`
       : 'Sem %MC positivo. Revise classificacao em Receita Liquida, Deducoes e Custos Variaveis.';
 
     return {
       receitaLiquida: {
         title: 'Receita liquida',
         formula: 'Receita bruta - Deducoes da receita',
-        detail: `${renderMoneyCell(dre.receitaTotal, 'resultado')} - ${renderMoneyCell(dre.deducoesTotal, 'resultado')}`,
+        detail: `${moneyFormatter.format(dre.receitaTotal)} - ${moneyFormatter.format(dre.deducoesTotal)}`,
       },
       margemContribuicao: {
         title: 'Margem de contribuicao',
         formula: 'Receita liquida - Custos variaveis',
-        detail: `${renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')} - ${renderMoneyCell(dre.custosVariaveisTotal, 'resultado')}`,
+        detail: `${moneyFormatter.format(dre.receitaLiquidaTotal)} - ${moneyFormatter.format(dre.custosVariaveisTotal)}`,
       },
       resultadoOperacional: {
         title: 'Resultado operacional',
         formula: 'Margem de contribuicao - Despesas operacionais',
-        detail: `${renderMoneyCell(dre.margemContribuicaoTotal, 'resultado')} - ${renderMoneyCell(dre.despesaOperacionalCoreTotal, 'resultado')}`,
+        detail: `${moneyFormatter.format(dre.margemContribuicaoTotal)} - ${moneyFormatter.format(dre.despesaOperacionalCoreTotal)}`,
       },
       resultadoFinal: {
         title: 'Resultado final',
         formula: 'Resultado operacional + Outras receitas - Outras despesas',
-        detail: `${renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')} + ${renderMoneyCell(dre.outrasReceitasTotal, 'resultado')} - ${renderMoneyCell(dre.outrasDespesasTotal, 'resultado')}`,
+        detail: `${moneyFormatter.format(dre.resultadoOperacionalTotal)} + ${moneyFormatter.format(dre.outrasReceitasTotal)} - ${moneyFormatter.format(dre.outrasDespesasTotal)}`,
       },
       lucratividadeOperacional: {
         title: 'Lucratividade operacional',
         formula: 'Resultado operacional / Receita liquida',
-        detail: `${renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')} / ${renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')}`,
+        detail: `${moneyFormatter.format(dre.resultadoOperacionalTotal)} / ${moneyFormatter.format(dre.receitaLiquidaTotal)}`,
       },
       lucratividadeFinal: {
         title: 'Lucratividade final',
         formula: 'Resultado final / Receita liquida',
-        detail: `${renderMoneyCell(dre.resultadoFinalTotal, 'resultado')} / ${renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')}`,
+        detail: `${moneyFormatter.format(dre.resultadoFinalTotal)} / ${moneyFormatter.format(dre.receitaLiquidaTotal)}`,
       },
       percentualMc: {
         title: '% MC',
         formula: 'Margem de contribuicao / Receita liquida',
-        detail: `${renderMoneyCell(dre.margemContribuicaoTotal, 'resultado')} / ${renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')}`,
+        detail: `${moneyFormatter.format(dre.margemContribuicaoTotal)} / ${moneyFormatter.format(dre.receitaLiquidaTotal)}`,
       },
       pontoEquilibrio: {
         title: 'Ponto de equilibrio',
@@ -544,13 +556,13 @@ export function Dre() {
     if (!selectedContaId) return [] as LancamentoResumo[];
     const ids = new Set(dre.descendantsById.get(selectedContaId) || [selectedContaId]);
     return lancamentosFiltrados
-      .filter((item) => ids.has(Number(item.plano_contas_id)) && (selectedMonth === null || parseMonthIndex(resolveCompetenciaDate(item)) === selectedMonth))
+      .filter((item) => ids.has(Number(item.plano_contas_id)) && (selectedMonth === null || parseMonthIndex(resolveCompetenciaDate(item, somentePagos)) === selectedMonth))
       .sort((left, right) => {
-        const rightDate = resolveCompetenciaDate(right) || right.data_vencimento;
-        const leftDate = resolveCompetenciaDate(left) || left.data_vencimento;
+        const rightDate = resolveCompetenciaDate(right, somentePagos) || right.data_vencimento || right.data_pagamento || '1900-01-01';
+        const leftDate = resolveCompetenciaDate(left, somentePagos) || left.data_vencimento || left.data_pagamento || '1900-01-01';
         return new Date(`${rightDate.slice(0, 10)}T00:00:00`).getTime() - new Date(`${leftDate.slice(0, 10)}T00:00:00`).getTime();
       });
-  }, [dre.descendantsById, lancamentosFiltrados, selectedContaId, selectedMonth]);
+  }, [dre.descendantsById, lancamentosFiltrados, selectedContaId, selectedMonth, somentePagos]);
 
   const selectedMonthly = useMemo(() => {
     if (!selectedContaId) return Array.from({ length: 12 }, () => 0);
@@ -558,12 +570,12 @@ export function Dre() {
     const monthly = Array.from({ length: 12 }, () => 0);
     lancamentosFiltrados.forEach((item) => {
       if (!ids.has(Number(item.plano_contas_id))) return;
-      const monthIndex = parseMonthIndex(resolveCompetenciaDate(item));
+      const monthIndex = parseMonthIndex(resolveCompetenciaDate(item, somentePagos));
       if (monthIndex < 0) return;
-      monthly[monthIndex] += resolveLancamentoValue(item);
+      monthly[monthIndex] += resolveLancamentoValue(item, somentePagos);
     });
     return monthly;
-  }, [dre.descendantsById, lancamentosFiltrados, selectedContaId]);
+  }, [dre.descendantsById, lancamentosFiltrados, selectedContaId, somentePagos]);
 
   const pageBg = isDark
     ? 'bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.10),transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_48%,#111827_100%)] text-slate-100'
@@ -618,6 +630,21 @@ export function Dre() {
                   ))}
                 </select>
               </div>
+
+              <div className={`rounded-[22px] border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
+                <label className={`block text-[10px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Lançamentos</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSomentePagos((prev) => !prev);
+                    setSelectedContaId(null);
+                    setSelectedMonth(null);
+                  }}
+                  className={`mt-2 w-44 rounded-xl border px-3 py-2 text-sm font-black transition ${somentePagos ? 'border-emerald-600 bg-emerald-600 text-white' : isDark ? 'border-slate-600 bg-slate-800 text-slate-200' : 'border-slate-300 bg-white text-slate-700'}`}
+                >
+                  {somentePagos ? 'Somente pagos' : 'Pagos + previstos'}
+                </button>
+              </div>
             </div>
           </div>
         </section>
@@ -638,6 +665,12 @@ export function Dre() {
           <MetricCard label="% MC" value={renderPercentCell(dre.percentualMcTotal)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('percentualMc')} onMouseLeave={() => setHoveredKpi(null)} />
           <MetricCard label="Ponto de equilíbrio" value={renderOptionalMoney(dre.pontoEquilibrioTotal, 'resultado')} tone="slate" icon={<CalendarDays className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('pontoEquilibrio')} onMouseLeave={() => setHoveredKpi(null)} />
         </section>
+
+        {somentePagos ? (
+          <p className={`text-xs font-bold ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>
+            DRE calculada somente com lancamentos pagos (competencia pela data de pagamento).
+          </p>
+        ) : null}
 
         {hoveredKpi && kpiBreakdown[hoveredKpi as keyof typeof kpiBreakdown] ? (
           <aside className={`fixed bottom-5 right-5 z-50 w-[min(92vw,430px)] rounded-2xl border px-4 py-3 shadow-2xl ${isDark ? 'border-slate-700 bg-slate-950/95 text-slate-100' : 'border-slate-200 bg-white/95 text-slate-900'}`}>
@@ -686,7 +719,7 @@ export function Dre() {
                           setSelectedContaId((prev) => prev === row.id ? null : row.id);
                           setSelectedMonth(null);
                         }}
-                        className={`sticky left-0 z-1 cursor-pointer border-b border-r px-5 py-3 transition ${isSelected ? 'ring-1 ring-inset ring-sky-400/60' : ''} ${row.hasChildren ? isDark ? 'border-slate-700 bg-emerald-500/10 font-black text-white' : 'border-slate-200 bg-emerald-50 font-black text-slate-900' : isDark ? rowIndex % 2 === 0 ? 'border-slate-800 bg-slate-950/20 font-semibold text-slate-300' : 'border-slate-800 bg-slate-900/30 font-semibold text-slate-300' : rowIndex % 2 === 0 ? 'border-slate-200 bg-white font-semibold text-slate-600' : 'border-slate-200 bg-slate-50/60 font-semibold text-slate-600'}`}
+                        className={`sticky left-0 z-10 cursor-pointer border-b border-r px-5 py-3 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.75)] transition ${isSelected ? 'ring-1 ring-inset ring-sky-400/60' : ''} ${row.hasChildren ? isDark ? 'border-slate-700 bg-emerald-900 font-black text-white' : 'border-slate-200 bg-emerald-100 font-black text-slate-900' : isDark ? rowIndex % 2 === 0 ? 'border-slate-800 bg-slate-950 font-semibold text-slate-300' : 'border-slate-800 bg-slate-900 font-semibold text-slate-300' : rowIndex % 2 === 0 ? 'border-slate-200 bg-white font-semibold text-slate-700' : 'border-slate-200 bg-slate-50 font-semibold text-slate-700'}`}
                       >
                         <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 18}px` }}>
                           <span className="min-w-0 truncate">{row.codigo ? `${row.codigo} ${row.nome}` : row.nome}</span>
@@ -739,7 +772,7 @@ export function Dre() {
                           setSelectedContaId((prev) => prev === row.id ? null : row.id);
                           setSelectedMonth(null);
                         }}
-                        className={`sticky left-0 z-1 cursor-pointer border-b border-r px-5 py-3 transition ${isSelected ? 'ring-1 ring-inset ring-sky-400/60' : ''} ${row.hasChildren ? isDark ? 'border-slate-700 bg-rose-500/10 font-black text-white' : 'border-slate-200 bg-rose-50 font-black text-slate-900' : isDark ? rowIndex % 2 === 0 ? 'border-slate-800 bg-slate-950/20 font-semibold text-slate-300' : 'border-slate-800 bg-slate-900/30 font-semibold text-slate-300' : rowIndex % 2 === 0 ? 'border-slate-200 bg-white font-semibold text-slate-600' : 'border-slate-200 bg-slate-50/60 font-semibold text-slate-600'}`}
+                        className={`sticky left-0 z-10 cursor-pointer border-b border-r px-5 py-3 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.75)] transition ${isSelected ? 'ring-1 ring-inset ring-sky-400/60' : ''} ${row.hasChildren ? isDark ? 'border-slate-700 bg-rose-900 font-black text-white' : 'border-slate-200 bg-rose-100 font-black text-slate-900' : isDark ? rowIndex % 2 === 0 ? 'border-slate-800 bg-slate-950 font-semibold text-slate-300' : 'border-slate-800 bg-slate-900 font-semibold text-slate-300' : rowIndex % 2 === 0 ? 'border-slate-200 bg-white font-semibold text-slate-700' : 'border-slate-200 bg-slate-50 font-semibold text-slate-700'}`}
                       >
                         <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 18}px` }}>
                           <span className="min-w-0 truncate">{row.codigo ? `${row.codigo} ${row.nome}` : row.nome}</span>
@@ -781,25 +814,25 @@ export function Dre() {
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Margem de contribuição</td>
-                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black ${dre.margemContribuicaoTotal >= 0 ? isDark ? 'bg-emerald-500/10 text-white' : 'bg-emerald-100 text-slate-900' : isDark ? 'bg-rose-500/10 text-white' : 'bg-rose-100 text-slate-900'}`}>{renderMoneyCell(dre.margemContribuicaoTotal, 'resultado')}</td>
+                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.margemContribuicaoTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(dre.margemContribuicaoTotal, 'resultado')}</td>
                   {dre.margemContribuicaoMonthly.map((value, index) => (
-                    <td key={`mc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${value >= 0 ? isDark ? 'bg-emerald-500/10 text-white' : 'bg-emerald-50 text-slate-900' : isDark ? 'bg-rose-500/10 text-white' : 'bg-rose-50 text-slate-900'}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td key={`mc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(value, 'resultado')}</td>
                   ))}
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado operacional</td>
-                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black ${dre.resultadoOperacionalTotal >= 0 ? isDark ? 'bg-emerald-500/10 text-white' : 'bg-emerald-100 text-slate-900' : isDark ? 'bg-rose-500/10 text-white' : 'bg-rose-100 text-slate-900'}`}>{renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')}</td>
+                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.resultadoOperacionalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')}</td>
                   {dre.resultadoOperacionalMonthly.map((value, index) => (
-                    <td key={`resultado-operacional-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${value >= 0 ? isDark ? 'bg-emerald-500/10 text-white' : 'bg-emerald-50 text-slate-900' : isDark ? 'bg-rose-500/10 text-white' : 'bg-rose-50 text-slate-900'}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td key={`resultado-operacional-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(value, 'resultado')}</td>
                   ))}
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado final</td>
-                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black ${dre.resultadoFinalTotal >= 0 ? isDark ? 'bg-emerald-500/10 text-white' : 'bg-emerald-100 text-slate-900' : isDark ? 'bg-rose-500/10 text-white' : 'bg-rose-100 text-slate-900'}`}>{renderMoneyCell(dre.resultadoFinalTotal, 'resultado')}</td>
+                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.resultadoFinalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(dre.resultadoFinalTotal, 'resultado')}</td>
                   {dre.resultadoFinalMonthly.map((value, index) => (
-                    <td key={`resultado-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${value >= 0 ? isDark ? 'bg-emerald-500/10 text-white' : 'bg-emerald-50 text-slate-900' : isDark ? 'bg-rose-500/10 text-white' : 'bg-rose-50 text-slate-900'}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td key={`resultado-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(value, 'resultado')}</td>
                   ))}
                 </tr>
 

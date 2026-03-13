@@ -135,12 +135,16 @@ function MetricCard({
   tone,
   icon,
   isDark,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   tone: 'emerald' | 'rose' | 'slate';
   icon: React.ReactNode;
   isDark: boolean;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }) {
   const toneClass = {
     emerald: isDark ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-700',
@@ -149,7 +153,11 @@ function MetricCard({
   }[tone];
 
   return (
-    <div className={`rounded-3xl border px-5 py-4 ${toneClass}`}>
+    <div
+      className={`rounded-3xl border px-5 py-4 ${toneClass}`}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.24em] opacity-60">{label}</p>
@@ -162,19 +170,25 @@ function MetricCard({
 }
 
 function renderMoneyCell(value: number, tone?: 'receita' | 'despesa' | 'resultado') {
-  if (Math.abs(value) < 0.009) return 'R$ 0';
-  if (tone === 'resultado') return moneyFormatter.format(value);
-  return moneyFormatter.format(Math.abs(value));
+  let display = 'R$ 0';
+  if (Math.abs(value) >= 0.009) {
+    if (tone === 'resultado' && value < 0) {
+      display = `-\u00A0${moneyFormatter.format(Math.abs(value))}`;
+    } else {
+      display = moneyFormatter.format(tone === 'resultado' ? value : Math.abs(value));
+    }
+  }
+  return <span className="whitespace-nowrap tabular-nums">{display}</span>;
 }
 
 function renderOptionalMoney(value?: number | null, tone?: 'receita' | 'despesa' | 'resultado') {
-  if (value === null || value === undefined || !Number.isFinite(value)) return '-';
+  if (value === null || value === undefined || !Number.isFinite(value)) return <span className="whitespace-nowrap tabular-nums">-</span>;
   return renderMoneyCell(value, tone);
 }
 
 function renderPercentCell(value?: number | null) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return '-';
-  return percentFormatter.format(value);
+  if (value === null || value === undefined || !Number.isFinite(value)) return <span className="whitespace-nowrap tabular-nums">-</span>;
+  return <span className="whitespace-nowrap tabular-nums">{percentFormatter.format(value)}</span>;
 }
 
 export function Dre() {
@@ -188,6 +202,7 @@ export function Dre() {
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>('ALL');
   const [selectedContaId, setSelectedContaId] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const [hoveredKpi, setHoveredKpi] = useState<string | null>(null);
   const isDark = useIsDarkMode();
 
   useEffect(() => {
@@ -288,14 +303,13 @@ export function Dre() {
       const monthIndex = parseMonthIndex(resolveCompetenciaDate(lancamento));
       if (monthIndex < 0) return;
       const conta = contaPorId.get(contaId);
+      if (!conta) return;
+      const dreGrupo = resolverDreGrupo(contaId);
+      if (dreGrupo === 'NAO_OPERACIONAL') return;
       const value = resolveLancamentoValue(lancamento);
       const values = valoresDiretos.get(contaId) || Array.from({ length: 12 }, () => 0);
       values[monthIndex] += value;
       valoresDiretos.set(contaId, values);
-
-      if (!conta) return;
-
-      const dreGrupo = resolverDreGrupo(contaId);
 
       if (isReceita(conta.tipo)) {
         if (dreGrupo === 'OUTRAS_RECEITAS') {
@@ -409,6 +423,9 @@ export function Dre() {
 
     const receitaTotal = sumValues(receitaMonthly);
     const despesaTotal = sumValues(despesaMonthly);
+    const deducoesTotal = sumValues(deducoesMonthly);
+    const custosVariaveisTotal = sumValues(custosVariaveisMonthly);
+    const despesaOperacionalCoreTotal = sumValues(despesaOperacionalCoreMonthly);
     const outrasReceitasTotal = sumValues(outrasReceitasMonthly);
     const outrasDespesasTotal = sumValues(outrasDespesasMonthly);
     const receitaLiquidaTotal = sumValues(receitaLiquidaMonthly);
@@ -419,7 +436,7 @@ export function Dre() {
     const lucratividadeOperacionalTotal = receitaLiquidaTotal > 0 ? resultadoOperacionalTotal / receitaLiquidaTotal : null;
     const lucratividadeFinalTotal = receitaLiquidaTotal > 0 ? resultadoFinalTotal / receitaLiquidaTotal : null;
     const pontoEquilibrioTotal = percentualMcTotal && percentualMcTotal > 0
-      ? sumValues(despesaOperacionalCoreMonthly) / percentualMcTotal
+      ? despesaOperacionalCoreTotal / percentualMcTotal
       : null;
 
     return {
@@ -435,6 +452,9 @@ export function Dre() {
       outrasDespesasMonthly,
       receitaMonthly,
       despesaMonthly,
+      deducoesTotal,
+      custosVariaveisTotal,
+      despesaOperacionalCoreTotal,
       receitaLiquidaMonthly,
       margemContribuicaoMonthly,
       resultadoOperacionalMonthly,
@@ -457,6 +477,56 @@ export function Dre() {
       pontoEquilibrioTotal,
     };
   }, [categorias, lancamentosFiltrados]);
+
+  const kpiBreakdown = useMemo(() => {
+    const mcPercent = dre.percentualMcTotal;
+    const peExplanation = mcPercent && mcPercent > 0
+      ? `${renderMoneyCell(dre.despesaOperacionalCoreTotal, 'resultado')} / ${renderPercentCell(mcPercent)}`
+      : 'Sem %MC positivo. Revise classificacao em Receita Liquida, Deducoes e Custos Variaveis.';
+
+    return {
+      receitaLiquida: {
+        title: 'Receita liquida',
+        formula: 'Receita bruta - Deducoes da receita',
+        detail: `${renderMoneyCell(dre.receitaTotal, 'resultado')} - ${renderMoneyCell(dre.deducoesTotal, 'resultado')}`,
+      },
+      margemContribuicao: {
+        title: 'Margem de contribuicao',
+        formula: 'Receita liquida - Custos variaveis',
+        detail: `${renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')} - ${renderMoneyCell(dre.custosVariaveisTotal, 'resultado')}`,
+      },
+      resultadoOperacional: {
+        title: 'Resultado operacional',
+        formula: 'Margem de contribuicao - Despesas operacionais',
+        detail: `${renderMoneyCell(dre.margemContribuicaoTotal, 'resultado')} - ${renderMoneyCell(dre.despesaOperacionalCoreTotal, 'resultado')}`,
+      },
+      resultadoFinal: {
+        title: 'Resultado final',
+        formula: 'Resultado operacional + Outras receitas - Outras despesas',
+        detail: `${renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')} + ${renderMoneyCell(dre.outrasReceitasTotal, 'resultado')} - ${renderMoneyCell(dre.outrasDespesasTotal, 'resultado')}`,
+      },
+      lucratividadeOperacional: {
+        title: 'Lucratividade operacional',
+        formula: 'Resultado operacional / Receita liquida',
+        detail: `${renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')} / ${renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')}`,
+      },
+      lucratividadeFinal: {
+        title: 'Lucratividade final',
+        formula: 'Resultado final / Receita liquida',
+        detail: `${renderMoneyCell(dre.resultadoFinalTotal, 'resultado')} / ${renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')}`,
+      },
+      percentualMc: {
+        title: '% MC',
+        formula: 'Margem de contribuicao / Receita liquida',
+        detail: `${renderMoneyCell(dre.margemContribuicaoTotal, 'resultado')} / ${renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')}`,
+      },
+      pontoEquilibrio: {
+        title: 'Ponto de equilibrio',
+        formula: 'Despesas operacionais / %MC',
+        detail: peExplanation,
+      },
+    };
+  }, [dre]);
 
   useEffect(() => {
     if (!selectedContaId) return;
@@ -559,15 +629,24 @@ export function Dre() {
         ) : null}
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label="Receita líquida" value={moneyFormatter.format(dre.receitaLiquidaTotal)} tone="emerald" icon={<TrendingUp className="h-5 w-5" />} isDark={isDark} />
-          <MetricCard label="Margem de contribuição" value={moneyFormatter.format(dre.margemContribuicaoTotal)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} />
-          <MetricCard label="Resultado operacional" value={moneyFormatter.format(dre.resultadoOperacionalTotal)} tone="slate" icon={<CalendarDays className="h-5 w-5" />} isDark={isDark} />
-          <MetricCard label="Resultado final" value={moneyFormatter.format(dre.resultadoFinalTotal)} tone="slate" icon={<TrendingDown className="h-5 w-5" />} isDark={isDark} />
-          <MetricCard label="Lucratividade operacional" value={renderPercentCell(dre.lucratividadeOperacionalTotal)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} />
-          <MetricCard label="Lucratividade final" value={renderPercentCell(dre.lucratividadeFinalTotal)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} />
-          <MetricCard label="% MC" value={renderPercentCell(dre.percentualMcTotal)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} />
-          <MetricCard label="Ponto de equilíbrio" value={renderOptionalMoney(dre.pontoEquilibrioTotal, 'resultado')} tone="slate" icon={<CalendarDays className="h-5 w-5" />} isDark={isDark} />
+          <MetricCard label="Receita líquida" value={moneyFormatter.format(dre.receitaLiquidaTotal)} tone="emerald" icon={<TrendingUp className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('receitaLiquida')} onMouseLeave={() => setHoveredKpi(null)} />
+          <MetricCard label="Margem de contribuição" value={moneyFormatter.format(dre.margemContribuicaoTotal)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('margemContribuicao')} onMouseLeave={() => setHoveredKpi(null)} />
+          <MetricCard label="Resultado operacional" value={moneyFormatter.format(dre.resultadoOperacionalTotal)} tone="slate" icon={<CalendarDays className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('resultadoOperacional')} onMouseLeave={() => setHoveredKpi(null)} />
+          <MetricCard label="Resultado final" value={moneyFormatter.format(dre.resultadoFinalTotal)} tone="slate" icon={<TrendingDown className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('resultadoFinal')} onMouseLeave={() => setHoveredKpi(null)} />
+          <MetricCard label="Lucratividade operacional" value={renderPercentCell(dre.lucratividadeOperacionalTotal)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('lucratividadeOperacional')} onMouseLeave={() => setHoveredKpi(null)} />
+          <MetricCard label="Lucratividade final" value={renderPercentCell(dre.lucratividadeFinalTotal)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('lucratividadeFinal')} onMouseLeave={() => setHoveredKpi(null)} />
+          <MetricCard label="% MC" value={renderPercentCell(dre.percentualMcTotal)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('percentualMc')} onMouseLeave={() => setHoveredKpi(null)} />
+          <MetricCard label="Ponto de equilíbrio" value={renderOptionalMoney(dre.pontoEquilibrioTotal, 'resultado')} tone="slate" icon={<CalendarDays className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('pontoEquilibrio')} onMouseLeave={() => setHoveredKpi(null)} />
         </section>
+
+        {hoveredKpi && kpiBreakdown[hoveredKpi as keyof typeof kpiBreakdown] ? (
+          <aside className={`fixed bottom-5 right-5 z-50 w-[min(92vw,430px)] rounded-2xl border px-4 py-3 shadow-2xl ${isDark ? 'border-slate-700 bg-slate-950/95 text-slate-100' : 'border-slate-200 bg-white/95 text-slate-900'}`}>
+            <p className={`text-[10px] font-black uppercase tracking-[0.18em] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Formula KPI</p>
+            <h3 className="mt-1 text-sm font-black">{kpiBreakdown[hoveredKpi as keyof typeof kpiBreakdown].title}</h3>
+            <p className="mt-2 text-sm font-semibold">{kpiBreakdown[hoveredKpi as keyof typeof kpiBreakdown].formula}</p>
+            <p className={`mt-2 text-xs ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{kpiBreakdown[hoveredKpi as keyof typeof kpiBreakdown].detail}</p>
+          </aside>
+        ) : null}
 
         <section className={`overflow-hidden rounded-[30px] border shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] ${isDark ? 'border-slate-800 bg-slate-950/75' : 'border-slate-200 bg-white'}`}>
           <div className="overflow-x-auto">
@@ -619,7 +698,7 @@ export function Dre() {
                           setSelectedContaId(row.id);
                           setSelectedMonth(null);
                         }}
-                        className={`cursor-pointer border-b border-r px-4 py-3 text-right ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? isDark ? 'font-black text-white' : 'font-black text-slate-900' : isDark ? 'font-medium text-slate-300' : 'font-medium text-slate-600'}`}
+                        className={`cursor-pointer border-b border-r px-4 py-3 text-right ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? isDark ? 'font-black text-white' : 'font-black text-slate-900' : isDark ? 'font-medium text-slate-200' : 'font-medium text-slate-700'}`}
                       >
                         {renderMoneyCell(row.total, 'receita')}
                       </td>
@@ -630,7 +709,7 @@ export function Dre() {
                             setSelectedContaId(row.id);
                             setSelectedMonth(index);
                           }}
-                          className={`cursor-pointer border-b border-r px-4 py-3 text-right transition last:border-r-0 ${selectedContaId === row.id && selectedMonth === index ? isDark ? 'bg-sky-500/15 text-sky-200' : 'bg-sky-50 text-sky-700' : ''} ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? isDark ? 'font-bold text-slate-100' : 'font-bold text-slate-800' : isDark ? 'font-medium text-slate-400' : 'font-medium text-slate-500'}`}
+                          className={`cursor-pointer border-b border-r px-4 py-3 text-right transition last:border-r-0 ${selectedContaId === row.id && selectedMonth === index ? isDark ? 'bg-sky-500/15 text-sky-100' : 'bg-sky-50 text-sky-800' : ''} ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? isDark ? 'font-bold text-slate-100' : 'font-bold text-slate-800' : isDark ? 'font-medium text-slate-200' : 'font-medium text-slate-700'}`}
                         >
                           {renderMoneyCell(value, 'receita')}
                         </td>
@@ -694,65 +773,65 @@ export function Dre() {
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Receita líquida</td>
-                  <td className="border-r border-slate-800 px-4 py-4 text-right text-sm font-black text-emerald-200 bg-emerald-500/10">{renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')}</td>
+                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-emerald-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')}</td>
                   {dre.receitaLiquidaMonthly.map((value, index) => (
-                    <td key={`receita-liquida-${index}`} className="border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 text-emerald-200 bg-emerald-500/10">{renderMoneyCell(value, 'resultado')}</td>
+                    <td key={`receita-liquida-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 bg-emerald-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderMoneyCell(value, 'resultado')}</td>
                   ))}
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Margem de contribuição</td>
-                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black ${dre.margemContribuicaoTotal >= 0 ? isDark ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-100 text-emerald-700' : isDark ? 'bg-rose-500/10 text-rose-200' : 'bg-rose-100 text-rose-700'}`}>{renderMoneyCell(dre.margemContribuicaoTotal, 'resultado')}</td>
+                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black ${dre.margemContribuicaoTotal >= 0 ? isDark ? 'bg-emerald-500/10 text-white' : 'bg-emerald-100 text-slate-900' : isDark ? 'bg-rose-500/10 text-white' : 'bg-rose-100 text-slate-900'}`}>{renderMoneyCell(dre.margemContribuicaoTotal, 'resultado')}</td>
                   {dre.margemContribuicaoMonthly.map((value, index) => (
-                    <td key={`mc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${value >= 0 ? isDark ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-50 text-emerald-700' : isDark ? 'bg-rose-500/10 text-rose-200' : 'bg-rose-50 text-rose-700'}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td key={`mc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${value >= 0 ? isDark ? 'bg-emerald-500/10 text-white' : 'bg-emerald-50 text-slate-900' : isDark ? 'bg-rose-500/10 text-white' : 'bg-rose-50 text-slate-900'}`}>{renderMoneyCell(value, 'resultado')}</td>
                   ))}
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado operacional</td>
-                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black ${dre.resultadoOperacionalTotal >= 0 ? isDark ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-100 text-emerald-700' : isDark ? 'bg-rose-500/10 text-rose-200' : 'bg-rose-100 text-rose-700'}`}>{renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')}</td>
+                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black ${dre.resultadoOperacionalTotal >= 0 ? isDark ? 'bg-emerald-500/10 text-white' : 'bg-emerald-100 text-slate-900' : isDark ? 'bg-rose-500/10 text-white' : 'bg-rose-100 text-slate-900'}`}>{renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')}</td>
                   {dre.resultadoOperacionalMonthly.map((value, index) => (
-                    <td key={`resultado-operacional-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${value >= 0 ? isDark ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-50 text-emerald-700' : isDark ? 'bg-rose-500/10 text-rose-200' : 'bg-rose-50 text-rose-700'}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td key={`resultado-operacional-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${value >= 0 ? isDark ? 'bg-emerald-500/10 text-white' : 'bg-emerald-50 text-slate-900' : isDark ? 'bg-rose-500/10 text-white' : 'bg-rose-50 text-slate-900'}`}>{renderMoneyCell(value, 'resultado')}</td>
                   ))}
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado final</td>
-                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black ${dre.resultadoFinalTotal >= 0 ? isDark ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-100 text-emerald-700' : isDark ? 'bg-rose-500/10 text-rose-200' : 'bg-rose-100 text-rose-700'}`}>{renderMoneyCell(dre.resultadoFinalTotal, 'resultado')}</td>
+                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black ${dre.resultadoFinalTotal >= 0 ? isDark ? 'bg-emerald-500/10 text-white' : 'bg-emerald-100 text-slate-900' : isDark ? 'bg-rose-500/10 text-white' : 'bg-rose-100 text-slate-900'}`}>{renderMoneyCell(dre.resultadoFinalTotal, 'resultado')}</td>
                   {dre.resultadoFinalMonthly.map((value, index) => (
-                    <td key={`resultado-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${value >= 0 ? isDark ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-50 text-emerald-700' : isDark ? 'bg-rose-500/10 text-rose-200' : 'bg-rose-50 text-rose-700'}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td key={`resultado-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${value >= 0 ? isDark ? 'bg-emerald-500/10 text-white' : 'bg-emerald-50 text-slate-900' : isDark ? 'bg-rose-500/10 text-white' : 'bg-rose-50 text-slate-900'}`}>{renderMoneyCell(value, 'resultado')}</td>
                   ))}
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">% MC</td>
-                  <td className="border-r border-slate-800 px-4 py-4 text-right text-sm font-black text-cyan-200 bg-cyan-500/10">{renderPercentCell(dre.percentualMcTotal)}</td>
+                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(dre.percentualMcTotal)}</td>
                   {dre.percentualMcMonthly.map((value, index) => (
-                    <td key={`pmc-${index}`} className="border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 text-cyan-200 bg-cyan-500/10">{renderPercentCell(value)}</td>
+                    <td key={`pmc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(value)}</td>
                   ))}
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Lucratividade operacional</td>
-                  <td className="border-r border-slate-800 px-4 py-4 text-right text-sm font-black text-cyan-200 bg-cyan-500/10">{renderPercentCell(dre.lucratividadeOperacionalTotal)}</td>
+                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(dre.lucratividadeOperacionalTotal)}</td>
                   {dre.lucratividadeOperacionalMonthly.map((value, index) => (
-                    <td key={`lucr-op-${index}`} className="border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 text-cyan-200 bg-cyan-500/10">{renderPercentCell(value)}</td>
+                    <td key={`lucr-op-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(value)}</td>
                   ))}
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Lucratividade final</td>
-                  <td className="border-r border-slate-800 px-4 py-4 text-right text-sm font-black text-cyan-200 bg-cyan-500/10">{renderPercentCell(dre.lucratividadeFinalTotal)}</td>
+                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(dre.lucratividadeFinalTotal)}</td>
                   {dre.lucratividadeFinalMonthly.map((value, index) => (
-                    <td key={`lucr-final-${index}`} className="border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 text-cyan-200 bg-cyan-500/10">{renderPercentCell(value)}</td>
+                    <td key={`lucr-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(value)}</td>
                   ))}
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Ponto de equilíbrio</td>
-                  <td className="border-r border-slate-800 px-4 py-4 text-right text-sm font-black text-fuchsia-200 bg-fuchsia-500/10">{renderOptionalMoney(dre.pontoEquilibrioTotal, 'resultado')}</td>
+                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-fuchsia-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderOptionalMoney(dre.pontoEquilibrioTotal, 'resultado')}</td>
                   {dre.pontoEquilibrioMonthly.map((value, index) => (
-                    <td key={`pe-${index}`} className="border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 text-fuchsia-200 bg-fuchsia-500/10">{renderOptionalMoney(value, 'resultado')}</td>
+                    <td key={`pe-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 bg-fuchsia-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderOptionalMoney(value, 'resultado')}</td>
                   ))}
                 </tr>
               </tbody>

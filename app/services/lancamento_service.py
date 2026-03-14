@@ -36,6 +36,14 @@ class LancamentoService:
         if not re.match(r"^(0[1-9]|1[0-2])-\d{4}$", value or ""):
             raise HTTPException(status_code=400, detail="competencia inválida. Use MM-AAAA.")
 
+    def _validate_entidade_required(self, payload: dict, *, operation: str) -> None:
+        entidade_id = payload.get("entidade_id")
+        if entidade_id in (None, "", 0, "0"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Interessado é obrigatório para {operation} de lançamento.",
+            )
+
     def _aplicar_regras_negocio(self, lancamento: Lancamento):
         """
         Centraliza a lógica:
@@ -331,6 +339,8 @@ class LancamentoService:
         if payload.get("status") == "PAGO" and not payload.get("data_pagamento"):
             payload["data_pagamento"] = payload.get("data_vencimento")
 
+        self._validate_entidade_required(payload, operation="criação")
+
         db_lancamento = Lancamento(**payload)
         db_lancamento.empresa_id = empresa_id
         db_lancamento.created_by_id = user_id
@@ -382,7 +392,10 @@ class LancamentoService:
 
         if "data_vencimento" in dados_dict and "competencia" not in dados_dict:
             dados_dict["competencia"] = self._format_competencia(dados_dict["data_vencimento"])
-        
+
+        if "entidade_id" in dados_dict and dados_dict.get("entidade_id") in (None, "", 0, "0"):
+            raise HTTPException(status_code=400, detail="Interessado é obrigatório para atualização de lançamento.")
+
         for key, value in dados_dict.items():
             setattr(db_lancamento, key, value)
 
@@ -454,6 +467,8 @@ class LancamentoService:
 
             if payload.get("status") == "PAGO" and not payload.get("data_pagamento"):
                 payload["data_pagamento"] = payload.get("data_vencimento")
+
+            self._validate_entidade_required(payload, operation="criação em massa")
 
             obj = Lancamento(**payload)
             obj.empresa_id = empresa_id

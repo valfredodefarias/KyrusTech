@@ -1144,6 +1144,10 @@ export function Lancamentos() {
       pushToast('info', 'Preencha os campos obrigatórios.');
       return;
     }
+    if(!formData.entidade_id) {
+      pushToast('info', 'Interessado é obrigatório.');
+      return;
+    }
     setSaving(true);
     try {
       const computedCardDue = formData.cartao_id ? computeCartaoVencimento(formData.data_vencimento, formData.cartao_id) : null;
@@ -1228,6 +1232,19 @@ export function Lancamentos() {
   const catOptions = [
     { label: 'SAIDAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('D')).map(c=>({id:c.id, label:c.nome, tipo: c.tipo, grupo: 'SAIDAS', disabled: c.eh_cabecalho || c.permite_lancamentos === false, eh_cabecalho: c.eh_cabecalho, permite_lancamentos: c.permite_lancamentos})) },
     { label: 'ENTRADAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('R')).map(c=>({id:c.id, label:c.nome, tipo: c.tipo, grupo: 'ENTRADAS', disabled: c.eh_cabecalho || c.permite_lancamentos === false, eh_cabecalho: c.eh_cabecalho, permite_lancamentos: c.permite_lancamentos})) }
+  ];
+
+  const entidadeOptions = [
+    {
+      label: 'Interessados',
+      options: [
+        { id: '', label: 'Selecione...' },
+        ...entidades
+          .slice()
+          .sort((a: any, b: any) => String(a?.nome || '').localeCompare(String(b?.nome || ''), 'pt-BR'))
+          .map((e: any) => ({ id: e.id, label: e.nome || e.razao_social || `Interessado ${e.id}` })),
+      ],
+    },
   ];
 
   const quickFilterOptions = [
@@ -2136,25 +2153,27 @@ export function Lancamentos() {
                     <label className="text-xs font-bold text-slate-400 uppercase">Interessado</label>
                     <button onClick={openEntityDrawer} className="text-[10px] text-blue-400 font-bold hover:text-blue-300 flex items-center gap-1"><Plus className="w-3 h-3"/> Nova</button>
                   </div>
-                  <select className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500 text-sm" value={formData.entidade_id} onChange={e=>{
-                    const eid = e.target.value;
-                    const last = lancamentos.find(l=>String(l.entidade_id)===eid);
-                    setFormData((prev: any) => {
-                      const hasCategoriaSelecionada = Boolean(prev.plano_contas_id);
-                      if (!last || hasCategoriaSelecionada) {
-                        return { ...prev, entidade_id: eid };
-                      }
-                      return {
-                        ...prev,
-                        entidade_id: eid,
-                        plano_contas_id: last.plano_contas_id,
-                        tipo: last.tipo,
-                      };
-                    });
-                  }}>
-                    <option value="">Selecione...</option>
-                    {entidades.map(e=><option key={e.id} value={e.id}>{e.nome}</option>)}
-                  </select>
+                  <SearchableSelect
+                    placeholder="Selecione..."
+                    options={entidadeOptions}
+                    value={formData.entidade_id}
+                    onChange={(id: any) => {
+                      const eid = String(id || '');
+                      const last = lancamentos.find(l => String(l.entidade_id) === eid);
+                      setFormData((prev: any) => {
+                        const hasCategoriaSelecionada = Boolean(prev.plano_contas_id);
+                        if (!last || hasCategoriaSelecionada) {
+                          return { ...prev, entidade_id: eid };
+                        }
+                        return {
+                          ...prev,
+                          entidade_id: eid,
+                          plano_contas_id: last.plano_contas_id,
+                          tipo: last.tipo,
+                        };
+                      });
+                    }}
+                  />
                 </div>
               </div>
 

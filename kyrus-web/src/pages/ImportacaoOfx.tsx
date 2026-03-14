@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowRight,
@@ -133,6 +133,11 @@ interface LancamentoEditado extends LancamentoImportado {
   relacionar_apenas_atrasados: boolean;
   auto_preenchido: boolean;
 }
+
+type FeedbackState = {
+  type: 'success' | 'error' | 'warning';
+  message: string;
+};
 
 interface ProcessarArquivoResponse {
   lancamentos: LancamentoImportado[];
@@ -280,6 +285,7 @@ function SearchableDropdown({
 }
 
 export function ImportacaoOfx() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [contas, setContas] = useState<ContaItem[]>([]);
   const [cartoes, setCartoes] = useState<CartaoItem[]>([]);
@@ -292,12 +298,13 @@ export function ImportacaoOfx() {
   const [confirming, setConfirming] = useState(false);
   const [resultado, setResultado] = useState<ProcessarArquivoResponse | null>(null);
   const [lancamentosEditados, setLancamentosEditados] = useState<LancamentoEditado[]>([]);
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [categorias, setCategorias] = useState<CategoriaItem[]>([]);
   const [entidades, setEntidades] = useState<EntidadeItem[]>([]);
   const [sugestoes, setSugestoes] = useState<Record<string, LancamentoSugestao>>({});
   const [busca, setBusca] = useState('');
   const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>('todos');
+  const [categoriaAutofillAplicada, setCategoriaAutofillAplicada] = useState<Record<string, boolean>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -465,7 +472,18 @@ export function ImportacaoOfx() {
 
   const handleConfirmar = async () => {
     if (confirming) return;
-    if (!resultado || !contaId) return;
+    if (!resultado || resultado.lancamentos.length === 0) {
+      setFeedback({ type: 'warning', message: 'Nenhum lançamento disponível para confirmar.' });
+      return;
+    }
+    const missingTarget = modoImportacao === 'CONTA' ? !contaId : !cartaoId;
+    if (missingTarget) {
+      setFeedback({
+        type: 'warning',
+        message: modoImportacao === 'CONTA' ? 'Selecione uma conta antes de confirmar a importação.' : 'Selecione um cartao antes de confirmar a importação.',
+      });
+      return;
+    }
     setConfirming(true);
     setFeedback(null);
     try {
@@ -476,13 +494,25 @@ export function ImportacaoOfx() {
         modo_importacao: modoImportacao,
       };
       const { data } = await api.post('/importacao/confirmar-lancamentos', payload);
-      setFeedback({
-        type: 'success',
-        message: `Importação concluída. Criados: ${data?.lancamentos_criados || 0}, atualizados: ${data?.lancamentos_atualizados || 0}.`
-      });
+      const criados = Number(data?.lancamentos_criados || 0);
+      const atualizados = Number(data?.lancamentos_atualizados || 0);
+      const erros = Array.isArray(data?.erros) ? data.erros.filter(Boolean) : [];
+      if (criados === 0 && atualizados === 0) {
+        setFeedback({
+          type: 'warning',
+          message: `Confirmação finalizada, mas nenhum lançamento foi aplicado. ${erros.length ? `Erros: ${erros.join(' | ')}` : 'Verifique se os itens foram marcados como descartados/duplicados.'}`,
+        });
+      } else {
+        setFeedback({
+          type: 'success',
+          message: `Importação concluída. Criados: ${criados}, atualizados: ${atualizados}.${erros.length ? ` Erros: ${erros.join(' | ')}` : ''}`,
+        });
+      }
       setResultado(null);
       setLancamentosEditados([]);
+      setCategoriaAutofillAplicada({});
       setArquivo(null);
+      setTimeout(() => navigate('/lancamentos'), 900);
     } catch (error: any) {
       setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao confirmar importação.' });
     } finally {
@@ -514,6 +544,7 @@ export function ImportacaoOfx() {
     });
 
     setLancamentosEditados(editados);
+    setCategoriaAutofillAplicada({});
   }, [resultado, sugestoes]);
 
   const lancamentosFiltrados = useMemo(() => {
@@ -541,6 +572,43 @@ export function ImportacaoOfx() {
     setLancamentosEditados((prev) => prev.map((item) => (
       item.linha_arquivo === linhaArquivo ? { ...item, ...patch } : item
     )));
+  };
+
+  const applyCategoriaPorInteressado = (linhaArquivo: number, categoriaId: number | null) => {
+    setLancamentosEditados((prev) => {
+      const current = prev.find((item) => item.linha_arquivo === linhaArquivo);
+      if (!current) return prev;
+
+      const interessadoKey = normalizarDescricao(current.razao_social || current.interessado_sugerido || '');
+      if (!interessadoKey || categoriaId == null) {
+        return prev.map((item) => (item.linha_arquivo === linhaArquivo ? { ...item, plano_contas_id: categoriaId } : item));
+      }
+
+      const firstIndex = prev.findIndex(
+        (item) => normalizarDescricao(item.razao_social || item.interessado_sugerido || '') === interessadoKey,
+      );
+      const currentIndex = prev.findIndex((item) => item.linha_arquivo === linhaArquivo);
+      const devePropagar = firstIndex === currentIndex && !categoriaAutofillAplicada[interessadoKey];
+
+      const next = prev.map((item, index) => {
+        if (item.linha_arquivo === linhaArquivo) {
+          return { ...item, plano_contas_id: categoriaId };
+        }
+        if (!devePropagar) return item;
+
+        const itemKey = normalizarDescricao(item.razao_social || item.interessado_sugerido || '');
+        if (itemKey !== interessadoKey) return item;
+        if (index <= currentIndex) return item;
+        if (item.plano_contas_id != null) return item;
+
+        return { ...item, plano_contas_id: categoriaId };
+      });
+
+      if (devePropagar) {
+        setCategoriaAutofillAplicada((state) => ({ ...state, [interessadoKey]: true }));
+      }
+      return next;
+    });
   };
 
   return (
@@ -713,7 +781,7 @@ export function ImportacaoOfx() {
       </section>
 
       {feedback && (
-        <div className={`flex items-start gap-3 rounded-2xl border px-4 py-4 text-sm shadow-sm ${feedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300' : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300'}`}>
+        <div className={`flex items-start gap-3 rounded-2xl border px-4 py-4 text-sm shadow-sm ${feedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300' : feedback.type === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200' : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300'}`}>
           {feedback.type === 'success' ? <CheckCircle className="mt-0.5 h-5 w-5 shrink-0" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />}
           <span>{feedback.message}</span>
         </div>
@@ -962,7 +1030,7 @@ export function ImportacaoOfx() {
                           value={lanc.plano_contas_id}
                           options={categoriaOptions}
                           placeholder="A categorizar"
-                          onChange={(value) => updateLancamento(lanc.linha_arquivo, { plano_contas_id: value })}
+                          onChange={(value) => applyCategoriaPorInteressado(lanc.linha_arquivo, value)}
                         />
                       </div>
                       <div>

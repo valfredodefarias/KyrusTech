@@ -848,6 +848,14 @@ async def upload_ofx(
 
     try:
         modo_cartao = bool(cartao_id)
+        logger.info(
+            "[OFX] Upload recebido empresa_id={} modo={} conta_id={} cartao_id={} arquivo={}",
+            empresa_id,
+            "CARTAO" if modo_cartao else "CONTA",
+            conta_id,
+            cartao_id,
+            arquivo.filename,
+        )
         conta = None
         cartao = None
         centro_custo_id_resolvido = None
@@ -998,6 +1006,8 @@ async def upload_ofx(
             lancamentos_previstos_encontrados=previstos,
             lancamentos_atrasados_encontrados=atrasados,
         )
+
+        
 
     except Exception as e:
         logger.error(f"Erro ao processar OFX: {e}")
@@ -1158,6 +1168,14 @@ async def confirmar_lancamentos(
     cartao_resolvido = None
     centro_custo_resolvido = None
     modo_cartao = str(request.modo_importacao or "").strip().upper() == "CARTAO" or bool(request.cartao_id)
+    logger.info(
+        "[OFX] Confirmacao iniciada empresa_id={} modo={} conta_id={} cartao_id={} itens={}",
+        empresa_id,
+        "CARTAO" if modo_cartao else "CONTA",
+        request.conta_id,
+        request.cartao_id,
+        len(request.lancamentos or []),
+    )
 
     if modo_cartao:
         cartao_resolvido, centro_custo_resolvido = _resolver_cartao_e_centro(
@@ -1335,6 +1353,14 @@ async def confirmar_lancamentos(
             erros.append(str(exc))
 
     db.commit()
+
+    logger.info(
+        "[OFX] Confirmacao finalizada empresa_id={} criados={} atualizados={} erros={}",
+        empresa_id,
+        lancamentos_criados,
+        lancamentos_atualizados,
+        len(erros),
+    )
 
     return {
         "sucesso": True,

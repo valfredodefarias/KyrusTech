@@ -196,6 +196,13 @@ def _build_transaction_dedupe_key(conta_metadata: Dict[str, Optional[str]], txn:
     return "|".join(base_parts)
 
 
+def _deve_ignorar_descricao_ofx(descricao: str) -> bool:
+    descricao_normalizada = _safe_text(descricao).lower()
+    if not descricao_normalizada:
+        return False
+    return bool(re.search(r"\bsaldo\b", descricao_normalizada))
+
+
 def processar_ofx(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
     """
     Processa arquivo OFX (extrato de transacoes) para qualquer banco.
@@ -238,6 +245,10 @@ def processar_ofx(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
             payee = (getattr(txn, "payee", "") or "").strip()
             tipo_txn = (getattr(txn, "type", "") or "").strip()
             descricao = memo or payee or tipo_txn or "Transacao OFX"
+            if _deve_ignorar_descricao_ofx(descricao):
+                logger.info(f"Movimento OFX ignorado por descricao bloqueada: {descricao}")
+                linha += 1
+                continue
             dedupe_key = _build_transaction_dedupe_key(account_metadata, txn, data_lanc, data_hora, valor_abs, descricao)
             if dedupe_key in movimentos_vistos:
                 logger.warning(f"Movimento OFX duplicado ignorado no parser: {descricao} | {data_lanc.isoformat()} | {valor_abs}")

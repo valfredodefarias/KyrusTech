@@ -787,6 +787,19 @@ def _execute_import_contents(
         if progress_callback:
             progress_callback(24 + int((index / max(len(prepared_chunks), 1)) * 21), f"Resolvendo mapeamentos por lote ({index}/{max(len(prepared_chunks), 1)})")
 
+    uncategorized_rows = [row for row in prepared_rows if row.get("plano_contas_id") is None]
+    if uncategorized_rows:
+        linhas = ", ".join(str(row.get("linha")) for row in uncategorized_rows[:20])
+        sufixo = "" if len(uncategorized_rows) <= 20 else ", ..."
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Existem {len(uncategorized_rows)} lançamento(s) sem categoria definida. "
+                f"Revise o mapeamento e categorize todas as linhas antes de confirmar. "
+                f"Linhas: {linhas}{sufixo}"
+            ),
+        )
+
     if progress_callback:
         progress_callback(45, "Criando entidades e centros ausentes")
     if missing_entities:
@@ -807,7 +820,24 @@ def _execute_import_contents(
         progress_callback(55, "Inserindo lançamentos em lotes")
     erros: list[str] = []
     importados = 0
+    ignorados_duplicidade = 0
     batch: list[Lancamento] = []
+
+    existing_import_rows = db.exec(
+        select(Lancamento.data_vencimento, Lancamento.descricao).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "IMPORTACAO",
+        )
+    ).all()
+    imported_signatures: set[tuple[date, str]] = set()
+    for existing_date, existing_desc in existing_import_rows:
+        if existing_date is None:
+            continue
+        normalized_desc = _normalizar_texto_importacao(existing_desc)
+        if not normalized_desc:
+            continue
+        imported_signatures.add((existing_date, normalized_desc))
 
     for index, row in enumerate(prepared_rows, start=1):
         try:
@@ -817,8 +847,12 @@ def _execute_import_contents(
             data_pagamento = _parse_import_date(row["data_pag_raw"], parse_date_cache, dayfirst=inferred_dayfirst)
             valor = _parse_import_decimal(row["valor_raw"], parse_decimal_cache)
             plano_contas_id = row["plano_contas_id"]
-            if plano_contas_id is None:
-                plano_contas_id = _ensure_a_categorizar(db, empresa_id, str(row["tipo"]), cache_tipos, nomes_cats_sist)
+
+            descricao_normalizada = _normalizar_texto_importacao(str(row["descricao"] or ""))
+            signature = (data_vencimento, descricao_normalizada)
+            if descricao_normalizada and signature in imported_signatures:
+                ignorados_duplicidade += 1
+                continue
 
             entidade_id = row["entidade_id"]
             if entidade_id is None and row["entidade_key"]:
@@ -846,6 +880,8 @@ def _execute_import_contents(
                     ipp=False,
                 )
             )
+            if descricao_normalizada:
+                imported_signatures.add(signature)
             importados += 1
 
             if len(batch) >= IMPORT_INSERT_BATCH_SIZE:
@@ -865,6 +901,7 @@ def _execute_import_contents(
     return {
         "sucesso": True,
         "importados": importados,
+        "ignorados_duplicidade": ignorados_duplicidade,
         "erros": erros,
         "meta": {
             "total_linhas": total_rows,
@@ -1349,6 +1386,8 @@ async def importar_executar(
         empresa_id, user_id = require_empresa_user(current_user)
         conteudo = await file.read()
         return _execute_import_contents(db, conteudo, empresa_id, user_id, mapeamento)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Erro ao processar importação: {e}")
         raise HTTPException(

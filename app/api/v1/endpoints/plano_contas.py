@@ -1,7 +1,10 @@
 # app/api/v1/endpoints/plano_contas.py
 
 from typing import List, Optional
+import csv
+import io
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select, func
 from loguru import logger
 from pydantic import BaseModel
@@ -49,6 +52,35 @@ def read_plano_contas(
         .order_by(PlanoContas.codigo)
     ).all()
     return contas
+
+
+@router.get("/exportar")
+def exportar_plano_contas(
+    *,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Exporta o plano de contas com código e nome em CSV."""
+    contas = db.exec(
+        select(PlanoContas)
+        .where(PlanoContas.empresa_id == empresa_id, PlanoContas.oculta == False)
+        .order_by(PlanoContas.codigo)
+    ).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';')
+    writer.writerow(["codigo", "nome"])
+    for conta in contas:
+        writer.writerow([conta.codigo or "", conta.nome or ""])
+
+    csv_bytes = io.BytesIO(output.getvalue().encode("utf-8-sig"))
+    csv_bytes.seek(0)
+
+    return StreamingResponse(
+        csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="plano_de_contas.csv"'},
+    )
 
 @router.post("", response_model=PlanoContasRead, status_code=201, include_in_schema=False)
 @router.post("/", response_model=PlanoContasRead, status_code=201)

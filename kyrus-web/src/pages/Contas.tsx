@@ -434,6 +434,7 @@ export function Contas() {
       <CurrencyInput
         value={value}
         onValueChange={onValueChange}
+        allowNegative
         className={className}
         placeholder={placeholder}
       />
@@ -840,6 +841,14 @@ export function Contas() {
     const matchesCentro = filterCentroId ? String(c.centro_custo_id) === filterCentroId : true;
     return matchesSearch && matchesCentro;
   });
+
+  const contasAtivasDisponiveis = filteredContas.filter(
+    (conta) => conta.status === 'ATIVO' && conta.conta_como_disponibilidade !== false,
+  );
+  const contasAtivasNaoDisponiveis = filteredContas.filter(
+    (conta) => conta.status === 'ATIVO' && conta.conta_como_disponibilidade === false,
+  );
+  const contasInativas = filteredContas.filter((conta) => conta.status === 'INATIVO');
 
   const saldoTotal = filteredContas
     .filter((conta) => conta.status === 'ATIVO' && conta.conta_como_disponibilidade !== false)
@@ -1420,86 +1429,128 @@ export function Contas() {
                  {contas.length === 0 ? "Nenhuma conta cadastrada." : "Nenhuma conta encontrada com este filtro."}
                </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                 {filteredContas.map(c => {
-                   const IconComp = getIcon(c.tipo);
-                   const saldo = parseFloat(String(c.saldo_atual || 0));
-                   const nomeCentro = centros.find(ct => ct.id === c.centro_custo_id)?.nome;
-                   
-                   return (
-                     <div key={c.id} 
-                        className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5 relative group transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
-                        style={{ '--hover-color': primaryColor } as React.CSSProperties}
-                     >
-                        <div 
-                            className="absolute inset-0 rounded-xl border-2 border-transparent pointer-events-none transition-colors duration-300"
-                            style={{ borderColor: 'transparent' }}
-                        ></div>
+              <div className="space-y-6">
+                {[
+                  {
+                    key: 'ativas-disponiveis',
+                    title: '1. Contas ativas que contam como saldo disponível',
+                    description: 'Essas contas entram no saldo geral disponível.',
+                    contas: contasAtivasDisponiveis,
+                    emptyLabel: 'Nenhuma conta ativa marcando saldo disponível para os filtros aplicados.',
+                  },
+                  {
+                    key: 'ativas-nao-disponiveis',
+                    title: '2. Contas ativas que não contam como saldo disponível',
+                    description: 'Essas contas continuam ativas, mas não entram no saldo disponível.',
+                    contas: contasAtivasNaoDisponiveis,
+                    emptyLabel: 'Nenhuma conta ativa fora do saldo disponível para os filtros aplicados.',
+                  },
+                  {
+                    key: 'inativas',
+                    title: '3. Contas inativas',
+                    description: 'Contas desativadas, fora do saldo geral disponível.',
+                    contas: contasInativas,
+                    emptyLabel: 'Nenhuma conta inativa para os filtros aplicados.',
+                  },
+                ].map((secao) => (
+                  <section key={secao.key} className="space-y-3">
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-[0.14em] text-slate-600 dark:text-slate-200">{secao.title}</h3>
+                      <p className="mt-1 text-xs text-slate-400">{secao.description}</p>
+                    </div>
 
-                        <div className="flex justify-between items-start mb-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm overflow-hidden"
-                                style={{ backgroundColor: `${primaryColor}10`, color: primaryColor }}
-                              >
-                                {c.tipo === 'CAIXA' ? <IconComp className="w-5 h-5" /> : c.logo_url ? <BankAvatar logoUrl={c.logo_url} bankName={c.banco} accountName={c.nome} integrationType={c.tipo_integracao} size="sm" className="h-10 w-10" imageClassName="rounded-lg" fallbackClassName="rounded-lg border-0 shadow-none" /> : <Banknote className="w-5 h-5" />}
-                              </div>
-                                <div>
+                    {secao.contas.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-800">
+                        {secao.emptyLabel}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                        {secao.contas.map((c) => {
+                          const IconComp = getIcon(c.tipo);
+                          const saldo = parseFloat(String(c.saldo_atual || 0));
+                          const nomeCentro = centros.find(ct => ct.id === c.centro_custo_id)?.nome;
+
+                          return (
+                            <div key={c.id}
+                              className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5 relative group transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
+                              style={{ '--hover-color': primaryColor } as React.CSSProperties}
+                            >
+                              <div
+                                className="absolute inset-0 rounded-xl border-2 border-transparent pointer-events-none transition-colors duration-300"
+                                style={{ borderColor: 'transparent' }}
+                              ></div>
+
+                              <div className="flex justify-between items-start mb-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm overflow-hidden"
+                                    style={{ backgroundColor: `${primaryColor}10`, color: primaryColor }}
+                                  >
+                                    {c.tipo === 'CAIXA' ? <IconComp className="w-5 h-5" /> : c.logo_url ? <BankAvatar logoUrl={c.logo_url} bankName={c.banco} accountName={c.nome} integrationType={c.tipo_integracao} size="sm" className="h-10 w-10" imageClassName="rounded-lg" fallbackClassName="rounded-lg border-0 shadow-none" /> : <Banknote className="w-5 h-5" />}
+                                  </div>
+                                  <div>
                                     <h3 className="font-bold text-slate-700 dark:text-slate-200 leading-tight">{c.nome}</h3>
                                     <p className="text-[10px] uppercase font-bold text-slate-400 mt-0.5">{c.banco || c.tipo}</p>
                                     {c.conta_como_disponibilidade === false && (
                                       <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-300">Fora do saldo disponivel</p>
                                     )}
+                                    {c.status === 'INATIVO' && (
+                                      <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-300">Conta inativa</p>
+                                    )}
+                                  </div>
                                 </div>
-                            </div>
-                            
-                            <div className="opacity-0 group-hover:opacity-100 transition flex gap-1">
-                                {c.tipo_integracao === 'ASAAS' && (
-                                  <button
-                                    onClick={() => navigate(`/integracoes/asaas?conta_id=${c.id}`)}
-                                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded text-slate-500"
-                                    title="Configurar integração Asaas"
-                                  >
-                                    <Settings className="w-4 h-4" />
-                                  </button>
-                                )}
-                                <button onClick={() => handleOpenEdit(c)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded" style={{ color: primaryColor }}>
+
+                                <div className="opacity-0 group-hover:opacity-100 transition flex gap-1">
+                                  {c.tipo_integracao === 'ASAAS' && (
+                                    <button
+                                      onClick={() => navigate(`/integracoes/asaas?conta_id=${c.id}`)}
+                                      className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded text-slate-500"
+                                      title="Configurar integração Asaas"
+                                    >
+                                      <Settings className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                  <button onClick={() => handleOpenEdit(c)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded" style={{ color: primaryColor }}>
                                     <Edit2 className="w-4 h-4" />
-                                </button>
-                                <button onClick={() => setItemToDelete(c)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded text-red-500">
+                                  </button>
+                                  <button onClick={() => setItemToDelete(c)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded text-red-500">
                                     <Trash2 className="w-4 h-4" />
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
-                            <div className="flex justify-between items-end">
-                                <div>
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+                                <div className="flex justify-between items-end">
+                                  <div>
                                     <p className="text-[10px] uppercase font-bold text-slate-400 mb-0.5">Saldo Atual</p>
                                     <p className={`text-xl font-bold font-mono ${saldo >= 0 ? 'text-slate-800 dark:text-white' : 'text-red-500'}`}>
                                       {BRL.format(saldo)}
                                     </p>
-                                </div>
-                                <button 
-                                  onClick={() => handleVerExtrato(c)}
-                                  className="text-xs font-bold hover:underline flex items-center gap-1"
-                                  style={{ color: primaryColor }}
-                                >
+                                  </div>
+                                  <button
+                                    onClick={() => handleVerExtrato(c)}
+                                    className="text-xs font-bold hover:underline flex items-center gap-1"
+                                    style={{ color: primaryColor }}
+                                  >
                                     Ver Extrato <ChevronRight className="w-3 h-3" />
-                                </button>
+                                  </button>
+                                </div>
+
+                                {nomeCentro && (
+                                  <div className="mt-3 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-mono text-slate-500 border border-slate-200 dark:border-slate-600">
+                                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: primaryColor }}></span>
+                                    {nomeCentro}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="absolute bottom-0 left-4 right-4 h-0.5 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300" style={{ backgroundColor: primaryColor }}></div>
                             </div>
-                            
-                            {nomeCentro && (
-                               <div className="mt-3 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-mono text-slate-500 border border-slate-200 dark:border-slate-600">
-                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: primaryColor }}></span>
-                                  {nomeCentro}
-                               </div>
-                            )}
-                        </div>
-                        
-                        <div className="absolute bottom-0 left-4 right-4 h-0.5 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300" style={{ backgroundColor: primaryColor }}></div>
-                     </div>
-                   );
-                 })}
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                ))}
               </div>
             )}
           </>

@@ -3,6 +3,7 @@ import type { InputHTMLAttributes } from 'react';
 type CurrencyInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'value' | 'onChange'> & {
   value: string | number | null | undefined;
   onValueChange: (value: string) => void;
+  allowNegative?: boolean;
 };
 
 function onlyDigits(value: string) {
@@ -19,6 +20,15 @@ export function formatCurrencyDigitsToDecimalString(value: string) {
   return `${integerPart}.${decimalPart}`;
 }
 
+function extractSignAndDigits(value: string, allowNegative: boolean) {
+  const raw = String(value || '');
+  const negative = allowNegative && raw.trim().startsWith('-');
+  return {
+    negative,
+    digits: onlyDigits(raw),
+  };
+}
+
 export function formatCurrencyInputValue(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === '') return '';
 
@@ -32,7 +42,7 @@ export function formatCurrencyInputValue(value: string | number | null | undefin
   });
 }
 
-export function CurrencyInput({ value, onValueChange, inputMode = 'numeric', ...props }: CurrencyInputProps) {
+export function CurrencyInput({ value, onValueChange, inputMode = 'decimal', allowNegative = false, ...props }: CurrencyInputProps) {
   return (
     <input
       {...props}
@@ -40,8 +50,13 @@ export function CurrencyInput({ value, onValueChange, inputMode = 'numeric', ...
       inputMode={inputMode}
       value={formatCurrencyInputValue(value)}
       onChange={(event) => {
-        const digits = onlyDigits(event.target.value);
-        onValueChange(formatCurrencyDigitsToDecimalString(digits));
+        const { negative, digits } = extractSignAndDigits(event.target.value, allowNegative);
+        const decimalString = formatCurrencyDigitsToDecimalString(digits);
+        if (!decimalString) {
+          onValueChange('');
+          return;
+        }
+        onValueChange(negative ? `-${decimalString}` : decimalString);
       }}
     />
   );

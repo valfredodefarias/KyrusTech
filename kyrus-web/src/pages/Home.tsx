@@ -23,6 +23,8 @@ interface ContaResumo {
   banco?: string | null;
   saldo_inicial: number;
   saldo_atual?: number;
+  status?: 'ATIVO' | 'INATIVO' | string;
+  conta_como_disponibilidade?: boolean;
 }
 
 interface UserInfo {
@@ -98,9 +100,17 @@ export function Home() {
     return conta.saldo_atual !== undefined ? Number(conta.saldo_atual) : Number(conta.saldo_inicial);
   };
 
-  const saldoTotal = useMemo(() => contas.reduce((acc, conta) => acc + getSaldo(conta), 0), [contas]);
-  const contasPositivas = useMemo(() => contas.filter((conta) => getSaldo(conta) >= 0).length, [contas]);
-  const contasNegativas = useMemo(() => contas.filter((conta) => getSaldo(conta) < 0).length, [contas]);
+  const contasVisaoGeral = useMemo(
+    () =>
+      contas.filter(
+        (conta) => String(conta.status || 'ATIVO').toUpperCase() === 'ATIVO' && conta.conta_como_disponibilidade !== false,
+      ),
+    [contas],
+  );
+
+  const saldoTotal = useMemo(() => contasVisaoGeral.reduce((acc, conta) => acc + getSaldo(conta), 0), [contasVisaoGeral]);
+  const contasPositivas = useMemo(() => contasVisaoGeral.filter((conta) => getSaldo(conta) >= 0).length, [contasVisaoGeral]);
+  const contasNegativas = useMemo(() => contasVisaoGeral.filter((conta) => getSaldo(conta) < 0).length, [contasVisaoGeral]);
 
   const nomeUsuario = user?.nome || user?.email?.split('@')[0] || 'Usuário';
   const primaryColor = empresa?.cor_primaria || '#2563eb';
@@ -185,7 +195,7 @@ export function Home() {
 
           <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <HeroMetric label="Saldo consolidado" value={BRL.format(saldoTotal)} />
-            <HeroMetric label="Contas ativas" value={String(contas.length)} />
+            <HeroMetric label="Contas ativas" value={String(contasVisaoGeral.length)} />
             <HeroMetric label="Saldo positivo" value={String(contasPositivas)} />
             <HeroMetric label="Em atenção" value={String(contasNegativas)} />
           </div>
@@ -207,12 +217,12 @@ export function Home() {
         </h3>
 
         <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-          {contas.length === 0 ? (
+          {contasVisaoGeral.length === 0 ? (
             <div className="col-span-3 text-sm text-slate-400 p-8 border border-dashed rounded-lg text-center bg-slate-50 dark:bg-slate-800/50">
-              Nenhuma conta cadastrada. <Link to="/contas" className="text-blue-500 hover:underline">Cadastrar agora</Link>
+              Nenhuma conta ativa que componha saldo disponível. <Link to="/contas" className="text-blue-500 hover:underline">Ajustar contas</Link>
             </div>
           ) : (
-            contas.map((conta) => (
+            contasVisaoGeral.map((conta) => (
               <div key={conta.id} className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900/40">
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 shrink-0 flex items-center justify-center overflow-hidden" style={{ color: primaryColor }}>

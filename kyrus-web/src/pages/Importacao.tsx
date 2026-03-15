@@ -196,6 +196,21 @@ interface QuickEntityFormState {
     observacoes: string;
 }
 
+interface QuickContaFormState {
+    nome: string;
+    banco: string;
+    agencia: string;
+    conta_numero: string;
+    conta_digito: string;
+    tipo: 'CORRENTE' | 'POUPANCA' | 'CAIXA' | 'INVESTIMENTO';
+    saldo_inicial: string;
+    centro_custo_id: number | '';
+    status: 'ATIVO' | 'INATIVO';
+    conta_como_disponibilidade: boolean;
+    tipo_integracao: 'MANUAL' | 'OPEN_FINANCE' | 'OFX';
+    logo_url: string;
+}
+
 type TreeCategoriaItem = ItemSistema & { children: TreeCategoriaItem[] };
 
 const initialQuickEntityForm: QuickEntityFormState = {
@@ -217,6 +232,21 @@ const initialQuickEntityForm: QuickEntityFormState = {
     uf: '',
     observacoes: '',
 };
+
+const buildInitialQuickContaForm = (centros: ItemSistema[], nome = ''): QuickContaFormState => ({
+    nome,
+    banco: '',
+    agencia: '',
+    conta_numero: '',
+    conta_digito: '',
+    tipo: 'CORRENTE',
+    saldo_inicial: '',
+    centro_custo_id: getSingleCentroId(centros) || '',
+    status: 'ATIVO',
+    conta_como_disponibilidade: true,
+    tipo_integracao: 'MANUAL',
+    logo_url: '',
+});
 
 const IMPORT_JOB_POLL_INTERVAL_MS = 1000;
 const PREVIEW_PAGE_SIZE = 200;
@@ -511,7 +541,7 @@ const DraggableTreeItem = ({ item, depth = 0, inheritedOperational = false, canM
                         <span className="text-[10px] font-bold text-orange-500 bg-orange-900/20 px-1.5 py-0.5 rounded border border-orange-900/30">Novo</span>
                     )}
                     <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{item.nome}</span>
-                    {(() => {
+                    {canManageOperational && (() => {
                         const dreKey = normalizeDreGrupo(item.dre_grupo, item.tipo);
                         const badge = DRE_GRUPO_BADGE[dreKey];
                         const inherited = inheritedOnly && effectiveOperational;
@@ -1137,6 +1167,27 @@ export const PlanoContasManager = ({
     }
   };
 
+  const handleExportPlanoContas = async () => {
+      try {
+          const response = await api.get(`${normalizedApiBasePath}/exportar`, { responseType: 'blob' });
+          const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.setAttribute('download', 'plano_de_contas.csv');
+          document.body.appendChild(link);
+          link.click();
+          link.parentNode?.removeChild(link);
+          window.URL.revokeObjectURL(url);
+          setManagerFeedback({ type: 'success', message: 'Plano de contas exportado com sucesso.' });
+      } catch (e: any) {
+          setManagerFeedback({
+              type: 'error',
+              message: getApiErrorMessage(e, 'Nao foi possivel exportar o plano de contas.'),
+          });
+      }
+  };
+
   const handleToggle = (id: number) => {
       const newSet = new Set(expandedIds);
       if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
@@ -1247,6 +1298,17 @@ export const PlanoContasManager = ({
 
   return (
     <div className="relative">
+      <div className="mb-4 flex justify-end">
+          <button
+              type="button"
+              onClick={handleExportPlanoContas}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+              <Download className="h-3.5 w-3.5" />
+              Exportar plano de contas
+          </button>
+      </div>
+
       {hasChanges && (
           <div className="mb-6 flex justify-end">
               <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 dark:border-amber-900/50 dark:bg-amber-500/10 dark:text-amber-300">
@@ -1387,6 +1449,7 @@ export const PlanoContasManager = ({
                           </div>
                       )}
 
+                      {modalMode === 'MOVE' && (
                       <div>
                           <SearchableSelect
                               label="Categoria pai"
@@ -1415,6 +1478,7 @@ export const PlanoContasManager = ({
                               </button>
                           )}
                       </div>
+                      )}
 
                       {modalMode !== 'MOVE' && canManageOperational && (
                           <div>
@@ -1516,7 +1580,9 @@ export function Importacao() {
     const [modalType, setModalType] = useState<'CATEGORIA'|'ENTIDADE'|'CONTA'|'CENTRO' | null>(null);
     const [modalValue, setModalValue] = useState('');
     const [modalPendingKey, setModalPendingKey] = useState('');
+    const [quickCategoriaParentId, setQuickCategoriaParentId] = useState<number | ''>('');
     const [entityForm, setEntityForm] = useState<QuickEntityFormState>(initialQuickEntityForm);
+    const [quickContaForm, setQuickContaForm] = useState<QuickContaFormState>(buildInitialQuickContaForm([]));
     const [entityCepLoading, setEntityCepLoading] = useState(false);
     const [entityCepFeedback, setEntityCepFeedback] = useState<string | null>(null);
     const lastEntityCepLookupRef = useRef('');
@@ -1547,6 +1613,10 @@ export function Importacao() {
         [previewResolvedRows, previewVisibleCount],
     );
     const hasMorePreviewRows = visiblePreviewRows.length < previewResolvedRows.length;
+    const uncategorizedPreviewCount = useMemo(
+        () => previewResolvedRows.filter((row) => String(row.categoria_final || '').trim().toUpperCase() === 'A CATEGORIZAR').length,
+        [previewResolvedRows],
+    );
 
     const documentoInteressadoLabel = entityForm.tipo_pessoa === 'PF' ? 'CPF' : 'CNPJ';
     const nomeInteressadoLabel = entityForm.tipo_pessoa === 'PF' ? 'Nome completo' : 'Razão social';
@@ -1762,14 +1832,25 @@ export function Importacao() {
   }
 
   async function handleQuickCreate() {
-            if(modalType !== 'ENTIDADE' && !modalValue) return;
-            if (modalType === 'ENTIDADE' && !entityForm.nome.trim()) return;
+                        if (modalType === 'ENTIDADE' && !entityForm.nome.trim()) return;
+                        if (modalType === 'CATEGORIA' && !modalValue.trim()) return;
+                        if (modalType === 'CONTA' && (!quickContaForm.nome.trim() || !quickContaForm.banco.trim())) return;
+                        if (modalType === 'CENTRO' && !modalValue.trim()) return;
       setLoading(true);
       try {
           let res: any; let newItem: any;
           if(modalType === 'CATEGORIA') {
-              const tipo = (modalValue || '').trim().toUpperCase().startsWith('R') ? 'R' : 'D';
-              res = await api.post('/plano-contas/', { nome: modalValue, tipo: tipo, permite_lancamentos: true, eh_operacional: true, considerar_nos_resultados: true }); 
+                            const parentId = quickCategoriaParentId ? Number(quickCategoriaParentId) : null;
+                            const parent = parentId ? sistemaData.categorias.find((item) => Number(item.id) === parentId) : null;
+                            const tipo = parent ? normalizeTipo(parent.tipo) : ((modalValue || '').trim().toUpperCase().startsWith('R') ? 'R' : 'D');
+                            res = await api.post('/plano-contas/', {
+                                    nome: modalValue.trim(),
+                                    tipo,
+                                    conta_pai_id: parentId,
+                                    permite_lancamentos: true,
+                                    eh_operacional: true,
+                                    considerar_nos_resultados: true,
+                            }); 
               newItem = res.data;
               setSistemaData(prev => {
                 const next = [...prev.categorias, newItem];
@@ -1807,11 +1888,20 @@ export function Importacao() {
                             });
               setMapEntidades(prev => ({...prev, [modalPendingKey]: String(newItem.id)}));
           } else if (modalType === 'CONTA') {
-              const centroCustoId = getSingleCentroId(sistemaData.centros);
+              const saldoInicial = Number(String(quickContaForm.saldo_inicial || '0').replace(',', '.')) || 0;
               res = await api.post('/contas/', {
-                  nome: modalValue,
-                  tipo: 'CORRENTE',
-                  centro_custo_id: centroCustoId,
+                  nome: quickContaForm.nome.trim(),
+                  banco: quickContaForm.banco.trim(),
+                  agencia: nullableValue(quickContaForm.agencia),
+                  conta_numero: nullableValue(quickContaForm.conta_numero),
+                  conta_digito: nullableValue(quickContaForm.conta_digito),
+                  tipo: quickContaForm.tipo,
+                  saldo_inicial: saldoInicial,
+                  centro_custo_id: quickContaForm.centro_custo_id ? Number(quickContaForm.centro_custo_id) : null,
+                  status: quickContaForm.status,
+                  conta_como_disponibilidade: quickContaForm.conta_como_disponibilidade,
+                  tipo_integracao: quickContaForm.tipo_integracao,
+                  logo_url: nullableValue(quickContaForm.logo_url),
               });
               newItem = res.data;
               setSistemaData(prev => ({...prev, contas: [...prev.contas, newItem]}));
@@ -1824,6 +1914,8 @@ export function Importacao() {
           }
           setModalOpen(false);
           setModalValue('');
+          setQuickCategoriaParentId('');
+          setQuickContaForm(buildInitialQuickContaForm(sistemaData.centros));
           setEntityForm(initialQuickEntityForm);
           setEntityCepFeedback(null);
           lastEntityCepLookupRef.current = '';
@@ -1932,6 +2024,8 @@ export function Importacao() {
       setModalType(type);
       setModalPendingKey(excelKey);
       setModalValue(excelKey);
+      setQuickCategoriaParentId('');
+      setQuickContaForm(buildInitialQuickContaForm(sistemaData.centros, excelKey));
       setEntityForm({ ...initialQuickEntityForm, nome: excelKey, nome_fantasia: excelKey });
       setEntityCepFeedback(null);
       lastEntityCepLookupRef.current = '';
@@ -1939,6 +2033,13 @@ export function Importacao() {
   }
 
   async function handleExecutar() {
+      if (uncategorizedPreviewCount > 0) {
+          setFeedback({
+              type: 'error',
+              message: `Existem ${uncategorizedPreviewCount} lançamento(s) sem categoria. Classifique todos antes de confirmar.`,
+          });
+          return;
+      }
       setLoading(true);
       setFeedback(null);
       const fd = new FormData(); fd.append('file', file!);
@@ -1959,7 +2060,9 @@ export function Importacao() {
                     });
                     const completedJob = await waitForImportJob(data.job_id);
                     const result = completedJob.result || {};
-          setFeedback({ type: 'success', message: `${result.importados || 0} lançamentos importados com sucesso!`, details: result.erros });
+          const duplicados = Number(result.ignorados_duplicidade || 0);
+          const duplicadosMsg = duplicados > 0 ? ` ${duplicados} lançamento(s) já importados foram ignorados.` : '';
+          setFeedback({ type: 'success', message: `${result.importados || 0} lançamentos importados com sucesso!${duplicadosMsg}`, details: result.erros });
           setImportJob(null);
           setStep(1); setFile(null); setPreviewRows([]); setPreviewVisibleCount(PREVIEW_PAGE_SIZE);
           setConflitos({ contas: [], categorias: [], centros: [], entidades: [] });
@@ -2090,11 +2193,6 @@ export function Importacao() {
                 <div>
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2"><Tag className="text-blue-500"/> Categorias Encontradas ({conflitos.categorias.length})</h3>
-                        {conflitos.categorias.length > 0 && (
-                            <button onClick={() => handleBulkCreate('CATEGORIA')} disabled={!!bulkLoading} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 shadow transition disabled:opacity-50">
-                                {bulkLoading === 'CATEGORIA' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3"/>} Resolver Tudo
-                            </button>
-                        )}
                     </div>
                     {conflitos.categorias.length === 0 && <div className="p-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Tudo certo! Todas as categorias do arquivo já existem.</div>}
                     <div className="space-y-3">{conflitos.categorias.map(k => (<MappingRow key={k} original={k} value={mapCategorias[k]} suggestionValue={suggestedCategorias[k]} options={categoriaSelectOptions} onChange={(v:string)=>setMapCategorias(p=>({...p,[k]:String(v)}))} onCreate={()=>openCreateModal('CATEGORIA', k)} typeLabel="Categoria" icon={Tag} />))}</div>
@@ -2228,7 +2326,7 @@ export function Importacao() {
                     </div>
                 )}
 
-                <div className="flex justify-between pt-6 border-t border-slate-200 dark:border-slate-800"><button onClick={()=>setStep(3)} className="px-6 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={handleExecutar} disabled={loading} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition disabled:opacity-50">{loading && importJob?.kind === 'EXECUTE' ? <Loader2 className="animate-spin w-5 h-5"/> : <CheckCircle className="w-5 h-5"/>} {loading && importJob?.kind === 'EXECUTE' ? 'Importando...' : 'Confirmar Importação'}</button></div>
+                <div className="flex justify-between pt-6 border-t border-slate-200 dark:border-slate-800"><button onClick={()=>setStep(3)} className="px-6 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">Voltar</button><button onClick={handleExecutar} disabled={loading || uncategorizedPreviewCount > 0} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold shadow-lg flex gap-2 items-center hover:scale-105 active:scale-95 transition disabled:opacity-50">{loading && importJob?.kind === 'EXECUTE' ? <Loader2 className="animate-spin w-5 h-5"/> : <CheckCircle className="w-5 h-5"/>} {loading && importJob?.kind === 'EXECUTE' ? 'Importando...' : 'Confirmar Importação'}</button></div>
             </div>
         )}
       </div>
@@ -2237,7 +2335,7 @@ export function Importacao() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-slate-900/80 backdrop-blur-sm p-4">
               <div className={`bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6 rounded-2xl shadow-2xl w-full animate-scale-in ${modalType === 'ENTIDADE' ? 'max-w-4xl' : 'max-w-sm'}`}>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-blue-500"/> Criar {modalType === 'ENTIDADE' ? 'Interessado' : modalType}</h3>
-                  {modalType === 'ENTIDADE' ? (
+                                    {modalType === 'ENTIDADE' ? (
                     <div className="space-y-5">
                         <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
                             <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900/60">
@@ -2282,12 +2380,52 @@ export function Importacao() {
                                 </div>
                             </div>
                         </div>
-                        <div className="flex gap-2 justify-end mt-4"><button onClick={()=>{ setModalOpen(false); setEntityForm(initialQuickEntityForm); }} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold transition">Cancelar</button><button onClick={handleQuickCreate} disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex gap-2 items-center transition shadow-lg">{loading ? <Loader2 className="animate-spin w-4 h-4"/> : 'Criar interessado'}</button></div>
+                        <div className="flex gap-2 justify-end mt-4"><button onClick={()=>{ setModalOpen(false); setEntityForm(initialQuickEntityForm); setQuickCategoriaParentId(''); setQuickContaForm(buildInitialQuickContaForm(sistemaData.centros)); }} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold transition">Cancelar</button><button onClick={handleQuickCreate} disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex gap-2 items-center transition shadow-lg">{loading ? <Loader2 className="animate-spin w-4 h-4"/> : 'Criar interessado'}</button></div>
+                    </div>
+                  ) : modalType === 'CONTA' ? (
+                    <div className="space-y-5">
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">Nome da conta</label><input autoFocus type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.nome} onChange={e=>setQuickContaForm(prev=>({...prev, nome:e.target.value}))} /></div>
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">Banco</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.banco} onChange={e=>setQuickContaForm(prev=>({...prev, banco:e.target.value}))} /></div>
+                        </div>
+                        <div className="grid gap-4 sm:grid-cols-4">
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">Agência</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.agencia} onChange={e=>setQuickContaForm(prev=>({...prev, agencia:e.target.value}))} /></div>
+                            <div className="sm:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase">Número da conta</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.conta_numero} onChange={e=>setQuickContaForm(prev=>({...prev, conta_numero:e.target.value}))} /></div>
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">Dígito</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.conta_digito} onChange={e=>setQuickContaForm(prev=>({...prev, conta_digito:e.target.value}))} /></div>
+                        </div>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">Tipo</label><select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.tipo} onChange={e=>setQuickContaForm(prev=>({...prev, tipo:e.target.value as QuickContaFormState['tipo']}))}><option value="CORRENTE">Corrente</option><option value="POUPANCA">Poupança</option><option value="CAIXA">Caixa</option><option value="INVESTIMENTO">Investimento</option></select></div>
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">Saldo inicial</label><input type="number" step="0.01" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.saldo_inicial} onChange={e=>setQuickContaForm(prev=>({...prev, saldo_inicial:e.target.value}))} /></div>
+                        </div>
+                        <div className="grid gap-4 sm:grid-cols-3">
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">Centro de custo</label><select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.centro_custo_id} onChange={e=>setQuickContaForm(prev=>({...prev, centro_custo_id: e.target.value ? Number(e.target.value) : ''}))}><option value="">Sem centro</option>{sistemaData.centros.map((centro) => (<option key={centro.id} value={centro.id}>{centro.nome}</option>))}</select></div>
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">Status</label><select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.status} onChange={e=>setQuickContaForm(prev=>({...prev, status: e.target.value as QuickContaFormState['status']}))}><option value="ATIVO">Ativo</option><option value="INATIVO">Inativo</option></select></div>
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">Integração</label><select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.tipo_integracao} onChange={e=>setQuickContaForm(prev=>({...prev, tipo_integracao: e.target.value as QuickContaFormState['tipo_integracao']}))}><option value="MANUAL">Manual</option><option value="OFX">OFX</option><option value="OPEN_FINANCE">Open Finance</option></select></div>
+                        </div>
+                        <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">URL da logo (opcional)</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.logo_url} onChange={e=>setQuickContaForm(prev=>({...prev, logo_url:e.target.value}))} /></div>
+                            <label className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400"><input type="checkbox" checked={quickContaForm.conta_como_disponibilidade} onChange={e=>setQuickContaForm(prev=>({...prev, conta_como_disponibilidade:e.target.checked}))} />Disponível</label>
+                        </div>
+                        <div className="flex gap-2 justify-end mt-4"><button onClick={()=>{ setModalOpen(false); setQuickCategoriaParentId(''); setQuickContaForm(buildInitialQuickContaForm(sistemaData.centros)); setEntityForm(initialQuickEntityForm); }} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold transition">Cancelar</button><button onClick={handleQuickCreate} disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex gap-2 items-center transition shadow-lg">{loading ? <Loader2 className="animate-spin w-4 h-4"/> : 'Criar banco'}</button></div>
+                    </div>
+                  ) : modalType === 'CATEGORIA' ? (
+                    <div className="space-y-4">
+                        <div><label className="text-xs font-bold text-slate-500 uppercase">Nome da categoria</label><input autoFocus type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={modalValue} onChange={e=>setModalValue(e.target.value)} /></div>
+                        <div>
+                            <SearchableSelect
+                                label="Família (categoria pai)"
+                                value={quickCategoriaParentId}
+                                options={categoriaSelectOptions}
+                                placeholder="Sem família"
+                                onChange={(id: number | string) => setQuickCategoriaParentId(id ? Number(id) : '')}
+                            />
+                        </div>
+                        <div className="flex gap-2 justify-end mt-4"><button onClick={()=>{ setModalOpen(false); setQuickCategoriaParentId(''); setQuickContaForm(buildInitialQuickContaForm(sistemaData.centros)); setEntityForm(initialQuickEntityForm); }} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold transition">Cancelar</button><button onClick={handleQuickCreate} disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex gap-2 items-center transition shadow-lg">{loading ? <Loader2 className="animate-spin w-4 h-4"/> : 'Criar categoria'}</button></div>
                     </div>
                   ) : (
                     <div className="space-y-4">
                         <div><label className="text-xs font-bold text-slate-500 uppercase">Nome</label><input autoFocus type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={modalValue} onChange={e=>setModalValue(e.target.value)} /></div>
-                        <div className="flex gap-2 justify-end mt-4"><button onClick={()=>setModalOpen(false)} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold transition">Cancelar</button><button onClick={handleQuickCreate} disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex gap-2 items-center transition shadow-lg">{loading ? <Loader2 className="animate-spin w-4 h-4"/> : 'Criar'}</button></div>
+                        <div className="flex gap-2 justify-end mt-4"><button onClick={()=>{ setModalOpen(false); setQuickCategoriaParentId(''); setQuickContaForm(buildInitialQuickContaForm(sistemaData.centros)); setEntityForm(initialQuickEntityForm); }} className="px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-bold transition">Cancelar</button><button onClick={handleQuickCreate} disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex gap-2 items-center transition shadow-lg">{loading ? <Loader2 className="animate-spin w-4 h-4"/> : 'Criar'}</button></div>
                     </div>
                   )}
               </div>

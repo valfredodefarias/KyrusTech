@@ -65,8 +65,8 @@ TOKEN_MAP_INTERESSADO = {
     "PAGO": "Pago",
     "DESCRICAO": "",
     "DESC": "",
-    "QUANT": "Quantiq",
-    "QUANTIQ": "Quantiq",
+    "QUANT": "Quantic",
+    "QUANTIQ": "Quantic",
     "DIST": "Distribuidora",
 }
 
@@ -80,6 +80,7 @@ TOKENS_GENERICOS_INTERESSADO = {
     "PAGTO",
     "PIX",
     "QR",
+    "QRS",
     "QRCODE",
     "CODE",
     "CHAVE",
@@ -261,7 +262,48 @@ def _title_case_inteligente(tokens: List[str]) -> str:
         mapped = TOKEN_MAP_INTERESSADO.get(token, token.title())
         if mapped:
             palavras.append(mapped)
-    return " ".join(palavras).strip()
+
+    # Remove repeticoes adjacentes e repeticoes globais mantendo ordem.
+    sem_duplicatas: List[str] = []
+    vistos: set[str] = set()
+    ultimo = ""
+    for palavra in palavras:
+        chave = _normalizar_texto(palavra)
+        if not chave:
+            continue
+        if chave == _normalizar_texto(ultimo):
+            continue
+        if chave in vistos:
+            continue
+        sem_duplicatas.append(palavra)
+        vistos.add(chave)
+        ultimo = palavra
+
+    return " ".join(sem_duplicatas).strip()
+
+
+def _normalizar_interessado_final(texto: Optional[str]) -> str:
+    if not texto:
+        return ""
+
+    # Corrige casos colados como "QRSAna" ou "PixAna" antes da tokenizacao.
+    bruto = re.sub(
+        r"(?i)\b(qrs|qr|pix|pagamento|recebimento|boleto|pago|paga)(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõç])",
+        r"\1 ",
+        str(texto),
+    )
+
+    normalizado = _normalizar_nome_entidade(bruto)
+    tokens = [
+        token for token in _tokenizar_texto(normalizado)
+        if token not in TOKENS_GENERICOS_INTERESSADO and not token.isdigit()
+    ]
+
+    if not tokens:
+        return normalizado
+
+    interessado = _title_case_inteligente(tokens)
+    return interessado or normalizado
 
 
 def _extrair_nome_empresa(tokens: List[str]) -> str:
@@ -282,7 +324,7 @@ def _extrair_nome_empresa(tokens: List[str]) -> str:
     if len(trecho) < 2:
         return ""
 
-    nome = _normalizar_nome_entidade(_title_case_inteligente(trecho))
+    nome = _normalizar_interessado_final(_title_case_inteligente(trecho))
     return nome if _interessado_tem_confianca(nome) else ""
 
 
@@ -369,7 +411,7 @@ def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
             tokens = tokens[:12]
 
         interessado_local = _title_case_inteligente(tokens)
-        interessado_local = _normalizar_nome_entidade(interessado_local)
+        interessado_local = _normalizar_interessado_final(interessado_local)
         if len(_normalizar_texto(interessado_local)) < 3:
             return ""
         return interessado_local
@@ -384,7 +426,7 @@ def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
         if interessado_cartao:
             interessado_candidato = interessado_cartao
         else:
-            normalizado = _normalizar_nome_entidade(candidato)
+            normalizado = _normalizar_interessado_final(candidato)
             interessado_candidato = normalizado or _title_case_inteligente(_tokenizar_texto(candidato)) or candidato
 
         # Se o candidato vier desalinhado da descricao e a descricao trouxer forte sinal de PJ,

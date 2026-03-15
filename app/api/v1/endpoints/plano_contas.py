@@ -226,7 +226,12 @@ def delete_plano_contas(
     """Remove uma categoria."""
     
     # Verifica se tem filhos
-    filhos = db.exec(select(PlanoContas).where(PlanoContas.conta_pai_id == conta_id)).first()
+    filhos = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.conta_pai_id == conta_id,
+        )
+    ).first()
     if filhos:
         raise HTTPException(status_code=400, detail="Não é possível excluir uma categoria que possui subcategorias.")
 
@@ -235,7 +240,13 @@ def delete_plano_contas(
         raise HTTPException(status_code=400, detail="Categoria técnica do sistema não pode ser excluída")
 
     # Verifica se tem lançamentos
-    uso = db.exec(select(Lancamento).where(Lancamento.plano_contas_id == conta_id)).first()
+    uso = db.exec(
+        select(Lancamento).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.plano_contas_id == conta_id,
+            Lancamento.is_deleted == False,
+        )
+    ).first()
     if uso:
         raise HTTPException(status_code=400, detail="Não é possível excluir uma categoria que possui lançamentos.")
 

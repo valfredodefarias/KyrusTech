@@ -52,3 +52,7 @@ class Empresa(AuditMixin, SQLModel, table=True):
         sa_relationship_kwargs=dict(uselist=False, cascade="all, delete-orphan")
     )
     # anexo_lancamento não precisa de back_populates direto aqui geralmente, mas pode ter se necessário
+
+
+# Garante registro do model no mapper em runtime para resolver a relationship por nome.
+from .dashboard_view_config import DashboardViewConfig  # noqa: F401

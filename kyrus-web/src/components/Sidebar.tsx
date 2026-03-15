@@ -83,13 +83,13 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
 
   // --- ESTRUTURA DO MENU ---
   const menuItems = [
+    { icon: Home, label: 'Visão Geral', path: '/home' },
     { icon: Landmark, label: 'Contas Bancárias', path: '/contas' },
     { icon: PlusCircle, label: 'Lançamentos', path: '/lancamentos' },
     { icon: BarChart2, label: 'Boletim', path: '/boletim' },
-    { icon: Home, label: 'Visão Geral', path: '/home' },
-    { icon: LineChart, label: 'DRE', path: '/dre' },
     { icon: Users, label: 'Interessados', path: '/entidades' },
     { icon: CreditCard, label: 'Cartões', path: '/cartoes' },
+    { icon: LineChart, label: 'DRE', path: '/dre' },
     { icon: Settings, label: 'Configurações', path: '/config' },
   ];
 

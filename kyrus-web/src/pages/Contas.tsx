@@ -1096,7 +1096,7 @@ export function Contas() {
           </button>
           {extratoOpen && extratoContaId && (
             <button
-              onClick={() => navigate(`/lancamentos?novo=1&conta_id=${extratoContaId}&origem=contas_extrato`)}
+              onClick={() => handleAbrirLancamentoModal()}
               className="px-4 py-2 rounded-lg text-white font-bold text-sm flex items-center gap-2"
               style={{ backgroundColor: primaryColor }}
             >
@@ -1877,26 +1877,27 @@ export function Contas() {
 
       {/* --- MODAL DE LANÇAMENTO (CRIAR/EDITAR) --- */}
       {lancamentoModalOpen && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-60 flex justify-end">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setLancamentoModalOpen(false)} />
-          <div className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full p-6 border border-slate-700">
-            <div className="flex items-center justify-between mb-4">
+          <div className="relative w-full max-w-xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-white dark:bg-slate-800">
               <h2 className="text-lg font-bold text-slate-800 dark:text-white">{lancamentoEditing ? 'Editar lançamento' : 'Novo lançamento'}</h2>
-              <button onClick={() => setLancamentoModalOpen(false)} className="p-2 bg-slate-200 dark:bg-slate-700 rounded-full hover:opacity-80 transition">
+              <button onClick={() => setLancamentoModalOpen(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-400 transition">
                 <X className="w-5 h-5 text-slate-600 dark:text-slate-300" />
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Descrição</label>
                 <input
                   className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
                   value={lancamentoForm.descricao}
                   onChange={e => setLancamentoForm(prev => ({ ...prev, descricao: e.target.value }))}
                 />
-              </div>
-              <div>
+                </div>
+                <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Tipo</label>
                 <select
                   className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
@@ -1906,8 +1907,8 @@ export function Contas() {
                   <option value="RECEITA">Receita</option>
                   <option value="DESPESA">Despesa</option>
                 </select>
-              </div>
-              <div>
+                </div>
+                <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Status</label>
                 <select
                   className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
@@ -1917,8 +1918,8 @@ export function Contas() {
                   <option value="EM ABERTO">Em aberto</option>
                   <option value="PAGO">Pago</option>
                 </select>
-              </div>
-              <div>
+                </div>
+                <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Data vencimento</label>
                 <input
                   type="date"
@@ -1926,8 +1927,8 @@ export function Contas() {
                   value={lancamentoForm.data_vencimento}
                   onChange={e => setLancamentoForm(prev => ({ ...prev, data_vencimento: e.target.value }))}
                 />
-              </div>
-              <div>
+                </div>
+                <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Data pagamento</label>
                 <input
                   type="date"
@@ -1935,24 +1936,24 @@ export function Contas() {
                   value={lancamentoForm.data_pagamento}
                   onChange={e => setLancamentoForm(prev => ({ ...prev, data_pagamento: e.target.value }))}
                 />
-              </div>
-              <div>
+                </div>
+                <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Valor previsto</label>
                 <CurrencyInput
                   className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
                   value={lancamentoForm.valor_previsto}
                   onValueChange={(value) => setLancamentoForm(prev => ({ ...prev, valor_previsto: value }))}
                 />
-              </div>
-              <div>
+                </div>
+                <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Valor pago</label>
                 <CurrencyInput
                   className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
                   value={lancamentoForm.valor_pago}
                   onValueChange={(value) => setLancamentoForm(prev => ({ ...prev, valor_pago: value }))}
                 />
-              </div>
-              <div className="md:col-span-2">
+                </div>
+                <div className="md:col-span-2">
                 <SearchableSelect
                   label="Categoria"
                   options={catOptions}
@@ -1960,20 +1961,21 @@ export function Contas() {
                   placeholder="Selecione..."
                   onChange={(id: number) => setLancamentoForm(prev => ({ ...prev, plano_contas_id: String(id) }))}
                 />
+                </div>
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="flex gap-3 border-t border-slate-200 px-6 py-5 dark:border-slate-700">
               <button
                 onClick={() => setLancamentoModalOpen(false)}
-                className="px-5 py-3 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
+                className="flex-1 py-3 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleSalvarLancamento}
                 disabled={lancamentoSaving}
-                className="px-6 py-3 rounded-xl text-white font-bold flex items-center gap-2 disabled:opacity-60"
+                className="flex-1 py-3 rounded-xl text-white font-bold flex items-center justify-center gap-2 disabled:opacity-60 shadow-lg"
                 style={{ backgroundColor: primaryColor }}
               >
                 {lancamentoSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}

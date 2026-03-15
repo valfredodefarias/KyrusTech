@@ -834,21 +834,13 @@ export function Dre() {
                     group.tone === 'teal' ? (isDark ? 'border-teal-300/60 bg-teal-700' : 'border-teal-300 bg-teal-700') :
                     (isDark ? 'border-fuchsia-300/60 bg-fuchsia-700' : 'border-fuchsia-300 bg-fuchsia-700');
 
-                  const cellTone =
-                    group.tone === 'emerald' ? (isDark ? 'bg-emerald-900/60 text-emerald-100' : 'bg-emerald-100 text-emerald-900') :
-                    group.tone === 'amber' ? (isDark ? 'bg-yellow-900/60 text-yellow-100' : 'bg-yellow-100 text-yellow-900') :
-                    group.tone === 'orange' ? (isDark ? 'bg-orange-900/60 text-orange-100' : 'bg-orange-100 text-orange-900') :
-                    group.tone === 'rose' ? (isDark ? 'bg-rose-900/60 text-rose-100' : 'bg-rose-100 text-rose-900') :
-                    group.tone === 'teal' ? (isDark ? 'bg-teal-900/60 text-teal-100' : 'bg-teal-100 text-teal-900') :
-                    (isDark ? 'bg-fuchsia-900/60 text-fuchsia-100' : 'bg-fuchsia-100 text-fuchsia-900');
-
                   return (
                     <Fragment key={`group-${group.key}`}>
                       <tr key={`group-header-${group.key}`}>
                         <td className={`sticky left-0 z-10 border-b border-r px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white ${rowTone}`}>{group.label}</td>
-                        <td className={`border-b border-r px-4 py-3 text-right font-black ${cellTone}`}>{renderMoneyCell(groupTotal, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}</td>
+                        <td className={`border-b border-r px-4 py-3 text-right font-black text-white ${rowTone}`}>{renderMoneyCell(groupTotal, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}</td>
                         {groupMonthly.map((value, index) => (
-                          <td key={`${group.key}-total-${index}`} className={`border-b border-r px-4 py-3 text-right font-bold last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : cellTone}`}>{renderMoneyCell(value, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}</td>
+                          <td key={`${group.key}-total-${index}`} className={`border-b border-r px-4 py-3 text-right font-bold text-white last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : rowTone}`}>{renderMoneyCell(value, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}</td>
                         ))}
                         <td className="w-3 border-b border-yellow-500 bg-yellow-400 px-0 py-0" />
                       </tr>

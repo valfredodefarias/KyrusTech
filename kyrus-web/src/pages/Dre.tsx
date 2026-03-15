@@ -803,7 +803,16 @@ export function Dre() {
                   <th className="sticky left-0 z-20 border-b border-r border-slate-800 bg-slate-950 px-5 py-4 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white">Conta</th>
                   <th className="border-b border-r border-slate-800 bg-slate-950 px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">Total</th>
                   {monthLabels.map((label, index) => (
-                    <th key={label} className={`border-b border-r px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 ${selectedMonth === index ? 'border-amber-300 bg-amber-200 text-amber-950' : 'border-slate-800 bg-slate-950 text-white'}`}>{label}</th>
+                    <th key={label} className={`border-b border-r px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 ${selectedMonth === index ? 'border-amber-300 bg-amber-200 text-amber-950' : 'border-slate-800 bg-slate-950 text-white'}`}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMonth((prev) => (prev === index ? null : index))}
+                        className="w-full text-right"
+                        title={selectedMonth === index ? 'Clique para voltar ao ano inteiro' : `Clique para filtrar ${label}`}
+                      >
+                        {label}
+                      </button>
+                    </th>
                   ))}
                   <th className="w-3 border-b border-amber-300 bg-amber-200 px-0 py-0" />
                 </tr>
@@ -818,20 +827,20 @@ export function Dre() {
                   const groupMonthly = dre.groupedMonthly[group.key] || Array.from({ length: 12 }, () => 0);
                   const groupTotal = sumValues(groupMonthly);
                   const rowTone =
-                    group.tone === 'emerald' ? (isDark ? 'border-emerald-300/35 bg-emerald-800/65' : 'border-emerald-200 bg-emerald-600') :
-                    group.tone === 'amber' ? (isDark ? 'border-amber-300/35 bg-amber-800/65' : 'border-amber-200 bg-amber-600') :
-                    group.tone === 'orange' ? (isDark ? 'border-orange-300/35 bg-orange-800/65' : 'border-orange-200 bg-orange-600') :
-                    group.tone === 'rose' ? (isDark ? 'border-rose-300/35 bg-rose-800/65' : 'border-rose-200 bg-rose-600') :
-                    group.tone === 'teal' ? (isDark ? 'border-teal-300/35 bg-teal-800/65' : 'border-teal-200 bg-teal-600') :
-                    (isDark ? 'border-fuchsia-300/35 bg-fuchsia-800/65' : 'border-fuchsia-200 bg-fuchsia-600');
+                    group.tone === 'emerald' ? (isDark ? 'border-emerald-300/60 bg-emerald-700' : 'border-emerald-300 bg-emerald-700') :
+                    group.tone === 'amber' ? (isDark ? 'border-yellow-300/60 bg-yellow-600' : 'border-yellow-300 bg-yellow-600') :
+                    group.tone === 'orange' ? (isDark ? 'border-orange-300/60 bg-orange-700' : 'border-orange-300 bg-orange-700') :
+                    group.tone === 'rose' ? (isDark ? 'border-rose-300/60 bg-rose-700' : 'border-rose-300 bg-rose-700') :
+                    group.tone === 'teal' ? (isDark ? 'border-teal-300/60 bg-teal-700' : 'border-teal-300 bg-teal-700') :
+                    (isDark ? 'border-fuchsia-300/60 bg-fuchsia-700' : 'border-fuchsia-300 bg-fuchsia-700');
 
                   const cellTone =
-                    group.tone === 'emerald' ? (isDark ? 'bg-emerald-500/12 text-emerald-100' : 'bg-emerald-50 text-emerald-800') :
-                    group.tone === 'amber' ? (isDark ? 'bg-amber-500/12 text-amber-100' : 'bg-amber-50 text-amber-800') :
-                    group.tone === 'orange' ? (isDark ? 'bg-orange-500/12 text-orange-100' : 'bg-orange-50 text-orange-800') :
-                    group.tone === 'rose' ? (isDark ? 'bg-rose-500/12 text-rose-100' : 'bg-rose-50 text-rose-800') :
-                    group.tone === 'teal' ? (isDark ? 'bg-teal-500/12 text-teal-100' : 'bg-teal-50 text-teal-800') :
-                    (isDark ? 'bg-fuchsia-500/12 text-fuchsia-100' : 'bg-fuchsia-50 text-fuchsia-800');
+                    group.tone === 'emerald' ? (isDark ? 'bg-emerald-900/60 text-emerald-100' : 'bg-emerald-100 text-emerald-900') :
+                    group.tone === 'amber' ? (isDark ? 'bg-yellow-900/60 text-yellow-100' : 'bg-yellow-100 text-yellow-900') :
+                    group.tone === 'orange' ? (isDark ? 'bg-orange-900/60 text-orange-100' : 'bg-orange-100 text-orange-900') :
+                    group.tone === 'rose' ? (isDark ? 'bg-rose-900/60 text-rose-100' : 'bg-rose-100 text-rose-900') :
+                    group.tone === 'teal' ? (isDark ? 'bg-teal-900/60 text-teal-100' : 'bg-teal-100 text-teal-900') :
+                    (isDark ? 'bg-fuchsia-900/60 text-fuchsia-100' : 'bg-fuchsia-100 text-fuchsia-900');
 
                   return (
                     <Fragment key={`group-${group.key}`}>
@@ -839,24 +848,20 @@ export function Dre() {
                         <td className={`sticky left-0 z-10 border-b border-r px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white ${rowTone}`}>{group.label}</td>
                         <td className={`border-b border-r px-4 py-3 text-right font-black ${cellTone}`}>{renderMoneyCell(groupTotal, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}</td>
                         {groupMonthly.map((value, index) => (
-                          <td key={`${group.key}-total-${index}`} className={`border-b border-r px-4 py-3 text-right font-bold last:border-r-0 ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : cellTone}`}>{renderMoneyCell(value, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}</td>
+                          <td key={`${group.key}-total-${index}`} className={`border-b border-r px-4 py-3 text-right font-bold last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : cellTone}`}>{renderMoneyCell(value, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}</td>
                         ))}
-                        <td className="w-3 border-b border-amber-300 bg-amber-100 px-0 py-0" />
+                        <td className="w-3 border-b border-yellow-500 bg-yellow-400 px-0 py-0" />
                       </tr>
 
-                      {groupRows.length === 0 ? (
-                        <tr key={`group-empty-${group.key}`}>
-                          <td colSpan={15} className={`px-5 py-6 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Sem lançamentos para {group.label.toLowerCase()} neste ano.</td>
-                        </tr>
-                      ) : groupRows.map((row, rowIndex) => {
+                      {groupRows.map((row, rowIndex) => {
                         const isSelected = selectedContaId === row.id;
                         const parentRowClass =
-                          group.tone === 'emerald' ? (isDark ? 'bg-emerald-900/35 text-white' : 'bg-emerald-100/60 text-slate-900') :
-                          group.tone === 'amber' ? (isDark ? 'bg-amber-900/35 text-white' : 'bg-amber-100/60 text-slate-900') :
-                          group.tone === 'orange' ? (isDark ? 'bg-orange-900/35 text-white' : 'bg-orange-100/60 text-slate-900') :
-                          group.tone === 'rose' ? (isDark ? 'bg-rose-900/35 text-white' : 'bg-rose-100/60 text-slate-900') :
-                          group.tone === 'teal' ? (isDark ? 'bg-teal-900/35 text-white' : 'bg-teal-100/60 text-slate-900') :
-                          (isDark ? 'bg-fuchsia-900/35 text-white' : 'bg-fuchsia-100/60 text-slate-900');
+                          group.tone === 'emerald' ? (isDark ? 'bg-emerald-800/60 text-white' : 'bg-emerald-200 text-emerald-950') :
+                          group.tone === 'amber' ? (isDark ? 'bg-yellow-800/60 text-white' : 'bg-yellow-200 text-yellow-950') :
+                          group.tone === 'orange' ? (isDark ? 'bg-orange-800/60 text-white' : 'bg-orange-200 text-orange-950') :
+                          group.tone === 'rose' ? (isDark ? 'bg-rose-800/60 text-white' : 'bg-rose-200 text-rose-950') :
+                          group.tone === 'teal' ? (isDark ? 'bg-teal-800/60 text-white' : 'bg-teal-200 text-teal-950') :
+                          (isDark ? 'bg-fuchsia-800/60 text-white' : 'bg-fuchsia-200 text-fuchsia-950');
 
                         return (
                           <tr key={`${group.key}-row-${row.id}`} className={rowIndex % 2 === 0 ? (isDark ? 'bg-slate-950/20' : 'bg-white') : (isDark ? 'bg-slate-900/30' : 'bg-slate-50/60')}>
@@ -888,12 +893,12 @@ export function Dre() {
                                   setSelectedContaId(row.id);
                                   setSelectedMonth(index);
                                 }}
-                                className={`cursor-pointer border-b border-r px-4 py-3 text-right transition last:border-r-0 ${selectedContaId === row.id && selectedMonth === index ? isDark ? 'bg-sky-500/15 text-sky-100' : 'bg-sky-50 text-sky-800' : ''} ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : ''} ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? `font-bold ${parentRowClass}` : isDark ? 'font-medium text-slate-200' : 'font-medium text-slate-700'}`}
+                                className={`cursor-pointer border-b border-r px-4 py-3 text-right transition last:border-r-0 ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? `font-bold ${parentRowClass}` : isDark ? 'font-medium text-slate-200' : 'font-medium text-slate-700'} ${selectedContaId === row.id && selectedMonth === index ? isDark ? 'bg-sky-500/20 text-sky-100 ring-1 ring-inset ring-sky-300/60' : 'bg-sky-100 text-sky-900 ring-1 ring-inset ring-sky-400/60' : ''} ${selectedMonth === index ? 'bg-yellow-400 text-slate-950 ring-1 ring-inset ring-yellow-600 font-black' : ''}`}
                               >
                                 {renderMoneyCell(value, row.tipoCategoria === 'RECEITA' ? 'receita' : 'despesa')}
                               </td>
                             ))}
-                            <td className="w-3 border-b border-amber-300 bg-amber-100 px-0 py-0" />
+                            <td className="w-3 border-b border-yellow-500 bg-yellow-400 px-0 py-0" />
                           </tr>
                         );
                       })}
@@ -902,75 +907,84 @@ export function Dre() {
                 })}
 
                 <tr>
+                  <td className="sticky left-0 z-10 border-r border-yellow-500 bg-yellow-400 px-5 py-2 text-sm font-black text-slate-950">&nbsp;</td>
+                  <td className="border-r border-yellow-500 bg-yellow-400 px-4 py-2">&nbsp;</td>
+                  {monthLabels.map((label) => (
+                    <td key={`separator-${label}`} className="border-r border-yellow-500 bg-yellow-400 px-4 py-2 last:border-r-0">&nbsp;</td>
+                  ))}
+                  <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
+                </tr>
+
+                <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Receita líquida</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-emerald-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')}</td>
                   {dre.receitaLiquidaMonthly.map((value, index) => (
-                    <td key={`receita-liquida-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : `bg-emerald-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td key={`receita-liquida-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : `bg-emerald-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderMoneyCell(value, 'resultado')}</td>
                   ))}
-                  <td className="w-3 border-r border-amber-300 bg-amber-100 px-0 py-0" />
+                  <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Margem de contribuição</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.margemContribuicaoTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(dre.margemContribuicaoTotal, 'resultado')}</td>
                   {dre.margemContribuicaoMonthly.map((value, index) => (
-                    <td key={`mc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td key={`mc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(value, 'resultado')}</td>
                   ))}
-                  <td className="w-3 border-r border-amber-300 bg-amber-100 px-0 py-0" />
+                  <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado operacional</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.resultadoOperacionalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')}</td>
                   {dre.resultadoOperacionalMonthly.map((value, index) => (
-                    <td key={`resultado-operacional-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td key={`resultado-operacional-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(value, 'resultado')}</td>
                   ))}
-                  <td className="w-3 border-r border-amber-300 bg-amber-100 px-0 py-0" />
+                  <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado final</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.resultadoFinalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(dre.resultadoFinalTotal, 'resultado')}</td>
                   {dre.resultadoFinalMonthly.map((value, index) => (
-                    <td key={`resultado-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td key={`resultado-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(value, 'resultado')}</td>
                   ))}
-                  <td className="w-3 border-r border-amber-300 bg-amber-100 px-0 py-0" />
+                  <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">% MC</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(dre.percentualMcTotal)}</td>
                   {dre.percentualMcMonthly.map((value, index) => (
-                    <td key={`pmc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
+                    <td key={`pmc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
                   ))}
-                  <td className="w-3 border-r border-amber-300 bg-amber-100 px-0 py-0" />
+                  <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Lucratividade operacional</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(dre.lucratividadeOperacionalTotal)}</td>
                   {dre.lucratividadeOperacionalMonthly.map((value, index) => (
-                    <td key={`lucr-op-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
+                    <td key={`lucr-op-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
                   ))}
-                  <td className="w-3 border-r border-amber-300 bg-amber-100 px-0 py-0" />
+                  <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Lucratividade final</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(dre.lucratividadeFinalTotal)}</td>
                   {dre.lucratividadeFinalMonthly.map((value, index) => (
-                    <td key={`lucr-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
+                    <td key={`lucr-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
                   ))}
-                  <td className="w-3 border-r border-amber-300 bg-amber-100 px-0 py-0" />
+                  <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Ponto de equilíbrio</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-fuchsia-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderOptionalMoney(dre.pontoEquilibrioTotal, 'resultado')}</td>
                   {dre.pontoEquilibrioMonthly.map((value, index) => (
-                    <td key={`pe-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : `bg-fuchsia-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderOptionalMoney(value, 'resultado')}</td>
+                    <td key={`pe-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : `bg-fuchsia-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderOptionalMoney(value, 'resultado')}</td>
                   ))}
-                  <td className="w-3 border-r border-amber-300 bg-amber-100 px-0 py-0" />
+                  <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
               </tbody>
             </table>

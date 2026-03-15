@@ -63,6 +63,16 @@ const getTodayLocalYmd = () => {
   return `${y}-${m}-${d}`;
 };
 
+const getLocalYmdDaysAgo = (days: number) => {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  now.setDate(now.getDate() - days);
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 const isLancamentoAtrasado = (l: Lancamento) => {
   if (String(l.status).toUpperCase() === 'PAGO') return false;
   if (!l.data_vencimento) return false;
@@ -1148,6 +1158,23 @@ export function Lancamentos() {
       pushToast('info', 'Interessado é obrigatório.');
       return;
     }
+
+    const isNovoLancamento = !formData.id;
+    const dataLimiteRetroativa = getLocalYmdDaysAgo(2);
+
+    if (isNovoLancamento) {
+      const dataBaseNovo = formData.status === 'PAGO'
+        ? (formData.data_pagamento || formData.data_vencimento)
+        : formData.data_vencimento;
+      if (dataBaseNovo && dataBaseNovo < dataLimiteRetroativa) {
+        const confirmarRetroativo = window.confirm('Este lançamento possui data anterior a 2 dias atrás. Verifique se a data está correta e, se sim, confirme para lançar.');
+        if (!confirmarRetroativo) {
+          pushToast('info', 'Lançamento cancelado para revisão da data.');
+          return;
+        }
+      }
+    }
+
     setSaving(true);
     try {
       const computedCardDue = formData.cartao_id ? computeCartaoVencimento(formData.data_vencimento, formData.cartao_id) : null;
@@ -1196,6 +1223,19 @@ export function Lancamentos() {
             valor_pago: (i===0 && payload.status==='PAGO') ? payload.valor_pago : 0
           });
         }
+
+        const parcelasRetroativas = lista.filter((item: any) => String(item.data_vencimento || '') < dataLimiteRetroativa).length;
+        if (parcelasRetroativas > 0) {
+          const confirmarParcelasRetroativas = window.confirm(
+            `${parcelasRetroativas} parcela(s) possuem data anterior a 2 dias atrás. Verifique se as datas estão corretas e, se sim, confirme para lançar.`,
+          );
+          if (!confirmarParcelasRetroativas) {
+            pushToast('info', 'Lançamento parcelado cancelado para revisão das datas.');
+            setSaving(false);
+            return;
+          }
+        }
+
         await api.post('/lancamentos/bulk', lista);
       } else {
         if(id) await api.put(`/lancamentos/${id}`, payload);

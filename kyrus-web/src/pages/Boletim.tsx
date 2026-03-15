@@ -1110,7 +1110,7 @@ export function Boletim() {
                   style={{ width: `${auditPanelWidth}px` }}
                 >
                   <div
-                    className={`absolute right-0 top-0 h-full w-2 cursor-ew-resize ${isDark ? 'bg-amber-300/20 hover:bg-amber-300/35' : 'bg-amber-300/30 hover:bg-amber-400/45'}`}
+                    className={`absolute right-0 top-0 h-full w-2 cursor-ew-resize ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-300/35'}`}
                     onMouseDown={startAuditResize}
                     title="Arraste para redimensionar"
                   />
@@ -1130,20 +1130,18 @@ export function Boletim() {
                             <tr>
                               <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
                               <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
-                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Banco</th>
                               <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
                             </tr>
                           </thead>
                           <tbody>
                             {(auditPanel.rows || []).length === 0 ? (
                               <tr>
-                                <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
+                                <td colSpan={3} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
                               </tr>
                             ) : (auditPanel.rows || []).map((row) => (
                               <tr key={`audit-row-${row.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
                                 <td className="px-3 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
                                 <td className="px-3 py-2.5">{row.interessado}</td>
-                                <td className="px-3 py-2.5">{row.contaNome}</td>
                                 <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${row.flowType === 'RECEBIMENTO' ? getValueTone(row.valorAbsoluto, isDark) : getValueTone(-row.valorAbsoluto, isDark)}`}>{formatCurrency(row.valorAbsoluto)}</td>
                               </tr>
                             ))}

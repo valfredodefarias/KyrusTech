@@ -63,6 +63,11 @@ TOKEN_MAP_INTERESSADO = {
     "MERCADOPAGO": "Mercado Pago",
     "MERCADO": "Mercado",
     "PAGO": "Pago",
+    "DESCRICAO": "",
+    "DESC": "",
+    "QUANT": "Quantiq",
+    "QUANTIQ": "Quantiq",
+    "DIST": "Distribuidora",
 }
 
 TOKENS_GENERICOS_INTERESSADO = {
@@ -99,6 +104,8 @@ TOKENS_GENERICOS_INTERESSADO = {
     "AG",
     "CC",
     "REDE",
+    "DESCRICAO",
+    "DESC",
 }
 
 PADROES_CATEGORIA_PRIORITARIA: List[tuple[str, tuple[str, ...]]] = [
@@ -251,8 +258,32 @@ def _tokenizar_texto(texto: Optional[str]) -> List[str]:
 def _title_case_inteligente(tokens: List[str]) -> str:
     palavras: List[str] = []
     for token in tokens:
-        palavras.append(TOKEN_MAP_INTERESSADO.get(token, token.title()))
+        mapped = TOKEN_MAP_INTERESSADO.get(token, token.title())
+        if mapped:
+            palavras.append(mapped)
     return " ".join(palavras).strip()
+
+
+def _extrair_nome_empresa(tokens: List[str]) -> str:
+    if not tokens:
+        return ""
+
+    tokens_limpos = [token for token in tokens if token and token not in TOKENS_GENERICOS_INTERESSADO and not token.isdigit()]
+    if not tokens_limpos:
+        return ""
+
+    sufixos = {"LTDA", "EIRELI", "SA", "S/A"}
+    idx_sufixo = next((i for i, token in enumerate(tokens_limpos) if token in sufixos), None)
+    if idx_sufixo is None:
+        return ""
+
+    inicio = max(0, idx_sufixo - 4)
+    trecho = tokens_limpos[inicio:idx_sufixo + 1]
+    if len(trecho) < 2:
+        return ""
+
+    nome = _normalizar_nome_entidade(_title_case_inteligente(trecho))
+    return nome if _interessado_tem_confianca(nome) else ""
 
 
 def _extrair_interessado_cartao(descricao: str) -> str:
@@ -314,12 +345,17 @@ def _classificar_movimento_descricao(lancamento_ofx: Dict) -> str:
 
 def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
     def _extrair_da_descricao(descricao_bruta: str) -> str:
+        tokens_descricao = _tokenizar_texto(descricao_bruta)
+        empresa_extraida = _extrair_nome_empresa(tokens_descricao)
+        if empresa_extraida:
+            return empresa_extraida
+
         interessado_cartao = _extrair_interessado_cartao(descricao_bruta)
         if interessado_cartao:
             return interessado_cartao
 
         tokens = []
-        for token in _tokenizar_texto(descricao_bruta):
+        for token in tokens_descricao:
             if token in TOKENS_GENERICOS_INTERESSADO:
                 continue
             if token.isdigit():

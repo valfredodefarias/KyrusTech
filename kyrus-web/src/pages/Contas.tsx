@@ -1066,14 +1066,43 @@ export function Contas() {
           <p className="text-sm text-slate-400">Caixas, Bancos e Investimentos</p>
         </div>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          {extratoOpen && (
+            <button
+              onClick={handleVoltarExtrato}
+              className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-bold"
+            >
+              Voltar
+            </button>
+          )}
           <button 
-            onClick={carregarDados}
+            onClick={() => {
+              if (extratoOpen && extratoContaId) {
+                void fetchLancamentosConta(extratoContaId);
+                return;
+              }
+              void carregarDados();
+            }}
             className="p-2 text-slate-400 transition border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 hover:brightness-95" 
-            style={{ color: loading ? undefined : primaryColor }}
+            style={{ color: loading || extratoLoading ? undefined : primaryColor }}
             title="Atualizar"
           >
-            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-5 h-5 ${loading || extratoLoading ? 'animate-spin' : ''}`} />
           </button>
+          <button
+            onClick={() => navigate(extratoContaId ? `/importacao_ofx?conta_id=${extratoContaId}` : '/importacao_ofx')}
+            className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold text-sm whitespace-nowrap"
+          >
+            Importar OFX
+          </button>
+          {extratoOpen && extratoContaId && (
+            <button
+              onClick={() => navigate(`/lancamentos?novo=1&conta_id=${extratoContaId}&origem=contas_extrato`)}
+              className="px-4 py-2 rounded-lg text-white font-bold text-sm flex items-center gap-2"
+              style={{ backgroundColor: primaryColor }}
+            >
+              <Plus className="w-4 h-4" /> Novo lancamento
+            </button>
+          )}
           <button 
             onClick={handleOpenCreate}
             className="text-white px-5 py-2 rounded-lg shadow-md flex items-center gap-2 font-bold transition active:scale-95 text-sm whitespace-nowrap hover:opacity-90"
@@ -1093,35 +1122,6 @@ export function Contas() {
               <div>
                 <h3 className="text-xl font-bold text-slate-800 dark:text-white">Extrato - {contaExtratoNome}</h3>
                 <p className="text-xs text-slate-400">Movimentos que realmente entram no cálculo do saldo desta conta.</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={handleVoltarExtrato}
-                  className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-bold"
-                >
-                  Voltar
-                </button>
-                {extratoContaId && (
-                  <button
-                    onClick={() => navigate(`/importacao_ofx?conta_id=${extratoContaId}`)}
-                    className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold text-sm"
-                  >
-                    Importar OFX
-                  </button>
-                )}
-                <button
-                  onClick={() => handleAbrirLancamentoModal()}
-                  className="px-4 py-2 rounded-lg text-white font-bold text-sm flex items-center gap-2"
-                  style={{ backgroundColor: primaryColor }}
-                >
-                  <Plus className="w-4 h-4" /> Novo lançamento
-                </button>
-                <button
-                  onClick={() => extratoContaId && fetchLancamentosConta(extratoContaId)}
-                  className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-bold flex items-center gap-2"
-                >
-                  <RefreshCw className={`w-4 h-4 ${extratoLoading ? 'animate-spin' : ''}`} /> Atualizar
-                </button>
               </div>
             </div>
 

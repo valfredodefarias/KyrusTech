@@ -223,7 +223,11 @@ export function Home() {
             </div>
           ) : (
             contasVisaoGeral.map((conta) => (
-              <div key={conta.id} className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900/40">
+              <Link
+                key={conta.id}
+                to={`/contas?extrato_conta_id=${conta.id}`}
+                className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 dark:border-slate-700 dark:bg-slate-900/40"
+              >
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 shrink-0 flex items-center justify-center overflow-hidden" style={{ color: primaryColor }}>
                     {conta.tipo === 'CAIXA' ? (
@@ -248,7 +252,7 @@ export function Home() {
                 </div>
 
                 <p className="font-mono font-bold text-slate-800 dark:text-white whitespace-nowrap">{BRL.format(getSaldo(conta))}</p>
-              </div>
+              </Link>
             ))
           )}
         </div>

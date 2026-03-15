@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, toPublicAssetUrl } from '../services/api';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { useLookupStore } from '../store/lookupStore';
@@ -376,6 +377,7 @@ const ToggleSimNao = ({
 );
 
 export function Lancamentos() {
+  const [searchParams, setSearchParams] = useSearchParams();
   // --- DADOS ---
   const [loading, setLoading] = useState(true);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
@@ -458,6 +460,7 @@ export function Lancamentos() {
   const lastEntityCepLookupRef = useRef('');
   const autoPagamentoRef = useRef(true);
   const autoCompetenciaRef = useRef(true);
+  const quickOpenNovoHandledRef = useRef(false);
 
   const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
@@ -679,6 +682,25 @@ export function Lancamentos() {
       setTransferData(prev => prev.centro_custo_id ? prev : { ...prev, centro_custo_id: onlyId });
     }
   }, [centros]);
+
+  useEffect(() => {
+    if (quickOpenNovoHandledRef.current) return;
+    if (searchParams.get('novo') !== '1') return;
+    if (!auxLoadedRef.current || contas.length === 0) return;
+
+    openDrawer();
+    const contaIdParam = Number(searchParams.get('conta_id') || '');
+    if (Number.isFinite(contaIdParam) && contaIdParam > 0) {
+      setFormData((prev: any) => ({ ...prev, conta_id: String(contaIdParam), cartao_id: '' }));
+    }
+
+    quickOpenNovoHandledRef.current = true;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('novo');
+    nextParams.delete('conta_id');
+    nextParams.delete('origem');
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams, contas.length]);
 
   async function loadAuxData() {
     if (auxLoadedRef.current) return;

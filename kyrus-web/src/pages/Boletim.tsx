@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
   Building2,
@@ -390,7 +390,45 @@ export function Boletim() {
   const [auditPanel, setAuditPanel] = useState<AuditPanelState | null>(null);
   const [activeAuditMetricKey, setActiveAuditMetricKey] = useState<string | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [auditPanelWidth, setAuditPanelWidth] = useState(420);
+  const auditResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const isDark = useIsDarkMode();
+
+  useEffect(() => {
+    const initial = Math.round(window.innerWidth / 3);
+    setAuditPanelWidth(Math.max(320, Math.min(Math.round(window.innerWidth * 0.7), initial)));
+  }, []);
+
+  useEffect(() => {
+    const onMouseMove = (event: MouseEvent) => {
+      const state = auditResizeRef.current;
+      if (!state) return;
+      const delta = event.clientX - state.startX;
+      const maxWidth = Math.round(window.innerWidth * 0.7);
+      const nextWidth = Math.max(320, Math.min(maxWidth, state.startWidth + delta));
+      setAuditPanelWidth(nextWidth);
+    };
+
+    const onMouseUp = () => {
+      if (!auditResizeRef.current) return;
+      auditResizeRef.current = null;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
+
+  const startAuditResize = (event: ReactMouseEvent<HTMLDivElement>) => {
+    auditResizeRef.current = { startX: event.clientX, startWidth: auditPanelWidth };
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'ew-resize';
+  };
 
   useEffect(() => {
     let active = true;
@@ -982,6 +1020,7 @@ export function Boletim() {
     : 'bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.10),transparent_22%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-900';
   const shellClass = isDark ? 'border-white/10 bg-white/[0.035]' : 'border-slate-200 bg-white/88';
   const tableShellClass = isDark ? 'border-[#f2c94c]/20 bg-black/45' : 'border-amber-200 bg-white/95';
+  const auditPanelShellClass = isDark ? 'border-amber-300/35 bg-slate-950 text-white' : 'border-amber-300 bg-white text-slate-900';
 
   return (
     <div className={`min-h-full px-3 py-6 sm:px-4 lg:px-6 ${pageClass}`}>
@@ -1059,14 +1098,22 @@ export function Boletim() {
         {viewMode === 'executivo' ? (
           <section className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_420px] xl:items-start">
             {auditPanel ? (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="fixed inset-0 z-50">
                 <button
                   type="button"
                   className="absolute inset-0 bg-slate-950/55"
                   onClick={() => { setAuditPanel(null); setActiveAuditMetricKey(null); }}
                   aria-label="Fechar auditoria"
                 />
-                <aside className={`relative z-10 w-full max-w-5xl rounded-[28px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
+                <aside
+                  className={`absolute left-0 top-0 z-10 flex h-full flex-col rounded-r-[28px] border-r px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${auditPanelShellClass}`}
+                  style={{ width: `${auditPanelWidth}px` }}
+                >
+                  <div
+                    className={`absolute right-0 top-0 h-full w-2 cursor-ew-resize ${isDark ? 'bg-amber-300/20 hover:bg-amber-300/35' : 'bg-amber-300/30 hover:bg-amber-400/45'}`}
+                    onMouseDown={startAuditResize}
+                    title="Arraste para redimensionar"
+                  />
                   <div className="mb-3 flex items-start justify-between gap-2">
                     <div>
                       <div className={`text-sm font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>{auditPanel.title}</div>
@@ -1076,8 +1123,8 @@ export function Boletim() {
                   </div>
 
                   {auditPanel.mode === 'LANCAMENTOS' ? (
-                    <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                      <div className="max-h-[70vh] overflow-y-auto">
+                    <div className={`min-h-0 flex-1 overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                      <div className="h-full overflow-y-auto">
                         <table className="w-full text-sm">
                           <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
                             <tr>
@@ -1105,8 +1152,8 @@ export function Boletim() {
                       </div>
                     </div>
                   ) : (
-                    <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                      <div className="max-h-[70vh] overflow-y-auto">
+                    <div className={`min-h-0 flex-1 overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                      <div className="h-full overflow-y-auto">
                         {auditLoading ? (
                           <div className={`px-4 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Carregando extrato...</div>
                         ) : null}

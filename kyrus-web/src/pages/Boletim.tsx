@@ -388,6 +388,7 @@ export function Boletim() {
   const [selectedDayOfMonth, setSelectedDayOfMonth] = useState<number | null>(null);
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>('ALL');
   const [auditPanel, setAuditPanel] = useState<AuditPanelState | null>(null);
+  const [activeAuditMetricKey, setActiveAuditMetricKey] = useState<string | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const isDark = useIsDarkMode();
 
@@ -703,31 +704,38 @@ export function Boletim() {
   function handleKpiAuditClick(metricKey: string) {
     const monthLabel = dashboard.effectiveMonthLabel;
     if (metricKey === 'pagar_hoje') {
+      setActiveAuditMetricKey(metricKey);
       openAuditRows('Contas a pagar hoje', `Lançamentos com vencimento hoje (${dashboard.now.toLocaleDateString('pt-BR')}).`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'HOJE'));
       return;
     }
     if (metricKey === 'receber_hoje') {
+      setActiveAuditMetricKey(metricKey);
       openAuditRows('Contas a receber hoje', `Lançamentos com vencimento hoje (${dashboard.now.toLocaleDateString('pt-BR')}).`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'HOJE'));
       return;
     }
     if (metricKey === 'pagar_mes') {
+      setActiveAuditMetricKey(metricKey);
       openAuditRows('Contas a pagar no mês', `Competência em ${monthLabel}. Inclui pagos e em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.monthIndex === dashboard.effectiveMonthIndex));
       return;
     }
     if (metricKey === 'receber_mes') {
+      setActiveAuditMetricKey(metricKey);
       openAuditRows('Contas a receber no mês', `Competência em ${monthLabel}. Inclui pagos e em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.monthIndex === dashboard.effectiveMonthIndex));
       return;
     }
     if (metricKey === 'resultado_operacional') {
+      setActiveAuditMetricKey(metricKey);
       openAuditRows('Composição do resultado operacional', `Resultado operacional (padrão DRE) de ${monthLabel}: Receita líquida - Custos variáveis - Despesas operacionais.`, dashboard.baseRows.filter((item) => item.monthIndex === dashboard.effectiveMonthIndex));
       return;
     }
     if (metricKey === 'resultado_final') {
+      setActiveAuditMetricKey(metricKey);
       openAuditRows('Composição do resultado final', `Resultado final (padrão DRE) de ${monthLabel}: Resultado operacional + Receitas não operacionais - Despesas não operacionais.`, dashboard.baseRows.filter((item) => item.monthIndex === dashboard.effectiveMonthIndex));
     }
   }
 
   async function handleBankAuditClick(conta: ContaResumo) {
+    setActiveAuditMetricKey(null);
     setAuditLoading(true);
     setAuditPanel({
       mode: 'EXTRATO_BANCO',
@@ -1019,20 +1027,102 @@ export function Boletim() {
         ) : null}
 
         {viewMode === 'executivo' ? (
-          <section className={`grid gap-4 xl:items-start ${auditPanel ? 'xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : 'xl:grid-cols-[minmax(0,1.65fr)_420px]'}`}>
+          <section className={`grid gap-4 xl:items-start ${auditPanel ? 'xl:grid-cols-[minmax(320px,33vw)_minmax(0,1.65fr)_420px]' : 'xl:grid-cols-[minmax(0,1.65fr)_420px]'}`}>
+            {auditPanel ? (
+              <aside className={`rounded-[28px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] xl:sticky xl:top-4 xl:max-h-[calc(100vh-120px)] ${tableShellClass}`}>
+                <div className="mb-3 flex items-start justify-between gap-2">
+                  <div>
+                    <div className={`text-sm font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>{auditPanel.title}</div>
+                    <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{auditPanel.subtitle}</div>
+                  </div>
+                  <button type="button" onClick={() => { setAuditPanel(null); setActiveAuditMetricKey(null); }} className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'bg-white/6 text-white/70 hover:bg-white/12' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Fechar</button>
+                </div>
+
+                {auditPanel.mode === 'LANCAMENTOS' ? (
+                  <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                    <div className="max-h-[65vh] overflow-y-auto">
+                      <table className="w-full text-sm">
+                        <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
+                          <tr>
+                            <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Banco</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(auditPanel.rows || []).length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
+                            </tr>
+                          ) : (auditPanel.rows || []).map((row) => (
+                            <tr key={`audit-row-${row.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
+                              <td className="px-3 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
+                              <td className="px-3 py-2.5">{row.interessado}</td>
+                              <td className="px-3 py-2.5">{row.contaNome}</td>
+                              <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${row.flowType === 'RECEBIMENTO' ? getValueTone(row.valorAbsoluto, isDark) : getValueTone(-row.valorAbsoluto, isDark)}`}>{formatCurrency(row.valorAbsoluto)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                    <div className="max-h-[65vh] overflow-y-auto">
+                      {auditLoading ? (
+                        <div className={`px-4 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Carregando extrato...</div>
+                      ) : null}
+                      {!auditLoading && auditPanel.extrato ? (
+                        <table className="w-full text-sm">
+                          <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
+                            <tr>
+                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
+                              <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Movimento</th>
+                              <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Saldo</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {auditPanel.extrato.movimentos.length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem movimentos para este banco.</td>
+                              </tr>
+                            ) : auditPanel.extrato.movimentos.map((movimento) => {
+                              const signed = Number(movimento.valor_entrada || 0) > 0 ? Number(movimento.valor_entrada || 0) : Number(movimento.valor_saida || 0) > 0 ? -Number(movimento.valor_saida || 0) : 0;
+                              return (
+                                <tr key={`extrato-${movimento.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
+                                  <td className="px-3 py-2.5">{formatDate(movimento.data_pagamento || movimento.data_vencimento)}</td>
+                                  <td className="max-w-50 truncate px-3 py-2.5" title={movimento.descricao}>{movimento.descricao}</td>
+                                  <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(signed, isDark)}`}>{formatCurrency(signed)}</td>
+                                  <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(Number(movimento.saldo_apos_movimento || 0), isDark)}`}>{formatCurrency(Number(movimento.saldo_apos_movimento || 0))}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+              </aside>
+            ) : null}
+
             <div className="grid gap-4">
               <div className="grid gap-4 xl:grid-cols-2">
                 <SoftMetricGrid
                   title="Contas a pagar"
                   accent="rose"
                   isDark={isDark}
-                  activeMetric={auditPanel?.mode === 'LANCAMENTOS' ? (auditPanel.title.includes('pagar') ? 'pagar_hoje' : null) : null}
+                  activeMetric={activeAuditMetricKey?.startsWith('pagar') || activeAuditMetricKey?.startsWith('resultado_operacional') ? activeAuditMetricKey : null}
                   onMetricClick={handleKpiAuditClick}
                   metrics={[
                     { key: 'pagar_hoje', label: 'Para hoje', value: dashboard.pagar.hoje },
                     { key: 'pagar_amanha', label: 'Para amanhã', value: dashboard.pagar.amanha },
                     { key: 'pagar_atrasadas', label: 'Atrasadas', value: dashboard.pagar.atrasadas },
                     { key: 'pagar_em_aberto', label: 'Em aberto no mês', value: dashboard.pagar.emAberto },
+                    { key: 'pagar_mes', label: 'Do mês', value: dashboard.pagarNoMes },
+                    { key: 'resultado_operacional', label: 'Resultado operacional', value: dashboard.resultadoOperacionalMes },
                   ]}
                 />
 
@@ -1040,43 +1130,18 @@ export function Boletim() {
                   title="Contas a receber"
                   accent="cyan"
                   isDark={isDark}
-                  activeMetric={auditPanel?.mode === 'LANCAMENTOS' ? (auditPanel.title.includes('receber') ? 'receber_hoje' : null) : null}
+                  activeMetric={activeAuditMetricKey?.startsWith('receber') || activeAuditMetricKey?.startsWith('resultado_final') ? activeAuditMetricKey : null}
                   onMetricClick={handleKpiAuditClick}
                   metrics={[
                     { key: 'receber_hoje', label: 'Para hoje', value: dashboard.receber.hoje },
                     { key: 'receber_amanha', label: 'Para amanhã', value: dashboard.receber.amanha },
                     { key: 'receber_atrasadas', label: 'Atrasadas', value: dashboard.receber.atrasadas },
                     { key: 'receber_em_aberto', label: 'Em aberto no mês', value: dashboard.receber.emAberto },
+                    { key: 'receber_mes', label: 'Do mês', value: dashboard.receberNoMes },
+                    { key: 'resultado_final', label: 'Resultado final', value: dashboard.resultadoFinalMes },
                   ]}
                 />
               </div>
-
-              <section className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
-                <div className="mb-4 flex items-center justify-between gap-4">
-                  <div>
-                    <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>KPIs do mês (auditáveis)</div>
-                    <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Clique em qualquer KPI para abrir a composição na coluna lateral.</div>
-                  </div>
-                </div>
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <button type="button" onClick={() => handleKpiAuditClick('pagar_mes')} className={`rounded-2xl border px-4 py-4 text-left transition hover:-translate-y-0.5 ${isDark ? 'border-rose-400/30 bg-rose-400/10' : 'border-rose-200 bg-rose-50'}`}>
-                    <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-rose-200' : 'text-rose-700'}`}>Contas a pagar do mês</div>
-                    <div className={`mt-2 text-2xl font-black ${getValueTone(-dashboard.pagarNoMes, isDark)}`}>{formatCurrency(dashboard.pagarNoMes)}</div>
-                  </button>
-                  <button type="button" onClick={() => handleKpiAuditClick('receber_mes')} className={`rounded-2xl border px-4 py-4 text-left transition hover:-translate-y-0.5 ${isDark ? 'border-sky-400/30 bg-sky-400/10' : 'border-sky-200 bg-sky-50'}`}>
-                    <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-sky-200' : 'text-sky-700'}`}>Contas a receber do mês</div>
-                    <div className={`mt-2 text-2xl font-black ${getValueTone(dashboard.receberNoMes, isDark)}`}>{formatCurrency(dashboard.receberNoMes)}</div>
-                  </button>
-                  <button type="button" onClick={() => handleKpiAuditClick('resultado_operacional')} className={`rounded-2xl border px-4 py-4 text-left transition hover:-translate-y-0.5 ${isDark ? 'border-emerald-400/30 bg-emerald-400/10' : 'border-emerald-200 bg-emerald-50'}`}>
-                    <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-emerald-200' : 'text-emerald-700'}`}>Resultado operacional</div>
-                    <div className={`mt-2 text-2xl font-black ${getValueTone(dashboard.resultadoOperacionalMes, isDark)}`}>{formatCurrency(dashboard.resultadoOperacionalMes)}</div>
-                  </button>
-                  <button type="button" onClick={() => handleKpiAuditClick('resultado_final')} className={`rounded-2xl border px-4 py-4 text-left transition hover:-translate-y-0.5 ${isDark ? 'border-amber-400/30 bg-amber-400/10' : 'border-amber-200 bg-amber-50'}`}>
-                    <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Resultado final</div>
-                    <div className={`mt-2 text-2xl font-black ${getValueTone(dashboard.resultadoFinalMes, isDark)}`}>{formatCurrency(dashboard.resultadoFinalMes)}</div>
-                  </button>
-                </div>
-              </section>
 
               <section className="grid gap-4 xl:grid-cols-2">
                 <div className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
@@ -1182,85 +1247,6 @@ export function Boletim() {
               </div>
             </section>
 
-            {auditPanel ? (
-              <aside className={`rounded-[28px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
-                <div className="mb-3 flex items-start justify-between gap-2">
-                  <div>
-                    <div className={`text-sm font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>{auditPanel.title}</div>
-                    <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{auditPanel.subtitle}</div>
-                  </div>
-                  <button type="button" onClick={() => setAuditPanel(null)} className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'bg-white/6 text-white/70 hover:bg-white/12' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Fechar</button>
-                </div>
-
-                {auditPanel.mode === 'LANCAMENTOS' ? (
-                  <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                    <div className="max-h-[65vh] overflow-auto">
-                      <table className="w-full text-sm">
-                        <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
-                          <tr>
-                            <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
-                            <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
-                            <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Banco</th>
-                            <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(auditPanel.rows || []).length === 0 ? (
-                            <tr>
-                              <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
-                            </tr>
-                          ) : (auditPanel.rows || []).map((row) => (
-                            <tr key={`audit-row-${row.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
-                              <td className="px-3 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
-                              <td className="px-3 py-2.5">{row.interessado}</td>
-                              <td className="px-3 py-2.5">{row.contaNome}</td>
-                              <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${row.flowType === 'RECEBIMENTO' ? getValueTone(row.valorAbsoluto, isDark) : getValueTone(-row.valorAbsoluto, isDark)}`}>{formatCurrency(row.valorAbsoluto)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : (
-                  <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                    <div className="max-h-[65vh] overflow-auto">
-                      {auditLoading ? (
-                        <div className={`px-4 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Carregando extrato...</div>
-                      ) : null}
-                      {!auditLoading && auditPanel.extrato ? (
-                        <table className="w-full text-sm">
-                          <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
-                            <tr>
-                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
-                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
-                              <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Movimento</th>
-                              <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Saldo</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {auditPanel.extrato.movimentos.length === 0 ? (
-                              <tr>
-                                <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem movimentos para este banco.</td>
-                              </tr>
-                            ) : auditPanel.extrato.movimentos.map((movimento) => {
-                              const signed = Number(movimento.valor_entrada || 0) > 0 ? Number(movimento.valor_entrada || 0) : Number(movimento.valor_saida || 0) > 0 ? -Number(movimento.valor_saida || 0) : 0;
-                              return (
-                                <tr key={`extrato-${movimento.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
-                                  <td className="px-3 py-2.5">{formatDate(movimento.data_pagamento || movimento.data_vencimento)}</td>
-                                  <td className="max-w-50 truncate px-3 py-2.5" title={movimento.descricao}>{movimento.descricao}</td>
-                                  <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(signed, isDark)}`}>{formatCurrency(signed)}</td>
-                                  <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(Number(movimento.saldo_apos_movimento || 0), isDark)}`}>{formatCurrency(Number(movimento.saldo_apos_movimento || 0))}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      ) : null}
-                    </div>
-                  </div>
-                )}
-              </aside>
-            ) : null}
           </section>
         ) : (
           <section className="space-y-5">

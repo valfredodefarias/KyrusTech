@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, toPublicAssetUrl } from '../services/api';
 import { BankAvatar } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
@@ -298,6 +298,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder, label }: any)
 
 export function Contas() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const bankPresets = useBankPresetStore((state) => state.presets);
   const bankPresetsLoaded = useBankPresetStore((state) => state.loaded);
   const fetchBankPresets = useBankPresetStore((state) => state.fetchPresets);
@@ -381,6 +382,13 @@ export function Contas() {
   });
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  function formatSignedCurrency(value: number) {
+    const numericValue = Number(value || 0);
+    const absoluteCurrency = BRL.format(Math.abs(numericValue)).replace('-', '');
+    return numericValue < 0 ? `-${absoluteCurrency}` : absoluteCurrency;
+  }
+
   const bancosComuns = useMemo(
     () => bankPresets.map((preset) => ({
       id: preset.key,
@@ -473,6 +481,28 @@ export function Contas() {
       setFilterCentroId(prev => prev || onlyId);
     }
   }, [centros]);
+
+  useEffect(() => {
+    const contaParam = searchParams.get('extrato_conta_id');
+    if (!contaParam || loading || extratoOpen || contas.length === 0) return;
+
+    const contaIdParam = Number(contaParam);
+    const clearParam = () => {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('extrato_conta_id');
+      setSearchParams(nextParams, { replace: true });
+    };
+
+    if (!Number.isFinite(contaIdParam) || contaIdParam <= 0) {
+      clearParam();
+      return;
+    }
+
+    const contaTarget = contas.find((conta) => conta.id === contaIdParam);
+    if (!contaTarget) return;
+
+    void handleVerExtrato(contaTarget).finally(clearParam);
+  }, [searchParams, setSearchParams, loading, extratoOpen, contas]);
 
   useEffect(() => {
     const onlyId = getSingleCentroId(centros);
@@ -1260,8 +1290,8 @@ export function Contas() {
                                     AGRUPADO
                                   </span>
                                 </td>
-                                <td className="p-4 text-right font-bold text-rose-600 align-top">{BRL.format(-Math.abs(row.group.totalSaida))}</td>
-                                <td className={`p-4 text-right font-bold align-top ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{BRL.format(row.group.saldoApos)}</td>
+                                <td className="p-4 text-right font-bold text-rose-600 align-top whitespace-nowrap">{formatSignedCurrency(-Math.abs(row.group.totalSaida))}</td>
+                                <td className={`p-4 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(row.group.saldoApos)}</td>
                                 <td className="p-4" />
                               </tr>
 
@@ -1289,8 +1319,8 @@ export function Contas() {
                                       {l.status}
                                     </span>
                                   </td>
-                                  <td className={`p-4 text-right font-bold ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{BRL.format(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                                  <td className={`p-4 text-right font-bold ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{BRL.format(Number(l.saldo_apos_movimento || 0))}</td>
+                                  <td className={`p-4 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
+                                  <td className={`p-4 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
                                   <td className="p-4 text-right">
                                     <div className="flex items-center justify-end gap-2">
                                       {!isTransferencia(l) && (
@@ -1337,8 +1367,8 @@ export function Contas() {
                                 {l.status}
                               </span>
                             </td>
-                            <td className={`p-4 text-right font-bold ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{BRL.format(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                            <td className={`p-4 text-right font-bold ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{BRL.format(Number(l.saldo_apos_movimento || 0))}</td>
+                            <td className={`p-4 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
+                            <td className={`p-4 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
                             <td className="p-4 text-right">
                               <div className="flex items-center justify-end gap-2">
                                 {!isTransferencia(l) && (

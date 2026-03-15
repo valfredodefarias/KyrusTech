@@ -213,6 +213,7 @@ class LancamentoImportado(BaseModel):
     import_hash: Optional[str] = None
     referencia_externa: Optional[str] = None
     movimento_uid: Optional[str] = None
+    saldo_informativo: bool = False
     ofx_bank_id: Optional[str] = None
     ofx_agencia: Optional[str] = None
     ofx_conta_numero: Optional[str] = None
@@ -241,6 +242,13 @@ def _serializar_lancamento(lanc_raw: Dict) -> Dict:
     if isinstance(data_hora_val, datetime):
         payload["data_hora"] = data_hora_val.isoformat()
     return payload
+
+
+def _eh_movimento_saldo_informativo(lanc_raw: Dict[str, Any]) -> bool:
+    if bool(lanc_raw.get("saldo_informativo")):
+        return True
+    descricao = _normalizar_texto(str(lanc_raw.get("descricao") or ""))
+    return "saldo" in descricao.split()
 
 
 def _normalizar_texto(texto: Optional[str]) -> str:
@@ -1162,6 +1170,13 @@ async def upload_ofx(
                 cartao_id=(int(cartao.id) if cartao and cartao.id is not None else None),
             )
 
+            if _eh_movimento_saldo_informativo(lanc_raw):
+                lanc_raw["saldo_informativo"] = True
+                lanc_raw["sugestao_acao"] = "DESCARTAR"
+                lanc_raw["motivo_conciliacao"] = "Movimento de saldo informativo do extrato. Exibido para referência e bloqueado para importação no financeiro."
+                lancamentos_processados.append(lanc_raw)
+                continue
+
             if lanc_raw["import_hash"] in hashes_vistos:
                 duplicatas += 1
                 lanc_raw["sugestao_acao"] = "DESCARTAR"
@@ -1446,10 +1461,26 @@ async def confirmar_lancamentos(
 
     for lanc_data in request.lancamentos:
         try:
-            if lanc_data.get("sugestao_acao") in {"IGNORAR_DUPLICATA", "DESCARTAR"}:
+            sugestao_acao_raw = str(lanc_data.get("sugestao_acao") or "").strip().upper()
+            possui_previsto = bool(lanc_data.get("lancamento_previsto_id"))
+            possui_atrasados = bool(lanc_data.get("lancamentos_atrasados_relacionados"))
+
+            # Compatibilidade: quando a ação não vier no payload, preserva o comportamento sugerido no upload.
+            if not sugestao_acao_raw:
+                if possui_previsto:
+                    acao = "BAIXAR_PREVISTO"
+                elif possui_atrasados:
+                    acao = "RELACIONAR_ATRASADOS"
+                else:
+                    acao = "CRIAR_NOVO"
+            else:
+                acao = sugestao_acao_raw
+
+            if acao in {"IGNORAR_DUPLICATA", "DESCARTAR"}:
                 continue
 
-            if lanc_data.get("duplicata_id"):
+            # Duplicata identificada no upload nunca deve virar novo lançamento.
+            if lanc_data.get("duplicata_id") or lanc_data.get("duplicata_resumo"):
                 continue
 
             import_hash = str(lanc_data.get("import_hash") or "").strip()
@@ -1472,7 +1503,7 @@ async def confirmar_lancamentos(
 
             from app.services.importacao_bancaria_service import parsear_data
 
-            if lanc_data.get("lancamento_previsto_id") and not modo_cartao:
+            if acao == "BAIXAR_PREVISTO" and lanc_data.get("lancamento_previsto_id") and not modo_cartao:
                 lanc_existente = db.get(Lancamento, int(lanc_data["lancamento_previsto_id"]))
                 if lanc_existente and not lanc_existente.is_deleted and int(lanc_existente.empresa_id) == int(empresa_id):
                     data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
@@ -1498,8 +1529,13 @@ async def confirmar_lancamentos(
                     db.add(lanc_existente)
                     lancamentos_atualizados += 1
                     continue
+                erros.append(
+                    f"Previsto id={lanc_data.get('lancamento_previsto_id')} nao encontrado/ativo para compensacao: {lanc_data.get('descricao')}"
+                )
+                continue
 
-            if lanc_data.get("lancamentos_atrasados_relacionados") and not modo_cartao:
+            if acao == "RELACIONAR_ATRASADOS" and lanc_data.get("lancamentos_atrasados_relacionados") and not modo_cartao:
+                atualizados_atrasados = 0
                 for atrasado_id in lanc_data["lancamentos_atrasados_relacionados"]:
                     lanc_atrasado = db.get(Lancamento, int(atrasado_id))
                     if not lanc_atrasado or lanc_atrasado.is_deleted or int(lanc_atrasado.empresa_id) != int(empresa_id):
@@ -1522,6 +1558,12 @@ async def confirmar_lancamentos(
                         lanc_atrasado.import_hash = import_hash
                     db.add(lanc_atrasado)
                     lancamentos_atualizados += 1
+                    atualizados_atrasados += 1
+
+                if atualizados_atrasados == 0:
+                    erros.append(
+                        f"Nenhum atraso selecionado foi localizado para conciliacao: {lanc_data.get('descricao')}"
+                    )
 
                 if lanc_data.get("relacionar_apenas_atrasados"):
                     continue

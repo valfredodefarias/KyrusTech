@@ -643,6 +643,87 @@ const FloatingFeedbackToast = ({ feedback, onDismiss }: { feedback: Feedback; on
     </div>
 );
 
+const FloatingImportStatusToast = ({
+    feedback,
+    importJob,
+    onDismissFeedback,
+}: {
+    feedback: Feedback | null;
+    importJob: ImportJobStatus | null;
+    onDismissFeedback: () => void;
+}) => {
+    const isRunning = !!importJob && (importJob.status === 'PENDING' || importJob.status === 'RUNNING');
+    if (!isRunning && !feedback) return null;
+
+    if (isRunning && importJob) {
+        return (
+            <div className="fixed bottom-4 right-4 z-130 w-[min(420px,calc(100vw-2rem))] rounded-2xl border border-blue-200 bg-white p-4 text-slate-900 shadow-2xl dark:border-blue-900/60 dark:bg-slate-900 dark:text-slate-100 lg:bottom-6 lg:right-6">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-blue-600 dark:text-blue-300">
+                            {importJob.kind === 'ANALYZE' ? 'Analisando planilha' : 'Importando lançamentos'}
+                        </p>
+                        <p className="mt-1 text-sm font-bold leading-5">{importJob.message}</p>
+                        <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400" title={importJob.filename}>{importJob.filename}</p>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-sm font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {importJob.progress}%
+                    </div>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                    <div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{ width: `${Math.max(importJob.progress, 4)}%` }} />
+                </div>
+            </div>
+        );
+    }
+
+    return feedback ? (
+        <div className="fixed bottom-4 right-4 z-130 w-[min(420px,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 lg:bottom-6 lg:right-6">
+            <div className="flex items-start gap-3">
+                <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl ${feedback.type === 'success' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300'}`}>
+                    {feedback.type === 'success' ? <CheckCircle className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                    <p className={`text-[11px] font-bold uppercase tracking-[0.18em] ${feedback.type === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}`}>
+                        {feedback.type === 'success' ? 'Concluído' : 'Atenção'}
+                    </p>
+                    <p className="mt-1 text-sm font-semibold leading-5">{feedback.message}</p>
+                    {feedback.details && feedback.details.length > 0 && (
+                        <ul className="mt-2 max-h-28 list-disc space-y-1 overflow-y-auto pl-4 text-xs text-slate-600 dark:text-slate-300">
+                            {feedback.details.map((detail, index) => (
+                                <li key={`${detail}-${index}`}>{detail}</li>
+                            ))}
+                        </ul>
+                    )}
+                    {(needsContaCadastro(feedback.message) || needsEntidadeCadastro(feedback.message)) && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            {needsContaCadastro(feedback.message) && (
+                                <Link to="/contas" className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                    Ir para Bancos
+                                </Link>
+                            )}
+                            {needsEntidadeCadastro(feedback.message) && (
+                                <Link to="/entidades" className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                    Ir para Interessados
+                                </Link>
+                            )}
+                        </div>
+                    )}
+                </div>
+                <button
+                    type="button"
+                    onClick={onDismissFeedback}
+                    className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100"
+                    aria-label="Fechar aviso"
+                >
+                    <X className="h-4 w-4" />
+                </button>
+            </div>
+        </div>
+    ) : null;
+};
+
 // --- PLANO CONTAS MANAGER (COM RECALCULO AUTOMÁTICO) ---
 export const PlanoContasManager = ({
     categorias,
@@ -2083,50 +2164,7 @@ export function Importacao() {
                 <StepBadge num={1} current={step} label="Upload" /><StepBadge num={2} current={step} label="Classificação" /><StepBadge num={3} current={step} label="Origem" /><StepBadge num={4} current={step} label="Validação" />
             </div>
         </div>
-        {feedback && (
-            <div className={`p-4 rounded-xl border flex items-start gap-3 mb-6 animate-in slide-in-from-top-2 ${feedback.type === 'success' ? 'bg-emerald-900/20 border-emerald-800 text-emerald-300' : 'bg-red-900/20 border-red-800 text-red-300'}`}>
-                {feedback.type === 'success' ? <CheckCircle className="w-5 h-5 shrink-0"/> : <AlertTriangle className="w-5 h-5 shrink-0"/>}
-                <div className="flex-1">
-                    <strong className="block text-sm">{feedback.message}</strong>
-                    {feedback.details && <ul className="mt-2 list-disc list-inside text-xs opacity-80 max-h-32 overflow-y-auto custom-scrollbar">{feedback.details.map((d,i)=><li key={i}>{d}</li>)}</ul>}
-                    {(needsContaCadastro(feedback.message) || needsEntidadeCadastro(feedback.message)) && (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                            {needsContaCadastro(feedback.message) && (
-                                <Link to="/contas" className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white/80 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                    Ir para Bancos
-                                </Link>
-                            )}
-                            {needsEntidadeCadastro(feedback.message) && (
-                                <Link to="/entidades" className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white/80 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                    Ir para Interessados
-                                </Link>
-                            )}
-                        </div>
-                    )}
-                </div>
-                <button onClick={()=>setFeedback(null)}><X className="w-4 h-4 hover:text-white"/></button>
-            </div>
-        )}
-        {importJob && (importJob.status === 'PENDING' || importJob.status === 'RUNNING') && (
-            <div className="mb-6 rounded-2xl border border-blue-200 bg-white p-5 shadow-sm dark:border-blue-900/60 dark:bg-slate-800">
-                <div className="flex items-start justify-between gap-4">
-                    <div>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-blue-600 dark:text-blue-300">
-                            {importJob.kind === 'ANALYZE' ? 'Analisando planilha' : 'Importando lançamentos'}
-                        </p>
-                        <h3 className="mt-1 text-base font-bold text-slate-900 dark:text-white">{importJob.message}</h3>
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{importJob.filename}</p>
-                    </div>
-                    <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-sm font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        {importJob.progress}%
-                    </div>
-                </div>
-                <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                    <div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{ width: `${Math.max(importJob.progress, 4)}%` }} />
-                </div>
-            </div>
-        )}
+
         <div className="grid grid-cols-1 gap-4 mb-8 lg:grid-cols-2">
             <Link to="/importacao_interessados" className="group rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
                 <div className="flex items-start justify-between gap-4">
@@ -2431,6 +2469,11 @@ export function Importacao() {
               </div>
           </div>
       )}
+            <FloatingImportStatusToast
+                    feedback={feedback}
+                    importJob={importJob}
+                    onDismissFeedback={() => setFeedback(null)}
+            />
     </div>
   );
 }

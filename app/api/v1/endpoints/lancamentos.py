@@ -469,9 +469,110 @@ def _infer_learning_ids_cached(
     return cache[cache_key]
 
 
+def _normalizar_nome_categoria_importacao(value: Any) -> str:
+    normalized = _normalizar_texto_importacao(value)
+    if not normalized:
+        return ""
+    tokens = normalized.split()
+    while tokens and tokens[0].isdigit():
+        tokens.pop(0)
+    return " ".join(tokens)
+
+
+def _normalizar_token_categoria_importacao(token: str) -> str:
+    value = str(token or "").strip().lower()
+    if not value:
+        return ""
+    # Singulariza formas comuns para melhorar match por nome (ex.: cartoes -> cartao).
+    if value.endswith("oes") and len(value) > 4:
+        value = f"{value[:-3]}ao"
+    elif value.endswith("s") and len(value) > 4:
+        value = value[:-1]
+    return value
+
+
+def _tokenizar_nome_categoria_importacao(value: Any) -> tuple[str, ...]:
+    nome = _normalizar_nome_categoria_importacao(value)
+    if not nome:
+        return ()
+    tokens: list[str] = []
+    for token in nome.split():
+        if token.isdigit() or len(token) <= 2:
+            continue
+        normalized_token = _normalizar_token_categoria_importacao(token)
+        if normalized_token:
+            tokens.append(normalized_token)
+    if not tokens:
+        return ()
+    return tuple(dict.fromkeys(tokens))
+
+
+def _sugerir_categoria_por_nome(
+    categoria_samples: dict[str, dict[tuple[str, str], int]],
+    categorias_sistema: list[dict[str, Any]],
+) -> dict[str, int]:
+    candidatos = [
+        row
+        for row in categorias_sistema
+        if row.get("id") is not None
+        and str(row.get("nome") or "").strip()
+        and row.get("permite_lancamentos", True)
+        and not row.get("eh_cabecalho", False)
+    ]
+
+    sugestoes: dict[str, int] = {}
+    for categoria_arquivo in categoria_samples.keys():
+        nome_arquivo = _normalizar_nome_categoria_importacao(categoria_arquivo)
+        tokens_arquivo = set(_tokenizar_nome_categoria_importacao(categoria_arquivo))
+        if not nome_arquivo or not tokens_arquivo:
+            continue
+
+        ranking: list[tuple[int, float]] = []
+        for categoria in candidatos:
+            nome_sistema = _normalizar_nome_categoria_importacao(categoria.get("nome") or "")
+            tokens_sistema = set(_tokenizar_nome_categoria_importacao(categoria.get("nome") or ""))
+            if not nome_sistema or not tokens_sistema:
+                continue
+
+            token_intersecao = tokens_arquivo & tokens_sistema
+            if not token_intersecao:
+                continue
+
+            token_precision = len(token_intersecao) / max(len(tokens_arquivo), 1)
+            token_recall = len(token_intersecao) / max(len(tokens_sistema), 1)
+            token_score = (token_precision * 0.7) + (token_recall * 0.3)
+
+            text_score = _similaridade_texto_importacao(nome_arquivo, nome_sistema)
+            score = (token_score * 0.72) + (text_score * 0.28)
+            if tokens_arquivo == tokens_sistema:
+                score += 0.08
+            elif token_precision == 1.0:
+                score += 0.05
+
+            if score <= 0:
+                continue
+            ranking.append((int(categoria["id"]), score))
+
+        ranking.sort(key=lambda item: item[1], reverse=True)
+        if not ranking:
+            continue
+
+        best_id, best_score = ranking[0]
+        second_score = ranking[1][1] if len(ranking) > 1 else 0.0
+        if best_score < 0.58:
+            continue
+        if second_score and best_score < second_score * 1.10:
+            continue
+
+        sugestoes[categoria_arquivo] = best_id
+
+    return sugestoes
+
+
 def _build_import_suggestions_from_samples(
     categoria_samples: dict[str, dict[tuple[str, str], int]],
     entidade_samples: dict[str, dict[tuple[str, str], int]],
+    categorias_sistema: list[dict[str, Any]],
     learning_refs: list[dict[str, Any]],
     inference_cache: dict[tuple[str, str], dict[str, Optional[int] | float]],
     learning_ref_index: dict[str, list[dict[str, Any]]],
@@ -510,8 +611,13 @@ def _build_import_suggestions_from_samples(
             resolved[external_name] = int(best_id)
         return resolved
 
+    categorias_por_aprendizado = consolidate(categoria_votes)
+    categorias_por_nome = _sugerir_categoria_por_nome(categoria_samples, categorias_sistema)
+
+    categorias_resolvidas = {**categorias_por_aprendizado, **categorias_por_nome}
+
     return {
-        "categorias": consolidate(categoria_votes),
+        "categorias": categorias_resolvidas,
         "entidades": consolidate(entidade_votes),
     }
 

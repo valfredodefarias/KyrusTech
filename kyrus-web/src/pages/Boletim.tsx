@@ -708,9 +708,39 @@ export function Boletim() {
       openAuditRows('Contas a pagar hoje', `Lançamentos com vencimento hoje (${dashboard.now.toLocaleDateString('pt-BR')}).`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'HOJE'));
       return;
     }
+    if (metricKey === 'pagar_amanha') {
+      setActiveAuditMetricKey(metricKey);
+      openAuditRows('Contas a pagar amanhã', 'Lançamentos com vencimento amanhã.', dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'AMANHA'));
+      return;
+    }
+    if (metricKey === 'pagar_atrasadas') {
+      setActiveAuditMetricKey(metricKey);
+      openAuditRows('Contas a pagar atrasadas', 'Lançamentos vencidos e ainda não pagos.', dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'ATRASADO'));
+      return;
+    }
+    if (metricKey === 'pagar_em_aberto') {
+      setActiveAuditMetricKey(metricKey);
+      openAuditRows('Contas a pagar em aberto no mês', `Lançamentos do mês ${monthLabel} ainda em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'EM_ABERTO' && item.monthIndex === dashboard.effectiveMonthIndex));
+      return;
+    }
     if (metricKey === 'receber_hoje') {
       setActiveAuditMetricKey(metricKey);
       openAuditRows('Contas a receber hoje', `Lançamentos com vencimento hoje (${dashboard.now.toLocaleDateString('pt-BR')}).`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'HOJE'));
+      return;
+    }
+    if (metricKey === 'receber_amanha') {
+      setActiveAuditMetricKey(metricKey);
+      openAuditRows('Contas a receber amanhã', 'Lançamentos com vencimento amanhã.', dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'AMANHA'));
+      return;
+    }
+    if (metricKey === 'receber_atrasadas') {
+      setActiveAuditMetricKey(metricKey);
+      openAuditRows('Contas a receber atrasadas', 'Lançamentos vencidos e ainda não recebidos.', dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'ATRASADO'));
+      return;
+    }
+    if (metricKey === 'receber_em_aberto') {
+      setActiveAuditMetricKey(metricKey);
+      openAuditRows('Contas a receber em aberto no mês', `Lançamentos do mês ${monthLabel} ainda em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'EM_ABERTO' && item.monthIndex === dashboard.effectiveMonthIndex));
       return;
     }
     if (metricKey === 'pagar_mes') {
@@ -1027,85 +1057,93 @@ export function Boletim() {
         ) : null}
 
         {viewMode === 'executivo' ? (
-          <section className={`grid gap-4 xl:items-start ${auditPanel ? 'xl:grid-cols-[minmax(320px,33vw)_minmax(0,1.65fr)_420px]' : 'xl:grid-cols-[minmax(0,1.65fr)_420px]'}`}>
+          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_420px] xl:items-start">
             {auditPanel ? (
-              <aside className={`rounded-[28px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] xl:sticky xl:top-4 xl:max-h-[calc(100vh-120px)] ${tableShellClass}`}>
-                <div className="mb-3 flex items-start justify-between gap-2">
-                  <div>
-                    <div className={`text-sm font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>{auditPanel.title}</div>
-                    <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{auditPanel.subtitle}</div>
-                  </div>
-                  <button type="button" onClick={() => { setAuditPanel(null); setActiveAuditMetricKey(null); }} className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'bg-white/6 text-white/70 hover:bg-white/12' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Fechar</button>
-                </div>
-
-                {auditPanel.mode === 'LANCAMENTOS' ? (
-                  <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                    <div className="max-h-[65vh] overflow-y-auto">
-                      <table className="w-full text-sm">
-                        <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
-                          <tr>
-                            <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
-                            <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
-                            <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Banco</th>
-                            <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(auditPanel.rows || []).length === 0 ? (
-                            <tr>
-                              <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
-                            </tr>
-                          ) : (auditPanel.rows || []).map((row) => (
-                            <tr key={`audit-row-${row.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
-                              <td className="px-3 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
-                              <td className="px-3 py-2.5">{row.interessado}</td>
-                              <td className="px-3 py-2.5">{row.contaNome}</td>
-                              <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${row.flowType === 'RECEBIMENTO' ? getValueTone(row.valorAbsoluto, isDark) : getValueTone(-row.valorAbsoluto, isDark)}`}>{formatCurrency(row.valorAbsoluto)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <button
+                  type="button"
+                  className="absolute inset-0 bg-slate-950/55"
+                  onClick={() => { setAuditPanel(null); setActiveAuditMetricKey(null); }}
+                  aria-label="Fechar auditoria"
+                />
+                <aside className={`relative z-10 w-full max-w-5xl rounded-[28px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
+                  <div className="mb-3 flex items-start justify-between gap-2">
+                    <div>
+                      <div className={`text-sm font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>{auditPanel.title}</div>
+                      <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{auditPanel.subtitle}</div>
                     </div>
+                    <button type="button" onClick={() => { setAuditPanel(null); setActiveAuditMetricKey(null); }} className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'bg-white/6 text-white/70 hover:bg-white/12' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Fechar</button>
                   </div>
-                ) : (
-                  <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                    <div className="max-h-[65vh] overflow-y-auto">
-                      {auditLoading ? (
-                        <div className={`px-4 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Carregando extrato...</div>
-                      ) : null}
-                      {!auditLoading && auditPanel.extrato ? (
+
+                  {auditPanel.mode === 'LANCAMENTOS' ? (
+                    <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                      <div className="max-h-[70vh] overflow-y-auto">
                         <table className="w-full text-sm">
                           <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
                             <tr>
                               <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
-                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
-                              <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Movimento</th>
-                              <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Saldo</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Banco</th>
+                              <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {auditPanel.extrato.movimentos.length === 0 ? (
+                            {(auditPanel.rows || []).length === 0 ? (
                               <tr>
-                                <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem movimentos para este banco.</td>
+                                <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
                               </tr>
-                            ) : auditPanel.extrato.movimentos.map((movimento) => {
-                              const signed = Number(movimento.valor_entrada || 0) > 0 ? Number(movimento.valor_entrada || 0) : Number(movimento.valor_saida || 0) > 0 ? -Number(movimento.valor_saida || 0) : 0;
-                              return (
-                                <tr key={`extrato-${movimento.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
-                                  <td className="px-3 py-2.5">{formatDate(movimento.data_pagamento || movimento.data_vencimento)}</td>
-                                  <td className="max-w-50 truncate px-3 py-2.5" title={movimento.descricao}>{movimento.descricao}</td>
-                                  <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(signed, isDark)}`}>{formatCurrency(signed)}</td>
-                                  <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(Number(movimento.saldo_apos_movimento || 0), isDark)}`}>{formatCurrency(Number(movimento.saldo_apos_movimento || 0))}</td>
-                                </tr>
-                              );
-                            })}
+                            ) : (auditPanel.rows || []).map((row) => (
+                              <tr key={`audit-row-${row.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
+                                <td className="px-3 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
+                                <td className="px-3 py-2.5">{row.interessado}</td>
+                                <td className="px-3 py-2.5">{row.contaNome}</td>
+                                <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${row.flowType === 'RECEBIMENTO' ? getValueTone(row.valorAbsoluto, isDark) : getValueTone(-row.valorAbsoluto, isDark)}`}>{formatCurrency(row.valorAbsoluto)}</td>
+                              </tr>
+                            ))}
                           </tbody>
                         </table>
-                      ) : null}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </aside>
+                  ) : (
+                    <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                      <div className="max-h-[70vh] overflow-y-auto">
+                        {auditLoading ? (
+                          <div className={`px-4 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Carregando extrato...</div>
+                        ) : null}
+                        {!auditLoading && auditPanel.extrato ? (
+                          <table className="w-full text-sm">
+                            <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
+                              <tr>
+                                <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
+                                <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
+                                <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Movimento</th>
+                                <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Saldo</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {auditPanel.extrato.movimentos.length === 0 ? (
+                                <tr>
+                                  <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem movimentos para este banco.</td>
+                                </tr>
+                              ) : auditPanel.extrato.movimentos.map((movimento) => {
+                                const signed = Number(movimento.valor_entrada || 0) > 0 ? Number(movimento.valor_entrada || 0) : Number(movimento.valor_saida || 0) > 0 ? -Number(movimento.valor_saida || 0) : 0;
+                                return (
+                                  <tr key={`extrato-${movimento.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
+                                    <td className="px-3 py-2.5">{formatDate(movimento.data_pagamento || movimento.data_vencimento)}</td>
+                                    <td className="max-w-50 truncate px-3 py-2.5" title={movimento.descricao}>{movimento.descricao}</td>
+                                    <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(signed, isDark)}`}>{formatCurrency(signed)}</td>
+                                    <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(Number(movimento.saldo_apos_movimento || 0), isDark)}`}>{formatCurrency(Number(movimento.saldo_apos_movimento || 0))}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+                </aside>
+              </div>
             ) : null}
 
             <div className="grid gap-4">

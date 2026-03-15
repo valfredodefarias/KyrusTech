@@ -853,7 +853,11 @@ export function Dre() {
                         <td className="w-3 border-b border-yellow-500 bg-yellow-400 px-0 py-0" />
                       </tr>
 
-                      {groupRows.map((row, rowIndex) => {
+                      {groupRows.length === 0 ? (
+                        <tr key={`group-empty-${group.key}`}>
+                          <td colSpan={15} className={`px-5 py-6 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Sem lançamentos para {group.label.toLowerCase()} neste ano.</td>
+                        </tr>
+                      ) : groupRows.map((row, rowIndex) => {
                         const isSelected = selectedContaId === row.id;
                         const parentRowClass =
                           group.tone === 'emerald' ? (isDark ? 'bg-emerald-800/60 text-white' : 'bg-emerald-200 text-emerald-950') :

@@ -150,6 +150,30 @@ TOKENS_RUIDO_INTERESSADO = {
     "LANCAMENTO",
 }
 
+TOKENS_INDICAM_EMPRESA = {
+    "LTDA",
+    "EIRELI",
+    "S/A",
+    "SA",
+    "DISTRIBUIDORA",
+    "COMERCIO",
+    "INDUSTRIA",
+    "SERVICOS",
+    "LOGISTICA",
+    "TRANSPORTES",
+}
+
+TOKENS_JURIDICOS_FRACOS = {
+    "LTDA",
+    "EIRELI",
+    "S",
+    "A",
+    "SA",
+    "ME",
+    "MEI",
+    "EPP",
+}
+
 
 class RelacionamentoResumo(BaseModel):
     descricao: str
@@ -289,38 +313,92 @@ def _classificar_movimento_descricao(lancamento_ofx: Dict) -> str:
 
 
 def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
+    def _extrair_da_descricao(descricao_bruta: str) -> str:
+        interessado_cartao = _extrair_interessado_cartao(descricao_bruta)
+        if interessado_cartao:
+            return interessado_cartao
+
+        tokens = []
+        for token in _tokenizar_texto(descricao_bruta):
+            if token in TOKENS_GENERICOS_INTERESSADO:
+                continue
+            if token.isdigit():
+                continue
+            tokens.append(token)
+
+        if not tokens:
+            return ""
+
+        if len(tokens) > 12:
+            tokens = tokens[:12]
+
+        interessado_local = _title_case_inteligente(tokens)
+        interessado_local = _normalizar_nome_entidade(interessado_local)
+        if len(_normalizar_texto(interessado_local)) < 3:
+            return ""
+        return interessado_local
+
+    descricao = str(lancamento_ofx.get("descricao") or "")
+    interessado_descricao = _extrair_da_descricao(descricao)
+
     candidato = str(lancamento_ofx.get("razao_social") or "").strip()
     if len(_normalizar_texto(candidato)) >= 3:
         interessado_cartao = _extrair_interessado_cartao(candidato)
+        interessado_candidato = ""
         if interessado_cartao:
-            return interessado_cartao
-        normalizado = _normalizar_nome_entidade(candidato)
-        return normalizado or _title_case_inteligente(_tokenizar_texto(candidato)) or candidato
+            interessado_candidato = interessado_cartao
+        else:
+            normalizado = _normalizar_nome_entidade(candidato)
+            interessado_candidato = normalizado or _title_case_inteligente(_tokenizar_texto(candidato)) or candidato
 
-    descricao = str(lancamento_ofx.get("descricao") or "")
-    interessado_cartao = _extrair_interessado_cartao(descricao)
-    if interessado_cartao:
-        return interessado_cartao
+        # Se o candidato vier desalinhado da descricao e a descricao trouxer forte sinal de PJ,
+        # prioriza o nome extraido da propria descricao para evitar falsos positivos de payee.
+        descricao_tokens = set(_tokenizar_texto(descricao))
+        descricao_tem_sinal_pj = bool(descricao_tokens & TOKENS_INDICAM_EMPRESA)
+        candidato_norm = _normalizar_texto(interessado_candidato)
+        descricao_norm = _normalizar_texto(descricao)
+        interessado_descricao_norm = _normalizar_texto(interessado_descricao)
+        candidato_esta_na_descricao = bool(candidato_norm and candidato_norm in descricao_norm)
+        similaridade = (
+            SequenceMatcher(None, candidato_norm, interessado_descricao_norm).ratio()
+            if candidato_norm and interessado_descricao_norm
+            else 0.0
+        )
+        if (
+            descricao_tem_sinal_pj
+            and interessado_descricao
+            and _interessado_tem_confianca(interessado_descricao)
+            and not candidato_esta_na_descricao
+            and similaridade < 0.45
+        ):
+            return interessado_descricao
 
-    tokens = []
-    for token in _tokenizar_texto(descricao):
-        if token in TOKENS_GENERICOS_INTERESSADO:
-            continue
-        if token.isdigit():
-            continue
-        tokens.append(token)
+        return interessado_candidato
 
-    if not tokens:
-        return ""
+    return interessado_descricao
 
-    if len(tokens) > 12:
-        tokens = tokens[:12]
 
-    interessado = _title_case_inteligente(tokens)
-    interessado = _normalizar_nome_entidade(interessado)
-    if len(_normalizar_texto(interessado)) < 3:
-        return ""
-    return interessado
+def _interessado_combina_com_entidade(interessado: Optional[str], nome_entidade: Optional[str]) -> bool:
+    interessado_norm = _normalizar_texto(interessado)
+    entidade_norm = _normalizar_texto(nome_entidade)
+    if not interessado_norm or not entidade_norm:
+        return False
+
+    if interessado_norm in entidade_norm or entidade_norm in interessado_norm:
+        return True
+
+    interessado_tokens = [t for t in interessado_norm.split() if t not in TOKENS_JURIDICOS_FRACOS]
+    entidade_tokens = [t for t in entidade_norm.split() if t not in TOKENS_JURIDICOS_FRACOS]
+    if not interessado_tokens or not entidade_tokens:
+        return False
+
+    base_interessado = " ".join(interessado_tokens)
+    base_entidade = " ".join(entidade_tokens)
+    if base_interessado in base_entidade or base_entidade in base_interessado:
+        return True
+
+    similaridade = SequenceMatcher(None, base_interessado, base_entidade).ratio()
+    return similaridade >= 0.72
 
 
 def _interessado_tem_confianca(nome: Optional[str]) -> bool:
@@ -671,7 +749,13 @@ def _aplicar_sugestao_historica(
     if not lancamento_ofx.get("plano_contas_id") and melhor.plano_contas_id:
         lancamento_ofx["plano_contas_id"] = melhor.plano_contas_id
     interessado_base = str(lancamento_ofx.get("razao_social") or lancamento_ofx.get("interessado_sugerido") or "").strip()
-    if not lancamento_ofx.get("entidade_id") and melhor.entidade_id and _interessado_tem_confianca(interessado_base):
+    entidade_melhor = entidades_por_id.get(int(melhor.entidade_id or 0)) if melhor.entidade_id else None
+    if (
+        not lancamento_ofx.get("entidade_id")
+        and melhor.entidade_id
+        and _interessado_tem_confianca(interessado_base)
+        and _interessado_combina_com_entidade(interessado_base, entidade_melhor.nome if entidade_melhor else "")
+    ):
         lancamento_ofx["entidade_id"] = melhor.entidade_id
     if not lancamento_ofx.get("motivo_classificacao"):
         if "boleto" in descricao_ofx:
@@ -774,7 +858,13 @@ def _aplicar_sugestoes_deterministicas(
             if not item.get("plano_contas_id") and melhor_historico.plano_contas_id:
                 item["plano_contas_id"] = int(melhor_historico.plano_contas_id)
             interessado_base = str(item.get("razao_social") or item.get("interessado_sugerido") or "").strip()
-            if not item.get("entidade_id") and melhor_historico.entidade_id and _interessado_tem_confianca(interessado_base):
+            entidade_melhor = entidades_por_id.get(int(melhor_historico.entidade_id or 0)) if melhor_historico.entidade_id else None
+            if (
+                not item.get("entidade_id")
+                and melhor_historico.entidade_id
+                and _interessado_tem_confianca(interessado_base)
+                and _interessado_combina_com_entidade(interessado_base, entidade_melhor.nome if entidade_melhor else "")
+            ):
                 item["entidade_id"] = int(melhor_historico.entidade_id)
             if not item.get("motivo_classificacao"):
                 item["motivo_classificacao"] = f"Sugestao deterministica por descricao/interessado parecidos com '{melhor_historico.descricao}'."

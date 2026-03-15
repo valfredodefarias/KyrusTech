@@ -14,6 +14,7 @@ import {
 import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
 import { api, toPublicAssetUrl } from '../services/api';
+import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
 interface ContaResumo {
   id: number;
@@ -34,10 +35,43 @@ interface LancamentoResumo {
   status: string;
   data_vencimento: string;
   data_pagamento?: string | null;
+  data_competencia?: string | null;
+  competencia?: string | null;
   valor_previsto: number;
   valor_pago?: number | null;
+  plano_contas_id?: number | null;
+  conta_id?: number | null;
   entidade_id?: number | null;
   centro_custo_id?: number | null;
+}
+
+interface PlanoContaResumo {
+  id: number;
+  nome: string;
+  tipo: string;
+  conta_pai_id?: number | null;
+  eh_operacional?: boolean;
+  dre_grupo?: string;
+}
+
+interface ContaSaldoMovimento {
+  id: number;
+  descricao: string;
+  tipo: string;
+  status: string;
+  data_vencimento: string;
+  data_pagamento?: string | null;
+  valor_entrada: number;
+  valor_saida: number;
+  saldo_apos_movimento?: number | null;
+}
+
+interface ContaSaldoDetalhe {
+  conta_id: number;
+  conta_nome: string;
+  saldo_atual: number;
+  quantidade_movimentos: number;
+  movimentos: ContaSaldoMovimento[];
 }
 
 interface EntidadeResumo {
@@ -85,6 +119,19 @@ interface NormalizedRow {
   valor: number;
   valorAbsoluto: number;
   interessado: string;
+  contaId?: number | null;
+  contaNome: string;
+}
+
+type AuditPanelMode = 'LANCAMENTOS' | 'EXTRATO_BANCO';
+
+interface AuditPanelState {
+  mode: AuditPanelMode;
+  title: string;
+  subtitle: string;
+  rows?: NormalizedRow[];
+  conta?: ContaResumo;
+  extrato?: ContaSaldoDetalhe;
 }
 
 const BRL = new Intl.NumberFormat('pt-BR', {
@@ -94,6 +141,13 @@ const BRL = new Intl.NumberFormat('pt-BR', {
 });
 
 const MONTH_NAMES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+function normalizeText(value?: string | null) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
 
 function parseDateOnly(value?: string | null) {
   if (!value) return null;
@@ -136,6 +190,39 @@ function getStatusLabel(status: StatusFilter) {
 
 function isReceita(tipo?: string | null) {
   return String(tipo || '').toUpperCase().startsWith('R');
+}
+
+function isDespesa(tipo?: string | null) {
+  return String(tipo || '').toUpperCase().startsWith('D');
+}
+
+function parseCompetenciaMonthIndex(competencia?: string | null) {
+  if (!competencia) return -1;
+  const match = String(competencia).trim().match(/^(\d{2})-(\d{4})$/);
+  if (!match) return -1;
+  const month = Number(match[1]);
+  return Number.isFinite(month) && month >= 1 && month <= 12 ? month - 1 : -1;
+}
+
+function resolveMonthIndex(lancamento: LancamentoResumo, somentePagos = false) {
+  if (!somentePagos) {
+    const competenciaIndex = parseCompetenciaMonthIndex(lancamento.competencia);
+    if (competenciaIndex >= 0) return competenciaIndex;
+  }
+  const baseDate = somentePagos
+    ? (lancamento.data_pagamento || null)
+    : (lancamento.data_competencia || lancamento.data_vencimento || null);
+  const parsed = parseDateOnly(baseDate);
+  return parsed ? parsed.getMonth() : -1;
+}
+
+function resolveLancamentoValue(lancamento: LancamentoResumo, somentePagos = false) {
+  const valorPago = Number(lancamento.valor_pago || 0);
+  if (somentePagos) return valorPago;
+  if (lancamento.data_pagamento || valorPago !== 0) {
+    return valorPago !== 0 ? valorPago : Number(lancamento.valor_previsto || 0);
+  }
+  return Number(lancamento.valor_previsto || 0);
 }
 
 function isPago(status?: string | null) {
@@ -190,11 +277,15 @@ function SoftMetricGrid({
   accent,
   metrics,
   isDark,
+  onMetricClick,
+  activeMetric,
 }: {
   title: string;
   accent: 'rose' | 'cyan';
-  metrics: Array<{ label: string; value: number }>;
+  metrics: Array<{ key: string; label: string; value: number }>;
   isDark: boolean;
+  onMetricClick?: (metricKey: string) => void;
+  activeMetric?: string | null;
 }) {
   const toneClass = accent === 'rose'
     ? isDark ? 'from-rose-500/18 via-rose-500/6 to-transparent border-rose-400/25' : 'from-rose-100 via-white to-white border-rose-200'
@@ -208,12 +299,20 @@ function SoftMetricGrid({
         <div className={`h-2.5 w-2.5 rounded-full ${accent === 'rose' ? 'bg-rose-400' : 'bg-sky-400'}`} />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        {metrics.map((metric) => (
-          <div key={metric.label} className={`rounded-2xl border px-4 py-4 transition hover:-translate-y-0.5 ${isDark ? 'border-white/10 bg-white/[0.035]' : 'border-slate-200 bg-white/85'}`}>
+        {metrics.map((metric) => {
+          const isActive = activeMetric === metric.key;
+          return (
+          <button
+            key={metric.key}
+            type="button"
+            onClick={() => onMetricClick?.(metric.key)}
+            className={`rounded-2xl border px-4 py-4 text-left transition hover:-translate-y-0.5 ${isActive ? isDark ? 'border-amber-300/55 bg-amber-300/12' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035]' : 'border-slate-200 bg-white/85'} ${onMetricClick ? 'cursor-pointer' : 'cursor-default'}`}
+          >
             <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{metric.label}</div>
             <div className={`mt-2 whitespace-nowrap text-2xl font-black tracking-tight ${getValueTone(metric.value, isDark)}`}>{formatCurrency(metric.value)}</div>
-          </div>
-        ))}
+          </button>
+        );
+        })}
       </div>
     </section>
   );
@@ -278,6 +377,7 @@ export function Boletim() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [contas, setContas] = useState<ContaResumo[]>([]);
   const [lancamentos, setLancamentos] = useState<LancamentoResumo[]>([]);
+  const [categorias, setCategorias] = useState<PlanoContaResumo[]>([]);
   const [entidades, setEntidades] = useState<EntidadeResumo[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
   const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
@@ -287,6 +387,8 @@ export function Boletim() {
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
   const [selectedDayOfMonth, setSelectedDayOfMonth] = useState<number | null>(null);
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>('ALL');
+  const [auditPanel, setAuditPanel] = useState<AuditPanelState | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
   const isDark = useIsDarkMode();
 
   useEffect(() => {
@@ -317,9 +419,10 @@ export function Boletim() {
           empresaAtual = contextoRes.data.empresa_atual;
         }
 
-        const [contasRes, lancamentosRes, entidadesRes, centrosCustoRes] = await Promise.allSettled([
+        const [contasRes, lancamentosRes, categoriasRes, entidadesRes, centrosCustoRes] = await Promise.allSettled([
           api.get<ContaResumo[]>('/contas/'),
           api.get<LancamentoResumo[]>('/lancamentos/', { params: { limit: 10000, data_inicio: yearStart, data_fim: yearEnd } }),
+          api.get<PlanoContaResumo[]>('/plano-contas/'),
           api.get<EntidadeResumo[]>('/entidades/'),
           api.get<CentroCustoResumo[]>('/centro-custo/'),
         ]);
@@ -329,10 +432,11 @@ export function Boletim() {
         setEmpresa(empresaAtual);
         setContas(contasRes.status === 'fulfilled' ? (contasRes.value.data || []) : []);
         setLancamentos(lancamentosRes.status === 'fulfilled' ? (lancamentosRes.value.data || []) : []);
+        setCategorias(categoriasRes.status === 'fulfilled' ? (categoriasRes.value.data || []) : []);
         setEntidades(entidadesRes.status === 'fulfilled' ? (entidadesRes.value.data || []) : []);
         setCentrosCusto(centrosCustoRes.status === 'fulfilled' ? (centrosCustoRes.value.data || []) : []);
 
-        const failures = [contasRes, lancamentosRes, entidadesRes, centrosCustoRes].filter((result) => result.status === 'rejected');
+        const failures = [contasRes, lancamentosRes, categoriasRes, entidadesRes, centrosCustoRes].filter((result) => result.status === 'rejected');
         if (failures.length > 0) {
           setLoadError('Parte dos dados do boletim nao pôde ser carregada. A tela continuou com o que estava disponível.');
         }
@@ -363,6 +467,7 @@ export function Boletim() {
     const effectiveMonthIndex = selectedMonthIndex ?? fallbackMonthIndex;
     const daysInEffectiveMonth = new Date(currentYear, effectiveMonthIndex + 1, 0).getDate();
     const entityMap = new Map(entidades.map((item) => [item.id, item.nome_fantasia || item.nome]));
+    const contaMap = new Map(contas.map((item) => [item.id, item]));
     const bankBalances = contas
       .filter((conta) => String(conta.status || 'ATIVO').toUpperCase() !== 'INATIVO')
       .map((conta) => ({ ...conta, saldo: Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0) }))
@@ -392,6 +497,8 @@ export function Boletim() {
           valor: signedValue,
           valorAbsoluto: Math.abs(signedValue),
           interessado: entityMap.get(Number(item.entidade_id)) || 'Sem interessado',
+          contaId: item.conta_id,
+          contaNome: contaMap.get(Number(item.conta_id))?.banco || contaMap.get(Number(item.conta_id))?.nome || 'Sem banco',
         } satisfies NormalizedRow;
       })
       .filter((item) => item.monthIndex >= 0 && item.dayOfMonth >= 0);
@@ -417,6 +524,83 @@ export function Boletim() {
 
     const pagar = buildExecutiveMetrics(payableRows);
     const receber = buildExecutiveMetrics(receivableRows);
+    const pagarNoMes = sumValues(payableRows.filter((item) => item.monthIndex === effectiveMonthIndex));
+    const receberNoMes = sumValues(receivableRows.filter((item) => item.monthIndex === effectiveMonthIndex));
+
+    const relevantes = categorias.filter((conta) => isReceita(conta.tipo) || isDespesa(conta.tipo));
+    const contaPorId = new Map<number, PlanoContaResumo>();
+    relevantes.forEach((conta) => contaPorId.set(conta.id, conta));
+    const categoriasOperacionais = buildOperationalCategoriaIds(relevantes);
+
+    const classificarHeuristicaLegada = (contaId: number): 'DEDUCOES_RECEITA' | 'CUSTOS_VARIAVEIS' | 'DESPESAS_OPERACIONAIS' => {
+      const partes: string[] = [];
+      const visitados = new Set<number>();
+      let atual = contaPorId.get(contaId);
+
+      while (atual && !visitados.has(Number(atual.id))) {
+        visitados.add(Number(atual.id));
+        partes.push(normalizeText(atual.nome));
+        const parentId = atual.conta_pai_id ? Number(atual.conta_pai_id) : 0;
+        atual = parentId > 0 ? contaPorId.get(parentId) : undefined;
+      }
+
+      const trilha = partes.join(' ');
+      if (/(abatimento|deducao|deducoes|devolucao|devolucoes|imposto sobre faturamento|impostos de faturamento)/.test(trilha)) {
+        return 'DEDUCOES_RECEITA';
+      }
+      if (/(custos|custo|cmv|cpv|custo dos produtos|custo dos servicos|fornecedores|materia prima|mercadoria vendida)/.test(trilha)) {
+        return 'CUSTOS_VARIAVEIS';
+      }
+      return 'DESPESAS_OPERACIONAIS';
+    };
+
+    const resolverDreGrupo = (contaId: number): string => {
+      const conta = contaPorId.get(contaId);
+      const grupoNormalizado = String(conta?.dre_grupo || '').trim().toUpperCase();
+      if (grupoNormalizado) return grupoNormalizado;
+      if (conta && isReceita(conta.tipo)) return 'RECEITA_BRUTA';
+      return classificarHeuristicaLegada(contaId);
+    };
+
+    const receitaMonthly = Array.from({ length: 12 }, () => 0);
+    const deducoesMonthly = Array.from({ length: 12 }, () => 0);
+    const custosVariaveisMonthly = Array.from({ length: 12 }, () => 0);
+    const despesaOperacionalCoreMonthly = Array.from({ length: 12 }, () => 0);
+    const outrasReceitasMonthly = Array.from({ length: 12 }, () => 0);
+    const outrasDespesasMonthly = Array.from({ length: 12 }, () => 0);
+
+    lancamentos
+      .filter((item) => selectedCentroCustoId === 'ALL' || Number(item.centro_custo_id) === selectedCentroCustoId)
+      .forEach((lancamento) => {
+        const contaId = Number(lancamento.plano_contas_id);
+        if (!contaPorId.has(contaId)) return;
+        const monthIndex = resolveMonthIndex(lancamento, true);
+        if (monthIndex < 0) return;
+        const conta = contaPorId.get(contaId);
+        if (!conta) return;
+        const dreGrupo = resolverDreGrupo(contaId);
+        if (dreGrupo === 'NAO_OPERACIONAL') return;
+        const value = resolveLancamentoValue(lancamento, true);
+
+        if (isReceita(conta.tipo)) {
+          if (dreGrupo === 'OUTRAS_RECEITAS') outrasReceitasMonthly[monthIndex] += value;
+          else receitaMonthly[monthIndex] += value;
+        }
+
+        if (isDespesa(conta.tipo)) {
+          if (dreGrupo === 'DEDUCOES_RECEITA') deducoesMonthly[monthIndex] += value;
+          else if (dreGrupo === 'CUSTOS_VARIAVEIS') custosVariaveisMonthly[monthIndex] += value;
+          else if (dreGrupo === 'OUTRAS_DESPESAS') outrasDespesasMonthly[monthIndex] += value;
+          else if (categoriasOperacionais.has(contaId)) despesaOperacionalCoreMonthly[monthIndex] += value;
+        }
+      });
+
+    const receitaLiquidaMonthly = receitaMonthly.map((value, index) => value - deducoesMonthly[index]);
+    const margemContribuicaoMonthly = receitaLiquidaMonthly.map((value, index) => value - custosVariaveisMonthly[index]);
+    const resultadoOperacionalMonthly = margemContribuicaoMonthly.map((value, index) => value - despesaOperacionalCoreMonthly[index]);
+    const resultadoFinalMonthly = resultadoOperacionalMonthly.map((value, index) => value + outrasReceitasMonthly[index] - outrasDespesasMonthly[index]);
+    const resultadoOperacionalMes = resultadoOperacionalMonthly[effectiveMonthIndex] || 0;
+    const resultadoFinalMes = resultadoFinalMonthly[effectiveMonthIndex] || 0;
 
     const monthlyRows = applyFilters(baseRows, {
       flowType: flowFilter,
@@ -432,6 +616,7 @@ export function Boletim() {
       if (item.flowType === 'PAGAMENTO') monthlyPagar[item.monthIndex] += item.valorAbsoluto;
       else monthlyReceber[item.monthIndex] += item.valorAbsoluto;
     });
+    const monthlyResultado = resultadoFinalMonthly;
 
     const dailyRows = applyFilters(baseRows, {
       flowType: flowFilter,
@@ -486,13 +671,21 @@ export function Boletim() {
       dayLabels: Array.from({ length: daysInEffectiveMonth }, (_, index) => String(index + 1)),
       monthLabels: MONTH_NAMES.map((label) => `${label}/${String(currentYear).slice(2)}`),
       banks: bankBalances,
+      baseRows,
       saldoBancario: bankBalances.reduce((acc, conta) => acc + conta.saldo, 0),
       saldoDisponivel,
       pagar,
       receber,
+      pagarNoMes,
+      receberNoMes,
+      resultadoOperacionalMes,
+      resultadoFinalMes,
+      resultadoOperacionalMonthly,
+      resultadoFinalMonthly,
       tableRows,
       monthlyPagar,
       monthlyReceber,
+      monthlyResultado,
       dailyPagar,
       dailyReceber,
       donutSeries: [
@@ -501,7 +694,57 @@ export function Boletim() {
       ],
       situacao,
     };
-  }, [contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
+  }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
+
+  function openAuditRows(title: string, subtitle: string, rows: NormalizedRow[]) {
+    setAuditPanel({ mode: 'LANCAMENTOS', title, subtitle, rows });
+  }
+
+  function handleKpiAuditClick(metricKey: string) {
+    const monthLabel = dashboard.effectiveMonthLabel;
+    if (metricKey === 'pagar_hoje') {
+      openAuditRows('Contas a pagar hoje', `Lançamentos com vencimento hoje (${dashboard.now.toLocaleDateString('pt-BR')}).`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'HOJE'));
+      return;
+    }
+    if (metricKey === 'receber_hoje') {
+      openAuditRows('Contas a receber hoje', `Lançamentos com vencimento hoje (${dashboard.now.toLocaleDateString('pt-BR')}).`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'HOJE'));
+      return;
+    }
+    if (metricKey === 'pagar_mes') {
+      openAuditRows('Contas a pagar no mês', `Competência em ${monthLabel}. Inclui pagos e em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.monthIndex === dashboard.effectiveMonthIndex));
+      return;
+    }
+    if (metricKey === 'receber_mes') {
+      openAuditRows('Contas a receber no mês', `Competência em ${monthLabel}. Inclui pagos e em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.monthIndex === dashboard.effectiveMonthIndex));
+      return;
+    }
+    if (metricKey === 'resultado_operacional') {
+      openAuditRows('Composição do resultado operacional', `Resultado operacional (padrão DRE) de ${monthLabel}: Receita líquida - Custos variáveis - Despesas operacionais.`, dashboard.baseRows.filter((item) => item.monthIndex === dashboard.effectiveMonthIndex));
+      return;
+    }
+    if (metricKey === 'resultado_final') {
+      openAuditRows('Composição do resultado final', `Resultado final (padrão DRE) de ${monthLabel}: Resultado operacional + Receitas não operacionais - Despesas não operacionais.`, dashboard.baseRows.filter((item) => item.monthIndex === dashboard.effectiveMonthIndex));
+    }
+  }
+
+  async function handleBankAuditClick(conta: ContaResumo) {
+    setAuditLoading(true);
+    setAuditPanel({
+      mode: 'EXTRATO_BANCO',
+      title: `Extrato do banco ${conta.banco || conta.nome}`,
+      subtitle: 'Mostrando lançamentos que influenciam o saldo atual da conta.',
+      conta,
+    });
+    try {
+      const { data } = await api.get<ContaSaldoDetalhe>(`/contas/${conta.id}/saldo-detalhe`);
+      setAuditPanel((current) => current ? { ...current, extrato: data } : current);
+    } catch (error) {
+      console.error('Erro ao carregar extrato do banco no boletim', error);
+      setAuditPanel((current) => current ? { ...current, subtitle: 'Não foi possível carregar o extrato desta conta agora.' } : current);
+    } finally {
+      setAuditLoading(false);
+    }
+  }
 
   useEffect(() => {
     const daysInSelectedMonth = new Date(dashboard.currentYear, dashboard.effectiveMonthIndex + 1, 0).getDate();
@@ -665,6 +908,30 @@ export function Boletim() {
     },
   }), [dashboard.donutSeries, isDark]);
 
+  const resultadoChartOptions = useMemo<any>(() => ({
+    chart: {
+      toolbar: { show: false },
+      background: 'transparent',
+      foreColor: isDark ? '#cbd5e1' : '#475569',
+      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+    },
+    stroke: { curve: 'smooth', width: 3 },
+    dataLabels: { enabled: false },
+    colors: ['#22c55e', '#0ea5e9'],
+    grid: { borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.18)', strokeDashArray: 3 },
+    xaxis: {
+      categories: dashboard.monthLabels,
+      labels: { style: { colors: Array.from({ length: dashboard.monthLabels.length }, () => isDark ? '#cbd5e1' : '#334155') } },
+    },
+    yaxis: {
+      labels: {
+        formatter: (value: number) => BRL.format(value),
+        style: { colors: [isDark ? '#cbd5e1' : '#334155'] },
+      },
+    },
+    tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (value: number) => BRL.format(value) } },
+  }), [dashboard.monthLabels, isDark]);
+
   const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
   const companyName = empresa?.nome_fantasia || 'Sua Empresa';
 
@@ -752,18 +1019,20 @@ export function Boletim() {
         ) : null}
 
         {viewMode === 'executivo' ? (
-          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_420px] xl:items-start">
+          <section className={`grid gap-4 xl:items-start ${auditPanel ? 'xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : 'xl:grid-cols-[minmax(0,1.65fr)_420px]'}`}>
             <div className="grid gap-4">
               <div className="grid gap-4 xl:grid-cols-2">
                 <SoftMetricGrid
                   title="Contas a pagar"
                   accent="rose"
                   isDark={isDark}
+                  activeMetric={auditPanel?.mode === 'LANCAMENTOS' ? (auditPanel.title.includes('pagar') ? 'pagar_hoje' : null) : null}
+                  onMetricClick={handleKpiAuditClick}
                   metrics={[
-                    { label: 'Para hoje', value: dashboard.pagar.hoje },
-                    { label: 'Para amanhã', value: dashboard.pagar.amanha },
-                    { label: 'Atrasadas', value: dashboard.pagar.atrasadas },
-                    { label: 'Em aberto no mês', value: dashboard.pagar.emAberto },
+                    { key: 'pagar_hoje', label: 'Para hoje', value: dashboard.pagar.hoje },
+                    { key: 'pagar_amanha', label: 'Para amanhã', value: dashboard.pagar.amanha },
+                    { key: 'pagar_atrasadas', label: 'Atrasadas', value: dashboard.pagar.atrasadas },
+                    { key: 'pagar_em_aberto', label: 'Em aberto no mês', value: dashboard.pagar.emAberto },
                   ]}
                 />
 
@@ -771,11 +1040,13 @@ export function Boletim() {
                   title="Contas a receber"
                   accent="cyan"
                   isDark={isDark}
+                  activeMetric={auditPanel?.mode === 'LANCAMENTOS' ? (auditPanel.title.includes('receber') ? 'receber_hoje' : null) : null}
+                  onMetricClick={handleKpiAuditClick}
                   metrics={[
-                    { label: 'Para hoje', value: dashboard.receber.hoje },
-                    { label: 'Para amanhã', value: dashboard.receber.amanha },
-                    { label: 'Atrasadas', value: dashboard.receber.atrasadas },
-                    { label: 'Em aberto no mês', value: dashboard.receber.emAberto },
+                    { key: 'receber_hoje', label: 'Para hoje', value: dashboard.receber.hoje },
+                    { key: 'receber_amanha', label: 'Para amanhã', value: dashboard.receber.amanha },
+                    { key: 'receber_atrasadas', label: 'Atrasadas', value: dashboard.receber.atrasadas },
+                    { key: 'receber_em_aberto', label: 'Em aberto no mês', value: dashboard.receber.emAberto },
                   ]}
                 />
               </div>
@@ -783,23 +1054,70 @@ export function Boletim() {
               <section className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
                 <div className="mb-4 flex items-center justify-between gap-4">
                   <div>
-                    <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>Histórico mensal</div>
-                    <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Clique numa barra para combinar tipo e mês no restante do boletim.</div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-[#ff5a47]"><TrendingDown className="h-4 w-4" />Pagamento</span>
-                    <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-[#4d8cf3]"><TrendingUp className="h-4 w-4" />Recebimento</span>
+                    <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>KPIs do mês (auditáveis)</div>
+                    <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Clique em qualquer KPI para abrir a composição na coluna lateral.</div>
                   </div>
                 </div>
-                <AsyncApexChart
-                  type="bar"
-                  height={340}
-                  series={[
-                    { name: 'Pagamento', data: dashboard.monthlyPagar },
-                    { name: 'Recebimento', data: dashboard.monthlyReceber },
-                  ]}
-                  options={monthlyChartOptions}
-                />
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <button type="button" onClick={() => handleKpiAuditClick('pagar_mes')} className={`rounded-2xl border px-4 py-4 text-left transition hover:-translate-y-0.5 ${isDark ? 'border-rose-400/30 bg-rose-400/10' : 'border-rose-200 bg-rose-50'}`}>
+                    <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-rose-200' : 'text-rose-700'}`}>Contas a pagar do mês</div>
+                    <div className={`mt-2 text-2xl font-black ${getValueTone(-dashboard.pagarNoMes, isDark)}`}>{formatCurrency(dashboard.pagarNoMes)}</div>
+                  </button>
+                  <button type="button" onClick={() => handleKpiAuditClick('receber_mes')} className={`rounded-2xl border px-4 py-4 text-left transition hover:-translate-y-0.5 ${isDark ? 'border-sky-400/30 bg-sky-400/10' : 'border-sky-200 bg-sky-50'}`}>
+                    <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-sky-200' : 'text-sky-700'}`}>Contas a receber do mês</div>
+                    <div className={`mt-2 text-2xl font-black ${getValueTone(dashboard.receberNoMes, isDark)}`}>{formatCurrency(dashboard.receberNoMes)}</div>
+                  </button>
+                  <button type="button" onClick={() => handleKpiAuditClick('resultado_operacional')} className={`rounded-2xl border px-4 py-4 text-left transition hover:-translate-y-0.5 ${isDark ? 'border-emerald-400/30 bg-emerald-400/10' : 'border-emerald-200 bg-emerald-50'}`}>
+                    <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-emerald-200' : 'text-emerald-700'}`}>Resultado operacional</div>
+                    <div className={`mt-2 text-2xl font-black ${getValueTone(dashboard.resultadoOperacionalMes, isDark)}`}>{formatCurrency(dashboard.resultadoOperacionalMes)}</div>
+                  </button>
+                  <button type="button" onClick={() => handleKpiAuditClick('resultado_final')} className={`rounded-2xl border px-4 py-4 text-left transition hover:-translate-y-0.5 ${isDark ? 'border-amber-400/30 bg-amber-400/10' : 'border-amber-200 bg-amber-50'}`}>
+                    <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Resultado final</div>
+                    <div className={`mt-2 text-2xl font-black ${getValueTone(dashboard.resultadoFinalMes, isDark)}`}>{formatCurrency(dashboard.resultadoFinalMes)}</div>
+                  </button>
+                </div>
+              </section>
+
+              <section className="grid gap-4 xl:grid-cols-2">
+                <div className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
+                  <div className="mb-4 flex items-center justify-between gap-4">
+                    <div>
+                      <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>Histórico mensal</div>
+                      <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Clique numa barra para combinar tipo e mês no restante do boletim.</div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-[#ff5a47]"><TrendingDown className="h-4 w-4" />Pagamento</span>
+                      <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-[#4d8cf3]"><TrendingUp className="h-4 w-4" />Recebimento</span>
+                    </div>
+                  </div>
+                  <AsyncApexChart
+                    type="bar"
+                    height={340}
+                    series={[
+                      { name: 'Pagamento', data: dashboard.monthlyPagar },
+                      { name: 'Recebimento', data: dashboard.monthlyReceber },
+                    ]}
+                    options={monthlyChartOptions}
+                  />
+                </div>
+
+                <div className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
+                  <div className="mb-4 flex items-center justify-between gap-4">
+                    <div>
+                      <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>Resultado mensal</div>
+                      <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Linha no padrão DRE (resultado final mensal).</div>
+                    </div>
+                  </div>
+                  <AsyncApexChart
+                    type="line"
+                    height={340}
+                    series={[
+                      { name: 'Resultado Final (DRE)', data: dashboard.monthlyResultado },
+                      { name: 'Resultado Operacional (DRE)', data: dashboard.resultadoOperacionalMonthly },
+                    ]}
+                    options={resultadoChartOptions}
+                  />
+                </div>
               </section>
             </div>
 
@@ -835,10 +1153,11 @@ export function Boletim() {
                     ) : dashboard.banks.slice(0, 6).map((conta) => {
                       const logo = getFullLogoUrl(conta.logo_url || null);
                       const foraDoDisponivel = conta.conta_como_disponibilidade === false;
+                      const activeBank = auditPanel?.mode === 'EXTRATO_BANCO' && auditPanel.conta?.id === conta.id;
                       return (
                         <tr key={conta.id} className={foraDoDisponivel ? isDark ? 'border-t border-amber-300/12 bg-amber-300/5 text-white' : 'border-t border-amber-100 bg-amber-50/60 text-slate-800' : isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
                           <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
+                            <button type="button" onClick={() => handleBankAuditClick(conta)} className={`flex w-full items-center gap-2 rounded-xl px-1 py-1 text-left transition ${activeBank ? isDark ? 'bg-amber-300/12' : 'bg-amber-100/70' : ''}`}>
                               <div className={`flex h-9 w-9 items-center justify-center overflow-hidden rounded-2xl ${logo ? '' : isDark ? 'bg-white/8 text-white/55' : 'bg-slate-100 text-slate-400'}`}>
                                 {logo ? (
                                   <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={conta.nome} integrationType={conta.tipo} size="sm" className="h-9 w-9" imageClassName="rounded-2xl" fallbackClassName="rounded-2xl border-0 shadow-none" />
@@ -852,7 +1171,7 @@ export function Boletim() {
                                   <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Nao soma no saldo disponivel</div>
                                 ) : null}
                               </div>
-                            </div>
+                            </button>
                           </td>
                           <td className={`px-4 py-3 text-right font-semibold ${getValueTone(Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0), isDark)} whitespace-nowrap`}>{formatCurrency(Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0))}</td>
                         </tr>
@@ -862,6 +1181,86 @@ export function Boletim() {
                 </table>
               </div>
             </section>
+
+            {auditPanel ? (
+              <aside className={`rounded-[28px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
+                <div className="mb-3 flex items-start justify-between gap-2">
+                  <div>
+                    <div className={`text-sm font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>{auditPanel.title}</div>
+                    <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{auditPanel.subtitle}</div>
+                  </div>
+                  <button type="button" onClick={() => setAuditPanel(null)} className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'bg-white/6 text-white/70 hover:bg-white/12' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Fechar</button>
+                </div>
+
+                {auditPanel.mode === 'LANCAMENTOS' ? (
+                  <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                    <div className="max-h-[65vh] overflow-auto">
+                      <table className="w-full text-sm">
+                        <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
+                          <tr>
+                            <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Banco</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(auditPanel.rows || []).length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
+                            </tr>
+                          ) : (auditPanel.rows || []).map((row) => (
+                            <tr key={`audit-row-${row.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
+                              <td className="px-3 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
+                              <td className="px-3 py-2.5">{row.interessado}</td>
+                              <td className="px-3 py-2.5">{row.contaNome}</td>
+                              <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${row.flowType === 'RECEBIMENTO' ? getValueTone(row.valorAbsoluto, isDark) : getValueTone(-row.valorAbsoluto, isDark)}`}>{formatCurrency(row.valorAbsoluto)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                    <div className="max-h-[65vh] overflow-auto">
+                      {auditLoading ? (
+                        <div className={`px-4 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Carregando extrato...</div>
+                      ) : null}
+                      {!auditLoading && auditPanel.extrato ? (
+                        <table className="w-full text-sm">
+                          <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
+                            <tr>
+                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
+                              <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Movimento</th>
+                              <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Saldo</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {auditPanel.extrato.movimentos.length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem movimentos para este banco.</td>
+                              </tr>
+                            ) : auditPanel.extrato.movimentos.map((movimento) => {
+                              const signed = Number(movimento.valor_entrada || 0) > 0 ? Number(movimento.valor_entrada || 0) : Number(movimento.valor_saida || 0) > 0 ? -Number(movimento.valor_saida || 0) : 0;
+                              return (
+                                <tr key={`extrato-${movimento.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
+                                  <td className="px-3 py-2.5">{formatDate(movimento.data_pagamento || movimento.data_vencimento)}</td>
+                                  <td className="max-w-50 truncate px-3 py-2.5" title={movimento.descricao}>{movimento.descricao}</td>
+                                  <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(signed, isDark)}`}>{formatCurrency(signed)}</td>
+                                  <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(Number(movimento.saldo_apos_movimento || 0), isDark)}`}>{formatCurrency(Number(movimento.saldo_apos_movimento || 0))}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+              </aside>
+            ) : null}
           </section>
         ) : (
           <section className="space-y-5">

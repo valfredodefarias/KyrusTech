@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Sigma, TrendingDown, TrendingUp } from 'lucide-react';
 
 import { api } from '../services/api';
@@ -46,12 +46,31 @@ interface DreNode {
   total: number;
   hasChildren: boolean;
   isOperationalInherited: boolean;
+  grupoExibicao: DreDisplayGroupKey;
+  tipoCategoria: 'RECEITA' | 'DESPESA';
 }
 
 type DreBranch = {
   rows: DreNode[];
   monthly: number[];
 };
+
+type DreDisplayGroupKey =
+  | 'RECEITAS_OPERACIONAIS'
+  | 'ABATIMENTO_VENDAS'
+  | 'CUSTOS'
+  | 'DESPESAS_OPERACIONAIS'
+  | 'RECEITAS_NAO_OPERACIONAIS'
+  | 'DESPESAS_NAO_OPERACIONAIS';
+
+const DRE_DISPLAY_GROUPS: Array<{ key: DreDisplayGroupKey; label: string; tone: 'emerald' | 'amber' | 'orange' | 'rose' | 'teal' | 'fuchsia' }> = [
+  { key: 'RECEITAS_OPERACIONAIS', label: 'Receitas Operacionais', tone: 'emerald' },
+  { key: 'ABATIMENTO_VENDAS', label: 'Abatimento de vendas', tone: 'amber' },
+  { key: 'CUSTOS', label: 'Custos', tone: 'orange' },
+  { key: 'DESPESAS_OPERACIONAIS', label: 'Despesas Operacionais', tone: 'rose' },
+  { key: 'RECEITAS_NAO_OPERACIONAIS', label: 'Receitas não operacionais', tone: 'teal' },
+  { key: 'DESPESAS_NAO_OPERACIONAIS', label: 'Despesas não operacionais', tone: 'fuchsia' },
+];
 
 const MONTH_SHORT = ['jan.', 'fev.', 'mar.', 'abr.', 'mai.', 'jun.', 'jul.', 'ago.', 'set.', 'out.', 'nov.', 'dez.'];
 
@@ -327,6 +346,20 @@ export function Dre() {
       return classificarHeuristicaLegada(contaId);
     };
 
+    const resolverGrupoExibicao = (contaId: number): DreDisplayGroupKey => {
+      const conta = contaPorId.get(contaId);
+      const tipoReceita = Boolean(conta && isReceita(conta.tipo));
+      const grupo = resolverDreGrupo(contaId);
+
+      if (grupo === 'DEDUCOES_RECEITA') return 'ABATIMENTO_VENDAS';
+      if (grupo === 'CUSTOS_VARIAVEIS') return 'CUSTOS';
+      if (grupo === 'DESPESAS_OPERACIONAIS') return 'DESPESAS_OPERACIONAIS';
+      if (grupo === 'OUTRAS_RECEITAS') return 'RECEITAS_NAO_OPERACIONAIS';
+      if (grupo === 'OUTRAS_DESPESAS') return 'DESPESAS_NAO_OPERACIONAIS';
+      if (grupo === 'NAO_OPERACIONAL') return tipoReceita ? 'RECEITAS_NAO_OPERACIONAIS' : 'DESPESAS_NAO_OPERACIONAIS';
+      return tipoReceita ? 'RECEITAS_OPERACIONAIS' : 'DESPESAS_OPERACIONAIS';
+    };
+
     lancamentosFiltrados.forEach((lancamento) => {
       const contaId = Number(lancamento.plano_contas_id);
       if (!contaPorId.has(contaId)) return;
@@ -410,33 +443,58 @@ export function Dre() {
         total: sumValues(totalValues),
         hasChildren: childRows.length > 0,
         isOperationalInherited: inheritedOnly,
+        grupoExibicao: resolverGrupoExibicao(conta.id),
+        tipoCategoria: isReceita(conta.tipo) ? 'RECEITA' : 'DESPESA',
       };
 
       return { rows: [row, ...childRows], monthly: totalValues };
     };
 
-    const receitaRoots = roots.filter((conta) => isReceita(conta.tipo));
-    const despesaRoots = roots.filter((conta) => isDespesa(conta.tipo));
+    const allBranches = roots.map((conta) => buildBranch(conta, 0, false)).filter(Boolean) as DreBranch[];
 
-    const receitaBranches = receitaRoots.map((conta) => buildBranch(conta, 0, false)).filter(Boolean) as DreBranch[];
-    const despesaBranches = despesaRoots.map((conta) => buildBranch(conta, 0, false)).filter(Boolean) as DreBranch[];
+    const groupedRows: Record<DreDisplayGroupKey, DreNode[]> = {
+      RECEITAS_OPERACIONAIS: [],
+      ABATIMENTO_VENDAS: [],
+      CUSTOS: [],
+      DESPESAS_OPERACIONAIS: [],
+      RECEITAS_NAO_OPERACIONAIS: [],
+      DESPESAS_NAO_OPERACIONAIS: [],
+    };
 
-    const receitaRows = receitaBranches.flatMap((branch) => branch.rows);
-    const despesaRows = despesaBranches.flatMap((branch) => branch.rows);
+    const groupedMonthly: Record<DreDisplayGroupKey, number[]> = {
+      RECEITAS_OPERACIONAIS: Array.from({ length: 12 }, () => 0),
+      ABATIMENTO_VENDAS: Array.from({ length: 12 }, () => 0),
+      CUSTOS: Array.from({ length: 12 }, () => 0),
+      DESPESAS_OPERACIONAIS: Array.from({ length: 12 }, () => 0),
+      RECEITAS_NAO_OPERACIONAIS: Array.from({ length: 12 }, () => 0),
+      DESPESAS_NAO_OPERACIONAIS: Array.from({ length: 12 }, () => 0),
+    };
+
+    const receitaRows: DreNode[] = [];
+    const despesaRows: DreNode[] = [];
 
     const receitaMonthly = Array.from({ length: 12 }, () => 0);
     const despesaMonthly = Array.from({ length: 12 }, () => 0);
 
-    receitaBranches.forEach((branch) => {
+    allBranches.forEach((branch) => {
+      const raiz = branch.rows[0];
+      if (!raiz) return;
+      groupedRows[raiz.grupoExibicao].push(...branch.rows);
       branch.monthly.forEach((value, index) => {
-        receitaMonthly[index] += value;
+        groupedMonthly[raiz.grupoExibicao][index] += value;
       });
-    });
 
-    despesaBranches.forEach((branch) => {
-      branch.monthly.forEach((value, index) => {
-        despesaMonthly[index] += value;
-      });
+      if (raiz.tipoCategoria === 'RECEITA') {
+        receitaRows.push(...branch.rows);
+        branch.monthly.forEach((value, index) => {
+          receitaMonthly[index] += value;
+        });
+      } else {
+        despesaRows.push(...branch.rows);
+        branch.monthly.forEach((value, index) => {
+          despesaMonthly[index] += value;
+        });
+      }
     });
 
     const receitaLiquidaMonthly = receitaMonthly.map((value, index) => value - deducoesMonthly[index]);
@@ -474,6 +532,8 @@ export function Dre() {
       descendantsById,
       receitaRows,
       despesaRows,
+      groupedRows,
+      groupedMonthly,
       receitaOperacionalMonthly,
       deducoesMonthly,
       custosVariaveisMonthly,
@@ -749,117 +809,95 @@ export function Dre() {
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td className="sticky left-0 z-10 border-b border-r border-emerald-300/30 bg-emerald-600 px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white">Receitas</td>
-                  <td className={`border-b border-r border-emerald-300/30 px-4 py-3 text-right font-black ${isDark ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-50 text-emerald-700'}`}>{renderMoneyCell(dre.receitaTotal, 'receita')}</td>
-                  {dre.receitaMonthly.map((value, index) => (
-                    <td key={`receita-total-${index}`} className={`border-b border-r border-emerald-300/30 px-4 py-3 text-right font-bold last:border-r-0 ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : isDark ? 'bg-emerald-500/10 text-emerald-200' : 'bg-emerald-50 text-emerald-700'}`}>{renderMoneyCell(value, 'receita')}</td>
-                  ))}
-                  <td className="w-3 border-b border-amber-300 bg-amber-100 px-0 py-0" />
-                </tr>
-
                 {loading ? (
                   <tr>
                     <td colSpan={15} className={`px-5 py-12 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Carregando demonstrativo...</td>
                   </tr>
-                ) : dre.receitaRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={15} className={`px-5 py-12 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Sem receitas classificadas para este ano.</td>
-                  </tr>
-                ) : dre.receitaRows.map((row, rowIndex) => {
-                  const isSelected = selectedContaId === row.id;
-                  return (
-                    <tr key={`receita-row-${row.id}`} className={rowIndex % 2 === 0 ? (isDark ? 'bg-slate-950/20' : 'bg-white') : (isDark ? 'bg-slate-900/30' : 'bg-slate-50/60')}>
-                      <td
-                        onClick={() => {
-                          setSelectedContaId((prev) => prev === row.id ? null : row.id);
-                          setSelectedMonth(null);
-                        }}
-                        className={`sticky left-0 z-10 cursor-pointer border-b border-r px-5 py-3 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.75)] transition ${isSelected ? 'ring-1 ring-inset ring-sky-400/60' : ''} ${row.hasChildren ? isDark ? 'border-slate-700 bg-emerald-900 font-black text-white' : 'border-slate-200 bg-emerald-100 font-black text-slate-900' : isDark ? rowIndex % 2 === 0 ? 'border-slate-800 bg-slate-950 font-semibold text-slate-300' : 'border-slate-800 bg-slate-900 font-semibold text-slate-300' : rowIndex % 2 === 0 ? 'border-slate-200 bg-white font-semibold text-slate-700' : 'border-slate-200 bg-slate-50 font-semibold text-slate-700'}`}
-                      >
-                        <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 18}px` }}>
-                          <span className="min-w-0 truncate">{row.codigo ? `${row.codigo} ${row.nome}` : row.nome}</span>
-                          {row.isOperationalInherited ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Operacional herdado</span> : null}
-                        </div>
-                      </td>
-                      <td
-                        onClick={() => {
-                          setSelectedContaId(row.id);
-                          setSelectedMonth(null);
-                        }}
-                        className={`cursor-pointer border-b border-r px-4 py-3 text-right ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? isDark ? 'bg-emerald-900/45 font-black text-white' : 'bg-emerald-100/70 font-black text-slate-900' : isDark ? 'font-medium text-slate-200' : 'font-medium text-slate-700'}`}
-                      >
-                        {renderMoneyCell(row.total, 'receita')}
-                      </td>
-                      {row.monthly.map((value, index) => (
-                        <td
-                          key={`receita-value-${row.id}-${index}`}
-                          onClick={() => {
-                            setSelectedContaId(row.id);
-                            setSelectedMonth(index);
-                          }}
-                          className={`cursor-pointer border-b border-r px-4 py-3 text-right transition last:border-r-0 ${selectedContaId === row.id && selectedMonth === index ? isDark ? 'bg-sky-500/15 text-sky-100' : 'bg-sky-50 text-sky-800' : ''} ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : ''} ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? isDark ? 'bg-emerald-900/45 font-bold text-slate-100' : 'bg-emerald-100/70 font-bold text-slate-900' : isDark ? 'font-medium text-slate-200' : 'font-medium text-slate-700'}`}
-                        >
-                          {renderMoneyCell(value, 'receita')}
-                        </td>
-                      ))}
-                      <td className="w-3 border-b border-amber-300 bg-amber-100 px-0 py-0" />
-                    </tr>
-                  );
-                })}
+                ) : DRE_DISPLAY_GROUPS.map((group) => {
+                  const groupRows = dre.groupedRows[group.key] || [];
+                  const groupMonthly = dre.groupedMonthly[group.key] || Array.from({ length: 12 }, () => 0);
+                  const groupTotal = sumValues(groupMonthly);
+                  const rowTone =
+                    group.tone === 'emerald' ? (isDark ? 'border-emerald-300/35 bg-emerald-800/65' : 'border-emerald-200 bg-emerald-600') :
+                    group.tone === 'amber' ? (isDark ? 'border-amber-300/35 bg-amber-800/65' : 'border-amber-200 bg-amber-600') :
+                    group.tone === 'orange' ? (isDark ? 'border-orange-300/35 bg-orange-800/65' : 'border-orange-200 bg-orange-600') :
+                    group.tone === 'rose' ? (isDark ? 'border-rose-300/35 bg-rose-800/65' : 'border-rose-200 bg-rose-600') :
+                    group.tone === 'teal' ? (isDark ? 'border-teal-300/35 bg-teal-800/65' : 'border-teal-200 bg-teal-600') :
+                    (isDark ? 'border-fuchsia-300/35 bg-fuchsia-800/65' : 'border-fuchsia-200 bg-fuchsia-600');
 
-                <tr>
-                  <td className="sticky left-0 z-10 border-b border-r border-rose-300/30 bg-rose-600 px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white">Despesas</td>
-                  <td className={`border-b border-r border-rose-300/30 px-4 py-3 text-right font-black ${isDark ? 'bg-rose-500/10 text-rose-200' : 'bg-rose-50 text-rose-700'}`}>{renderMoneyCell(dre.despesaTotal, 'despesa')}</td>
-                  {dre.despesaMonthly.map((value, index) => (
-                    <td key={`despesa-total-${index}`} className={`border-b border-r border-rose-300/30 px-4 py-3 text-right font-bold last:border-r-0 ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : isDark ? 'bg-rose-500/10 text-rose-200' : 'bg-rose-50 text-rose-700'}`}>{renderMoneyCell(value, 'despesa')}</td>
-                  ))}
-                  <td className="w-3 border-b border-amber-300 bg-amber-100 px-0 py-0" />
-                </tr>
+                  const cellTone =
+                    group.tone === 'emerald' ? (isDark ? 'bg-emerald-500/12 text-emerald-100' : 'bg-emerald-50 text-emerald-800') :
+                    group.tone === 'amber' ? (isDark ? 'bg-amber-500/12 text-amber-100' : 'bg-amber-50 text-amber-800') :
+                    group.tone === 'orange' ? (isDark ? 'bg-orange-500/12 text-orange-100' : 'bg-orange-50 text-orange-800') :
+                    group.tone === 'rose' ? (isDark ? 'bg-rose-500/12 text-rose-100' : 'bg-rose-50 text-rose-800') :
+                    group.tone === 'teal' ? (isDark ? 'bg-teal-500/12 text-teal-100' : 'bg-teal-50 text-teal-800') :
+                    (isDark ? 'bg-fuchsia-500/12 text-fuchsia-100' : 'bg-fuchsia-50 text-fuchsia-800');
 
-                {loading ? null : dre.despesaRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={15} className={`px-5 py-12 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Sem despesas classificadas para este ano.</td>
-                  </tr>
-                ) : dre.despesaRows.map((row, rowIndex) => {
-                  const isSelected = selectedContaId === row.id;
                   return (
-                    <tr key={`despesa-row-${row.id}`} className={rowIndex % 2 === 0 ? (isDark ? 'bg-slate-950/20' : 'bg-white') : (isDark ? 'bg-slate-900/30' : 'bg-slate-50/60')}>
-                      <td
-                        onClick={() => {
-                          setSelectedContaId((prev) => prev === row.id ? null : row.id);
-                          setSelectedMonth(null);
-                        }}
-                        className={`sticky left-0 z-10 cursor-pointer border-b border-r px-5 py-3 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.75)] transition ${isSelected ? 'ring-1 ring-inset ring-sky-400/60' : ''} ${row.hasChildren ? isDark ? 'border-slate-700 bg-rose-900 font-black text-white' : 'border-slate-200 bg-rose-100 font-black text-slate-900' : isDark ? rowIndex % 2 === 0 ? 'border-slate-800 bg-slate-950 font-semibold text-slate-300' : 'border-slate-800 bg-slate-900 font-semibold text-slate-300' : rowIndex % 2 === 0 ? 'border-slate-200 bg-white font-semibold text-slate-700' : 'border-slate-200 bg-slate-50 font-semibold text-slate-700'}`}
-                      >
-                        <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 18}px` }}>
-                          <span className="min-w-0 truncate">{row.codigo ? `${row.codigo} ${row.nome}` : row.nome}</span>
-                          {row.isOperationalInherited ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Operacional herdado</span> : null}
-                        </div>
-                      </td>
-                      <td
-                        onClick={() => {
-                          setSelectedContaId(row.id);
-                          setSelectedMonth(null);
-                        }}
-                        className={`cursor-pointer border-b border-r px-4 py-3 text-right ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? isDark ? 'bg-rose-900/45 font-black text-white' : 'bg-rose-100/70 font-black text-slate-900' : isDark ? 'font-medium text-slate-300' : 'font-medium text-slate-600'}`}
-                      >
-                        {renderMoneyCell(row.total, 'despesa')}
-                      </td>
-                      {row.monthly.map((value, index) => (
-                        <td
-                          key={`despesa-value-${row.id}-${index}`}
-                          onClick={() => {
-                            setSelectedContaId(row.id);
-                            setSelectedMonth(index);
-                          }}
-                          className={`cursor-pointer border-b border-r px-4 py-3 text-right transition last:border-r-0 ${selectedContaId === row.id && selectedMonth === index ? isDark ? 'bg-sky-500/15 text-sky-200' : 'bg-sky-50 text-sky-700' : ''} ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : ''} ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? isDark ? 'bg-rose-900/45 font-bold text-slate-100' : 'bg-rose-100/70 font-bold text-slate-900' : isDark ? 'font-medium text-slate-400' : 'font-medium text-slate-500'}`}
-                        >
-                          {renderMoneyCell(value, 'despesa')}
-                        </td>
-                      ))}
-                      <td className="w-3 border-b border-amber-300 bg-amber-100 px-0 py-0" />
-                    </tr>
+                    <Fragment key={`group-${group.key}`}>
+                      <tr key={`group-header-${group.key}`}>
+                        <td className={`sticky left-0 z-10 border-b border-r px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white ${rowTone}`}>{group.label}</td>
+                        <td className={`border-b border-r px-4 py-3 text-right font-black ${cellTone}`}>{renderMoneyCell(groupTotal, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}</td>
+                        {groupMonthly.map((value, index) => (
+                          <td key={`${group.key}-total-${index}`} className={`border-b border-r px-4 py-3 text-right font-bold last:border-r-0 ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : cellTone}`}>{renderMoneyCell(value, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}</td>
+                        ))}
+                        <td className="w-3 border-b border-amber-300 bg-amber-100 px-0 py-0" />
+                      </tr>
+
+                      {groupRows.length === 0 ? (
+                        <tr key={`group-empty-${group.key}`}>
+                          <td colSpan={15} className={`px-5 py-6 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Sem lançamentos para {group.label.toLowerCase()} neste ano.</td>
+                        </tr>
+                      ) : groupRows.map((row, rowIndex) => {
+                        const isSelected = selectedContaId === row.id;
+                        const parentRowClass =
+                          group.tone === 'emerald' ? (isDark ? 'bg-emerald-900/35 text-white' : 'bg-emerald-100/60 text-slate-900') :
+                          group.tone === 'amber' ? (isDark ? 'bg-amber-900/35 text-white' : 'bg-amber-100/60 text-slate-900') :
+                          group.tone === 'orange' ? (isDark ? 'bg-orange-900/35 text-white' : 'bg-orange-100/60 text-slate-900') :
+                          group.tone === 'rose' ? (isDark ? 'bg-rose-900/35 text-white' : 'bg-rose-100/60 text-slate-900') :
+                          group.tone === 'teal' ? (isDark ? 'bg-teal-900/35 text-white' : 'bg-teal-100/60 text-slate-900') :
+                          (isDark ? 'bg-fuchsia-900/35 text-white' : 'bg-fuchsia-100/60 text-slate-900');
+
+                        return (
+                          <tr key={`${group.key}-row-${row.id}`} className={rowIndex % 2 === 0 ? (isDark ? 'bg-slate-950/20' : 'bg-white') : (isDark ? 'bg-slate-900/30' : 'bg-slate-50/60')}>
+                            <td
+                              onClick={() => {
+                                setSelectedContaId((prev) => prev === row.id ? null : row.id);
+                                setSelectedMonth(null);
+                              }}
+                              className={`sticky left-0 z-10 cursor-pointer border-b border-r px-5 py-3 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.75)] transition ${isSelected ? 'ring-1 ring-inset ring-sky-400/60' : ''} ${row.hasChildren ? `border-slate-700 font-black ${parentRowClass}` : isDark ? rowIndex % 2 === 0 ? 'border-slate-800 bg-slate-950 font-semibold text-slate-300' : 'border-slate-800 bg-slate-900 font-semibold text-slate-300' : rowIndex % 2 === 0 ? 'border-slate-200 bg-white font-semibold text-slate-700' : 'border-slate-200 bg-slate-50 font-semibold text-slate-700'}`}
+                            >
+                              <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 18}px` }}>
+                                <span className="min-w-0 truncate">{row.codigo ? `${row.codigo} ${row.nome}` : row.nome}</span>
+                                {row.isOperationalInherited ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Operacional herdado</span> : null}
+                              </div>
+                            </td>
+                            <td
+                              onClick={() => {
+                                setSelectedContaId(row.id);
+                                setSelectedMonth(null);
+                              }}
+                              className={`cursor-pointer border-b border-r px-4 py-3 text-right ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? `font-black ${parentRowClass}` : isDark ? 'font-medium text-slate-200' : 'font-medium text-slate-700'}`}
+                            >
+                              {renderMoneyCell(row.total, row.tipoCategoria === 'RECEITA' ? 'receita' : 'despesa')}
+                            </td>
+                            {row.monthly.map((value, index) => (
+                              <td
+                                key={`${group.key}-value-${row.id}-${index}`}
+                                onClick={() => {
+                                  setSelectedContaId(row.id);
+                                  setSelectedMonth(index);
+                                }}
+                                className={`cursor-pointer border-b border-r px-4 py-3 text-right transition last:border-r-0 ${selectedContaId === row.id && selectedMonth === index ? isDark ? 'bg-sky-500/15 text-sky-100' : 'bg-sky-50 text-sky-800' : ''} ${selectedMonth === index ? 'bg-amber-100 text-amber-950' : ''} ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? `font-bold ${parentRowClass}` : isDark ? 'font-medium text-slate-200' : 'font-medium text-slate-700'}`}
+                              >
+                                {renderMoneyCell(value, row.tipoCategoria === 'RECEITA' ? 'receita' : 'despesa')}
+                              </td>
+                            ))}
+                            <td className="w-3 border-b border-amber-300 bg-amber-100 px-0 py-0" />
+                          </tr>
+                        );
+                      })}
+                    </Fragment>
                   );
                 })}
 

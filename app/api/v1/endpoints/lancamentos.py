@@ -143,6 +143,29 @@ def _load_import_system_rows(session: Session, empresa_id: int) -> dict[str, lis
     }
 
 
+def _ensure_import_prerequisites(sistema: dict[str, list[dict[str, Any]]]) -> None:
+    sem_contas = len(sistema.get("contas") or []) == 0
+    sem_entidades = len(sistema.get("entidades") or []) == 0
+
+    if sem_contas and sem_entidades:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Antes de importar, cadastre pelo menos 1 banco em Contas Bancarias e pelo menos 1 interessado em Interessados.",
+        )
+
+    if sem_contas:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Antes de importar, cadastre pelo menos 1 banco em Contas Bancarias.",
+        )
+
+    if sem_entidades:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Antes de importar, cadastre pelo menos 1 interessado em Interessados.",
+        )
+
+
 def _build_import_name_map(rows: list[dict[str, Any]], selectable_only: bool = False) -> dict[str, int]:
     return {
         str(row["nome"]).upper().strip(): int(row["id"])
@@ -533,6 +556,7 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
     col_entidade = _find_column_in_headers(headers, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
 
     sistema = _load_import_system_rows(session, empresa_id)
+    _ensure_import_prerequisites(sistema)
     nomes_contas = _build_import_name_map(sistema["contas"])
     nomes_cats = _build_import_name_map(sistema["categorias"], selectable_only=True)
     nomes_centros = _build_import_name_map(sistema["centros"])
@@ -676,6 +700,7 @@ def _execute_import_contents(
     col_tipo = _find_column_in_headers(headers, ["TIPO"])
 
     sistema = _load_import_system_rows(db, empresa_id)
+    _ensure_import_prerequisites(sistema)
     cache_tipos = {int(item["id"]): item.get("tipo") for item in sistema["categorias"] if item.get("id") is not None}
     nomes_cats_sist = _build_import_name_map(sistema["categorias"], selectable_only=True)
     nomes_contas_sist = _build_import_name_map(sistema["contas"])

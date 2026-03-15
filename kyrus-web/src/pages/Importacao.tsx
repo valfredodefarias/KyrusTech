@@ -113,6 +113,16 @@ interface Feedback {
   details?: string[];
 }
 
+function needsContaCadastro(message?: string) {
+        const text = String(message || '').toLowerCase();
+        return text.includes('contas bancarias') || text.includes('banco');
+}
+
+function needsEntidadeCadastro(message?: string) {
+        const text = String(message || '').toLowerCase();
+        return text.includes('interessado') || text.includes('entidade');
+}
+
 interface PlanoSectionState {
         tipo: 'R' | 'D';
         titulo: string;
@@ -1973,7 +1983,25 @@ export function Importacao() {
         {feedback && (
             <div className={`p-4 rounded-xl border flex items-start gap-3 mb-6 animate-in slide-in-from-top-2 ${feedback.type === 'success' ? 'bg-emerald-900/20 border-emerald-800 text-emerald-300' : 'bg-red-900/20 border-red-800 text-red-300'}`}>
                 {feedback.type === 'success' ? <CheckCircle className="w-5 h-5 shrink-0"/> : <AlertTriangle className="w-5 h-5 shrink-0"/>}
-                <div className="flex-1"><strong className="block text-sm">{feedback.message}</strong>{feedback.details && <ul className="mt-2 list-disc list-inside text-xs opacity-80 max-h-32 overflow-y-auto custom-scrollbar">{feedback.details.map((d,i)=><li key={i}>{d}</li>)}</ul>}</div><button onClick={()=>setFeedback(null)}><X className="w-4 h-4 hover:text-white"/></button>
+                <div className="flex-1">
+                    <strong className="block text-sm">{feedback.message}</strong>
+                    {feedback.details && <ul className="mt-2 list-disc list-inside text-xs opacity-80 max-h-32 overflow-y-auto custom-scrollbar">{feedback.details.map((d,i)=><li key={i}>{d}</li>)}</ul>}
+                    {(needsContaCadastro(feedback.message) || needsEntidadeCadastro(feedback.message)) && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            {needsContaCadastro(feedback.message) && (
+                                <Link to="/contas" className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white/80 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                    Ir para Bancos
+                                </Link>
+                            )}
+                            {needsEntidadeCadastro(feedback.message) && (
+                                <Link to="/entidades" className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white/80 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                    Ir para Interessados
+                                </Link>
+                            )}
+                        </div>
+                    )}
+                </div>
+                <button onClick={()=>setFeedback(null)}><X className="w-4 h-4 hover:text-white"/></button>
             </div>
         )}
         {importJob && (importJob.status === 'PENDING' || importJob.status === 'RUNNING') && (

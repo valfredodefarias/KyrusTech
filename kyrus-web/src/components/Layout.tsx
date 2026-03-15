@@ -38,22 +38,6 @@ function resolveAssistenteDefaults(pathname: string) {
     };
   }
 
-  if (pathname.startsWith('/dashboard')) {
-    return {
-      tela: 'dashboard' as const,
-      titulo: 'Assistente KyrusTECH',
-      sugestoes: [
-        'Analise este dashboard como meu consultor financeiro e empresarial.',
-        'Explique o que esta puxando meu resultado e o que exige atencao imediata.',
-        'Quais melhorias praticas devo priorizar agora?',
-      ],
-      contexto: {
-        pagina: 'dashboard',
-        modo_consultoria: 'financeira_empresarial',
-      },
-    };
-  }
-
   if (pathname.startsWith('/lancamentos')) {
     return {
       tela: 'lancamentos' as const,
@@ -184,7 +168,7 @@ function LayoutShell() {
           </div>
           <div className="w-8" />
         </header>
-        {/* 'Outlet' é onde a página (Home, Dashboard) vai aparecer */}
+        {/* 'Outlet' é onde a página atual vai aparecer */}
         <main className={isLancamentosRoute ? 'flex-1 overflow-y-auto p-0' : 'flex-1 overflow-y-auto p-4 md:p-8'}>
           <Outlet />
         </main>

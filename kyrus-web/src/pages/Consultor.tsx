@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { BankAvatar } from '../components/BrandAvatar';
 import { api, toPublicAssetUrl } from '../services/api';
 import { useBankPresetStore, type BankPreset } from '../store/bankPresetStore';
 import { PlanoContasManager } from './Importacao';
 import type { ItemSistema } from './Importacao';
-import { 
+import {
   Building2, Search, UserPlus, ArrowRightLeft, Briefcase, Upload, X, Loader2, Pencil, Users, Shield, Plus, Trash2, ChevronDown, ChevronUp, Landmark,
-  ClipboardList, CheckCircle2, Circle, KeyRound, Sparkles, BarChart3, Layers
+  KeyRound, CheckCircle2, Layers
 } from 'lucide-react';
 
 // --- TIPAGENS ---
@@ -51,39 +50,6 @@ interface UsuarioItem {
   consultor_role: string;
   empresa_id?: number | null;
   empresa_nome?: string | null;
-}
-
-interface TodoItem {
-  id: number;
-  titulo: string;
-  descricao?: string | null;
-  status: 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDO' | string;
-  prioridade: 'BAIXA' | 'MEDIA' | 'ALTA' | string;
-  due_date?: string | null;
-  periodicidade?: 'UNICA' | 'DIARIA' | 'SEMANAL' | string;
-  dias_semana?: string | null;
-  inclui_sabado?: boolean;
-  tipo_alvo: 'EMPRESA' | 'CONSULTOR' | string;
-  empresa_id?: number | null;
-  consultor_id?: number | null;
-  last_started_at?: string | null;
-  finished_at?: string | null;
-  total_seconds?: number;
-}
-
-interface TodoForm {
-  titulo: string;
-  descricao: string;
-  status: 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDO';
-  prioridade: 'BAIXA' | 'MEDIA' | 'ALTA';
-  due_date: string;
-  end_date: string;
-  periodicidade: 'UNICA' | 'DIARIA' | 'SEMANAL';
-  dias_semana: string[];
-  inclui_sabado: boolean;
-  tipo_alvo: 'EMPRESA' | 'CONSULTOR';
-  empresa_id: number;
-  consultor_id: number;
 }
 
 // Interface unificada para Criar ou Editar
@@ -292,7 +258,6 @@ const SearchableCategorySelect = ({
 };
 
 export function Consultor() {
-  const navigate = useNavigate();
   const setBankPresetStore = useBankPresetStore((state) => state.setPresets);
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [consultores, setConsultores] = useState<Consultor[]>([]);
@@ -311,38 +276,11 @@ export function Consultor() {
   const [consultorEmpresas, setConsultorEmpresas] = useState<ConsultorEmpresa[]>([]);
   const [loadingConsultorEmpresas, setLoadingConsultorEmpresas] = useState(false);
   const [expandedConsultorId, setExpandedConsultorId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<'empresas' | 'consultores' | 'planos-padrao' | 'bancos' | 'usuarios' | 'tarefas'>('empresas');
+  const [activeTab, setActiveTab] = useState<'empresas' | 'consultores' | 'planos-padrao' | 'bancos' | 'usuarios'>('empresas');
 
   // Usuários
   const [usuarios, setUsuarios] = useState<UsuarioItem[]>([]);
   const [loadingUsuarios, setLoadingUsuarios] = useState(false);
-
-  // Tarefas
-  const [todos, setTodos] = useState<TodoItem[]>([]);
-  const [loadingTodos, setLoadingTodos] = useState(false);
-  const [todoFiltro, setTodoFiltro] = useState<'TODOS' | 'HOJE' | 'ATRASADAS' | 'SEMANA' | 'PERIODO'>('TODOS');
-  const [todoFiltroInicio, setTodoFiltroInicio] = useState('');
-  const [todoFiltroFim, setTodoFiltroFim] = useState('');
-  const [todoForm, setTodoForm] = useState<TodoForm>({
-    titulo: '',
-    descricao: '',
-    status: 'PENDENTE',
-    prioridade: 'MEDIA',
-    due_date: '',
-    end_date: '',
-    periodicidade: 'UNICA',
-    dias_semana: [],
-    inclui_sabado: false,
-    tipo_alvo: 'EMPRESA',
-    empresa_id: 0,
-    consultor_id: 0
-  });
-
-  const [todoView, setTodoView] = useState<'CONSULTOR' | 'EMPRESA'>('CONSULTOR');
-  const [todoEmpresaId, setTodoEmpresaId] = useState<number | null>(null);
-  const [todoConsultorId, setTodoConsultorId] = useState<number | null>(null);
-
-  const [showTodoForm, setShowTodoForm] = useState(false);
 
   const [currentUser, setCurrentUser] = useState<{ id: number; email: string; consultor_role: string; empresa_id?: number | null } | null>(null);
 
@@ -391,10 +329,6 @@ export function Consultor() {
   }, []);
 
   useEffect(() => {
-    if (currentUser?.id && !todoConsultorId) setTodoConsultorId(currentUser.id);
-  }, [currentUser, todoConsultorId]);
-
-  useEffect(() => {
     const canManageSeedTemplates = currentUser?.email?.trim().toLowerCase() === 'cirocaue12@gmail.com';
     if (!isSuperConsultor || !canManageSeedTemplates || activeTab !== 'planos-padrao') return;
     carregarTemplatePlanoContas(templateTipoPessoa);
@@ -431,7 +365,6 @@ export function Consultor() {
         carregarConsultores();
         carregarUsuarios();
       }
-      carregarTodos();
     } catch (error) {
       console.error("Erro ao verificar role do usuário", error);
     }
@@ -677,18 +610,6 @@ export function Consultor() {
     }
   }
 
-  async function carregarTodos() {
-    try {
-      setLoadingTodos(true);
-      const res = await api.get('/consultor/todos');
-      setTodos(res.data);
-    } catch (error) {
-      console.error("Erro ao listar tarefas", error);
-    } finally {
-      setLoadingTodos(false);
-    }
-  }
-
   async function desativarEmpresa(empresaId: number) {
     try {
       await api.post(`/consultor/super/empresas/${empresaId}/desativar`);
@@ -756,186 +677,6 @@ export function Consultor() {
       console.error("Erro ao deletar usuário", error);
     }
   }
-
-  async function criarTodo(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      const toIsoDateTime = (value: string) => {
-        if (!value) return null;
-        return value.includes('T') ? value : `${value}T00:00:00`;
-      };
-      const payload: any = {
-        titulo: todoForm.titulo,
-        descricao: todoForm.descricao || null,
-        status: 'PENDENTE',
-        prioridade: todoForm.prioridade,
-        due_date: toIsoDateTime(todoForm.due_date),
-        end_date: todoForm.periodicidade === 'UNICA' ? null : toIsoDateTime(todoForm.end_date),
-        periodicidade: todoForm.periodicidade,
-        dias_semana: todoForm.dias_semana.length ? todoForm.dias_semana.join(',') : null,
-        inclui_sabado: todoForm.inclui_sabado,
-        tipo_alvo: todoForm.tipo_alvo,
-        empresa_id: todoForm.tipo_alvo === 'EMPRESA' ? (todoForm.empresa_id || null) : null,
-        consultor_id: todoForm.tipo_alvo === 'CONSULTOR' ? (todoForm.consultor_id || (currentUser?.id ?? null)) : null
-      };
-      await api.post('/consultor/todos', payload);
-      setTodoForm({
-        titulo: '',
-        descricao: '',
-        status: 'PENDENTE',
-        prioridade: 'MEDIA',
-        due_date: '',
-        end_date: '',
-        periodicidade: 'UNICA',
-        dias_semana: [],
-        inclui_sabado: false,
-        tipo_alvo: 'EMPRESA',
-        empresa_id: 0,
-        consultor_id: 0
-      });
-      carregarTodos();
-    } catch (error) {
-      console.error("Erro ao criar tarefa", error);
-    }
-  }
-
-  async function atualizarStatusTodo(todoId: number, status: TodoItem['status']) {
-    try {
-      setTodos(prev => prev.map(t => t.id === todoId ? { ...t, status } : t));
-      await api.patch(`/consultor/todos/${todoId}`, { status });
-    } catch (error) {
-      console.error("Erro ao atualizar status", error);
-      carregarTodos();
-    }
-  }
-
-  async function deletarTodo(todoId: number) {
-    try {
-      await api.delete(`/consultor/todos/${todoId}`);
-      carregarTodos();
-    } catch (error) {
-      console.error("Erro ao deletar tarefa", error);
-    }
-  }
-
-  function formatDuration(totalSeconds?: number) {
-    const secs = Math.max(0, totalSeconds || 0);
-    const h = Math.floor(secs / 3600);
-    const m = Math.floor((secs % 3600) / 60);
-    const s = secs % 60;
-    return `${h}h ${m}m ${s}s`;
-  }
-
-  function parseDateOnly(value?: string | null) {
-    if (!value) return null;
-    const datePart = value.slice(0, 10);
-    const [y, m, d] = datePart.split('-').map(Number);
-    if (!y || !m || !d) return null;
-    return new Date(y, m - 1, d);
-  }
-
-  function isOverdue(todo: TodoItem) {
-    const due = parseDateOnly(todo.due_date);
-    if (!due) return false;
-    const today = new Date();
-    due.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
-    return todo.status !== 'CONCLUIDO' && due < today;
-  }
-
-  function isCompletedLate(todo: TodoItem) {
-    const due = parseDateOnly(todo.due_date);
-    const finished = parseDateOnly(todo.finished_at);
-    if (!due || !finished) return false;
-    due.setHours(0, 0, 0, 0);
-    finished.setHours(0, 0, 0, 0);
-    return todo.status === 'CONCLUIDO' && finished > due;
-  }
-
-  function isSameDay(a: Date, b: Date) {
-    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  }
-
-  const todosBase = useMemo(() => {
-    if (todoView === 'CONSULTOR') {
-      return todos.filter(t => t.tipo_alvo === 'CONSULTOR' && (!todoConsultorId || Number(t.consultor_id) === Number(todoConsultorId)));
-    }
-    return todos.filter(t => t.tipo_alvo === 'EMPRESA' && (!todoEmpresaId || Number(t.empresa_id) === Number(todoEmpresaId)));
-  }, [todos, todoView, todoConsultorId, todoEmpresaId]);
-
-  const empresasComAtividade = useMemo(() => {
-    const ids = new Set<number>();
-    todos.filter(t => t.tipo_alvo === 'EMPRESA' && t.empresa_id).forEach(t => ids.add(Number(t.empresa_id)));
-    return empresas.filter(e => ids.has(e.id));
-  }, [todos, empresas]);
-
-  const todosFiltrados = useMemo(() => {
-    if (todoFiltro === 'TODOS') return todosBase;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const weekEnd = new Date(today);
-    weekEnd.setDate(weekEnd.getDate() + 7);
-    return todosBase.filter(todo => {
-      const due = parseDateOnly(todo.due_date);
-      if (todoFiltro === 'ATRASADAS') return isOverdue(todo);
-      if (todoFiltro === 'HOJE') return due ? isSameDay(due, today) : false;
-      if (todoFiltro === 'SEMANA') return due ? (due >= today && due <= weekEnd) : false;
-      if (todoFiltro === 'PERIODO') {
-        if (!todoFiltroInicio || !todoFiltroFim) return true;
-        const start = parseDateOnly(todoFiltroInicio);
-        const end = parseDateOnly(todoFiltroFim);
-        if (!start || !end || !due) return false;
-        start.setHours(0, 0, 0, 0);
-        end.setHours(0, 0, 0, 0);
-        return due >= start && due <= end;
-      }
-      return true;
-    });
-  }, [todosBase, todoFiltro, todoFiltroInicio, todoFiltroFim]);
-
-  const todoResumo = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const weekEnd = new Date(today);
-    weekEnd.setDate(weekEnd.getDate() + 7);
-
-    const summary = {
-      amanha: 0,
-      semana: 0,
-      futuras: 0,
-      atrasadas: 0,
-      concluidas_atraso: 0
-    };
-
-    const list = todosBase;
-    list.forEach(t => {
-      const due = parseDateOnly(t.due_date);
-      if (t.status !== 'CONCLUIDO' && t.status !== 'CANCELADO') {
-        if (due && isSameDay(due, tomorrow)) summary.amanha += 1;
-        if (due && due >= today && due <= weekEnd) summary.semana += 1;
-        if (due && due > weekEnd) summary.futuras += 1;
-        if (isOverdue(t)) summary.atrasadas += 1;
-      }
-      if (isCompletedLate(t)) summary.concluidas_atraso += 1;
-    });
-
-    return summary;
-  }, [todosBase]);
-
-  const produtividade = useMemo(() => {
-    const total = todosBase.length;
-    const concluidas = todosBase.filter(t => t.status === 'CONCLUIDO');
-    const concluidasCount = concluidas.length;
-    const noPrazo = concluidas.filter(t => !t.due_date).length;
-    const pontuais = concluidas.filter(t => !isCompletedLate(t)).length;
-    const totalSeconds = concluidas.reduce((acc, t) => acc + (t.total_seconds || 0), 0);
-    const avgSeconds = concluidasCount ? Math.round(totalSeconds / concluidasCount) : 0;
-    const conclusaoPct = total ? Math.round((concluidasCount / total) * 100) : 0;
-    const pontualidadePct = concluidasCount ? Math.round((pontuais / concluidasCount) * 100) : 0;
-    return { total, concluidasCount, conclusaoPct, pontualidadePct, avgSeconds, noPrazo };
-  }, [todosBase]);
 
   // --- ABRIR MODAL (CRIAR OU EDITAR) ---
   function handleOpenEdit(emp: Empresa) {
@@ -1160,16 +901,6 @@ export function Consultor() {
 
   if (loading) return <div className="p-8 text-center text-slate-500 animate-pulse">Carregando...</div>;
 
-  const canCreateTodo = (() => {
-    if (!todoForm.titulo.trim()) return false;
-    if (!todoForm.due_date) return false;
-    if (todoForm.periodicidade !== 'UNICA' && !todoForm.end_date) return false;
-    if (todoForm.periodicidade === 'SEMANAL' && todoForm.dias_semana.length === 0) return false;
-    if (todoForm.tipo_alvo === 'EMPRESA' && !todoForm.empresa_id) return false;
-    if (todoForm.tipo_alvo === 'CONSULTOR' && !(todoForm.consultor_id || currentUser?.id)) return false;
-    return true;
-  })();
-
   const empresasAtivas = empresas.filter((empresa) => empresa.is_active !== false).length;
   const usuariosAtivos = usuarios.filter((usuario) => usuario.is_active).length;
   const modeLabel = isSuperConsultor ? 'Super consultoria com visão global' : 'Consultoria com escopo autorizado';
@@ -1180,11 +911,10 @@ export function Consultor() {
     { key: 'planos-padrao' as const, label: 'Planos Padrão', icon: Layers, visible: isSuperConsultor && !!canManageSeedTemplates },
     { key: 'bancos' as const, label: 'Bancos Globais', icon: Landmark, visible: isSuperConsultor },
     { key: 'usuarios' as const, label: 'Usuários', icon: Shield, visible: isSuperConsultor },
-    { key: 'tarefas' as const, label: 'To-do', icon: ClipboardList, visible: true },
   ].filter((item) => item.visible);
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 animate-fade-in pb-12">
+    <div className="w-full space-y-6 animate-fade-in pb-12">
       <section className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(59,130,246,0.18),transparent_26%),linear-gradient(135deg,#ffffff_0%,#f8fafc_46%,#eff6ff_100%)] p-5 shadow-sm dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_34%),radial-gradient(circle_at_top_right,rgba(59,130,246,0.12),transparent_26%),linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(15,23,42,0.95)_46%,rgba(30,41,59,0.92)_100%)] sm:p-6">
         <div className="absolute -right-8 top-0 h-40 w-40 rounded-full bg-sky-400/10 blur-3xl" />
         <div className="absolute -left-6 bottom-0 h-36 w-36 rounded-full bg-blue-500/10 blur-3xl" />
@@ -1197,7 +927,7 @@ export function Consultor() {
               </div>
               <div>
                 <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Área do Consultor</h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">Controle empresas, consultores, usuários e tarefas a partir de uma visão única. O topo resume carga operacional, cobertura do time e foco imediato.</p>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">Controle empresas, consultores e usuários a partir de uma visão única. O topo resume cobertura do time e foco operacional imediato.</p>
               </div>
             </div>
 
@@ -1230,34 +960,11 @@ export function Consultor() {
               <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">{isSuperConsultor ? 'Rede completa de consultoria carregada.' : 'Visão restrita ao seu escopo atual.'}</p>
             </div>
             <div className="rounded-2xl border border-white/70 bg-white/75 p-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Pulso de tarefas</p>
-              <p className="mt-2 text-3xl font-black text-slate-900 dark:text-white">{todoResumo.atrasadas}</p>
-              <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Atrasadas agora. Conclusão: {produtividade.conclusaoPct}% • Usuários ativos: {usuariosAtivos}</p>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Usuários ativos</p>
+              <p className="mt-2 text-3xl font-black text-slate-900 dark:text-white">{usuariosAtivos}</p>
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Total de usuários ativos na operação atual.</p>
             </div>
           </div>
-
-          {isSuperConsultor && (
-            <div className="rounded-3xl border border-emerald-200 bg-white/80 p-4 backdrop-blur dark:border-emerald-900 dark:bg-slate-900/40">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="space-y-2">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-emerald-700 dark:border-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-300">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Governança do dashboard
-                  </div>
-                  <h2 className="text-xl font-black text-slate-900 dark:text-white">Padrão global do dashboard</h2>
-                  <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">Abra o Dashboard em modo de padrão global para editar a vista base real de todas as empresas. Nesse modo, o sistema não cria uma vista da empresa: ele altera o padrão compartilhado.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => navigate('/dashboard?globalDefault=1')}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 shadow-lg shadow-emerald-600/20"
-                >
-                  <BarChart3 size={18} />
-                  Editar padrão global
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </section>
 
@@ -1877,408 +1584,6 @@ export function Consultor() {
               })}
             </div>
           )}
-        </div>
-      )}
-
-      {/* ABA TAREFAS */}
-      {activeTab === 'tarefas' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
-              <p className="text-[11px] text-slate-500">Amanhã</p>
-              <p className="text-xl font-bold text-slate-800 dark:text-white">{todoResumo.amanha}</p>
-            </div>
-            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
-              <p className="text-[11px] text-slate-500">Na semana</p>
-              <p className="text-xl font-bold text-slate-800 dark:text-white">{todoResumo.semana}</p>
-            </div>
-            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
-              <p className="text-[11px] text-slate-500">Futuras</p>
-              <p className="text-xl font-bold text-slate-800 dark:text-white">{todoResumo.futuras}</p>
-            </div>
-            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
-              <p className="text-[11px] text-slate-500">Atrasadas</p>
-              <p className="text-xl font-bold text-red-600">{todoResumo.atrasadas}</p>
-            </div>
-            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center">
-              <p className="text-[11px] text-slate-500">Concl. em atraso</p>
-              <p className="text-xl font-bold text-amber-600">{todoResumo.concluidas_atraso}</p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setTodoView('CONSULTOR')}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${todoView === 'CONSULTOR' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-              >
-                Consultor
-              </button>
-              <button
-                onClick={() => setTodoView('EMPRESA')}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${todoView === 'EMPRESA' ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-              >
-                Empresas
-              </button>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {todoView === 'CONSULTOR' && (
-                <select
-                  value={todoConsultorId || ''}
-                  onChange={(e) => setTodoConsultorId(Number(e.target.value))}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-100"
-                >
-                  <option value={currentUser?.id || ''}>Meu usuário</option>
-                  {isSuperConsultor && consultores.map(c => (
-                    <option key={c.id} value={c.id}>{c.nome}</option>
-                  ))}
-                </select>
-              )}
-              {todoView === 'EMPRESA' && (
-                <select
-                  value={todoEmpresaId || ''}
-                  onChange={(e) => setTodoEmpresaId(e.target.value ? Number(e.target.value) : null)}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-100"
-                >
-                  <option value="">Todas empresas com atividade</option>
-                  {empresasComAtividade.map(emp => (
-                    <option key={emp.id} value={emp.id}>{emp.nome_fantasia}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-            <button
-              onClick={() => setShowTodoForm(prev => !prev)}
-              className="px-4 py-2 rounded-lg font-bold text-sm bg-blue-600 text-white hover:bg-blue-700 transition flex items-center gap-2"
-            >
-              <Plus size={16} /> {showTodoForm ? 'Ocultar formulário' : 'Nova Tarefa'}
-            </button>
-          </div>
-
-          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-800 dark:text-white">Produtividade</h3>
-              <span className="text-xs text-slate-400">{todoView === 'CONSULTOR' ? 'Consultor' : 'Empresas'}</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
-                <p className="text-[11px] text-slate-500">Conclusão</p>
-                <p className="text-xl font-bold text-indigo-600">{produtividade.conclusaoPct}%</p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
-                <p className="text-[11px] text-slate-500">Pontualidade</p>
-                <p className="text-xl font-bold text-emerald-600">{produtividade.pontualidadePct}%</p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
-                <p className="text-[11px] text-slate-500">Tempo médio</p>
-                <p className="text-xl font-bold text-slate-700 dark:text-white">{formatDuration(produtividade.avgSeconds)}</p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
-                <p className="text-[11px] text-slate-500">Sem prazo</p>
-                <p className="text-xl font-bold text-amber-600">{produtividade.noPrazo}</p>
-              </div>
-            </div>
-          </div>
-
-          {showTodoForm && (
-            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
-              <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                <ClipboardList size={18} /> Nova Tarefa
-              </h3>
-              <form onSubmit={criarTodo} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Título</label>
-                  <input
-                    required
-                    type="text"
-                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent dark:text-white"
-                    value={todoForm.titulo}
-                    onChange={e => setTodoForm({ ...todoForm, titulo: e.target.value })}
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Descrição</label>
-                  <textarea
-                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent dark:text-white"
-                    value={todoForm.descricao}
-                    onChange={e => setTodoForm({ ...todoForm, descricao: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Tipo de Alvo</label>
-                  <select
-                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                    value={todoForm.tipo_alvo}
-                    onChange={e => setTodoForm({ ...todoForm, tipo_alvo: e.target.value as TodoForm['tipo_alvo'] })}
-                  >
-                    <option value="EMPRESA">Empresa</option>
-                    <option value="CONSULTOR">Consultor</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Prioridade</label>
-                  <select
-                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                    value={todoForm.prioridade}
-                    onChange={e => setTodoForm({ ...todoForm, prioridade: e.target.value as TodoForm['prioridade'] })}
-                  >
-                    <option value="BAIXA">Baixa</option>
-                    <option value="MEDIA">Média</option>
-                    <option value="ALTA">Alta</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Periodicidade</label>
-                  <select
-                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                    value={todoForm.periodicidade}
-                    onChange={e => setTodoForm({ ...todoForm, periodicidade: e.target.value as TodoForm['periodicidade'] })}
-                  >
-                    <option value="UNICA">Única</option>
-                    <option value="DIARIA">Todo dia</option>
-                    <option value="SEMANAL">Semanal</option>
-                  </select>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={todoForm.inclui_sabado}
-                    onChange={e => setTodoForm({ ...todoForm, inclui_sabado: e.target.checked })}
-                    className="w-4 h-4 rounded border-slate-300 text-blue-600"
-                  />
-                  <label className="text-sm text-slate-600 dark:text-slate-300">Inclui sábado?</label>
-                </div>
-                {todoForm.periodicidade === 'SEMANAL' && (
-                  <div className="md:col-span-2">
-                    <label className="text-xs font-bold uppercase text-slate-500 mb-2 block">Dias da semana</label>
-                    <div className="flex flex-wrap gap-2">
-                      {['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB', 'DOM'].map(dia => (
-                        <label key={dia} className={`px-3 py-1 rounded-full text-xs font-bold border cursor-pointer ${todoForm.dias_semana.includes(dia) ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
-                          <input
-                            type="checkbox"
-                            className="hidden"
-                            checked={todoForm.dias_semana.includes(dia)}
-                            onChange={e => {
-                              const next = e.target.checked
-                                ? [...todoForm.dias_semana, dia]
-                                : todoForm.dias_semana.filter(d => d !== dia);
-                              setTodoForm({ ...todoForm, dias_semana: next });
-                            }}
-                          />
-                          {dia}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {todoForm.tipo_alvo === 'EMPRESA' && (
-                  <div className="md:col-span-2">
-                    <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Empresa</label>
-                    <select
-                      className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                      value={todoForm.empresa_id}
-                      onChange={e => setTodoForm({ ...todoForm, empresa_id: Number(e.target.value) })}
-                    >
-                      <option value={0}>-- Selecione --</option>
-                      {empresas.map(emp => (
-                        <option key={emp.id} value={emp.id}>{emp.nome_fantasia}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                {todoForm.tipo_alvo === 'CONSULTOR' && (
-                  <div className="md:col-span-2">
-                    <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Consultor</label>
-                    <select
-                      className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                      value={todoForm.consultor_id || currentUser?.id || 0}
-                      onChange={e => setTodoForm({ ...todoForm, consultor_id: Number(e.target.value) })}
-                      disabled={!isSuperConsultor}
-                    >
-                      <option value={currentUser?.id || 0}>{currentUser?.email || 'Eu'}</option>
-                      {isSuperConsultor && consultores.map(c => (
-                        <option key={c.id} value={c.id}>{c.nome}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Prazo</label>
-                  <input
-                    type="date"
-                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent dark:text-white"
-                    value={todoForm.due_date}
-                    onChange={e => setTodoForm({ ...todoForm, due_date: e.target.value })}
-                  />
-                </div>
-                {todoForm.periodicidade !== 'UNICA' && (
-                  <div>
-                    <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Data Fim</label>
-                    <input
-                      type="date"
-                      className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent dark:text-white"
-                      value={todoForm.end_date}
-                      onChange={e => setTodoForm({ ...todoForm, end_date: e.target.value })}
-                    />
-                  </div>
-                )}
-                <div className="md:col-span-2">
-                  <button
-                    type="submit"
-                    disabled={!canCreateTodo}
-                    className={`w-full py-3 font-bold rounded-xl transition ${canCreateTodo ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-400 text-white cursor-not-allowed'}`}
-                  >
-                    Criar Tarefa
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
-            <h3 className="font-bold text-slate-800 dark:text-white mb-4">Lista de Tarefas</h3>
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              {([
-                { key: 'TODOS', label: 'Todas' },
-                { key: 'HOJE', label: 'Hoje' },
-                { key: 'ATRASADAS', label: 'Atrasadas' },
-                { key: 'SEMANA', label: 'Próx. 7 dias' },
-                { key: 'PERIODO', label: 'Período' }
-              ] as const).map(f => (
-                <button
-                  key={f.key}
-                  onClick={() => setTodoFiltro(f.key)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${todoFiltro === f.key ? 'bg-blue-600 text-white border-blue-500' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                >
-                  {f.label}
-                </button>
-              ))}
-              {todoFiltro === 'PERIODO' && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="date"
-                    value={todoFiltroInicio}
-                    onChange={(e) => setTodoFiltroInicio(e.target.value)}
-                    className="px-3 py-1.5 rounded-lg text-xs border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white"
-                  />
-                  <span className="text-xs text-slate-400">→</span>
-                  <input
-                    type="date"
-                    value={todoFiltroFim}
-                    onChange={(e) => setTodoFiltroFim(e.target.value)}
-                    className="px-3 py-1.5 rounded-lg text-xs border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white"
-                  />
-                </div>
-              )}
-            </div>
-            {loadingTodos ? (
-              <div className="text-center text-slate-500">Carregando tarefas...</div>
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-                {([
-                  { key: 'PENDENTE', label: 'A iniciar' },
-                  { key: 'EM_ANDAMENTO', label: 'Em andamento' },
-                  { key: 'CONCLUIDO', label: 'Concluídas' },
-                  { key: 'CANCELADO', label: 'Canceladas' }
-                ] as const).map(col => (
-                  <div
-                    key={col.key}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      const id = Number(e.dataTransfer.getData('text/plain'));
-                      if (id) atualizarStatusTodo(id, col.key as TodoItem['status']);
-                    }}
-                    className="bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-700 p-3 min-h-50"
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-xs font-bold uppercase text-slate-500">{col.label}</h4>
-                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                        {todosFiltrados.filter(t => t.status === col.key).length}
-                      </span>
-                    </div>
-
-                    <div className="space-y-3">
-                      {todosFiltrados.filter(t => t.status === col.key).length === 0 ? (
-                        <div className="text-xs text-slate-400">Nenhuma tarefa</div>
-                      ) : (
-                        todosFiltrados.filter(t => t.status === col.key).map(todo => {
-                          const empresaNome = empresas.find(e => e.id === todo.empresa_id)?.nome_fantasia;
-                          const consultorNome = consultores.find(c => c.id === todo.consultor_id)?.nome || (todo.consultor_id === currentUser?.id ? 'Eu' : undefined);
-                          const atrasada = isOverdue(todo);
-                          const concluidaAtraso = isCompletedLate(todo);
-                          const isLocked = todo.status === 'CONCLUIDO' || todo.status === 'CANCELADO';
-                          return (
-                            <div
-                              key={todo.id}
-                              draggable={!isLocked}
-                              onDragStart={(e) => {
-                                if (isLocked) {
-                                  e.preventDefault();
-                                  return;
-                                }
-                                e.dataTransfer.setData('text/plain', String(todo.id));
-                              }}
-                              className={`bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-sm flex flex-col gap-3 ${isLocked ? 'cursor-not-allowed opacity-80' : 'cursor-move'}`}
-                            >
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  {todo.status === 'CONCLUIDO' ? <CheckCircle2 size={18} className="text-emerald-500" /> : <Circle size={18} className="text-slate-400" />}
-                                  <p className="font-bold text-slate-800 dark:text-white">{todo.titulo}</p>
-                                  {atrasada && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">ATRASADA</span>}
-                                  {concluidaAtraso && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">CONCLUÍDA EM ATRASO</span>}
-                                </div>
-                                {todo.descricao && <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{todo.descricao}</p>}
-                                <p className="text-[11px] text-slate-400 mt-1">
-                                  {todo.tipo_alvo === 'EMPRESA'
-                                    ? `Empresa: ${empresaNome || `ID ${todo.empresa_id}`}`
-                                    : `Consultor: ${consultorNome || `ID ${todo.consultor_id}`}`}
-                                  {todo.due_date ? ` • Prazo: ${todo.due_date.slice(0, 10)}` : ''}
-                                </p>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {todo.status === 'PENDENTE' && (
-                                  <button
-                                    onClick={() => atualizarStatusTodo(todo.id, 'EM_ANDAMENTO')}
-                                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-blue-300 text-blue-600 hover:bg-blue-50 transition"
-                                  >
-                                    Iniciar
-                                  </button>
-                                )}
-                                {todo.status === 'EM_ANDAMENTO' && (
-                                  <button
-                                    onClick={() => atualizarStatusTodo(todo.id, 'CONCLUIDO')}
-                                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-emerald-300 text-emerald-600 hover:bg-emerald-50 transition"
-                                  >
-                                    Concluir
-                                  </button>
-                                )}
-                                {todo.status === 'EM_ANDAMENTO' && (
-                                  <button
-                                    onClick={() => atualizarStatusTodo(todo.id, 'CANCELADO')}
-                                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-amber-300 text-amber-600 hover:bg-amber-50 transition"
-                                  >
-                                    Cancelar
-                                  </button>
-                                )}
-                                {(todo.status === 'PENDENTE' || todo.status === 'CONCLUIDO' || todo.status === 'CANCELADO') && (
-                                  <button
-                                    onClick={() => deletarTodo(todo.id)}
-                                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-red-300 text-red-600 hover:bg-red-50 transition flex items-center gap-1"
-                                  >
-                                    <Trash2 size={12} /> Excluir
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
       )}
 

@@ -133,6 +133,23 @@ BANDEIRAS_CARTAO = {
     "AMEX": "Amex",
 }
 
+TOKENS_RUIDO_INTERESSADO = {
+    "PEDIDO",
+    "CLIENTE",
+    "BANCO",
+    "OFX",
+    "AGENCIA",
+    "CONTA",
+    "AUT",
+    "NSU",
+    "COD",
+    "CODIGO",
+    "TRANSACAO",
+    "TRANSACAO",
+    "DOCUMENTO",
+    "LANCAMENTO",
+}
+
 
 class RelacionamentoResumo(BaseModel):
     descricao: str
@@ -304,6 +321,30 @@ def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
     if len(_normalizar_texto(interessado)) < 3:
         return ""
     return interessado
+
+
+def _interessado_tem_confianca(nome: Optional[str]) -> bool:
+    texto = str(nome or "").strip()
+    if not texto:
+        return False
+
+    normalizado = _normalizar_texto(texto)
+    if len(normalizado) < 3:
+        return False
+
+    tokens = _tokenizar_texto(texto)
+    if not tokens:
+        return False
+
+    alpha_tokens = [token for token in tokens if re.search(r"[A-Z]", token)]
+    if len(alpha_tokens) < 2:
+        return False
+
+    ruido = sum(1 for token in alpha_tokens if token in TOKENS_RUIDO_INTERESSADO or token in TOKENS_GENERICOS_INTERESSADO)
+    if ruido >= max(2, len(alpha_tokens) // 2):
+        return False
+
+    return True
 
 
 def _texto_contem_todos(texto_normalizado: str, termos: tuple[str, ...]) -> bool:
@@ -629,7 +670,8 @@ def _aplicar_sugestao_historica(
 
     if not lancamento_ofx.get("plano_contas_id") and melhor.plano_contas_id:
         lancamento_ofx["plano_contas_id"] = melhor.plano_contas_id
-    if not lancamento_ofx.get("entidade_id") and melhor.entidade_id:
+    interessado_base = str(lancamento_ofx.get("razao_social") or lancamento_ofx.get("interessado_sugerido") or "").strip()
+    if not lancamento_ofx.get("entidade_id") and melhor.entidade_id and _interessado_tem_confianca(interessado_base):
         lancamento_ofx["entidade_id"] = melhor.entidade_id
     if not lancamento_ofx.get("motivo_classificacao"):
         if "boleto" in descricao_ofx:
@@ -724,14 +766,15 @@ def _aplicar_sugestoes_deterministicas(
         if interessado:
             interessado_cartao = _extrair_interessado_cartao(interessado) or _extrair_interessado_cartao(str(item.get("descricao") or ""))
             interessado_limpo = interessado_cartao or _normalizar_nome_entidade(interessado) or interessado
-            item["interessado_sugerido"] = interessado_limpo
-            item["razao_social"] = interessado_limpo
+            if _interessado_tem_confianca(interessado_limpo):
+                item["interessado_sugerido"] = interessado_limpo
 
         melhor_historico = _buscar_melhor_historico_deterministico(item, historico_empresa, entidades_por_id)
         if melhor_historico:
             if not item.get("plano_contas_id") and melhor_historico.plano_contas_id:
                 item["plano_contas_id"] = int(melhor_historico.plano_contas_id)
-            if not item.get("entidade_id") and melhor_historico.entidade_id:
+            interessado_base = str(item.get("razao_social") or item.get("interessado_sugerido") or "").strip()
+            if not item.get("entidade_id") and melhor_historico.entidade_id and _interessado_tem_confianca(interessado_base):
                 item["entidade_id"] = int(melhor_historico.entidade_id)
             if not item.get("motivo_classificacao"):
                 item["motivo_classificacao"] = f"Sugestao deterministica por descricao/interessado parecidos com '{melhor_historico.descricao}'."
@@ -801,6 +844,18 @@ def _buscar_melhores_relacionamentos(
         score, motivo = _score_candidate(lancamento_ofx, previsto, "previsto")
         melhor_previsto = (previsto, score, motivo)
 
+    if not melhor_previsto and centro_custo_id:
+        previsto_sem_cc = buscar_lancamento_previsto_mesmo_dia_valor(
+            db,
+            lancamento_ofx,
+            empresa_id,
+            centro_custo_id=None,
+            tolerancia_percentual=MATCH_TOLERANCIA_PERCENTUAL,
+        )
+        if previsto_sem_cc:
+            score, motivo = _score_candidate(lancamento_ofx, previsto_sem_cc, "previsto")
+            melhor_previsto = (previsto_sem_cc, score, f"{motivo}, correspondencia encontrada fora do centro de custo selecionado")
+
     atrasados = buscar_lancamento_atrasado_mesmo_valor(
         db,
         lancamento_ofx,
@@ -813,6 +868,25 @@ def _buscar_melhores_relacionamentos(
         (candidato, *_score_candidate(lancamento_ofx, candidato, "atrasado"))
         for candidato in atrasados
     ]
+
+    if not ranked_atrasados and centro_custo_id:
+        atrasados_sem_cc = buscar_lancamento_atrasado_mesmo_valor(
+            db,
+            lancamento_ofx,
+            empresa_id,
+            centro_custo_id=None,
+            dias_tolerancia=MATCH_DIAS_ATRASO,
+            tolerancia_percentual=MATCH_TOLERANCIA_PERCENTUAL,
+        )
+        ranked_atrasados = [
+            (candidato, *_score_candidate(lancamento_ofx, candidato, "atrasado"))
+            for candidato in atrasados_sem_cc
+        ]
+        ranked_atrasados = [
+            (lancamento, score, f"{motivo}, correspondencia encontrada fora do centro de custo selecionado")
+            for lancamento, score, motivo in ranked_atrasados
+        ]
+
     ranked_atrasados.sort(key=lambda item: item[1], reverse=True)
     return melhor_previsto, ranked_atrasados[:3]
 
@@ -881,14 +955,34 @@ async def upload_ofx(
         previstos = 0
         atrasados = 0
         hashes_vistos: set[str] = set()
+        entidade_cache: Dict[str, Optional[int]] = {}
+
+        def _resolve_entidade_id_local(lanc_raw_item: Dict[str, Any]) -> Optional[int]:
+            nome_base = str(lanc_raw_item.get("razao_social") or lanc_raw_item.get("interessado_sugerido") or "").strip()
+            cpf = str(lanc_raw_item.get("cpf_cnpj") or "").strip()
+            if not _interessado_tem_confianca(nome_base) and not re.sub(r"[^0-9]", "", cpf):
+                return None
+
+            cache_key = f"{_normalizar_texto(nome_base)}|{re.sub(r'[^0-9]', '', cpf)}"
+            if cache_key in entidade_cache:
+                return entidade_cache[cache_key]
+
+            entidade_id_local = criar_entidade_se_nao_existir(
+                db,
+                nome_base,
+                cpf,
+                empresa_id,
+            )
+            entidade_cache[cache_key] = entidade_id_local
+            return entidade_id_local
 
         for lanc_raw in lancamentos_raw:
             lanc_raw["conta_id"] = conta_db_id
             lanc_raw["cartao_id"] = int(cartao.id) if cartao and cartao.id is not None else None
             lanc_raw["centro_custo_id"] = centro_custo_id_resolvido
-            lanc_raw["interessado_sugerido"] = _extrair_interessado_sugerido(lanc_raw)
-            if lanc_raw.get("interessado_sugerido"):
-                lanc_raw["razao_social"] = lanc_raw["interessado_sugerido"]
+            interessado_extraido = _extrair_interessado_sugerido(lanc_raw)
+            if _interessado_tem_confianca(interessado_extraido):
+                lanc_raw["interessado_sugerido"] = interessado_extraido
             referencia_movimento = str(lanc_raw.get("referencia") or "").strip()
             contexto_uid = f"cartao:{int(cartao.id)}" if cartao and cartao.id is not None else f"conta:{conta_db_id}"
             lanc_raw["movimento_uid"] = referencia_movimento or f"fallback:{contexto_uid}:{lanc_raw['linha_arquivo']}"
@@ -968,19 +1062,14 @@ async def upload_ofx(
                 lanc_raw["sugestao_acao"] = "CRIAR_NOVO"
                 lanc_raw["motivo_conciliacao"] = "Nenhum previsto ou atraso compativel foi encontrado com o mesmo tipo e tolerancia de 5% no valor."
 
-            historico_relacionado = _aplicar_sugestao_historica(
+            _aplicar_sugestao_historica(
                 lanc_raw,
                 historico_empresa,
                 entidades_por_id,
                 conta_db_id,
             )
             _aplicar_sugestao_categoria_por_descricao(lanc_raw, categorias_empresa)
-            entidade_id = criar_entidade_se_nao_existir(
-                db,
-                lanc_raw.get("razao_social", "") or lanc_raw.get("interessado_sugerido", ""),
-                lanc_raw.get("cpf_cnpj", ""),
-                empresa_id,
-            )
+            entidade_id = _resolve_entidade_id_local(lanc_raw)
             lanc_raw["entidade_id"] = lanc_raw.get("entidade_id") or entidade_id
 
             lancamentos_processados.append(lanc_raw)
@@ -990,12 +1079,7 @@ async def upload_ofx(
         lancamentos_serializados = []
         for lancamento in lancamentos_processados:
             if not lancamento.get("entidade_id") and (lancamento.get("razao_social") or lancamento.get("interessado_sugerido")):
-                entidade_id = criar_entidade_se_nao_existir(
-                    db,
-                    lancamento.get("razao_social", "") or lancamento.get("interessado_sugerido", ""),
-                    lancamento.get("cpf_cnpj", ""),
-                    empresa_id,
-                )
+                entidade_id = _resolve_entidade_id_local(lancamento)
                 lancamento["entidade_id"] = entidade_id
             lancamentos_serializados.append(LancamentoImportado(**_serializar_lancamento(lancamento)))
 

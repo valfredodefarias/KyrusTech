@@ -8,6 +8,7 @@ import {
     FileSpreadsheet, Save, Loader2, Download,
     Plus, Check, X, Wallet, Users, Layers, Tag, 
     TrendingUp, TrendingDown, Edit2, Trash2, ChevronDown, ChevronRight,
+    ArrowUp, ArrowDown,
     Wand2, GripVertical 
 } from 'lucide-react';
 
@@ -448,7 +449,7 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
 
 // --- ÁRVORE DRAGGABLE ---
 
-const DraggableTreeItem = ({ item, depth = 0, inheritedOperational = false, canManageOperational = false, onDragStart, onDrop, onEdit, onDelete, onCreateChild, onMove, onToggle, expandedIds }: any) => {
+const DraggableTreeItem = ({ item, depth = 0, inheritedOperational = false, canManageOperational = false, onDragStart, onDrop, onEdit, onDelete, onCreateChild, onMove, onMoveUp, onMoveDown, canMoveUp, canMoveDown, onToggle, expandedIds }: any) => {
     const isExpanded = expandedIds.has(item.id);
     const hasChildren = item.children && item.children.length > 0;
     const ownOperational = item.eh_operacional !== false;
@@ -517,6 +518,22 @@ const DraggableTreeItem = ({ item, depth = 0, inheritedOperational = false, canM
 
                 {/* Actions */}
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onMoveUp(item); }}
+                        title="Subir categoria"
+                        disabled={!canMoveUp(item)}
+                        className="p-1.5 text-slate-400 hover:text-cyan-500 dark:hover:text-cyan-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        <ArrowUp size={12}/>
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onMoveDown(item); }}
+                        title="Descer categoria"
+                        disabled={!canMoveDown(item)}
+                        className="p-1.5 text-slate-400 hover:text-cyan-500 dark:hover:text-cyan-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        <ArrowDown size={12}/>
+                    </button>
                     <button onClick={(e) => { e.stopPropagation(); onCreateChild(item); }} title="Adicionar categoria filha" className="p-1.5 text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><Plus size={12}/></button>
                     <button onClick={(e) => { e.stopPropagation(); onMove(item); }} title="Mover categoria" className="p-1.5 text-slate-400 hover:text-amber-500 dark:hover:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><ArrowRight size={12}/></button>
                     <button onClick={(e) => { e.stopPropagation(); onEdit(item); }} className="p-1.5 text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><Edit2 size={12}/></button>
@@ -541,6 +558,10 @@ const DraggableTreeItem = ({ item, depth = 0, inheritedOperational = false, canM
                             onDelete={onDelete}
                             onCreateChild={onCreateChild}
                             onMove={onMove}
+                            onMoveUp={onMoveUp}
+                            onMoveDown={onMoveDown}
+                            canMoveUp={canMoveUp}
+                            canMoveDown={canMoveDown}
                             onToggle={onToggle}
                             expandedIds={expandedIds}
                         />
@@ -961,6 +982,75 @@ export const PlanoContasManager = ({
       setDraggedItem(null);
   };
 
+  const canMoveItem = (item: ItemSistema, direction: 'UP' | 'DOWN') => {
+      const siblings = localList.filter((categoria) =>
+          (categoria.conta_pai_id ?? null) === (item.conta_pai_id ?? null) &&
+          normalizeTipo(categoria.tipo) === normalizeTipo(item.tipo)
+      );
+      const index = siblings.findIndex((categoria) => categoria.id === item.id);
+      if (index === -1) return false;
+      return direction === 'UP' ? index > 0 : index < siblings.length - 1;
+  };
+
+  const handleMoveSibling = (item: ItemSistema, direction: 'UP' | 'DOWN') => {
+      const siblings = localList.filter((categoria) =>
+          (categoria.conta_pai_id ?? null) === (item.conta_pai_id ?? null) &&
+          normalizeTipo(categoria.tipo) === normalizeTipo(item.tipo)
+      );
+
+      const currentIndex = siblings.findIndex((categoria) => categoria.id === item.id);
+      if (currentIndex === -1) return;
+
+      const targetIndex = direction === 'UP' ? currentIndex - 1 : currentIndex + 1;
+      if (targetIndex < 0 || targetIndex >= siblings.length) return;
+
+      const targetSibling = siblings[targetIndex];
+      const childrenByParent = new Map<number, ItemSistema[]>();
+
+      localList.forEach((categoria) => {
+          if (!categoria.conta_pai_id) return;
+          const parentId = Number(categoria.conta_pai_id);
+          childrenByParent.set(parentId, [...(childrenByParent.get(parentId) || []), categoria]);
+      });
+
+      const collectSubtreeIds = (rootId: number, bag: Set<number>) => {
+          bag.add(rootId);
+          (childrenByParent.get(rootId) || []).forEach((child) => collectSubtreeIds(child.id, bag));
+      };
+
+      const movingIds = new Set<number>();
+      collectSubtreeIds(item.id, movingIds);
+
+      const targetIds = new Set<number>();
+      collectSubtreeIds(targetSibling.id, targetIds);
+
+      const movingBlock = localList.filter((categoria) => movingIds.has(categoria.id));
+      const targetBlock = localList.filter((categoria) => targetIds.has(categoria.id));
+
+      const startMoving = localList.findIndex((categoria) => movingIds.has(categoria.id));
+      const startTarget = localList.findIndex((categoria) => targetIds.has(categoria.id));
+
+      if (startMoving === -1 || startTarget === -1) return;
+
+      const isExcluded = (categoria: ItemSistema) => movingIds.has(categoria.id) || targetIds.has(categoria.id);
+      const baseWithoutBlocks = localList.filter((categoria) => !isExcluded(categoria));
+      const insertionAnchor = direction === 'UP' ? startTarget : startMoving;
+      const insertionIndex = localList.slice(0, insertionAnchor).filter((categoria) => !isExcluded(categoria)).length;
+      const sequence = direction === 'UP' ? [...movingBlock, ...targetBlock] : [...targetBlock, ...movingBlock];
+
+      const reordered = [
+          ...baseWithoutBlocks.slice(0, insertionIndex),
+          ...sequence,
+          ...baseWithoutBlocks.slice(insertionIndex),
+      ];
+
+      const reindexedList = syncOperationalHierarchyLocal(recalcCodes(reordered));
+      markDirty(reindexedList);
+      if (item.conta_pai_id) {
+          setExpandedIds((prev) => new Set(prev).add(Number(item.conta_pai_id)));
+      }
+  };
+
   // --- SAVE ---
   const handleSaveOrder = async () => {
     setSaving(true);
@@ -1213,6 +1303,10 @@ export const PlanoContasManager = ({
                                       onEdit={(i:any)=>{ setModalMode('EDIT'); setCreateTipoLocked(false); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, eh_operacional: i.eh_operacional !== false, considerar_nos_resultados: i.considerar_nos_resultados !== false, dre_grupo: normalizeDreGrupo(i.dre_grupo, i.tipo), conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
                                       onCreateChild={(i:any)=>{ setExpandedIds((prev) => new Set(prev).add(i.id)); openCreateModal(normalizeTipo(i.tipo), i.id, true); }}
                                       onMove={(i:any)=>{ setModalMode('MOVE'); setCreateTipoLocked(false); setFormData({id:i.id, nome:i.nome, codigo:i.codigo||'', tipo:i.tipo, eh_operacional: i.eh_operacional !== false, considerar_nos_resultados: i.considerar_nos_resultados !== false, dre_grupo: normalizeDreGrupo(i.dre_grupo, i.tipo), conta_pai_id: i.conta_pai_id || ''}); setModalOpen(true); }}
+                                      onMoveUp={(i:any)=>handleMoveSibling(i, 'UP')}
+                                      onMoveDown={(i:any)=>handleMoveSibling(i, 'DOWN')}
+                                      canMoveUp={(i:any)=>canMoveItem(i, 'UP')}
+                                      canMoveDown={(i:any)=>canMoveItem(i, 'DOWN')}
                                       onDelete={handleDelete}
                                       onToggle={handleToggle}
                                       expandedIds={expandedIds}

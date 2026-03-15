@@ -11,9 +11,7 @@ const Login = lazy(() => import('./pages/Login').then((module) => ({ default: mo
 const Home = lazy(() => import('./pages/Home').then((module) => ({ default: module.Home })));
 const Boletim = lazy(() => import('./pages/Boletim').then((module) => ({ default: module.Boletim })));
 const Dre = lazy(() => import('./pages/Dre').then((module) => ({ default: module.Dre })));
-const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
 const Consultor = lazy(() => import('./pages/Consultor').then((module) => ({ default: module.Consultor })));
-const Tarefas = lazy(() => import('./pages/Tarefas').then((module) => ({ default: module.Tarefas })));
 const CentroCusto = lazy(() => import('./pages/CentroCusto').then((module) => ({ default: module.CentroCusto })));
 const Contas = lazy(() => import('./pages/Contas').then((module) => ({ default: module.Contas })));
 const Importacao = lazy(() => import('./pages/Importacao').then((module) => ({ default: module.Importacao })));
@@ -93,7 +91,6 @@ function App() {
             <Route path="/boletim" element={<Boletim />} />
             <Route path="/dre" element={<Dre />} />
             <Route path="/consultor" element={<Consultor />} />
-            <Route path="/tarefas" element={<Tarefas />} />
             <Route path="/lancamentos" element={<Lancamentos />} />
             <Route path="/entidades" element={<Entidades />} />
             <Route path="/contas" element={<Contas />} />
@@ -103,7 +100,6 @@ function App() {
             <Route path="/importacao" element={<Importacao />} />
             <Route path="/importacao_interessados" element={<ImportacaoEntidades />} />
             <Route path="/importacao_ofx" element={<ImportacaoOfx />} />
-            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/auditoria" element={<Auditoria />} />
             <Route path="/integracoes" element={<Navigate to="/integracoes/asaas" replace />} />
             <Route path="/integracoes/asaas" element={<IntegracaoAsaas />} />

@@ -15,9 +15,7 @@ from app.api.v1.endpoints import (
     anexos,
     importacao_ofx,
     auditoria,
-    todos,
     ai_assistente,
-    dashboard_views,
     dre,
     bank_presets,
 )
@@ -38,7 +36,6 @@ api_router.include_router(cartoes.router, prefix="/cartoes", tags=["Cartões de 
 api_router.include_router(lancamentos.router, prefix="/lancamentos", tags=["Lançamentos"])
 api_router.include_router(centro_custo.router, prefix="/centro-custo", tags=["Centros de Custo"])
 api_router.include_router(auditoria.router, prefix="/auditoria", tags=["Auditoria"])
-api_router.include_router(todos.router, prefix="/todos", tags=["Tarefas"])
 
 # --- Módulos Administrativos ---
 api_router.include_router(consultor.router, prefix="/consultor", tags=["Consultor Interno"])
@@ -54,5 +51,4 @@ api_router.include_router(importacao_ofx.router, prefix="/importacao", tags=["Im
 
 # --- IA ---
 api_router.include_router(ai_assistente.router, prefix="/ai", tags=["Assistente IA"])
-api_router.include_router(dashboard_views.router, prefix="/dashboard-views", tags=["Dashboard Views"])
 api_router.include_router(dre.router, prefix="/dre", tags=["DRE"])

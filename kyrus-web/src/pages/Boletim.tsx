@@ -984,16 +984,30 @@ export function Boletim() {
     },
   }), [dashboard.donutSeries, isDark]);
 
-  const resultadoChartOptions = useMemo<any>(() => ({
+  const monthlyTrendChartOptions = useMemo<any>(() => ({
     chart: {
       toolbar: { show: false },
+      zoom: { enabled: false },
+      selection: { enabled: false },
       background: 'transparent',
       foreColor: isDark ? '#cbd5e1' : '#475569',
       fontFamily: 'ui-sans-serif, system-ui, sans-serif',
     },
     stroke: { curve: 'smooth', width: 3 },
+    markers: { size: 4, strokeWidth: 0, hover: { size: 4 } },
     dataLabels: { enabled: false },
-    colors: ['#22c55e', '#0ea5e9'],
+    colors: ['#ff5a47', '#4d8cf3'],
+    legend: {
+      position: 'top',
+      horizontalAlign: 'left',
+      labels: { colors: isDark ? '#e2e8f0' : '#334155' },
+      onItemClick: { toggleDataSeries: false },
+      onItemHover: { highlightDataSeries: false },
+    },
+    states: {
+      hover: { filter: { type: 'none' } },
+      active: { filter: { type: 'none' } },
+    },
     grid: { borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.18)', strokeDashArray: 3 },
     xaxis: {
       categories: dashboard.monthLabels,
@@ -1005,7 +1019,45 @@ export function Boletim() {
         style: { colors: [isDark ? '#cbd5e1' : '#334155'] },
       },
     },
-    tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (value: number) => BRL.format(value) } },
+    tooltip: { enabled: false },
+  }), [dashboard.monthLabels, isDark]);
+
+  const resultadoTrendChartOptions = useMemo<any>(() => ({
+    chart: {
+      toolbar: { show: false },
+      zoom: { enabled: false },
+      selection: { enabled: false },
+      background: 'transparent',
+      foreColor: isDark ? '#cbd5e1' : '#475569',
+      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+    },
+    stroke: { curve: 'smooth', width: 3 },
+    markers: { size: 4, strokeWidth: 0, hover: { size: 4 } },
+    dataLabels: { enabled: false },
+    colors: ['#22c55e', '#0ea5e9'],
+    legend: {
+      position: 'top',
+      horizontalAlign: 'left',
+      labels: { colors: isDark ? '#e2e8f0' : '#334155' },
+      onItemClick: { toggleDataSeries: false },
+      onItemHover: { highlightDataSeries: false },
+    },
+    states: {
+      hover: { filter: { type: 'none' } },
+      active: { filter: { type: 'none' } },
+    },
+    grid: { borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.18)', strokeDashArray: 3 },
+    xaxis: {
+      categories: dashboard.monthLabels,
+      labels: { style: { colors: Array.from({ length: dashboard.monthLabels.length }, () => isDark ? '#cbd5e1' : '#334155') } },
+    },
+    yaxis: {
+      labels: {
+        formatter: (value: number) => BRL.format(value),
+        style: { colors: [isDark ? '#cbd5e1' : '#334155'] },
+      },
+    },
+    tooltip: { enabled: false },
   }), [dashboard.monthLabels, isDark]);
 
   const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
@@ -1197,7 +1249,7 @@ export function Boletim() {
                   title="Contas a pagar"
                   accent="rose"
                   isDark={isDark}
-                  activeMetric={activeAuditMetricKey?.startsWith('pagar') || activeAuditMetricKey?.startsWith('resultado_operacional') ? activeAuditMetricKey : null}
+                  activeMetric={activeAuditMetricKey?.startsWith('pagar') ? activeAuditMetricKey : null}
                   onMetricClick={handleKpiAuditClick}
                   metrics={[
                     { key: 'pagar_hoje', label: 'Para hoje', value: dashboard.pagar.hoje },
@@ -1205,7 +1257,6 @@ export function Boletim() {
                     { key: 'pagar_atrasadas', label: 'Atrasadas', value: dashboard.pagar.atrasadas },
                     { key: 'pagar_em_aberto', label: 'Em aberto no mês', value: dashboard.pagar.emAberto },
                     { key: 'pagar_mes', label: 'Do mês', value: dashboard.pagarNoMes },
-                    { key: 'resultado_operacional', label: 'Resultado operacional', value: dashboard.resultadoOperacionalMes },
                   ]}
                 />
 
@@ -1213,7 +1264,7 @@ export function Boletim() {
                   title="Contas a receber"
                   accent="cyan"
                   isDark={isDark}
-                  activeMetric={activeAuditMetricKey?.startsWith('receber') || activeAuditMetricKey?.startsWith('resultado_final') ? activeAuditMetricKey : null}
+                  activeMetric={activeAuditMetricKey?.startsWith('receber') ? activeAuditMetricKey : null}
                   onMetricClick={handleKpiAuditClick}
                   metrics={[
                     { key: 'receber_hoje', label: 'Para hoje', value: dashboard.receber.hoje },
@@ -1221,17 +1272,41 @@ export function Boletim() {
                     { key: 'receber_atrasadas', label: 'Atrasadas', value: dashboard.receber.atrasadas },
                     { key: 'receber_em_aberto', label: 'Em aberto no mês', value: dashboard.receber.emAberto },
                     { key: 'receber_mes', label: 'Do mês', value: dashboard.receberNoMes },
-                    { key: 'resultado_final', label: 'Resultado final', value: dashboard.resultadoFinalMes },
                   ]}
                 />
               </div>
+
+              <section className={`rounded-[28px] border px-5 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
+                <div className={`mb-3 border-b pb-2 text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'border-white/10 text-white/75' : 'border-slate-200 text-slate-700'}`}>
+                  Resultado do mês
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {[
+                    { key: 'resultado_operacional', label: 'Resultado operacional', value: dashboard.resultadoOperacionalMes },
+                    { key: 'resultado_final', label: 'Resultado final', value: dashboard.resultadoFinalMes },
+                  ].map((metric) => {
+                    const isActive = activeAuditMetricKey === metric.key;
+                    return (
+                      <button
+                        key={metric.key}
+                        type="button"
+                        onClick={() => handleKpiAuditClick(metric.key)}
+                        className={`rounded-2xl border px-4 py-4 text-left transition hover:-translate-y-0.5 ${isActive ? isDark ? 'border-amber-300/55 bg-amber-300/12' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035]' : 'border-slate-200 bg-white/85'}`}
+                      >
+                        <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{metric.label}</div>
+                        <div className={`mt-2 whitespace-nowrap text-2xl font-black tracking-tight ${getValueTone(metric.value, isDark)}`}>{formatCurrency(metric.value)}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
 
               <section className="grid gap-4 xl:grid-cols-2">
                 <div className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
                   <div className="mb-4 flex items-center justify-between gap-4">
                     <div>
                       <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>Histórico mensal</div>
-                      <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Clique numa barra para combinar tipo e mês no restante do boletim.</div>
+                      <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Tendência mensal de pagamento e recebimento.</div>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-[#ff5a47]"><TrendingDown className="h-4 w-4" />Pagamento</span>
@@ -1239,13 +1314,13 @@ export function Boletim() {
                     </div>
                   </div>
                   <AsyncApexChart
-                    type="bar"
+                    type="line"
                     height={340}
                     series={[
                       { name: 'Pagamento', data: dashboard.monthlyPagar },
                       { name: 'Recebimento', data: dashboard.monthlyReceber },
                     ]}
-                    options={monthlyChartOptions}
+                    options={monthlyTrendChartOptions}
                   />
                 </div>
 
@@ -1263,7 +1338,7 @@ export function Boletim() {
                       { name: 'Resultado Final (DRE)', data: dashboard.monthlyResultado },
                       { name: 'Resultado Operacional (DRE)', data: dashboard.resultadoOperacionalMonthly },
                     ]}
-                    options={resultadoChartOptions}
+                    options={resultadoTrendChartOptions}
                   />
                 </div>
               </section>

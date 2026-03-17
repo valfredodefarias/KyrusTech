@@ -291,6 +291,9 @@ function SoftMetricGrid({
     ? isDark ? 'from-rose-500/18 via-rose-500/6 to-transparent border-rose-400/25' : 'from-rose-100 via-white to-white border-rose-200'
     : isDark ? 'from-sky-500/18 via-sky-500/6 to-transparent border-sky-400/25' : 'from-sky-100 via-white to-white border-sky-200';
   const titleClass = accent === 'rose' ? isDark ? 'text-rose-200' : 'text-rose-700' : isDark ? 'text-sky-200' : 'text-sky-700';
+  const valueClass = accent === 'rose'
+    ? isDark ? 'text-rose-300' : 'text-rose-600'
+    : isDark ? 'text-emerald-300' : 'text-emerald-600';
 
   return (
     <section className={`rounded-[28px] border bg-linear-to-br px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${toneClass}`}>
@@ -309,7 +312,7 @@ function SoftMetricGrid({
             className={`rounded-2xl border px-4 py-4 text-left transition hover:-translate-y-0.5 ${isActive ? isDark ? 'border-amber-300/55 bg-amber-300/12' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035]' : 'border-slate-200 bg-white/85'} ${onMetricClick ? 'cursor-pointer' : 'cursor-default'}`}
           >
             <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{metric.label}</div>
-            <div className={`mt-2 whitespace-nowrap text-2xl font-black tracking-tight ${getValueTone(metric.value, isDark)}`}>{formatCurrency(metric.value)}</div>
+            <div className={`mt-2 whitespace-nowrap text-2xl font-black tracking-tight ${valueClass}`}>{formatCurrency(metric.value)}</div>
           </button>
         );
         })}
@@ -565,6 +568,8 @@ export function Boletim() {
     const receber = buildExecutiveMetrics(receivableRows);
     const pagarNoMes = sumValues(payableRows.filter((item) => item.monthIndex === effectiveMonthIndex));
     const receberNoMes = sumValues(receivableRows.filter((item) => item.monthIndex === effectiveMonthIndex));
+    const pagarPagasNoMes = sumValues(payableRows.filter((item) => item.monthIndex === effectiveMonthIndex && item.statusKey === 'PAGO'));
+    const receberRecebidasNoMes = sumValues(receivableRows.filter((item) => item.monthIndex === effectiveMonthIndex && item.statusKey === 'PAGO'));
 
     const relevantes = categorias.filter((conta) => isReceita(conta.tipo) || isDespesa(conta.tipo));
     const contaPorId = new Map<number, PlanoContaResumo>();
@@ -716,7 +721,9 @@ export function Boletim() {
       pagar,
       receber,
       pagarNoMes,
+      pagarPagasNoMes,
       receberNoMes,
+      receberRecebidasNoMes,
       resultadoOperacionalMes,
       resultadoFinalMes,
       resultadoOperacionalMonthly,
@@ -786,9 +793,19 @@ export function Boletim() {
       openAuditRows('Contas a pagar no mês', `Competência em ${monthLabel}. Inclui pagos e em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.monthIndex === dashboard.effectiveMonthIndex));
       return;
     }
+    if (metricKey === 'pagar_pagas_mes') {
+      setActiveAuditMetricKey(metricKey);
+      openAuditRows('Contas pagas no mês', `Lançamentos de pagamento quitados na competência ${monthLabel}.`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.monthIndex === dashboard.effectiveMonthIndex && item.statusKey === 'PAGO'));
+      return;
+    }
     if (metricKey === 'receber_mes') {
       setActiveAuditMetricKey(metricKey);
       openAuditRows('Contas a receber no mês', `Competência em ${monthLabel}. Inclui pagos e em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.monthIndex === dashboard.effectiveMonthIndex));
+      return;
+    }
+    if (metricKey === 'receber_recebidas_mes') {
+      setActiveAuditMetricKey(metricKey);
+      openAuditRows('Contas recebidas no mês', `Lançamentos de recebimento quitados na competência ${monthLabel}.`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.monthIndex === dashboard.effectiveMonthIndex && item.statusKey === 'PAGO'));
       return;
     }
     if (metricKey === 'resultado_operacional') {
@@ -1257,6 +1274,7 @@ export function Boletim() {
                     { key: 'pagar_atrasadas', label: 'Atrasadas', value: dashboard.pagar.atrasadas },
                     { key: 'pagar_em_aberto', label: 'Em aberto no mês', value: dashboard.pagar.emAberto },
                     { key: 'pagar_mes', label: 'Do mês', value: dashboard.pagarNoMes },
+                    { key: 'pagar_pagas_mes', label: 'Contas pagas no mês', value: dashboard.pagarPagasNoMes },
                   ]}
                 />
 
@@ -1272,6 +1290,7 @@ export function Boletim() {
                     { key: 'receber_atrasadas', label: 'Atrasadas', value: dashboard.receber.atrasadas },
                     { key: 'receber_em_aberto', label: 'Em aberto no mês', value: dashboard.receber.emAberto },
                     { key: 'receber_mes', label: 'Do mês', value: dashboard.receberNoMes },
+                    { key: 'receber_recebidas_mes', label: 'Contas recebidas no mês', value: dashboard.receberRecebidasNoMes },
                   ]}
                 />
               </div>

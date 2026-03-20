@@ -17,7 +17,7 @@ from decimal import Decimal
 from difflib import SequenceMatcher
 from openpyxl import load_workbook
 
-from fastapi import APIRouter, Depends, Query, UploadFile, File, status, Form, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, Query, UploadFile, File, status, Form, HTTPException, BackgroundTasks, Response
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select, col
 from sqlalchemy.orm import selectinload
@@ -32,6 +32,7 @@ from app.models.plano_contas import PlanoContas
 from app.models.conta import Conta
 from app.models.centro_custo import CentroCusto
 from app.models.entidade import Entidade
+from app.models.anexo_lancamento import AnexoLancamento
 
 # Dependências de Usuário e Empresa
 from app.api.deps import get_current_user, get_empresa_id_from_user 
@@ -1454,6 +1455,47 @@ def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo:
         )
         anexos_criados.append(service.adicionar_anexo(lancamento_id, dados, empresa_id, user_id))
     return anexos_criados
+
+
+@router.delete("/{lancamento_id}/anexos/{anexo_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/{lancamento_id}/anexos/{anexo_id}/delete", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False)
+def delete_anexo_lancamento(
+    lancamento_id: int,
+    anexo_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    empresa_id, _ = require_empresa_user(current_user)
+
+    # Garante que o lançamento pertence à empresa autenticada.
+    lancamento = db.exec(
+        select(Lancamento).where(
+            Lancamento.id == lancamento_id,
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+        )
+    ).first()
+    if not lancamento:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lançamento não encontrado.")
+
+    anexo = db.exec(
+        select(AnexoLancamento).where(
+            AnexoLancamento.id == anexo_id,
+            AnexoLancamento.lancamento_id == lancamento_id,
+            AnexoLancamento.empresa_id == empresa_id,
+        )
+    ).first()
+    if not anexo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anexo não encontrado.")
+
+    url = str(anexo.url or "")
+    if url.startswith("/static/uploads/lancamentos/"):
+        arquivo_local = Path(url.lstrip("/"))
+        arquivo_local.unlink(missing_ok=True)
+
+    db.delete(anexo)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 # ==========================================
 # IMPORTAÇÃO INTELIGENTE (VERSÃO SÊNIOR)

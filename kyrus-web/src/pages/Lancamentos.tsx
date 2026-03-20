@@ -1751,6 +1751,50 @@ export function Lancamentos() {
     } finally { setSaving(false); }
   }
 
+  const handleRemoverAnexo = async (anexo: Anexo) => {
+    if (!anexo?.id) return;
+
+    const ok = window.confirm(`Remover o anexo "${anexo.nome_arquivo}"?`);
+    if (!ok) return;
+
+    const lancamentoId = Number(formData?.id || 0);
+    if (!lancamentoId) {
+      setFormData((prev: any) => ({
+        ...prev,
+        anexos: (prev?.anexos || []).filter((item: Anexo) => Number(item.id) !== Number(anexo.id)),
+      }));
+      pushToast('success', 'Anexo removido do formulário.');
+      return;
+    }
+
+    try {
+      try {
+        await api.delete(`/lancamentos/${lancamentoId}/anexos/${anexo.id}`);
+      } catch {
+        await api.post(`/lancamentos/${lancamentoId}/anexos/${anexo.id}/delete`);
+      }
+
+      setFormData((prev: any) => {
+        const next = {
+          ...prev,
+          anexos: (prev?.anexos || []).filter((item: Anexo) => Number(item.id) !== Number(anexo.id)),
+        };
+        setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(next));
+        return next;
+      });
+
+      setLancamentos((prev) => prev.map((item) => (
+        Number(item.id) === lancamentoId
+          ? { ...item, anexos: (item.anexos || []).filter((current) => Number(current.id) !== Number(anexo.id)) }
+          : item
+      )));
+
+      pushToast('success', 'Anexo removido com sucesso.');
+    } catch {
+      pushToast('error', 'Não foi possível remover o anexo.');
+    }
+  };
+
   // --- RENDER HELPERS ---
   const getFileIcon = (nome: string) => {
       const ext = nome.split('.').pop()?.toLowerCase();
@@ -2655,6 +2699,35 @@ export function Lancamentos() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative">
+
+              {/* INTERESSADO */}
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase">Interessado</label>
+                  <button onClick={openEntityDrawer} className="text-[10px] text-blue-400 font-bold hover:text-blue-300 flex items-center gap-1"><Plus className="w-3 h-3"/> Nova</button>
+                </div>
+                <SearchableSelect
+                  placeholder="Selecione..."
+                  options={entidadeOptions}
+                  value={formData.entidade_id}
+                  onChange={(id: any) => {
+                    const eid = String(id || '');
+                    const last = lancamentos.find(l => String(l.entidade_id) === eid);
+                    setFormData((prev: any) => {
+                      const hasCategoriaSelecionada = Boolean(prev.plano_contas_id);
+                      if (!last || hasCategoriaSelecionada) {
+                        return { ...prev, entidade_id: eid };
+                      }
+                      return {
+                        ...prev,
+                        entidade_id: eid,
+                        plano_contas_id: last.plano_contas_id,
+                        tipo: last.tipo,
+                      };
+                    });
+                  }}
+                />
+              </div>
               
               {/* DESCRIÇÃO E VALORES */}
               <InputDark label="Descrição" autoFocus value={formData.descricao} onChange={(e:any)=>setFormData({...formData, descricao:e.target.value})} placeholder="Ex: Conta de Luz" />
@@ -2791,40 +2864,13 @@ export function Lancamentos() {
                 )}
               </div>
 
-              {/* CATEGORIA E INTERESSADO */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* CATEGORIA */}
+              <div>
                 <SearchableSelect label="Categoria" placeholder="Selecione..." options={catOptions} value={formData.plano_contas_id} onChange={(id:any)=>{
                    const cat = categorias.find(c=>String(c.id)===String(id));
                    const tipoCat = String(cat?.tipo || '').trim().toUpperCase();
                    setFormData({...formData, plano_contas_id:id, tipo: tipoCat.startsWith('R') ? 'RECEITA' : 'DESPESA'});
                 }} />
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="text-xs font-bold text-slate-400 uppercase">Interessado</label>
-                    <button onClick={openEntityDrawer} className="text-[10px] text-blue-400 font-bold hover:text-blue-300 flex items-center gap-1"><Plus className="w-3 h-3"/> Nova</button>
-                  </div>
-                  <SearchableSelect
-                    placeholder="Selecione..."
-                    options={entidadeOptions}
-                    value={formData.entidade_id}
-                    onChange={(id: any) => {
-                      const eid = String(id || '');
-                      const last = lancamentos.find(l => String(l.entidade_id) === eid);
-                      setFormData((prev: any) => {
-                        const hasCategoriaSelecionada = Boolean(prev.plano_contas_id);
-                        if (!last || hasCategoriaSelecionada) {
-                          return { ...prev, entidade_id: eid };
-                        }
-                        return {
-                          ...prev,
-                          entidade_id: eid,
-                          plano_contas_id: last.plano_contas_id,
-                          tipo: last.tipo,
-                        };
-                      });
-                    }}
-                  />
-                </div>
               </div>
 
               {/* ORIGEM DO RECURSO (COM FILTRAGEM INTELIGENTE) */}
@@ -2889,6 +2935,9 @@ export function Lancamentos() {
                                 {getFileIcon(anexo.nome_arquivo)}
                         <a href={anexoUrl} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-slate-700 dark:text-slate-200 hover:text-blue-400 font-medium">{anexo.nome_arquivo}</a>
                         <a href={anexoUrl} download target="_blank" className="p-1 text-slate-500 hover:text-slate-700 dark:hover:text-white rounded hover:bg-slate-200 dark:hover:bg-slate-700"><Download className="w-3 h-3"/></a>
+                        <button type="button" onClick={() => void handleRemoverAnexo(anexo)} className="p-1 text-rose-500 hover:text-rose-700 dark:hover:text-rose-300 rounded hover:bg-rose-50 dark:hover:bg-rose-900/30" title="Remover anexo">
+                          <Trash2 className="w-3 h-3"/>
+                        </button>
                             </div>
                         );
                       })()

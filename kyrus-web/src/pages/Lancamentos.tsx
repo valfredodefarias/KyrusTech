@@ -41,66 +41,43 @@ interface ToastItem {
 
 // --- UTILS (CORREÇÃO DE DATA) ---
 const fixDate = (dateString: string) => {
-      const buildSerieFromDataset = (dataset: Lancamento[]) => {
-        const similares = (dataset || [])
-          .filter((item) => {
-            const parsedItem = parseDescricaoParcela(item.descricao);
-            if (!parsedItem) return false;
-            if (parsedItem.base !== parsedRef.base || parsedItem.total !== parsedRef.total) return false;
-            if (String(item.tipo || '') !== String(ref?.tipo || '')) return false;
-            if (Number(item.plano_contas_id || 0) !== Number(ref?.plano_contas_id || 0)) return false;
+  if (!dateString) return null;
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
 
-            const contaRef = Number(ref?.conta_id || 0);
-            const contaItem = Number(item.conta_id || 0);
-            const cartaoRef = Number(ref?.cartao_id || 0);
-            const cartaoItem = Number(item.cartao_id || 0);
+const formatDateExtenso = (dateString: string) => {
+  if (!dateString) return '-';
+  const date = fixDate(dateString);
+  if (!date) return '-';
+  return date.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'long' });
+};
 
-            if (contaRef && contaItem && contaRef !== contaItem) return false;
-            if (cartaoRef && cartaoItem && cartaoRef !== cartaoItem) return false;
-            return true;
-          })
-          .map((item) => {
-            const parsedItem = parseDescricaoParcela(item.descricao);
-            return {
-              ...item,
-              numero_parcela: item.numero_parcela || parsedItem?.numero,
-            };
-          });
+const formatDateShort = (dateString?: string) => {
+  if (!dateString) return '';
+  const date = fixDate(dateString);
+  return date ? date.toLocaleDateString('pt-BR') : '';
+};
 
-        return ref && !similares.some((item) => Number(item.id) === Number(ref.id))
-          ? [...similares, { ...ref, numero_parcela: ref.numero_parcela || parsedRef.numero }]
-          : similares;
-      };
+const getTodayLocalYmd = () => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
 
-      let withRef = buildSerieFromDataset(lancamentos || []);
+const getTomorrowLocalYmd = () => {
+  const now = new Date();
+  now.setDate(now.getDate() + 1);
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
 
-      if (withRef.length < parsedRef.total) {
-        setParcelasSerieLoading(true);
-        try {
-          const refYear = Number(String(ref?.data_vencimento || '').slice(0, 4)) || new Date().getFullYear();
-          const res = await api.get('/lancamentos/', {
-            params: {
-              limit: 10000,
-              data_inicio: `${refYear - 2}-01-01`,
-              data_fim: `${refYear + 2}-12-31`,
-            },
-          });
-          withRef = buildSerieFromDataset(Array.isArray(res.data) ? res.data : []);
-        } catch {
-          // Fallback silencioso: mantém os itens locais se a busca ampla falhar.
-        } finally {
-          setParcelasSerieLoading(false);
-        }
-      }
-
-      setParcelasSerie(withRef);
-      setParcelasVencimentosEdit(
-        withRef.reduce((acc: Record<number, string>, item: Lancamento) => {
-          acc[item.id] = item.data_vencimento;
-          return acc;
-        }, {}),
-      );
-      return;
+const getLocalYmdDaysAgo = (days: number) => {
+  const now = new Date();
   now.setHours(0, 0, 0, 0);
   now.setDate(now.getDate() - days);
   const y = now.getFullYear();
@@ -1708,11 +1685,6 @@ export function Lancamentos() {
       if(['xls','xlsx','csv'].includes(ext||'')) return <FileSpreadsheet className="w-4 h-4 text-emerald-400"/>;
       if(['ppt','pptx'].includes(ext||'')) return <Presentation className="w-4 h-4 text-orange-400"/>;
       return <FileText className="w-4 h-4 text-blue-400"/>;
-  };
-
-  const handleSelecionarParcelaSerie = (item: Lancamento) => {
-    if (Number(item.id) === Number(formData?.id)) return;
-    openDrawer(item, { preserveSeriePanel: true });
   };
 
   // Normaliza o tipo da categoria para primeira letra (R/D) para lidar com dados "Receita/Despesa"

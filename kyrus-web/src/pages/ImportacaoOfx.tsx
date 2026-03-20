@@ -604,9 +604,9 @@ export function ImportacaoOfx() {
           sugestao_confirmada: patch.sugestao_acao === 'DESCARTAR'
             ? false
             : (
-              patch.sugestao_confirmada
+              (patch.sugestao_confirmada
               ?? item.sugestao_confirmada
-              ?? false
+              ?? false)
               || ('sugestao_acao' in patch)
               || ('plano_contas_id' in patch)
               || ('entidade_id' in patch)

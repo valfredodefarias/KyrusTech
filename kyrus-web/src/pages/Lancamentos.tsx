@@ -419,7 +419,7 @@ export function Lancamentos() {
 
   // --- UI STATE ---
   const [mesAtual, setMesAtual] = useState(new Date());
-  const [primaryColor, setPrimaryColor] = useState('#2563eb');
+  const [, setPrimaryColor] = useState('#2563eb');
   
   // Filtros
   const [filtroTexto, setFiltroTexto] = useState('');

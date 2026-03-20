@@ -482,7 +482,6 @@ export function Lancamentos() {
   const [parcelasSerie, setParcelasSerie] = useState<Lancamento[]>([]);
   const [parcelasSerieLoading, setParcelasSerieLoading] = useState(false);
   const [parcelasVencimentosEdit, setParcelasVencimentosEdit] = useState<Record<number, string>>({});
-  const [parcelasEscopoEdicao, setParcelasEscopoEdicao] = useState<'ESTA' | 'PROXIMAS' | 'TODAS'>('ESTA');
   const [ajustarParaDiaUtil, setAjustarParaDiaUtil] = useState(false);
   const [showParcelasSeriePanel, setShowParcelasSeriePanel] = useState(false);
   const [newEntityData, setNewEntityData] = useState<QuickEntityFormState>(initialQuickEntityData);
@@ -552,7 +551,6 @@ export function Lancamentos() {
     setFilesToUpload(null);
     setParcelasSerie([]);
     setParcelasVencimentosEdit({});
-    setParcelasEscopoEdicao('ESTA');
     setAjustarParaDiaUtil(false);
     setShowParcelasSeriePanel(false);
     setInitialScopedFields({ descricao: '', plano_contas_id: '', data_vencimento: '' });
@@ -710,7 +708,6 @@ export function Lancamentos() {
       return;
     }
     setShowParcelasSeriePanel(true);
-    setParcelasEscopoEdicao('TODAS');
     await loadParcelasSerie(formData?.id_parcelamento, formData as Lancamento);
   };
 
@@ -746,7 +743,6 @@ export function Lancamentos() {
     setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(nextFormData));
     setShowParcelasSeriePanel(true);
     setFilesToUpload(null);
-    setParcelasEscopoEdicao('ESTA');
   };
 
   useEffect(() => {
@@ -1439,7 +1435,6 @@ export function Lancamentos() {
         data_vencimento: String(l.data_vencimento || ''),
       });
       setShowParcelasSeriePanel(Boolean(options?.preserveSeriePanel));
-      setParcelasEscopoEdicao('ESTA');
       setAjustarParaDiaUtil(false);
       void loadParcelasSerie(l.id_parcelamento, l);
     } else {
@@ -1460,7 +1455,6 @@ export function Lancamentos() {
       setShowParcelasSeriePanel(false);
       setParcelasSerie([]);
       setParcelasVencimentosEdit({});
-      setParcelasEscopoEdicao('ESTA');
       setAjustarParaDiaUtil(false);
     }
     setFormData(nextFormData);
@@ -1632,11 +1626,28 @@ export function Lancamentos() {
           if (!shouldApplyScoped) {
             await api.put(`/lancamentos/${id}`, payload);
           } else {
+            const scopeAnswer = window.prompt(
+              'Aplicar alterações em qual escopo?\n1 - Só esta parcela\n2 - Esta e próximas\n3 - Todas',
+              '1',
+            );
+            if (scopeAnswer === null) {
+              pushToast('info', 'Salvar cancelado.');
+              setSaving(false);
+              return;
+            }
+
+            const escopoEscolhido: 'ESTA' | 'PROXIMAS' | 'TODAS' =
+              scopeAnswer.trim() === '3'
+                ? 'TODAS'
+                : scopeAnswer.trim() === '2'
+                  ? 'PROXIMAS'
+                  : 'ESTA';
+
             const parcelaAtual = Number(currentParcelaNumber || 1);
             const parcelasAlvo = serieOrdenada.filter((item) => {
               const numero = Number(item.numero_parcela || 0);
-              if (parcelasEscopoEdicao === 'TODAS') return true;
-              if (parcelasEscopoEdicao === 'PROXIMAS') return numero >= parcelaAtual;
+              if (escopoEscolhido === 'TODAS') return true;
+              if (escopoEscolhido === 'PROXIMAS') return numero >= parcelaAtual;
               return Number(item.id) === Number(id);
             });
 
@@ -2492,75 +2503,14 @@ export function Lancamentos() {
       {showDrawer && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => void requestCloseDrawer()}></div>
-          <div className="relative w-full max-w-xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700">
-            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
-              <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing?'Editar':'Novo'} Lançamento</h2>
-              <div className="flex items-center gap-1">
-                {isEditing && (
-                  <button
-                    type="button"
-                    title="Duplicar este lançamento"
-                    onClick={() => {
-                      setIsEditing(false);
-                      autoPagamentoRef.current = true;
-                      autoCompetenciaRef.current = true;
-                      setFormData((prev: any) => ({
-                        ...prev,
-                        id: null,
-                        status: 'PENDENTE',
-                        data_pagamento: prev.data_vencimento,
-                        valor_pago: '',
-                        is_parcelado: false,
-                        anexos: [],
-                      }));
-                      setFilesToUpload(null);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    Duplicar
-                  </button>
-                )}
-                {isEditing && canOpenParcelasSerie && (
-                  <button
-                    type="button"
-                    title="Abrir a série completa de parcelas"
-                    onClick={() => void handleVerTodasParcelas()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 dark:text-amber-200 bg-amber-100/80 dark:bg-amber-500/15 border border-amber-300/80 dark:border-amber-700/70 hover:bg-amber-200/80 dark:hover:bg-amber-500/25 transition"
-                  >
-                    <LayoutGrid className="w-3.5 h-3.5" />
-                    Ver todas as parcelas
-                  </button>
-                )}
-                <button onClick={() => void requestCloseDrawer()} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-400"><X className="w-5 h-5"/></button>
-              </div>
-            </div>
-
+          <div className="relative z-10 flex h-full">
             {shouldShowParcelasSerie && (
-              <aside className="fixed inset-y-0 left-0 z-60 hidden h-screen w-[33vw] min-w-[420px] max-w-[560px] flex-col border-r border-amber-300/80 bg-amber-50/98 p-4 shadow-2xl backdrop-blur lg:flex dark:border-amber-700/60 dark:bg-slate-900/98">
+              <aside className="hidden h-full w-[33vw] min-w-[420px] max-w-[560px] flex-col border-r border-amber-300/80 bg-amber-50/98 p-4 shadow-2xl backdrop-blur lg:flex dark:border-amber-700/60 dark:bg-slate-900/98">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black uppercase tracking-[0.14em] text-amber-700 dark:text-amber-300">Série de Parcelas</p>
                     <p className="text-xs font-semibold text-amber-900 dark:text-amber-100">Parcela atual {currentParcelaNumber}/{currentParcelaTotal}</p>
                   </div>
-                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">Escopo de alterações</span>
-                </div>
-
-                <div className="mt-2 grid grid-cols-3 gap-2">
-                  {[
-                    { id: 'ESTA', label: 'Só esta' },
-                    { id: 'PROXIMAS', label: 'Esta e próximas' },
-                    { id: 'TODAS', label: 'Todas' },
-                  ].map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setParcelasEscopoEdicao(opt.id as 'ESTA' | 'PROXIMAS' | 'TODAS')}
-                      className={`rounded-lg border px-2 py-1.5 text-[11px] font-bold transition ${parcelasEscopoEdicao === opt.id ? 'border-amber-500 bg-amber-500 text-white' : 'border-amber-300/80 bg-white text-amber-800 hover:bg-amber-100 dark:border-amber-700/60 dark:bg-slate-800 dark:text-amber-200 dark:hover:bg-slate-700'}`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
                 </div>
 
                 <label className="mt-2 flex items-center gap-2 text-[11px] text-amber-900 dark:text-amber-200">
@@ -2627,7 +2577,51 @@ export function Lancamentos() {
                 </div>
               </aside>
             )}
-            
+
+          <div className="relative w-full max-w-xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
+              <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing?'Editar':'Novo'} Lançamento</h2>
+              <div className="flex items-center gap-1">
+                {isEditing && (
+                  <button
+                    type="button"
+                    title="Duplicar este lançamento"
+                    onClick={() => {
+                      setIsEditing(false);
+                      autoPagamentoRef.current = true;
+                      autoCompetenciaRef.current = true;
+                      setFormData((prev: any) => ({
+                        ...prev,
+                        id: null,
+                        status: 'PENDENTE',
+                        data_pagamento: prev.data_vencimento,
+                        valor_pago: '',
+                        is_parcelado: false,
+                        anexos: [],
+                      }));
+                      setFilesToUpload(null);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    Duplicar
+                  </button>
+                )}
+                {isEditing && canOpenParcelasSerie && (
+                  <button
+                    type="button"
+                    title="Abrir a série completa de parcelas"
+                    onClick={() => void handleVerTodasParcelas()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 dark:text-amber-200 bg-amber-100/80 dark:bg-amber-500/15 border border-amber-300/80 dark:border-amber-700/70 hover:bg-amber-200/80 dark:hover:bg-amber-500/25 transition"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    Ver todas as parcelas
+                  </button>
+                )}
+                <button onClick={() => void requestCloseDrawer()} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-400"><X className="w-5 h-5"/></button>
+              </div>
+            </div>
+
             <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative">
               
               {/* DESCRIÇÃO E VALORES */}
@@ -2888,6 +2882,7 @@ export function Lancamentos() {
                 {saving?<Loader2 className="animate-spin w-4 h-4"/>:<Check className="w-4 h-4"/>} Salvar
               </button>
             </div>
+          </div>
           </div>
         </div>
       )}

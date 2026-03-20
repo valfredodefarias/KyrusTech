@@ -716,7 +716,37 @@ export function Lancamentos() {
 
   const handleSelecionarParcelaSerie = (item: Lancamento) => {
     if (Number(item.id) === Number(formData?.id)) return;
-    openDrawer(item, { preserveSeriePanel: true });
+    autoPagamentoRef.current = !item.data_pagamento;
+    autoCompetenciaRef.current = !item.competencia;
+
+    const nextFormData: any = {
+      ...item,
+      data_vencimento: item.cartao_id ? (item.data_competencia || item.data_vencimento) : item.data_vencimento,
+      conta_id: item.conta_id || '',
+      cartao_id: item.cartao_id || '',
+      centro_custo_id: item.centro_custo_id || '',
+      entidade_id: item.entidade_id || '',
+      plano_contas_id: item.plano_contas_id,
+      valor_previsto: item.valor_previsto,
+      valor_pago: item.valor_pago || item.valor_previsto,
+      data_pagamento: item.data_pagamento || item.data_vencimento,
+      previsto: item.previsto ?? true,
+      observacao: item.observacao || '',
+      competencia: item.competencia || formatCompetencia(item.data_competencia || item.data_vencimento),
+      competencia_modo_parcelamento: 'POR_PARCELA',
+    };
+
+    setIsEditing(true);
+    setFormData(nextFormData);
+    setInitialScopedFields({
+      descricao: String(item.descricao || ''),
+      plano_contas_id: String(item.plano_contas_id || ''),
+      data_vencimento: String(item.data_vencimento || ''),
+    });
+    setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(nextFormData));
+    setShowParcelasSeriePanel(true);
+    setFilesToUpload(null);
+    setParcelasEscopoEdicao('ESTA');
   };
 
   useEffect(() => {
@@ -2543,7 +2573,7 @@ export function Lancamentos() {
                   Ajustar vencimentos para próximo dia útil ao salvar
                 </label>
 
-                <div className="mt-3 max-h-[58vh] overflow-y-auto rounded-xl border border-amber-300/80 bg-white/90 dark:border-amber-700/60 dark:bg-slate-950/70">
+                <div className="mt-3 overflow-hidden rounded-xl border border-amber-300/80 bg-white/90 dark:border-amber-700/60 dark:bg-slate-950/70">
                   {parcelasSerieLoading ? (
                     <div className="p-3 text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2552,32 +2582,48 @@ export function Lancamentos() {
                   ) : sortedParcelasSerie.length === 0 ? (
                     <div className="p-3 text-xs text-amber-700 dark:text-amber-300">Não há outras parcelas identificadas para esta série.</div>
                   ) : (
-                    <div className="divide-y divide-amber-200/70 dark:divide-amber-800/50">
-                      {sortedParcelasSerie.map((item) => {
-                        const isCurrent = Number(item.id) === Number(formData.id);
-                        return (
-                          <div key={item.id} className={`p-2 ${isCurrent ? 'bg-amber-200/60 dark:bg-amber-800/35' : ''}`}>
-                            <button
-                              type="button"
-                              onClick={() => handleSelecionarParcelaSerie(item)}
-                              className="w-full rounded-lg px-2 py-1 text-left hover:bg-amber-100/80 dark:hover:bg-slate-800"
-                            >
-                              <p className="text-[11px] font-black text-amber-800 dark:text-amber-200">Parcela {item.numero_parcela || '-'}</p>
-                              <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{item.descricao || 'Sem descrição'}</p>
-                              <p className="text-[11px] text-slate-600 dark:text-slate-300">{BRL.format(Number(item.valor_previsto || 0))}</p>
-                            </button>
-                            <div className="mt-1 px-2">
-                              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">Vencimento</label>
-                              <input
-                                type="date"
-                                value={parcelasVencimentosEdit[item.id] || item.data_vencimento || ''}
-                                onChange={(e) => setParcelasVencimentosEdit((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                                className="w-full rounded-md border border-amber-300 bg-white px-2 py-1 text-xs text-slate-700 dark:border-amber-700 dark:bg-slate-900 dark:text-slate-100"
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
+                    <div className="max-h-[58vh] overflow-y-auto">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 z-10 bg-amber-100/90 text-amber-800 dark:bg-slate-900 dark:text-amber-200">
+                          <tr>
+                            <th className="px-2 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Parcela</th>
+                            <th className="px-2 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
+                            <th className="px-2 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedParcelasSerie.map((item) => {
+                            const isCurrent = Number(item.id) === Number(formData.id);
+                            return (
+                              <Fragment key={item.id}>
+                                <tr
+                                  onClick={() => handleSelecionarParcelaSerie(item)}
+                                  className={`cursor-pointer border-t border-amber-200/70 transition dark:border-amber-800/50 ${isCurrent ? 'bg-amber-200/60 dark:bg-amber-800/35' : 'hover:bg-amber-100/60 dark:hover:bg-slate-800/70'}`}
+                                >
+                                  <td className="px-2 py-2 text-xs font-black text-amber-800 dark:text-amber-200">{item.numero_parcela || '-'}</td>
+                                  <td className="px-2 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                                    <p className="truncate">{item.descricao || 'Sem descrição'}</p>
+                                  </td>
+                                  <td className="px-2 py-2 text-right text-xs font-black text-slate-700 dark:text-slate-100 whitespace-nowrap">
+                                    {BRL.format(Number(item.valor_previsto || 0))}
+                                  </td>
+                                </tr>
+                                <tr className={`${isCurrent ? 'bg-amber-100/60 dark:bg-amber-900/25' : 'bg-white/60 dark:bg-slate-900/40'}`}>
+                                  <td className="px-2 pb-2 pt-0 text-[10px] font-bold uppercase tracking-wide text-slate-500" colSpan={2}>Vencimento</td>
+                                  <td className="px-2 pb-2 pt-0">
+                                    <input
+                                      type="date"
+                                      value={parcelasVencimentosEdit[item.id] || item.data_vencimento || ''}
+                                      onChange={(e) => setParcelasVencimentosEdit((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                      className="w-full rounded-md border border-amber-300 bg-white px-2 py-1 text-xs text-slate-700 dark:border-amber-700 dark:bg-slate-900 dark:text-slate-100"
+                                    />
+                                  </td>
+                                </tr>
+                              </Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>

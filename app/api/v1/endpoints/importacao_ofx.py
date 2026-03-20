@@ -969,7 +969,9 @@ def _build_match_reason(data_diferenca: int, valor_diferenca: Decimal, similarid
     if similaridade >= 0.72:
         partes.append("descricao muito parecida")
     elif similaridade >= 0.48:
-        partes.append("descricao com boa semelhanca")
+        partes.append("descricao com alguma semelhanca")
+    elif kind == "previsto":
+        partes.append("descricao diferente nao bloqueia conciliacao por data e valor")
     return ", ".join(partes)
 
 
@@ -980,11 +982,12 @@ def _score_candidate(origem: Dict, lancamento: Lancamento, kind: str) -> tuple[i
     data_diferenca = (origem["data"] - lancamento.data_vencimento).days
     similaridade = _calcular_similaridade_texto(origem, lancamento)
 
-    score = 55 if kind == "previsto" else 28
+    score = 64 if kind == "previsto" else 28
     score += max(0, 22 - int(valor_diferenca * 18))
-    score += min(18, int(similaridade * 18))
+    # Para previsto, data e valor devem ter peso maior que descricao do banco.
+    score += min(8 if kind == "previsto" else 18, int(similaridade * (8 if kind == "previsto" else 18)))
     if kind == "previsto":
-        score += 8
+        score += 12
     else:
         score += max(0, 12 - abs(data_diferenca))
 

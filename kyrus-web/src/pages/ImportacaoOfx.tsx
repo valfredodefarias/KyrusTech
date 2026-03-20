@@ -163,7 +163,7 @@ const ACAO_META = {
   },
   CRIAR_NOVO: {
     label: 'Criar novo lançamento',
-    tone: 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-300 dark:border-sky-900/60',
+    tone: 'bg-lime-100 text-lime-800 border-lime-300 dark:bg-lime-950/35 dark:text-lime-300 dark:border-lime-800/70',
   },
   IGNORAR_DUPLICATA: {
     label: 'Ignorar duplicata',
@@ -917,6 +917,7 @@ export function ImportacaoOfx() {
               const duplicadoAnterior = Boolean(lanc.duplicata_id || lanc.duplicata_resumo);
               const sugestaoPendente = !descartado && !duplicadoAnterior && conciliacaoAutomatica && !lanc.sugestao_confirmada;
               const conciliadoVisual = !descartado && !duplicadoAnterior && Boolean(lanc.sugestao_confirmada);
+              const criarNovoVisual = !descartado && !duplicadoAnterior && !conciliadoVisual && !sugestaoPendente && lanc.sugestao_acao === 'CRIAR_NOVO';
               const acao = duplicadoAnterior
                 ? {
                   label: 'Ja importado anteriormente',
@@ -929,7 +930,9 @@ export function ImportacaoOfx() {
                   ? 'border-emerald-300 bg-emerald-100/50 dark:border-emerald-700/70 dark:bg-emerald-950/25'
                   : sugestaoPendente
                     ? 'border-amber-300 bg-amber-100/55 dark:border-amber-700/70 dark:bg-amber-950/25'
-                    : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900';
+                    : criarNovoVisual
+                      ? 'border-lime-300 bg-lime-100/75 dark:border-lime-700/70 dark:bg-lime-950/25'
+                      : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900';
 
               return (
                 <article key={`${lanc.linha_arquivo}-${lanc.movimento_uid || 'ofx'}`} className={`rounded-3xl border p-5 shadow-sm transition ${descartado ? 'opacity-65' : ''} ${cardToneClass}`}>
@@ -986,7 +989,7 @@ export function ImportacaoOfx() {
                               <button
                                 type="button"
                                 onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', relacionar_apenas_atrasados: false, lancamentos_atrasados_relacionados: [] })}
-                                className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
+                                    className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-lime-300 bg-lime-50 text-lime-800 dark:border-lime-800 dark:bg-lime-950/35 dark:text-lime-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                               >
                                 Criar novo
                               </button>
@@ -1014,21 +1017,19 @@ export function ImportacaoOfx() {
                           <button
                             type="button"
                             onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', relacionar_apenas_atrasados: false, lancamentos_atrasados_relacionados: [] })}
-                            className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
+                            className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-lime-300 bg-lime-50 text-lime-800 dark:border-lime-800 dark:bg-lime-950/35 dark:text-lime-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                           >
                             Criar novo
                           </button>
                         ) : null}
-                        {!lanc.duplicata_id ? (
-                          <button
-                            type="button"
-                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'DESCARTAR', relacionar_apenas_atrasados: false, lancamentos_atrasados_relacionados: [] })}
-                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${descartado ? 'border-zinc-400 bg-zinc-100 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Descartar
-                          </button>
-                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'DESCARTAR', relacionar_apenas_atrasados: false, lancamentos_atrasados_relacionados: [] })}
+                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${descartado ? 'border-zinc-400 bg-zinc-100 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Ignorar sugestao
+                        </button>
                         {sugestaoPendente ? (
                           <button
                             type="button"

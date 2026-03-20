@@ -173,7 +173,7 @@ def _normalizar_nome_entidade(texto: Optional[str]) -> str:
 
 
 def _status_aberto_clause() -> tuple[str, ...]:
-    return ("PENDENTE", "EM ABERTO")
+    return ("PENDENTE", "EM ABERTO", "ATRASADO", "VENCIDO")
 
 
 def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None, cartao_id: Optional[int] = None) -> str:

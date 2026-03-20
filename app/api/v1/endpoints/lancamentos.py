@@ -1337,6 +1337,11 @@ def obter_lancamento(lancamento_id: int, service: LancamentoService = Depends(ge
     empresa_id, _ = require_empresa_user(current_user)
     return service.get_by_id(lancamento_id, empresa_id)
 
+@router.get("/parcelamento/{parcelamento_id}", response_model=List[LancamentoRead])
+def listar_por_parcelamento(parcelamento_id: str, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
+    empresa_id, _ = require_empresa_user(current_user)
+    return service.listar_por_parcelamento(parcelamento_id, empresa_id)
+
 @router.put("/{lancamento_id}", response_model=LancamentoRead)
 def atualizar_lancamento(lancamento_id: int, lancamento_in: LancamentoUpdate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)

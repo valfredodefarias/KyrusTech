@@ -50,6 +50,13 @@ interface DreNode {
   tipoCategoria: 'RECEITA' | 'DESPESA';
 }
 
+interface DreAuditPanel {
+  title: string;
+  subtitle: string;
+  monthIndex: number | null;
+  rows: LancamentoResumo[];
+}
+
 type DreBranch = {
   rows: DreNode[];
   monthly: number[];
@@ -245,10 +252,10 @@ export function Dre() {
   const [lancamentos, setLancamentos] = useState<LancamentoResumo[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>('ALL');
-  const [selectedContaId, setSelectedContaId] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(currentMonth);
   const [hoveredKpi, setHoveredKpi] = useState<string | null>(null);
   const [somentePagos, setSomentePagos] = useState(true);
+  const [auditPanel, setAuditPanel] = useState<DreAuditPanel | null>(null);
   const isDark = useIsDarkMode();
 
   useEffect(() => {
@@ -618,14 +625,6 @@ export function Dre() {
     };
   }, [dre]);
 
-  useEffect(() => {
-    if (!selectedContaId) return;
-    if (!dre.contaPorId.has(selectedContaId)) {
-      setSelectedContaId(null);
-      setSelectedMonth(null);
-    }
-  }, [dre.contaPorId, selectedContaId]);
-
   const monthLabels = useMemo(() => buildMonthLabels(ano), [ano]);
 
   const pickMonthlyValue = (monthly: number[], total: number) => {
@@ -647,36 +646,89 @@ export function Dre() {
   const percentualMcKpi = pickMonthlyOptional(dre.percentualMcMonthly, dre.percentualMcTotal);
   const pontoEquilibrioKpi = pickMonthlyOptional(dre.pontoEquilibrioMonthly, dre.pontoEquilibrioTotal);
 
-  const selectedConta = selectedContaId ? dre.contaPorId.get(selectedContaId) || null : null;
-
-  const selectedRows = useMemo(() => {
-    if (!selectedContaId) return [] as LancamentoResumo[];
-    const ids = new Set(dre.descendantsById.get(selectedContaId) || [selectedContaId]);
-    return lancamentosFiltrados
-      .filter((item) => ids.has(Number(item.plano_contas_id)) && (selectedMonth === null || resolveMonthIndex(item, somentePagos) === selectedMonth))
-      .sort((left, right) => {
-        const rightDate = resolveCompetenciaDate(right, somentePagos) || right.data_vencimento || right.data_pagamento || '1900-01-01';
-        const leftDate = resolveCompetenciaDate(left, somentePagos) || left.data_vencimento || left.data_pagamento || '1900-01-01';
-        return new Date(`${rightDate.slice(0, 10)}T00:00:00`).getTime() - new Date(`${leftDate.slice(0, 10)}T00:00:00`).getTime();
-      });
-  }, [dre.descendantsById, lancamentosFiltrados, selectedContaId, selectedMonth, somentePagos]);
-
-  const selectedMonthly = useMemo(() => {
-    if (!selectedContaId) return Array.from({ length: 12 }, () => 0);
-    const ids = new Set(dre.descendantsById.get(selectedContaId) || [selectedContaId]);
-    const monthly = Array.from({ length: 12 }, () => 0);
-    lancamentosFiltrados.forEach((item) => {
-      if (!ids.has(Number(item.plano_contas_id))) return;
-      const monthIndex = resolveMonthIndex(item, somentePagos);
-      if (monthIndex < 0) return;
-      monthly[monthIndex] += resolveLancamentoValue(item, somentePagos);
+  const sortByCompetenciaDesc = (rows: LancamentoResumo[]) => {
+    return [...rows].sort((left, right) => {
+      const rightDate = resolveCompetenciaDate(right, somentePagos) || right.data_vencimento || right.data_pagamento || '1900-01-01';
+      const leftDate = resolveCompetenciaDate(left, somentePagos) || left.data_vencimento || left.data_pagamento || '1900-01-01';
+      return new Date(`${rightDate.slice(0, 10)}T00:00:00`).getTime() - new Date(`${leftDate.slice(0, 10)}T00:00:00`).getTime();
     });
-    return monthly;
-  }, [dre.descendantsById, lancamentosFiltrados, selectedContaId, somentePagos]);
+  };
+
+  const openAuditRows = (title: string, subtitle: string, monthIndex: number | null, rows: LancamentoResumo[]) => {
+    setSelectedMonth(monthIndex);
+    setAuditPanel({ title, subtitle, monthIndex, rows: sortByCompetenciaDesc(rows) });
+  };
+
+  const openContaAudit = (contaId: number, monthIndex: number | null) => {
+    const conta = dre.contaPorId.get(contaId);
+    if (!conta) return;
+    const ids = new Set(dre.descendantsById.get(contaId) || [contaId]);
+    const rows = lancamentosFiltrados.filter((item) => {
+      if (!ids.has(Number(item.plano_contas_id))) return false;
+      if (monthIndex === null) return true;
+      return resolveMonthIndex(item, somentePagos) === monthIndex;
+    });
+
+    openAuditRows(
+      conta.codigo ? `${conta.codigo} ${conta.nome}` : conta.nome,
+      monthIndex === null ? 'Lançamentos do ano inteiro para a categoria selecionada.' : `Lançamentos da categoria em ${monthLabels[monthIndex]}.`,
+      monthIndex,
+      rows,
+    );
+  };
+
+  const openGroupAudit = (groupLabel: string, contaIds: number[], monthIndex: number | null) => {
+    const idSet = new Set(contaIds);
+    const rows = lancamentosFiltrados.filter((item) => {
+      if (!idSet.has(Number(item.plano_contas_id))) return false;
+      if (monthIndex === null) return true;
+      return resolveMonthIndex(item, somentePagos) === monthIndex;
+    });
+
+    openAuditRows(
+      groupLabel,
+      monthIndex === null ? 'Lançamentos do ano inteiro deste grupo da DRE.' : `Lançamentos do grupo em ${monthLabels[monthIndex]}.`,
+      monthIndex,
+      rows,
+    );
+  };
+
+  const openResultadoAudit = (title: string, contaIds: number[], monthIndex: number | null) => {
+    const idSet = new Set(contaIds);
+    const rows = lancamentosFiltrados.filter((item) => {
+      if (!idSet.has(Number(item.plano_contas_id))) return false;
+      if (monthIndex === null) return true;
+      return resolveMonthIndex(item, somentePagos) === monthIndex;
+    });
+
+    openAuditRows(
+      title,
+      monthIndex === null ? 'Composição do ano inteiro.' : `Composição de ${monthLabels[monthIndex]}.`,
+      monthIndex,
+      rows,
+    );
+  };
+
+  useEffect(() => {
+    if (!auditPanel) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAuditPanel(null);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [auditPanel]);
 
   const pageBg = isDark
     ? 'bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.10),transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_48%,#111827_100%)] text-slate-100'
     : 'bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-900';
+  const selectedMonthSoftClass = isDark
+    ? 'bg-amber-300/20 text-amber-100 ring-1 ring-inset ring-amber-200/40'
+    : 'bg-amber-200/45 text-amber-950 ring-1 ring-inset ring-amber-400/45';
+  const selectedMonthHeaderClass = isDark
+    ? 'border-amber-200/50 bg-amber-300/20 text-amber-100'
+    : 'border-amber-300/70 bg-amber-200/50 text-amber-950';
 
   return (
     <div className={`min-h-full px-3 py-6 sm:px-4 lg:px-6 ${pageBg}`}>
@@ -686,7 +738,7 @@ export function Dre() {
             <div>
               <p className={`text-[11px] font-black uppercase tracking-[0.3em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Demonstrativo</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">DRE</h1>
-              <p className={`mt-2 text-sm font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Clique em uma categoria ou em um mês para abrir os lançamentos relacionados logo abaixo.</p>
+              <p className={`mt-2 text-sm font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Clique em qualquer valor da tabela para abrir um popup com os lançamentos da categoria e do mês selecionado.</p>
               <p className={`mt-1 text-xs font-semibold ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>KPIs filtrados por: {selectedMonth === null ? 'Ano inteiro' : monthLabels[selectedMonth]}</p>
             </div>
 
@@ -731,7 +783,6 @@ export function Dre() {
                   value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
                   onChange={(event) => {
                     setSelectedCentroCustoId(event.target.value === 'ALL' ? 'ALL' : Number(event.target.value));
-                    setSelectedContaId(null);
                     setSelectedMonth(currentMonth);
                   }}
                   className="mt-2 w-64 rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
@@ -751,7 +802,6 @@ export function Dre() {
                   type="button"
                   onClick={() => {
                     setSomentePagos((prev) => !prev);
-                    setSelectedContaId(null);
                     setSelectedMonth(currentMonth);
                   }}
                   className={`mt-2 w-44 rounded-xl border px-3 py-2 text-sm font-black transition ${somentePagos ? 'border-emerald-600 bg-emerald-600 text-white' : isDark ? 'border-slate-600 bg-slate-800 text-slate-200' : 'border-slate-300 bg-white text-slate-700'}`}
@@ -803,7 +853,7 @@ export function Dre() {
                   <th className="sticky left-0 z-20 border-b border-r border-slate-800 bg-slate-950 px-5 py-4 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white">Conta</th>
                   <th className="border-b border-r border-slate-800 bg-slate-950 px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">Total</th>
                   {monthLabels.map((label, index) => (
-                    <th key={label} className={`border-b border-r px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 ${selectedMonth === index ? 'border-amber-300 bg-amber-200 text-amber-950' : 'border-slate-800 bg-slate-950 text-white'}`}>
+                    <th key={label} className={`border-b border-r px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 ${selectedMonth === index ? selectedMonthHeaderClass : 'border-slate-800 bg-slate-950 text-white'}`}>
                       <button
                         type="button"
                         onClick={() => setSelectedMonth((prev) => (prev === index ? null : index))}
@@ -838,9 +888,20 @@ export function Dre() {
                     <Fragment key={`group-${group.key}`}>
                       <tr key={`group-header-${group.key}`}>
                         <td className={`sticky left-0 z-10 border-b border-r px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white ${rowTone}`}>{group.label}</td>
-                        <td className={`border-b border-r px-4 py-3 text-right font-black text-white ${rowTone}`}>{renderMoneyCell(groupTotal, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}</td>
+                        <td
+                          onClick={() => openGroupAudit(group.label, groupRows.map((row) => row.id), null)}
+                          className={`cursor-pointer border-b border-r px-4 py-3 text-right font-black text-white ${rowTone}`}
+                        >
+                          {renderMoneyCell(groupTotal, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}
+                        </td>
                         {groupMonthly.map((value, index) => (
-                          <td key={`${group.key}-total-${index}`} className={`border-b border-r px-4 py-3 text-right font-bold text-white last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : rowTone}`}>{renderMoneyCell(value, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}</td>
+                          <td
+                            key={`${group.key}-total-${index}`}
+                            onClick={() => openGroupAudit(group.label, groupRows.map((row) => row.id), index)}
+                            className={`cursor-pointer border-b border-r px-4 py-3 text-right font-bold text-white last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : rowTone}`}
+                          >
+                            {renderMoneyCell(value, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}
+                          </td>
                         ))}
                         <td className="w-3 border-b border-yellow-500 bg-yellow-400 px-0 py-0" />
                       </tr>
@@ -850,7 +911,6 @@ export function Dre() {
                           <td colSpan={15} className={`px-5 py-6 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Sem lançamentos para {group.label.toLowerCase()} neste ano.</td>
                         </tr>
                       ) : groupRows.map((row, rowIndex) => {
-                        const isSelected = selectedContaId === row.id;
                         const parentRowClass =
                           group.tone === 'emerald' ? (isDark ? 'bg-emerald-800/60 text-white' : 'bg-emerald-200 text-emerald-950') :
                           group.tone === 'amber' ? (isDark ? 'bg-yellow-800/60 text-white' : 'bg-yellow-200 text-yellow-950') :
@@ -862,11 +922,7 @@ export function Dre() {
                         return (
                           <tr key={`${group.key}-row-${row.id}`} className={rowIndex % 2 === 0 ? (isDark ? 'bg-slate-950/20' : 'bg-white') : (isDark ? 'bg-slate-900/30' : 'bg-slate-50/60')}>
                             <td
-                              onClick={() => {
-                                setSelectedContaId((prev) => prev === row.id ? null : row.id);
-                                setSelectedMonth(null);
-                              }}
-                              className={`sticky left-0 z-10 cursor-pointer border-b border-r px-5 py-3 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.75)] transition ${isSelected ? 'ring-1 ring-inset ring-sky-400/60' : ''} ${row.hasChildren ? `border-slate-700 font-black ${parentRowClass}` : isDark ? rowIndex % 2 === 0 ? 'border-slate-800 bg-slate-950 font-semibold text-slate-300' : 'border-slate-800 bg-slate-900 font-semibold text-slate-300' : rowIndex % 2 === 0 ? 'border-slate-200 bg-white font-semibold text-slate-700' : 'border-slate-200 bg-slate-50 font-semibold text-slate-700'}`}
+                              className={`sticky left-0 z-10 border-b border-r px-5 py-3 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.75)] transition ${row.hasChildren ? `border-slate-700 font-black ${parentRowClass}` : isDark ? rowIndex % 2 === 0 ? 'border-slate-800 bg-slate-950 font-semibold text-slate-300' : 'border-slate-800 bg-slate-900 font-semibold text-slate-300' : rowIndex % 2 === 0 ? 'border-slate-200 bg-white font-semibold text-slate-700' : 'border-slate-200 bg-slate-50 font-semibold text-slate-700'}`}
                             >
                               <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 18}px` }}>
                                 <span className="min-w-0 truncate">{row.codigo ? `${row.codigo} ${row.nome}` : row.nome}</span>
@@ -874,10 +930,7 @@ export function Dre() {
                               </div>
                             </td>
                             <td
-                              onClick={() => {
-                                setSelectedContaId(row.id);
-                                setSelectedMonth(null);
-                              }}
+                              onClick={() => openContaAudit(row.id, null)}
                               className={`cursor-pointer border-b border-r px-4 py-3 text-right ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? `font-black ${parentRowClass}` : isDark ? 'font-medium text-slate-200' : 'font-medium text-slate-700'}`}
                             >
                               {renderMoneyCell(row.total, row.tipoCategoria === 'RECEITA' ? 'receita' : 'despesa')}
@@ -885,11 +938,8 @@ export function Dre() {
                             {row.monthly.map((value, index) => (
                               <td
                                 key={`${group.key}-value-${row.id}-${index}`}
-                                onClick={() => {
-                                  setSelectedContaId(row.id);
-                                  setSelectedMonth(index);
-                                }}
-                                className={`cursor-pointer border-b border-r px-4 py-3 text-right transition last:border-r-0 ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? `font-bold ${parentRowClass}` : isDark ? 'font-medium text-slate-200' : 'font-medium text-slate-700'} ${selectedContaId === row.id && selectedMonth === index ? isDark ? 'bg-sky-500/20 text-sky-100 ring-1 ring-inset ring-sky-300/60' : 'bg-sky-100 text-sky-900 ring-1 ring-inset ring-sky-400/60' : ''} ${selectedMonth === index ? 'bg-yellow-400 text-slate-950 ring-1 ring-inset ring-yellow-600 font-black' : ''}`}
+                                onClick={() => openContaAudit(row.id, index)}
+                                className={`cursor-pointer border-b border-r px-4 py-3 text-right transition last:border-r-0 ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? `font-bold ${parentRowClass}` : isDark ? 'font-medium text-slate-200' : 'font-medium text-slate-700'} ${selectedMonth === index ? `${selectedMonthSoftClass} font-black` : ''}`}
                               >
                                 {renderMoneyCell(value, row.tipoCategoria === 'RECEITA' ? 'receita' : 'despesa')}
                               </td>
@@ -913,36 +963,80 @@ export function Dre() {
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Receita líquida</td>
-                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-emerald-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')}</td>
+                  <td
+                    onClick={() => openResultadoAudit('Receita líquida', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id)], null)}
+                    className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-emerald-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}
+                  >
+                    {renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')}
+                  </td>
                   {dre.receitaLiquidaMonthly.map((value, index) => (
-                    <td key={`receita-liquida-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : `bg-emerald-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td
+                      key={`receita-liquida-${index}`}
+                      onClick={() => openResultadoAudit('Receita líquida', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id)], index)}
+                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : `bg-emerald-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}
+                    >
+                      {renderMoneyCell(value, 'resultado')}
+                    </td>
                   ))}
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Margem de contribuição</td>
-                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.margemContribuicaoTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(dre.margemContribuicaoTotal, 'resultado')}</td>
+                  <td
+                    onClick={() => openResultadoAudit('Margem de contribuição', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id)], null)}
+                    className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.margemContribuicaoTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                  >
+                    {renderMoneyCell(dre.margemContribuicaoTotal, 'resultado')}
+                  </td>
                   {dre.margemContribuicaoMonthly.map((value, index) => (
-                    <td key={`mc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td
+                      key={`mc-${index}`}
+                      onClick={() => openResultadoAudit('Margem de contribuição', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id)], index)}
+                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? selectedMonthSoftClass : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                    >
+                      {renderMoneyCell(value, 'resultado')}
+                    </td>
                   ))}
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado operacional</td>
-                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.resultadoOperacionalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')}</td>
+                  <td
+                    onClick={() => openResultadoAudit('Resultado operacional', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id)], null)}
+                    className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.resultadoOperacionalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                  >
+                    {renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')}
+                  </td>
                   {dre.resultadoOperacionalMonthly.map((value, index) => (
-                    <td key={`resultado-operacional-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td
+                      key={`resultado-operacional-${index}`}
+                      onClick={() => openResultadoAudit('Resultado operacional', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id)], index)}
+                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? selectedMonthSoftClass : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                    >
+                      {renderMoneyCell(value, 'resultado')}
+                    </td>
                   ))}
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
 
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado final</td>
-                  <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.resultadoFinalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(dre.resultadoFinalTotal, 'resultado')}</td>
+                  <td
+                    onClick={() => openResultadoAudit('Resultado final', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.RECEITAS_NAO_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.DESPESAS_NAO_OPERACIONAIS.map((row) => row.id)], null)}
+                    className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.resultadoFinalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                  >
+                    {renderMoneyCell(dre.resultadoFinalTotal, 'resultado')}
+                  </td>
                   {dre.resultadoFinalMonthly.map((value, index) => (
-                    <td key={`resultado-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}>{renderMoneyCell(value, 'resultado')}</td>
+                    <td
+                      key={`resultado-final-${index}`}
+                      onClick={() => openResultadoAudit('Resultado final', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.RECEITAS_NAO_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.DESPESAS_NAO_OPERACIONAIS.map((row) => row.id)], index)}
+                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? selectedMonthSoftClass : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                    >
+                      {renderMoneyCell(value, 'resultado')}
+                    </td>
                   ))}
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
@@ -951,7 +1045,7 @@ export function Dre() {
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">% MC</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(dre.percentualMcTotal)}</td>
                   {dre.percentualMcMonthly.map((value, index) => (
-                    <td key={`pmc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
+                    <td key={`pmc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
                   ))}
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
@@ -960,7 +1054,7 @@ export function Dre() {
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Lucratividade operacional</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(dre.lucratividadeOperacionalTotal)}</td>
                   {dre.lucratividadeOperacionalMonthly.map((value, index) => (
-                    <td key={`lucr-op-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
+                    <td key={`lucr-op-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
                   ))}
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
@@ -969,7 +1063,7 @@ export function Dre() {
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Lucratividade final</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(dre.lucratividadeFinalTotal)}</td>
                   {dre.lucratividadeFinalMonthly.map((value, index) => (
-                    <td key={`lucr-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
+                    <td key={`lucr-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
                   ))}
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
@@ -978,7 +1072,7 @@ export function Dre() {
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Ponto de equilíbrio</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-fuchsia-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderOptionalMoney(dre.pontoEquilibrioTotal, 'resultado')}</td>
                   {dre.pontoEquilibrioMonthly.map((value, index) => (
-                    <td key={`pe-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? 'bg-yellow-400 text-slate-950' : `bg-fuchsia-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderOptionalMoney(value, 'resultado')}</td>
+                    <td key={`pe-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : `bg-fuchsia-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderOptionalMoney(value, 'resultado')}</td>
                   ))}
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
@@ -987,65 +1081,51 @@ export function Dre() {
           </div>
         </section>
 
-        {selectedConta ? (
-          <section className={`rounded-[30px] border px-5 py-5 shadow-[0_25px_90px_-70px_rgba(15,23,42,0.45)] md:px-6 ${isDark ? 'border-slate-800 bg-slate-950/70' : 'border-slate-200 bg-white'}`}>
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className={`text-[10px] font-black uppercase tracking-[0.28em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Drilldown DRE</p>
-                <h2 className="mt-2 text-2xl font-black tracking-tight">{selectedConta.codigo ? `${selectedConta.codigo} ${selectedConta.nome}` : selectedConta.nome}</h2>
-                <p className={`mt-1 text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{selectedMonth === null ? 'Todos os meses do ano selecionado.' : `Lançamentos de ${monthLabels[selectedMonth]}.`}</p>
-              </div>
-              <button
-                onClick={() => {
-                  setSelectedContaId(null);
-                  setSelectedMonth(null);
-                }}
-                className={`rounded-2xl border px-4 py-2 text-sm font-bold transition ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-900' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-              >
-                Fechar detalhe
-              </button>
-            </div>
-
-            <div className="mt-5 flex flex-wrap gap-2">
-              <button
-                onClick={() => setSelectedMonth(null)}
-                className={`rounded-2xl px-3 py-2 text-xs font-black uppercase tracking-[0.16em] transition ${selectedMonth === null ? 'bg-sky-600 text-white' : isDark ? 'border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800' : 'border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-              >
-                Ano inteiro
-              </button>
-              {monthLabels.map((label, index) => (
+        {auditPanel ? (
+          <div className="fixed inset-0 z-50">
+            <button
+              type="button"
+              className="absolute inset-0 bg-slate-950/55"
+              onClick={() => setAuditPanel(null)}
+              aria-label="Fechar lançamentos"
+            />
+            <aside className={`absolute left-1/2 top-1/2 z-10 flex h-[min(85vh,760px)] w-[min(96vw,1180px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[28px] border shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${isDark ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-200 bg-white text-slate-900'}`}>
+              <div className={`flex items-start justify-between gap-3 border-b px-5 py-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+                <div>
+                  <p className={`text-[10px] font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Lançamentos</p>
+                  <h3 className="mt-1 text-lg font-black tracking-tight">{auditPanel.title}</h3>
+                  <p className={`mt-1 text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{auditPanel.subtitle}</p>
+                </div>
                 <button
-                  key={label}
-                  onClick={() => setSelectedMonth(index)}
-                  className={`rounded-2xl px-3 py-2 text-xs font-black uppercase tracking-[0.16em] transition ${selectedMonth === index ? 'bg-sky-600 text-white' : isDark ? 'border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800' : 'border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                  type="button"
+                  onClick={() => setAuditPanel(null)}
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'bg-white/6 text-white/70 hover:bg-white/12' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                 >
-                  {label} • {renderMoneyCell(selectedMonthly[index], selectedConta.tipo?.toUpperCase().startsWith('R') ? 'receita' : 'despesa')}
+                  Fechar
                 </button>
-              ))}
-            </div>
+              </div>
 
-            <div className={`mt-5 overflow-hidden rounded-[24px] border ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[900px] text-left text-sm">
-                  <thead className={isDark ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-500'}>
+              <div className="min-h-0 flex-1 overflow-auto">
+                <table className="w-full min-w-[980px] text-sm">
+                  <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
                     <tr>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em]">Data</th>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em]">Descrição</th>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em]">Categoria</th>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em]">Status</th>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-right">Valor</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Categoria</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Status</th>
+                      <th className="px-4 py-3 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
                     </tr>
                   </thead>
                   <tbody className={isDark ? 'divide-y divide-slate-800' : 'divide-y divide-slate-100'}>
-                    {selectedRows.length === 0 ? (
+                    {auditPanel.rows.length === 0 ? (
                       <tr>
                         <td colSpan={5} className={`px-4 py-10 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Nenhum lançamento encontrado para este recorte.</td>
                       </tr>
-                    ) : selectedRows.map((item) => {
+                    ) : auditPanel.rows.map((item) => {
                       const itemConta = dre.contaPorId.get(Number(item.plano_contas_id));
                       return (
                         <tr key={item.id} className={isDark ? 'bg-slate-950/20 hover:bg-slate-900/40' : 'bg-white hover:bg-slate-50'}>
-                          <td className={`px-4 py-3 font-mono text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{formatDate(resolveCompetenciaDate(item))}</td>
+                          <td className={`px-4 py-3 font-mono text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{formatDate(resolveCompetenciaDate(item, somentePagos))}</td>
                           <td className={`px-4 py-3 font-semibold ${isDark ? 'text-slate-100' : 'text-slate-700'}`}>{item.descricao}</td>
                           <td className={`px-4 py-3 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{itemConta?.nome || '-'}</td>
                           <td className="px-4 py-3">
@@ -1053,15 +1133,15 @@ export function Dre() {
                               {item.status || 'PENDENTE'}
                             </span>
                           </td>
-                          <td className={`px-4 py-3 text-right font-black ${isReceita(item.tipo) ? 'text-emerald-500' : 'text-rose-500'}`}>{moneyFormatter.format(resolveLancamentoValue(item))}</td>
+                          <td className={`px-4 py-3 text-right font-black ${isReceita(item.tipo) ? 'text-emerald-500' : 'text-rose-500'}`}>{moneyFormatter.format(resolveLancamentoValue(item, somentePagos))}</td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
-            </div>
-          </section>
+            </aside>
+          </div>
         ) : null}
       </div>
     </div>

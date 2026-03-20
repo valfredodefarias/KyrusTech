@@ -1032,6 +1032,17 @@ export function Contas() {
     return categorias.find(c => c.id === lancamento.plano_contas_id)?.nome || '-';
   };
 
+  const getInteressadoLabel = (lancamento: LancamentoItem) => {
+    const raw = (lancamento as any).interessado_nome
+      || (lancamento as any).entidade_nome
+      || (lancamento as any).interessado
+      || (lancamento as any).nome_entidade
+      || (lancamento as any).entidade?.nome
+      || '';
+    const value = String(raw || '').trim();
+    return value || '-';
+  };
+
   const extratoSaldoBanco = Number(extratoConta?.saldo_atual ?? extratoSaldoDetalhe?.saldo_atual ?? 0);
 
   return (
@@ -1233,25 +1244,26 @@ export function Contas() {
 
             <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-500 uppercase">
+                <table className="w-full text-left text-[13px]">
+                  <thead className="bg-slate-50 dark:bg-slate-800 text-[10px] font-bold text-slate-500 uppercase">
                     <tr>
-                      <th className="p-4 w-12">Sel.</th>
-                      <th className="p-4">Data base</th>
-                      <th className="p-4">Descrição</th>
-                      <th className="p-4">Categoria</th>
-                      <th className="p-4">Origem</th>
-                      <th className="p-4">Status</th>
-                      <th className="p-4 text-right">Entrada/Saída</th>
-                      <th className="p-4 text-right">Saldo após</th>
-                      <th className="p-4 text-right">Ações</th>
+                      <th className="p-3 w-12">Sel.</th>
+                      <th className="p-3">Data base</th>
+                      <th className="p-3">Descrição</th>
+                      <th className="p-3">Interessado</th>
+                      <th className="p-3">Categoria</th>
+                      <th className="p-3">Origem</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3 text-right">Entrada/Saída</th>
+                      <th className="p-3 text-right">Saldo após</th>
+                      <th className="p-3 text-right">Ações</th>
                     </tr>
                   </thead>
-                  <tbody className="text-sm divide-y divide-slate-100 dark:divide-slate-700">
+                  <tbody className="text-[13px] divide-y divide-slate-100 dark:divide-slate-700">
                     {extratoLoading ? (
-                      <tr><td colSpan={9} className="p-6 text-center text-slate-400">Carregando...</td></tr>
+                      <tr><td colSpan={10} className="p-6 text-center text-slate-400">Carregando...</td></tr>
                     ) : extratoAgrupado.length === 0 ? (
-                      <tr><td colSpan={9} className="p-6 text-center text-slate-400 italic">Nenhum movimento encontrado para os filtros selecionados.</td></tr>
+                      <tr><td colSpan={10} className="p-6 text-center text-slate-400 italic">Nenhum movimento encontrado para os filtros selecionados.</td></tr>
                     ) : (
                       extratoAgrupado.map((row) => {
                         if (row.type === 'invoice') {
@@ -1263,15 +1275,15 @@ export function Contas() {
                           return (
                             <React.Fragment key={row.group.key}>
                               <tr className="bg-slate-50/80 dark:bg-slate-800/60">
-                                <td className="p-4 align-top">
+                                <td className="p-3 align-top">
                                   <span className="inline-flex min-w-7 items-center justify-center rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-200">
                                     {row.group.itens.length}
                                   </span>
                                 </td>
-                                <td className="p-4 font-mono text-xs text-slate-500 align-top">
+                                <td className="p-3 font-mono text-xs text-slate-500 align-top">
                                   {formatDateLike(row.group.dataBase)}
                                 </td>
-                                <td className="p-4 align-top">
+                                <td className="p-3 align-top">
                                   <button
                                     onClick={() => toggleExtratoFatura(row.group.key)}
                                     className="flex items-start gap-3 text-left"
@@ -1283,21 +1295,22 @@ export function Contas() {
                                     </div>
                                   </button>
                                 </td>
-                                <td className="p-4 text-slate-500 align-top">Cartão de crédito</td>
-                                <td className="p-4 text-slate-500 align-top">FATURA</td>
-                                <td className="p-4 align-top">
+                                <td className="p-3 text-slate-400 align-top">-</td>
+                                <td className="p-3 text-slate-500 align-top">Cartão de crédito</td>
+                                <td className="p-3 text-slate-500 align-top">FATURA</td>
+                                <td className="p-3 align-top">
                                   <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
                                     AGRUPADO
                                   </span>
                                 </td>
-                                <td className="p-4 text-right font-bold text-rose-600 align-top whitespace-nowrap">{formatSignedCurrency(-Math.abs(row.group.totalSaida))}</td>
-                                <td className={`p-4 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(row.group.saldoApos)}</td>
-                                <td className="p-4" />
+                                <td className="p-3 text-right font-bold text-rose-600 align-top whitespace-nowrap">{formatSignedCurrency(-Math.abs(row.group.totalSaida))}</td>
+                                <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(row.group.saldoApos)}</td>
+                                <td className="p-3" />
                               </tr>
 
                               {isExpanded && row.group.itens.map((l) => (
                                 <tr key={l.id} className="bg-white dark:bg-slate-800/20 hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                                  <td className="p-4 pl-10">
+                                  <td className="p-3 pl-10">
                                     <input
                                       type="checkbox"
                                       checked={extratoSelecionados.includes(l.id)}
@@ -1305,23 +1318,24 @@ export function Contas() {
                                       className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
                                     />
                                   </td>
-                                  <td className="p-4 font-mono text-xs text-slate-500">
+                                  <td className="p-3 font-mono text-xs text-slate-500">
                                     {formatDateLike(l.data_pagamento || l.data_vencimento)}
                                   </td>
-                                  <td className="p-4 font-medium text-slate-700 dark:text-slate-200">
+                                  <td className="p-3 font-medium text-slate-700 dark:text-slate-200">
                                     <div>{l.descricao}</div>
                                     <div className="text-xs text-slate-400">{l.numero_parcela ? `${l.numero_parcela}a parcela` : 'À vista'}</div>
                                   </td>
-                                  <td className="p-4 text-slate-500">{getCategoriaLabel(l)}</td>
-                                  <td className="p-4 text-slate-500">{l.origem || '-'}</td>
-                                  <td className="p-4">
+                                  <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
+                                  <td className="p-3 text-slate-500">{getCategoriaLabel(l)}</td>
+                                  <td className="p-3 text-slate-500">{l.origem || '-'}</td>
+                                  <td className="p-3">
                                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                                       {l.status}
                                     </span>
                                   </td>
-                                  <td className={`p-4 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                                  <td className={`p-4 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
-                                  <td className="p-4 text-right">
+                                  <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
+                                  <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                  <td className="p-3 text-right">
                                     <div className="flex items-center justify-end gap-2">
                                       {!isTransferencia(l) && (
                                         <button
@@ -1348,7 +1362,7 @@ export function Contas() {
                         const l = row.item;
                         return (
                           <tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                            <td className="p-4">
+                            <td className="p-3">
                               <input
                                 type="checkbox"
                                 checked={extratoSelecionados.includes(l.id)}
@@ -1356,20 +1370,21 @@ export function Contas() {
                                 className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
                               />
                             </td>
-                            <td className="p-4 font-mono text-xs text-slate-500">
+                            <td className="p-3 font-mono text-xs text-slate-500">
                               {formatDateLike(l.data_pagamento || l.data_vencimento)}
                             </td>
-                            <td className="p-4 font-medium text-slate-700 dark:text-slate-200">{l.descricao}</td>
-                            <td className="p-4 text-slate-500">{getCategoriaLabel(l)}</td>
-                            <td className="p-4 text-slate-500">{l.origem || '-'}</td>
-                            <td className="p-4">
+                            <td className="p-3 font-medium text-slate-700 dark:text-slate-200">{l.descricao}</td>
+                            <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
+                            <td className="p-3 text-slate-500">{getCategoriaLabel(l)}</td>
+                            <td className="p-3 text-slate-500">{l.origem || '-'}</td>
+                            <td className="p-3">
                               <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                                 {l.status}
                               </span>
                             </td>
-                            <td className={`p-4 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                            <td className={`p-4 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
-                            <td className="p-4 text-right">
+                            <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
+                            <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                            <td className="p-3 text-right">
                               <div className="flex items-center justify-end gap-2">
                                 {!isTransferencia(l) && (
                                   <button

@@ -1,4 +1,5 @@
 import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart3,
   Building2,
@@ -376,6 +377,16 @@ function applyFilters(
 }
 
 export function Boletim() {
+  const navigate = useNavigate();
+
+  const openLancamentoEdicao = (lancamentoId: number, event?: ReactMouseEvent<HTMLElement>) => {
+    const destino = `/lancamentos?editar_id=${lancamentoId}&origem=boletim`;
+    if (event?.metaKey || event?.ctrlKey) {
+      window.open(destino, '_blank', 'noopener');
+      return;
+    }
+    navigate(destino);
+  };
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [contas, setContas] = useState<ContaResumo[]>([]);
@@ -1208,7 +1219,12 @@ export function Boletim() {
                                 <td colSpan={3} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
                               </tr>
                             ) : (auditPanel.rows || []).map((row) => (
-                              <tr key={`audit-row-${row.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
+                              <tr
+                                key={`audit-row-${row.id}`}
+                                onClick={(event) => openLancamentoEdicao(row.id, event)}
+                                className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
+                                title="Abrir edição do lançamento"
+                              >
                                 <td className="px-3 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
                                 <td className="px-3 py-2.5">{row.interessado}</td>
                                 <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${row.flowType === 'RECEBIMENTO' ? getValueTone(row.valorAbsoluto, isDark) : getValueTone(-row.valorAbsoluto, isDark)}`}>{formatCurrency(row.valorAbsoluto)}</td>

@@ -436,6 +436,7 @@ export function Cartoes() {
             if (novoLancamento.is_parcelado) {
                 const qtd = Math.max(2, Number(novoLancamento.qtd_parcelas) || 2);
                 const valorParcela = novoLancamento.modo_calculo === 'TOTAL' ? (valorBase / qtd) : valorBase;
+                const idParcelamento = crypto.randomUUID();
 
                 const [y, m, d] = dataCompra.split('-').map(Number);
                 const lista = Array.from({ length: qtd }).map((_, i) => {
@@ -452,6 +453,7 @@ export function Cartoes() {
                         cartao_id: cartao.id,
                         centro_custo_id: cartao.centro_custo_id ?? null,
                         status: 'PENDENTE',
+                        id_parcelamento: idParcelamento,
                         numero_parcela: i + 1
                     };
                 });

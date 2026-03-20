@@ -24,10 +24,13 @@ interface Lancamento {
   data_competencia?: string;
   competencia?: string; previsto?: boolean;
   status: 'PAGO' | 'PENDENTE' | 'EM ABERTO'; ipp: boolean;
+  observacao?: string;
+  conciliado?: boolean;
   origem?: string;
   plano_contas_id: number; entidade_id?: number; conta_id?: number;
   cartao_id?: number; centro_custo_id?: number; anexos: Anexo[];
   numero_parcela?: number;
+  id_parcelamento?: string;
 }
 
 interface ToastItem {
@@ -64,6 +67,15 @@ const getTodayLocalYmd = () => {
   return `${y}-${m}-${d}`;
 };
 
+const getTomorrowLocalYmd = () => {
+  const now = new Date();
+  now.setDate(now.getDate() + 1);
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 const getLocalYmdDaysAgo = (days: number) => {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -71,6 +83,24 @@ const getLocalYmdDaysAgo = (days: number) => {
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const isWeekend = (date: Date) => {
+  const day = date.getDay();
+  return day === 0 || day === 6;
+};
+
+const toNextBusinessDay = (ymd: string) => {
+  const [year, month, day] = String(ymd || '').split('-').map(Number);
+  if (!year || !month || !day) return ymd;
+  const dt = new Date(year, month - 1, day);
+  while (isWeekend(dt)) {
+    dt.setDate(dt.getDate() + 1);
+  }
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 };
 
@@ -436,6 +466,13 @@ export function Lancamentos() {
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [filesToUpload, setFilesToUpload] = useState<FileList | null>(null);
+  const [initialDrawerFormSnapshot, setInitialDrawerFormSnapshot] = useState('');
+  const [initialScopedFields, setInitialScopedFields] = useState({ descricao: '', plano_contas_id: '', data_vencimento: '' });
+  const [parcelasSerie, setParcelasSerie] = useState<Lancamento[]>([]);
+  const [parcelasSerieLoading, setParcelasSerieLoading] = useState(false);
+  const [parcelasVencimentosEdit, setParcelasVencimentosEdit] = useState<Record<number, string>>({});
+  const [parcelasEscopoEdicao, setParcelasEscopoEdicao] = useState<'ESTA' | 'PROXIMAS' | 'TODAS'>('ESTA');
+  const [ajustarParaDiaUtil, setAjustarParaDiaUtil] = useState(false);
   const [newEntityData, setNewEntityData] = useState<QuickEntityFormState>(initialQuickEntityData);
   const [entityCepLoading, setEntityCepLoading] = useState(false);
   const [entityCepFeedback, setEntityCepFeedback] = useState<string | null>(null);
@@ -444,7 +481,7 @@ export function Lancamentos() {
     id: null, descricao: '', valor_previsto: '', data_vencimento: '',
     tipo: 'DESPESA', plano_contas_id: '', centro_custo_id: '', entidade_id: '',
     conta_id: '', cartao_id: '', status: 'PENDENTE', 
-    valor_pago: '', data_pagamento: '', ipp: false, previsto: true, competencia: '',
+    valor_pago: '', data_pagamento: '', ipp: false, previsto: true, competencia: '', observacao: '',
     is_parcelado: false, qtd_parcelas: 2, modo_calculo: 'TOTAL', competencia_modo_parcelamento: 'POR_PARCELA', anexos: []
   });
 
@@ -466,6 +503,112 @@ export function Lancamentos() {
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  const buildDrawerFormSnapshot = (data: any) => JSON.stringify({
+    id: data.id || null,
+    descricao: data.descricao || '',
+    valor_previsto: String(data.valor_previsto || ''),
+    data_vencimento: data.data_vencimento || '',
+    tipo: data.tipo || 'DESPESA',
+    plano_contas_id: String(data.plano_contas_id || ''),
+    centro_custo_id: String(data.centro_custo_id || ''),
+    entidade_id: String(data.entidade_id || ''),
+    conta_id: String(data.conta_id || ''),
+    cartao_id: String(data.cartao_id || ''),
+    status: data.status || 'PENDENTE',
+    valor_pago: String(data.valor_pago || ''),
+    data_pagamento: data.data_pagamento || '',
+    previsto: data.previsto ?? true,
+    competencia: data.competencia || '',
+    observacao: data.observacao || '',
+    is_parcelado: Boolean(data.is_parcelado),
+    qtd_parcelas: Number(data.qtd_parcelas || 2),
+    modo_calculo: data.modo_calculo || 'TOTAL',
+    competencia_modo_parcelamento: data.competencia_modo_parcelamento || 'POR_PARCELA',
+  });
+
+  const hasUnsavedDrawerChanges = useMemo(() => {
+    if (!showDrawer) return false;
+    if (!initialDrawerFormSnapshot) return false;
+    if (filesToUpload && filesToUpload.length > 0) return true;
+    return buildDrawerFormSnapshot(formData) !== initialDrawerFormSnapshot;
+  }, [showDrawer, initialDrawerFormSnapshot, formData, filesToUpload]);
+
+  const closeDrawerDirect = () => {
+    setShowDrawer(false);
+    setInitialDrawerFormSnapshot('');
+    setFilesToUpload(null);
+    setParcelasSerie([]);
+    setParcelasVencimentosEdit({});
+    setParcelasEscopoEdicao('ESTA');
+    setAjustarParaDiaUtil(false);
+    setInitialScopedFields({ descricao: '', plano_contas_id: '', data_vencimento: '' });
+  };
+
+  const sortedParcelasSerie = useMemo(() => {
+    return [...parcelasSerie].sort((a, b) => {
+      const parcelaA = Number(a.numero_parcela || 0);
+      const parcelaB = Number(b.numero_parcela || 0);
+      if (parcelaA !== parcelaB) return parcelaA - parcelaB;
+      return String(a.data_vencimento || '').localeCompare(String(b.data_vencimento || ''));
+    });
+  }, [parcelasSerie]);
+
+  const currentParcelaNumber = useMemo(() => {
+    if (formData?.numero_parcela) return Number(formData.numero_parcela);
+    const idx = sortedParcelasSerie.findIndex((p) => Number(p.id) === Number(formData?.id));
+    return idx >= 0 ? idx + 1 : 1;
+  }, [formData?.id, formData?.numero_parcela, sortedParcelasSerie]);
+
+  const currentParcelaTotal = useMemo(() => {
+    if (sortedParcelasSerie.length > 1) return sortedParcelasSerie.length;
+    if (formData?.qtd_parcelas && Number(formData.qtd_parcelas) > 1) return Number(formData.qtd_parcelas);
+    return 1;
+  }, [sortedParcelasSerie.length, formData?.qtd_parcelas]);
+
+  const isEditingParcelado = useMemo(() => {
+    return isEditing && !!formData?.id_parcelamento && currentParcelaTotal > 1;
+  }, [isEditing, formData?.id_parcelamento, currentParcelaTotal]);
+
+  const loadParcelasSerie = async (parcelamentoId?: string) => {
+    if (!parcelamentoId) {
+      setParcelasSerie([]);
+      setParcelasVencimentosEdit({});
+      return;
+    }
+    setParcelasSerieLoading(true);
+    try {
+      const res = await api.get(`/lancamentos/parcelamento/${parcelamentoId}`);
+      const serie = Array.isArray(res.data) ? res.data : [];
+      setParcelasSerie(serie);
+      setParcelasVencimentosEdit(
+        serie.reduce((acc: Record<number, string>, item: Lancamento) => {
+          acc[item.id] = item.data_vencimento;
+          return acc;
+        }, {}),
+      );
+    } catch {
+      setParcelasSerie([]);
+      setParcelasVencimentosEdit({});
+      pushToast('error', 'Não foi possível carregar as parcelas desta série.');
+    } finally {
+      setParcelasSerieLoading(false);
+    }
+  };
+
+  const requestCloseDrawer = async () => {
+    if (saving) return;
+    if (!hasUnsavedDrawerChanges) {
+      closeDrawerDirect();
+      return;
+    }
+    const shouldSave = window.confirm('Você alterou informações e ainda não salvou. Você deseja salvar a informação antes de sair?');
+    if (shouldSave) {
+      await handleSave();
+      return;
+    }
+    closeDrawerDirect();
+  };
 
   useEffect(() => {
     localStorage.setItem('lancamentos.filtrosRailCollapsed', filtrosRailCollapsed ? '1' : '0');
@@ -633,6 +776,14 @@ export function Lancamentos() {
     return categorias.find(c => c.id === lancamento.plano_contas_id)?.nome || '-';
   };
 
+  const isContaAtiva = (conta: any) => String(conta?.status || 'ATIVO').toUpperCase() === 'ATIVO';
+
+  const contasAtivas = useMemo(() => contas.filter((conta) => isContaAtiva(conta)), [contas]);
+
+  const getContasAtivasByCentro = (centroCustoId?: string | number | null) => {
+    return contasAtivas.filter((conta) => !centroCustoId || String(conta.centro_custo_id) === String(centroCustoId));
+  };
+
   const computeCartaoVencimento = (purchaseDate?: string, cartaoId?: string) => {
     if (!purchaseDate || !cartaoId) return null;
     const cartao = cartoes.find(c => String(c.id) === String(cartaoId));
@@ -701,6 +852,37 @@ export function Lancamentos() {
     nextParams.delete('origem');
     setSearchParams(nextParams, { replace: true });
   }, [searchParams, setSearchParams, contas.length]);
+
+  useEffect(() => {
+    const editarIdParam = Number(searchParams.get('editar_id') || '');
+    if (!Number.isFinite(editarIdParam) || editarIdParam <= 0) return;
+    if (!auxLoadedRef.current) return;
+
+    let cancelled = false;
+    const openEditById = async () => {
+      try {
+        const res = await api.get(`/lancamentos/${editarIdParam}`);
+        if (cancelled) return;
+        openDrawer(res.data);
+      } catch (error) {
+        console.error(error);
+        if (!cancelled) {
+          pushToast('error', 'Não foi possível abrir o lançamento para edição.');
+        }
+      } finally {
+        if (cancelled) return;
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('editar_id');
+        nextParams.delete('origem');
+        setSearchParams(nextParams, { replace: true });
+      }
+    };
+
+    void openEditById();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, setSearchParams]);
 
   async function loadAuxData() {
     if (auxLoadedRef.current) return;
@@ -869,7 +1051,9 @@ export function Lancamentos() {
 
       // 3. Filtros Rápidos
       const hoje = getTodayLocalYmd();
+      const amanha = getTomorrowLocalYmd();
       if (filtroRapido === 'HOJE' && l.data_vencimento !== hoje) return false;
+      if (filtroRapido === 'AMANHA' && l.data_vencimento !== amanha) return false;
       if (filtroRapido === 'IPP' && !l.ipp) return false;
       if (filtroRapido === 'ATRASADO' && !isLancamentoAtrasado(l)) return false;
       if (filtroRapido === 'EM_ABERTO' && l.status === 'PAGO') return false;
@@ -897,6 +1081,16 @@ export function Lancamentos() {
   const contasFiltradas = useMemo(() => {
     return contas.filter(c => !centroCustoFiltro || String(c.centro_custo_id) === String(centroCustoFiltro));
   }, [contas, centroCustoFiltro]);
+
+  useEffect(() => {
+    const activeIds = new Set(contasAtivas.map((item) => Number(item.id)));
+    setFiltrosAvancados((prev) => {
+      if (prev.contaIds.size === 0) return prev;
+      const filteredContaIds = new Set(Array.from(prev.contaIds).filter((id) => activeIds.has(Number(id))));
+      if (filteredContaIds.size === prev.contaIds.size) return prev;
+      return { ...prev, contaIds: filteredContaIds };
+    });
+  }, [contasAtivas]);
 
   const saldoContasTotal = useMemo(() => {
     return contasFiltradas.reduce((acc, conta) => acc + getContaSaldo(conta), 0);
@@ -1018,6 +1212,11 @@ export function Lancamentos() {
     });
   };
 
+  useEffect(() => {
+    if (!formData?.id || !formData?.data_vencimento || sortedParcelasSerie.length === 0) return;
+    setParcelasVencimentosEdit((prev) => ({ ...prev, [formData.id]: formData.data_vencimento }));
+  }, [formData?.id, formData?.data_vencimento, sortedParcelasSerie.length]);
+
   const handleCompetenciaChange = (value: string) => {
     autoCompetenciaRef.current = false;
     setFormData((prev: any) => ({ ...prev, competencia: value }));
@@ -1078,35 +1277,53 @@ export function Lancamentos() {
   };
   
   function openDrawer(l?: Lancamento) {
+    let nextFormData: any;
     if(l) {
       if (isTransferencia(l)) return;
       setIsEditing(true);
       autoPagamentoRef.current = !l.data_pagamento;
       autoCompetenciaRef.current = !l.competencia;
-      setFormData({
+      nextFormData = {
         ...l, 
         data_vencimento: l.cartao_id ? (l.data_competencia || l.data_vencimento) : l.data_vencimento,
         conta_id: l.conta_id||'', cartao_id: l.cartao_id||'', centro_custo_id: l.centro_custo_id||'', entidade_id: l.entidade_id||'',
         plano_contas_id: l.plano_contas_id, valor_previsto: l.valor_previsto, 
         valor_pago: l.valor_pago||l.valor_previsto, data_pagamento: l.data_pagamento||l.data_vencimento,
         previsto: l.previsto ?? true,
+        observacao: l.observacao || '',
         competencia: l.competencia || formatCompetencia(l.data_competencia || l.data_vencimento),
         competencia_modo_parcelamento: 'POR_PARCELA'
+      };
+      setInitialScopedFields({
+        descricao: String(l.descricao || ''),
+        plano_contas_id: String(l.plano_contas_id || ''),
+        data_vencimento: String(l.data_vencimento || ''),
       });
+      setParcelasEscopoEdicao('ESTA');
+      setAjustarParaDiaUtil(false);
+      void loadParcelasSerie(l.id_parcelamento);
     } else {
       setIsEditing(false);
       autoPagamentoRef.current = true;
       autoCompetenciaRef.current = true;
-      setFormData({
+      nextFormData = {
         id: null, descricao: '', valor_previsto: '', data_vencimento: new Date().toISOString().split('T')[0],
         tipo: 'DESPESA', plano_contas_id: '', 
         centro_custo_id: centroCustoFiltro || '', 
         entidade_id: '', conta_id: '', cartao_id: '',
         status: 'PENDENTE', valor_pago: '', data_pagamento: new Date().toISOString().split('T')[0], ipp: false, previsto: true,
+        observacao: '',
         competencia: formatCompetencia(new Date().toISOString().split('T')[0]),
         is_parcelado: false, qtd_parcelas: 2, modo_calculo: 'TOTAL', competencia_modo_parcelamento: 'POR_PARCELA', anexos: []
-      });
+      };
+      setInitialScopedFields({ descricao: '', plano_contas_id: '', data_vencimento: '' });
+      setParcelasSerie([]);
+      setParcelasVencimentosEdit({});
+      setParcelasEscopoEdicao('ESTA');
+      setAjustarParaDiaUtil(false);
     }
+    setFormData(nextFormData);
+    setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(nextFormData));
     setFilesToUpload(null);
     setShowDrawer(true);
   }
@@ -1170,8 +1387,8 @@ export function Lancamentos() {
     } finally { setSaving(false); }
   }
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSave(e?: React.FormEvent) {
+    e?.preventDefault();
     if(!formData.descricao || !formData.valor_previsto || !formData.plano_contas_id) {
       pushToast('info', 'Preencha os campos obrigatórios.');
       return;
@@ -1220,6 +1437,7 @@ export function Lancamentos() {
 
       let id = formData.id;
       if (formData.is_parcelado && !id) {
+        const idParcelamento = crypto.randomUUID();
         const lista = [];
         const qtd = formData.qtd_parcelas;
         const [ano, mes, dia] = formData.data_vencimento.split('-').map(Number);
@@ -1240,6 +1458,7 @@ export function Lancamentos() {
             data_vencimento: vencimentoParcela,
             data_competencia: competenciaBase,
             competencia: formatCompetencia(competenciaBase),
+            id_parcelamento: idParcelamento,
             descricao: `${payload.descricao} (${i+1}/${qtd})`, numero_parcela: i+1,
             status: (i===0 && payload.status==='PAGO') ? 'PAGO' : 'PENDENTE',
             valor_pago: (i===0 && payload.status==='PAGO') ? payload.valor_pago : 0
@@ -1260,7 +1479,74 @@ export function Lancamentos() {
 
         await api.post('/lancamentos/bulk', lista);
       } else {
-        if(id) await api.put(`/lancamentos/${id}`, payload);
+        if (id && isEditingParcelado) {
+          const scopedDescricaoChanged = String(formData.descricao || '') !== String(initialScopedFields.descricao || '');
+          const scopedCategoriaChanged = String(formData.plano_contas_id || '') !== String(initialScopedFields.plano_contas_id || '');
+          const scopedVencimentoChanged = String(formData.data_vencimento || '') !== String(initialScopedFields.data_vencimento || '');
+          const hasScopedChange = scopedDescricaoChanged || scopedCategoriaChanged || scopedVencimentoChanged;
+
+          const serieOrdenada = sortedParcelasSerie.length > 0 ? sortedParcelasSerie : [formData as Lancamento];
+          const shouldApplyScoped = hasScopedChange && serieOrdenada.length > 1;
+
+          if (!shouldApplyScoped) {
+            await api.put(`/lancamentos/${id}`, payload);
+          } else {
+            const parcelaAtual = Number(currentParcelaNumber || 1);
+            const parcelasAlvo = serieOrdenada.filter((item) => {
+              const numero = Number(item.numero_parcela || 0);
+              if (parcelasEscopoEdicao === 'TODAS') return true;
+              if (parcelasEscopoEdicao === 'PROXIMAS') return numero >= parcelaAtual;
+              return Number(item.id) === Number(id);
+            });
+
+            const updatePromises = parcelasAlvo.map(async (item) => {
+              const rowVencimento = parcelasVencimentosEdit[item.id] || item.data_vencimento;
+              const nextVencimento = scopedVencimentoChanged
+                ? (ajustarParaDiaUtil ? toNextBusinessDay(rowVencimento) : rowVencimento)
+                : item.data_vencimento;
+
+              const rowPayload: any = {
+                conta_id: item.conta_id || null,
+                centro_custo_id: item.centro_custo_id || null,
+                entidade_id: item.entidade_id || null,
+                cartao_id: item.cartao_id || null,
+                tipo: item.tipo,
+                previsto: item.previsto ?? true,
+                status: item.status,
+                valor_previsto: Number(item.valor_previsto || 0),
+                valor_pago: Number(item.valor_pago || 0),
+                data_pagamento: item.data_pagamento || null,
+                descricao: scopedDescricaoChanged ? payload.descricao : item.descricao,
+                plano_contas_id: scopedCategoriaChanged ? payload.plano_contas_id : item.plano_contas_id,
+                data_vencimento: nextVencimento,
+                competencia: formatCompetencia(nextVencimento),
+                data_competencia: nextVencimento,
+                observacao: item.observacao || null,
+                conciliado: item.conciliado ?? false,
+                ipp: item.ipp ?? false,
+                id_parcelamento: item.id_parcelamento || formData.id_parcelamento || null,
+                numero_parcela: item.numero_parcela || null,
+              };
+
+              if (Number(item.id) === Number(id)) {
+                rowPayload.status = payload.status;
+                rowPayload.valor_pago = payload.valor_pago;
+                rowPayload.data_pagamento = payload.data_pagamento;
+                rowPayload.conta_id = payload.conta_id;
+                rowPayload.cartao_id = payload.cartao_id;
+                rowPayload.centro_custo_id = payload.centro_custo_id;
+                rowPayload.entidade_id = payload.entidade_id;
+                rowPayload.previsto = payload.previsto;
+                rowPayload.ipp = payload.ipp;
+                rowPayload.observacao = payload.observacao;
+              }
+
+              await api.put(`/lancamentos/${item.id}`, rowPayload);
+            });
+
+            await Promise.all(updatePromises);
+          }
+        } else if(id) await api.put(`/lancamentos/${id}`, payload);
         else { const r = await api.post('/lancamentos/', payload); id = r.data.id; }
         
         if(filesToUpload && id) {
@@ -1269,7 +1555,7 @@ export function Lancamentos() {
           await api.post(`/lancamentos/${id}/anexos`, fd);
         }
       }
-      setShowDrawer(false); 
+      closeDrawerDirect();
       // Recarrega inteligente
       if(filtrosAvancados.dataModo === 'PAGAMENTO' && (filtrosAvancados.dataInicio || filtrosAvancados.dataFim)) loadLancamentos(undefined, undefined, { force: true, skipFallback: true });
       else if(filtrosAvancados.dataInicio) loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { force: true });
@@ -1312,6 +1598,7 @@ export function Lancamentos() {
   const quickFilterOptions = [
     {id: null, label: 'Todos'},
     {id: 'HOJE', label: 'Vencem Hoje', icon: CalendarClock},
+    {id: 'AMANHA', label: 'Vcto Amanhã', icon: CalendarClock},
     {id: 'ATRASADO', label: 'Atrasados', icon: AlertCircle},
     {id: 'IPP', label: 'IPP', icon: LayoutGrid},
     {id: 'EM_ABERTO', label: 'Em Aberto', icon: Layers}
@@ -1535,15 +1822,17 @@ export function Lancamentos() {
                 <div>
                   <label className="mb-2 block text-xs font-bold uppercase text-slate-400">Contas e bancos</label>
                   <div className="flex flex-wrap gap-2">
-                    {contas.map(c => {
+                    {contasAtivas.map(c => {
                       const active = filtrosAvancados.contaIds.has(c.id);
+                      const logo = getFullLogoUrl(c.logo_url);
                       return (
                         <button key={c.id} onClick={()=>{
                           const newSet = new Set(filtrosAvancados.contaIds);
                           if(active) newSet.delete(c.id); else newSet.add(c.id);
                           setFiltrosAvancados({...filtrosAvancados, contaIds:newSet});
                         }} className={`rounded-full border px-3 py-1.5 text-xs font-bold transition flex items-center gap-1 ${active ? 'border-emerald-600 bg-emerald-600/15 text-emerald-600 dark:text-emerald-400' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-800'}`}>
-                          <Wallet className="w-3 h-3"/> {c.nome}
+                          <BankAvatar logoUrl={logo} bankName={c.banco} accountName={c.nome} integrationType={c.tipo_integracao} size="sm" className="h-4 w-4" imageClassName="rounded-full" fallbackClassName="rounded-full border-0 shadow-none" />
+                          {c.nome}
                         </button>
                       );
                     })}
@@ -1893,15 +2182,17 @@ export function Lancamentos() {
            <div>
                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Contas / Bancos</label>
                <div className="flex flex-wrap gap-2">
-                   {contas.map(c => {
+                 {contasAtivas.map(c => {
                        const active = filtrosAvancados.contaIds.has(c.id);
+                   const logo = getFullLogoUrl(c.logo_url);
                        return (
                            <button key={c.id} onClick={()=>{
                                const newSet = new Set(filtrosAvancados.contaIds);
                                if(active) newSet.delete(c.id); else newSet.add(c.id);
                                setFiltrosAvancados({...filtrosAvancados, contaIds:newSet});
                            }} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1 ${active ? 'bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border-emerald-600' : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
-                               <Wallet className="w-3 h-3"/> {c.nome}
+                       <BankAvatar logoUrl={logo} bankName={c.banco} accountName={c.nome} integrationType={c.tipo_integracao} size="sm" className="h-4 w-4" imageClassName="rounded-full" fallbackClassName="rounded-full border-0 shadow-none" />
+                       {c.nome}
                            </button>
                        );
                    })}
@@ -1928,13 +2219,13 @@ export function Lancamentos() {
                         <div>
                         <label className="mb-2 block text-xs font-bold text-slate-400 uppercase">Origem</label>
                         <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                          {contas.map((conta) => renderTransferContaButton(conta, 'origem'))}
+                          {contasAtivas.map((conta) => renderTransferContaButton(conta, 'origem'))}
                         </div>
                         </div>
                         <div>
                         <label className="mb-2 block text-xs font-bold text-slate-400 uppercase">Destino</label>
                         <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                          {contas.map((conta) => renderTransferContaButton(conta, 'destino'))}
+                          {contasAtivas.map((conta) => renderTransferContaButton(conta, 'destino'))}
                         </div>
                         </div>
                     </div>
@@ -2059,7 +2350,7 @@ export function Lancamentos() {
       {/* DRAWER NOVO/EDITAR */}
       {showDrawer && (
         <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={()=>setShowDrawer(false)}></div>
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => void requestCloseDrawer()}></div>
           <div className="relative w-full max-w-xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700">
             <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
               <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing?'Editar':'Novo'} Lançamento</h2>
@@ -2089,7 +2380,7 @@ export function Lancamentos() {
                     Duplicar
                   </button>
                 )}
-                <button onClick={()=>setShowDrawer(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-400"><X className="w-5 h-5"/></button>
+                <button onClick={() => void requestCloseDrawer()} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-400"><X className="w-5 h-5"/></button>
               </div>
             </div>
             
@@ -2100,6 +2391,33 @@ export function Lancamentos() {
               <div className="grid grid-cols-2 gap-4">
                 <InputDark label={formData.cartao_id ? "Data da compra" : "Vencimento"} type="date" value={formData.data_vencimento} onChange={(e:any)=>handleVencimentoChange(e.target.value)} />
                 <CurrencyInputDark label="Valor (R$)" className="font-bold text-lg text-blue-400" value={formData.valor_previsto} onValueChange={(value:string)=>handleValorPrevistoChange(value)} />
+              </div>
+
+              <div className="space-y-1">
+                <InputDark
+                  label="Código de barras"
+                  value={formData.observacao || ''}
+                  onChange={(e:any)=>setFormData({...formData, observacao:e.target.value})}
+                  placeholder="Cole aqui o código de barras para facilitar copiar e colar no pagamento"
+                />
+                {formData.observacao && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(String(formData.observacao || ''));
+                          pushToast('success', 'Código de barras copiado.');
+                        } catch {
+                          pushToast('error', 'Não foi possível copiar o código de barras.');
+                        }
+                      }}
+                      className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Copiar código
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -2188,6 +2506,85 @@ export function Lancamentos() {
                 )}
               </div>
 
+              {isEditingParcelado && (
+                <div className="bg-amber-50/70 dark:bg-amber-900/10 p-4 rounded-xl border border-amber-200/80 dark:border-amber-700/60 space-y-3">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300">Série de Parcelas</p>
+                      <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">Parcela atual {currentParcelaNumber}/{currentParcelaTotal}</p>
+                    </div>
+                    <div className="text-xs text-amber-700 dark:text-amber-300">Escopo de alterações</div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { id: 'ESTA', label: 'Só esta' },
+                      { id: 'PROXIMAS', label: 'Esta e próximas' },
+                      { id: 'TODAS', label: 'Todas' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setParcelasEscopoEdicao(opt.id as 'ESTA' | 'PROXIMAS' | 'TODAS')}
+                        className={`py-2 rounded-lg text-xs font-bold border transition ${parcelasEscopoEdicao === opt.id ? 'bg-amber-500 text-white border-amber-500 shadow' : 'bg-white dark:bg-slate-800 border-amber-200/80 dark:border-amber-700/50 text-amber-700 dark:text-amber-300 hover:bg-amber-100/70 dark:hover:bg-amber-900/20'}`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <label className="flex items-center gap-2 text-xs text-amber-800 dark:text-amber-200">
+                    <input
+                      type="checkbox"
+                      checked={ajustarParaDiaUtil}
+                      onChange={(e) => setAjustarParaDiaUtil(e.target.checked)}
+                      className="accent-amber-500"
+                    />
+                    Ajustar vencimentos para próximo dia útil ao salvar
+                  </label>
+
+                  <div className="rounded-lg border border-amber-200/80 dark:border-amber-700/50 overflow-hidden">
+                    <div className="max-h-52 overflow-y-auto">
+                      {parcelasSerieLoading ? (
+                        <div className="p-3 text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Carregando parcelas...
+                        </div>
+                      ) : (
+                        <table className="w-full text-xs">
+                          <thead className="bg-amber-100/70 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 sticky top-0">
+                            <tr>
+                              <th className="text-left px-3 py-2">Parcela</th>
+                              <th className="text-left px-3 py-2">Vencimento</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sortedParcelasSerie.map((item) => (
+                              <tr key={item.id} className={`${Number(item.id) === Number(formData.id) ? 'bg-amber-200/50 dark:bg-amber-700/20' : 'bg-white dark:bg-slate-900'} border-t border-amber-100 dark:border-amber-900/30`}>
+                                <td className="px-3 py-2 font-semibold text-amber-900 dark:text-amber-100">{item.numero_parcela || '-'}</td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="date"
+                                    value={parcelasVencimentosEdit[item.id] || item.data_vencimento || ''}
+                                    onChange={(e) => setParcelasVencimentosEdit((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                    className="w-full px-2 py-1 rounded border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-100"
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                            {sortedParcelasSerie.length === 0 && (
+                              <tr>
+                                <td colSpan={2} className="px-3 py-3 text-amber-700 dark:text-amber-300">Não há outras parcelas identificadas para esta série.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* PAGAMENTO */}
               <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                 <ToggleSimNao
@@ -2250,14 +2647,21 @@ export function Lancamentos() {
                 </div>
 
                 <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-slate-50 dark:bg-slate-800/30 space-y-4">
+                  {(() => {
+                    const contasAtivasNoCentro = getContasAtivasByCentro(formData.centro_custo_id);
+                    return (
+                      <>
                   {/* CONTAS */}
                   <div>
                     <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><Wallet className="w-3 h-3"/> Contas Bancárias</p>
                     <div className="grid grid-cols-2 gap-2">
-                      {contas.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).length === 0 && <span className="text-xs text-slate-500 italic col-span-2">Nenhuma conta neste centro.</span>}
-                      {contas.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).map(c=>(
+                      {contasAtivasNoCentro.length === 0 && <span className="text-xs text-slate-500 italic col-span-2">Nenhuma conta ativa neste centro.</span>}
+                      {contasAtivasNoCentro.map(c=>(
                         <div key={c.id} onClick={()=>toggleConta(c.id)} className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${formData.conta_id===c.id ? 'bg-blue-600 text-white border-blue-500 shadow-md' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-slate-400'}`}>
-                          <div className={`p-1 rounded ${formData.conta_id===c.id?'bg-white/20':'bg-slate-100 dark:bg-slate-700 text-emerald-500'}`}><Wallet className="w-3 h-3"/></div> {c.nome}
+                          <div className={`p-1 rounded ${formData.conta_id===c.id?'bg-white/20':'bg-slate-100 dark:bg-slate-700 text-emerald-500'}`}>
+                            <BankAvatar logoUrl={getFullLogoUrl(c.logo_url)} bankName={c.banco} accountName={c.nome} integrationType={c.tipo_integracao} size="sm" className="h-4 w-4" imageClassName="rounded-sm" fallbackClassName="rounded-sm border-0 shadow-none" />
+                          </div>
+                          {c.nome}
                         </div>
                       ))}
                     </div>
@@ -2274,6 +2678,9 @@ export function Lancamentos() {
                       ))}
                     </div>
                   </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -2284,21 +2691,21 @@ export function Lancamentos() {
                 {formData.anexos && formData.anexos.length > 0 && (
                     <div className="grid grid-cols-2 gap-2 mb-3">
                         {formData.anexos.map((anexo: Anexo) => (
-                            <div key={anexo.id} className="flex items-center gap-2 p-2 bg-slate-800 border border-slate-600 rounded-lg text-xs group hover:border-blue-500 transition">
+                            <div key={anexo.id} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg text-xs group hover:border-blue-500 transition">
                                 {getFileIcon(anexo.nome_arquivo)}
-                                <a href={anexo.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate hover:text-blue-400 font-medium">{anexo.nome_arquivo}</a>
-                                <a href={anexo.url} download target="_blank" className="p-1 text-slate-500 hover:text-white rounded hover:bg-slate-700"><Download className="w-3 h-3"/></a>
+                                <a href={anexo.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-slate-700 dark:text-slate-200 hover:text-blue-400 font-medium">{anexo.nome_arquivo}</a>
+                                <a href={anexo.url} download target="_blank" className="p-1 text-slate-500 hover:text-slate-700 dark:hover:text-white rounded hover:bg-slate-200 dark:hover:bg-slate-700"><Download className="w-3 h-3"/></a>
                             </div>
                         ))}
                     </div>
                 )}
 
-                <div className="border-2 border-dashed border-slate-600 rounded-2xl p-8 text-center hover:border-blue-500 relative cursor-pointer bg-slate-800/40 hover:bg-slate-800 transition group shadow-sm">
+                <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-2xl p-8 text-center hover:border-blue-500 relative cursor-pointer bg-slate-100 dark:bg-slate-800/40 hover:bg-slate-200 dark:hover:bg-slate-800 transition group shadow-sm">
                   <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.xls,.xlsx,.ppt,.pptx" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={e=>setFilesToUpload(e.target.files)}/>
                   <UploadCloud className="w-10 h-10 mx-auto text-slate-500 mb-3 group-hover:text-blue-500 transition-colors"/>
-                  <p className="text-base font-semibold text-slate-300">Arraste ou clique para anexar</p>
+                  <p className="text-base font-semibold text-slate-600 dark:text-slate-300">Arraste ou clique para anexar</p>
                   <p className="text-xs text-slate-500 mt-1">PDF, Imagens, Excel, PowerPoint</p>
-                  <div className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-full bg-slate-700 text-slate-100 text-sm font-bold group-hover:bg-blue-600 transition-colors">
+                  <div className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-full bg-slate-600 dark:bg-slate-700 text-slate-100 text-sm font-bold group-hover:bg-blue-600 transition-colors">
                     Selecionar arquivos
                   </div>
                   {filesToUpload && <p className="text-xs text-blue-400 font-bold mt-2">{filesToUpload.length} novos arquivos</p>}
@@ -2306,9 +2713,15 @@ export function Lancamentos() {
               </div>
 
             </div>
-            <div className="p-4 border-t border-slate-700 bg-slate-800 flex justify-end gap-3">
-              <button onClick={()=>setShowDrawer(false)} className="px-5 py-2.5 rounded-lg text-slate-400 font-bold hover:bg-slate-700 transition">Cancelar</button>
-              <button onClick={handleSave} disabled={saving} className="px-8 py-2.5 rounded-lg text-white font-bold shadow-lg flex items-center gap-2 hover:brightness-110 disabled:opacity-50" style={{backgroundColor:primaryColor}}>{saving?<Loader2 className="animate-spin w-4 h-4"/>:<Check className="w-4 h-4"/>} Salvar</button>
+            <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 flex justify-end gap-3">
+              <button onClick={() => void requestCloseDrawer()} className="px-5 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition">Cancelar</button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className={`px-8 py-2.5 rounded-lg font-bold shadow-lg flex items-center gap-2 transition disabled:opacity-50 ${hasUnsavedDrawerChanges ? 'bg-yellow-400 text-slate-950 hover:bg-yellow-300 ring-2 ring-yellow-300/70 animate-pulse' : 'bg-slate-200 text-slate-800 hover:bg-slate-100 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600'}`}
+              >
+                {saving?<Loader2 className="animate-spin w-4 h-4"/>:<Check className="w-4 h-4"/>} Salvar
+              </button>
             </div>
           </div>
         </div>
@@ -2325,7 +2738,7 @@ export function Lancamentos() {
                 <p className="text-xs font-bold text-slate-400 uppercase mb-2">Conta de pagamento</p>
                 <select className="w-full p-3 rounded-lg border border-slate-600 bg-slate-900 text-white" value={bulkPayData.conta_id} onChange={e=>setBulkPayData({...bulkPayData, conta_id: e.target.value})}>
                   <option value="">Selecionar...</option>
-                  {contas.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
+                  {contasAtivas.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
                 </select>
               </div>
               <div>

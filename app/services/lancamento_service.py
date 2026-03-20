@@ -44,6 +44,41 @@ class LancamentoService:
                 detail=f"Interessado é obrigatório para {operation} de lançamento.",
             )
 
+    def _ensure_id_parcelamento(self, payload: dict) -> None:
+        if payload.get("numero_parcela") and not payload.get("id_parcelamento"):
+            payload["id_parcelamento"] = str(uuid.uuid4())
+
+    def _normalize_bulk_parcelamento_ids(self, payloads: List[dict]) -> None:
+        grouped_ids: dict[str, str] = {}
+        parcela_pattern = re.compile(r"^(.+?)\s*\((\d+)/(\d+)\)\s*$")
+
+        for payload in payloads:
+            if payload.get("id_parcelamento") or not payload.get("numero_parcela"):
+                continue
+
+            descricao = str(payload.get("descricao") or "").strip()
+            match = parcela_pattern.match(descricao)
+            if not match:
+                payload["id_parcelamento"] = str(uuid.uuid4())
+                continue
+
+            base_desc = match.group(1).strip().lower()
+            total = match.group(3)
+            group_key = "|".join([
+                base_desc,
+                total,
+                str(payload.get("tipo") or ""),
+                str(payload.get("plano_contas_id") or ""),
+                str(payload.get("entidade_id") or ""),
+                str(payload.get("conta_id") or ""),
+                str(payload.get("cartao_id") or ""),
+                str(payload.get("centro_custo_id") or ""),
+            ])
+
+            if group_key not in grouped_ids:
+                grouped_ids[group_key] = str(uuid.uuid4())
+            payload["id_parcelamento"] = grouped_ids[group_key]
+
     def _aplicar_regras_negocio(self, lancamento: Lancamento):
         """
         Centraliza a lógica:
@@ -339,6 +374,8 @@ class LancamentoService:
         if payload.get("status") == "PAGO" and not payload.get("data_pagamento"):
             payload["data_pagamento"] = payload.get("data_vencimento")
 
+        self._ensure_id_parcelamento(payload)
+
         self._validate_entidade_required(payload, operation="criação")
 
         db_lancamento = Lancamento(**payload)
@@ -379,6 +416,14 @@ class LancamentoService:
         # Ordena por vencimento
         query = query.offset(skip).limit(limit).order_by(asc(Lancamento.data_vencimento))
         
+        return list(self.session.exec(query).all())
+
+    def listar_por_parcelamento(self, parcelamento_id: str, empresa_id: int) -> List[Lancamento]:
+        query = select(Lancamento).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.id_parcelamento == parcelamento_id,
+        ).order_by(asc(Lancamento.numero_parcela), asc(Lancamento.data_vencimento), asc(Lancamento.id))
         return list(self.session.exec(query).all())
 
     def update(self, lancamento_id: int, dados_atualizacao: LancamentoUpdate, empresa_id: int, user_id: int) -> Lancamento:
@@ -455,8 +500,10 @@ class LancamentoService:
 
     def criar_em_massa(self, lista_dados: List[LancamentoCreate], empresa_id: int, user_id: int) -> List[Lancamento]:
         novos_objetos = []
-        for dados in lista_dados:
-            payload = dados.model_dump()
+        payloads = [dados.model_dump() for dados in lista_dados]
+        self._normalize_bulk_parcelamento_ids(payloads)
+
+        for payload in payloads:
             payload.setdefault("previsto", True)
             if not payload.get("data_competencia"):
                 payload["data_competencia"] = payload.get("data_vencimento")
@@ -467,6 +514,8 @@ class LancamentoService:
 
             if payload.get("status") == "PAGO" and not payload.get("data_pagamento"):
                 payload["data_pagamento"] = payload.get("data_vencimento")
+
+            self._ensure_id_parcelamento(payload)
 
             self._validate_entidade_required(payload, operation="criação em massa")
 

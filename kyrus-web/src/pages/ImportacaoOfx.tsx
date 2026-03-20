@@ -77,6 +77,7 @@ interface EntidadeItem {
 interface LancamentoSugestao {
   plano_contas_id?: number | null;
   entidade_id?: number | null;
+  entidade_nome?: string | null;
 }
 
 interface RelacionamentoResumo {
@@ -133,6 +134,7 @@ interface LancamentoEditado extends LancamentoImportado {
   relacionar_apenas_atrasados: boolean;
   auto_preenchido: boolean;
   sugestao_acao_original: NonNullable<LancamentoImportado['sugestao_acao']>;
+  sugestao_confirmada: boolean;
 }
 
 type FeedbackState = {
@@ -186,9 +188,10 @@ function isConciliacaoAutomatica(acao?: LancamentoImportado['sugestao_acao']) {
 }
 
 function getSugestaoInicial(lanc: LancamentoImportado): NonNullable<LancamentoImportado['sugestao_acao']> {
-  if (lanc.sugestao_acao) return lanc.sugestao_acao;
+  if (lanc.sugestao_acao && lanc.sugestao_acao !== 'DESCARTAR') return lanc.sugestao_acao;
   if (lanc.lancamento_previsto_id) return 'BAIXAR_PREVISTO';
   if ((lanc.lancamentos_atrasados_ids || []).length > 0) return 'RELACIONAR_ATRASADOS';
+  if (lanc.duplicata_id) return 'IGNORAR_DUPLICATA';
   return 'CRIAR_NOVO';
 }
 
@@ -349,15 +352,22 @@ export function ImportacaoOfx() {
         setCategorias(catsRes.data || []);
         setEntidades(entRes.data || []);
 
+        const entidadesPorId = new Map<number, string>();
+        (entRes.data || []).forEach((ent) => {
+          entidadesPorId.set(Number(ent.id), String(ent.nome || ''));
+        });
+
         const map: Record<string, LancamentoSugestao> = {};
         (lancRes.data || []).forEach((lanc) => {
           const desc = normalizarDescricao(lanc.descricao);
           if (!desc) return;
           const key = `${lanc.tipo || ''}|${desc}`;
           if (!map[key]) {
+            const entidadeId = lanc.entidade_id != null ? Number(lanc.entidade_id) : null;
             map[key] = {
               plano_contas_id: lanc.plano_contas_id ?? null,
-              entidade_id: lanc.entidade_id ?? null,
+              entidade_id: entidadeId,
+              entidade_nome: entidadeId != null ? (entidadesPorId.get(entidadeId) || null) : null,
             };
           }
         });
@@ -551,10 +561,12 @@ export function ImportacaoOfx() {
         plano_contas_id,
         entidade_id,
         auto_preenchido,
+        interessado_sugerido: lanc.interessado_sugerido || sugestao.entidade_nome || null,
         sugestao_acao_original: sugestaoOriginal,
         sugestao_acao: lanc.sugestao_acao || sugestaoOriginal,
         lancamentos_atrasados_relacionados: [],
         relacionar_apenas_atrasados: sugestaoOriginal === 'RELACIONAR_ATRASADOS',
+        sugestao_confirmada: false,
       } as LancamentoEditado;
     });
 
@@ -585,7 +597,23 @@ export function ImportacaoOfx() {
 
   const updateLancamento = (linhaArquivo: number, patch: Partial<LancamentoEditado>) => {
     setLancamentosEditados((prev) => prev.map((item) => (
-      item.linha_arquivo === linhaArquivo ? { ...item, ...patch } : item
+      item.linha_arquivo === linhaArquivo
+        ? {
+          ...item,
+          ...patch,
+          sugestao_confirmada: patch.sugestao_acao === 'DESCARTAR'
+            ? false
+            : (
+              patch.sugestao_confirmada
+              ?? item.sugestao_confirmada
+              ?? false
+              || ('sugestao_acao' in patch)
+              || ('plano_contas_id' in patch)
+              || ('entidade_id' in patch)
+              || ('lancamentos_atrasados_relacionados' in patch)
+            ),
+        }
+        : item
     )));
   };
 
@@ -607,7 +635,7 @@ export function ImportacaoOfx() {
 
       const next = prev.map((item, index) => {
         if (item.linha_arquivo === linhaArquivo) {
-          return { ...item, plano_contas_id: categoriaId };
+          return { ...item, plano_contas_id: categoriaId, sugestao_confirmada: categoriaId != null ? true : item.sugestao_confirmada };
         }
         if (!devePropagar) return item;
 
@@ -616,7 +644,7 @@ export function ImportacaoOfx() {
         if (index <= currentIndex) return item;
         if (item.plano_contas_id != null) return item;
 
-        return { ...item, plano_contas_id: categoriaId };
+        return { ...item, plano_contas_id: categoriaId, sugestao_confirmada: categoriaId != null ? true : item.sugestao_confirmada };
       });
 
       if (devePropagar) {
@@ -891,12 +919,23 @@ export function ImportacaoOfx() {
               const valorClass = lanc.tipo === 'RECEITA' ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300';
               const descartado = lanc.sugestao_acao === 'DESCARTAR';
               const conciliacaoAutomatica = isConciliacaoAutomatica(lanc.sugestao_acao);
+              const conciliadoVisual = !descartado && (
+                (lanc.sugestao_acao === 'CRIAR_NOVO' && !!lanc.plano_contas_id)
+                || (lanc.sugestao_acao === 'BAIXAR_PREVISTO' && lanc.sugestao_confirmada)
+                || (lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' && lanc.sugestao_confirmada)
+                || (lanc.sugestao_acao === 'IGNORAR_DUPLICATA' && lanc.sugestao_confirmada)
+              );
 
               return (
-                <article key={`${lanc.linha_arquivo}-${lanc.movimento_uid || 'ofx'}`} className={`rounded-3xl border bg-white p-5 shadow-sm transition dark:bg-slate-900 ${descartado ? 'opacity-65' : ''} ${lanc.auto_preenchido ? 'border-emerald-200 dark:border-emerald-900/50' : 'border-slate-200 dark:border-slate-800'}`}>
+                <article key={`${lanc.linha_arquivo}-${lanc.movimento_uid || 'ofx'}`} className={`rounded-3xl border bg-white p-5 shadow-sm transition dark:bg-slate-900 ${descartado ? 'opacity-65' : ''} ${conciliadoVisual ? 'border-emerald-300 bg-emerald-50/30 dark:border-emerald-700/70 dark:bg-emerald-950/15' : 'border-slate-200 dark:border-slate-800'}`}>
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
+                        {conciliadoVisual ? (
+                          <span className="rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
+                            Conciliado
+                          </span>
+                        ) : null}
                         <span className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] ${acao.tone}`}>{acao.label}</span>
                         <span className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] ${lanc.tipo === 'RECEITA' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300' : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-300'}`}>{lanc.tipo}</span>
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">score {lanc.score_conciliacao || 0}</span>
@@ -910,6 +949,9 @@ export function ImportacaoOfx() {
                       </div>
 
                       <p className="max-w-3xl text-sm text-slate-600 dark:text-slate-300">{lanc.motivo_conciliacao || 'Movimento carregado para revisão.'}</p>
+                      {lanc.interessado_sugerido ? (
+                        <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Interessado sugerido: {lanc.interessado_sugerido}</p>
+                      ) : null}
                       <div className="flex flex-wrap gap-2 pt-1">
                         {descartado ? (
                           <>
@@ -919,6 +961,7 @@ export function ImportacaoOfx() {
                                 sugestao_acao: lanc.sugestao_acao_original,
                                 relacionar_apenas_atrasados: lanc.sugestao_acao_original === 'RELACIONAR_ATRASADOS',
                                 lancamentos_atrasados_relacionados: [],
+                                sugestao_confirmada: true,
                               })}
                               className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"
                             >
@@ -937,7 +980,7 @@ export function ImportacaoOfx() {
                         ) : lanc.lancamento_previsto_id ? (
                           <button
                             type="button"
-                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'BAIXAR_PREVISTO', relacionar_apenas_atrasados: false })}
+                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'BAIXAR_PREVISTO', relacionar_apenas_atrasados: false, sugestao_confirmada: true })}
                             className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'BAIXAR_PREVISTO' ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                           >
                             Baixar previsto
@@ -946,7 +989,7 @@ export function ImportacaoOfx() {
                         {!!lanc.lancamentos_atrasados_ids?.length ? (
                           <button
                             type="button"
-                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'RELACIONAR_ATRASADOS' })}
+                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'RELACIONAR_ATRASADOS', sugestao_confirmada: true })}
                             className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                           >
                             Relacionar atrasados
@@ -955,7 +998,7 @@ export function ImportacaoOfx() {
                         {!lanc.duplicata_id ? (
                           <button
                             type="button"
-                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', relacionar_apenas_atrasados: false, lancamentos_atrasados_relacionados: [] })}
+                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', relacionar_apenas_atrasados: false, lancamentos_atrasados_relacionados: [], sugestao_confirmada: true })}
                             className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                           >
                             Criar novo

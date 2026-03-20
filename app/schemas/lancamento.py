@@ -29,6 +29,8 @@ class LancamentoBase(SQLModel):
     
     observacao: Optional[str] = None
     conciliado: bool = False
+    numero_parcela: Optional[int] = None
+    id_parcelamento: Optional[str] = None
     
     # --- CHAVES ESTRANGEIRAS ---
     
@@ -70,6 +72,8 @@ class LancamentoUpdate(SQLModel):
     status: Optional[str] = None
     observacao: Optional[str] = None
     conciliado: Optional[bool] = None
+    numero_parcela: Optional[int] = None
+    id_parcelamento: Optional[str] = None
 
 # --- READ ---
 class LancamentoRead(LancamentoBase, AuditReadMixin):
@@ -90,6 +94,9 @@ class BulkUpdateSchema(SQLModel):
     conta_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
     plano_contas_id: Optional[int] = None
+    descricao: Optional[str] = None
+    data_vencimento: Optional[date] = None
+    competencia: Optional[str] = None
     data_pagamento: Optional[date] = None
     status: Optional[str] = None
 

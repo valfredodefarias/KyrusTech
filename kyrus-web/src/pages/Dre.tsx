@@ -22,6 +22,8 @@ interface LancamentoResumo {
   tipo: string;
   status?: string;
   plano_contas_id?: number | null;
+  conta_id?: number | null;
+  entidade_id?: number | null;
   centro_custo_id?: number | null;
   valor_previsto: number;
   valor_pago?: number | null;
@@ -29,6 +31,18 @@ interface LancamentoResumo {
   data_pagamento?: string | null;
   data_competencia?: string | null;
   competencia?: string | null;
+}
+
+interface ContaResumo {
+  id: number;
+  nome: string;
+  banco?: string | null;
+}
+
+interface EntidadeResumo {
+  id: number;
+  nome: string;
+  nome_fantasia?: string | null;
 }
 
 interface CentroCustoResumo {
@@ -155,12 +169,6 @@ function buildMonthLabels(ano: number) {
   return MONTH_SHORT.map((label) => `${label}/${ano}`);
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(`${value.slice(0, 10)}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('pt-BR');
-}
-
 function normalizeText(value?: string | null) {
   return String(value || '')
     .normalize('NFD')
@@ -250,6 +258,8 @@ export function Dre() {
   const [error, setError] = useState<string | null>(null);
   const [categorias, setCategorias] = useState<PlanoConta[]>([]);
   const [lancamentos, setLancamentos] = useState<LancamentoResumo[]>([]);
+  const [contas, setContas] = useState<ContaResumo[]>([]);
+  const [entidades, setEntidades] = useState<EntidadeResumo[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>('ALL');
   const [selectedMonth, setSelectedMonth] = useState<number | null>(currentMonth);
@@ -267,9 +277,11 @@ export function Dre() {
       try {
         const inicio = `${ano}-01-01`;
         const fim = `${ano}-12-31`;
-        const [categoriasRes, lancamentosRes, centrosCustoRes] = await Promise.all([
+        const [categoriasRes, lancamentosRes, contasRes, entidadesRes, centrosCustoRes] = await Promise.all([
           api.get<PlanoConta[]>('/plano-contas/'),
           api.get<LancamentoResumo[]>('/lancamentos/', { params: { limit: 10000, data_inicio: inicio, data_fim: fim } }),
+          api.get<ContaResumo[]>('/contas/'),
+          api.get<EntidadeResumo[]>('/entidades/'),
           api.get<CentroCustoResumo[]>('/centro-custo/'),
         ]);
 
@@ -277,6 +289,8 @@ export function Dre() {
 
         setCategorias(categoriasRes.data || []);
         setLancamentos(lancamentosRes.data || []);
+        setContas(contasRes.data || []);
+        setEntidades(entidadesRes.data || []);
         setCentrosCusto(centrosCustoRes.data || []);
       } catch (err: any) {
         if (!active) return;
@@ -299,6 +313,14 @@ export function Dre() {
       return true;
     });
   }, [lancamentos, selectedCentroCustoId, somentePagos]);
+
+  const contaNomePorId = useMemo(() => {
+    return new Map(contas.map((conta) => [conta.id, conta.banco || conta.nome || 'Sem banco']));
+  }, [contas]);
+
+  const entidadeNomePorId = useMemo(() => {
+    return new Map(entidades.map((entidade) => [entidade.id, entidade.nome_fantasia || entidade.nome || 'Sem interessado']));
+  }, [entidades]);
 
   const dre = useMemo(() => {
     const relevantes = categorias.filter((conta) => isReceita(conta.tipo) || isDespesa(conta.tipo));
@@ -1089,12 +1111,13 @@ export function Dre() {
               onClick={() => setAuditPanel(null)}
               aria-label="Fechar lançamentos"
             />
-            <aside className={`absolute left-1/2 top-1/2 z-10 flex h-[min(85vh,760px)] w-[min(96vw,1180px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[28px] border shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${isDark ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-200 bg-white text-slate-900'}`}>
-              <div className={`flex items-start justify-between gap-3 border-b px-5 py-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+            <aside
+              className={`absolute left-0 top-0 z-10 flex h-full w-[min(96vw,760px)] flex-col rounded-r-[28px] border-r px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${isDark ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-200 bg-white text-slate-900'}`}
+            >
+              <div className="mb-3 flex items-start justify-between gap-2">
                 <div>
-                  <p className={`text-[10px] font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Lançamentos</p>
-                  <h3 className="mt-1 text-lg font-black tracking-tight">{auditPanel.title}</h3>
-                  <p className={`mt-1 text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{auditPanel.subtitle}</p>
+                  <div className={`text-sm font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>{auditPanel.title}</div>
+                  <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{auditPanel.subtitle}</div>
                 </div>
                 <button
                   type="button"
@@ -1105,40 +1128,42 @@ export function Dre() {
                 </button>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-auto">
-                <table className="w-full min-w-[980px] text-sm">
-                  <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
-                    <tr>
-                      <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Categoria</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Status</th>
-                      <th className="px-4 py-3 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
-                    </tr>
-                  </thead>
-                  <tbody className={isDark ? 'divide-y divide-slate-800' : 'divide-y divide-slate-100'}>
-                    {auditPanel.rows.length === 0 ? (
+              <div className={`min-h-0 flex-1 overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                <div className="h-full overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
                       <tr>
-                        <td colSpan={5} className={`px-4 py-10 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Nenhum lançamento encontrado para este recorte.</td>
+                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Banco</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
                       </tr>
-                    ) : auditPanel.rows.map((item) => {
-                      const itemConta = dre.contaPorId.get(Number(item.plano_contas_id));
-                      return (
-                        <tr key={item.id} className={isDark ? 'bg-slate-950/20 hover:bg-slate-900/40' : 'bg-white hover:bg-slate-50'}>
-                          <td className={`px-4 py-3 font-mono text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{formatDate(resolveCompetenciaDate(item, somentePagos))}</td>
-                          <td className={`px-4 py-3 font-semibold ${isDark ? 'text-slate-100' : 'text-slate-700'}`}>{item.descricao}</td>
-                          <td className={`px-4 py-3 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{itemConta?.nome || '-'}</td>
-                          <td className="px-4 py-3">
-                            <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${item.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}`}>
-                              {item.status || 'PENDENTE'}
-                            </span>
-                          </td>
-                          <td className={`px-4 py-3 text-right font-black ${isReceita(item.tipo) ? 'text-emerald-500' : 'text-rose-500'}`}>{moneyFormatter.format(resolveLancamentoValue(item, somentePagos))}</td>
+                    </thead>
+                    <tbody>
+                      {auditPanel.rows.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                      ) : auditPanel.rows.map((item) => {
+                        const contaNome = contaNomePorId.get(Number(item.conta_id)) || 'Sem banco';
+                        const interessadoNome = entidadeNomePorId.get(Number(item.entidade_id)) || 'Sem interessado';
+                        const valor = resolveLancamentoValue(item, somentePagos);
+                        const valorClass = valor >= 0
+                          ? (isDark ? 'text-emerald-300' : 'text-emerald-600')
+                          : (isDark ? 'text-rose-300' : 'text-rose-600');
+
+                        return (
+                          <tr key={item.id} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
+                            <td className="px-3 py-2.5">{contaNome}</td>
+                            <td className="px-3 py-2.5">{interessadoNome}</td>
+                            <td className="max-w-72 truncate px-3 py-2.5" title={item.descricao}>{item.descricao}</td>
+                            <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${valorClass}`}>{moneyFormatter.format(Math.abs(valor))}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </aside>
           </div>

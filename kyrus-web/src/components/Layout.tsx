@@ -75,6 +75,10 @@ function LayoutShell() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('theme') as 'dark' | 'light') || 'light');
   const sidebarHoverTimerRef = useRef<number | null>(null);
   const isLancamentosRoute = location.pathname.startsWith('/lancamentos');
+  const isBoletimEmbedMode = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('embed_boletim') === '1';
+  }, [location.search]);
   const assistenteDefaults = useMemo(() => resolveAssistenteDefaults(location.pathname), [location.pathname]);
   const assistenteConfig = useMemo(() => ({
     tela: pageAssistenteConfig.tela ?? assistenteDefaults.tela,
@@ -141,6 +145,18 @@ function LayoutShell() {
     }
     setSidebarCollapsed(true);
   };
+
+  if (isBoletimEmbedMode) {
+    return (
+      <div className={theme === 'dark' ? 'dark' : ''}>
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-900 font-sans text-slate-800 dark:text-slate-200">
+          <main className="h-screen overflow-y-auto p-0">
+            <Outlet />
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={theme === 'dark' ? 'dark' : ''}>

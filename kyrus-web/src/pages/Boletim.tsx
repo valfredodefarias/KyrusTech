@@ -14,6 +14,7 @@ import {
 
 import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
+import { Lancamentos } from './Lancamentos';
 import { api, toPublicAssetUrl } from '../services/api';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
@@ -379,7 +380,7 @@ function applyFilters(
 export function Boletim() {
   const navigate = useNavigate();
 
-  const [inlineLancamentoUrl, setInlineLancamentoUrl] = useState<string | null>(null);
+  const [inlineLancamentoParams, setInlineLancamentoParams] = useState<URLSearchParams | null>(null);
 
   const buildLancamentosDestino = (lancamentoId: number, includeEmbed: boolean) => {
     const params = new URLSearchParams();
@@ -410,7 +411,9 @@ export function Boletim() {
       navigate(destino);
       return;
     }
-    setInlineLancamentoUrl(buildLancamentosDestino(lancamentoId, true));
+    const destinoEmbed = buildLancamentosDestino(lancamentoId, true);
+    const queryPart = destinoEmbed.split('?')[1] || '';
+    setInlineLancamentoParams(new URLSearchParams(queryPart));
   };
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1301,12 +1304,12 @@ export function Boletim() {
               </div>
             ) : null}
 
-            {inlineLancamentoUrl ? (
+            {inlineLancamentoParams ? (
               <div className="fixed inset-0 z-[60]">
                 <button
                   type="button"
                   className="absolute inset-0 bg-slate-950/60"
-                  onClick={() => setInlineLancamentoUrl(null)}
+                  onClick={() => setInlineLancamentoParams(null)}
                   aria-label="Fechar editor"
                 />
                 <aside className="absolute right-0 top-0 flex h-full w-[min(100vw,1120px)] flex-col border-l border-slate-200 bg-white shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] dark:border-slate-700 dark:bg-slate-950">
@@ -1317,13 +1320,19 @@ export function Boletim() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => setInlineLancamentoUrl(null)}
+                      onClick={() => setInlineLancamentoParams(null)}
                       className="rounded-full border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                     >
                       Fechar
                     </button>
                   </div>
-                  <iframe title="Editor de lançamento" src={inlineLancamentoUrl} className="h-full w-full border-0" />
+                  <div className="h-full w-full overflow-hidden">
+                    <Lancamentos
+                      key={inlineLancamentoParams.toString()}
+                      forcedSearchParams={inlineLancamentoParams}
+                      onRequestCloseEmbed={() => setInlineLancamentoParams(null)}
+                    />
+                  </div>
                 </aside>
               </div>
             ) : null}

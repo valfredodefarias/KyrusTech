@@ -449,8 +449,24 @@ const ToggleSimNao = ({
   </div>
 );
 
-export function Lancamentos() {
-  const [searchParams, setSearchParams] = useSearchParams();
+interface LancamentosProps {
+  forcedSearchParams?: URLSearchParams | null;
+  onRequestCloseEmbed?: () => void;
+}
+
+export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: LancamentosProps = {}) {
+  const [urlSearchParams, setUrlSearchParams] = useSearchParams();
+  const [embeddedSearchParams, setEmbeddedSearchParams] = useState<URLSearchParams | null>(
+    forcedSearchParams ? new URLSearchParams(forcedSearchParams.toString()) : null,
+  );
+  const searchParams = embeddedSearchParams ?? urlSearchParams;
+  const setSearchParams = (next: URLSearchParams, options?: { replace?: boolean }) => {
+    if (embeddedSearchParams !== null) {
+      setEmbeddedSearchParams(new URLSearchParams(next.toString()));
+      return;
+    }
+    setUrlSearchParams(next, options);
+  };
   const isBoletimEmbed = searchParams.get('embed_boletim') === '1';
   // --- DADOS ---
   const [loading, setLoading] = useState(true);
@@ -543,6 +559,27 @@ export function Lancamentos() {
   const autoPagamentoRef = useRef(true);
   const autoCompetenciaRef = useRef(true);
   const quickOpenNovoHandledRef = useRef(false);
+  const embedDrawerOpenedRef = useRef(false);
+
+  useEffect(() => {
+    if (forcedSearchParams) {
+      setEmbeddedSearchParams(new URLSearchParams(forcedSearchParams.toString()));
+    } else {
+      setEmbeddedSearchParams(null);
+    }
+  }, [forcedSearchParams]);
+
+  useEffect(() => {
+    if (!isBoletimEmbed) return;
+    if (showDrawer) {
+      embedDrawerOpenedRef.current = true;
+      return;
+    }
+    if (embedDrawerOpenedRef.current) {
+      embedDrawerOpenedRef.current = false;
+      onRequestCloseEmbed?.();
+    }
+  }, [isBoletimEmbed, showDrawer, onRequestCloseEmbed]);
 
   const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
@@ -1025,11 +1062,12 @@ export function Lancamentos() {
   useEffect(() => {
     const editarIdParam = Number(searchParams.get('editar_id') || '');
     if (!Number.isFinite(editarIdParam) || editarIdParam <= 0) return;
-    if (!auxLoadedRef.current) return;
 
     let cancelled = false;
     const openEditById = async () => {
       try {
+        await loadAuxData();
+        if (cancelled) return;
         const res = await api.get(`/lancamentos/${editarIdParam}`);
         if (cancelled) return;
         openDrawer(res.data);

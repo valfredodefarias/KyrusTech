@@ -2657,7 +2657,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
 
       {/* DRAWER NOVO/EDITAR */}
       {showDrawer && (
-        <div className={`${isBoletimEmbed ? 'fixed inset-0 z-50 flex justify-center bg-slate-50 dark:bg-slate-900' : 'fixed inset-0 z-50 flex justify-end'}`}>
+        <div className={`${isBoletimEmbed ? 'absolute inset-0 z-10 flex justify-end bg-slate-50 dark:bg-slate-900' : 'fixed inset-0 z-50 flex justify-end'}`}>
           {!isBoletimEmbed ? (
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => void requestCloseDrawer()}></div>
           ) : null}

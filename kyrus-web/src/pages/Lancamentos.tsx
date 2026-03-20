@@ -115,6 +115,38 @@ const parseDescricaoParcela = (descricao?: string) => {
   return { base, numero, total };
 };
 
+const resolveAnexoUrl = (rawUrl?: string) => {
+  const value = String(rawUrl || '').trim();
+  if (!value) return '#';
+
+  if (value.startsWith('/static/')) {
+    return toPublicAssetUrl(value) || value;
+  }
+
+  if (/^https?:\/\/storage\.kyrus\.com\//i.test(value)) {
+    try {
+      const parsed = new URL(value);
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      if (parts.length >= 3 && /^\d+$/.test(parts[0] || '') && /^\d+$/.test(parts[1] || '')) {
+        const empresaId = parts[0];
+        const lancamentoId = parts[1];
+        const fileName = parts.slice(2).join('/');
+        const remapped = `/static/uploads/lancamentos/${empresaId}/${lancamentoId}/${fileName}`;
+        return toPublicAssetUrl(remapped) || remapped;
+      }
+      return parsed.pathname || value;
+    } catch {
+      return value;
+    }
+  }
+
+  if (value.startsWith('/')) {
+    return toPublicAssetUrl(value) || value;
+  }
+
+  return value;
+};
+
 const isLancamentoAtrasado = (l: Lancamento) => {
   if (String(l.status).toUpperCase() === 'PAGO') return false;
   if (!l.data_vencimento) return false;
@@ -2850,12 +2882,17 @@ export function Lancamentos() {
                 {formData.anexos && formData.anexos.length > 0 && (
                     <div className="grid grid-cols-2 gap-2 mb-3">
                         {formData.anexos.map((anexo: Anexo) => (
+                      (() => {
+                        const anexoUrl = resolveAnexoUrl(anexo.url);
+                        return (
                             <div key={anexo.id} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg text-xs group hover:border-blue-500 transition">
                                 {getFileIcon(anexo.nome_arquivo)}
-                                <a href={anexo.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-slate-700 dark:text-slate-200 hover:text-blue-400 font-medium">{anexo.nome_arquivo}</a>
-                                <a href={anexo.url} download target="_blank" className="p-1 text-slate-500 hover:text-slate-700 dark:hover:text-white rounded hover:bg-slate-200 dark:hover:bg-slate-700"><Download className="w-3 h-3"/></a>
+                        <a href={anexoUrl} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-slate-700 dark:text-slate-200 hover:text-blue-400 font-medium">{anexo.nome_arquivo}</a>
+                        <a href={anexoUrl} download target="_blank" className="p-1 text-slate-500 hover:text-slate-700 dark:hover:text-white rounded hover:bg-slate-200 dark:hover:bg-slate-700"><Download className="w-3 h-3"/></a>
                             </div>
-                        ))}
+                        );
+                      })()
+                    ))}
                     </div>
                 )}
 

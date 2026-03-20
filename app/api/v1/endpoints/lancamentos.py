@@ -49,6 +49,8 @@ from app.schemas.anexo import AnexoRead, AnexoCreate
 router = APIRouter()
 MAX_ANEXO_NOME_LEN = 180
 MAX_ANEXO_SIZE = 10 * 1024 * 1024
+UPLOAD_ANEXOS_DIR = Path("static/uploads/lancamentos")
+UPLOAD_ANEXOS_DIR.mkdir(parents=True, exist_ok=True)
 IMPORT_ANALYZE_SAMPLE_LIMIT = 24
 IMPORT_INSERT_BATCH_SIZE = 5000
 IMPORT_PREPARE_CHUNK_SIZE = 2000
@@ -1396,6 +1398,10 @@ def transferir_valores(transf_in: TransferenciaCreate, service: LancamentoServic
 def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo: str = Query("OUTROS"), service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     anexos_criados = []
     empresa_id, user_id = require_empresa_user(current_user)
+
+    # Garante que o lançamento existe e pertence à empresa do usuário antes de salvar arquivos.
+    service.get_by_id(lancamento_id, empresa_id)
+
     for file in files:
         if not file.filename:
             raise HTTPException(
@@ -1407,11 +1413,45 @@ def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo inválido: nome do arquivo ausente.")
         if len(nome_arquivo) > MAX_ANEXO_NOME_LEN:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nome do arquivo excede o limite permitido.")
-        tamanho_bytes = int(getattr(file, "size", 0) or 0)
-        if tamanho_bytes and tamanho_bytes > MAX_ANEXO_SIZE:
-            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo muito grande. Máximo 10MB por anexo.")
-        url_fake = f"https://storage.kyrus.com/{empresa_id}/{lancamento_id}/{nome_arquivo}"
-        dados = AnexoCreate(nome_arquivo=nome_arquivo, url=url_fake, tipo=tipo, tamanho_bytes=tamanho_bytes, content_type=file.content_type, lancamento_id=lancamento_id, empresa_id=empresa_id)
+
+        destino_dir = UPLOAD_ANEXOS_DIR / str(empresa_id) / str(lancamento_id)
+        destino_dir.mkdir(parents=True, exist_ok=True)
+        ext = Path(nome_arquivo).suffix.lower()[:12]
+        nome_storage = f"{uuid.uuid4().hex}{ext}"
+        destino_arquivo = destino_dir / nome_storage
+
+        tamanho_bytes = 0
+        try:
+            with destino_arquivo.open("wb") as buffer:
+                while True:
+                    chunk = file.file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    tamanho_bytes += len(chunk)
+                    if tamanho_bytes > MAX_ANEXO_SIZE:
+                        buffer.close()
+                        destino_arquivo.unlink(missing_ok=True)
+                        raise HTTPException(
+                            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            detail="Arquivo muito grande. Máximo 10MB por anexo.",
+                        )
+                    buffer.write(chunk)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            destino_arquivo.unlink(missing_ok=True)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao salvar anexo: {exc}")
+
+        url_relativa = f"/static/uploads/lancamentos/{empresa_id}/{lancamento_id}/{nome_storage}"
+        dados = AnexoCreate(
+            nome_arquivo=nome_arquivo,
+            url=url_relativa,
+            tipo=tipo,
+            tamanho_bytes=tamanho_bytes,
+            content_type=file.content_type,
+            lancamento_id=lancamento_id,
+            empresa_id=empresa_id,
+        )
         anexos_criados.append(service.adicionar_anexo(lancamento_id, dados, empresa_id, user_id))
     return anexos_criados
 

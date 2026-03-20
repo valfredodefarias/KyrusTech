@@ -36,7 +36,7 @@ router = APIRouter()
 OFX_FILE_SIZE_LIMIT = 10 * 1024 * 1024
 MATCH_TOLERANCIA_PERCENTUAL = Decimal("0.05")
 MATCH_DIAS_ATRASO = 30
-STATUS_ABERTOS = ("PENDENTE", "EM ABERTO")
+STATUS_ABERTOS = ("PENDENTE", "EM ABERTO", "ATRASADO", "VENCIDO")
 HISTORICO_SUGESTAO_LIMITE = 1500
 
 TOKEN_MAP_INTERESSADO = {
@@ -679,15 +679,33 @@ def _buscar_duplicata_historica(
     except Exception:
         return None, None
 
+    margem = _calcular_margem_match(valor)
+    valor_min = valor - margem
+    valor_max = valor + margem
+    data_inicio = data_base - timedelta(days=3)
+    data_fim = data_base + timedelta(days=3)
+
     candidatos = db.exec(
         select(Lancamento)
         .where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.is_deleted == False,
-            Lancamento.conta_id == conta_id,
             Lancamento.tipo == lancamento_ofx.get("tipo"),
+            or_(
+                Lancamento.conta_id == conta_id,
+                Lancamento.conta_id.is_(None),
+            ),
+            or_(
+                Lancamento.data_pagamento.between(data_inicio, data_fim),
+                Lancamento.data_vencimento.between(data_inicio, data_fim),
+            ),
+            or_(
+                Lancamento.valor_pago.between(valor_min, valor_max),
+                Lancamento.valor_previsto.between(valor_min, valor_max),
+            ),
         )
-        .limit(500)
+        .order_by(Lancamento.data_pagamento.desc(), Lancamento.id.desc())
+        .limit(300)
     ).all()
 
     interessado_norm = _normalizar_texto(lancamento_ofx.get("razao_social") or lancamento_ofx.get("interessado_sugerido"))
@@ -709,10 +727,21 @@ def _buscar_duplicata_historica(
         contexto_candidato = _normalizar_texto(f"{candidato.descricao} {candidato.observacao or ''}")
         entidade_bate = bool(interessado_norm and interessado_norm in contexto_candidato)
         mesmo_dia = data_candidata == data_base
-        if (mesmo_dia and valor_exato) or similaridade >= 0.68 or entidade_bate:
-            motivo = "Mesmo valor, mesma conta e data muito proxima de um lancamento ja registrado"
+        mesmo_dia_pagamento = candidato.data_pagamento == data_base
+
+        # Se já foi baixado no mesmo dia e valor, trata como duplicata mesmo com descricao diferente.
+        if mesmo_dia_pagamento and valor_exato:
+            motivo = "Mesmo valor e mesma data de pagamento de um lancamento ja baixado"
+            if candidato.conta_id is None:
+                motivo += " (lancamento sem conta vinculada)"
+            return candidato, motivo
+
+        if (mesmo_dia and valor_exato and entidade_bate) or similaridade >= 0.72 or (entidade_bate and valor_exato):
+            motivo = "Mesmo valor e data muito proxima de um lancamento ja registrado"
             if similaridade >= 0.8:
                 motivo += " com descricao muito parecida"
+            elif entidade_bate:
+                motivo += " com favorecido/interessado compativel"
             return candidato, motivo
 
     return None, None

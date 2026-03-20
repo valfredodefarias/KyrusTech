@@ -63,6 +63,8 @@ class ContaSaldoMovimentoOut(BaseModel):
     valor_saida: Decimal
     saldo_apos_movimento: Decimal
     numero_parcela: Optional[int] = None
+    entidade_id: Optional[int] = None
+    entidade_nome: Optional[str] = None
     plano_contas_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
     cartao_id: Optional[int] = None
@@ -243,7 +245,10 @@ def saldo_detalhe_conta(
 
     movimentos = db.exec(
         select(Lancamento)
-        .options(selectinload(Lancamento.cartao))
+        .options(
+            selectinload(Lancamento.cartao),
+            selectinload(Lancamento.entidade),
+        )
         .where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.conta_id == conta_id,
@@ -293,6 +298,8 @@ def saldo_detalhe_conta(
                 valor_saida=valor_saida,
                 saldo_apos_movimento=saldo_corrente,
                 numero_parcela=movimento.numero_parcela,
+                entidade_id=movimento.entidade_id,
+                entidade_nome=movimento.entidade.nome if movimento.entidade else None,
                 plano_contas_id=movimento.plano_contas_id,
                 centro_custo_id=movimento.centro_custo_id,
                 cartao_id=movimento.cartao_id,

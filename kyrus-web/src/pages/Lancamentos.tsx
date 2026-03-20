@@ -104,6 +104,17 @@ const toNextBusinessDay = (ymd: string) => {
   return `${y}-${m}-${d}`;
 };
 
+const parseDescricaoParcela = (descricao?: string) => {
+  const text = String(descricao || '').trim();
+  const match = text.match(/^(.*)\((\d+)\s*\/\s*(\d+)\)\s*$/);
+  if (!match) return null;
+  const base = String(match[1] || '').trim();
+  const numero = Number(match[2] || 0);
+  const total = Number(match[3] || 0);
+  if (!base || numero <= 0 || total <= 1) return null;
+  return { base, numero, total };
+};
+
 const isLancamentoAtrasado = (l: Lancamento) => {
   if (String(l.status).toUpperCase() === 'PAGO') return false;
   if (!l.data_vencimento) return false;
@@ -473,6 +484,7 @@ export function Lancamentos() {
   const [parcelasVencimentosEdit, setParcelasVencimentosEdit] = useState<Record<number, string>>({});
   const [parcelasEscopoEdicao, setParcelasEscopoEdicao] = useState<'ESTA' | 'PROXIMAS' | 'TODAS'>('ESTA');
   const [ajustarParaDiaUtil, setAjustarParaDiaUtil] = useState(false);
+  const [showParcelasSeriePanel, setShowParcelasSeriePanel] = useState(false);
   const [newEntityData, setNewEntityData] = useState<QuickEntityFormState>(initialQuickEntityData);
   const [entityCepLoading, setEntityCepLoading] = useState(false);
   const [entityCepFeedback, setEntityCepFeedback] = useState<string | null>(null);
@@ -542,6 +554,7 @@ export function Lancamentos() {
     setParcelasVencimentosEdit({});
     setParcelasEscopoEdicao('ESTA');
     setAjustarParaDiaUtil(false);
+    setShowParcelasSeriePanel(false);
     setInitialScopedFields({ descricao: '', plano_contas_id: '', data_vencimento: '' });
   };
 
@@ -556,24 +569,82 @@ export function Lancamentos() {
 
   const currentParcelaNumber = useMemo(() => {
     if (formData?.numero_parcela) return Number(formData.numero_parcela);
+    const parsed = parseDescricaoParcela(formData?.descricao);
+    if (parsed?.numero) return parsed.numero;
     const idx = sortedParcelasSerie.findIndex((p) => Number(p.id) === Number(formData?.id));
     return idx >= 0 ? idx + 1 : 1;
-  }, [formData?.id, formData?.numero_parcela, sortedParcelasSerie]);
+  }, [formData?.id, formData?.numero_parcela, formData?.descricao, sortedParcelasSerie]);
 
   const currentParcelaTotal = useMemo(() => {
     if (sortedParcelasSerie.length > 1) return sortedParcelasSerie.length;
+    const parsed = parseDescricaoParcela(formData?.descricao);
+    if (parsed?.total && parsed.total > 1) return parsed.total;
     if (formData?.qtd_parcelas && Number(formData.qtd_parcelas) > 1) return Number(formData.qtd_parcelas);
     return 1;
-  }, [sortedParcelasSerie.length, formData?.qtd_parcelas]);
+  }, [sortedParcelasSerie.length, formData?.descricao, formData?.qtd_parcelas]);
 
   const isEditingParcelado = useMemo(() => {
-    return isEditing && !!formData?.id_parcelamento && currentParcelaTotal > 1;
-  }, [isEditing, formData?.id_parcelamento, currentParcelaTotal]);
+    if (!isEditing) return false;
+    if (Boolean(formData?.id_parcelamento)) return currentParcelaTotal > 1;
+    if (Number(formData?.numero_parcela || 0) > 0 && currentParcelaTotal > 1) return true;
+    return Boolean(parseDescricaoParcela(formData?.descricao));
+  }, [isEditing, formData?.id_parcelamento, formData?.numero_parcela, formData?.descricao, currentParcelaTotal]);
 
-  const loadParcelasSerie = async (parcelamentoId?: string) => {
+  const canOpenParcelasSerie = useMemo(() => {
+    if (!isEditing) return false;
+    if (Boolean(formData?.id_parcelamento)) return true;
+    if (Number(formData?.numero_parcela || 0) > 0) return true;
+    return Boolean(parseDescricaoParcela(formData?.descricao));
+  }, [isEditing, formData?.id_parcelamento, formData?.numero_parcela, formData?.descricao]);
+
+  const shouldShowParcelasSerie = isEditingParcelado || showParcelasSeriePanel;
+
+  const loadParcelasSerie = async (parcelamentoId?: string, referencia?: Lancamento) => {
     if (!parcelamentoId) {
-      setParcelasSerie([]);
-      setParcelasVencimentosEdit({});
+      const ref = referencia || (formData as Lancamento | undefined);
+      const parsedRef = parseDescricaoParcela(ref?.descricao);
+      if (!parsedRef) {
+        setParcelasSerie([]);
+        setParcelasVencimentosEdit({});
+        return;
+      }
+
+      const similares = (lancamentos || [])
+        .filter((item) => {
+          const parsedItem = parseDescricaoParcela(item.descricao);
+          if (!parsedItem) return false;
+          if (parsedItem.base !== parsedRef.base || parsedItem.total !== parsedRef.total) return false;
+          if (String(item.tipo || '') !== String(ref?.tipo || '')) return false;
+          if (Number(item.plano_contas_id || 0) !== Number(ref?.plano_contas_id || 0)) return false;
+
+          const contaRef = Number(ref?.conta_id || 0);
+          const contaItem = Number(item.conta_id || 0);
+          const cartaoRef = Number(ref?.cartao_id || 0);
+          const cartaoItem = Number(item.cartao_id || 0);
+
+          if (contaRef && contaItem && contaRef !== contaItem) return false;
+          if (cartaoRef && cartaoItem && cartaoRef !== cartaoItem) return false;
+          return true;
+        })
+        .map((item) => {
+          const parsedItem = parseDescricaoParcela(item.descricao);
+          return {
+            ...item,
+            numero_parcela: item.numero_parcela || parsedItem?.numero,
+          };
+        });
+
+      const withRef = ref && !similares.some((item) => Number(item.id) === Number(ref.id))
+        ? [...similares, { ...ref, numero_parcela: ref.numero_parcela || parsedRef.numero }]
+        : similares;
+
+      setParcelasSerie(withRef);
+      setParcelasVencimentosEdit(
+        withRef.reduce((acc: Record<number, string>, item: Lancamento) => {
+          acc[item.id] = item.data_vencimento;
+          return acc;
+        }, {}),
+      );
       return;
     }
     setParcelasSerieLoading(true);
@@ -608,6 +679,16 @@ export function Lancamentos() {
       return;
     }
     closeDrawerDirect();
+  };
+
+  const handleVerTodasParcelas = async () => {
+    if (!canOpenParcelasSerie) {
+      pushToast('info', 'Este lançamento não possui série de parcelamento identificada.');
+      return;
+    }
+    setShowParcelasSeriePanel(true);
+    setParcelasEscopoEdicao('TODAS');
+    await loadParcelasSerie(formData?.id_parcelamento, formData as Lancamento);
   };
 
   useEffect(() => {
@@ -1299,9 +1380,10 @@ export function Lancamentos() {
         plano_contas_id: String(l.plano_contas_id || ''),
         data_vencimento: String(l.data_vencimento || ''),
       });
+      setShowParcelasSeriePanel(false);
       setParcelasEscopoEdicao('ESTA');
       setAjustarParaDiaUtil(false);
-      void loadParcelasSerie(l.id_parcelamento);
+      void loadParcelasSerie(l.id_parcelamento, l);
     } else {
       setIsEditing(false);
       autoPagamentoRef.current = true;
@@ -1317,6 +1399,7 @@ export function Lancamentos() {
         is_parcelado: false, qtd_parcelas: 2, modo_calculo: 'TOTAL', competencia_modo_parcelamento: 'POR_PARCELA', anexos: []
       };
       setInitialScopedFields({ descricao: '', plano_contas_id: '', data_vencimento: '' });
+      setShowParcelasSeriePanel(false);
       setParcelasSerie([]);
       setParcelasVencimentosEdit({});
       setParcelasEscopoEdicao('ESTA');
@@ -2380,6 +2463,17 @@ export function Lancamentos() {
                     Duplicar
                   </button>
                 )}
+                {isEditing && canOpenParcelasSerie && (
+                  <button
+                    type="button"
+                    title="Abrir a série completa de parcelas"
+                    onClick={() => void handleVerTodasParcelas()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 dark:text-amber-200 bg-amber-100/80 dark:bg-amber-500/15 border border-amber-300/80 dark:border-amber-700/70 hover:bg-amber-200/80 dark:hover:bg-amber-500/25 transition"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    Ver todas as parcelas
+                  </button>
+                )}
                 <button onClick={() => void requestCloseDrawer()} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-400"><X className="w-5 h-5"/></button>
               </div>
             </div>
@@ -2506,7 +2600,7 @@ export function Lancamentos() {
                 )}
               </div>
 
-              {isEditingParcelado && (
+              {shouldShowParcelasSerie && (
                 <div className="bg-amber-50/70 dark:bg-amber-900/10 p-4 rounded-xl border border-amber-200/80 dark:border-amber-700/60 space-y-3">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div>

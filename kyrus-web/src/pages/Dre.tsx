@@ -724,11 +724,11 @@ export function Dre() {
     ? 'bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.10),transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_48%,#111827_100%)] text-slate-100'
     : 'bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-900';
   const selectedMonthSoftClass = isDark
-    ? 'bg-amber-300/20 text-amber-100 ring-1 ring-inset ring-amber-200/40'
-    : 'bg-amber-200/45 text-amber-950 ring-1 ring-inset ring-amber-400/45';
+    ? 'bg-amber-300/20 !text-amber-50 ring-1 ring-inset ring-amber-200/40'
+    : 'bg-amber-200/45 !text-slate-900 ring-1 ring-inset ring-amber-400/45';
   const selectedMonthHeaderClass = isDark
-    ? 'border-amber-200/50 bg-amber-300/20 text-amber-100'
-    : 'border-amber-300/70 bg-amber-200/50 text-amber-950';
+    ? 'border-amber-200/50 bg-amber-300/20 !text-amber-50'
+    : 'border-amber-300/70 bg-amber-200/50 !text-slate-900';
 
   return (
     <div className={`min-h-full px-3 py-6 sm:px-4 lg:px-6 ${pageBg}`}>
@@ -898,7 +898,7 @@ export function Dre() {
                           <td
                             key={`${group.key}-total-${index}`}
                             onClick={() => openGroupAudit(group.label, groupRows.map((row) => row.id), index)}
-                            className={`cursor-pointer border-b border-r px-4 py-3 text-right font-bold text-white last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : rowTone}`}
+                            className={`cursor-pointer border-b border-r px-4 py-3 text-right font-bold last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : `text-white ${rowTone}`}`}
                           >
                             {renderMoneyCell(value, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}
                           </td>

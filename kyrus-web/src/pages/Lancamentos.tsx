@@ -451,6 +451,7 @@ const ToggleSimNao = ({
 
 export function Lancamentos() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const isBoletimEmbed = searchParams.get('embed_boletim') === '1';
   // --- DADOS ---
   const [loading, setLoading] = useState(true);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
@@ -483,6 +484,7 @@ export function Lancamentos() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
   const [filtrosRailCollapsed, setFiltrosRailCollapsed] = useState(() => localStorage.getItem('lancamentos.filtrosRailCollapsed') === '1');
+  const [boletimIdsFiltro, setBoletimIdsFiltro] = useState<Set<number> | null>(null);
   // Barra/ações em lote
   const [showBulkPay, setShowBulkPay] = useState(false);
   const [showBulkDelete, setShowBulkDelete] = useState(false);
@@ -1051,6 +1053,21 @@ export function Lancamentos() {
     };
   }, [searchParams, setSearchParams]);
 
+  useEffect(() => {
+    const rawIds = String(searchParams.get('boletim_ids') || '').trim();
+    if (!rawIds) {
+      setBoletimIdsFiltro(null);
+      return;
+    }
+
+    const parsedIds = rawIds
+      .split(',')
+      .map((token) => Number(token.trim()))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    setBoletimIdsFiltro(parsedIds.length > 0 ? new Set(parsedIds) : null);
+  }, [searchParams]);
+
   async function loadAuxData() {
     if (auxLoadedRef.current) return;
     try {
@@ -1186,6 +1203,10 @@ export function Lancamentos() {
     const entidadesPorId = new Map(entidades.map((entidade: any) => [Number(entidade.id), String(entidade.nome || entidade.razao_social || '')]));
 
     return lancamentos.filter(l => {
+      if (boletimIdsFiltro && boletimIdsFiltro.size > 0 && !boletimIdsFiltro.has(Number(l.id))) {
+        return false;
+      }
+
       // 1. Texto Global
       if (termoBusca) {
         const categoriaNome = categoriasPorId.get(Number(l.plano_contas_id)) || '';
@@ -1243,7 +1264,7 @@ export function Lancamentos() {
 
       return true;
     });
-  }, [lancamentos, filtroTexto, centroCustoFiltro, filtroRapido, filtrosAvancados, contaExtratoAtivaId, categorias, entidades]);
+  }, [lancamentos, boletimIdsFiltro, filtroTexto, centroCustoFiltro, filtroRapido, filtrosAvancados, contaExtratoAtivaId, categorias, entidades]);
 
   const contasFiltradas = useMemo(() => {
     return contas.filter(c => !centroCustoFiltro || String(c.centro_custo_id) === String(centroCustoFiltro));
@@ -1852,6 +1873,8 @@ export function Lancamentos() {
 
   return (
     <div className="flex h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 overflow-hidden relative">
+      {!isBoletimEmbed && (
+      <>
       <aside className={`hidden xl:flex h-full shrink-0 flex-col border-r border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-950/80 backdrop-blur-xl transition-all duration-300 ${filtrosRailCollapsed ? 'w-24' : 'w-90'}`}>
         <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 p-3">
           {!filtrosRailCollapsed && (
@@ -2476,6 +2499,25 @@ export function Lancamentos() {
         </div>
       )}
 
+      </>
+      )}
+
+      {isBoletimEmbed && !showDrawer ? (
+        <div className="flex h-full w-full items-center justify-center bg-slate-50 text-center dark:bg-slate-900">
+          <div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white px-6 py-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="animate-pulse space-y-4">
+              <div className="h-4 w-44 rounded bg-slate-200 dark:bg-slate-700" />
+              <div className="h-11 w-full rounded-lg bg-slate-100 dark:bg-slate-700/70" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="h-10 rounded-lg bg-slate-100 dark:bg-slate-700/70" />
+                <div className="h-10 rounded-lg bg-slate-100 dark:bg-slate-700/70" />
+              </div>
+              <div className="h-24 rounded-xl bg-slate-100 dark:bg-slate-700/70" />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
         {/* DRAWER INTERESSADO */}
       <div className={`fixed inset-y-0 right-0 w-full max-w-3xl bg-white dark:bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 ${showEntityDrawer?'translate-x-0':'translate-x-full'}`}>
         <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
@@ -2577,9 +2619,11 @@ export function Lancamentos() {
 
       {/* DRAWER NOVO/EDITAR */}
       {showDrawer && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => void requestCloseDrawer()}></div>
-          <div className="relative z-10 flex h-full">
+        <div className={`${isBoletimEmbed ? 'fixed inset-0 z-50 flex justify-center bg-slate-50 dark:bg-slate-900' : 'fixed inset-0 z-50 flex justify-end'}`}>
+          {!isBoletimEmbed ? (
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => void requestCloseDrawer()}></div>
+          ) : null}
+          <div className={`${isBoletimEmbed ? 'relative z-10 flex h-full w-full' : 'relative z-10 flex h-full'}`}>
             {shouldShowParcelasSerie && (
               <aside className="hidden h-full w-[33vw] min-w-[420px] max-w-[560px] flex-col border-r border-amber-300/80 bg-amber-50/98 p-4 shadow-2xl backdrop-blur lg:flex dark:border-amber-700/60 dark:bg-slate-900/98">
                 <div className="flex items-start justify-between gap-3">
@@ -2654,7 +2698,7 @@ export function Lancamentos() {
               </aside>
             )}
 
-          <div className="relative w-full max-w-xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700">
+          <div className={`relative w-full bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700 ${isBoletimEmbed ? 'max-w-none' : 'max-w-xl'}`}>
             <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
               <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing?'Editar':'Novo'} Lançamento</h2>
               <div className="flex items-center gap-1">

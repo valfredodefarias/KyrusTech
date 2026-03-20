@@ -379,13 +379,38 @@ function applyFilters(
 export function Boletim() {
   const navigate = useNavigate();
 
+  const [inlineLancamentoUrl, setInlineLancamentoUrl] = useState<string | null>(null);
+
+  const buildLancamentosDestino = (lancamentoId: number, includeEmbed: boolean) => {
+    const params = new URLSearchParams();
+    params.set('editar_id', String(lancamentoId));
+    params.set('origem', 'boletim');
+
+    if (includeEmbed) {
+      params.set('embed_boletim', '1');
+    }
+
+    if (auditPanel?.mode === 'LANCAMENTOS' && (auditPanel.rows || []).length > 0) {
+      const idsUnicos = Array.from(new Set((auditPanel.rows || []).map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0)));
+      if (idsUnicos.length > 0) {
+        params.set('boletim_ids', idsUnicos.join(','));
+      }
+    }
+
+    if (activeAuditMetricKey) {
+      params.set('boletim_metric', activeAuditMetricKey);
+    }
+
+    return `/lancamentos?${params.toString()}`;
+  };
+
   const openLancamentoEdicao = (lancamentoId: number, event?: ReactMouseEvent<HTMLElement>) => {
-    const destino = `/lancamentos?editar_id=${lancamentoId}&origem=boletim`;
+    const destino = buildLancamentosDestino(lancamentoId, false);
     if (event?.metaKey || event?.ctrlKey) {
-      window.open(destino, '_blank', 'noopener');
+      navigate(destino);
       return;
     }
-    navigate(destino);
+    setInlineLancamentoUrl(buildLancamentosDestino(lancamentoId, true));
   };
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1272,6 +1297,33 @@ export function Boletim() {
                       </div>
                     </div>
                   )}
+                </aside>
+              </div>
+            ) : null}
+
+            {inlineLancamentoUrl ? (
+              <div className="fixed inset-0 z-[60]">
+                <button
+                  type="button"
+                  className="absolute inset-0 bg-slate-950/60"
+                  onClick={() => setInlineLancamentoUrl(null)}
+                  aria-label="Fechar editor"
+                />
+                <aside className="absolute right-0 top-0 flex h-full w-[min(100vw,1120px)] flex-col border-l border-slate-200 bg-white shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] dark:border-slate-700 dark:bg-slate-950">
+                  <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+                    <div>
+                      <div className="text-sm font-black uppercase tracking-[0.16em] text-slate-800 dark:text-slate-100">Editar lançamento</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Formulário da tela de lançamentos, sem sair do boletim.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setInlineLancamentoUrl(null)}
+                      className="rounded-full border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                  <iframe title="Editor de lançamento" src={inlineLancamentoUrl} className="h-full w-full border-0" />
                 </aside>
               </div>
             ) : null}

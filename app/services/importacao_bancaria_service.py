@@ -69,7 +69,9 @@ def parsear_data(data_str: object) -> Optional[date]:
 def _normalizar_texto(texto: Optional[str]) -> str:
     if not texto:
         return ""
-    return re.sub(r"\s+", " ", str(texto).strip().lower())
+    base = unicodedata.normalize("NFKD", str(texto).strip().lower())
+    sem_acento = "".join(char for char in base if not unicodedata.combining(char))
+    return re.sub(r"\s+", " ", sem_acento)
 
 
 def _normalizar_cabecalho(texto: Optional[str]) -> str:
@@ -175,6 +177,9 @@ def _status_aberto_clause() -> tuple[str, ...]:
 
 
 def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None, cartao_id: Optional[int] = None) -> str:
+    movimento_uid = _normalizar_texto(lancamento.get("movimento_uid"))
+    referencia_externa = _normalizar_texto(lancamento.get("referencia_externa"))
+
     payload = {
         "origem": lancamento.get("origem"),
         "tipo": lancamento.get("tipo"),
@@ -184,8 +189,8 @@ def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None, cartao_i
         "descricao": _normalizar_texto(lancamento.get("descricao")),
         "razao_social": _normalizar_texto(lancamento.get("razao_social")),
         "cpf_cnpj": _limpar_cpf_cnpj(lancamento.get("cpf_cnpj")),
-        "referencia": _normalizar_texto(lancamento.get("referencia")),
-        "linha_arquivo": lancamento.get("linha_arquivo"),
+        "referencia_externa": referencia_externa,
+        "movimento_uid": movimento_uid if movimento_uid and not movimento_uid.startswith("fallback:") else None,
         "conta_id": conta_id or lancamento.get("conta_id"),
         "cartao_id": cartao_id or lancamento.get("cartao_id"),
     }
@@ -219,10 +224,6 @@ def verificar_duplicata_ofx_por_fallback(
     conta_id: Optional[int] = None,
 ) -> Optional[Lancamento]:
     if str(lancamento.get("origem") or "").upper() != "OFX_EXTRATO":
-        return None
-
-    referencia = _normalizar_texto(lancamento.get("referencia"))
-    if referencia and not referencia.startswith("fallback"):
         return None
 
     conta_resolvida = conta_id or lancamento.get("conta_id")
@@ -264,7 +265,10 @@ def verificar_duplicata_ofx_por_fallback(
     for candidato in candidatos:
         descricao_candidata = _normalizar_texto(candidato.descricao)
         valor_candidato = candidato.valor_pago if candidato.valor_pago not in (None, Decimal("0.00")) else candidato.valor_previsto
-        if descricao_candidata == descricao and Decimal(str(valor_candidato or "0")) == valor:
+        valor_candidato_dec = Decimal(str(valor_candidato or "0"))
+        valor_igual = abs(valor_candidato_dec - valor) <= Decimal("0.01")
+        similaridade = SequenceMatcher(None, descricao_candidata, descricao).ratio() if descricao_candidata and descricao else 0.0
+        if (descricao_candidata == descricao and valor_igual) or (similaridade >= 0.92 and valor_igual):
             return candidato
 
     return None

@@ -1462,6 +1462,11 @@ async def confirmar_lancamentos(
     for lanc_data in request.lancamentos:
         try:
             sugestao_acao_raw = str(lanc_data.get("sugestao_acao") or "").strip().upper()
+            sugestao_confirmada = (
+                bool(lanc_data.get("sugestao_confirmada"))
+                if "sugestao_confirmada" in lanc_data
+                else True
+            )
             possui_previsto = bool(lanc_data.get("lancamento_previsto_id"))
             possui_atrasados = bool(lanc_data.get("lancamentos_atrasados_relacionados"))
 
@@ -1477,6 +1482,10 @@ async def confirmar_lancamentos(
                 acao = sugestao_acao_raw
 
             if acao in {"IGNORAR_DUPLICATA", "DESCARTAR"}:
+                continue
+
+            # Sugestoes automaticas so devem ser executadas apos confirmacao explicita no frontend.
+            if acao in {"BAIXAR_PREVISTO", "RELACIONAR_ATRASADOS"} and not sugestao_confirmada:
                 continue
 
             # Duplicata identificada no upload nunca deve virar novo lançamento.

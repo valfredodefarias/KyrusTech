@@ -604,13 +604,8 @@ export function ImportacaoOfx() {
           sugestao_confirmada: patch.sugestao_acao === 'DESCARTAR'
             ? false
             : (
-              (patch.sugestao_confirmada
-              ?? item.sugestao_confirmada
-              ?? false)
-              || ('sugestao_acao' in patch)
-              || ('plano_contas_id' in patch)
-              || ('entidade_id' in patch)
-              || ('lancamentos_atrasados_relacionados' in patch)
+              patch.sugestao_confirmada
+              ?? (Object.prototype.hasOwnProperty.call(patch, 'sugestao_acao') ? false : (item.sugestao_confirmada ?? false))
             ),
         }
         : item
@@ -635,7 +630,7 @@ export function ImportacaoOfx() {
 
       const next = prev.map((item, index) => {
         if (item.linha_arquivo === linhaArquivo) {
-          return { ...item, plano_contas_id: categoriaId, sugestao_confirmada: categoriaId != null ? true : item.sugestao_confirmada };
+          return { ...item, plano_contas_id: categoriaId };
         }
         if (!devePropagar) return item;
 
@@ -644,7 +639,7 @@ export function ImportacaoOfx() {
         if (index <= currentIndex) return item;
         if (item.plano_contas_id != null) return item;
 
-        return { ...item, plano_contas_id: categoriaId, sugestao_confirmada: categoriaId != null ? true : item.sugestao_confirmada };
+        return { ...item, plano_contas_id: categoriaId };
       });
 
       if (devePropagar) {
@@ -903,7 +898,7 @@ export function ImportacaoOfx() {
 
           <div className="space-y-4">
             {lancamentosFiltrados.map((lanc) => {
-              const acao = ACAO_META[lanc.sugestao_acao || 'CRIAR_NOVO'];
+              const acaoBase = ACAO_META[lanc.sugestao_acao || 'CRIAR_NOVO'];
               const categoriasCompativeis = categorias.filter((cat) => categoriaCompativel(cat, lanc.tipo));
               const categoriaOptions: SearchableOption[] = categoriasCompativeis.map((cat) => ({
                 id: cat.id,
@@ -919,18 +914,38 @@ export function ImportacaoOfx() {
               const valorClass = lanc.tipo === 'RECEITA' ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300';
               const descartado = lanc.sugestao_acao === 'DESCARTAR';
               const conciliacaoAutomatica = isConciliacaoAutomatica(lanc.sugestao_acao);
-              const conciliadoVisual = !descartado && (
-                (lanc.sugestao_acao === 'CRIAR_NOVO' && !!lanc.plano_contas_id)
-                || (lanc.sugestao_acao === 'BAIXAR_PREVISTO' && lanc.sugestao_confirmada)
-                || (lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' && lanc.sugestao_confirmada)
-                || (lanc.sugestao_acao === 'IGNORAR_DUPLICATA' && lanc.sugestao_confirmada)
-              );
+              const duplicadoAnterior = Boolean(lanc.duplicata_id || lanc.duplicata_resumo);
+              const sugestaoPendente = !descartado && !duplicadoAnterior && conciliacaoAutomatica && !lanc.sugestao_confirmada;
+              const conciliadoVisual = !descartado && !duplicadoAnterior && Boolean(lanc.sugestao_confirmada);
+              const acao = duplicadoAnterior
+                ? {
+                  label: 'Ja importado anteriormente',
+                  tone: 'bg-slate-200 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700',
+                }
+                : acaoBase;
+              const cardToneClass = duplicadoAnterior
+                ? 'border-slate-300 bg-slate-100/95 dark:border-slate-700 dark:bg-slate-900/70'
+                : conciliadoVisual
+                  ? 'border-emerald-300 bg-emerald-100/50 dark:border-emerald-700/70 dark:bg-emerald-950/25'
+                  : sugestaoPendente
+                    ? 'border-amber-300 bg-amber-100/55 dark:border-amber-700/70 dark:bg-amber-950/25'
+                    : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900';
 
               return (
-                <article key={`${lanc.linha_arquivo}-${lanc.movimento_uid || 'ofx'}`} className={`rounded-3xl border bg-white p-5 shadow-sm transition dark:bg-slate-900 ${descartado ? 'opacity-65' : ''} ${conciliadoVisual ? 'border-emerald-300 bg-emerald-50/30 dark:border-emerald-700/70 dark:bg-emerald-950/15' : 'border-slate-200 dark:border-slate-800'}`}>
+                <article key={`${lanc.linha_arquivo}-${lanc.movimento_uid || 'ofx'}`} className={`rounded-3xl border p-5 shadow-sm transition ${descartado ? 'opacity-65' : ''} ${cardToneClass}`}>
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
+                        {duplicadoAnterior ? (
+                          <span className="rounded-full border border-slate-300 bg-slate-200 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                            Ja importado
+                          </span>
+                        ) : null}
+                        {sugestaoPendente ? (
+                          <span className="rounded-full border border-amber-300 bg-amber-200 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-800 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
+                            Sugestao pendente
+                          </span>
+                        ) : null}
                         {conciliadoVisual ? (
                           <span className="rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
                             Conciliado
@@ -961,7 +976,7 @@ export function ImportacaoOfx() {
                                 sugestao_acao: lanc.sugestao_acao_original,
                                 relacionar_apenas_atrasados: lanc.sugestao_acao_original === 'RELACIONAR_ATRASADOS',
                                 lancamentos_atrasados_relacionados: [],
-                                sugestao_confirmada: true,
+                                sugestao_confirmada: false,
                               })}
                               className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"
                             >
@@ -980,7 +995,7 @@ export function ImportacaoOfx() {
                         ) : lanc.lancamento_previsto_id ? (
                           <button
                             type="button"
-                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'BAIXAR_PREVISTO', relacionar_apenas_atrasados: false, sugestao_confirmada: true })}
+                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'BAIXAR_PREVISTO', relacionar_apenas_atrasados: false, sugestao_confirmada: false })}
                             className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'BAIXAR_PREVISTO' ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                           >
                             Baixar previsto
@@ -989,7 +1004,7 @@ export function ImportacaoOfx() {
                         {!!lanc.lancamentos_atrasados_ids?.length ? (
                           <button
                             type="button"
-                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'RELACIONAR_ATRASADOS', sugestao_confirmada: true })}
+                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'RELACIONAR_ATRASADOS', sugestao_confirmada: false })}
                             className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                           >
                             Relacionar atrasados
@@ -998,7 +1013,7 @@ export function ImportacaoOfx() {
                         {!lanc.duplicata_id ? (
                           <button
                             type="button"
-                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', relacionar_apenas_atrasados: false, lancamentos_atrasados_relacionados: [], sugestao_confirmada: true })}
+                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', relacionar_apenas_atrasados: false, lancamentos_atrasados_relacionados: [] })}
                             className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                           >
                             Criar novo
@@ -1012,6 +1027,15 @@ export function ImportacaoOfx() {
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                             Descartar
+                          </button>
+                        ) : null}
+                        {sugestaoPendente ? (
+                          <button
+                            type="button"
+                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_confirmada: true })}
+                            className="rounded-full border border-emerald-400 bg-emerald-500 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-white transition hover:bg-emerald-600"
+                          >
+                            Confirma sugestao
                           </button>
                         ) : null}
                       </div>

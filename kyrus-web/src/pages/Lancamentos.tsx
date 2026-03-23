@@ -2818,33 +2818,6 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                 <CurrencyInputDark label="Valor (R$)" className="font-bold text-lg text-blue-400" value={formData.valor_previsto} onValueChange={(value:string)=>handleValorPrevistoChange(value)} />
               </div>
 
-              <div className="space-y-1">
-                <InputDark
-                  label="Código de barras"
-                  value={formData.observacao || ''}
-                  onChange={(e:any)=>setFormData({...formData, observacao:e.target.value})}
-                  placeholder="Cole aqui o código de barras para facilitar copiar e colar no pagamento"
-                />
-                {formData.observacao && (
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(String(formData.observacao || ''));
-                          pushToast('success', 'Código de barras copiado.');
-                        } catch {
-                          pushToast('error', 'Não foi possível copiar o código de barras.');
-                        }
-                      }}
-                      className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                    >
-                      Copiar código
-                    </button>
-                  </div>
-                )}
-              </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <InputDark label="Competência (MM-AAAA)" placeholder="02-2026" value={formData.competencia} onChange={(e:any)=>handleCompetenciaChange(e.target.value)} />
                 <ToggleSimNao label="Previsto" value={!!formData.previsto} onChange={(next)=>setFormData({...formData, previsto: next})} />
@@ -3001,6 +2974,33 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                     );
                   })()}
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <InputDark
+                  label="Código de barras"
+                  value={formData.observacao || ''}
+                  onChange={(e:any)=>setFormData({...formData, observacao:e.target.value})}
+                  placeholder="Cole aqui o código de barras para facilitar copiar e colar no pagamento"
+                />
+                {formData.observacao && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(String(formData.observacao || ''));
+                          pushToast('success', 'Código de barras copiado.');
+                        } catch {
+                          pushToast('error', 'Não foi possível copiar o código de barras.');
+                        }
+                      }}
+                      className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Copiar código
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* ANEXOS */}

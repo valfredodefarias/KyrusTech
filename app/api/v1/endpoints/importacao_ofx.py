@@ -1096,7 +1096,96 @@ def _buscar_melhores_relacionamentos(
         ]
 
     ranked_atrasados.sort(key=lambda item: item[1], reverse=True)
+
+    if not melhor_previsto and not ranked_atrasados:
+        melhor_previsto = _buscar_previsto_data_proxima_valor_exato(
+            db,
+            lancamento_ofx,
+            empresa_id,
+            centro_custo_id=centro_custo_id,
+        )
+        if not melhor_previsto and centro_custo_id:
+            melhor_previsto = _buscar_previsto_data_proxima_valor_exato(
+                db,
+                lancamento_ofx,
+                empresa_id,
+                centro_custo_id=None,
+            )
+
     return melhor_previsto, ranked_atrasados[:3]
+
+
+def _buscar_previsto_data_proxima_valor_exato(
+    db: Session,
+    lancamento_ofx: Dict,
+    empresa_id: int,
+    centro_custo_id: Optional[int],
+) -> Optional[tuple[Lancamento, int, str]]:
+    data_base = lancamento_ofx.get("data")
+    if not isinstance(data_base, date):
+        return None
+
+    try:
+        valor = Decimal(str(lancamento_ofx.get("valor") or "0"))
+    except Exception:
+        return None
+
+    valor_min = valor - Decimal("0.01")
+    valor_max = valor + Decimal("0.01")
+    data_inicio = data_base - timedelta(days=7)
+    data_fim = data_base + timedelta(days=7)
+    conta_id = int(lancamento_ofx.get("conta_id") or 0)
+
+    query = select(Lancamento).where(
+        Lancamento.empresa_id == empresa_id,
+        Lancamento.is_deleted == False,
+        Lancamento.tipo == lancamento_ofx.get("tipo"),
+        Lancamento.status.in_(STATUS_ABERTOS),
+        Lancamento.data_vencimento.between(data_inicio, data_fim),
+        Lancamento.valor_previsto.between(valor_min, valor_max),
+    )
+
+    if conta_id > 0:
+        query = query.where(or_(Lancamento.conta_id == conta_id, Lancamento.conta_id.is_(None)))
+
+    if centro_custo_id:
+        query = query.where(Lancamento.centro_custo_id == centro_custo_id)
+
+    candidatos = db.exec(query.limit(200)).all()
+    if not candidatos:
+        return None
+
+    melhor: Optional[Lancamento] = None
+    melhor_score = -1
+    melhor_motivo = ""
+    for candidato in candidatos:
+        diferenca_dias = abs((candidato.data_vencimento - data_base).days)
+        if diferenca_dias > 7:
+            continue
+
+        score = 88 - min(40, diferenca_dias * 6)
+        if conta_id > 0 and candidato.conta_id == conta_id:
+            score += 6
+
+        similaridade = _calcular_similaridade_texto(lancamento_ofx, candidato)
+        score += min(6, int(similaridade * 6))
+
+        motivo = (
+            "Mesmo valor (centavos) e data de vencimento proxima; "
+            "descricao/interessado divergentes nao bloquearam a conciliacao"
+        )
+        if centro_custo_id is None:
+            motivo += ", correspondencia encontrada fora do centro de custo selecionado"
+
+        if score > melhor_score:
+            melhor = candidato
+            melhor_score = score
+            melhor_motivo = motivo
+
+    if not melhor:
+        return None
+
+    return melhor, melhor_score, melhor_motivo
 
 
 class ProcessarArquivoResponse(BaseModel):

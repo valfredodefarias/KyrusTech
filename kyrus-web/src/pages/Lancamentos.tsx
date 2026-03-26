@@ -1544,6 +1544,21 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
       setShowParcelasSeriePanel(Boolean(options?.preserveSeriePanel));
       setAjustarParaDiaUtil(false);
       void loadParcelasSerie(l.id_parcelamento, l);
+
+      if (l.entidade_id && !entidades.some((item: any) => Number(item.id) === Number(l.entidade_id))) {
+        void (async () => {
+          try {
+            const response = await api.get(`/entidades/${l.entidade_id}`);
+            const entidade = response?.data;
+            if (!entidade?.id) return;
+            setEntidades((prev: any[]) => (
+              prev.some((item) => Number(item.id) === Number(entidade.id)) ? prev : [...prev, entidade]
+            ));
+          } catch {
+            // No-op: mantém o formulário abrindo mesmo se o lookup da entidade falhar.
+          }
+        })();
+      }
     } else {
       setIsEditing(false);
       autoPagamentoRef.current = true;

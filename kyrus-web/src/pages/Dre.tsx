@@ -278,7 +278,7 @@ export function Dre() {
   const [hoveredKpi, setHoveredKpi] = useState<string | null>(null);
   const [somentePagos, setSomentePagos] = useState(true);
   const [auditPanel, setAuditPanel] = useState<DreAuditPanel | null>(null);
-  const [flashTarget, setFlashTarget] = useState<'resultado_operacional' | 'resultado_final' | null>(null);
+  const [flashCellId, setFlashCellId] = useState<string | null>(null);
   const [flashOn, setFlashOn] = useState(false);
   const handledSpotlightRef = useRef('');
   const isDark = useIsDarkMode();
@@ -795,7 +795,7 @@ export function Dre() {
       if (!el) return;
 
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      setFlashTarget(foco as 'resultado_operacional' | 'resultado_final');
+      setFlashCellId(targetElementId);
 
       for (let i = 0; i < 2; i += 1) {
         setFlashOn(true);
@@ -809,7 +809,7 @@ export function Dre() {
       next.delete('focus_kpi');
       next.delete('mes');
       setSearchParams(next, { replace: true });
-      setFlashTarget(null);
+      setFlashCellId(null);
     };
 
     void runSpotlight();
@@ -1101,7 +1101,7 @@ export function Dre() {
                   <td
                     id="dre-resultado-operacional-valor-total"
                     onClick={() => openResultadoAudit('Resultado operacional', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id)], null)}
-                    className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${(flashTarget === 'resultado_operacional' && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${dre.resultadoOperacionalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                    className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${(flashCellId === 'dre-resultado-operacional-valor-total' && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${dre.resultadoOperacionalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
                   >
                     {renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')}
                   </td>
@@ -1110,7 +1110,7 @@ export function Dre() {
                       key={`resultado-operacional-${index}`}
                       id={`dre-resultado-operacional-valor-mes-${index}`}
                       onClick={() => openResultadoAudit('Resultado operacional', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id)], index)}
-                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? selectedMonthSoftClass : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${(flashCellId === `dre-resultado-operacional-valor-mes-${index}` && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${selectedMonth === index ? selectedMonthSoftClass : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
                     >
                       {renderMoneyCell(value, 'resultado')}
                     </td>
@@ -1123,7 +1123,7 @@ export function Dre() {
                   <td
                     id="dre-resultado-final-valor-total"
                     onClick={() => openResultadoAudit('Resultado final', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.RECEITAS_NAO_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.DESPESAS_NAO_OPERACIONAIS.map((row) => row.id)], null)}
-                    className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${(flashTarget === 'resultado_final' && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${dre.resultadoFinalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                    className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${(flashCellId === 'dre-resultado-final-valor-total' && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${dre.resultadoFinalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
                   >
                     {renderMoneyCell(dre.resultadoFinalTotal, 'resultado')}
                   </td>
@@ -1132,7 +1132,7 @@ export function Dre() {
                       key={`resultado-final-${index}`}
                       id={`dre-resultado-final-valor-mes-${index}`}
                       onClick={() => openResultadoAudit('Resultado final', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.RECEITAS_NAO_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.DESPESAS_NAO_OPERACIONAIS.map((row) => row.id)], index)}
-                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? selectedMonthSoftClass : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${(flashCellId === `dre-resultado-final-valor-mes-${index}` && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${selectedMonth === index ? selectedMonthSoftClass : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
                     >
                       {renderMoneyCell(value, 'resultado')}
                     </td>

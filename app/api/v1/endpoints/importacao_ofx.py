@@ -714,7 +714,11 @@ def _buscar_duplicata_historica(
             continue
 
         data_candidata = candidato.data_pagamento or candidato.data_vencimento
-        if not data_candidata or abs((data_candidata - data_base).days) > 2:
+        if not data_candidata:
+            continue
+
+        diferenca_dias = abs((data_candidata - data_base).days)
+        if diferenca_dias > 2:
             continue
 
         valor_candidato = _valor_lancamento_existente(candidato)
@@ -728,6 +732,7 @@ def _buscar_duplicata_historica(
         entidade_bate = bool(interessado_norm and interessado_norm in contexto_candidato)
         mesmo_dia = data_candidata == data_base
         mesmo_dia_pagamento = candidato.data_pagamento == data_base
+        dia_muito_proximo = diferenca_dias <= 1
 
         # Mesmo dia+valor pode ocorrer em movimentos distintos;
         # exige evidencias adicionais para evitar falso positivo de "ja importado".
@@ -743,7 +748,14 @@ def _buscar_duplicata_historica(
                 return candidato, motivo
             continue
 
-        if (mesmo_dia and valor_exato and entidade_bate) or similaridade >= 0.72 or (entidade_bate and valor_exato):
+        # Match historico conservador: evita falso positivo em movimento distinto
+        # no mesmo intervalo, exigindo evidencias mais fortes.
+        evidencias_fortes = (
+            (dia_muito_proximo and valor_exato and similaridade >= 0.9)
+            or (dia_muito_proximo and valor_exato and entidade_bate and similaridade >= 0.55)
+            or (mesmo_dia and valor_exato and entidade_bate)
+        )
+        if evidencias_fortes:
             motivo = "Mesmo valor e data muito proxima de um lancamento ja registrado"
             if similaridade >= 0.8:
                 motivo += " com descricao muito parecida"
@@ -1331,10 +1343,12 @@ async def upload_ofx(
                 lanc_raw["duplicata_id"] = duplicata.id
                 lanc_raw["sugestao_acao"] = "DESCARTAR"
                 lanc_raw["motivo_conciliacao"] = duplicata_historica_motivo or "Movimento ja importado anteriormente para esta conta."
+                data_duplicata = duplicata.data_pagamento or duplicata.data_vencimento
+                valor_duplicata = _valor_lancamento_existente(duplicata)
                 lanc_raw["duplicata_resumo"] = DuplicataResumo(
                     descricao=duplicata.descricao,
-                    data_pagamento=duplicata.data_pagamento.isoformat() if duplicata.data_pagamento else None,
-                    valor_pago=float(duplicata.valor_pago) if duplicata.valor_pago is not None else None,
+                    data_pagamento=data_duplicata.isoformat() if data_duplicata else None,
+                    valor_pago=float(valor_duplicata),
                     origem=duplicata.origem,
                     motivo=duplicata_historica_motivo or "Mesmo banco selecionado e mesmo identificador de movimentacao",
                 )

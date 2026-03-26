@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarDays, Sigma, TrendingDown, TrendingUp } from 'lucide-react';
 
 import { api } from '../services/api';
-import { Lancamentos } from './Lancamentos';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
 interface PlanoConta {
@@ -12,6 +11,7 @@ interface PlanoConta {
   tipo: string;
   codigo?: string | null;
   eh_operacional?: boolean;
+  eh_cabecalho?: boolean;
   considerar_nos_resultados?: boolean;
   dre_grupo?: string;
   permite_lancamentos?: boolean;
@@ -71,6 +71,24 @@ interface DreAuditPanel {
   subtitle: string;
   monthIndex: number | null;
   rows: LancamentoResumo[];
+}
+
+interface DreLancamentoEditorForm {
+  id: number;
+  descricao: string;
+  tipo: 'RECEITA' | 'DESPESA';
+  status: string;
+  previsto: boolean;
+  competencia: string;
+  valor_previsto: string;
+  valor_pago: string;
+  data_vencimento: string;
+  data_pagamento: string;
+  plano_contas_id: number | null;
+  conta_id: number | null;
+  entidade_id: number | null;
+  centro_custo_id: number | null;
+  observacao: string;
 }
 
 type DreBranch = {
@@ -262,6 +280,43 @@ function renderPercentCell(value?: number | null) {
   return <span className="whitespace-nowrap tabular-nums">{percentFormatter.format(value)}</span>;
 }
 
+function toInputDate(dateValue?: string | null) {
+  if (!dateValue) return '';
+  return String(dateValue).slice(0, 10);
+}
+
+function toDecimalInput(value?: number | null) {
+  const parsed = Number(value ?? 0);
+  if (!Number.isFinite(parsed)) return '0.00';
+  return parsed.toFixed(2);
+}
+
+function parseDecimalInput(value: string) {
+  const normalized = String(value || '').replace(',', '.').trim();
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mapLancamentoToEditorForm(lancamento: any): DreLancamentoEditorForm {
+  return {
+    id: Number(lancamento.id),
+    descricao: String(lancamento.descricao || ''),
+    tipo: String(lancamento.tipo || 'DESPESA').toUpperCase().startsWith('R') ? 'RECEITA' : 'DESPESA',
+    status: String(lancamento.status || 'EM ABERTO'),
+    previsto: Boolean(lancamento.previsto ?? true),
+    competencia: String(lancamento.competencia || ''),
+    valor_previsto: toDecimalInput(Number(lancamento.valor_previsto || 0)),
+    valor_pago: toDecimalInput(Number(lancamento.valor_pago || 0)),
+    data_vencimento: toInputDate(lancamento.data_vencimento),
+    data_pagamento: toInputDate(lancamento.data_pagamento),
+    plano_contas_id: lancamento.plano_contas_id == null ? null : Number(lancamento.plano_contas_id),
+    conta_id: lancamento.conta_id == null ? null : Number(lancamento.conta_id),
+    entidade_id: lancamento.entidade_id == null ? null : Number(lancamento.entidade_id),
+    centro_custo_id: lancamento.centro_custo_id == null ? null : Number(lancamento.centro_custo_id),
+    observacao: String(lancamento.observacao || ''),
+  };
+}
+
 export function Dre() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -280,7 +335,10 @@ export function Dre() {
   const [hoveredKpi, setHoveredKpi] = useState<string | null>(null);
   const [somentePagos, setSomentePagos] = useState(true);
   const [auditPanel, setAuditPanel] = useState<DreAuditPanel | null>(null);
-  const [inlineLancamentoParams, setInlineLancamentoParams] = useState<URLSearchParams | null>(null);
+  const [editorForm, setEditorForm] = useState<DreLancamentoEditorForm | null>(null);
+  const [editorLoading, setEditorLoading] = useState(false);
+  const [editorSaving, setEditorSaving] = useState(false);
+  const [editorError, setEditorError] = useState<string | null>(null);
   const [flashCellId, setFlashCellId] = useState<string | null>(null);
   const [flashOn, setFlashOn] = useState(false);
   const handledSpotlightRef = useRef('');
@@ -732,10 +790,88 @@ export function Dre() {
       navigate(destino);
       return;
     }
-    const destinoEmbed = buildLancamentosDestino(lancamentoId, true);
-    const queryPart = destinoEmbed.split('?')[1] || '';
-    setInlineLancamentoParams(new URLSearchParams(queryPart));
+
+    setEditorLoading(true);
+    setEditorError(null);
+    api.get(`/lancamentos/${lancamentoId}`)
+      .then((response) => {
+        setEditorForm(mapLancamentoToEditorForm(response.data));
+      })
+      .catch((err: any) => {
+        setEditorError(err?.response?.data?.detail || 'Nao foi possivel carregar o lancamento para edicao.');
+      })
+      .finally(() => {
+        setEditorLoading(false);
+      });
   };
+
+  const updateEditorField = <K extends keyof DreLancamentoEditorForm>(field: K, value: DreLancamentoEditorForm[K]) => {
+    setEditorForm((prev) => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  const salvarEdicaoLancamento = async () => {
+    if (!editorForm || editorSaving) return;
+
+    if (!editorForm.descricao.trim()) {
+      setEditorError('Descricao e obrigatoria.');
+      return;
+    }
+
+    if (!editorForm.data_vencimento) {
+      setEditorError('Data de vencimento e obrigatoria.');
+      return;
+    }
+
+    if (!editorForm.plano_contas_id) {
+      setEditorError('Categoria e obrigatoria.');
+      return;
+    }
+
+    setEditorSaving(true);
+    setEditorError(null);
+
+    const payload = {
+      descricao: editorForm.descricao.trim(),
+      tipo: editorForm.tipo,
+      status: editorForm.status,
+      previsto: editorForm.previsto,
+      competencia: editorForm.competencia.trim() || null,
+      valor_previsto: parseDecimalInput(editorForm.valor_previsto),
+      valor_pago: parseDecimalInput(editorForm.valor_pago),
+      data_vencimento: editorForm.data_vencimento,
+      data_pagamento: editorForm.data_pagamento || null,
+      plano_contas_id: editorForm.plano_contas_id,
+      conta_id: editorForm.conta_id,
+      entidade_id: editorForm.entidade_id,
+      centro_custo_id: editorForm.centro_custo_id,
+      observacao: editorForm.observacao.trim() || null,
+    };
+
+    try {
+      const response = await api.put(`/lancamentos/${editorForm.id}`, payload);
+      const atualizado = response.data as LancamentoResumo;
+
+      setLancamentos((prev) => prev.map((item) => (item.id === atualizado.id ? { ...item, ...atualizado } : item)));
+      setAuditPanel((prev) => {
+        if (!prev) return prev;
+        const rowsAtualizadas = prev.rows.map((item) => (item.id === atualizado.id ? { ...item, ...atualizado } : item));
+        return { ...prev, rows: sortByCompetenciaDesc(rowsAtualizadas) };
+      });
+
+      setEditorForm(mapLancamentoToEditorForm(atualizado));
+    } catch (err: any) {
+      setEditorError(err?.response?.data?.detail || 'Nao foi possivel salvar o lancamento.');
+    } finally {
+      setEditorSaving(false);
+    }
+  };
+
+  const categoriasEditor = useMemo(() => {
+    const tipoSelecionado = String(editorForm?.tipo || '').toUpperCase();
+    return categorias
+      .filter((conta) => conta.permite_lancamentos !== false && !conta.eh_cabecalho)
+      .filter((conta) => !tipoSelecionado || String(conta.tipo || '').toUpperCase().startsWith(tipoSelecionado.startsWith('R') ? 'R' : 'D'));
+  }, [categorias, editorForm?.tipo]);
 
   const openContaAudit = (contaId: number, monthIndex: number | null) => {
     const conta = dre.contaPorId.get(contaId);
@@ -1290,34 +1426,235 @@ export function Dre() {
           </div>
         ) : null}
 
-        {inlineLancamentoParams ? (
+        {editorForm || editorLoading ? (
           <div className="fixed inset-0 z-[60]">
             <button
               type="button"
               className="absolute inset-0 bg-slate-950/60"
-              onClick={() => setInlineLancamentoParams(null)}
+              onClick={() => { setEditorForm(null); setEditorError(null); }}
               aria-label="Fechar editor"
             />
             <aside className="absolute right-0 top-0 flex h-full w-[clamp(420px,34vw,640px)] max-w-[100vw] flex-col border-l border-slate-200 bg-white shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] dark:border-slate-700 dark:bg-slate-950">
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
                 <div>
                   <div className="text-sm font-black uppercase tracking-[0.16em] text-slate-800 dark:text-slate-100">Editar lançamento</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Formulário da tela de lançamentos, sem sair da DRE.</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Editor nativo da DRE, sem abrir a tela inteira de lançamentos.</div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setInlineLancamentoParams(null)}
+                  onClick={() => { setEditorForm(null); setEditorError(null); }}
                   className="rounded-full border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                 >
                   Fechar
                 </button>
               </div>
-              <div className="h-full w-full overflow-hidden">
-                <Lancamentos
-                  key={inlineLancamentoParams.toString()}
-                  forcedSearchParams={inlineLancamentoParams}
-                  onRequestCloseEmbed={() => setInlineLancamentoParams(null)}
-                />
+              <div className="h-full overflow-y-auto p-4">
+                {editorLoading && !editorForm ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    Carregando lançamento...
+                  </div>
+                ) : null}
+
+                {editorForm ? (
+                  <div className="space-y-4">
+                    {editorError ? (
+                      <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                        {editorError}
+                      </div>
+                    ) : null}
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="mb-1 block text-xs font-bold uppercase text-slate-400">Interessado</label>
+                        <select
+                          value={editorForm.entidade_id == null ? '' : String(editorForm.entidade_id)}
+                          onChange={(event) => updateEditorField('entidade_id', event.target.value ? Number(event.target.value) : null)}
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                        >
+                          <option value="">Selecione...</option>
+                          {entidades.map((entidade) => (
+                            <option key={entidade.id} value={entidade.id}>{entidade.nome_fantasia || entidade.nome}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-xs font-bold uppercase text-slate-400">Descricao</label>
+                        <input
+                          value={editorForm.descricao}
+                          onChange={(event) => updateEditorField('descricao', event.target.value)}
+                          placeholder="Ex: Conta de Luz"
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="mb-1 block text-xs font-bold uppercase text-slate-400">Vencimento</label>
+                          <input
+                            type="date"
+                            value={editorForm.data_vencimento}
+                            onChange={(event) => updateEditorField('data_vencimento', event.target.value)}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-bold uppercase text-slate-400">Valor (R$)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editorForm.valor_previsto}
+                            onChange={(event) => updateEditorField('valor_previsto', event.target.value)}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-blue-500 shadow-sm outline-none transition focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-blue-300"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="mb-1 block text-xs font-bold uppercase text-slate-400">Competencia (MM-AAAA)</label>
+                          <input
+                            value={editorForm.competencia}
+                            onChange={(event) => updateEditorField('competencia', event.target.value)}
+                            placeholder="02-2026"
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-bold uppercase text-slate-400">Previsto</label>
+                          <button
+                            type="button"
+                            onClick={() => updateEditorField('previsto', !editorForm.previsto)}
+                            className={`w-full rounded-lg border px-3 py-2.5 text-sm font-bold transition ${editorForm.previsto ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300' : 'border-slate-300 bg-white text-slate-600 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300'}`}
+                          >
+                            {editorForm.previsto ? 'Sim' : 'Nao'}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="mb-1 block text-xs font-bold uppercase text-slate-400">Banco</label>
+                          <select
+                            value={editorForm.conta_id == null ? '' : String(editorForm.conta_id)}
+                            onChange={(event) => updateEditorField('conta_id', event.target.value ? Number(event.target.value) : null)}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                          >
+                            <option value="">Sem banco</option>
+                            {contas.map((conta) => (
+                              <option key={conta.id} value={conta.id}>{conta.banco || conta.nome}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-bold uppercase text-slate-400">Data pagamento</label>
+                          <input
+                            type="date"
+                            value={editorForm.data_pagamento}
+                            onChange={(event) => updateEditorField('data_pagamento', event.target.value)}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="mb-1 block text-xs font-bold uppercase text-slate-400">Valor pago (R$)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editorForm.valor_pago}
+                            onChange={(event) => updateEditorField('valor_pago', event.target.value)}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-bold uppercase text-slate-400">Tipo / Status</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <select
+                              value={editorForm.tipo}
+                              onChange={(event) => updateEditorField('tipo', event.target.value as 'RECEITA' | 'DESPESA')}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-2 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                            >
+                              <option value="DESPESA">Despesa</option>
+                              <option value="RECEITA">Receita</option>
+                            </select>
+                            <select
+                              value={editorForm.status}
+                              onChange={(event) => updateEditorField('status', event.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-2 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                            >
+                              <option value="EM ABERTO">Em aberto</option>
+                              <option value="PENDENTE">Pendente</option>
+                              <option value="PAGO">Pago</option>
+                              <option value="ATRASADO">Atrasado</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-xs font-bold uppercase text-slate-400">Categoria</label>
+                        <select
+                          value={editorForm.plano_contas_id == null ? '' : String(editorForm.plano_contas_id)}
+                          onChange={(event) => updateEditorField('plano_contas_id', event.target.value ? Number(event.target.value) : null)}
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                        >
+                          <option value="">Selecione...</option>
+                          {categoriasEditor.map((categoria) => (
+                            <option key={categoria.id} value={categoria.id}>
+                              {categoria.codigo ? `${categoria.codigo} - ` : ''}{categoria.nome}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-xs font-bold uppercase text-slate-400">Centro de custo</label>
+                        <select
+                          value={editorForm.centro_custo_id == null ? '' : String(editorForm.centro_custo_id)}
+                          onChange={(event) => updateEditorField('centro_custo_id', event.target.value ? Number(event.target.value) : null)}
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                        >
+                          <option value="">Sem centro de custo</option>
+                          {centrosCusto.map((centro) => (
+                            <option key={centro.id} value={centro.id}>
+                              {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-xs font-bold uppercase text-slate-400">Observacao</label>
+                        <textarea
+                          value={editorForm.observacao}
+                          onChange={(event) => updateEditorField('observacao', event.target.value)}
+                          rows={4}
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => { setEditorForm(null); setEditorError(null); }}
+                        className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { void salvarEdicaoLancamento(); }}
+                        disabled={editorSaving}
+                        className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
+                      >
+                        {editorSaving ? 'Salvando...' : 'Salvar'}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </aside>
           </div>

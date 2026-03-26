@@ -176,6 +176,16 @@ function normalizeText(value?: string | null) {
     .toLowerCase();
 }
 
+function formatDateBr(dateValue?: string | null) {
+  if (!dateValue) return '-';
+  const safe = String(dateValue).slice(0, 10);
+  const parts = safe.split('-');
+  if (parts.length !== 3) return safe;
+  const [year, month, day] = parts;
+  if (!year || !month || !day) return safe;
+  return `${day}/${month}/${year}`;
+}
+
 function useIsDarkMode() {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
 
@@ -1133,16 +1143,17 @@ export function Dre() {
                   <table className="w-full text-sm">
                     <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
                       <tr>
-                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Banco</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data pagamento</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
                         <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
                         <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
-                        <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Banco</th>
                       </tr>
                     </thead>
                     <tbody>
                       {auditPanel.rows.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
+                          <td colSpan={5} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
                         </tr>
                       ) : auditPanel.rows.map((item) => {
                         const contaNome = contaNomePorId.get(Number(item.conta_id)) || 'Sem banco';
@@ -1154,10 +1165,11 @@ export function Dre() {
 
                         return (
                           <tr key={item.id} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
-                            <td className="px-3 py-2.5">{contaNome}</td>
+                            <td className="px-3 py-2.5 whitespace-nowrap">{formatDateBr(item.data_pagamento)}</td>
+                            <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${valorClass}`}>{moneyFormatter.format(Math.abs(valor))}</td>
                             <td className="px-3 py-2.5">{interessadoNome}</td>
                             <td className="max-w-72 truncate px-3 py-2.5" title={item.descricao}>{item.descricao}</td>
-                            <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${valorClass}`}>{moneyFormatter.format(Math.abs(valor))}</td>
+                            <td className="px-3 py-2.5">{contaNome}</td>
                           </tr>
                         );
                       })}

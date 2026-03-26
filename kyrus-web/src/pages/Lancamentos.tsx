@@ -513,10 +513,20 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [deleteStep, setDeleteStep] = useState(1);
   const [deletePhrase, setDeletePhrase] = useState('');
+  const [deletePaidPhrase, setDeletePaidPhrase] = useState('');
   const [deleteReason, setDeleteReason] = useState('');
   const todayISO = new Date().toISOString().split('T')[0];
   const yesterdayISO = new Date(Date.now() - 24*60*60*1000).toISOString().split('T')[0];
   const [bulkPayData, setBulkPayData] = useState({ conta_id: '', modoData: 'HOJE', data: todayISO });
+  const selectedLancamentos = useMemo(
+    () => lancamentos.filter((item) => selectedIds.has(Number(item.id))),
+    [lancamentos, selectedIds],
+  );
+  const selectedCompensados = useMemo(
+    () => selectedLancamentos.filter((item) => String(item.status).toUpperCase() === 'PAGO' || !!item.data_pagamento || !!item.conciliado),
+    [selectedLancamentos],
+  );
+  const hasSelectedCompensados = selectedCompensados.length > 0;
 
   // --- MODAIS ---
   const [showDrawer, setShowDrawer] = useState(false);
@@ -1212,23 +1222,29 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
   function openBulkDelete() {
     setDeleteStep(1);
     setDeletePhrase('');
+    setDeletePaidPhrase('');
     setDeleteReason('');
     setShowBulkDelete(true);
   }
 
   async function handleBulkDelete() {
     if (selectedIds.size === 0) return;
+    const confirmarExclusaoPagos = hasSelectedCompensados && deletePaidPhrase.trim().toUpperCase() === 'EXCLUIR PAGOS';
     setSaving(true);
     try {
-      await api.post('/lancamentos/bulk-delete', { ids: Array.from(selectedIds) });
+      await api.post('/lancamentos/bulk-delete', {
+        ids: Array.from(selectedIds),
+        confirmar_exclusao_pagos: confirmarExclusaoPagos,
+      });
       setShowBulkDelete(false);
       setSelectedIds(new Set());
       await refreshLancamentosVisiveis();
       await refreshContasComSaldo();
       pushToast('success', 'Lançamentos apagados com sucesso.');
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      pushToast('error', 'Erro ao apagar em lote.');
+      const msg = String(e?.response?.data?.detail || '').trim();
+      pushToast('error', msg || 'Erro ao apagar em lote.');
     } finally {
       setSaving(false);
     }
@@ -1621,6 +1637,10 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
     }
     if(!formData.entidade_id) {
       pushToast('info', 'Interessado é obrigatório.');
+      return;
+    }
+    if (formData.status === 'PAGO' && !formData.conta_id) {
+      pushToast('info', 'Selecione o banco antes de salvar um lançamento já pago/recebido.');
       return;
     }
 
@@ -2359,8 +2379,8 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                                             <Check className="w-3 h-3"/>
                                           </button>
                                         </td>
-                                        <td className="p-2.5 font-semibold text-slate-800 dark:text-white">
-                                            <div className="flex items-center gap-2">{l.descricao} {l.anexos?.length > 0 && <Paperclip className="w-3 h-3 text-blue-400"/>}</div>
+                                        <td className={`p-2.5 font-semibold text-slate-800 dark:text-white ${contaExtratoAtivaId !== null ? 'text-[13px]' : ''}`}>
+                                          <div className="flex items-center gap-2">{l.descricao} {l.anexos?.length > 0 && <Paperclip className="w-3 h-3 text-blue-400"/>}</div>
                                             {l.numero_parcela && <span className="text-[10px] text-slate-500">Parcela {l.numero_parcela}</span>}
                                         </td>
                                         <td className="p-2.5 hidden md:table-cell">
@@ -2829,6 +2849,78 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                 </div>
               )}
 
+              {/* CATEGORIA */}
+              <div>
+                <SearchableSelect label="Categoria" placeholder="Selecione..." options={catOptions} value={formData.plano_contas_id} onChange={(id:any)=>{
+                   const cat = categorias.find(c=>String(c.id)===String(id));
+                   const tipoCat = String(cat?.tipo || '').trim().toUpperCase();
+                   setFormData({...formData, plano_contas_id:id, tipo: tipoCat.startsWith('R') ? 'RECEITA' : 'DESPESA'});
+                }} />
+              </div>
+
+              {/* CENTRO DE CUSTO E ORIGEM DOS RECURSOS (COM FILTRAGEM INTELIGENTE) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Centro de Custo</label>
+                <div className="mb-3">
+                    <select className="w-full p-2 text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 outline-none" value={formData.centro_custo_id} onChange={e=>setFormData({...formData, centro_custo_id:e.target.value, conta_id: '', cartao_id: ''})}>
+                        <option value="">Todos os Centros de Custo</option>
+                        {centros.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
+                    </select>
+                </div>
+
+                <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-slate-50 dark:bg-slate-800/30 space-y-4">
+                  {(() => {
+                    const contasAtivasNoCentro = getContasAtivasByCentro(formData.centro_custo_id);
+                    return (
+                      <>
+                  {/* CONTAS */}
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><Wallet className="w-3 h-3"/> Contas Bancárias</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {contasAtivasNoCentro.length === 0 && <span className="text-xs text-slate-500 italic col-span-2">Nenhuma conta ativa neste centro.</span>}
+                      {contasAtivasNoCentro.map(c=>(
+                        <div key={c.id} onClick={()=>toggleConta(c.id)} className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${formData.conta_id===c.id ? 'bg-blue-600 text-white border-blue-500 shadow-md' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-slate-400'}`}>
+                          <div className={`p-1 rounded ${formData.conta_id===c.id?'bg-white/20':'bg-slate-100 dark:bg-slate-700 text-emerald-500'}`}>
+                            <BankAvatar logoUrl={getFullLogoUrl(c.logo_url)} bankName={c.banco} accountName={c.nome} integrationType={c.tipo_integracao} size="sm" className="h-4 w-4" imageClassName="rounded-sm" fallbackClassName="rounded-sm border-0 shadow-none" />
+                          </div>
+                          {c.nome}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* CARTÕES */}
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><CreditCard className="w-3 h-3"/> Cartões de Crédito</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {cartoes.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).length === 0 && <span className="text-xs text-slate-500 italic col-span-2">Nenhum cartão neste centro.</span>}
+                      {cartoes.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).map(c=>(
+                        <div key={c.id} onClick={()=>toggleCartao(c.id)} className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${formData.cartao_id===c.id ? 'bg-purple-600 text-white border-purple-500 shadow-md' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-slate-400'}`}>
+                          <div className={`p-1 rounded ${formData.cartao_id===c.id?'bg-white/20':'bg-slate-100 dark:bg-slate-700 text-purple-500'}`}><CreditCard className="w-3 h-3"/></div> {c.nome_cartao}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* PAGAMENTO */}
+              <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <ToggleSimNao
+                  label="Já foi pago/recebido?"
+                  value={formData.status==='PAGO'}
+                  onChange={handleStatusPagoChange}
+                />
+                {formData.status==='PAGO' && (
+                  <div className="grid grid-cols-2 gap-4 mt-3 animate-in fade-in slide-in-from-top-2">
+                    <InputDark label="Data da Baixa" type="date" value={formData.data_pagamento} onChange={(e:any)=>handleDataPagamentoChange(e.target.value)} />
+                    <CurrencyInputDark label="Valor Pago (R$)" className="text-emerald-400 font-bold" value={formData.valor_pago} onValueChange={(value:string)=>handleValorPagoChange(value)} />
+                  </div>
+                )}
+              </div>
+
               {/* PARCELAMENTO */}
               <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                 <ToggleSimNao
@@ -2902,78 +2994,6 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                     )}
                   </div>
                 )}
-              </div>
-
-              {/* PAGAMENTO */}
-              <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                <ToggleSimNao
-                  label="Já foi pago/recebido?"
-                  value={formData.status==='PAGO'}
-                  onChange={handleStatusPagoChange}
-                />
-                {formData.status==='PAGO' && (
-                  <div className="grid grid-cols-2 gap-4 mt-3 animate-in fade-in slide-in-from-top-2">
-                    <InputDark label="Data da Baixa" type="date" value={formData.data_pagamento} onChange={(e:any)=>handleDataPagamentoChange(e.target.value)} />
-                    <CurrencyInputDark label="Valor Pago (R$)" className="text-emerald-400 font-bold" value={formData.valor_pago} onValueChange={(value:string)=>handleValorPagoChange(value)} />
-                  </div>
-                )}
-              </div>
-
-              {/* CATEGORIA */}
-              <div>
-                <SearchableSelect label="Categoria" placeholder="Selecione..." options={catOptions} value={formData.plano_contas_id} onChange={(id:any)=>{
-                   const cat = categorias.find(c=>String(c.id)===String(id));
-                   const tipoCat = String(cat?.tipo || '').trim().toUpperCase();
-                   setFormData({...formData, plano_contas_id:id, tipo: tipoCat.startsWith('R') ? 'RECEITA' : 'DESPESA'});
-                }} />
-              </div>
-
-              {/* ORIGEM DO RECURSO (COM FILTRAGEM INTELIGENTE) */}
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Origem do Recurso</label>
-                <div className="mb-3">
-                    <select className="w-full p-2 text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 outline-none" value={formData.centro_custo_id} onChange={e=>setFormData({...formData, centro_custo_id:e.target.value, conta_id: '', cartao_id: ''})}>
-                        <option value="">Todos os Centros de Custo</option>
-                        {centros.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
-                    </select>
-                </div>
-
-                <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-slate-50 dark:bg-slate-800/30 space-y-4">
-                  {(() => {
-                    const contasAtivasNoCentro = getContasAtivasByCentro(formData.centro_custo_id);
-                    return (
-                      <>
-                  {/* CONTAS */}
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><Wallet className="w-3 h-3"/> Contas Bancárias</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {contasAtivasNoCentro.length === 0 && <span className="text-xs text-slate-500 italic col-span-2">Nenhuma conta ativa neste centro.</span>}
-                      {contasAtivasNoCentro.map(c=>(
-                        <div key={c.id} onClick={()=>toggleConta(c.id)} className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${formData.conta_id===c.id ? 'bg-blue-600 text-white border-blue-500 shadow-md' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-slate-400'}`}>
-                          <div className={`p-1 rounded ${formData.conta_id===c.id?'bg-white/20':'bg-slate-100 dark:bg-slate-700 text-emerald-500'}`}>
-                            <BankAvatar logoUrl={getFullLogoUrl(c.logo_url)} bankName={c.banco} accountName={c.nome} integrationType={c.tipo_integracao} size="sm" className="h-4 w-4" imageClassName="rounded-sm" fallbackClassName="rounded-sm border-0 shadow-none" />
-                          </div>
-                          {c.nome}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  {/* CARTÕES */}
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><CreditCard className="w-3 h-3"/> Cartões de Crédito</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {cartoes.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).length === 0 && <span className="text-xs text-slate-500 italic col-span-2">Nenhum cartão neste centro.</span>}
-                      {cartoes.filter(c => !formData.centro_custo_id || String(c.centro_custo_id) === String(formData.centro_custo_id)).map(c=>(
-                        <div key={c.id} onClick={()=>toggleCartao(c.id)} className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${formData.cartao_id===c.id ? 'bg-purple-600 text-white border-purple-500 shadow-md' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-slate-400'}`}>
-                          <div className={`p-1 rounded ${formData.cartao_id===c.id?'bg-white/20':'bg-slate-100 dark:bg-slate-700 text-purple-500'}`}><CreditCard className="w-3 h-3"/></div> {c.nome_cartao}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                      </>
-                    );
-                  })()}
-                </div>
               </div>
 
               <div className="space-y-1">
@@ -3111,6 +3131,11 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                 <div className="p-3 rounded-lg bg-red-900/20 border border-red-800 text-red-200 text-sm">
                   Você está prestes a apagar <strong>{selectedIds.size}</strong> lançamento(s). Esta ação é irreversível.
                 </div>
+                {hasSelectedCompensados && (
+                  <div className="p-3 rounded-lg bg-amber-900/20 border border-amber-700 text-amber-200 text-sm">
+                    Atenção: <strong>{selectedCompensados.length}</strong> lançamento(s) pago(s)/compensado(s) foram selecionados e exigem confirmação adicional.
+                  </div>
+                )}
                 <div className="text-xs text-slate-400">
                   Confirme que deseja continuar.
                 </div>
@@ -3145,6 +3170,20 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                   placeholder="Digite APAGAR"
                   className="w-full p-3 rounded-lg border border-slate-600 bg-slate-900 text-white"
                 />
+                {hasSelectedCompensados && (
+                  <>
+                    <div className="p-3 rounded-lg bg-amber-900/20 border border-amber-700 text-amber-200 text-sm">
+                      Para excluir itens pagos/compensados, digite <strong>EXCLUIR PAGOS</strong>.
+                    </div>
+                    <input
+                      type="text"
+                      value={deletePaidPhrase}
+                      onChange={e=>setDeletePaidPhrase(e.target.value)}
+                      placeholder="Digite EXCLUIR PAGOS"
+                      className="w-full p-3 rounded-lg border border-amber-600 bg-slate-900 text-white"
+                    />
+                  </>
+                )}
                 <div className="text-xs text-slate-400">Motivo: {deleteReason || '—'}</div>
               </div>
             )}
@@ -3166,7 +3205,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
               {deleteStep === 3 && (
                 <button
                   onClick={handleBulkDelete}
-                  disabled={deletePhrase.trim() !== 'APAGAR' || saving}
+                  disabled={deletePhrase.trim() !== 'APAGAR' || (hasSelectedCompensados && deletePaidPhrase.trim().toUpperCase() !== 'EXCLUIR PAGOS') || saving}
                   className="flex-1 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-500 shadow-lg transition disabled:opacity-50"
                 >
                   {saving ? 'Apagando...' : 'Apagar agora'}

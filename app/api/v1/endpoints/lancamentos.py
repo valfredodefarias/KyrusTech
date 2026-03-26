@@ -1351,9 +1351,14 @@ def atualizar_lancamento(lancamento_id: int, lancamento_in: LancamentoUpdate, se
     return service.update(lancamento_id=lancamento_id, dados_atualizacao=lancamento_in, empresa_id=empresa_id, user_id=user_id)
 
 @router.delete("/{lancamento_id}", status_code=status.HTTP_204_NO_CONTENT)
-def deletar_lancamento(lancamento_id: int, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
+def deletar_lancamento(
+    lancamento_id: int,
+    confirmar_exclusao_pagos: bool = Query(False),
+    service: LancamentoService = Depends(get_service),
+    current_user: Usuario = Depends(get_current_user),
+):
     empresa_id, user_id = require_empresa_user(current_user)
-    service.delete(lancamento_id, empresa_id, user_id)
+    service.delete(lancamento_id, empresa_id, user_id, confirmar_exclusao_pagos=confirmar_exclusao_pagos)
 
 # ==========================================
 # AÇÕES EM MASSA (BULK)
@@ -1367,7 +1372,12 @@ def criar_multiplos(lista_in: List[LancamentoCreate], service: LancamentoService
 @router.post("/bulk-delete")
 def deletar_multiplos(payload: BulkActionSchema, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
-    service.deletar_em_massa(payload.ids, empresa_id, user_id)
+    service.deletar_em_massa(
+        payload.ids,
+        empresa_id,
+        user_id,
+        confirmar_exclusao_pagos=bool(payload.confirmar_exclusao_pagos),
+    )
     return {"msg": "Lançamentos deletados com sucesso"}
 
 @router.post("/bulk-pay")

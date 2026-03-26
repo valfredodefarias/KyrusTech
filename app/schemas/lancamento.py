@@ -88,6 +88,7 @@ class BulkActionSchema(SQLModel):
     ids: List[int]
     data_pagamento: Optional[date] = None
     conta_id: Optional[int] = None 
+    confirmar_exclusao_pagos: bool = False
 
 class BulkUpdateSchema(SQLModel):
     ids: List[int]

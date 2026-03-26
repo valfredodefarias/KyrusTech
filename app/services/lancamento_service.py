@@ -98,6 +98,10 @@ class LancamentoService:
     def _is_transferencia(self, lancamento: Lancamento) -> bool:
         return str(lancamento.origem or "").upper() == "TRANSFERENCIA"
 
+    def _is_compensado_ou_pago(self, lancamento: Lancamento) -> bool:
+        status_pago = str(lancamento.status or "").upper() == "PAGO"
+        return bool(status_pago or lancamento.data_pagamento or lancamento.conciliado)
+
     def _find_transfer_related_ids(self, lancamento: Lancamento) -> set[int]:
         ids = {int(lancamento.id)} if lancamento.id is not None else set()
 
@@ -460,8 +464,13 @@ class LancamentoService:
         self.session.commit()
         self.session.refresh(db_lancamento)
         return db_lancamento
-    def delete(self, lancamento_id: int, empresa_id: int, user_id: int):
+    def delete(self, lancamento_id: int, empresa_id: int, user_id: int, confirmar_exclusao_pagos: bool = False):
         lancamento = self.get_by_id(lancamento_id, empresa_id)
+        if self._is_compensado_ou_pago(lancamento) and not confirmar_exclusao_pagos:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Lancamento compensado/pago so pode ser excluido com confirmacao explicita do usuario.",
+            )
         delete_ids = self._find_transfer_related_ids(lancamento) if self._is_transferencia(lancamento) else {int(lancamento.id)}
         related = self.session.exec(
             select(Lancamento).where(
@@ -470,6 +479,13 @@ class LancamentoService:
                 Lancamento.is_deleted == False,
             )
         ).all()
+        if not confirmar_exclusao_pagos:
+            bloqueados = [item for item in related if self._is_compensado_ou_pago(item)]
+            if bloqueados:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Ha lancamentos compensados/pagos no escopo da exclusao. Confirme explicitamente para prosseguir.",
+                )
         for item in related:
             item.is_deleted = True
             item.deleted_at = datetime.utcnow()
@@ -534,7 +550,7 @@ class LancamentoService:
         for obj in novos_objetos:
             self.session.refresh(obj)
         return novos_objetos
-    def deletar_em_massa(self, ids: List[int], empresa_id: int, user_id: int):
+    def deletar_em_massa(self, ids: List[int], empresa_id: int, user_id: int, confirmar_exclusao_pagos: bool = False):
         statement = select(Lancamento).where(
             col(Lancamento.id).in_(ids),
             Lancamento.empresa_id == empresa_id,
@@ -558,6 +574,13 @@ class LancamentoService:
                 Lancamento.is_deleted == False,
             )
         ).all()
+        if not confirmar_exclusao_pagos:
+            bloqueados = [lanc for lanc in related if self._is_compensado_ou_pago(lanc)]
+            if bloqueados:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Existem lancamentos compensados/pagos na selecao. Para excluir, confirme explicitamente.",
+                )
         for lanc in related:
             lanc.is_deleted = True
             lanc.deleted_at = datetime.utcnow()

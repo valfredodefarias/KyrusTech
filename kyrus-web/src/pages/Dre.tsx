@@ -782,9 +782,12 @@ export function Dre() {
     const token = `${foco}|${mesParam || 'ALL'}`;
     if (handledSpotlightRef.current === token) return;
 
+    const mesNumero = mesParam === null ? null : Number(mesParam);
+    const hasMesValido = mesNumero !== null && Number.isInteger(mesNumero) && mesNumero >= 0 && mesNumero <= 11;
+
     const targetElementId = foco === 'resultado_operacional'
-      ? 'dre-resultado-operacional-valor'
-      : 'dre-resultado-final-valor';
+      ? (hasMesValido ? `dre-resultado-operacional-valor-mes-${mesNumero}` : 'dre-resultado-operacional-valor-total')
+      : (hasMesValido ? `dre-resultado-final-valor-mes-${mesNumero}` : 'dre-resultado-final-valor-total');
 
     const runSpotlight = async () => {
       await waitMs(120);
@@ -1096,7 +1099,7 @@ export function Dre() {
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado operacional</td>
                   <td
-                    id="dre-resultado-operacional-valor"
+                    id="dre-resultado-operacional-valor-total"
                     onClick={() => openResultadoAudit('Resultado operacional', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id)], null)}
                     className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${(flashTarget === 'resultado_operacional' && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${dre.resultadoOperacionalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
                   >
@@ -1105,6 +1108,7 @@ export function Dre() {
                   {dre.resultadoOperacionalMonthly.map((value, index) => (
                     <td
                       key={`resultado-operacional-${index}`}
+                      id={`dre-resultado-operacional-valor-mes-${index}`}
                       onClick={() => openResultadoAudit('Resultado operacional', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id)], index)}
                       className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? selectedMonthSoftClass : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
                     >
@@ -1117,7 +1121,7 @@ export function Dre() {
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado final</td>
                   <td
-                    id="dre-resultado-final-valor"
+                    id="dre-resultado-final-valor-total"
                     onClick={() => openResultadoAudit('Resultado final', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.RECEITAS_NAO_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.DESPESAS_NAO_OPERACIONAIS.map((row) => row.id)], null)}
                     className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${(flashTarget === 'resultado_final' && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${dre.resultadoFinalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
                   >
@@ -1126,6 +1130,7 @@ export function Dre() {
                   {dre.resultadoFinalMonthly.map((value, index) => (
                     <td
                       key={`resultado-final-${index}`}
+                      id={`dre-resultado-final-valor-mes-${index}`}
                       onClick={() => openResultadoAudit('Resultado final', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.RECEITAS_NAO_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.DESPESAS_NAO_OPERACIONAIS.map((row) => row.id)], index)}
                       className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? selectedMonthSoftClass : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
                     >

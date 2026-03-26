@@ -729,12 +729,19 @@ def _buscar_duplicata_historica(
         mesmo_dia = data_candidata == data_base
         mesmo_dia_pagamento = candidato.data_pagamento == data_base
 
-        # Se já foi baixado no mesmo dia e valor, trata como duplicata mesmo com descricao diferente.
+        # Mesmo dia+valor pode ocorrer em movimentos distintos;
+        # exige evidencias adicionais para evitar falso positivo de "ja importado".
         if mesmo_dia_pagamento and valor_exato:
-            motivo = "Mesmo valor e mesma data de pagamento de um lancamento ja baixado"
-            if candidato.conta_id is None:
-                motivo += " (lancamento sem conta vinculada)"
-            return candidato, motivo
+            if similaridade >= 0.8 or entidade_bate:
+                motivo = "Mesmo valor e mesma data de pagamento de um lancamento ja baixado"
+                if similaridade >= 0.8:
+                    motivo += " com descricao muito parecida"
+                elif entidade_bate:
+                    motivo += " com favorecido/interessado compativel"
+                if candidato.conta_id is None:
+                    motivo += " (lancamento sem conta vinculada)"
+                return candidato, motivo
+            continue
 
         if (mesmo_dia and valor_exato and entidade_bate) or similaridade >= 0.72 or (entidade_bate and valor_exato):
             motivo = "Mesmo valor e data muito proxima de um lancamento ja registrado"
@@ -1551,6 +1558,34 @@ async def confirmar_lancamentos(
     lancamentos_atualizados = 0
     erros: List[str] = []
     import_hashes_processados: set[str] = set()
+    ignorados_descartar = 0
+    ignorados_sugestao_pendente = 0
+    ignorados_duplicata_payload = 0
+    ignorados_idempotencia_lote = 0
+    ignorados_idempotencia_historico = 0
+    max_amostras_ignorados = 6
+    amostras_ignorados: Dict[str, List[Dict[str, Any]]] = {
+        "descartar": [],
+        "sugestao_pendente": [],
+        "duplicata_payload": [],
+        "idempotencia_lote": [],
+        "idempotencia_historico": [],
+    }
+
+    def _registrar_amostra_ignorada(chave: str, item: Dict[str, Any]) -> None:
+        bucket = amostras_ignorados.get(chave)
+        if bucket is None or len(bucket) >= max_amostras_ignorados:
+            return
+        bucket.append({
+            "id": item.get("id"),
+            "linha_arquivo": item.get("linha_arquivo"),
+            "descricao": str(item.get("descricao") or "")[:140],
+            "valor": item.get("valor"),
+            "data": item.get("data"),
+            "tipo": item.get("tipo"),
+            "import_hash": str(item.get("import_hash") or "")[:16],
+            "sugestao_acao": item.get("sugestao_acao"),
+        })
 
     conta_resolvida = None
     cartao_resolvido = None
@@ -1603,18 +1638,26 @@ async def confirmar_lancamentos(
                 acao = sugestao_acao_raw
 
             if acao in {"IGNORAR_DUPLICATA", "DESCARTAR"}:
+                ignorados_descartar += 1
+                _registrar_amostra_ignorada("descartar", lanc_data)
                 continue
 
             # Sugestoes automaticas so devem ser executadas apos confirmacao explicita no frontend.
             if acao in {"BAIXAR_PREVISTO", "RELACIONAR_ATRASADOS"} and not sugestao_confirmada:
+                ignorados_sugestao_pendente += 1
+                _registrar_amostra_ignorada("sugestao_pendente", lanc_data)
                 continue
 
             # Duplicata identificada no upload nunca deve virar novo lançamento.
             if lanc_data.get("duplicata_id") or lanc_data.get("duplicata_resumo"):
+                ignorados_duplicata_payload += 1
+                _registrar_amostra_ignorada("duplicata_payload", lanc_data)
                 continue
 
             import_hash = str(lanc_data.get("import_hash") or "").strip()
             if import_hash and import_hash in import_hashes_processados:
+                ignorados_idempotencia_lote += 1
+                _registrar_amostra_ignorada("idempotencia_lote", lanc_data)
                 logger.warning(
                     "Importacao OFX ignorada por idempotencia no mesmo lote: "
                     f"hash={import_hash} descricao={lanc_data.get('descricao')}"
@@ -1622,6 +1665,8 @@ async def confirmar_lancamentos(
                 continue
 
             if _buscar_lancamento_por_import_hash(db, empresa_id, import_hash or None):
+                ignorados_idempotencia_historico += 1
+                _registrar_amostra_ignorada("idempotencia_historico", lanc_data)
                 logger.warning(
                     "Importacao OFX ignorada por idempotencia: movimento ja confirmado anteriormente. "
                     f"hash={import_hash} descricao={lanc_data.get('descricao')}"
@@ -1779,11 +1824,25 @@ async def confirmar_lancamentos(
     db.commit()
 
     logger.info(
-        "[OFX] Confirmacao finalizada empresa_id={} criados={} atualizados={} erros={}",
+        "[OFX] Confirmacao finalizada empresa_id={} criados={} atualizados={} erros={} ignorados_descartar={} ignorados_sugestao_pendente={} ignorados_duplicata_payload={} ignorados_idempotencia_lote={} ignorados_idempotencia_historico={}",
         empresa_id,
         lancamentos_criados,
         lancamentos_atualizados,
         len(erros),
+        ignorados_descartar,
+        ignorados_sugestao_pendente,
+        ignorados_duplicata_payload,
+        ignorados_idempotencia_lote,
+        ignorados_idempotencia_historico,
+    )
+    logger.info(
+        "[OFX] Confirmacao amostras_ignorados empresa_id={} descartar={} sugestao_pendente={} duplicata_payload={} idempotencia_lote={} idempotencia_historico={}",
+        empresa_id,
+        amostras_ignorados["descartar"],
+        amostras_ignorados["sugestao_pendente"],
+        amostras_ignorados["duplicata_payload"],
+        amostras_ignorados["idempotencia_lote"],
+        amostras_ignorados["idempotencia_historico"],
     )
 
     return {

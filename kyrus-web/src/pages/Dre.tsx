@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { type MouseEvent as ReactMouseEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarDays, Sigma, TrendingDown, TrendingUp } from 'lucide-react';
 
 import { api } from '../services/api';
+import { Lancamentos } from './Lancamentos';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
 interface PlanoConta {
@@ -262,6 +263,7 @@ function renderPercentCell(value?: number | null) {
 }
 
 export function Dre() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const currentYear = useMemo(() => new Date().getFullYear(), []);
   const currentMonth = useMemo(() => new Date().getMonth(), []);
@@ -278,6 +280,7 @@ export function Dre() {
   const [hoveredKpi, setHoveredKpi] = useState<string | null>(null);
   const [somentePagos, setSomentePagos] = useState(true);
   const [auditPanel, setAuditPanel] = useState<DreAuditPanel | null>(null);
+  const [inlineLancamentoParams, setInlineLancamentoParams] = useState<URLSearchParams | null>(null);
   const [flashCellId, setFlashCellId] = useState<string | null>(null);
   const [flashOn, setFlashOn] = useState(false);
   const handledSpotlightRef = useRef('');
@@ -698,6 +701,40 @@ export function Dre() {
   const openAuditRows = (title: string, subtitle: string, monthIndex: number | null, rows: LancamentoResumo[]) => {
     setSelectedMonth(monthIndex);
     setAuditPanel({ title, subtitle, monthIndex, rows: sortByCompetenciaDesc(rows) });
+  };
+
+  const buildLancamentosDestino = (lancamentoId: number, includeEmbed: boolean) => {
+    const params = new URLSearchParams();
+    params.set('editar_id', String(lancamentoId));
+    params.set('origem', 'dre');
+
+    if (includeEmbed) {
+      params.set('embed_dre', '1');
+    }
+
+    if (auditPanel?.rows?.length) {
+      const idsUnicos = Array.from(new Set(auditPanel.rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0)));
+      if (idsUnicos.length > 0) {
+        params.set('dre_ids', idsUnicos.join(','));
+      }
+    }
+
+    if (selectedMonth !== null && Number.isInteger(selectedMonth) && selectedMonth >= 0 && selectedMonth <= 11) {
+      params.set('mes', String(selectedMonth));
+    }
+
+    return `/lancamentos?${params.toString()}`;
+  };
+
+  const openLancamentoEdicao = (lancamentoId: number, event?: ReactMouseEvent<HTMLElement>) => {
+    const destino = buildLancamentosDestino(lancamentoId, false);
+    if (event?.metaKey || event?.ctrlKey) {
+      navigate(destino);
+      return;
+    }
+    const destinoEmbed = buildLancamentosDestino(lancamentoId, true);
+    const queryPart = destinoEmbed.split('?')[1] || '';
+    setInlineLancamentoParams(new URLSearchParams(queryPart));
   };
 
   const openContaAudit = (contaId: number, monthIndex: number | null) => {
@@ -1231,7 +1268,12 @@ export function Dre() {
                           : (isDark ? 'text-rose-300' : 'text-rose-600');
 
                         return (
-                          <tr key={item.id} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
+                          <tr
+                            key={item.id}
+                            onClick={(event) => openLancamentoEdicao(item.id, event)}
+                            className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
+                            title="Abrir edição do lançamento"
+                          >
                             <td className="px-3 py-2.5 whitespace-nowrap">{formatDateBr(item.data_pagamento)}</td>
                             <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${valorClass}`}>{moneyFormatter.format(Math.abs(valor))}</td>
                             <td className="px-3 py-2.5">{interessadoNome}</td>
@@ -1243,6 +1285,39 @@ export function Dre() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </aside>
+          </div>
+        ) : null}
+
+        {inlineLancamentoParams ? (
+          <div className="fixed inset-0 z-[60]">
+            <button
+              type="button"
+              className="absolute inset-0 bg-slate-950/60"
+              onClick={() => setInlineLancamentoParams(null)}
+              aria-label="Fechar editor"
+            />
+            <aside className="absolute right-0 top-0 flex h-full w-[clamp(420px,34vw,640px)] max-w-[100vw] flex-col border-l border-slate-200 bg-white shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] dark:border-slate-700 dark:bg-slate-950">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+                <div>
+                  <div className="text-sm font-black uppercase tracking-[0.16em] text-slate-800 dark:text-slate-100">Editar lançamento</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Formulário da tela de lançamentos, sem sair da DRE.</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInlineLancamentoParams(null)}
+                  className="rounded-full border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Fechar
+                </button>
+              </div>
+              <div className="h-full w-full overflow-hidden">
+                <Lancamentos
+                  key={inlineLancamentoParams.toString()}
+                  forcedSearchParams={inlineLancamentoParams}
+                  onRequestCloseEmbed={() => setInlineLancamentoParams(null)}
+                />
               </div>
             </aside>
           </div>

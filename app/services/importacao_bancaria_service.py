@@ -268,7 +268,9 @@ def verificar_duplicata_ofx_por_fallback(
         valor_candidato_dec = Decimal(str(valor_candidato or "0"))
         valor_igual = abs(valor_candidato_dec - valor) <= Decimal("0.01")
         similaridade = SequenceMatcher(None, descricao_candidata, descricao).ratio() if descricao_candidata and descricao else 0.0
-        if (descricao_candidata == descricao and valor_igual) or (similaridade >= 0.92 and valor_igual):
+        # Fallback de duplicidade precisa ser conservador para nao bloquear
+        # movimentos distintos com mesmo valor no mesmo dia.
+        if (descricao_candidata == descricao and valor_igual) or (similaridade >= 0.97 and valor_igual):
             return candidato
 
     return None

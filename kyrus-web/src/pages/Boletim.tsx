@@ -849,12 +849,18 @@ export function Boletim() {
     }
     if (metricKey === 'resultado_operacional') {
       setActiveAuditMetricKey(metricKey);
-      openAuditRows('Composição do resultado operacional', `Resultado operacional (padrão DRE) de ${monthLabel}: Receita líquida - Custos variáveis - Despesas operacionais.`, dashboard.baseRows.filter((item) => item.monthIndex === dashboard.effectiveMonthIndex));
+      const params = new URLSearchParams();
+      params.set('focus_kpi', 'resultado_operacional');
+      params.set('mes', String(dashboard.effectiveMonthIndex));
+      navigate(`/dre?${params.toString()}`);
       return;
     }
     if (metricKey === 'resultado_final') {
       setActiveAuditMetricKey(metricKey);
-      openAuditRows('Composição do resultado final', `Resultado final (padrão DRE) de ${monthLabel}: Resultado operacional + Receitas não operacionais - Despesas não operacionais.`, dashboard.baseRows.filter((item) => item.monthIndex === dashboard.effectiveMonthIndex));
+      const params = new URLSearchParams();
+      params.set('focus_kpi', 'resultado_final');
+      params.set('mes', String(dashboard.effectiveMonthIndex));
+      navigate(`/dre?${params.toString()}`);
     }
   }
 

@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CalendarDays, Sigma, TrendingDown, TrendingUp } from 'lucide-react';
 
 import { api } from '../services/api';
@@ -261,6 +262,7 @@ function renderPercentCell(value?: number | null) {
 }
 
 export function Dre() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const currentYear = useMemo(() => new Date().getFullYear(), []);
   const currentMonth = useMemo(() => new Date().getMonth(), []);
   const [ano, setAno] = useState(currentYear);
@@ -276,7 +278,14 @@ export function Dre() {
   const [hoveredKpi, setHoveredKpi] = useState<string | null>(null);
   const [somentePagos, setSomentePagos] = useState(true);
   const [auditPanel, setAuditPanel] = useState<DreAuditPanel | null>(null);
+  const [flashTarget, setFlashTarget] = useState<'resultado_operacional' | 'resultado_final' | null>(null);
+  const [flashOn, setFlashOn] = useState(false);
+  const handledSpotlightRef = useRef('');
   const isDark = useIsDarkMode();
+
+  const waitMs = (ms: number) => new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 
   useEffect(() => {
     let active = true;
@@ -752,6 +761,57 @@ export function Dre() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [auditPanel]);
 
+  useEffect(() => {
+    const foco = String(searchParams.get('focus_kpi') || '').toLowerCase();
+    if (foco !== 'resultado_operacional' && foco !== 'resultado_final') return;
+
+    const mesParam = searchParams.get('mes');
+    const mes = mesParam === null ? null : Number(mesParam);
+    if (mes !== null && Number.isInteger(mes) && mes >= 0 && mes <= 11 && selectedMonth !== mes) {
+      setSelectedMonth(mes);
+    }
+  }, [searchParams, selectedMonth]);
+
+  useEffect(() => {
+    if (loading || error) return;
+
+    const foco = String(searchParams.get('focus_kpi') || '').toLowerCase();
+    if (foco !== 'resultado_operacional' && foco !== 'resultado_final') return;
+
+    const mesParam = searchParams.get('mes');
+    const token = `${foco}|${mesParam || 'ALL'}`;
+    if (handledSpotlightRef.current === token) return;
+
+    const targetElementId = foco === 'resultado_operacional'
+      ? 'dre-resultado-operacional-valor'
+      : 'dre-resultado-final-valor';
+
+    const runSpotlight = async () => {
+      await waitMs(120);
+      const el = document.getElementById(targetElementId);
+      if (!el) return;
+
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setFlashTarget(foco as 'resultado_operacional' | 'resultado_final');
+
+      for (let i = 0; i < 2; i += 1) {
+        setFlashOn(true);
+        await waitMs(220);
+        setFlashOn(false);
+        await waitMs(180);
+      }
+
+      handledSpotlightRef.current = token;
+      const next = new URLSearchParams(searchParams);
+      next.delete('focus_kpi');
+      next.delete('mes');
+      setSearchParams(next, { replace: true });
+      setFlashTarget(null);
+    };
+
+    void runSpotlight();
+  }, [loading, error, searchParams, setSearchParams]);
+
   const pageBg = isDark
     ? 'bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.10),transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_48%,#111827_100%)] text-slate-100'
     : 'bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-900';
@@ -1036,8 +1096,9 @@ export function Dre() {
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado operacional</td>
                   <td
+                    id="dre-resultado-operacional-valor"
                     onClick={() => openResultadoAudit('Resultado operacional', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id)], null)}
-                    className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.resultadoOperacionalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                    className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${(flashTarget === 'resultado_operacional' && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${dre.resultadoOperacionalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
                   >
                     {renderMoneyCell(dre.resultadoOperacionalTotal, 'resultado')}
                   </td>
@@ -1056,8 +1117,9 @@ export function Dre() {
                 <tr>
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Resultado final</td>
                   <td
+                    id="dre-resultado-final-valor"
                     onClick={() => openResultadoAudit('Resultado final', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.RECEITAS_NAO_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.DESPESAS_NAO_OPERACIONAIS.map((row) => row.id)], null)}
-                    className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${dre.resultadoFinalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                    className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)] ${(flashTarget === 'resultado_final' && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${dre.resultadoFinalTotal >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
                   >
                     {renderMoneyCell(dre.resultadoFinalTotal, 'resultado')}
                   </td>

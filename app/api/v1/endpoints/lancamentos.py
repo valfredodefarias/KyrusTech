@@ -735,7 +735,14 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
     learning_refs = _load_learning_references(session, empresa_id)
     learning_ref_index = _build_learning_reference_index(learning_refs)
     inference_cache = _build_inference_cache_parallel(inference_keys, learning_refs, learning_ref_index)
-    sugestoes = _build_import_suggestions_from_samples(categoria_samples, entidade_samples, learning_refs, inference_cache, learning_ref_index)
+    sugestoes = _build_import_suggestions_from_samples(
+        categoria_samples,
+        entidade_samples,
+        sistema["categorias"],
+        learning_refs,
+        inference_cache,
+        learning_ref_index,
+    )
     categorias_by_id = {int(item["id"]): item for item in sistema["categorias"] if item.get("id") is not None}
     entidades_by_id = {int(item["id"]): item for item in sistema["entidades"] if item.get("id") is not None}
     preview_rows: list[dict[str, Any]] = []

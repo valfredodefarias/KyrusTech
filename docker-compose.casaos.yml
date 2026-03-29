@@ -1,33 +1,33 @@
 services:
   app:
-    image: ghcr.io/kcirus/kyrustech:kyruserp-${TAG:-1.0.0}
+    image: ghcr.io/kcirus/kyrustech:kyruserp-1.0.0
     container_name: kyruserp_all
     restart: unless-stopped
     environment:
-      - PROJECT_NAME=${PROJECT_NAME:-KyrusERP}
-      - ENVIRONMENT=${ENVIRONMENT:-production}
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production-env}
-      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
-      - ALGORITHM=${ALGORITHM:-HS256}
-      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
-      - AUTO_RUN_MIGRATIONS=${AUTO_RUN_MIGRATIONS:-0}
-      - POSTGRES_SERVER=${POSTGRES_SERVER:-postgresql}
-      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
-      - POSTGRES_USER=${POSTGRES_USER:-kyrus_user}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
-      - POSTGRES_DB=${POSTGRES_DB:-kyrus_db}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-      - AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME:-}
-      - AWS_S3_REGION=${AWS_S3_REGION:-}
-      - AI_PROVIDER=${AI_PROVIDER:-gemini}
-      - AI_TIMEOUT_SECONDS=${AI_TIMEOUT_SECONDS:-30}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - PROJECT_NAME=KyrusERP
+      - ENVIRONMENT=production
+      - SECRET_KEY=change-me-in-production-env
+      - ACCESS_TOKEN_EXPIRE_MINUTES=60
+      - ALGORITHM=HS256
+      - BACKEND_CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      - AUTO_RUN_MIGRATIONS=0
+      - POSTGRES_SERVER=postgresql
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=kyrus_user
+      - POSTGRES_PASSWORD=kyrus_pass
+      - POSTGRES_DB=kyrus_db
+      - AWS_ACCESS_KEY_ID=
+      - AWS_SECRET_ACCESS_KEY=
+      - AWS_S3_BUCKET_NAME=
+      - AWS_S3_REGION=
+      - AI_PROVIDER=gemini
+      - AI_TIMEOUT_SECONDS=30
+      - GEMINI_API_KEY=
+      - GEMINI_MODEL=gemini-1.5-flash
+      - OPENAI_API_KEY=
+      - OPENAI_MODEL=gpt-4o-mini
     ports:
-      - "${APP_PORT:-8000}:8000"
+      - "8000:8000"
     volumes:
       - ./static:/app/static
     networks:

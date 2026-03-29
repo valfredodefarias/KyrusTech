@@ -32,6 +32,26 @@ function resolveConfiguredApiUrl() {
 
 export const baseURL = resolveConfiguredApiUrl();
 
+let cachedAllowedAssetHosts: Set<string> | null = null;
+
+function getAllowedAssetHosts(): Set<string> {
+  if (cachedAllowedAssetHosts) return cachedAllowedAssetHosts;
+
+  const allowedHosts = new Set<string>();
+  if (typeof window !== 'undefined') {
+    allowedHosts.add(window.location.host);
+    try {
+      const apiParsed = new URL(baseURL, window.location.origin);
+      allowedHosts.add(apiParsed.host);
+    } catch {
+      // No-op
+    }
+  }
+
+  cachedAllowedAssetHosts = allowedHosts;
+  return allowedHosts;
+}
+
 export function getPublicBaseUrl() {
   if (typeof window !== 'undefined') {
     if (baseURL.startsWith('/')) {
@@ -50,24 +70,63 @@ export function getPublicBaseUrl() {
 export function toPublicAssetUrl(url?: string | null) {
   if (!url) return null;
   if (url.startsWith('blob:') || url.startsWith('data:')) return url;
+  const allowedHosts = getAllowedAssetHosts();
+
   if (url.startsWith('/static/')) {
     return `${getPublicBaseUrl()}${url}`;
   }
-  if (url.startsWith('/')) return url;
+  if (url.startsWith('/')) {
+    return null;
+  }
   if ((url.startsWith('http://') || url.startsWith('https://')) && url.includes('/static/')) {
     try {
-      return `${getPublicBaseUrl()}${new URL(url).pathname}`;
+      const parsed = new URL(url);
+      if (allowedHosts.size > 0 && !allowedHosts.has(parsed.host)) {
+        return null;
+      }
+      if (!parsed.pathname.startsWith('/static/')) {
+        return null;
+      }
+      return `${getPublicBaseUrl()}${parsed.pathname}`;
     } catch {
-      return url;
+      return null;
     }
   }
-  return url;
+
+  return null;
 }
 
 export const api = axios.create({
   baseURL: baseURL,
   withCredentials: true,
 });
+
+export async function fetchLancamentosPaged<T = any>(
+  params: Record<string, any> = {},
+  options?: { pageSize?: number; maxPages?: number; signal?: AbortSignal }
+) {
+  const pageSize = Math.max(1, Math.min(Number(options?.pageSize || 1500), 1500));
+  const maxPages = Math.max(1, Number(options?.maxPages || 120));
+  let skip = Math.max(0, Number(params.skip || 0));
+  const items: T[] = [];
+
+  for (let page = 0; page < maxPages; page++) {
+    const response = await api.get<T[]>('/lancamentos/', {
+      params: { ...params, limit: pageSize, skip },
+      signal: options?.signal,
+    });
+
+    const chunk = Array.isArray(response.data) ? response.data : [];
+    items.push(...chunk);
+
+    if (chunk.length < pageSize) {
+      break;
+    }
+    skip += pageSize;
+  }
+
+  return items;
+}
 
 api.interceptors.response.use(
   (response) => response,

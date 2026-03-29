@@ -9,7 +9,8 @@ services:
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production-env}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
       - ALGORITHM=${ALGORITHM:-HS256}
-      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-*}
+      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      - AUTO_RUN_MIGRATIONS=${AUTO_RUN_MIGRATIONS:-0}
       - POSTGRES_SERVER=${POSTGRES_SERVER:-postgresql}
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - POSTGRES_USER=${POSTGRES_USER:-kyrus_user}
@@ -32,7 +33,7 @@ services:
     networks:
       - kyrus_portal
       - default
-    command: /bin/sh -c "python scripts/run_migrations.py ; python -u run.py"
+    command: /bin/sh -c "python scripts/run_migrations.py ; uvicorn app.main:app --host 0.0.0.0 --port 8000"
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 

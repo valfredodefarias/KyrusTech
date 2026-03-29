@@ -1,8 +1,15 @@
 import shutil
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
 from app.api.v1.deps import get_current_active_user # <--- O GUARDIÃO DA SEGURANÇA
+from app.core.upload_security import (
+    IMAGE_ALLOWED_EXT_TO_MIME,
+    UploadValidationError,
+    register_upload_rejection,
+    register_upload_success,
+    write_validated_upload_file,
+)
 
 router = APIRouter()
 
@@ -10,12 +17,11 @@ router = APIRouter()
 UPLOAD_DIR = Path("static/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_IMAGE_UPLOAD_SIZE = 2 * 1024 * 1024
-ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 @router.post("/upload", response_model=dict)
 async def upload_arquivo(
     file: UploadFile = File(...),
+    request: Request = None,
     # SEGURANÇA 1: Só permite upload se tiver TOKEN VÁLIDO de usuário logado
     current_user = Depends(get_current_active_user) 
 ):
@@ -24,37 +30,51 @@ async def upload_arquivo(
     Requer autenticação.
     """
     
-    # SEGURANÇA 2 (Correção Pylance): Valida se o content_type existe E se é imagem
-    if not file.content_type or file.content_type not in ALLOWED_IMAGE_TYPES:
-        raise HTTPException(400, detail="Apenas imagens JPG, PNG, WEBP ou GIF são permitidas.")
+    origin = request.client.host if request and request.client else "unknown"
 
     extensao = Path(file.filename or "arquivo").suffix.lower()
-    if not extensao or extensao not in ALLOWED_IMAGE_EXTS:
-        raise HTTPException(400, detail="Extensão de arquivo inválida para imagem.")
+    if not extensao or extensao not in IMAGE_ALLOWED_EXT_TO_MIME:
+        register_upload_rejection(
+            endpoint="/api/v1/anexos/upload",
+            empresa_id=getattr(current_user, "empresa_id", None),
+            user_id=getattr(current_user, "id", None),
+            origin=origin,
+            reason="extensao_nao_permitida",
+            filename=Path(file.filename or "").name or None,
+        )
+        raise HTTPException(400, detail="Apenas imagens JPG, PNG, WEBP ou GIF são permitidas.")
 
     # SEGURANÇA 3: Renomeia o arquivo com UUID.
     # Isso evita que arquivos com nomes maliciosos (ex: virus.exe) sejam salvos com o nome original.
     novo_nome = f"{uuid.uuid4()}{extensao}"
     caminho_arquivo = UPLOAD_DIR / novo_nome
 
-    # Salva o arquivo no disco
     try:
-        bytes_written = 0
-        with caminho_arquivo.open("wb") as buffer:
-            while True:
-                chunk = file.file.read(1024 * 1024)
-                if not chunk:
-                    break
-                bytes_written += len(chunk)
-                if bytes_written > MAX_IMAGE_UPLOAD_SIZE:
-                    buffer.close()
-                    caminho_arquivo.unlink(missing_ok=True)
-                    raise HTTPException(status_code=413, detail="Arquivo muito grande. Máximo 2MB.")
-                buffer.write(chunk)
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise
-        raise HTTPException(500, detail=f"Erro ao salvar arquivo: {str(e)}")
+        _, bytes_written, _ = write_validated_upload_file(
+            upload=file,
+            destination=caminho_arquivo,
+            max_size=MAX_IMAGE_UPLOAD_SIZE,
+            allowed_ext_to_mime=IMAGE_ALLOWED_EXT_TO_MIME,
+            max_filename_len=180,
+        )
+    except UploadValidationError as exc:
+        register_upload_rejection(
+            endpoint="/api/v1/anexos/upload",
+            empresa_id=getattr(current_user, "empresa_id", None),
+            user_id=getattr(current_user, "id", None),
+            origin=origin,
+            reason=str(exc.message),
+            filename=Path(file.filename or "").name or None,
+        )
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+    register_upload_success(
+        endpoint="/api/v1/anexos/upload",
+        empresa_id=getattr(current_user, "empresa_id", None),
+        user_id=getattr(current_user, "id", None),
+        origin=origin,
+        bytes_written=bytes_written,
+    )
 
     # Retorna a URL relativa para salvar no banco
     url_relativa = f"/static/uploads/{novo_nome}"

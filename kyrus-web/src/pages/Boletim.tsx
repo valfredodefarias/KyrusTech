@@ -15,7 +15,7 @@ import {
 import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
 import { Lancamentos } from './Lancamentos';
-import { api, toPublicAssetUrl } from '../services/api';
+import { api, fetchLancamentosPaged, toPublicAssetUrl } from '../services/api';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
 interface ContaResumo {
@@ -502,7 +502,7 @@ export function Boletim() {
 
         const [contasRes, lancamentosRes, categoriasRes, entidadesRes, centrosCustoRes] = await Promise.allSettled([
           api.get<ContaResumo[]>('/contas/'),
-          api.get<LancamentoResumo[]>('/lancamentos/', { params: { limit: 10000, data_inicio: yearStart, data_fim: yearEnd } }),
+          fetchLancamentosPaged<LancamentoResumo>({ data_inicio: yearStart, data_fim: yearEnd, include_anexos: false }, { pageSize: 1500 }),
           api.get<PlanoContaResumo[]>('/plano-contas/'),
           api.get<EntidadeResumo[]>('/entidades/'),
           api.get<CentroCustoResumo[]>('/centro-custo/'),
@@ -512,7 +512,7 @@ export function Boletim() {
 
         setEmpresa(empresaAtual);
         setContas(contasRes.status === 'fulfilled' ? (contasRes.value.data || []) : []);
-        setLancamentos(lancamentosRes.status === 'fulfilled' ? (lancamentosRes.value.data || []) : []);
+        setLancamentos(lancamentosRes.status === 'fulfilled' ? (lancamentosRes.value || []) : []);
         setCategorias(categoriasRes.status === 'fulfilled' ? (categoriasRes.value.data || []) : []);
         setEntidades(entidadesRes.status === 'fulfilled' ? (entidadesRes.value.data || []) : []);
         setCentrosCusto(centrosCustoRes.status === 'fulfilled' ? (centrosCustoRes.value.data || []) : []);

@@ -145,7 +145,47 @@ Release só está ok quando todos os itens abaixo estiverem verdes:
 4. Logs úteis sem vazamento sensível
 5. Compose/rede validados
 
-## 7) Referência completa
+## 7) Resumo de segurança e logs (atualizado)
+
+Este é o mínimo obrigatório para qualquer alteração que envolva deploy, upload de arquivos, autenticação ou integrações:
+
+1. CORS explícito por ambiente (sem wildcard em produção).
+2. SECRET_KEY forte e exclusiva (32+ caracteres).
+3. Banco acessível somente por rede Docker interna (kyrus_portal).
+4. Migração executada uma única vez por startup (evitar duplicidade por compose + app).
+5. Upload validado por extensão, MIME e assinatura do arquivo (magic bytes).
+6. Upload bloqueia arquivo vazio e tamanho acima do limite.
+7. Remoção de anexo com validação de caminho local seguro (sem path traversal).
+8. Frontend aceita links de anexos/arquivos apenas de host confiável e caminho /static.
+9. Logs sem credenciais, tokens, payload sensível ou conteúdo de arquivo.
+10. Logs de erro com contexto mínimo: endpoint, IDs relevantes, operação e motivo técnico.
+11. Gatilhos automáticos 15.1 ativos no backend:
+   - rejeições repetidas por origem/endpoint
+   - volume anômalo de upload por janela curta
+   - tentativa de path traversal em anexo
+
+Arquivos-chave dessa proteção:
+
+- app/core/upload_security.py
+- app/api/v1/endpoints/lancamentos.py
+- app/api/v1/endpoints/anexos.py
+- app/api/v1/endpoints/usuarios.py
+- app/api/v1/endpoints/contas.py
+- app/api/v1/endpoints/empresas.py
+- kyrus-web/src/services/api.ts
+- app/main.py
+
+## 8) Checklist rápido de segurança antes do deploy
+
+1. Rodar docker compose config em todos os cenários usados.
+2. Testar upload permitido (PDF/JPG/PNG/XLS/XLSX/PPT/PPTX).
+3. Testar bloqueio de extensão proibida e assinatura incompatível.
+4. Testar bloqueio por tamanho excedido e arquivo vazio.
+5. Testar que link externo fora do domínio confiável não é aceito no frontend.
+6. Revisar logs do backend/nginx sem vazamento sensível.
+7. Verificar alertas [INCIDENT_TRIGGER_15_1] nos logs após testes de carga/upload.
+
+## 9) Referência completa
 
 Documento completo:
 

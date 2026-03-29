@@ -140,13 +140,14 @@ function isLancamentoPago(lancamento: LancamentoResumo) {
 
 function resolveCompetenciaDate(lancamento: LancamentoResumo, somentePagos = false) {
   if (somentePagos) return lancamento.data_pagamento || null;
-  return lancamento.data_competencia || lancamento.data_vencimento || null;
+  return lancamento.data_competencia || null;
 }
 
 function resolveMonthIndex(lancamento: LancamentoResumo, somentePagos = false) {
   if (!somentePagos) {
     const competenciaIndex = parseCompetenciaMonthIndex(lancamento.competencia);
     if (competenciaIndex >= 0) return competenciaIndex;
+    return parseMonthIndex(lancamento.data_competencia || null);
   }
   return parseMonthIndex(resolveCompetenciaDate(lancamento, somentePagos));
 }
@@ -276,6 +277,7 @@ export function Dre() {
   const [contas, setContas] = useState<ContaResumo[]>([]);
   const [entidades, setEntidades] = useState<EntidadeResumo[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
+  const [auditMetaLoading, setAuditMetaLoading] = useState(false);
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>('ALL');
   const [selectedMonth, setSelectedMonth] = useState<number | null>(currentMonth);
   const [hoveredKpi, setHoveredKpi] = useState<string | null>(null);
@@ -285,6 +287,8 @@ export function Dre() {
   const [flashCellId, setFlashCellId] = useState<string | null>(null);
   const [flashOn, setFlashOn] = useState(false);
   const handledSpotlightRef = useRef('');
+  const auditMetaLoadedRef = useRef(false);
+  const loadedAllLancamentosRef = useRef(false);
   const isDark = useIsDarkMode();
 
   const waitMs = (ms: number) => new Promise<void>((resolve) => {
@@ -294,27 +298,41 @@ export function Dre() {
   useEffect(() => {
     let active = true;
 
+    async function fetchLancamentosAno(onlyPaid: boolean) {
+      const inicio = `${ano}-01-01`;
+      const fim = `${ano}-12-31`;
+      const response = await api.get<LancamentoResumo[]>('/lancamentos/', {
+        params: {
+          data_inicio: inicio,
+          data_fim: fim,
+          include_anexos: false,
+          sem_paginacao: true,
+          somente_pagos: onlyPaid,
+        },
+      });
+      return response.data || [];
+    }
+
     async function load() {
       setLoading(true);
       setError(null);
       try {
-        const inicio = `${ano}-01-01`;
-        const fim = `${ano}-12-31`;
-        const [categoriasRes, lancamentosRes, contasRes, entidadesRes, centrosCustoRes] = await Promise.all([
+        const [categoriasRes, lancamentosPaid, centrosCustoRes] = await Promise.all([
           api.get<PlanoConta[]>('/plano-contas/'),
-          api.get<LancamentoResumo[]>('/lancamentos/', { params: { limit: 10000, data_inicio: inicio, data_fim: fim } }),
-          api.get<ContaResumo[]>('/contas/'),
-          api.get<EntidadeResumo[]>('/entidades/'),
+          fetchLancamentosAno(true),
           api.get<CentroCustoResumo[]>('/centro-custo/'),
         ]);
 
         if (!active) return;
 
         setCategorias(categoriasRes.data || []);
-        setLancamentos(lancamentosRes.data || []);
-        setContas(contasRes.data || []);
-        setEntidades(entidadesRes.data || []);
+        setLancamentos(lancamentosPaid);
         setCentrosCusto(centrosCustoRes.data || []);
+        setContas([]);
+        setEntidades([]);
+        setSomentePagos(true);
+        auditMetaLoadedRef.current = false;
+        loadedAllLancamentosRef.current = false;
       } catch (err: any) {
         if (!active) return;
         setError(err?.response?.data?.detail || 'Nao foi possivel montar a DRE.');
@@ -328,6 +346,50 @@ export function Dre() {
       active = false;
     };
   }, [ano]);
+
+  const fetchFullYearLancamentos = async () => {
+    if (loadedAllLancamentosRef.current) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const inicio = `${ano}-01-01`;
+      const fim = `${ano}-12-31`;
+      const response = await api.get<LancamentoResumo[]>('/lancamentos/', {
+        params: {
+          data_inicio: inicio,
+          data_fim: fim,
+          include_anexos: false,
+          sem_paginacao: true,
+          somente_pagos: false,
+        },
+      });
+      setLancamentos(response.data || []);
+      loadedAllLancamentosRef.current = true;
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Nao foi possivel carregar os lancamentos completos do ano.');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const ensureAuditMetaLoaded = async () => {
+    if (auditMetaLoadedRef.current || auditMetaLoading) return;
+    setAuditMetaLoading(true);
+    try {
+      const [contasRes, entidadesRes] = await Promise.all([
+        api.get<ContaResumo[]>('/contas/'),
+        api.get<EntidadeResumo[]>('/entidades/'),
+      ]);
+      setContas(contasRes.data || []);
+      setEntidades(entidadesRes.data || []);
+      auditMetaLoadedRef.current = true;
+    } catch {
+      // Keep panel usable with fallback labels when metadata fails.
+    } finally {
+      setAuditMetaLoading(false);
+    }
+  };
 
   const lancamentosFiltrados = useMemo(() => {
     return lancamentos.filter((item) => {
@@ -693,13 +755,14 @@ export function Dre() {
 
   const sortByCompetenciaDesc = (rows: LancamentoResumo[]) => {
     return [...rows].sort((left, right) => {
-      const rightDate = resolveCompetenciaDate(right, somentePagos) || right.data_vencimento || right.data_pagamento || '1900-01-01';
-      const leftDate = resolveCompetenciaDate(left, somentePagos) || left.data_vencimento || left.data_pagamento || '1900-01-01';
+      const rightDate = resolveCompetenciaDate(right, somentePagos) || '1900-01-01';
+      const leftDate = resolveCompetenciaDate(left, somentePagos) || '1900-01-01';
       return new Date(`${rightDate.slice(0, 10)}T00:00:00`).getTime() - new Date(`${leftDate.slice(0, 10)}T00:00:00`).getTime();
     });
   };
 
   const openAuditRows = (title: string, subtitle: string, monthIndex: number | null, rows: LancamentoResumo[]) => {
+    void ensureAuditMetaLoaded();
     setSelectedMonth(monthIndex);
     setAuditPanel({ title, subtitle, monthIndex, rows: sortByCompetenciaDesc(rows) });
   };
@@ -933,13 +996,21 @@ export function Dre() {
                 <label className={`block text-[10px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Lançamentos</label>
                 <button
                   type="button"
-                  onClick={() => {
-                    setSomentePagos((prev) => !prev);
+                  onClick={async () => {
+                    const nextOnlyPaid = !somentePagos;
+                    if (!nextOnlyPaid && !loadedAllLancamentosRef.current) {
+                      try {
+                        await fetchFullYearLancamentos();
+                      } catch {
+                        return;
+                      }
+                    }
+                    setSomentePagos(nextOnlyPaid);
                     setSelectedMonth(currentMonth);
                   }}
                   className={`mt-2 w-44 rounded-xl border px-3 py-2 text-sm font-black transition ${somentePagos ? 'border-emerald-600 bg-emerald-600 text-white' : isDark ? 'border-slate-600 bg-slate-800 text-slate-200' : 'border-slate-300 bg-white text-slate-700'}`}
                 >
-                  {somentePagos ? 'Somente pagos' : 'Pagos + previstos'}
+                  {somentePagos ? 'Data pagamento' : 'Competencia'}
                 </button>
               </div>
             </div>
@@ -967,7 +1038,11 @@ export function Dre() {
           <p className={`text-xs font-bold ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>
             DRE calculada somente com lancamentos pagos (competencia pela data de pagamento).
           </p>
-        ) : null}
+        ) : (
+          <p className={`text-xs font-bold ${isDark ? 'text-cyan-300' : 'text-cyan-700'}`}>
+            DRE calculada por competencia (usa apenas competencia/data_competencia para o mês).
+          </p>
+        )}
 
         {hoveredKpi && kpiBreakdown[hoveredKpi as keyof typeof kpiBreakdown] ? (
           <aside className={`fixed bottom-5 right-5 z-50 w-[min(92vw,430px)] rounded-2xl border px-4 py-3 shadow-2xl ${isDark ? 'border-slate-700 bg-slate-950/95 text-slate-100' : 'border-slate-200 bg-white/95 text-slate-900'}`}>
@@ -1248,7 +1323,7 @@ export function Dre() {
                   <table className="w-full text-sm">
                     <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
                       <tr>
-                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data pagamento</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">{somentePagos ? 'Data pagamento' : 'Competencia'}</th>
                         <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
                         <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
                         <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
@@ -1259,6 +1334,10 @@ export function Dre() {
                       {auditPanel.rows.length === 0 ? (
                         <tr>
                           <td colSpan={5} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
+                        </tr>
+                      ) : auditMetaLoading && contas.length === 0 && entidades.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Carregando detalhes de banco e interessado...</td>
                         </tr>
                       ) : auditPanel.rows.map((item) => {
                         const contaNome = contaNomePorId.get(Number(item.conta_id)) || 'Sem banco';
@@ -1275,7 +1354,7 @@ export function Dre() {
                             className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
                             title="Abrir edição do lançamento"
                           >
-                            <td className="px-3 py-2.5 whitespace-nowrap">{formatDateBr(item.data_pagamento)}</td>
+                            <td className="px-3 py-2.5 whitespace-nowrap">{somentePagos ? formatDateBr(item.data_pagamento) : (item.competencia || formatDateBr(item.data_competencia))}</td>
                             <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${valorClass}`}>{moneyFormatter.format(Math.abs(valor))}</td>
                             <td className="px-3 py-2.5">{interessadoNome}</td>
                             <td className="max-w-72 truncate px-3 py-2.5" title={item.descricao}>{item.descricao}</td>

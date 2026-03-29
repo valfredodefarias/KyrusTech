@@ -23,6 +23,7 @@ from app.models.centro_custo import CentroCusto
 from app.models.lancamento import Lancamento
 from app.api.v1.deps import get_empresa_id_from_user
 from app.core.network import get_backend_url
+from app.core.upload_security import IMAGE_ALLOWED_EXT_TO_MIME, UploadValidationError, write_validated_upload_file
 
 router = APIRouter()
 UPLOAD_DIR = Path("static/uploads/contas")
@@ -382,30 +383,27 @@ def upload_logo_conta(
         raise HTTPException(status_code=404, detail="Conta não encontrada")
 
     ext = Path(file.filename or "").suffix.lower()
-    allowed_exts = {".png", ".jpg", ".jpeg", ".jiff", ".jfif"}
+    allowed_exts = set(IMAGE_ALLOWED_EXT_TO_MIME.keys())
     if not ext or ext not in allowed_exts:
         raise HTTPException(
             status_code=400,
-            detail="Formato de imagem não suportado. Use png, jpg, jpeg ou jiff.",
+            detail="Formato de imagem não suportado. Use png, jpg, jpeg, webp ou gif.",
         )
-
-    if file.content_type and not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Arquivo inválido para imagem.")
 
     filename = f"conta_{conta_id}_{uuid4().hex}{ext}"
     filepath = UPLOAD_DIR / filename
-    bytes_written = 0
-    with filepath.open("wb") as buffer:
-        while True:
-            chunk = file.file.read(1024 * 1024)
-            if not chunk:
-                break
-            bytes_written += len(chunk)
-            if bytes_written > MAX_CONTA_LOGO_SIZE:
-                buffer.close()
-                filepath.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="Arquivo muito grande. Máximo 2MB.")
-            buffer.write(chunk)
+    try:
+        write_validated_upload_file(
+            upload=file,
+            destination=filepath,
+            max_size=MAX_CONTA_LOGO_SIZE,
+            allowed_ext_to_mime=IMAGE_ALLOWED_EXT_TO_MIME,
+            max_filename_len=180,
+        )
+    except UploadValidationError as exc:
+        if exc.status_code == 413:
+            raise HTTPException(status_code=413, detail="Arquivo muito grande. Máximo 2MB.")
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
     relative_path = f"/static/uploads/contas/{filename}"
     conta.logo_url = relative_path

@@ -156,6 +156,16 @@ _CACHEABLE_EXTENSIONS = {
 
 
 @app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    return response
+
+
+@app.middleware("http")
 async def cache_headers_middleware(request: Request, call_next):
     response = await call_next(request)
 
@@ -210,17 +220,17 @@ async def health_check():
     return {"status": "ok", "message": "API is running"}
 
 # --- INCLUIR ROTAS ---
-app.include_router(api_router, prefix="/api/v1")
+app.include_router(api_router, prefix=settings.API_V1_STR)
 
 # --- SERVIR FRONTEND (SPA) ---
 @app.get("/{full_path:path}", include_in_schema=False)
 async def serve_spa(full_path: str):
     """
     Serve os arquivos do frontend (kyrus-web).
-    Isso permite que o Vue Router funcione corretamente.
+    Isso permite que o React Router funcione corretamente.
     """
-    frontend_dist = Path("../kyrus-web/dist")
-    legacy_frontend = Path("../frontend")
+    frontend_dist = ROOT_DIR / "kyrus-web" / "dist"
+    legacy_frontend = ROOT_DIR / "frontend"
     
     # Se for um arquivo com extensão conhecida, tenta servir
     if "." in full_path and not full_path.endswith("/"):

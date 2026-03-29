@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api, toPublicAssetUrl } from '../services/api';
+import { api, fetchLancamentosPaged, toPublicAssetUrl } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
 import { 
   Building2, UploadCloud, Layers, Save, Loader2, 
@@ -455,14 +455,14 @@ const ExportacaoFinanceira = () => {
 
   async function loadLancamentos() {
     try {
-      const params: Record<string, string | number> = {
-        limit: 10000,
+      const params: Record<string, string | number | boolean> = {
         data_inicio: periodoIni,
         data_fim: periodoFim,
+        include_anexos: false,
       };
       if (contaId) params.conta_id = Number(contaId);
-      const response = await api.get('/lancamentos/', { params });
-      setLancamentos(response.data || []);
+      const rows = await fetchLancamentosPaged(params, { pageSize: 1500 });
+      setLancamentos(rows || []);
     } catch (error) {
       console.error(error);
     }

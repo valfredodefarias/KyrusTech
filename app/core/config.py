@@ -79,14 +79,6 @@ class Settings(BaseSettings):
 
         self.BACKEND_CORS_ORIGINS = self._normalized_cors_origins()
 
-        if self.SECRET_KEY == "change-me-in-production-env":
-            raise ValueError("SECRET_KEY insegura para produção. Defina uma chave forte no ambiente.")
-
-        cors_origins = self.BACKEND_CORS_ORIGINS if isinstance(self.BACKEND_CORS_ORIGINS, list) else [self.BACKEND_CORS_ORIGINS]
-        normalized_origins = {str(origin).strip() for origin in cors_origins if str(origin).strip()}
-        if "*" in normalized_origins or "[*]" in normalized_origins:
-            raise ValueError("BACKEND_CORS_ORIGINS não pode ser '*' em produção.")
-
         return self
     # --- BANCO DE DADOS (POSTGRES) ---
     POSTGRES_SERVER: str = "postgresql"

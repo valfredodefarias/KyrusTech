@@ -26,6 +26,6 @@ EXPOSE 8000
 # Script de inicialização
 RUN chmod +x scripts/*.py
 
-# Comando padrão - executa migrations e inicia o servidor
-CMD python -u run.py
+# Comando padrão - backend FastAPI
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 

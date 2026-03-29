@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { api } from '../services/api';
+import { api, fetchLancamentosPaged } from '../services/api';
 import { BrandAvatar, CARD_BRAND_OPTIONS, inferCardBrand } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
 import { 
@@ -271,14 +271,14 @@ export function Cartoes() {
 
                         const [resC, resL, resCC, resConta, resCat] = await Promise.all([
                 api.get('/cartoes/'),
-                api.get('/lancamentos/', { params: { limit: 2000 } }),
+                            fetchLancamentosPaged({ include_anexos: false }, { pageSize: 1500, maxPages: 2 }),
                 api.get('/centro-custo/'),
                 api.get('/contas/', { params: { include_saldo: false } }),
                 api.get('/plano-contas/')
             ]);
 
       setCartoes(resC.data || []);
-      setLancamentos(resL.data || []);
+    setLancamentos(resL || []);
     setCentros(resCC.data || []);
     setContas(resConta.data || []);
     setCategorias(resCat.data || []);

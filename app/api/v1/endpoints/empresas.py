@@ -16,6 +16,7 @@ from app.schemas.empresa import EmpresaCreate, EmpresaRead, EmpresaUpdate
 from app.models.anexo_lancamento import AnexoLancamento
 from app.models.cartao import Cartao
 from app.models.centro_custo import CentroCusto
+from app.core.upload_security import IMAGE_ALLOWED_EXT_TO_MIME, UploadValidationError, write_validated_upload_file
 from app.models.conta import Conta
 from app.models.empresa import Empresa
 from app.models.entidade import Entidade
@@ -243,11 +244,6 @@ def upload_logo(
     Recebe um arquivo de imagem, salva na pasta 'static/logos' 
     e atualiza a URL no banco de dados.
     """
-    
-    # --- VALIDAÇÃO DO ARQUIVO (Agora no lugar certo) ---
-    ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"]
-    if file.content_type not in ALLOWED_TYPES:
-        raise HTTPException(400, detail="Apenas imagens (JPG, PNG, WEBP) são permitidas.")
 
     # 1. Verifica Permissão
     _ensure_empresa_access(current_user, db, empresa_id)
@@ -257,7 +253,7 @@ def upload_logo(
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
 
     ext = Path(file.filename or "").suffix.lower()
-    allowed_exts = {".jpg", ".jpeg", ".png", ".webp"}
+    allowed_exts = set(IMAGE_ALLOWED_EXT_TO_MIME.keys())
     if not ext or ext not in allowed_exts:
         raise HTTPException(400, detail="Extensão de arquivo inválida para logo.")
 
@@ -267,21 +263,18 @@ def upload_logo(
 
     # 3. Salva no Disco
     try:
-        bytes_written = 0
-        with open(file_path, "wb") as buffer:
-            while True:
-                chunk = file.file.read(1024 * 1024)
-                if not chunk:
-                    break
-                bytes_written += len(chunk)
-                if bytes_written > MAX_LOGO_SIZE:
-                    buffer.close()
-                    file_path.unlink(missing_ok=True)
-                    raise HTTPException(status_code=413, detail="Arquivo muito grande. Máximo 2MB.")
-                buffer.write(chunk)
+        write_validated_upload_file(
+            upload=file,
+            destination=file_path,
+            max_size=MAX_LOGO_SIZE,
+            allowed_ext_to_mime=IMAGE_ALLOWED_EXT_TO_MIME,
+            max_filename_len=180,
+        )
+    except UploadValidationError as exc:
+        if exc.status_code == 413:
+            raise HTTPException(status_code=413, detail="Arquivo muito grande. Máximo 2MB.")
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
     except Exception as e:
-        if isinstance(e, HTTPException):
-            raise
         logger.error(f"Erro ao salvar arquivo: {e}")
         raise HTTPException(status_code=500, detail="Falha ao salvar imagem")
 

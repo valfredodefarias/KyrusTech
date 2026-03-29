@@ -17,10 +17,10 @@ from decimal import Decimal
 from difflib import SequenceMatcher
 from openpyxl import load_workbook
 
-from fastapi import APIRouter, Depends, Query, UploadFile, File, status, Form, HTTPException, BackgroundTasks, Response
+from fastapi import APIRouter, Depends, Query, UploadFile, File, status, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select, col
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import noload, selectinload
 from loguru import logger
 
 # --- Imports do Projeto ---
@@ -46,10 +46,19 @@ from app.schemas.lancamento import (
     TransferenciaCreate, BulkActionSchema, BulkUpdateSchema
 )
 from app.schemas.anexo import AnexoRead, AnexoCreate
+from app.core.upload_security import (
+    ANEXO_ALLOWED_EXT_TO_MIME,
+    UploadValidationError,
+    register_upload_rejection,
+    register_upload_success,
+    safe_local_path_from_static_url,
+    write_validated_upload_file,
+)
 
 router = APIRouter()
 MAX_ANEXO_NOME_LEN = 180
 MAX_ANEXO_SIZE = 10 * 1024 * 1024
+MAX_ANEXOS_PER_REQUEST = 10
 UPLOAD_ANEXOS_DIR = Path("static/uploads/lancamentos")
 UPLOAD_ANEXOS_DIR.mkdir(parents=True, exist_ok=True)
 IMPORT_ANALYZE_SAMPLE_LIMIT = 24
@@ -1318,11 +1327,18 @@ def listar_lancamentos(
     data_inicio: Optional[date] = Query(None),
     data_fim: Optional[date] = Query(None),
     conta_id: Optional[int] = Query(None),
+    include_anexos: bool = Query(True),
+    sem_paginacao: bool = Query(False),
+    somente_pagos: bool = Query(False),
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """Lista lançamentos com paginação."""
-    query = select(Lancamento).options(selectinload(cast(Any, Lancamento.anexos))).where(
+    safe_limit = max(1, min(limit, 10000))
+    safe_skip = max(skip, 0)
+
+    relation_loader = selectinload(cast(Any, Lancamento.anexos)) if include_anexos else noload(cast(Any, Lancamento.anexos))
+    query = select(Lancamento).options(relation_loader).where(
         Lancamento.empresa_id == empresa_id,
         Lancamento.is_deleted == False
     )
@@ -1332,10 +1348,22 @@ def listar_lancamentos(
         query = query.where(Lancamento.data_vencimento <= data_fim)
     if conta_id:
         query = query.where(Lancamento.conta_id == conta_id)
+    if somente_pagos:
+        query = query.where(
+            (col(Lancamento.status) == "PAGO")
+            | (Lancamento.data_pagamento.is_not(None))
+            | (col(Lancamento.valor_pago) != 0)
+        )
 
-    query = query.order_by(col(Lancamento.data_vencimento).asc()).offset(skip).limit(limit)
-    
-    return db.exec(query).all()
+    query = query.order_by(col(Lancamento.data_vencimento).asc())
+    if not sem_paginacao:
+        query = query.offset(safe_skip).limit(safe_limit)
+
+    results = db.exec(query).all()
+    if not include_anexos:
+        for item in results:
+            item.anexos = []
+    return results
 
 @router.post("/", response_model=LancamentoRead, status_code=status.HTTP_201_CREATED)
 def criar_lancamento(lancamento_in: LancamentoCreate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
@@ -1413,9 +1441,45 @@ def transferir_valores(transf_in: TransferenciaCreate, service: LancamentoServic
     return service.transferir(transf_in, empresa_id, user_id)
 
 @router.post("/{lancamento_id}/anexos", response_model=List[AnexoRead])
-def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo: str = Query("OUTROS"), service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
+def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo: str = Query("OUTROS"), request: Request = None, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     anexos_criados = []
     empresa_id, user_id = require_empresa_user(current_user)
+    origin = request.client.host if request and request.client else "unknown"
+
+    if not files:
+        register_upload_rejection(
+            endpoint="/api/v1/lancamentos/{id}/anexos",
+            empresa_id=empresa_id,
+            user_id=user_id,
+            origin=origin,
+            reason="nenhum_arquivo_enviado",
+        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nenhum arquivo enviado.")
+    if len(files) > MAX_ANEXOS_PER_REQUEST:
+        register_upload_rejection(
+            endpoint="/api/v1/lancamentos/{id}/anexos",
+            empresa_id=empresa_id,
+            user_id=user_id,
+            origin=origin,
+            reason="limite_anexos_por_requisicao_excedido",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Máximo de {MAX_ANEXOS_PER_REQUEST} anexos por requisição.",
+        )
+
+    tipo_normalizado = re.sub(r"[^A-Z0-9_]+", "_", str(tipo or "OUTROS").upper()).strip("_")
+    if not tipo_normalizado:
+        tipo_normalizado = "OUTROS"
+    if len(tipo_normalizado) > 40:
+        register_upload_rejection(
+            endpoint="/api/v1/lancamentos/{id}/anexos",
+            empresa_id=empresa_id,
+            user_id=user_id,
+            origin=origin,
+            reason="tipo_anexo_invalido",
+        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo de anexo inválido.")
 
     # Garante que o lançamento existe e pertence à empresa do usuário antes de salvar arquivos.
     service.get_by_id(lancamento_id, empresa_id)
@@ -1430,6 +1494,14 @@ def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo:
         if not nome_arquivo:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo inválido: nome do arquivo ausente.")
         if len(nome_arquivo) > MAX_ANEXO_NOME_LEN:
+            register_upload_rejection(
+                endpoint="/api/v1/lancamentos/{id}/anexos",
+                empresa_id=empresa_id,
+                user_id=user_id,
+                origin=origin,
+                reason="nome_arquivo_excede_limite",
+                filename=nome_arquivo,
+            )
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nome do arquivo excede o limite permitido.")
 
         destino_dir = UPLOAD_ANEXOS_DIR / str(empresa_id) / str(lancamento_id)
@@ -1438,35 +1510,53 @@ def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo:
         nome_storage = f"{uuid.uuid4().hex}{ext}"
         destino_arquivo = destino_dir / nome_storage
 
-        tamanho_bytes = 0
         try:
-            with destino_arquivo.open("wb") as buffer:
-                while True:
-                    chunk = file.file.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    tamanho_bytes += len(chunk)
-                    if tamanho_bytes > MAX_ANEXO_SIZE:
-                        buffer.close()
-                        destino_arquivo.unlink(missing_ok=True)
-                        raise HTTPException(
-                            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                            detail="Arquivo muito grande. Máximo 10MB por anexo.",
-                        )
-                    buffer.write(chunk)
-        except HTTPException:
-            raise
-        except Exception as exc:
-            destino_arquivo.unlink(missing_ok=True)
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao salvar anexo: {exc}")
+            _, tamanho_bytes, content_type = write_validated_upload_file(
+                upload=file,
+                destination=destino_arquivo,
+                max_size=MAX_ANEXO_SIZE,
+                allowed_ext_to_mime=ANEXO_ALLOWED_EXT_TO_MIME,
+                max_filename_len=MAX_ANEXO_NOME_LEN,
+            )
+        except UploadValidationError as exc:
+            if exc.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE:
+                register_upload_rejection(
+                    endpoint="/api/v1/lancamentos/{id}/anexos",
+                    empresa_id=empresa_id,
+                    user_id=user_id,
+                    origin=origin,
+                    reason="arquivo_muito_grande",
+                    filename=nome_arquivo,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="Arquivo muito grande. Máximo 10MB por anexo.",
+                )
+            register_upload_rejection(
+                endpoint="/api/v1/lancamentos/{id}/anexos",
+                empresa_id=empresa_id,
+                user_id=user_id,
+                origin=origin,
+                reason=str(exc.message),
+                filename=nome_arquivo,
+            )
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+        register_upload_success(
+            endpoint="/api/v1/lancamentos/{id}/anexos",
+            empresa_id=empresa_id,
+            user_id=user_id,
+            origin=origin,
+            bytes_written=tamanho_bytes,
+        )
 
         url_relativa = f"/static/uploads/lancamentos/{empresa_id}/{lancamento_id}/{nome_storage}"
         dados = AnexoCreate(
             nome_arquivo=nome_arquivo,
             url=url_relativa,
-            tipo=tipo,
+            tipo=tipo_normalizado,
             tamanho_bytes=tamanho_bytes,
-            content_type=file.content_type,
+            content_type=content_type,
             lancamento_id=lancamento_id,
             empresa_id=empresa_id,
         )
@@ -1479,6 +1569,7 @@ def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo:
 def delete_anexo_lancamento(
     lancamento_id: int,
     anexo_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -1506,8 +1597,23 @@ def delete_anexo_lancamento(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anexo não encontrado.")
 
     url = str(anexo.url or "")
-    if url.startswith("/static/uploads/lancamentos/"):
-        arquivo_local = Path(url.lstrip("/"))
+    arquivo_local = safe_local_path_from_static_url(
+        url,
+        required_prefix="/static/uploads/lancamentos/",
+    )
+
+    if url.startswith("/static/uploads/lancamentos/") and arquivo_local is None:
+        register_upload_rejection(
+            endpoint="/api/v1/lancamentos/{id}/anexos/{anexo_id}",
+            empresa_id=empresa_id,
+            user_id=getattr(current_user, "id", None),
+            origin=request.client.host if request and request.client else "unknown",
+            reason="tentativa_path_traversal_ou_url_invalida",
+            filename=str(anexo.nome_arquivo or ""),
+        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="URL de anexo inválida.")
+
+    if arquivo_local:
         arquivo_local.unlink(missing_ok=True)
 
     db.delete(anexo)

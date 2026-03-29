@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api, toPublicAssetUrl } from '../services/api';
+import { api, fetchLancamentosPaged, toPublicAssetUrl } from '../services/api';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { useLookupStore } from '../store/lookupStore';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
@@ -136,15 +136,16 @@ const resolveAnexoUrl = (rawUrl?: string) => {
       }
       return parsed.pathname || value;
     } catch {
-      return value;
+      return '#';
     }
   }
 
   if (value.startsWith('/')) {
-    return toPublicAssetUrl(value) || value;
+    return toPublicAssetUrl(value) || '#';
   }
 
-  return value;
+  const safe = toPublicAssetUrl(value);
+  return safe || '#';
 };
 
 const isLancamentoAtrasado = (l: Lancamento) => {
@@ -726,14 +727,15 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
         setParcelasSerieLoading(true);
         try {
           const refYear = Number(String(ref?.data_vencimento || '').slice(0, 4)) || new Date().getFullYear();
-          const res = await api.get('/lancamentos/', {
-            params: {
-              limit: 10000,
+          const rows = await fetchLancamentosPaged<Lancamento>(
+            {
               data_inicio: `${refYear - 2}-01-01`,
               data_fim: `${refYear + 2}-12-31`,
+              include_anexos: false,
             },
-          });
-          withRef = buildSerieFromDataset(Array.isArray(res.data) ? res.data : []);
+            { pageSize: 1500 }
+          );
+          withRef = buildSerieFromDataset(rows);
         } catch {
           // Mantém a série local se a busca ampla não responder.
         } finally {
@@ -1162,11 +1164,11 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
 
     setLoading(true);
     try {
-      const params: any = { limit: 5000 }; 
+      const params: any = {};
       if(ini) params.data_inicio = ini;
       if(fim) params.data_fim = fim;
-      const res = await api.get('/lancamentos/', { params, signal: controller.signal });
-      setLancamentos(res.data);
+      const rows = await fetchLancamentosPaged<Lancamento>(params, { pageSize: 1500, signal: controller.signal });
+      setLancamentos(rows);
 
     } catch(e: any) {
       if (e?.code === 'ERR_CANCELED') return;

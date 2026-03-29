@@ -271,9 +271,10 @@ Regras:
 
 1. Carrega .env via configuração central.
 2. Monta DATABASE_URL com postgresql+psycopg2.
-3. Executa scripts/run_migrations.py.
-4. Em caso de falha de migration, aplica patch de compatibilidade legado (conforme app/main.py).
-5. Inicia Uvicorn e expõe /health e /api/v1.
+3. Em compose padrão, scripts/run_migrations.py roda antes do Uvicorn.
+4. AUTO_RUN_MIGRATIONS deve ficar desabilitado (0) quando a migration já roda no comando do container, evitando execução duplicada.
+5. Em caso de falha de migration, aplica patch de compatibilidade legado (conforme app/main.py).
+6. Inicia Uvicorn e expõe /health e /api/v1.
 
 ## 7. Banco de dados e migrações
 
@@ -297,6 +298,9 @@ Controles atuais:
 1. Banco sem porta pública 5432.
 2. App se comunica com banco só por rede Docker interna.
 3. Validações de SECRET_KEY e CORS em produção.
+4. Upload com validação de extensão, MIME, assinatura binária (magic bytes), tamanho e arquivo vazio.
+5. Exclusão de anexo com validação de caminho local seguro (sem path traversal).
+6. Frontend aceita URL de asset apenas de host confiável (mesma origem/API) e caminho /static.
 
 Controles obrigatórios contínuos:
 
@@ -327,6 +331,17 @@ Padrão mínimo de observabilidade por feature nova:
 1. Log de início/fim de operação crítica.
 2. Log de erro com contexto suficiente para investigação.
 3. Sem payload sensível em texto aberto.
+
+### 9.1 Regras específicas de logs para upload e anexos
+
+1. Nunca registrar conteúdo do arquivo em log.
+2. Nunca registrar token, cookie, secret, senha ou chave de API.
+3. Em erro de upload, logar apenas:
+  - endpoint
+  - usuário/empresa (IDs)
+  - nome sanitizado do arquivo
+  - motivo técnico (tipo inválido, assinatura inválida, tamanho excedido, arquivo vazio)
+4. Em sucesso de upload, evitar log verboso por arquivo em loop grande.
 
 ## 10. Health check e verificação rápida de infraestrutura
 
@@ -409,6 +424,133 @@ Sempre que houver mudança de infraestrutura:
 3. Rodar validações do item 10.
 4. Aplicar conferência final dos itens 11 e 12.
 5. Só então marcar release como ok.
+
+## 14. Rastreabilidade de segurança e logs (onde foi mexido)
+
+Este bloco registra pontos alterados para reforço de segurança/observabilidade e deve ser atualizado em mudanças futuras.
+
+### 14.1 Backend e infraestrutura
+
+1. Central de validação de upload:
+  - app/core/upload_security.py
+2. Upload genérico autenticado (imagens):
+  - app/api/v1/endpoints/anexos.py
+3. Upload e deleção segura de anexos de lançamentos:
+  - app/api/v1/endpoints/lancamentos.py
+4. Upload de foto/logo com validação unificada:
+  - app/api/v1/endpoints/usuarios.py
+  - app/api/v1/endpoints/contas.py
+  - app/api/v1/endpoints/empresas.py
+5. Prefixo de API por configuração + fallback SPA com caminho absoluto:
+  - app/main.py
+6. Normalização de validação de segurança sem duplicidade:
+  - app/core/config.py
+7. Hardening de compose (CORS sem wildcard no fallback + AUTO_RUN_MIGRATIONS):
+  - docker-compose.yml
+  - docker-compose.prod.yml
+  - docker-compose.ssl.yml
+  - docker-compose.casaos.yml
+8. Runtime padrão de container backend:
+  - Dockerfile
+9. Modelo de ambiente com CORS explícito:
+  - .env.example
+
+### 14.2 Frontend (validação de links de assets/anexos)
+
+1. Resolução segura de URL pública de assets (somente host confiável + /static):
+  - kyrus-web/src/services/api.ts
+2. Sanitização de URL de anexo no formulário de lançamentos:
+  - kyrus-web/src/pages/Lancamentos.tsx
+
+### 14.3 Checklist obrigatório pós-alteração (segurança/logs)
+
+1. Rodar docker compose config em todos os compose suportados.
+2. Validar upload de arquivo permitido e rejeição dos proibidos.
+3. Validar rejeição de assinatura incompatível (ex.: extensão PDF com conteúdo não-PDF).
+4. Validar rejeição de arquivo vazio e de tamanho acima do limite.
+5. Validar deleção de anexo sem permitir path traversal.
+6. Validar que links externos fora do domínio confiável não são utilizados no frontend.
+7. Revisar logs para confirmar ausência de credenciais e payload sensível.
+
+## 15. Playbook de incidentes (upload/anexos/segurança)
+
+Este procedimento deve ser seguido quando houver suspeita de arquivo malicioso, tentativa de bypass de validação ou uso de link externo indevido.
+
+### 15.1 Gatilhos de incidente
+
+Abrir incidente imediatamente se houver:
+
+1. Rejeições repetidas por assinatura inválida (magic bytes) para mesma origem.
+2. Múltiplas tentativas com extensões proibidas em curto intervalo.
+3. Tentativa de path traversal em URL/caminho de anexo.
+4. Referência a URL externa não confiável para assets/anexos.
+5. Erros anormais de upload com crescimento súbito de volume.
+
+### 15.1.1 Telemetria automática implementada
+
+Hoje o backend já dispara alerta técnico automático para os gatilhos abaixo:
+
+1. Rejeições repetidas por origem/endpoint (janela de 5 minutos).
+2. Volume anômalo de uploads por origem/endpoint (janela de 1 minuto).
+3. Tentativa de path traversal em deleção de anexo.
+
+Implementação:
+
+1. app/core/upload_security.py
+2. app/api/v1/endpoints/anexos.py
+3. app/api/v1/endpoints/lancamentos.py
+
+Parâmetros atuais (ajustáveis):
+
+1. Rejeições repetidas: 5 eventos em 300s.
+2. Volume anômalo: 30 uploads em 60s.
+
+Observação de desempenho:
+
+1. Contadores são em memória com estruturas O(1) (dict + deque) e limpeza por janela deslizante.
+2. Não há consulta adicional em banco para acionar gatilho.
+
+### 15.2 Contenção imediata (0-15 minutos)
+
+1. Identificar empresa, usuário e endpoint afetado.
+2. Bloquear sessão/token do usuário suspeito (se aplicável).
+3. Revisar logs recentes de backend e proxy para o período.
+4. Isolar anexos suspeitos sem apagar evidência:
+  - mover para área de quarentena interna
+  - manter hash e timestamp para auditoria
+5. Confirmar que serviço continua saudável:
+  - health check
+  - rota principal de upload
+
+### 15.3 Erradicação e recuperação (15-60 minutos)
+
+1. Confirmar causa raiz:
+  - payload inválido
+  - tipo/extensão incompatível
+  - URL externa fora de política
+2. Aplicar correção de regra (backend/frontend/infra) quando necessário.
+3. Validar com testes de regressão:
+  - upload válido permitido
+  - upload inválido bloqueado
+  - deleção segura sem traversal
+4. Restaurar operação normal e monitorar por no mínimo 24h.
+
+### 15.4 Evidências e auditoria
+
+Registrar no incidente:
+
+1. Janela de tempo (início/fim).
+2. IDs afetados (empresa, usuário, endpoint).
+3. Tipo de ataque/sintoma observado.
+4. Ação de contenção aplicada.
+5. Correção implantada e versão/commit.
+6. Resultado de validação pós-correção.
+
+### 15.5 Comunicação mínima
+
+1. Comunicar internamente equipe técnica com impacto e status.
+2. Se houver impacto real de dados/segurança, comunicar responsáveis do negócio.
+3. Atualizar este documento quando o incidente gerar nova regra permanente.
 
 ---
 

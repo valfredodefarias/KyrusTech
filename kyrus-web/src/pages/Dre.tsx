@@ -1061,15 +1061,13 @@ export function Dre() {
                   <th className="sticky left-0 z-20 border-b border-r border-slate-800 bg-slate-950 px-5 py-4 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white">Conta</th>
                   <th className="border-b border-r border-slate-800 bg-slate-950 px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">Total</th>
                   {monthLabels.map((label, index) => (
-                    <th key={label} className={`border-b border-r px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 ${selectedMonth === index ? selectedMonthHeaderClass : 'border-slate-800 bg-slate-950 text-white'}`}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMonth((prev) => (prev === index ? null : index))}
-                        className="w-full text-right"
-                        title={selectedMonth === index ? 'Clique para voltar ao ano inteiro' : `Clique para filtrar ${label}`}
-                      >
-                        {label}
-                      </button>
+                    <th
+                      key={label}
+                      onClick={() => setSelectedMonth((prev) => (prev === index ? null : index))}
+                      title={selectedMonth === index ? 'Clique para voltar ao ano inteiro' : `Clique para filtrar ${label}`}
+                      className={`cursor-pointer border-b border-r px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 ${selectedMonth === index ? selectedMonthHeaderClass : 'border-slate-800 bg-slate-950 text-white'}`}
+                    >
+                      {label}
                     </th>
                   ))}
                   <th className="w-3 border-b border-amber-300 bg-amber-200 px-0 py-0" />

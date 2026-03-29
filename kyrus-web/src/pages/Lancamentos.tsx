@@ -568,6 +568,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
   const lastEntityCepLookupRef = useRef('');
   const autoPagamentoRef = useRef(true);
   const autoCompetenciaRef = useRef(true);
+  const pagamentoSectionRef = useRef<HTMLDivElement | null>(null);
   const quickOpenNovoHandledRef = useRef(false);
   const embedDrawerOpenedRef = useRef(false);
 
@@ -1465,6 +1466,12 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
   };
 
   const handleStatusPagoChange = (checked: boolean) => {
+    if (checked) {
+      window.setTimeout(() => {
+        pagamentoSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 160);
+    }
+
     setFormData((prev: any) => {
       const next = { ...prev, status: checked ? 'PAGO' : 'PENDENTE' };
       if (checked && (autoPagamentoRef.current || !prev.data_pagamento)) {
@@ -2936,27 +2943,6 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                 <ToggleSimNao label="Esse valor é previsto?" value={!!formData.previsto} onChange={(next)=>setFormData({...formData, previsto: next})} />
               </div>
 
-              {formData.cartao_id && formData.data_vencimento && (
-                <div className="text-xs text-slate-400">
-                  Vencimento da fatura: <strong className="text-blue-300">{computeCartaoVencimento(formData.data_vencimento, formData.cartao_id) || '—'}</strong>
-                </div>
-              )}
-
-              {/* PAGAMENTO */}
-              <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                <ToggleSimNao
-                  label="Já foi pago/recebido?"
-                  value={formData.status==='PAGO'}
-                  onChange={handleStatusPagoChange}
-                />
-                {formData.status==='PAGO' && (
-                  <div className="grid grid-cols-2 gap-4 mt-3 animate-in fade-in slide-in-from-top-2">
-                    <InputDark label="Data da Baixa" type="date" value={formData.data_pagamento} onChange={(e:any)=>handleDataPagamentoChange(e.target.value)} />
-                    <CurrencyInputDark label="Valor Pago (R$)" className="text-emerald-400 font-bold" value={formData.valor_pago} onValueChange={(value:string)=>handleValorPagoChange(value)} />
-                  </div>
-                )}
-              </div>
-
               {/* CATEGORIA */}
               <div>
                 <SearchableSelect label="Categoria" placeholder="Selecione..." options={catOptions} value={formData.plano_contas_id} onChange={(id:any)=>{
@@ -2964,6 +2950,27 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                    const tipoCat = String(cat?.tipo || '').trim().toUpperCase();
                    setFormData({...formData, plano_contas_id:id, tipo: tipoCat.startsWith('R') ? 'RECEITA' : 'DESPESA'});
                 }} />
+              </div>
+
+              {formData.cartao_id && formData.data_vencimento && (
+                <div className="text-xs text-slate-400">
+                  Vencimento da fatura: <strong className="text-blue-300">{computeCartaoVencimento(formData.data_vencimento, formData.cartao_id) || '—'}</strong>
+                </div>
+              )}
+
+              {/* PAGAMENTO */}
+              <div ref={pagamentoSectionRef} className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <ToggleSimNao
+                  label="Já foi pago/recebido?"
+                  value={formData.status==='PAGO'}
+                  onChange={handleStatusPagoChange}
+                />
+                <div className={`overflow-hidden transition-all duration-300 ease-out ${formData.status==='PAGO' ? 'max-h-48 opacity-100 mt-3' : 'max-h-0 opacity-0 mt-0'}`}>
+                  <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
+                    <InputDark label="Data da Baixa" type="date" value={formData.data_pagamento} onChange={(e:any)=>handleDataPagamentoChange(e.target.value)} />
+                    <CurrencyInputDark label="Valor Pago (R$)" className="text-emerald-400 font-bold" value={formData.valor_pago} onValueChange={(value:string)=>handleValorPagoChange(value)} />
+                  </div>
+                </div>
               </div>
 
               {/* CENTRO DE CUSTO E ORIGEM DOS RECURSOS (COM FILTRAGEM INTELIGENTE) */}
@@ -2981,8 +2988,8 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                     const contasAtivasNoCentro = getContasAtivasByCentro(formData.centro_custo_id);
                     return (
                       <>
-                  {formData.status==='PAGO' && (
-                    <div>
+                  <div className={`overflow-hidden transition-all duration-300 ease-out ${formData.status==='PAGO' ? 'max-h-80 opacity-100' : 'max-h-0 opacity-0'}`}>
+                    <div className="pb-1">
                       <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><Wallet className="w-3 h-3"/> Contas Bancárias</p>
                       <div className="grid grid-cols-2 gap-2">
                         {contasAtivasNoCentro.length === 0 && <span className="text-xs text-slate-500 italic col-span-2">Nenhuma conta ativa neste centro.</span>}
@@ -2996,7 +3003,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                         ))}
                       </div>
                     </div>
-                  )}
+                  </div>
                   {/* CARTÕES */}
                   <div>
                     <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><CreditCard className="w-3 h-3"/> Cartões de Crédito</p>

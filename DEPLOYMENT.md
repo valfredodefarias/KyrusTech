@@ -1,5 +1,10 @@
 # 🚀 Kyrus ERP - Configuração e Deploy
 
+Referências de infraestrutura:
+
+- Resumo operacional (1 página): [INFRAESTRUTURA_EXECUTIVA.md](INFRAESTRUTURA_EXECUTIVA.md)
+- Documento completo: [INFRAESTRUTURA.md](INFRAESTRUTURA.md)
+
 ## 📋 Pré-requisitos
 
 - Docker & Docker Compose

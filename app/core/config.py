@@ -89,7 +89,7 @@ class Settings(BaseSettings):
 
         return self
     # --- BANCO DE DADOS (POSTGRES) ---
-    POSTGRES_SERVER: str = "103.63.28.155"
+    POSTGRES_SERVER: str = "postgresql"
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str = "casaos"
     POSTGRES_PASSWORD: str = "casaos"

@@ -1,5 +1,7 @@
 # 📘 KyrusTech - Arquitetura Escalável v4.0
 
+Documentação de infraestrutura completa: [INFRAESTRUTURA.md](INFRAESTRUTURA.md)
+
 Este projeto foi configurado com paridade de ambientes em mente, utilizando Docker para garantir que o desenvolvimento seja o mais próximo possível da produção.
 
 ## Pré-requisitos

@@ -65,13 +65,9 @@ def main():
     # Documentação
     print(f"\n{BLUE}📚 Documentação{RESET}")
     docs = [
-        "README_NOVO.md",
+        "README.md",
         "DEPLOYMENT.md",
         "TROUBLESHOOTING.md",
-        "DEPLOY_CHECKLIST.md",
-        "RESUMO_MUDANCAS.md",
-        "GUIA_RAPIDO.md",
-        "EXEMPLO_DEPLOY_DOMINIO.md",
     ]
     for f in docs:
         total += 1
@@ -122,11 +118,11 @@ def main():
         print(f"{'='*60}{RESET}\n")
         
         print(f"{BLUE}📝 Próximos Passos:{RESET}")
-        print("1. Leia GUIA_RAPIDO.md")
+        print("1. Leia README.md")
         print("2. Execute ./quick-start.sh (Linux/Mac) ou quick-start.bat (Windows)")
         print("3. Acesse http://localhost:3000")
         print("4. Para produção, leia DEPLOYMENT.md")
-        print("5. Use EXEMPLO_DEPLOY_DOMINIO.md como referência")
+        print("5. Se der erro, siga TROUBLESHOOTING.md")
         
         return 0
     else:

@@ -71,5 +71,3 @@ docker-compose*.yml
 .DS_Store
 *.log
 README.md
-iniciar.txt
-backup_banco.sql

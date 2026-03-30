@@ -150,6 +150,15 @@ interface ProcessarArquivoResponse {
   lancamentos_atrasados_encontrados: number;
 }
 
+interface ConfirmacaoProgressState {
+  currentBatch: number;
+  totalBatches: number;
+  processedItems: number;
+  totalItems: number;
+  criados: number;
+  atualizados: number;
+}
+
 type FiltroStatus = 'todos' | 'conciliar' | 'novo' | 'duplicado' | 'descartado';
 
 const ACAO_META = {
@@ -174,6 +183,17 @@ const ACAO_META = {
     tone: 'bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-700',
   },
 } as const;
+
+const OFX_CONFIRM_CHUNK_SIZE = 300;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (size <= 0) return [items];
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
 
 function categoriaCompativel(cat: CategoriaItem, tipo: string) {
   if (!cat.tipo) return true;
@@ -307,6 +327,7 @@ export function ImportacaoOfx() {
   const [dragActive, setDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [confirmProgress, setConfirmProgress] = useState<ConfirmacaoProgressState | null>(null);
   const [resultado, setResultado] = useState<ProcessarArquivoResponse | null>(null);
   const [lancamentosEditados, setLancamentosEditados] = useState<LancamentoEditado[]>([]);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
@@ -503,18 +524,46 @@ export function ImportacaoOfx() {
       return;
     }
     setConfirming(true);
+    setConfirmProgress(null);
     setFeedback(null);
     try {
-      const payload = {
-        lancamentos: lancamentosEditados,
-        conta_id: modoImportacao === 'CONTA' ? Number(contaId) : null,
-        cartao_id: modoImportacao === 'CARTAO' ? Number(cartaoId) : null,
-        modo_importacao: modoImportacao,
-      };
-      const { data } = await api.post('/importacao/confirmar-lancamentos', payload);
-      const criados = Number(data?.lancamentos_criados || 0);
-      const atualizados = Number(data?.lancamentos_atualizados || 0);
-      const erros = Array.isArray(data?.erros) ? data.erros.filter(Boolean) : [];
+      const chunks = chunkArray(lancamentosEditados, OFX_CONFIRM_CHUNK_SIZE);
+      const totalItems = lancamentosEditados.length;
+      let criados = 0;
+      let atualizados = 0;
+      const erros: string[] = [];
+      let processedItems = 0;
+
+      for (let i = 0; i < chunks.length; i += 1) {
+        const batchIndex = i + 1;
+        const chunk = chunks[i];
+
+        const payload = {
+          lancamentos: chunk,
+          conta_id: modoImportacao === 'CONTA' ? Number(contaId) : null,
+          cartao_id: modoImportacao === 'CARTAO' ? Number(cartaoId) : null,
+          modo_importacao: modoImportacao,
+        };
+
+        const { data } = await api.post('/importacao/confirmar-lancamentos', payload);
+        criados += Number(data?.lancamentos_criados || 0);
+        atualizados += Number(data?.lancamentos_atualizados || 0);
+        const errosChunk = Array.isArray(data?.erros) ? data.erros.filter(Boolean) : [];
+        if (errosChunk.length > 0) {
+          erros.push(...errosChunk.slice(0, 20));
+        }
+
+        processedItems += chunk.length;
+        setConfirmProgress({
+          currentBatch: batchIndex,
+          totalBatches: chunks.length,
+          processedItems,
+          totalItems,
+          criados,
+          atualizados,
+        });
+      }
+
       if (criados === 0 && atualizados === 0) {
         setFeedback({
           type: 'warning',
@@ -539,6 +588,7 @@ export function ImportacaoOfx() {
       setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao confirmar importação.' });
     } finally {
       setConfirming(false);
+      setConfirmProgress(null);
     }
   };
 
@@ -1163,6 +1213,33 @@ export function ImportacaoOfx() {
           </div>
 
           <div className="sticky bottom-4 z-10 rounded-3xl border border-slate-200 bg-white/92 p-4 shadow-xl backdrop-blur dark:border-slate-800 dark:bg-slate-900/92">
+            {confirming && confirmProgress ? (
+              <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900/60 dark:bg-emerald-950/20">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                    Confirmando lote {confirmProgress.currentBatch}/{confirmProgress.totalBatches}
+                  </p>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-600 dark:text-emerald-400">
+                    {confirmProgress.processedItems}/{confirmProgress.totalItems} enviados
+                  </p>
+                </div>
+                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-emerald-200/70 dark:bg-emerald-900/50">
+                  <div
+                    className="h-full rounded-full bg-emerald-600 transition-all duration-300"
+                    style={{
+                      width: `${Math.max(
+                        4,
+                        Math.min(100, Math.round((confirmProgress.processedItems / Math.max(1, confirmProgress.totalItems)) * 100)),
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <p className="mt-2 text-xs text-emerald-700/90 dark:text-emerald-300/90">
+                  Criados: {confirmProgress.criados} • Atualizados: {confirmProgress.atualizados}
+                </p>
+              </div>
+            ) : null}
+
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Resumo para confirmação</p>
@@ -1174,7 +1251,9 @@ export function ImportacaoOfx() {
                 className="flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
               >
                 {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                Confirmar importação OFX
+                {confirming && confirmProgress
+                  ? `Confirmando lote ${confirmProgress.currentBatch}/${confirmProgress.totalBatches}`
+                  : 'Confirmar importação OFX'}
               </button>
             </div>
           </div>

@@ -47,6 +47,15 @@ interface FeedbackState {
   details?: string[];
 }
 
+interface ImportProgressState {
+  phase: 'cep' | 'importacao';
+  currentBatch: number;
+  totalBatches: number;
+  processed: number;
+  totalToImport: number;
+  label: string;
+}
+
 interface CepAddress {
   cep: string;
   logradouro: string;
@@ -74,6 +83,9 @@ const TEMPLATE_HEADERS = [
   'uf',
   'observacoes',
 ];
+
+const IMPORT_BULK_CHUNK_SIZE = 300;
+const CEP_LOOKUP_BATCH_SIZE = 25;
 
 const HEADER_ALIASES: Record<string, string[]> = {
   nome: ['nome', 'nome_completo', 'razao_social', 'razao social'],
@@ -172,6 +184,15 @@ function getCellText(row: ExcelJS.Row, indexMap: Map<string, number>, target: st
   if (!mapped) return '';
   const cell = row.getCell(indexMap.get(mapped) || 0);
   return String(cell?.text || cell?.value || '').trim();
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (size <= 0) return [items];
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
 }
 
 const StepBadge = ({ num, current, label }: { num: number; current: number; label: string }) => {
@@ -274,6 +295,7 @@ export function ImportacaoEntidades() {
   const [rows, setRows] = useState<ImportedEntityRow[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportProgressState | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
   const dragCounterRef = useRef(0);
@@ -296,6 +318,7 @@ export function ImportacaoEntidades() {
   function handleFileSelection(nextFile: File | null) {
     setFile(nextFile);
     setRows([]);
+    setImportProgress(null);
     setFeedback(null);
     setStep(1);
   }
@@ -370,20 +393,59 @@ export function ImportacaoEntidades() {
   async function handleImport() {
     if (validRows.length === 0) return;
     setImporting(true);
+    setImportProgress({
+      phase: 'cep',
+      currentBatch: 0,
+      totalBatches: 0,
+      processed: 0,
+      totalToImport: validRows.length,
+      label: 'Preparando importação...',
+    });
     setFeedback(null);
 
     try {
-      const uniqueCeps = Array.from(new Set(validRows.map((row) => row.cep).filter((cep) => cep.length === 8)));
-      const cepEntries = await Promise.all(
-        uniqueCeps.map(async (cep) => {
-          try {
-            return [cep, await fetchCepAddress(cep)] as const;
-          } catch {
-            return [cep, null] as const;
-          }
-        }),
+      const rowsNeedingCep = validRows.filter(
+        (row) => row.cep.length === 8 && (!row.logradouro || !row.bairro || !row.cidade || !row.uf),
       );
-      const cepMap = new Map<string, CepAddress | null>(cepEntries);
+      const uniqueCeps = Array.from(new Set(rowsNeedingCep.map((row) => row.cep)));
+      const cepMap = new Map<string, CepAddress | null>();
+      const cepTotalBatches = Math.ceil(uniqueCeps.length / CEP_LOOKUP_BATCH_SIZE);
+
+      setImportProgress((prev) => ({
+        phase: 'cep',
+        currentBatch: 0,
+        totalBatches: cepTotalBatches,
+        processed: prev?.processed || 0,
+        totalToImport: validRows.length,
+        label: cepTotalBatches > 0 ? 'Validando CEPs...' : 'Sem CEPs para validar.',
+      }));
+
+      for (let start = 0; start < uniqueCeps.length; start += CEP_LOOKUP_BATCH_SIZE) {
+        const batch = uniqueCeps.slice(start, start + CEP_LOOKUP_BATCH_SIZE);
+        const batchIndex = Math.floor(start / CEP_LOOKUP_BATCH_SIZE) + 1;
+
+        setImportProgress((prev) => ({
+          phase: 'cep',
+          currentBatch: batchIndex,
+          totalBatches: cepTotalBatches,
+          processed: prev?.processed || 0,
+          totalToImport: validRows.length,
+          label: `Validando CEPs (${batchIndex}/${cepTotalBatches})...`,
+        }));
+
+        const batchEntries = await Promise.all(
+          batch.map(async (cep) => {
+            try {
+              return [cep, await fetchCepAddress(cep)] as const;
+            } catch {
+              return [cep, null] as const;
+            }
+          }),
+        );
+        batchEntries.forEach(([cep, data]) => {
+          cepMap.set(cep, data);
+        });
+      }
 
       const payload = validRows.map((row) => {
         const cepAddress = row.cep ? cepMap.get(row.cep) : null;
@@ -409,13 +471,52 @@ export function ImportacaoEntidades() {
         };
       });
 
-      const { data } = await api.post('/entidades/bulk', payload);
+      const payloadChunks = chunkArray(payload, IMPORT_BULK_CHUNK_SIZE);
+      let totalProcessados = 0;
+      setImportProgress((prev) => ({
+        phase: 'importacao',
+        currentBatch: 0,
+        totalBatches: payloadChunks.length,
+        processed: prev?.processed || 0,
+        totalToImport: validRows.length,
+        label: `Iniciando envio em ${payloadChunks.length} lote(s)...`,
+      }));
+
+      for (let i = 0; i < payloadChunks.length; i += 1) {
+        const chunk = payloadChunks[i];
+        const batchIndex = i + 1;
+        const { data } = await api.post('/entidades/bulk', chunk);
+        totalProcessados += Array.isArray(data) ? data.length : chunk.length;
+
+        setImportProgress({
+          phase: 'importacao',
+          currentBatch: batchIndex,
+          totalBatches: payloadChunks.length,
+          processed: totalProcessados,
+          totalToImport: validRows.length,
+          label: `Importando lote ${batchIndex}/${payloadChunks.length}...`,
+        });
+      }
+
       invalidateEntidades();
       invalidateEntidadesLookup();
+
+      const linhasConsolidadas = Math.max(0, validRows.length - totalProcessados);
+      const details: string[] = [];
+      if (payloadChunks.length > 1) {
+        details.push(`Importação enviada em ${payloadChunks.length} lote(s) de até ${IMPORT_BULK_CHUNK_SIZE} registros.`);
+      }
+      if (linhasConsolidadas > 0) {
+        details.push(`${linhasConsolidadas} linha(s) foram consolidadas com registros já existentes (deduplicação).`);
+      }
+      if (invalidRows.length > 0) {
+        details.push(`${invalidRows.length} linha(s) ficaram de fora por inconsistências na planilha.`);
+      }
+
       setFeedback({
         type: 'success',
-        message: `${Array.isArray(data) ? data.length : validRows.length} interessado(s) processado(s) com sucesso.`,
-        details: invalidRows.length > 0 ? [`${invalidRows.length} linha(s) ficaram de fora por inconsistências na planilha.`] : undefined,
+        message: `${totalProcessados} interessado(s) processado(s) com sucesso.`,
+        details: details.length > 0 ? details : undefined,
       });
       setStep(1);
       setFile(null);
@@ -424,6 +525,7 @@ export function ImportacaoEntidades() {
       setFeedback({ type: 'error', message: error?.response?.data?.detail || error?.message || 'Erro ao importar interessados.' });
     } finally {
       setImporting(false);
+      setImportProgress(null);
     }
   }
 
@@ -677,11 +779,48 @@ export function ImportacaoEntidades() {
             <p className="text-sm text-slate-600 dark:text-slate-300">Os dados de endereço serão completados pelo CEP quando necessário. Linhas com inconsistência não entram no lote de importação.</p>
           </div>
 
+          {importing && importProgress ? (
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 dark:border-emerald-900 dark:bg-emerald-500/10">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">{importProgress.label}</p>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-600 dark:text-emerald-400">
+                  {importProgress.phase === 'importacao'
+                    ? `${importProgress.processed}/${importProgress.totalToImport} processados`
+                    : importProgress.totalBatches > 0
+                      ? `Lote ${importProgress.currentBatch}/${importProgress.totalBatches}`
+                      : 'Preparação'}
+                </p>
+              </div>
+              <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-emerald-200/70 dark:bg-emerald-900/50">
+                <div
+                  className="h-full rounded-full bg-emerald-600 transition-all duration-300"
+                  style={{
+                    width: `${Math.max(
+                      3,
+                      Math.min(
+                        100,
+                        importProgress.phase === 'importacao'
+                          ? Math.round((importProgress.processed / Math.max(1, importProgress.totalToImport)) * 100)
+                          : importProgress.totalBatches > 0
+                            ? Math.round((importProgress.currentBatch / importProgress.totalBatches) * 35)
+                            : 5,
+                      ),
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
+
           <div className="mt-6 flex justify-between border-t border-slate-200 pt-6 dark:border-slate-700">
             <button onClick={() => setStep(3)} className="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800">Voltar</button>
             <button onClick={handleImport} disabled={validRows.length === 0 || importing} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">
               {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
-              {importing ? 'Importando...' : 'Confirmar importação'}
+              {importing
+                ? importProgress?.phase === 'importacao' && importProgress.totalBatches > 0
+                  ? `Importando lote ${importProgress.currentBatch}/${importProgress.totalBatches}`
+                  : importProgress?.label || 'Importando...'
+                : 'Confirmar importação'}
             </button>
           </div>
         </section>

@@ -56,6 +56,8 @@ const normalizeDreGrupo = (dreGrupo: string | undefined, tipo: string | undefine
 
 const normalizeTipo = (tipo?: string) => ((tipo || '').trim().toUpperCase().startsWith('R') ? 'R' : 'D');
 
+const normalizeImportMapKey = (value?: string) => String(value || '').trim().toUpperCase();
+
 const normalizeEntityNameKey = (value?: string) =>
     String(value || '')
         .normalize('NFKD')
@@ -1684,26 +1686,61 @@ export function Importacao() {
     [sistemaData.entidades]);
     const categoriasById = useMemo(() => new Map(sistemaData.categorias.map((item) => [String(item.id), item])), [sistemaData.categorias]);
     const entidadesById = useMemo(() => new Map(sistemaData.entidades.map((item) => [String(item.id), item])), [sistemaData.entidades]);
+    const mapCategoriasNormalizado = useMemo(() => {
+        const next: Record<string, string> = {};
+        Object.entries(mapCategorias).forEach(([key, value]) => {
+            const normalizedKey = normalizeImportMapKey(key);
+            const normalizedValue = String(value || '').trim();
+            if (normalizedKey && normalizedValue) {
+                next[normalizedKey] = normalizedValue;
+            }
+        });
+        return next;
+    }, [mapCategorias]);
+    const mapEntidadesNormalizado = useMemo(() => {
+        const next: Record<string, string> = {};
+        Object.entries(mapEntidades).forEach(([key, value]) => {
+            const normalizedKey = normalizeImportMapKey(key);
+            const normalizedValue = String(value || '').trim();
+            if (normalizedKey && normalizedValue) {
+                next[normalizedKey] = normalizedValue;
+            }
+        });
+        return next;
+    }, [mapEntidades]);
     const previewResolvedRows = useMemo(() => previewRows.map((row) => {
-        const categoriaMapeadaId = mapCategorias[row.categoria_arquivo] || (row.categoria_sugerida_id ? String(row.categoria_sugerida_id) : '');
-        const entidadeMapeadaId = mapEntidades[row.entidade_arquivo] || (row.entidade_sugerida_id ? String(row.entidade_sugerida_id) : '');
+        const categoriaManualId =
+            mapCategorias[row.categoria_arquivo]
+            || mapCategoriasNormalizado[normalizeImportMapKey(row.categoria_arquivo)]
+            || '';
+        const categoriaMapeadaId = categoriaManualId || (row.categoria_sugerida_id ? String(row.categoria_sugerida_id) : '');
+        const entidadeManualId =
+            mapEntidades[row.entidade_arquivo]
+            || mapEntidadesNormalizado[normalizeImportMapKey(row.entidade_arquivo)]
+            || '';
+        const entidadeMapeadaId = entidadeManualId || (row.entidade_sugerida_id ? String(row.entidade_sugerida_id) : '');
         const categoriaItem = categoriaMapeadaId ? categoriasById.get(categoriaMapeadaId) : null;
         const entidadeItem = entidadeMapeadaId ? entidadesById.get(entidadeMapeadaId) : null;
         return {
             ...row,
             categoria_final: categoriaItem ? `${categoriaItem.codigo ? `${categoriaItem.codigo} - ` : ''}${categoriaItem.nome}` : (row.categoria_arquivo || 'A Categorizar'),
             entidade_final: entidadeItem ? entidadeItem.nome : (row.entidade_arquivo || 'Sem interessado'),
-            categoria_auto: !mapCategorias[row.categoria_arquivo] && !!row.categoria_sugerida_id,
-            entidade_auto: !mapEntidades[row.entidade_arquivo] && !!row.entidade_sugerida_id,
+            categoria_auto: !categoriaManualId && !!row.categoria_sugerida_id,
+            entidade_auto: !entidadeManualId && !!row.entidade_sugerida_id,
+            categoria_resolvida: Boolean(categoriaMapeadaId),
         };
-    }), [previewRows, mapCategorias, mapEntidades, categoriasById, entidadesById]);
+    }), [previewRows, mapCategorias, mapEntidades, mapCategoriasNormalizado, mapEntidadesNormalizado, categoriasById, entidadesById]);
     const visiblePreviewRows = useMemo(
         () => previewResolvedRows.slice(0, previewVisibleCount),
         [previewResolvedRows, previewVisibleCount],
     );
     const hasMorePreviewRows = visiblePreviewRows.length < previewResolvedRows.length;
     const uncategorizedPreviewCount = useMemo(
-        () => previewResolvedRows.filter((row) => String(row.categoria_final || '').trim().toUpperCase() === 'A CATEGORIZAR').length,
+        () => previewResolvedRows.filter((row) => !row.categoria_resolvida).length,
+        [previewResolvedRows],
+    );
+    const uncategorizedPreviewSampleLines = useMemo(
+        () => previewResolvedRows.filter((row) => !row.categoria_resolvida).slice(0, 6).map((row) => String(row.linha)),
         [previewResolvedRows],
     );
 
@@ -2194,9 +2231,16 @@ export function Importacao() {
 
   async function handleExecutar() {
       if (uncategorizedPreviewCount > 0) {
+          const lineSuffix = uncategorizedPreviewCount > uncategorizedPreviewSampleLines.length
+              ? ', ...'
+              : '';
+          const linePreview = uncategorizedPreviewSampleLines.join(', ');
           setFeedback({
               type: 'error',
               message: `Existem ${uncategorizedPreviewCount} lançamento(s) sem categoria. Classifique todos antes de confirmar.`,
+              details: linePreview
+                  ? [`Linhas pendentes: ${linePreview}${lineSuffix}`]
+                  : undefined,
           });
           return;
       }
@@ -2383,6 +2427,15 @@ export function Importacao() {
                         <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
                             Exibindo {visiblePreviewRows.length} de {previewResolvedRows.length} linhas
                         </span>
+                        {uncategorizedPreviewCount > 0 ? (
+                            <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700 dark:border-rose-800 dark:bg-rose-900/30 dark:text-rose-300">
+                                {uncategorizedPreviewCount} sem categoria
+                            </span>
+                        ) : (
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                Categorias validadas
+                            </span>
+                        )}
                         {hasMorePreviewRows ? (
                             <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
                                 Role até o fim para carregar mais 200

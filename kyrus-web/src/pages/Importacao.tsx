@@ -56,6 +56,14 @@ const normalizeDreGrupo = (dreGrupo: string | undefined, tipo: string | undefine
 
 const normalizeTipo = (tipo?: string) => ((tipo || '').trim().toUpperCase().startsWith('R') ? 'R' : 'D');
 
+const normalizeEntityNameKey = (value?: string) =>
+    String(value || '')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toUpperCase();
+
 function getApiErrorMessage(error: any, fallback: string) {
     const detail = error?.response?.data?.detail;
     const message = error?.response?.data?.message;
@@ -2026,16 +2034,87 @@ export function Importacao() {
       try {
           if (type === 'ENTIDADE') {
               const { data } = await api.post('/entidades/bulk', normalizedMissingList.map((name) => ({ nome: name })));
-              const createdItems = Array.isArray(data) ? data : [];
-              setSistemaData(prev => {
-                  const next = [...prev.entidades, ...createdItems.filter((item) => !prev.entidades.some((existing) => existing.id === item.id))];
+              const resolvedItems = Array.isArray(data) ? data : [];
+
+              const entidadesById = new Map<number, any>();
+              [...sistemaData.entidades, ...resolvedItems].forEach((item) => {
+                  const id = Number(item?.id);
+                  if (!Number.isFinite(id) || id <= 0) return;
+                  entidadesById.set(id, item);
+              });
+
+              let entidadesParaMapeamento = Array.from(entidadesById.values());
+              try {
+                  const refreshedEntidades = await fetchEntidadesLookup(true);
+                  if (Array.isArray(refreshedEntidades) && refreshedEntidades.length > 0) {
+                      refreshedEntidades.forEach((item: any) => {
+                          const id = Number(item?.id);
+                          if (!Number.isFinite(id) || id <= 0) return;
+                          entidadesById.set(id, item);
+                      });
+                      entidadesParaMapeamento = Array.from(entidadesById.values());
+                  }
+              } catch {
+                  // Mantem o fluxo mesmo se o refresh de lookup falhar.
+              }
+
+              setSistemaData((prev) => {
+                  const nextById = new Map<number, any>();
+                  [...prev.entidades, ...entidadesParaMapeamento].forEach((item) => {
+                      const id = Number(item?.id);
+                      if (!Number.isFinite(id) || id <= 0) return;
+                      nextById.set(id, item);
+                  });
+                  const next = Array.from(nextById.values());
                   setEntidadesCache(next);
                   setEntidadesLookup(next);
                   return { ...prev, entidades: next };
               });
-              createdItems.forEach((item: any) => {
-                  setMapEntidades(prev => ({ ...prev, [item.nome]: String(item.id) }));
+
+              const entidadeIdByNomeNormalizado = new Map<string, string>();
+              entidadesParaMapeamento.forEach((item: any) => {
+                  const id = Number(item?.id);
+                  const nome = normalizeEntityNameKey(item?.nome);
+                  if (!Number.isFinite(id) || id <= 0 || !nome) return;
+                  if (!entidadeIdByNomeNormalizado.has(nome)) {
+                      entidadeIdByNomeNormalizado.set(nome, String(id));
+                  }
               });
+
+              const nextMapEntidades = { ...mapEntidades };
+              let resolvedCount = 0;
+              const unresolvedNames: string[] = [];
+              missingList.forEach((nomeOriginal) => {
+                  if (nextMapEntidades[nomeOriginal]) return;
+                  const entidadeId = entidadeIdByNomeNormalizado.get(normalizeEntityNameKey(nomeOriginal));
+                  if (entidadeId) {
+                      nextMapEntidades[nomeOriginal] = entidadeId;
+                      resolvedCount += 1;
+                  } else {
+                      unresolvedNames.push(nomeOriginal);
+                  }
+              });
+              setMapEntidades(nextMapEntidades);
+
+              if (unresolvedNames.length > 0) {
+                  const details = unresolvedNames.slice(0, 6).map((nome) => `Sem vinculo automatico: ${nome}`);
+                  if (unresolvedNames.length > 6) {
+                      details.push(`...e mais ${unresolvedNames.length - 6} interessado(s).`);
+                  }
+                  setFeedback({
+                      type: resolvedCount > 0 ? 'success' : 'error',
+                      message: resolvedCount > 0
+                          ? `${resolvedCount} interessado(s) mapeado(s), mas ${unresolvedNames.length} ainda exigem ajuste manual.`
+                          : 'Nao foi possivel mapear os interessados automaticamente.',
+                      details,
+                  });
+              } else if (resolvedCount > 0) {
+                  setFeedback({
+                      type: 'success',
+                      message: `${resolvedCount} interessado(s) mapeado(s) automaticamente.`,
+                  });
+              }
+
               return;
           }
 

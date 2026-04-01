@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from loguru import logger
 from sqlmodel import Session
 
-from app.api.v1.deps import get_consultor_user, get_current_active_user, get_empresa_id_from_user
+from app.api.v1.deps import get_consultor_user, get_current_active_user, get_empresa_id_from_user, require_permission
 from app.core.upload_security import IMAGE_ALLOWED_EXT_TO_MIME, UploadValidationError, safe_local_path_from_static_url, write_validated_upload_file
 from app.crud.crud_usuario import create_user
 from app.db.session import get_db
@@ -15,6 +15,7 @@ from app.enums import ConsultorRole
 from app.models.empresa import Empresa
 from app.models.usuario import Usuario
 from app.schemas.usuario import UserCreate, UserRead
+from app.services.access_control_service import get_effective_permission_codes
 
 UPLOAD_DIR = Path("static/uploads/usuarios")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -22,7 +23,12 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 router = APIRouter()
 
 
-@router.post("/", response_model=UserRead, status_code=201)
+@router.post(
+    "/",
+    response_model=UserRead,
+    status_code=201,
+    dependencies=[Depends(require_permission("usuarios:create"))],
+)
 def create(
     *,
     db: Session = Depends(get_db),
@@ -84,10 +90,27 @@ def read_user_me(
         except HTTPException:
             user_data.empresa_id = current_user.empresa_id
 
+    if current_user.id and user_data.empresa_id:
+        user_data.permissions = sorted(
+            get_effective_permission_codes(
+                db,
+                user_id=int(current_user.id),
+                empresa_id=int(user_data.empresa_id),
+                is_consultor=bool(current_user.is_consultor),
+                consultor_role=str(current_user.consultor_role or ""),
+            )
+        )
+    else:
+        user_data.permissions = []
+
     return user_data
 
 
-@router.post("/me/foto", response_model=UserRead)
+@router.post(
+    "/me/foto",
+    response_model=UserRead,
+    dependencies=[Depends(require_permission("usuarios:update"))],
+)
 def upload_foto_me(
     *,
     db: Session = Depends(get_db),
@@ -135,7 +158,11 @@ def upload_foto_me(
     return current_user
 
 
-@router.delete("/me/foto", response_model=UserRead)
+@router.delete(
+    "/me/foto",
+    response_model=UserRead,
+    dependencies=[Depends(require_permission("usuarios:update"))],
+)
 def delete_foto_me(
     *,
     db: Session = Depends(get_db),

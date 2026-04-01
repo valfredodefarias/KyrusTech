@@ -9,7 +9,7 @@ from loguru import logger
 from typing import List, Optional
 
 from app.db.session import get_db
-from app.api.v1.deps import get_empresa_id_from_user
+from app.api.v1.deps import get_empresa_id_from_user, require_permission
 from app.crud import crud_integracao_bancaria
 from app.schemas.integracao_bancaria import (
     IntegracaoBancariaCreate,
@@ -60,7 +60,12 @@ def obter_integracao(
     return integracao
 
 
-@router.post("/", response_model=IntegracaoBancariaRead, status_code=201)
+@router.post(
+    "/",
+    response_model=IntegracaoBancariaRead,
+    status_code=201,
+    dependencies=[Depends(require_permission("integracoes:create"))],
+)
 def criar_integracao(
     integracao_in: IntegracaoBancariaCreate,
     db: Session = Depends(get_db),
@@ -96,7 +101,11 @@ def criar_integracao(
     return integracao
 
 
-@router.patch("/{integracao_id}", response_model=IntegracaoBancariaRead)
+@router.patch(
+    "/{integracao_id}",
+    response_model=IntegracaoBancariaRead,
+    dependencies=[Depends(require_permission("integracoes:update"))],
+)
 def atualizar_integracao(
     integracao_id: int,
     integracao_in: IntegracaoBancariaUpdate,
@@ -129,7 +138,11 @@ def atualizar_integracao(
     return integracao
 
 
-@router.delete("/{integracao_id}", status_code=204)
+@router.delete(
+    "/{integracao_id}",
+    status_code=204,
+    dependencies=[Depends(require_permission("integracoes:delete"))],
+)
 def deletar_integracao(
     integracao_id: int,
     db: Session = Depends(get_db),
@@ -147,7 +160,10 @@ def deletar_integracao(
     return None
 
 
-@router.post("/{integracao_id}/sincronizar")
+@router.post(
+    "/{integracao_id}/sincronizar",
+    dependencies=[Depends(require_permission("integracoes:sync"))],
+)
 def sincronizar_integracao(
     integracao_id: int,
     data_inicio: Optional[date] = None,
@@ -226,7 +242,12 @@ def listar_mapeamentos(
     return resultado
 
 
-@router.post("/{integracao_id}/mapeamentos", response_model=MapeamentoCategoriaRead, status_code=201)
+@router.post(
+    "/{integracao_id}/mapeamentos",
+    response_model=MapeamentoCategoriaRead,
+    status_code=201,
+    dependencies=[Depends(require_permission("integracoes:update"))],
+)
 def criar_mapeamento(
     integracao_id: int,
     mapeamento_in: MapeamentoCategoriaCreate,
@@ -283,7 +304,11 @@ def criar_mapeamento(
     }
 
 
-@router.delete("/{integracao_id}/mapeamentos/{mapeamento_id}", status_code=204)
+@router.delete(
+    "/{integracao_id}/mapeamentos/{mapeamento_id}",
+    status_code=204,
+    dependencies=[Depends(require_permission("integracoes:update"))],
+)
 def deletar_mapeamento(
     integracao_id: int,
     mapeamento_id: int,

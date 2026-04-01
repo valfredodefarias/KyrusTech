@@ -5,6 +5,8 @@ import datetime
 from .base_audit import AuditMixin
 
 if TYPE_CHECKING:
+    from .access_profile import AccessProfile
+    from .user_company_profile import UserCompanyProfile
     from .dashboard_view_config import DashboardViewConfig
     from .usuario import Usuario
     from .plano_contas import PlanoContas
@@ -47,6 +49,14 @@ class Empresa(AuditMixin, SQLModel, table=True):
         sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan")
     )
     integracoes_bancarias: List["IntegracaoBancaria"] = Relationship(back_populates="empresa")
+    access_profiles: List["AccessProfile"] = Relationship(
+        back_populates="empresa",
+        sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan")
+    )
+    user_company_profiles: List["UserCompanyProfile"] = Relationship(
+        back_populates="empresa",
+        sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan")
+    )
     dashboard_view_config: Optional["DashboardViewConfig"] = Relationship(
         back_populates="empresa",
         sa_relationship_kwargs=dict(uselist=False, cascade="all, delete-orphan")

@@ -21,7 +21,7 @@ from app.schemas.lancamento import LancamentoRead
 from app.models.conta import Conta
 from app.models.centro_custo import CentroCusto
 from app.models.lancamento import Lancamento
-from app.api.v1.deps import get_empresa_id_from_user
+from app.api.v1.deps import get_empresa_id_from_user, require_permission
 from app.core.network import get_backend_url
 from app.core.upload_security import IMAGE_ALLOWED_EXT_TO_MIME, UploadValidationError, write_validated_upload_file
 
@@ -324,7 +324,12 @@ def saldo_detalhe_conta(
         movimentos=movimentos_out,
     )
 
-@router.post("/", response_model=ContaRead, status_code=201)
+@router.post(
+    "/",
+    response_model=ContaRead,
+    status_code=201,
+    dependencies=[Depends(require_permission("contas:create"))],
+)
 def create_conta(
     *,
     db: Session = Depends(get_db), 
@@ -333,7 +338,11 @@ def create_conta(
 ):
     return crud_conta.create(db=db, obj_in=conta_in, empresa_id=empresa_id)
 
-@router.patch("/{conta_id}", response_model=ContaRead)
+@router.patch(
+    "/{conta_id}",
+    response_model=ContaRead,
+    dependencies=[Depends(require_permission("contas:update"))],
+)
 def update_conta(
     *,
     db: Session = Depends(get_db),
@@ -346,7 +355,10 @@ def update_conta(
         raise HTTPException(status_code=404, detail="Conta não encontrada")
     return crud_conta.update(db=db, db_obj=db_obj, obj_in=conta_in)
 
-@router.delete("/{conta_id}")
+@router.delete(
+    "/{conta_id}",
+    dependencies=[Depends(require_permission("contas:delete"))],
+)
 def delete_conta(
     *,
     db: Session = Depends(get_db),
@@ -363,11 +375,13 @@ def delete_conta(
     "/{conta_id}/logo",
     methods=["POST", "PUT", "OPTIONS"],
     response_model=ContaRead,
+    dependencies=[Depends(require_permission("contas:update"))],
 )
 @router.api_route(
     "/{conta_id}/logo/",
     methods=["POST", "PUT", "OPTIONS"],
     response_model=ContaRead,
+    dependencies=[Depends(require_permission("contas:update"))],
     include_in_schema=False,  # Evita operação duplicada no OpenAPI
 )
 def upload_logo_conta(

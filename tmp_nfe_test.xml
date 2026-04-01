@@ -1,0 +1,50 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
+  <NFe>
+    <infNFe Id="NFe35200111111111111111550010000000011000000001" versao="4.00">
+      <ide>
+        <natOp>Venda de mercadoria</natOp>
+        <tpNF>1</tpNF>
+        <nNF>1001</nNF>
+        <dhEmi>2026-03-31T10:00:00-03:00</dhEmi>
+      </ide>
+      <emit>
+        <xNome>Fornecedor Teste LTDA</xNome>
+        <CNPJ>11111111111111</CNPJ>
+      </emit>
+      <dest>
+        <xNome>Cliente Exemplo SA</xNome>
+        <CNPJ>22222222222222</CNPJ>
+      </dest>
+      <det nItem="1">
+        <prod>
+          <NCM>84713012</NCM>
+          <CFOP>5102</CFOP>
+          <vProd>500.00</vProd>
+        </prod>
+      </det>
+      <total>
+        <ICMSTot>
+          <vNF>500.00</vNF>
+        </ICMSTot>
+      </total>
+      <cobr>
+        <dup>
+          <nDup>001</nDup>
+          <dVenc>2026-04-15</dVenc>
+          <vDup>250.00</vDup>
+        </dup>
+        <dup>
+          <nDup>002</nDup>
+          <dVenc>2026-05-15</dVenc>
+          <vDup>250.00</vDup>
+        </dup>
+      </cobr>
+    </infNFe>
+  </NFe>
+  <protNFe>
+    <infProt>
+      <chNFe>35200111111111111111550010000000011000000001</chNFe>
+    </infProt>
+  </protNFe>
+</nfeProc>

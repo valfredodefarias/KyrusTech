@@ -7,6 +7,7 @@ from app.enums import ConsultorRole
 if TYPE_CHECKING:
     from .empresa import Empresa
     from .consultor_empresa import ConsultorEmpresa
+    from .user_company_profile import UserCompanyProfile
 
 class Usuario(AuditMixin, SQLModel, table=True):
     __tablename__ = "usuarios"
@@ -34,6 +35,10 @@ class Usuario(AuditMixin, SQLModel, table=True):
     
     # Para consultores: lista de empresas que pode acessar
     empresas_acesso: List["ConsultorEmpresa"] = Relationship(
+        back_populates="usuario",
+        sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan")
+    )
+    company_profiles: List["UserCompanyProfile"] = Relationship(
         back_populates="usuario",
         sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan")
     )

@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { 
   Home, BarChart2, PlusCircle, Users, 
   Landmark, CreditCard, Settings, LogOut,
-  Briefcase, X, LineChart,
+  Briefcase, X, LineChart, FileText,
   Sun, Moon
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -24,6 +24,27 @@ interface UserInfo {
   nome?: string | null;
   email?: string;
   foto_url?: string | null;
+  permissions?: string[] | null;
+}
+
+interface MenuItem {
+  icon: typeof Home;
+  label: string;
+  path: string;
+  requiredPermissions?: string[];
+}
+
+function hasAnyPermission(permissions: string[] | null | undefined, requiredPermissions?: string[]) {
+  if (!requiredPermissions || requiredPermissions.length === 0) {
+    return true;
+  }
+  if (!permissions || permissions.length === 0) {
+    return true;
+  }
+  if (permissions.includes('*')) {
+    return true;
+  }
+  return requiredPermissions.some((permission) => permissions.includes(permission));
 }
 
 interface ConsultorContextoResponse {
@@ -82,13 +103,19 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
   }, []);
 
   // --- ESTRUTURA DO MENU ---
-  const menuItems = [
+  const menuItems: MenuItem[] = [
     { icon: Home, label: 'Visão Geral', path: '/home' },
     { icon: Landmark, label: 'Contas Bancárias', path: '/contas' },
     { icon: PlusCircle, label: 'Lançamentos', path: '/lancamentos' },
     { icon: BarChart2, label: 'Boletim', path: '/boletim' },
     { icon: Users, label: 'Interessados', path: '/entidades' },
     { icon: CreditCard, label: 'Cartões', path: '/cartoes' },
+    {
+      icon: FileText,
+      label: 'Importação NF-e',
+      path: '/importacao_nfe',
+      requiredPermissions: ['page:importacao_nfe:view', 'page:importacao:view'],
+    },
     { icon: LineChart, label: 'DRE', path: '/dre' },
     { icon: Settings, label: 'Configurações', path: '/config' },
   ];
@@ -97,6 +124,9 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
   if (isConsultor) {
     menuItems.unshift({ icon: Briefcase, label: 'Área do Consultor', path: '/consultor' });
   }
+
+  const permissions = user?.permissions || [];
+  const menuItemsFiltered = menuItems.filter((item) => hasAnyPermission(permissions, item.requiredPermissions));
 
   // Cor padrão se a empresa não tiver uma definida
   const primaryColor = empresa?.cor_primaria || '#2563eb'; 
@@ -179,7 +209,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
 
       {/* --- NAVEGAÇÃO --- */}
       <nav className={`flex-1 overflow-y-auto custom-scrollbar mt-1 ${collapsed ? 'pl-0 pr-2 py-2 space-y-1.5' : 'pl-0 pr-3 py-3 space-y-1'}`}>
-        {menuItems.map((item) => (
+        {menuItemsFiltered.map((item) => (
           <NavLink
             key={item.path}
             to={item.path}

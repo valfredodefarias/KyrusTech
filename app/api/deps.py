@@ -1,7 +1,8 @@
 # app/api/deps.py
 from typing import Generator
-from fastapi import Cookie, Depends, HTTPException, status
+from fastapi import Cookie, Depends, HTTPException, Request, status
 from jose import jwt, JWTError
+from loguru import logger
 from pydantic import ValidationError
 from sqlmodel import Session, select
 
@@ -10,6 +11,11 @@ from app.db.session import get_session
 from app.enums import ConsultorRole
 from app.core.audit_context import set_audit_user
 from app.models.empresa import Empresa
+from app.services.access_control_service import (
+    get_effective_permission_codes,
+    has_any_permission,
+    has_permission,
+)
 
 # Importação de fallback para o Usuario
 try:
@@ -117,3 +123,82 @@ def get_super_consultor_user(current_user: Usuario = Depends(get_current_user)) 
             detail="Acesso restrito a super consultores"
         )
     return current_user
+
+
+def get_current_user_permission_codes(
+    current_user: Usuario = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> set[str]:
+    empresa_id = get_empresa_id_from_user(current_user=current_user, session=session)
+    if not current_user.id or not empresa_id:
+        return set()
+
+    return get_effective_permission_codes(
+        session,
+        user_id=int(current_user.id),
+        empresa_id=int(empresa_id),
+        is_consultor=bool(current_user.is_consultor),
+        consultor_role=str(current_user.consultor_role or ""),
+    )
+
+
+def require_permission(permission_code: str):
+    def _dependency(
+        request: Request,
+        current_user: Usuario = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ) -> Usuario:
+        empresa_id = get_empresa_id_from_user(current_user=current_user, session=session)
+        if not current_user.id or not empresa_id:
+            raise HTTPException(status_code=403, detail="Contexto de permissao invalido")
+
+        allowed = has_permission(
+            session,
+            user_id=int(current_user.id),
+            empresa_id=int(empresa_id),
+            is_consultor=bool(current_user.is_consultor),
+            consultor_role=str(current_user.consultor_role or ""),
+            permission_code=permission_code,
+        )
+        if allowed:
+            return current_user
+
+        logger.warning(
+            f"[AUTHZ] negado endpoint={request.url.path} user_id={current_user.id} "
+            f"empresa_id={empresa_id} permissao={permission_code}"
+        )
+        raise HTTPException(status_code=403, detail=f"Permissao necessaria: {permission_code}")
+
+    return _dependency
+
+
+def require_any_permission(permission_codes: list[str] | tuple[str, ...]):
+    permission_codes = [code for code in permission_codes if code]
+
+    def _dependency(
+        request: Request,
+        current_user: Usuario = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ) -> Usuario:
+        empresa_id = get_empresa_id_from_user(current_user=current_user, session=session)
+        if not current_user.id or not empresa_id:
+            raise HTTPException(status_code=403, detail="Contexto de permissao invalido")
+
+        allowed = has_any_permission(
+            session,
+            user_id=int(current_user.id),
+            empresa_id=int(empresa_id),
+            is_consultor=bool(current_user.is_consultor),
+            consultor_role=str(current_user.consultor_role or ""),
+            permission_codes=permission_codes,
+        )
+        if allowed:
+            return current_user
+
+        logger.warning(
+            f"[AUTHZ] negado endpoint={request.url.path} user_id={current_user.id} "
+            f"empresa_id={empresa_id} permissoes={','.join(permission_codes)}"
+        )
+        raise HTTPException(status_code=403, detail="Permissao insuficiente para este recurso")
+
+    return _dependency

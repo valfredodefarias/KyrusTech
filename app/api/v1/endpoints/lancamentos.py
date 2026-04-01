@@ -35,7 +35,7 @@ from app.models.entidade import Entidade
 from app.models.anexo_lancamento import AnexoLancamento
 
 # Dependências de Usuário e Empresa
-from app.api.deps import get_current_user, get_empresa_id_from_user 
+from app.api.deps import get_current_user, get_empresa_id_from_user, require_permission
 
 from app.services.lancamento_service import LancamentoService
 from app.crud import crud_plano_contas
@@ -1365,7 +1365,12 @@ def listar_lancamentos(
             item.anexos = []
     return results
 
-@router.post("/", response_model=LancamentoRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=LancamentoRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("lancamentos:create"))],
+)
 def criar_lancamento(lancamento_in: LancamentoCreate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
     return service.create(dados=lancamento_in, empresa_id=empresa_id, user_id=user_id)
@@ -1380,12 +1385,20 @@ def listar_por_parcelamento(parcelamento_id: str, service: LancamentoService = D
     empresa_id, _ = require_empresa_user(current_user)
     return service.listar_por_parcelamento(parcelamento_id, empresa_id)
 
-@router.put("/{lancamento_id}", response_model=LancamentoRead)
+@router.put(
+    "/{lancamento_id}",
+    response_model=LancamentoRead,
+    dependencies=[Depends(require_permission("lancamentos:update"))],
+)
 def atualizar_lancamento(lancamento_id: int, lancamento_in: LancamentoUpdate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
     return service.update(lancamento_id=lancamento_id, dados_atualizacao=lancamento_in, empresa_id=empresa_id, user_id=user_id)
 
-@router.delete("/{lancamento_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{lancamento_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("lancamentos:delete"))],
+)
 def deletar_lancamento(
     lancamento_id: int,
     confirmar_exclusao_pagos: bool = Query(False),
@@ -1399,12 +1412,20 @@ def deletar_lancamento(
 # AÇÕES EM MASSA (BULK)
 # ==========================================
 
-@router.post("/bulk", response_model=List[LancamentoRead], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/bulk",
+    response_model=List[LancamentoRead],
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("lancamentos:create"))],
+)
 def criar_multiplos(lista_in: List[LancamentoCreate], service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
     return service.criar_em_massa(lista_in, empresa_id, user_id)
 
-@router.post("/bulk-delete")
+@router.post(
+    "/bulk-delete",
+    dependencies=[Depends(require_permission("lancamentos:bulk_delete"))],
+)
 def deletar_multiplos(payload: BulkActionSchema, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
     service.deletar_em_massa(
@@ -1415,7 +1436,10 @@ def deletar_multiplos(payload: BulkActionSchema, service: LancamentoService = De
     )
     return {"msg": "Lançamentos deletados com sucesso"}
 
-@router.post("/bulk-pay")
+@router.post(
+    "/bulk-pay",
+    dependencies=[Depends(require_permission("lancamentos:bulk_pay"))],
+)
 def baixar_multiplos(payload: BulkActionSchema, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
     if payload.data_pagamento is None:
@@ -1426,7 +1450,10 @@ def baixar_multiplos(payload: BulkActionSchema, service: LancamentoService = Dep
     atualizados = service.baixar_em_massa(ids=payload.ids, data_pagamento=payload.data_pagamento, conta_id=payload.conta_id, empresa_id=empresa_id, user_id=user_id)
     return {"msg": f"{atualizados} lançamentos baixados com sucesso"}
 
-@router.post("/bulk-update")
+@router.post(
+    "/bulk-update",
+    dependencies=[Depends(require_permission("lancamentos:update"))],
+)
 def atualizar_multiplos(payload: BulkUpdateSchema, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
     return service.atualizar_em_massa(payload=payload, empresa_id=empresa_id, user_id=user_id)
@@ -1435,12 +1462,19 @@ def atualizar_multiplos(payload: BulkUpdateSchema, service: LancamentoService = 
 # AÇÕES ESPECIAIS E ANEXOS
 # ==========================================
 
-@router.post("/transferir")
+@router.post(
+    "/transferir",
+    dependencies=[Depends(require_permission("lancamentos:transfer"))],
+)
 def transferir_valores(transf_in: TransferenciaCreate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
     return service.transferir(transf_in, empresa_id, user_id)
 
-@router.post("/{lancamento_id}/anexos", response_model=List[AnexoRead])
+@router.post(
+    "/{lancamento_id}/anexos",
+    response_model=List[AnexoRead],
+    dependencies=[Depends(require_permission("lancamentos:update"))],
+)
 def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo: str = Query("OUTROS"), request: Request = None, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     anexos_criados = []
     empresa_id, user_id = require_empresa_user(current_user)
@@ -1564,8 +1598,17 @@ def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo:
     return anexos_criados
 
 
-@router.delete("/{lancamento_id}/anexos/{anexo_id}", status_code=status.HTTP_204_NO_CONTENT)
-@router.post("/{lancamento_id}/anexos/{anexo_id}/delete", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False)
+@router.delete(
+    "/{lancamento_id}/anexos/{anexo_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("lancamentos:delete"))],
+)
+@router.post(
+    "/{lancamento_id}/anexos/{anexo_id}/delete",
+    status_code=status.HTTP_204_NO_CONTENT,
+    include_in_schema=False,
+    dependencies=[Depends(require_permission("lancamentos:delete"))],
+)
 def delete_anexo_lancamento(
     lancamento_id: int,
     anexo_id: int,
@@ -1639,13 +1682,20 @@ def download_modelo_importacao():
     output.seek(0)
     return StreamingResponse(output, headers={'Content-Disposition': 'attachment; filename="modelo_kyrus.xlsx"'}, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-@router.post("/importar/analisar")
+@router.post(
+    "/importar/analisar",
+    dependencies=[Depends(require_permission("lancamentos:import"))],
+)
 def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     empresa_id, _ = require_empresa_user(current_user)
     return _analyze_import_contents(session, file.file.read(), empresa_id)
 
 
-@router.post("/importar/analisar-async", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/importar/analisar-async",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_permission("lancamentos:import"))],
+)
 async def analisar_arquivo_importacao_async(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
@@ -1660,7 +1710,10 @@ async def analisar_arquivo_importacao_async(
     return {"job_id": job.job_id, "status": job.status}
 
 
-@router.get("/importar/jobs/{job_id}")
+@router.get(
+    "/importar/jobs/{job_id}",
+    dependencies=[Depends(require_permission("lancamentos:import"))],
+)
 def obter_status_job_importacao(job_id: str, current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
     with IMPORT_JOBS_LOCK:
@@ -1680,7 +1733,10 @@ class ImportacaoRequest:
     mapeamento_json: str
 
 
-@router.post("/importar/executar")
+@router.post(
+    "/importar/executar",
+    dependencies=[Depends(require_permission("lancamentos:import"))],
+)
 async def importar_executar(
     file: UploadFile = File(...),
     mapeamento_json: str = Form(...),
@@ -1712,7 +1768,11 @@ async def importar_executar(
         )
 
 
-@router.post("/importar/executar-async", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/importar/executar-async",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_permission("lancamentos:import"))],
+)
 async def importar_executar_async(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),

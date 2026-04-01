@@ -7,7 +7,7 @@ from loguru import logger # <-- Import do logger
 from app.db.session import get_db
 from app.schemas.entidade import EntidadeCreate, EntidadeRead, EntidadeUpdate, EntidadeLookup, EntidadePage
 from app.crud import crud_entidade
-from app.api.v1.deps import get_empresa_id_from_user
+from app.api.v1.deps import get_empresa_id_from_user, require_permission
 from app.models.entidade import Entidade
 
 router = APIRouter()
@@ -51,7 +51,12 @@ def read_entidades_lookup(
 
     return [{"id": row[0], "nome": row[1], "tipo": row[2], "tipo_pessoa": row[3]} for row in rows]
 
-@router.post("/", response_model=EntidadeRead, status_code=201)
+@router.post(
+    "/",
+    response_model=EntidadeRead,
+    status_code=201,
+    dependencies=[Depends(require_permission("entidades:create"))],
+)
 def create_entidade(
     *,
     db: Session = Depends(get_db),
@@ -65,7 +70,12 @@ def create_entidade(
     return entidade
 
 
-@router.post("/bulk", response_model=List[EntidadeRead], status_code=201)
+@router.post(
+    "/bulk",
+    response_model=List[EntidadeRead],
+    status_code=201,
+    dependencies=[Depends(require_permission("entidades:import"))],
+)
 def create_entidades_bulk(
     *,
     db: Session = Depends(get_db),
@@ -77,7 +87,11 @@ def create_entidades_bulk(
     logger.success(f"Empresa {empresa_id} processou {len(entidades)} entidade(s) no bulk")
     return entidades
 
-@router.put("/{id}", response_model=EntidadeRead)
+@router.put(
+    "/{id}",
+    response_model=EntidadeRead,
+    dependencies=[Depends(require_permission("entidades:update"))],
+)
 def update_entidade(
     *,
     db: Session = Depends(get_db),
@@ -94,7 +108,10 @@ def update_entidade(
     logger.success(f"Entidade ID {id} atualizada com sucesso.")
     return entidade
 
-@router.delete("/{id}")
+@router.delete(
+    "/{id}",
+    dependencies=[Depends(require_permission("entidades:delete"))],
+)
 def delete_entidade(
     *,
     db: Session = Depends(get_db),

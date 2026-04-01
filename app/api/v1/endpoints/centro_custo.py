@@ -8,7 +8,7 @@ from app.db.session import get_db
 # Adicionei o CentroCustoUpdate na importação abaixo
 from app.schemas.centro_custo import CentroCustoCreate, CentroCustoRead, CentroCustoUpdate
 from app.crud import crud_centro_custo
-from app.api.v1.deps import get_empresa_id_from_user
+from app.api.v1.deps import get_empresa_id_from_user, require_permission
 
 router = APIRouter()
 
@@ -22,7 +22,12 @@ def read_centros_custo(
     logger.info(f"Listando centros de custo para empresa ID: {empresa_id}")
     return crud_centro_custo.get_multi(db=db, empresa_id=empresa_id)
 
-@router.post("/", response_model=CentroCustoRead, status_code=201)
+@router.post(
+    "/",
+    response_model=CentroCustoRead,
+    status_code=201,
+    dependencies=[Depends(require_permission("centro_custo:create"))],
+)
 def create_centro_custo(
     *,
     db: Session = Depends(get_db),
@@ -35,7 +40,11 @@ def create_centro_custo(
     logger.success(f"Centro de Custo '{cc.nome}' criado com ID: {cc.id}")
     return cc
 
-@router.put("/{id}", response_model=CentroCustoRead)
+@router.put(
+    "/{id}",
+    response_model=CentroCustoRead,
+    dependencies=[Depends(require_permission("centro_custo:update"))],
+)
 def update_centro_custo(
     *,
     db: Session = Depends(get_db),
@@ -55,7 +64,10 @@ def update_centro_custo(
     logger.success(f"Centro de custo ID {id} atualizado com sucesso.")
     return cc
 
-@router.delete("/{id}")
+@router.delete(
+    "/{id}",
+    dependencies=[Depends(require_permission("centro_custo:delete"))],
+)
 def delete_centro_custo(
     *,
     db: Session = Depends(get_db),

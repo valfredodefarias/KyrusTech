@@ -69,6 +69,8 @@ Thumbs.db
 
 # Alembic
 alembic/versions/*
+!alembic/versions/*.py
 !alembic/versions/.gitkeep
+alembic/versions/__pycache__/
 .env
 .gitignore

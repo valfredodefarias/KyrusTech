@@ -7,7 +7,7 @@ from app.db.session import get_session
 from app.models.usuario import Usuario
 from app.models.cartao import Cartao
 from app.schemas.cartao import CartaoCreate, CartaoRead, CartaoUpdate
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permission
 
 router = APIRouter()
 
@@ -23,7 +23,12 @@ def read_cartoes(
     query = query.offset(skip).limit(limit)
     return session.exec(query).all()
 
-@router.post("/", response_model=CartaoRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=CartaoRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("cartoes:create"))],
+)
 def create_cartao(
     cartao_in: CartaoCreate,
     session: Session = Depends(get_session),
@@ -53,7 +58,11 @@ def create_cartao(
         logger.error(f"Erro create: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao salvar: {str(e)}")
 
-@router.put("/{cartao_id}", response_model=CartaoRead)
+@router.put(
+    "/{cartao_id}",
+    response_model=CartaoRead,
+    dependencies=[Depends(require_permission("cartoes:update"))],
+)
 def update_cartao(
     cartao_id: int,
     cartao_in: CartaoUpdate,
@@ -93,7 +102,10 @@ def update_cartao(
         logger.error(f"Erro update: {e}")
         raise HTTPException(status_code=500, detail="Erro interno na atualização.")
 
-@router.delete("/{cartao_id}")
+@router.delete(
+    "/{cartao_id}",
+    dependencies=[Depends(require_permission("cartoes:delete"))],
+)
 def delete_cartao(
     cartao_id: int,
     session: Session = Depends(get_session),

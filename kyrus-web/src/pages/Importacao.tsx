@@ -8,7 +8,7 @@ import {
     FileSpreadsheet, Save, Loader2, Download,
     Plus, Check, X, Wallet, Users, Layers, Tag, 
     TrendingUp, TrendingDown, Edit2, Trash2, ChevronDown, ChevronRight,
-    ArrowUp, ArrowDown,
+    ArrowUp, ArrowDown, FileText,
     Wand2, GripVertical 
 } from 'lucide-react';
 
@@ -1708,6 +1708,25 @@ export function Importacao() {
         });
         return next;
     }, [mapEntidades]);
+    // Função para encontrar variações semelhantes de categoria no preview
+    function findSimilarCategoriaKeys(target: string) {
+        const norm = normalizeImportMapKey(target);
+        return Array.from(new Set(previewRows
+            .map(r => r.categoria_arquivo)
+            .filter(k => normalizeImportMapKey(k) === norm)));
+    }
+
+    // Função para propagar o mapeamento para todas as variações semelhantes
+    function handleMapCategoria(key: string, value: string) {
+        setMapCategorias(prev => {
+            const next = { ...prev };
+            findSimilarCategoriaKeys(key).forEach(k => {
+                next[k] = value;
+            });
+            return next;
+        });
+    }
+
     const previewResolvedRows = useMemo(() => previewRows.map((row) => {
         const categoriaManualId =
             mapCategorias[row.categoria_arquivo]
@@ -2315,6 +2334,19 @@ export function Importacao() {
                 </div>
                 <div className="mt-4 text-sm font-bold text-emerald-600 dark:text-emerald-300">Abrir fluxo OFX</div>
             </Link>
+            <Link to="/importacao_nfe" className="group rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+                <div className="flex items-start justify-between gap-4">
+                    <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-cyan-500">XML NF-e</p>
+                        <h3 className="mt-2 text-lg font-bold text-slate-900 dark:text-white">Importação de faturamento NF-e</h3>
+                        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Faça upload do XML, aplique autopreenchimento de categoria por CFOP/NCM e gere parcelas no financeiro.</p>
+                    </div>
+                    <div className="rounded-2xl bg-cyan-50 p-3 text-cyan-600 dark:bg-cyan-950/40 dark:text-cyan-300">
+                        <FileText className="w-6 h-6" />
+                    </div>
+                </div>
+                <div className="mt-4 text-sm font-bold text-cyan-600 dark:text-cyan-300">Abrir fluxo XML NF-e</div>
+            </Link>
         </div>
         
         {/* STEP 1: UPLOAD */}
@@ -2356,7 +2388,19 @@ export function Importacao() {
                         <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2"><Tag className="text-blue-500"/> Categorias Encontradas ({conflitos.categorias.length})</h3>
                     </div>
                     {conflitos.categorias.length === 0 && <div className="p-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Tudo certo! Todas as categorias do arquivo já existem.</div>}
-                    <div className="space-y-3">{conflitos.categorias.map(k => (<MappingRow key={k} original={k} value={mapCategorias[k]} suggestionValue={suggestedCategorias[k]} options={categoriaSelectOptions} onChange={(v:string)=>setMapCategorias(p=>({...p,[k]:String(v)}))} onCreate={()=>openCreateModal('CATEGORIA', k)} typeLabel="Categoria" icon={Tag} />))}</div>
+                                <div className="space-y-3">{conflitos.categorias.map(k => (
+                                    <MappingRow
+                                        key={k}
+                                        original={k}
+                                        value={mapCategorias[k]}
+                                        suggestionValue={suggestedCategorias[k]}
+                                        options={categoriaSelectOptions}
+                                        onChange={(v:string)=>handleMapCategoria(k, String(v))}
+                                        onCreate={()=>openCreateModal('CATEGORIA', k)}
+                                        typeLabel="Categoria"
+                                        icon={Tag}
+                                    />
+                                ))}</div>
                 </div>
 
                 {/* INTERESSADOS */}

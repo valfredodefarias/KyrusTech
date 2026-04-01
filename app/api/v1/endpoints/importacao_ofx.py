@@ -14,7 +14,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.db.session import get_db
-from app.api.v1.deps import get_empresa_id_from_user
+from app.api.v1.deps import get_empresa_id_from_user, require_permission
 from app.services.integracao_ofx import processar_ofx
 from app.services.importacao_bancaria_service import (
     verificar_duplicata,
@@ -1215,7 +1215,11 @@ class ProcessarArquivoResponse(BaseModel):
     lancamentos_atrasados_encontrados: int
 
 
-@router.post("/ofx/upload", response_model=ProcessarArquivoResponse)
+@router.post(
+    "/ofx/upload",
+    response_model=ProcessarArquivoResponse,
+    dependencies=[Depends(require_permission("lancamentos:import"))],
+)
 async def upload_ofx(
     arquivo: UploadFile = File(...),
     conta_id: Optional[int] = Query(None),
@@ -1562,7 +1566,10 @@ class ConfirmarLancamentosRequest(BaseModel):
     modo_importacao: Optional[str] = None
 
 
-@router.post("/confirmar-lancamentos")
+@router.post(
+    "/confirmar-lancamentos",
+    dependencies=[Depends(require_permission("lancamentos:import"))],
+)
 async def confirmar_lancamentos(
     request: ConfirmarLancamentosRequest,
     db: Session = Depends(get_db),

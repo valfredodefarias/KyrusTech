@@ -1,5 +1,5 @@
 # app/schemas/usuario.py
-from typing import Optional
+from typing import List, Optional
 from sqlmodel import SQLModel
 from pydantic import EmailStr
 from .base_audit import AuditReadMixin
@@ -34,6 +34,7 @@ class UserUpdate(SQLModel):
 # --- READ ---
 class UserRead(UsuarioBase, AuditReadMixin):
     id: int
+    permissions: Optional[List[str]] = None
 
 # --- Alias para compatibilidade (Opcional, mas ajuda se tiver código misto) ---
 UsuarioCreate = UserCreate

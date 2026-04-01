@@ -23,6 +23,7 @@ const Configuracoes = lazy(() => import('./pages/Configuracoes').then((module) =
 const Auditoria = lazy(() => import('./pages/Auditoria').then((module) => ({ default: module.Auditoria })));
 const IntegracaoAsaas = lazy(() => import('./pages/IntegracaoAsaas').then((module) => ({ default: module.IntegracaoAsaas })));
 const ImportacaoOfx = lazy(() => import('./pages/ImportacaoOfx').then((module) => ({ default: module.ImportacaoOfx })));
+const ImportacaoNfe = lazy(() => import('./pages/ImportacaoNfe').then((module) => ({ default: module.ImportacaoNfe })));
 
 const RouteFallback = () => (
   <div className="flex min-h-[40vh] items-center justify-center px-6 text-sm font-semibold text-slate-500 dark:text-slate-300">
@@ -100,6 +101,7 @@ function App() {
             <Route path="/importacao" element={<Importacao />} />
             <Route path="/importacao_interessados" element={<ImportacaoEntidades />} />
             <Route path="/importacao_ofx" element={<ImportacaoOfx />} />
+            <Route path="/importacao_nfe" element={<ImportacaoNfe />} />
             <Route path="/auditoria" element={<Auditoria />} />
             <Route path="/integracoes" element={<Navigate to="/integracoes/asaas" replace />} />
             <Route path="/integracoes/asaas" element={<IntegracaoAsaas />} />

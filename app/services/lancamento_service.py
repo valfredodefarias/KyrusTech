@@ -26,6 +26,18 @@ from app.schemas.lancamento import (
 from app.schemas.anexo import AnexoCreate
 
 class LancamentoService:
+        @staticmethod
+        def _normalize_nome_plano_contas(nome: str) -> str:
+            import unicodedata
+            # Remove acentos, transforma em maiúsculas, remove espaços extras e caracteres não alfanuméricos
+            if not nome:
+                return ""
+            nome = nome.strip().upper()
+            nome = unicodedata.normalize('NFKD', nome)
+            nome = ''.join([c for c in nome if not unicodedata.combining(c)])
+            nome = re.sub(r'[^A-Z0-9 ]', '', nome)
+            nome = re.sub(r'\s+', ' ', nome)
+            return nome.strip()
     def __init__(self, session: Session):
         self.session = session
 
@@ -152,7 +164,7 @@ class LancamentoService:
         user_id: int,
         preferred_category_id: Optional[int] = None,
     ) -> int:
-        normalized_name = str(nome or "").strip()
+        normalized_name = self._normalize_nome_plano_contas(nome)
         normalized_tipo = (str(tipo or "D").strip().upper() or "D")[:1]
         normalized_dre = str(dre_grupo or "DESPESAS_OPERACIONAIS").strip().upper()
 
@@ -171,13 +183,18 @@ class LancamentoService:
                 self.session.flush()
                 return int(preferred.id)
 
-        existing = self.session.exec(
+        # Busca todos os planos de contas da empresa e compara pelo nome normalizado
+        planos = self.session.exec(
             select(PlanoContas).where(
                 PlanoContas.empresa_id == empresa_id,
                 PlanoContas.is_deleted == False,
-                func.lower(PlanoContas.nome) == normalized_name.lower(),
             )
-        ).first()
+        ).all()
+        existing = None
+        for plano in planos:
+            if self._normalize_nome_plano_contas(plano.nome) == normalized_name:
+                existing = plano
+                break
         if existing and existing.id is not None:
             if existing.tipo != normalized_tipo:
                 existing.tipo = normalized_tipo
@@ -191,7 +208,7 @@ class LancamentoService:
             return int(existing.id)
 
         created = PlanoContas(
-            nome=normalized_name,
+            nome=nome.strip(),
             tipo=normalized_tipo,
             codigo=None,
             empresa_id=empresa_id,

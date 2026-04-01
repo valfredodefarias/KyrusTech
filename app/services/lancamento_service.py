@@ -26,18 +26,19 @@ from app.schemas.lancamento import (
 from app.schemas.anexo import AnexoCreate
 
 class LancamentoService:
-        @staticmethod
-        def _normalize_nome_plano_contas(nome: str) -> str:
-            import unicodedata
-            # Remove acentos, transforma em maiúsculas, remove espaços extras e caracteres não alfanuméricos
-            if not nome:
-                return ""
-            nome = nome.strip().upper()
-            nome = unicodedata.normalize('NFKD', nome)
-            nome = ''.join([c for c in nome if not unicodedata.combining(c)])
-            nome = re.sub(r'[^A-Z0-9 ]', '', nome)
-            nome = re.sub(r'\s+', ' ', nome)
-            return nome.strip()
+    @staticmethod
+    def _normalize_nome_plano_contas(nome: str) -> str:
+        import unicodedata
+        # Remove acentos, transforma em maiúsculas, remove espaços extras e caracteres não alfanuméricos
+        if not nome:
+            return ""
+        nome = nome.strip().upper()
+        nome = unicodedata.normalize('NFKD', nome)
+        nome = ''.join([c for c in nome if not unicodedata.combining(c)])
+        nome = re.sub(r'[^A-Z0-9 ]', '', nome)
+        nome = re.sub(r'\s+', ' ', nome)
+        return nome.strip()
+
     def __init__(self, session: Session):
         self.session = session
 

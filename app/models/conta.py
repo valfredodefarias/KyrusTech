@@ -1,5 +1,8 @@
 # app/models/conta.py
-from typing import Optional, List, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Optional, TYPE_CHECKING
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 from decimal import Decimal # <--- Essencial para financeiro
 import datetime
@@ -44,13 +47,16 @@ class Conta(AuditMixin, SQLModel, table=True):
     empresa_id: int = Field(foreign_key="empresas.id", index=True)
     
     # Relacionamentos
-    empresa: "Empresa" = Relationship(back_populates="contas")
-    centro_custo: Optional["CentroCusto"] = Relationship()
-    lancamentos: List["Lancamento"] = Relationship(back_populates="conta")
-    cartoes: List["Cartao"] = Relationship(back_populates="conta")
+    empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa", back_populates="contas"))
+    centro_custo: Optional["CentroCusto"] = Relationship(sa_relationship=relationship("CentroCusto"))
+    lancamentos: list["Lancamento"] = Relationship(
+        sa_relationship=relationship("Lancamento", back_populates="conta")
+    )
+    cartoes: list["Cartao"] = Relationship(
+        sa_relationship=relationship("Cartao", back_populates="conta")
+    )
     
     # Acesso à configuração da integração (se houver)
     integracao: Optional["IntegracaoBancaria"] = Relationship(
-        back_populates="conta",
-        sa_relationship_kwargs={"uselist": False} # 1-para-1
+        sa_relationship=relationship("IntegracaoBancaria", back_populates="conta", uselist=False)
     )

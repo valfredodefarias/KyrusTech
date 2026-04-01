@@ -1,4 +1,8 @@
-from typing import Optional, List, Any, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Optional, Any, TYPE_CHECKING
+
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 from decimal import Decimal
 import datetime
@@ -59,13 +63,15 @@ class Lancamento(AuditMixin, SQLModel, table=True):
     centro_custo_id: Optional[int] = Field(default=None, foreign_key="centros_custo.id", index=True)
 
     # --- Relacionamentos ---
-    empresa: "Empresa" = Relationship(back_populates="lancamentos")
-    plano_contas: "PlanoContas" = Relationship()
-    conta: Optional["Conta"] = Relationship(back_populates="lancamentos")
-    entidade: Optional["Entidade"] = Relationship(back_populates="lancamentos")
-    cartao: Optional["Cartao"] = Relationship(back_populates="lancamentos")
-    centro_custo: Optional["CentroCusto"] = Relationship(back_populates="lancamentos")
-    anexos: List["AnexoLancamento"] = Relationship(back_populates="lancamento")
+    empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa", back_populates="lancamentos"))
+    plano_contas: "PlanoContas" = Relationship(sa_relationship=relationship("PlanoContas"))
+    conta: Optional["Conta"] = Relationship(sa_relationship=relationship("Conta", back_populates="lancamentos"))
+    entidade: Optional["Entidade"] = Relationship(sa_relationship=relationship("Entidade", back_populates="lancamentos"))
+    cartao: Optional["Cartao"] = Relationship(sa_relationship=relationship("Cartao", back_populates="lancamentos"))
+    centro_custo: Optional["CentroCusto"] = Relationship(sa_relationship=relationship("CentroCusto", back_populates="lancamentos"))
+    anexos: list["AnexoLancamento"] = Relationship(
+        sa_relationship=relationship("AnexoLancamento", back_populates="lancamento")
+    )
 
     def calcular_status(self) -> str:
         return "PAGO" if self.data_pagamento is not None else "EM ABERTO"

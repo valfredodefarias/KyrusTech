@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # app/schemas/usuario.py
 from typing import List, Optional
 from sqlmodel import SQLModel

@@ -49,6 +49,9 @@ postgres_data/
 *.db
 *.sqlite
 *.sqlite3
+backups/*.sql
+backups/*.dump
+tmp_auth_cookie.txt
 
 # Uploads
 static/uploads/*

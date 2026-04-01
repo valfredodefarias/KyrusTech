@@ -183,16 +183,18 @@ def ensure_rbac_seed(db: Session) -> dict[str, int]:
             continue
 
         db.add(
-            AccessPermission(
-                code=code,
-                module=str(row["module"]),
-                action=str(row["action"]),
-                description=str(row["description"]),
-                is_page_level=bool(row["is_page_level"]),
-                is_active=True,
-                created_at=now,
-                updated_at=now,
-                is_deleted=False,
+            AccessPermission.model_validate(
+                {
+                    "code": code,
+                    "module": str(row["module"]),
+                    "action": str(row["action"]),
+                    "description": str(row["description"]),
+                    "is_page_level": bool(row["is_page_level"]),
+                    "is_active": True,
+                    "created_at": now,
+                    "updated_at": now,
+                    "is_deleted": False,
+                }
             )
         )
         stats["permissions_created"] += 1
@@ -224,18 +226,20 @@ def ensure_rbac_seed(db: Session) -> dict[str, int]:
             continue
 
         db.add(
-            AccessProfile(
-                empresa_id=None,
-                name=str(metadata["name"]),
-                code=code,
-                description=str(metadata["description"]),
-                is_active=True,
-                is_system=True,
-                is_template=True,
-                base_template_code=None,
-                created_at=now,
-                updated_at=now,
-                is_deleted=False,
+            AccessProfile.model_validate(
+                {
+                    "empresa_id": None,
+                    "name": str(metadata["name"]),
+                    "code": code,
+                    "description": str(metadata["description"]),
+                    "is_active": True,
+                    "is_system": True,
+                    "is_template": True,
+                    "base_template_code": None,
+                    "created_at": now,
+                    "updated_at": now,
+                    "is_deleted": False,
+                }
             )
         )
         stats["templates_created"] += 1
@@ -283,13 +287,15 @@ def ensure_rbac_seed(db: Session) -> dict[str, int]:
                 continue
 
             db.add(
-                AccessProfilePermission(
-                    profile_id=int(template.id),
-                    permission_id=int(permission.id),
-                    allowed=True,
-                    created_at=now,
-                    updated_at=now,
-                    is_deleted=False,
+                AccessProfilePermission.model_validate(
+                    {
+                        "profile_id": int(template.id),
+                        "permission_id": int(permission.id),
+                        "allowed": True,
+                        "created_at": now,
+                        "updated_at": now,
+                        "is_deleted": False,
+                    }
                 )
             )
             stats["template_links_created"] += 1
@@ -327,9 +333,9 @@ def ensure_rbac_seed(db: Session) -> dict[str, int]:
         if not profile:
             profile = AccessProfile(
                 empresa_id=int(company.id),
-                name="Acesso Completo",
+                name="Administrador",
                 code="FULL_ACCESS",
-                description="Perfil inicial criado automaticamente",
+                description="Perfil padrão administrador criado automaticamente",
                 is_active=True,
                 is_system=True,
                 is_template=False,
@@ -342,6 +348,16 @@ def ensure_rbac_seed(db: Session) -> dict[str, int]:
             db.commit()
             db.refresh(profile)
             stats["company_profiles_created"] += 1
+        else:
+            profile.name = "Administrador"
+            profile.description = profile.description or "Perfil padrão administrador criado automaticamente"
+            profile.is_system = True
+            profile.is_template = False
+            profile.is_active = True
+            profile.base_template_code = "TEMPLATE_FULL_ACCESS"
+            profile.updated_at = now
+            profile.is_deleted = False
+            db.add(profile)
 
         company_full_profiles[int(company.id)] = profile
 
@@ -358,13 +374,15 @@ def ensure_rbac_seed(db: Session) -> dict[str, int]:
             if key in company_link_keys:
                 continue
             db.add(
-                AccessProfilePermission(
-                    profile_id=int(profile.id),
-                    permission_id=int(permission_id),
-                    allowed=True,
-                    created_at=now,
-                    updated_at=now,
-                    is_deleted=False,
+                AccessProfilePermission.model_validate(
+                    {
+                        "profile_id": int(profile.id),
+                        "permission_id": int(permission_id),
+                        "allowed": True,
+                        "created_at": now,
+                        "updated_at": now,
+                        "is_deleted": False,
+                    }
                 )
             )
             company_link_keys.add(key)
@@ -413,14 +431,16 @@ def ensure_rbac_seed(db: Session) -> dict[str, int]:
                 continue
 
             db.add(
-                UserCompanyProfile(
-                    usuario_id=int(user.id),
-                    empresa_id=int(company_id),
-                    profile_id=int(company_profile.id),
-                    is_active=True,
-                    created_at=now,
-                    updated_at=now,
-                    is_deleted=False,
+                UserCompanyProfile.model_validate(
+                    {
+                        "usuario_id": int(user.id),
+                        "empresa_id": int(company_id),
+                        "profile_id": int(company_profile.id),
+                        "is_active": True,
+                        "created_at": now,
+                        "updated_at": now,
+                        "is_deleted": False,
+                    }
                 )
             )
             stats["user_assignments_created"] += 1

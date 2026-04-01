@@ -1,5 +1,9 @@
 # app/models/usuario.py
-from typing import Optional, List, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Optional, TYPE_CHECKING
+
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 from .base_audit import AuditMixin
 from app.enums import ConsultorRole
@@ -31,14 +35,24 @@ class Usuario(AuditMixin, SQLModel, table=True):
     # Para usuários normais: obrigatória
     # Para consultores: pode ser None inicialmente e ser preenchida ao primeiro acesso
     empresa_id: Optional[int] = Field(default=None, foreign_key="empresas.id", index=True)
-    empresa: Optional["Empresa"] = Relationship(back_populates="usuarios")
+    empresa: Optional["Empresa"] = Relationship(
+        sa_relationship=relationship("Empresa", back_populates="usuarios")
+    )
     
     # Para consultores: lista de empresas que pode acessar
-    empresas_acesso: List["ConsultorEmpresa"] = Relationship(
-        back_populates="usuario",
-        sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan")
+    empresas_acesso: list["ConsultorEmpresa"] = Relationship(
+        sa_relationship=relationship(
+            "ConsultorEmpresa",
+            back_populates="usuario",
+            lazy="selectin",
+            cascade="all, delete-orphan",
+        )
     )
-    company_profiles: List["UserCompanyProfile"] = Relationship(
-        back_populates="usuario",
-        sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan")
+    company_profiles: list["UserCompanyProfile"] = Relationship(
+        sa_relationship=relationship(
+            "UserCompanyProfile",
+            back_populates="usuario",
+            lazy="selectin",
+            cascade="all, delete-orphan",
+        )
     )

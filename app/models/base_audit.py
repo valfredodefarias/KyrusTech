@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 # app/models/base_audit.py
 from typing import Optional
 from datetime import datetime
 from sqlmodel import Field, SQLModel
+
 
 class AuditMixin(SQLModel):
     """

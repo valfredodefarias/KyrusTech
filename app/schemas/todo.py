@@ -1,4 +1,6 @@
 # app/schemas/todo.py
+from __future__ import annotations
+
 from typing import Optional
 from datetime import datetime
 from sqlmodel import SQLModel

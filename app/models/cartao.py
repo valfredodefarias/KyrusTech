@@ -1,5 +1,8 @@
 # app/models/cartao.py
-from typing import Optional, List, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Optional, TYPE_CHECKING
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 from decimal import Decimal
 from .base_audit import AuditMixin
@@ -33,7 +36,9 @@ class Cartao(AuditMixin, SQLModel, table=True):
     empresa_id: int = Field(foreign_key="empresas.id", index=True)
     
     # Relacionamentos
-    empresa: "Empresa" = Relationship(back_populates="cartoes")
-    centro_custo: Optional["CentroCusto"] = Relationship()
-    conta: Optional["Conta"] = Relationship(back_populates="cartoes")
-    lancamentos: List["Lancamento"] = Relationship(back_populates="cartao")
+    empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa", back_populates="cartoes"))
+    centro_custo: Optional["CentroCusto"] = Relationship(sa_relationship=relationship("CentroCusto"))
+    conta: Optional["Conta"] = Relationship(sa_relationship=relationship("Conta", back_populates="cartoes"))
+    lancamentos: list["Lancamento"] = Relationship(
+        sa_relationship=relationship("Lancamento", back_populates="cartao")
+    )

@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from subprocess import run, PIPE
 from sqlalchemy import create_engine, text
+from sqlmodel import Session
 
 # Adicionar raiz ao path
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -35,7 +36,29 @@ def apply_legacy_schema_compatibility() -> None:
         "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS cidade VARCHAR",
         "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS uf VARCHAR(2)",
         "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS observacoes TEXT",
+        "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS tipo_pessoa VARCHAR DEFAULT 'PJ'",
+        "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS agencia VARCHAR",
+        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS conta_numero VARCHAR",
+        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS conta_digito VARCHAR",
+        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS logo_url VARCHAR",
+        "ALTER TABLE plano_contas ADD COLUMN IF NOT EXISTS considerar_nos_resultados BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE plano_contas ADD COLUMN IF NOT EXISTS eh_divida BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE plano_contas ADD COLUMN IF NOT EXISTS oculta BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE contas ADD COLUMN IF NOT EXISTS conta_como_disponibilidade BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS nome VARCHAR",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS foto_url VARCHAR",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS consultor_role VARCHAR NOT NULL DEFAULT 'USUARIO_NORMAL'",
+        "ALTER TABLE usuarios ALTER COLUMN empresa_id DROP NOT NULL",
+        "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS previsto BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS competencia VARCHAR",
+        "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS import_hash VARCHAR",
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS intervalo_sincronizacao_minutos INTEGER NOT NULL DEFAULT 60",
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS ultima_sincronizacao TIMESTAMP WITHOUT TIME ZONE",
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS proxima_sincronizacao TIMESTAMP WITHOUT TIME ZONE",
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS categoria_padrao_id INTEGER",
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS usar_categoria_a_categorizar BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS centro_custo_id INTEGER",
         "ALTER TABLE plano_contas ADD COLUMN IF NOT EXISTS eh_operacional BOOLEAN NOT NULL DEFAULT TRUE",
         "ALTER TABLE plano_contas ADD COLUMN IF NOT EXISTS dre_grupo VARCHAR NOT NULL DEFAULT 'DESPESAS_OPERACIONAIS'",
         "UPDATE entidades SET tipo_pessoa = CASE WHEN upper(coalesce(cpf_cnpj, '')) ~ '^[0-9]{12,}$' THEN 'PJ' WHEN upper(coalesce(tipo, '')) IN ('PESSOA_FISICA', 'PF') THEN 'PF' WHEN upper(coalesce(tipo, '')) IN ('PESSOA_JURIDICA', 'PJ') THEN 'PJ' ELSE coalesce(tipo_pessoa, 'PJ') END WHERE tipo_pessoa IS NULL OR trim(tipo_pessoa) = ''",
@@ -43,7 +66,6 @@ def apply_legacy_schema_compatibility() -> None:
         "CREATE INDEX IF NOT EXISTS ix_entidades_tipo_pessoa ON entidades (tipo_pessoa)",
         "ALTER TABLE cartoes ADD COLUMN IF NOT EXISTS bandeira VARCHAR",
         "CREATE INDEX IF NOT EXISTS ix_cartoes_bandeira ON cartoes (bandeira)",
-        "ALTER TABLE plano_contas ADD COLUMN IF NOT EXISTS oculta BOOLEAN DEFAULT FALSE",
         "UPDATE plano_contas SET oculta = FALSE WHERE oculta IS NULL",
         "CREATE INDEX IF NOT EXISTS ix_plano_contas_oculta ON plano_contas (oculta)",
         "UPDATE plano_contas SET considerar_nos_resultados = TRUE WHERE coalesce(oculta, FALSE) = FALSE",
@@ -57,32 +79,88 @@ def apply_legacy_schema_compatibility() -> None:
 
     PlanoContasTemplateConfig.__table__.create(bind=engine, checkfirst=True)
 
+
+def ensure_rbac_defaults() -> dict[str, int]:
+    from app.services.access_seed_service import ensure_rbac_seed
+
+    from app.core.config import settings
+
+    engine = create_engine(settings.DATABASE_URL)
+    with Session(engine) as session:
+        return ensure_rbac_seed(session)
+
+
+def run_legacy_database_bootstrap() -> bool:
+    """Cria o banco novo e copia os dados do banco legado quando a flag estiver habilitada."""
+    try:
+        from app.db.bootstrap import bootstrap_legacy_database, should_auto_bootstrap_legacy_database
+
+        print("Executando bootstrap do banco novo e copia do banco legado...")
+        copied_rows = bootstrap_legacy_database()
+        print(f"Bootstrap concluido. Registros copiados: {copied_rows}")
+        print("Aplicando patch de compatibilidade de schema...")
+        apply_legacy_schema_compatibility()
+        stats = ensure_rbac_defaults()
+        print(
+            "RBAC seed concluido. "
+            f"Permissoes: {stats.get('permissions_created', 0)}, "
+            f"Templates: {stats.get('templates_created', 0)}, "
+            f"Perfis admin: {stats.get('company_profiles_created', 0)}, "
+            f"Vinculos: {stats.get('user_assignments_created', 0)}"
+        )
+        print("Banco novo pronto para uso")
+        return True
+    except Exception as exc:
+        print(f"Falha no bootstrap do banco legado: {exc}")
+        return False
+
 def run_migrations():
     """Executa Alembic upgrade"""
     try:
-        print("🔄 Executando migrations do Alembic...")
+        from app.core.config import settings
+
+        if settings.COPY_LEGACY_DATABASE or settings.DROP_UNUSED_TABLES or should_auto_bootstrap_legacy_database():
+            return run_legacy_database_bootstrap()
+
+        print("Executando migrations do Alembic...")
         
         result = run(
-            ["alembic", "upgrade", "head"],
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
             cwd=str(ROOT_DIR),
             capture_output=True,
             text=True
         )
         
         if result.returncode == 0:
-            print("✅ Migrations executadas com sucesso!")
+            print("Migrations executadas com sucesso!")
             print(result.stdout)
+            stats = ensure_rbac_defaults()
+            print(
+                "RBAC seed concluido. "
+                f"Permissoes: {stats.get('permissions_created', 0)}, "
+                f"Templates: {stats.get('templates_created', 0)}, "
+                f"Perfis admin: {stats.get('company_profiles_created', 0)}, "
+                f"Vinculos: {stats.get('user_assignments_created', 0)}"
+            )
             return True
         else:
-            print("❌ Erro ao executar migrations:")
+            print("Erro ao executar migrations:")
             print(result.stderr)
-            print("⚠️ Aplicando patch de compatibilidade de schema...")
+            print("Aplicando patch de compatibilidade de schema...")
             apply_legacy_schema_compatibility()
-            print("✅ Patch de compatibilidade aplicado com sucesso!")
+            stats = ensure_rbac_defaults()
+            print(
+                "RBAC seed concluido. "
+                f"Permissoes: {stats.get('permissions_created', 0)}, "
+                f"Templates: {stats.get('templates_created', 0)}, "
+                f"Perfis admin: {stats.get('company_profiles_created', 0)}, "
+                f"Vinculos: {stats.get('user_assignments_created', 0)}"
+            )
+            print("Patch de compatibilidade aplicado com sucesso!")
             return True
     
     except Exception as e:
-        print(f"❌ Erro: {e}")
+        print(f"Erro: {e}")
         return False
 
 if __name__ == "__main__":

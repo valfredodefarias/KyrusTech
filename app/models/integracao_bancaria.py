@@ -1,6 +1,10 @@
 # app/models/integracao_bancaria.py
 
-from typing import Optional, TYPE_CHECKING, List
+from __future__ import annotations
+
+from typing import Optional, TYPE_CHECKING
+
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 from .base_audit import AuditMixin # <--- Auditoria
 from datetime import datetime
@@ -45,6 +49,8 @@ class IntegracaoBancaria(AuditMixin, SQLModel, table=True):
     centro_custo_id: Optional[int] = Field(default=None, foreign_key="centros_custo.id")
     
     # Relacionamentos
-    empresa: "Empresa" = Relationship(back_populates="integracoes_bancarias")
-    conta: Optional["Conta"] = Relationship(back_populates="integracao")
-    mapeamentos_categoria: List["MapeamentoCategoria"] = Relationship(back_populates="integracao")
+    empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa", back_populates="integracoes_bancarias"))
+    conta: Optional["Conta"] = Relationship(sa_relationship=relationship("Conta", back_populates="integracao"))
+    mapeamentos_categoria: list["MapeamentoCategoria"] = Relationship(
+        sa_relationship=relationship("MapeamentoCategoria", back_populates="integracao")
+    )

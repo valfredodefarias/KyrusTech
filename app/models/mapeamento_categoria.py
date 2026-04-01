@@ -1,5 +1,8 @@
 # app/models/mapeamento_categoria.py
+from __future__ import annotations
+
 from typing import Optional, TYPE_CHECKING
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 from .base_audit import AuditMixin
 
@@ -19,5 +22,9 @@ class MapeamentoCategoria(AuditMixin, SQLModel, table=True):
     integracao_id: int = Field(foreign_key="integracoes_bancarias.id")
     
     # Relacionamentos
-    integracao: "IntegracaoBancaria" = Relationship(back_populates="mapeamentos_categoria")
-    plano_contas: "PlanoContas" = Relationship(back_populates="mapeamentos")
+    integracao: "IntegracaoBancaria" = Relationship(
+        sa_relationship=relationship("IntegracaoBancaria", back_populates="mapeamentos_categoria")
+    )
+    plano_contas: "PlanoContas" = Relationship(
+        sa_relationship=relationship("PlanoContas", back_populates="mapeamentos")
+    )

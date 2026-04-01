@@ -2,7 +2,10 @@
 """
 Tabela de relacionamento: um consultor pode acessar múltiplas empresas.
 """
+from __future__ import annotations
+
 from typing import Optional, TYPE_CHECKING, ClassVar
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 from .base_audit import AuditMixin
 
@@ -25,8 +28,12 @@ class ConsultorEmpresa(AuditMixin, SQLModel, table=True):
     empresa_id: int = Field(foreign_key="empresas.id", index=True)
     
     # Relationships
-    usuario: "Usuario" = Relationship(back_populates="empresas_acesso")
-    empresa: "Empresa" = Relationship(back_populates="consultores")
+    usuario: "Usuario" = Relationship(
+        sa_relationship=relationship("Usuario", back_populates="empresas_acesso")
+    )
+    empresa: "Empresa" = Relationship(
+        sa_relationship=relationship("Empresa", back_populates="consultores")
+    )
     
     # Metadata
     ativo: bool = Field(default=True, description="Se o consultor ainda tem acesso a essa empresa")

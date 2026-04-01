@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # app/schemas/base_audit.py
 from datetime import datetime
 from typing import Optional

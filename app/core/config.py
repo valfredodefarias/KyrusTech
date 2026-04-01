@@ -81,11 +81,21 @@ class Settings(BaseSettings):
 
         return self
     # --- BANCO DE DADOS (POSTGRES) ---
-    POSTGRES_SERVER: str = "postgresql"
-    POSTGRES_PORT: int = 5432
-    POSTGRES_USER: str = "casaos"
-    POSTGRES_PASSWORD: str = "casaos"
-    POSTGRES_DB: str = "casaos"
+    POSTGRES_SERVER: str = "localhost"
+    POSTGRES_PORT: int = 5444
+    POSTGRES_USER: str = "kyrus_user"
+    POSTGRES_PASSWORD: str = "kyrus_pass"
+    POSTGRES_DB: str = "kyrus_erp"
+    POSTGRES_ALLOWED_CIDRS: str = ""
+
+    # --- BANCO DE DADOS LEGADO (MIGRAÇÃO ÚNICA) ---
+    COPY_LEGACY_DATABASE: bool = False
+    DROP_UNUSED_TABLES: bool = False
+    LEGACY_POSTGRES_SERVER: str | None = None
+    LEGACY_POSTGRES_PORT: int = 5432
+    LEGACY_POSTGRES_USER: str | None = None
+    LEGACY_POSTGRES_PASSWORD: str | None = None
+    LEGACY_POSTGRES_DB: str | None = None
 
     @computed_field
     @property
@@ -97,6 +107,26 @@ class Settings(BaseSettings):
             host=self.POSTGRES_SERVER,
             port=self.POSTGRES_PORT,
             path=self.POSTGRES_DB,
+        ).unicode_string()
+
+    @computed_field
+    @property
+    def LEGACY_DATABASE_URL(self) -> str | None:
+        if not all([
+            self.LEGACY_POSTGRES_SERVER,
+            self.LEGACY_POSTGRES_USER,
+            self.LEGACY_POSTGRES_PASSWORD,
+            self.LEGACY_POSTGRES_DB,
+        ]):
+            return None
+
+        return MultiHostUrl.build(
+            scheme="postgresql+psycopg2",
+            username=self.LEGACY_POSTGRES_USER,
+            password=self.LEGACY_POSTGRES_PASSWORD,
+            host=self.LEGACY_POSTGRES_SERVER,
+            port=self.LEGACY_POSTGRES_PORT,
+            path=self.LEGACY_POSTGRES_DB,
         ).unicode_string()
 
     # --- AWS S3 (Opcional) ---

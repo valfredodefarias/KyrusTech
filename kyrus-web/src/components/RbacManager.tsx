@@ -1,0 +1,897 @@
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Check,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Save,
+  Search,
+  Shield,
+  X,
+  UserRoundCheck,
+} from 'lucide-react';
+
+import { api, toPublicAssetUrl } from '../services/api';
+
+interface PermissionItem {
+  id: number;
+  code: string;
+  module: string;
+  action: string;
+  description?: string | null;
+  is_page_level?: boolean;
+  is_active?: boolean;
+}
+
+interface ProfilePermission extends PermissionItem {}
+
+interface RbacProfile {
+  id: number;
+  empresa_id?: number | null;
+  name: string;
+  code: string;
+  description?: string | null;
+  is_active: boolean;
+  is_system: boolean;
+  is_template: boolean;
+  base_template_code?: string | null;
+  editable: boolean;
+  permission_count: number;
+  user_count: number;
+  permissions: ProfilePermission[];
+}
+
+interface RbacUser {
+  id: number;
+  nome?: string | null;
+  email: string;
+  foto_url?: string | null;
+  is_active: boolean;
+  is_consultor: boolean;
+  consultor_role: string;
+  empresa_id?: number | null;
+  profile_id?: number | null;
+  profile_name?: string | null;
+  profile_code?: string | null;
+}
+
+interface CurrentUserResponse {
+  permissions?: string[] | null;
+}
+
+type Feedback = {
+  type: 'success' | 'error' | 'warning';
+  message: string;
+};
+
+function sortPermissions(items: PermissionItem[]) {
+  return [...items].sort((left, right) => {
+    const moduleCompare = left.module.localeCompare(right.module, 'pt-BR');
+    if (moduleCompare !== 0) return moduleCompare;
+    const actionCompare = left.action.localeCompare(right.action, 'pt-BR');
+    if (actionCompare !== 0) return actionCompare;
+    return left.code.localeCompare(right.code, 'pt-BR');
+  });
+}
+
+function groupPermissions(items: PermissionItem[]) {
+  const grouped = new Map<string, PermissionItem[]>();
+  sortPermissions(items).forEach((item) => {
+    const bucket = grouped.get(item.module) || [];
+    bucket.push(item);
+    grouped.set(item.module, bucket);
+  });
+  return Array.from(grouped.entries());
+}
+
+function formatLabel(value: string) {
+  return value
+    .replace(/_/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function getPermissionTitle(permission: PermissionItem) {
+  if (permission.description?.trim()) return permission.description.trim();
+
+  if (permission.is_page_level) {
+    return `Acesso a pagina de ${formatLabel(permission.module)}`;
+  }
+
+  return `${formatLabel(permission.action)} de ${formatLabel(permission.module)}`;
+}
+
+function getPermissionSubtitle(permission: PermissionItem) {
+  if (permission.is_page_level) {
+    return 'Permissão de acesso à página';
+  }
+
+  return `Permissão do módulo ${formatLabel(permission.module)}`;
+}
+
+function getInitials(value: string) {
+  const parts = value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!parts.length) return 'US';
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('');
+}
+
+function getUserDisplayName(user: RbacUser) {
+  return user.nome?.trim() || user.email;
+}
+
+export function RbacManager() {
+  const [canManage, setCanManage] = useState(false);
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const [activeView, setActiveView] = useState<'profiles' | 'users'>('profiles');
+  const [showProfileEditor, setShowProfileEditor] = useState(false);
+  const [showUserEditor, setShowUserEditor] = useState(false);
+  const [showCreateProfile, setShowCreateProfile] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPermissions, setSavingPermissions] = useState(false);
+  const [creatingProfile, setCreatingProfile] = useState(false);
+  const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
+  const [permissions, setPermissions] = useState<PermissionItem[]>([]);
+  const [profiles, setProfiles] = useState<RbacProfile[]>([]);
+  const [users, setUsers] = useState<RbacUser[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<number | ''>('');
+  const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
+  const [profileSearch, setProfileSearch] = useState('');
+  const [userSearch, setUserSearch] = useState('');
+  const [profileName, setProfileName] = useState('');
+  const [profileCode, setProfileCode] = useState('');
+  const [profileDescription, setProfileDescription] = useState('');
+  const [profileIsActive, setProfileIsActive] = useState(true);
+  const [draftName, setDraftName] = useState('');
+  const [draftCode, setDraftCode] = useState('');
+  const [draftDescription, setDraftDescription] = useState('');
+  const [draftIsActive, setDraftIsActive] = useState(true);
+  const [draftPermissionIds, setDraftPermissionIds] = useState<number[]>([]);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+
+  const selectedProfile = useMemo(() => {
+    return profiles.find((profile) => profile.id === selectedProfileId) || null;
+  }, [profiles, selectedProfileId]);
+
+  const selectedUser = useMemo(() => {
+    return users.find((user) => user.id === selectedUserId) || null;
+  }, [users, selectedUserId]);
+
+  const filteredProfiles = useMemo(() => {
+    const query = profileSearch.trim().toLowerCase();
+    if (!query) return profiles;
+    return profiles.filter((profile) => {
+      const haystack = `${profile.name} ${profile.code} ${profile.description || ''}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [profiles, profileSearch]);
+
+  const filteredUsers = useMemo(() => {
+    const query = userSearch.trim().toLowerCase();
+    if (!query) return users;
+    return users.filter((user) => {
+      const haystack = `${user.nome || ''} ${user.email} ${user.profile_name || ''}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [users, userSearch]);
+
+  const groupedPermissions = useMemo(() => groupPermissions(permissions), [permissions]);
+
+  function openProfileEditor(profileId: number) {
+    setSelectedProfileId(profileId);
+    setActiveView('profiles');
+    setShowProfileEditor(true);
+  }
+
+  function closeProfileEditor() {
+    setShowProfileEditor(false);
+  }
+
+  function openUserEditor(userId: number) {
+    setSelectedUserId(userId);
+    setActiveView('users');
+    setShowUserEditor(true);
+  }
+
+  function closeUserEditor() {
+    setShowUserEditor(false);
+  }
+
+  function openCreateProfile() {
+    setProfileName('');
+    setProfileCode('');
+    setProfileDescription('');
+    setProfileIsActive(true);
+    setShowCreateProfile(true);
+  }
+
+  function closeCreateProfile() {
+    setShowCreateProfile(false);
+    setProfileName('');
+    setProfileCode('');
+    setProfileDescription('');
+    setProfileIsActive(true);
+  }
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadAccess() {
+      try {
+        const { data } = await api.get<CurrentUserResponse>('/usuarios/me');
+        const permissionList = data.permissions || [];
+        if (!active) return;
+        setCanManage(permissionList.includes('*') || permissionList.includes('profiles:manage'));
+      } catch {
+        if (active) setCanManage(false);
+      } finally {
+        if (active) setCheckingAccess(false);
+      }
+    }
+
+    loadAccess();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!canManage || checkingAccess) return;
+    void loadData();
+  }, [canManage, checkingAccess]);
+
+  useEffect(() => {
+    if (!selectedProfile) {
+      setDraftName('');
+      setDraftCode('');
+      setDraftDescription('');
+      setDraftIsActive(true);
+      setDraftPermissionIds([]);
+      return;
+    }
+
+    setDraftName(selectedProfile.name);
+    setDraftCode(selectedProfile.code);
+    setDraftDescription(selectedProfile.description || '');
+    setDraftIsActive(selectedProfile.is_active);
+    setDraftPermissionIds(selectedProfile.permissions.map((permission) => permission.id));
+  }, [selectedProfile]);
+
+  async function loadData() {
+    try {
+      const [permissionsResponse, profilesResponse, usersResponse] = await Promise.all([
+        api.get<PermissionItem[]>('/rbac/permissions'),
+        api.get<RbacProfile[]>('/rbac/profiles'),
+        api.get<RbacUser[]>('/rbac/users'),
+      ]);
+
+      setPermissions(sortPermissions(permissionsResponse.data || []));
+      setProfiles((profilesResponse.data || []).sort((left, right) => {
+        const bySystem = Number(right.is_system) - Number(left.is_system);
+        if (bySystem !== 0) return bySystem;
+        return left.name.localeCompare(right.name, 'pt-BR');
+      }));
+      setUsers((usersResponse.data || []).sort((left, right) => {
+        const leftName = left.nome || left.email;
+        const rightName = right.nome || right.email;
+        return leftName.localeCompare(rightName, 'pt-BR');
+      }));
+      if (!selectedProfileId && (profilesResponse.data || []).length > 0) {
+        setSelectedProfileId((profilesResponse.data || [])[0].id);
+      }
+      if (!selectedUserId && (usersResponse.data || []).length > 0) {
+        setSelectedUserId((usersResponse.data || [])[0].id);
+      }
+    } catch (error: any) {
+      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao carregar perfis de acesso.' });
+    }
+  }
+
+  function togglePermission(permissionId: number) {
+    setDraftPermissionIds((current) => (
+      current.includes(permissionId)
+        ? current.filter((item) => item !== permissionId)
+        : [...current, permissionId]
+    ));
+  }
+
+  async function handleCreateProfile() {
+    if (!profileName.trim()) {
+      setFeedback({ type: 'warning', message: 'Informe o nome do perfil antes de criar.' });
+      return;
+    }
+
+    setCreatingProfile(true);
+    setFeedback(null);
+    try {
+      const payload = {
+        name: profileName.trim(),
+        code: profileCode.trim() || null,
+        description: profileDescription.trim() || null,
+        is_active: profileIsActive,
+      };
+      const { data } = await api.post<RbacProfile>('/rbac/profiles', payload);
+      setProfiles((current) => [...current, data].sort((left, right) => {
+        const bySystem = Number(right.is_system) - Number(left.is_system);
+        if (bySystem !== 0) return bySystem;
+        return left.name.localeCompare(right.name, 'pt-BR');
+      }));
+      setSelectedProfileId(data.id);
+      setProfileName('');
+      setProfileCode('');
+      setProfileDescription('');
+      setProfileIsActive(true);
+      setShowCreateProfile(false);
+      setShowProfileEditor(true);
+      setFeedback({ type: 'success', message: 'Perfil criado com sucesso.' });
+    } catch (error: any) {
+      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao criar perfil.' });
+    } finally {
+      setCreatingProfile(false);
+    }
+  }
+
+  async function handleSaveProfile() {
+    if (!selectedProfile) return;
+    if (!selectedProfile.editable) {
+      setFeedback({ type: 'warning', message: 'Esse perfil é de sistema e não pode ser alterado.' });
+      return;
+    }
+
+    setSavingProfile(true);
+    setFeedback(null);
+    try {
+      const payload = {
+        name: draftName.trim(),
+        code: draftCode.trim() || null,
+        description: draftDescription.trim() || null,
+        is_active: draftIsActive,
+      };
+      const { data } = await api.patch<RbacProfile>(`/rbac/profiles/${selectedProfile.id}`, payload);
+      setProfiles((current) => current.map((profile) => (profile.id === data.id ? data : profile)));
+      setFeedback({ type: 'success', message: 'Perfil atualizado com sucesso.' });
+    } catch (error: any) {
+      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao atualizar perfil.' });
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
+  async function handleSavePermissions() {
+    if (!selectedProfile) return;
+    if (!selectedProfile.editable) {
+      setFeedback({ type: 'warning', message: 'Esse perfil é de sistema e não pode ter permissões alteradas.' });
+      return;
+    }
+
+    setSavingPermissions(true);
+    setFeedback(null);
+    try {
+      const { data } = await api.put<RbacProfile>(`/rbac/profiles/${selectedProfile.id}/permissions`, {
+        permission_ids: draftPermissionIds,
+      });
+      setProfiles((current) => current.map((profile) => (profile.id === data.id ? data : profile)));
+      setFeedback({ type: 'success', message: 'Permissões atualizadas com sucesso.' });
+    } catch (error: any) {
+      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao atualizar permissões.' });
+    } finally {
+      setSavingPermissions(false);
+    }
+  }
+
+  async function handleAssignProfile(userId: number, profileId: number) {
+    setUpdatingUserId(userId);
+    setFeedback(null);
+    try {
+      const { data } = await api.put<RbacUser>(`/rbac/users/${userId}/profile`, { profile_id: profileId });
+      setUsers((current) => current.map((user) => (user.id === data.id ? data : user)));
+      setFeedback({ type: 'success', message: 'Perfil do usuário atualizado com sucesso.' });
+    } catch (error: any) {
+      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao atualizar perfil do usuário.' });
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
+  if (checkingAccess) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500 dark:text-slate-300">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        Verificando acesso...
+      </div>
+    );
+  }
+
+  if (!canManage) {
+    return (
+      <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <Shield className="mx-auto h-10 w-10 text-slate-400" />
+        <h2 className="mt-4 text-2xl font-black text-slate-900 dark:text-white">RBAC</h2>
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">
+          Você não tem permissão para administrar perfis de acesso.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 text-slate-800 dark:text-slate-100">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex rounded-2xl bg-slate-100 p-1 dark:bg-slate-800">
+          <button
+            type="button"
+            onClick={() => setActiveView('profiles')}
+            className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${activeView === 'profiles' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'}`}
+          >
+            <Shield className="h-4 w-4" />
+            Perfis
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView('users')}
+            className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${activeView === 'users' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'}`}
+          >
+            <UserRoundCheck className="h-4 w-4" />
+            Usuários
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={loadData}
+          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Atualizar dados
+        </button>
+      </div>
+
+      {feedback ? (
+        <div className={`rounded-2xl border px-4 py-3 text-sm ${feedback.type === 'success' ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300' : feedback.type === 'warning' ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300' : 'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300'}`}>
+          {feedback.message}
+        </div>
+      ) : null}
+
+      {activeView === 'profiles' ? (
+        <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 md:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-500">RBAC</p>
+              <h3 className="text-2xl font-black text-slate-900 dark:text-white">Perfis existentes</h3>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Clique em um cartão para abrir a configuração em tela cheia.</p>
+            </div>
+            <button
+              type="button"
+              onClick={openCreateProfile}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-500"
+            >
+              <Plus className="h-4 w-4" />
+              Novo perfil
+            </button>
+          </div>
+
+          <label className="flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-950">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input
+              value={profileSearch}
+              onChange={(event) => setProfileSearch(event.target.value)}
+              placeholder="Buscar perfil"
+              className="w-full bg-transparent text-sm outline-none"
+            />
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {filteredProfiles.map((profile) => (
+              <button
+                key={profile.id}
+                type="button"
+                onClick={() => openProfileEditor(profile.id)}
+                className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:-translate-y-0.5 hover:border-cyan-400 hover:bg-cyan-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-cyan-700 dark:hover:bg-cyan-950/30"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-lg font-black text-slate-900 dark:text-white">{profile.name}</p>
+                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 line-clamp-2">{profile.description || 'Sem descrição.'}</p>
+                  </div>
+                  {profile.is_system ? (
+                    <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">Sistema</span>
+                  ) : profile.is_active ? (
+                    <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">Ativo</span>
+                  ) : (
+                    <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">Inativo</span>
+                  )}
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                  <span className="rounded-full bg-white px-2 py-1 shadow-sm dark:bg-slate-900">{profile.permission_count} permissões</span>
+                  <span className="rounded-full bg-white px-2 py-1 shadow-sm dark:bg-slate-900">{profile.user_count} usuários</span>
+                </div>
+              </button>
+            ))}
+
+            {!filteredProfiles.length ? (
+              <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400 sm:col-span-2 xl:col-span-3">
+                Nenhum perfil encontrado.
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : (
+        <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 md:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-500">RBAC</p>
+              <h3 className="text-2xl font-black text-slate-900 dark:text-white">Usuários</h3>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Clique em um cartão para abrir o editor de acesso do usuário.</p>
+            </div>
+            <label className="flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-950">
+              <Search className="h-4 w-4 text-slate-400" />
+              <input
+                value={userSearch}
+                onChange={(event) => setUserSearch(event.target.value)}
+                placeholder="Buscar usuário"
+                className="w-56 bg-transparent text-sm outline-none"
+              />
+            </label>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {filteredUsers.map((user) => {
+              const avatarUrl = toPublicAssetUrl(user.foto_url);
+              return (
+                <button
+                  key={user.id}
+                  type="button"
+                  onClick={() => openUserEditor(user.id)}
+                  className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:-translate-y-0.5 hover:border-cyan-400 hover:bg-cyan-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-cyan-700 dark:hover:bg-cyan-950/30"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-200 text-sm font-black text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                      {avatarUrl ? (
+                        <img src={avatarUrl} alt={getUserDisplayName(user)} className="h-full w-full object-cover" />
+                      ) : (
+                        <span>{getInitials(getUserDisplayName(user))}</span>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-black text-slate-900 dark:text-white">{getUserDisplayName(user)}</p>
+                      <p className="truncate text-xs text-slate-500 dark:text-slate-400">{user.email}</p>
+                      <p className="mt-1 truncate text-sm text-slate-600 dark:text-slate-300">{user.profile_name || 'Sem perfil'}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                    <span className="rounded-full bg-white px-2 py-1 shadow-sm dark:bg-slate-900">{user.is_active ? 'Ativo' : 'Inativo'}</span>
+                    {user.is_consultor ? <span className="rounded-full bg-cyan-100 px-2 py-1 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200">Consultor</span> : null}
+                  </div>
+                </button>
+              );
+            })}
+
+            {!filteredUsers.length ? (
+              <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400 sm:col-span-2 xl:col-span-3">
+                Nenhum usuário encontrado para esta empresa.
+              </div>
+            ) : null}
+          </div>
+        </section>
+      )}
+
+      {showCreateProfile ? (
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/60 backdrop-blur-sm">
+          <div className="relative flex h-full w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl animate-slide-in-right dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Novo perfil</p>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Criar perfil de acesso</h3>
+              </div>
+              <button type="button" onClick={closeCreateProfile} className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleCreateProfile();
+              }}
+              className="flex-1 overflow-y-auto p-6 custom-scrollbar"
+            >
+              <div className="space-y-5">
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-950">
+                  <div className="space-y-3">
+                    <input
+                      value={profileName}
+                      onChange={(event) => setProfileName(event.target.value)}
+                      placeholder="Nome do perfil"
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    />
+                    <input
+                      value={profileCode}
+                      onChange={(event) => setProfileCode(event.target.value)}
+                      placeholder="Código opcional"
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    />
+                    <textarea
+                      value={profileDescription}
+                      onChange={(event) => setProfileDescription(event.target.value)}
+                      placeholder="Descrição"
+                      rows={6}
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    />
+                    <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900">
+                      <input
+                        type="checkbox"
+                        checked={profileIsActive}
+                        onChange={(event) => setProfileIsActive(event.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                      />
+                      Perfil ativo
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={closeCreateProfile}
+                    className="flex-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={creatingProfile || !profileName.trim()}
+                    className="flex-1 rounded-2xl bg-cyan-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {creatingProfile ? 'Criando...' : 'Criar perfil'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {showProfileEditor && selectedProfile ? (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm">
+          <div className="absolute inset-0 flex flex-col bg-slate-50 dark:bg-slate-950">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Editar perfil</p>
+                <h3 className="truncate text-lg font-black text-slate-900 dark:text-white">{selectedProfile.name}</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadData}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Atualizar
+                </button>
+                <button type="button" onClick={closeProfileEditor} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-white">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+                <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Detalhes</p>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Edite o nome, código e descrição do perfil.</p>
+                  </div>
+
+                  <input
+                    value={draftName}
+                    onChange={(event) => setDraftName(event.target.value)}
+                    disabled={!selectedProfile.editable}
+                    className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-800"
+                  />
+                  <input
+                    value={draftCode}
+                    onChange={(event) => setDraftCode(event.target.value)}
+                    disabled={!selectedProfile.editable}
+                    className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm uppercase outline-none transition focus:border-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-800"
+                  />
+                  <textarea
+                    value={draftDescription}
+                    onChange={(event) => setDraftDescription(event.target.value)}
+                    disabled={!selectedProfile.editable}
+                    rows={5}
+                    className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-800"
+                  />
+                  <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-950">
+                    <input
+                      type="checkbox"
+                      checked={draftIsActive}
+                      onChange={(event) => setDraftIsActive(event.target.checked)}
+                      disabled={!selectedProfile.editable}
+                      className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 disabled:cursor-not-allowed"
+                    />
+                    Perfil ativo
+                  </label>
+
+                  <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">{selectedProfile.permission_count} permissões</span>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">{selectedProfile.user_count} usuários</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveProfile}
+                    disabled={savingProfile || !selectedProfile.editable}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    {savingProfile ? 'Salvando...' : 'Salvar perfil'}
+                  </button>
+                </div>
+
+                <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Permissões</p>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Marque apenas o que este perfil pode acessar.</p>
+                  </div>
+
+                  <div className="max-h-[calc(100vh-330px)] space-y-5 overflow-y-auto pr-1 custom-scrollbar">
+                    {groupedPermissions.map(([module, modulePermissions]) => (
+                      <div key={module} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div>
+                            <h4 className="text-sm font-black uppercase tracking-[0.14em] text-slate-900 dark:text-white">{formatLabel(module)}</h4>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{modulePermissions.length} permissão(ões)</p>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {modulePermissions.map((permission) => (
+                            <label
+                              key={permission.id}
+                              className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-3 text-sm transition ${draftPermissionIds.includes(permission.id) ? 'border-cyan-400 bg-cyan-50 dark:border-cyan-700 dark:bg-cyan-950/30' : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900'}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={draftPermissionIds.includes(permission.id)}
+                                onChange={() => togglePermission(permission.id)}
+                                disabled={!selectedProfile.editable}
+                                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 disabled:cursor-not-allowed"
+                              />
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-slate-900 dark:text-white">{getPermissionTitle(permission)}</span>
+                                  {permission.is_page_level ? (
+                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500 dark:bg-slate-800 dark:text-slate-300">Página</span>
+                                  ) : null}
+                                </div>
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{getPermissionSubtitle(permission)}</p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleSavePermissions}
+                      disabled={savingPermissions || !selectedProfile.editable}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-cyan-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {savingPermissions ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                      {savingPermissions ? 'Atualizando...' : 'Salvar permissões'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showUserEditor && selectedUser ? (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm">
+          <div className="absolute inset-0 flex flex-col bg-slate-50 dark:bg-slate-950">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Editar usuário</p>
+                <h3 className="truncate text-lg font-black text-slate-900 dark:text-white">{getUserDisplayName(selectedUser)}</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadData}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Atualizar
+                </button>
+                <button type="button" onClick={closeUserEditor} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-white">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+                <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-[26px] bg-slate-200 text-xl font-black text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                      {toPublicAssetUrl(selectedUser.foto_url) ? (
+                        <img src={toPublicAssetUrl(selectedUser.foto_url) || ''} alt={getUserDisplayName(selectedUser)} className="h-full w-full object-cover" />
+                      ) : (
+                        <span>{getInitials(getUserDisplayName(selectedUser))}</span>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Resumo</p>
+                      <h4 className="mt-1 truncate text-xl font-black text-slate-900 dark:text-white">{getUserDisplayName(selectedUser)}</h4>
+                      <p className="mt-1 truncate text-sm text-slate-500 dark:text-slate-400">{selectedUser.email}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">{selectedUser.is_active ? 'Ativo' : 'Inativo'}</span>
+                    {selectedUser.is_consultor ? <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200">Consultor</span> : null}
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">{selectedUser.profile_name || 'Sem perfil'}</span>
+                  </div>
+
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-400">
+                    Use o seletor ao lado para trocar o perfil de acesso.
+                  </div>
+                </div>
+
+                <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Perfil de acesso</p>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Troque o perfil desse usuário sem sair da tela de cartões.</p>
+                  </div>
+
+                  <select
+                    value={selectedUser.profile_id ?? ''}
+                    onChange={(event) => {
+                      if (!event.target.value) return;
+                      void handleAssignProfile(selectedUser.id, Number(event.target.value));
+                    }}
+                    className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  >
+                    <option value="">Selecione um perfil</option>
+                    {profiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name} {profile.is_system ? '(sistema)' : ''}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-400">
+                    Perfil atual: <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedUser.profile_name || 'Sem perfil'}</span>
+                  </div>
+
+                  {updatingUserId === selectedUser.id ? (
+                    <div className="flex items-center gap-2 text-sm text-cyan-600 dark:text-cyan-300">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Atualizando perfil do usuário...
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}

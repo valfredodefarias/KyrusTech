@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # app/schemas/empresa.py
 from typing import Optional
 from sqlmodel import SQLModel

@@ -1,6 +1,9 @@
 # app/models/anexo_lancamento.py
 
+from __future__ import annotations
+
 from typing import Optional, TYPE_CHECKING
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 from .base_audit import AuditMixin  # Importando sua auditoria
 
@@ -25,5 +28,7 @@ class AnexoLancamento(AuditMixin, SQLModel, table=True):
     empresa_id: int = Field(foreign_key="empresas.id", index=True) 
 
     # Relacionamentos
-    lancamento: "Lancamento" = Relationship(back_populates="anexos")
-    empresa: "Empresa" = Relationship()
+    lancamento: "Lancamento" = Relationship(
+        sa_relationship=relationship("Lancamento", back_populates="anexos")
+    )
+    empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa"))

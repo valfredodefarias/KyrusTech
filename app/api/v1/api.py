@@ -19,6 +19,7 @@ from app.api.v1.endpoints import (
     ai_assistente,
     dre,
     bank_presets,
+    rbac,
 )
 
 api_router = APIRouter()
@@ -50,6 +51,9 @@ api_router.include_router(anexos.router, prefix="/anexos", tags=["Anexos"])
 # --- IMPORTAÇÃO DE ARQUIVOS BANCÁRIOS ---
 api_router.include_router(importacao_ofx.router, prefix="/importacao", tags=["Importação OFX"])
 api_router.include_router(importacao_nfe.router, prefix="/importacao", tags=["Importação NF-e"])
+
+# --- RBAC ---
+api_router.include_router(rbac.router, prefix="/rbac", tags=["RBAC"])
 
 # --- IA ---
 api_router.include_router(ai_assistente.router, prefix="/ai", tags=["Assistente IA"])

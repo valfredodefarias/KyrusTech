@@ -1,4 +1,6 @@
 # app/schemas/lancamento.py
+from __future__ import annotations
+
 from typing import Optional, List
 from decimal import Decimal
 from datetime import date

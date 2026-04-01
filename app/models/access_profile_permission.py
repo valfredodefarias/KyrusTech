@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from typing import ClassVar, Optional, TYPE_CHECKING
 
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 
 from .base_audit import AuditMixin
@@ -17,5 +20,9 @@ class AccessProfilePermission(AuditMixin, SQLModel, table=True):
     permission_id: int = Field(foreign_key="access_permissions.id", index=True)
     allowed: bool = Field(default=True)
 
-    profile: "AccessProfile" = Relationship(back_populates="permissions")
-    permission: "AccessPermission" = Relationship(back_populates="profile_links")
+    profile: "AccessProfile" = Relationship(
+        sa_relationship=relationship("AccessProfile", back_populates="permissions")
+    )
+    permission: "AccessPermission" = Relationship(
+        sa_relationship=relationship("AccessPermission", back_populates="profile_links")
+    )

@@ -17,6 +17,7 @@ from app.api.v1.deps import get_empresa_id_from_user, require_permission
 from app.db.session import get_db
 from app.models.centro_custo import CentroCusto
 from app.models.conta import Conta
+from app.models.empresa import Empresa
 from app.models.entidade import Entidade
 from app.models.lancamento import Lancamento
 from app.models.plano_contas import PlanoContas
@@ -42,9 +43,19 @@ class NfeParcelaAnalise(BaseModel):
     requer_categoria_manual: bool = False
 
 
+class NfeItemAnalise(BaseModel):
+    descricao: str
+    quantidade: float
+    valor_unitario: float
+    valor_total: float
+    cfop: Optional[str] = None
+    ncm: Optional[str] = None
+
+
 class NfeAnaliseResponse(BaseModel):
     chave_nfe: str
     numero_nfe: str
+    serie: str
     tipo_lancamento: str
     data_emissao: str
     valor_total: float
@@ -54,10 +65,16 @@ class NfeAnaliseResponse(BaseModel):
     destinatario_documento: str
     entidade_referencia_nome: str
     entidade_referencia_documento: str
+    valor_produtos: float
+    valor_frete: float
+    valor_seguro: float
+    valor_desconto: float
+    valor_outros: float
     entidade_sugerida_id: Optional[int] = None
     entidade_sugerida_nome: Optional[str] = None
     plano_contas_sugerido_id: Optional[int] = None
     plano_contas_sugerido_nome: Optional[str] = None
+    itens: list[NfeItemAnalise]
     parcelas: list[NfeParcelaAnalise]
     alertas: list[str]
     pode_confirmar: bool
@@ -78,9 +95,14 @@ class NfeConfirmarRequest(BaseModel):
     numero_nfe: str
     tipo_lancamento: str
     data_emissao: date
+    emitente_nome: Optional[str] = None
+    emitente_documento: Optional[str] = None
+    emitente_nome_fantasia: Optional[str] = None
     conta_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
     entidade_id: Optional[int] = None
+    plano_contas_id: Optional[int] = None
+    observacao: Optional[str] = None
     parcelas: list[NfeParcelaConfirmar]
 
 
@@ -99,6 +121,10 @@ def _normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", no_accent).strip().lower()
 
 
+def _normalizar_nome_entidade(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip())
+
+
 def _only_digits(value: str) -> str:
     return re.sub(r"[^0-9]", "", value or "")
 
@@ -109,6 +135,18 @@ def _tipo_letra(tipo_lancamento: str) -> str:
 
 def _descricao_parcela(numero_nfe: str, indice: int, total: int) -> str:
     return f"NFE: ({numero_nfe}) Parcela {indice}/{total}"
+
+
+def _resumo_itens(itens: list, limite: int = 3) -> str:
+    if not itens:
+        return "Sem itens detalhados no XML"
+
+    nomes = [str(item.descricao or "Item").strip() for item in itens[:limite]]
+    resumo = ", ".join(nome for nome in nomes if nome)
+    restante = len(itens) - len(nomes)
+    if restante > 0:
+        resumo = f"{resumo} e mais {restante} item(ns)" if resumo else f"{restante} item(ns) adicionais"
+    return resumo or "Itens informados no XML"
 
 
 def _parcelamento_id(chave_nfe: str) -> str:
@@ -247,7 +285,7 @@ def _buscar_categoria_sugerida(
         if any(str(cfop).startswith(("5", "6", "7")) for cfop in cfops):
             keywords.extend(["venda", "fatur"])
     else:
-        keywords = ["compra", "custo", "fornec", "insumo", "despesa", "mercador"]
+        keywords = ["compra", "custo", "fornec", "fornecedor", "insumo", "despesa", "mercador", "estoque", "aquis", "revenda"]
         if any(str(cfop).startswith(("1", "2", "3")) for cfop in cfops):
             keywords.extend(["compra", "fornec"])
 
@@ -274,9 +312,86 @@ def _buscar_categoria_sugerida(
             melhor = categoria
             melhor_score = score
 
-    if melhor and melhor_score > 0:
+    if melhor:
         return melhor
     return None
+
+
+def _tipo_pessoa_por_documento(documento: str) -> str:
+    return "PJ" if len(_only_digits(documento)) > 11 else "PF"
+
+
+def _buscar_ou_criar_entidade_nfe(
+    db: Session,
+    *,
+    empresa_id: int,
+    documento: NFeDocumento,
+) -> Entidade:
+    referencia_nome = _normalizar_nome_entidade(documento.entidade_referencia_nome)
+    referencia_documento = _only_digits(documento.entidade_referencia_documento)
+
+    candidatos = db.exec(
+        select(Entidade).where(
+            Entidade.empresa_id == empresa_id,
+            Entidade.is_deleted == False,
+        )
+    ).all()
+
+    for entidade in candidatos:
+        if referencia_documento and _only_digits(str(entidade.cpf_cnpj or "")) == referencia_documento:
+            return entidade
+
+    melhor: Optional[Entidade] = None
+    melhor_score = 0.0
+    if referencia_nome:
+        for entidade in candidatos:
+            nome_entidade = _normalize_text(str(entidade.nome or ""))
+            if not nome_entidade:
+                continue
+            score = SequenceMatcher(None, _normalize_text(referencia_nome), nome_entidade).ratio()
+            if _normalize_text(referencia_nome) in nome_entidade or nome_entidade in _normalize_text(referencia_nome):
+                score += 0.15
+            if score > melhor_score:
+                melhor = entidade
+                melhor_score = score
+
+    if melhor and melhor_score >= 0.82:
+        return melhor
+
+    tipo_lancamento = str(documento.tipo_lancamento or "").strip().upper()
+    tipo_entidade = "FORNECEDOR" if tipo_lancamento == "DESPESA" else "CLIENTE"
+    nome_base = referencia_nome or documento.emitente_nome or documento.destinatario_nome or referencia_documento or "Entidade NF-e"
+    nome_fantasia = documento.emitente_nome_fantasia if tipo_lancamento == "DESPESA" else None
+
+    nova_entidade = Entidade(
+        nome=nome_base,
+        tipo=tipo_entidade,
+        tipo_pessoa=_tipo_pessoa_por_documento(referencia_documento),
+        nome_fantasia=nome_fantasia or None,
+        cpf_cnpj=referencia_documento or None,
+        telefone=documento.emitente_telefone or None if tipo_lancamento == "DESPESA" else None,
+        cep=documento.emitente_cep or None if tipo_lancamento == "DESPESA" else None,
+        logradouro=documento.emitente_logradouro or None if tipo_lancamento == "DESPESA" else None,
+        numero=documento.emitente_numero or None if tipo_lancamento == "DESPESA" else None,
+        complemento=documento.emitente_complemento or None if tipo_lancamento == "DESPESA" else None,
+        bairro=documento.emitente_bairro or None if tipo_lancamento == "DESPESA" else None,
+        cidade=documento.emitente_cidade or None if tipo_lancamento == "DESPESA" else None,
+        uf=documento.emitente_uf or None if tipo_lancamento == "DESPESA" else None,
+        observacoes=f"Criada automaticamente pela importacao da NF-e {documento.numero_nfe} ({documento.chave_nfe})",
+        status="ATIVO",
+        empresa_id=empresa_id,
+    )
+    db.add(nova_entidade)
+    db.commit()
+    db.refresh(nova_entidade)
+    logger.info(
+        "[NFE] Entidade criada automaticamente empresa_id={} entidade_id={} nome={} documento={}",
+        empresa_id,
+        nova_entidade.id,
+        nova_entidade.nome,
+        nova_entidade.cpf_cnpj,
+    )
+    return nova_entidade
 
 
 def _assert_categoria_valida(
@@ -323,6 +438,69 @@ def _assert_entidade_valida(db: Session, *, empresa_id: int, entidade_id: int) -
     return entidade
 
 
+def _resolver_entidade_confirmacao_nfe(
+    db: Session,
+    *,
+    empresa_id: int,
+    request: NfeConfirmarRequest,
+) -> Entidade:
+    if request.entidade_id:
+        return _assert_entidade_valida(db, empresa_id=empresa_id, entidade_id=int(request.entidade_id))
+
+    emitente_nome = _normalizar_nome_entidade(request.emitente_nome or request.emitente_nome_fantasia or "")
+    emitente_documento = _only_digits(request.emitente_documento or "")
+
+    candidatos = db.exec(
+        select(Entidade).where(
+            Entidade.empresa_id == empresa_id,
+            Entidade.is_deleted == False,
+        )
+    ).all()
+
+    if emitente_documento:
+        for entidade in candidatos:
+            if _only_digits(str(entidade.cpf_cnpj or "")) == emitente_documento:
+                return entidade
+
+    if emitente_nome:
+        melhor: Optional[Entidade] = None
+        melhor_score = 0.0
+        for entidade in candidatos:
+            nome_entidade = _normalize_text(str(entidade.nome or ""))
+            if not nome_entidade:
+                continue
+            score = SequenceMatcher(None, _normalize_text(emitente_nome), nome_entidade).ratio()
+            if _normalize_text(emitente_nome) in nome_entidade or nome_entidade in _normalize_text(emitente_nome):
+                score += 0.15
+            if score > melhor_score:
+                melhor = entidade
+                melhor_score = score
+
+        if melhor and melhor_score >= 0.82:
+            return melhor
+
+    nova_entidade = Entidade(
+        nome=emitente_nome or request.emitente_nome_fantasia or "Fornecedor NF-e",
+        tipo="FORNECEDOR",
+        tipo_pessoa=_tipo_pessoa_por_documento(emitente_documento or request.emitente_documento or ""),
+        nome_fantasia=request.emitente_nome_fantasia or None,
+        cpf_cnpj=emitente_documento or None,
+        status="ATIVO",
+        empresa_id=empresa_id,
+    )
+    db.add(nova_entidade)
+    db.commit()
+    db.refresh(nova_entidade)
+    logger.info(
+        "[NFE] Entidade criada automaticamente na confirmacao empresa_id={} entidade_id={} nome={} documento={}",
+        empresa_id,
+        nova_entidade.id,
+        nova_entidade.nome,
+        nova_entidade.cpf_cnpj,
+    )
+    return nova_entidade
+
+
 @router.post(
     "/nfe/analisar",
     response_model=NfeAnaliseResponse,
@@ -350,11 +528,18 @@ async def analisar_nfe_xml(
     try:
         _resolver_conta(db, empresa_id=empresa_id, conta_id=conta_id)
 
+        empresa = db.exec(
+            select(Empresa).where(
+                Empresa.id == empresa_id,
+                Empresa.is_deleted == False,
+            )
+        ).first()
+
         conteudo = await arquivo.read()
         if len(conteudo) > NFE_FILE_SIZE_LIMIT:
             raise HTTPException(status_code=400, detail="Arquivo XML excede o limite de 5 MB")
 
-        documento: NFeDocumento = parse_nfe_xml(conteudo)
+        documento: NFeDocumento = parse_nfe_xml(conteudo, empresa_cnpj=str(empresa.cnpj or "") if empresa else "")
 
         entidade_sugerida = _buscar_entidade_sugerida(
             db,
@@ -362,6 +547,12 @@ async def analisar_nfe_xml(
             nome_referencia=documento.entidade_referencia_nome,
             documento_referencia=documento.entidade_referencia_documento,
         )
+        if not entidade_sugerida:
+            entidade_sugerida = _buscar_ou_criar_entidade_nfe(
+                db,
+                empresa_id=empresa_id,
+                documento=documento,
+            )
         categoria_sugerida = _buscar_categoria_sugerida(
             db,
             empresa_id=empresa_id,
@@ -387,19 +578,15 @@ async def analisar_nfe_xml(
                     plano_contas_sugerido_nome=categoria_sugerida.nome if categoria_sugerida else None,
                     entidade_sugerida_id=int(entidade_sugerida.id) if entidade_sugerida and entidade_sugerida.id else None,
                     entidade_sugerida_nome=entidade_sugerida.nome if entidade_sugerida else None,
-                    requer_entidade_manual=entidade_sugerida is None,
+                    requer_entidade_manual=False,
                     requer_categoria_manual=categoria_sugerida is None,
                 )
             )
 
         alertas: list[str] = []
-        if not entidade_sugerida:
-            alertas.append(
-                "Nenhuma entidade foi encontrada para a NF-e. Selecione manualmente antes de confirmar a importacao."
-            )
         if not categoria_sugerida:
             alertas.append(
-                "Nao houve categoria compativel por CFOP/NCM. Defina a categoria manualmente antes de confirmar."
+                "Nao foi possivel sugerir uma categoria compativel. Verifique o plano de contas antes de confirmar."
             )
 
         logger.info(
@@ -413,6 +600,7 @@ async def analisar_nfe_xml(
         return NfeAnaliseResponse(
             chave_nfe=documento.chave_nfe,
             numero_nfe=documento.numero_nfe,
+            serie=documento.serie,
             tipo_lancamento=documento.tipo_lancamento,
             data_emissao=documento.data_emissao.isoformat(),
             valor_total=float(documento.valor_total),
@@ -422,13 +610,29 @@ async def analisar_nfe_xml(
             destinatario_documento=documento.destinatario_documento,
             entidade_referencia_nome=documento.entidade_referencia_nome,
             entidade_referencia_documento=documento.entidade_referencia_documento,
+            valor_produtos=float(documento.valor_produtos),
+            valor_frete=float(documento.valor_frete),
+            valor_seguro=float(documento.valor_seguro),
+            valor_desconto=float(documento.valor_desconto),
+            valor_outros=float(documento.valor_outros),
             entidade_sugerida_id=int(entidade_sugerida.id) if entidade_sugerida and entidade_sugerida.id else None,
             entidade_sugerida_nome=entidade_sugerida.nome if entidade_sugerida else None,
             plano_contas_sugerido_id=int(categoria_sugerida.id) if categoria_sugerida and categoria_sugerida.id else None,
             plano_contas_sugerido_nome=categoria_sugerida.nome if categoria_sugerida else None,
+            itens=[
+                NfeItemAnalise(
+                    descricao=str(item.descricao or "").strip() or "Item",
+                    quantidade=float(item.quantidade),
+                    valor_unitario=float(item.valor_unitario),
+                    valor_total=float(item.valor_total),
+                    cfop=item.cfop or None,
+                    ncm=item.ncm or None,
+                )
+                for item in documento.itens
+            ],
             parcelas=parcelas_payload,
             alertas=alertas,
-            pode_confirmar=len(alertas) == 0,
+            pode_confirmar=bool(documento.parcelas),
         )
     except HTTPException:
         raise
@@ -464,7 +668,8 @@ def confirmar_importacao_nfe(
         raise HTTPException(status_code=400, detail="Envie ao menos uma parcela para importacao")
 
     tipo_lancamento = str(request.tipo_lancamento or "").strip().upper()
-    if tipo_lancamento not in {"RECEITA", "DESPESA"}:
+    if tipo_lancamento != "DESPESA":
+        raise HTTPException(status_code=400, detail="Importacao de NF-e aceita apenas DESPESA")
         raise HTTPException(status_code=400, detail="Tipo de lancamento invalido para importacao NF-e")
 
     chave_nfe = _only_digits(request.chave_nfe)
@@ -507,6 +712,7 @@ def confirmar_importacao_nfe(
         centro_custo_id=request.centro_custo_id,
         conta=conta,
     )
+    entidade_padrao = _resolver_entidade_confirmacao_nfe(db, empresa_id=empresa_id, request=request)
 
     hashes_lote = [_import_hash(empresa_id, chave_nfe, parcela.indice) for parcela in request.parcelas]
     if len(set(hashes_lote)) != len(hashes_lote):
@@ -531,11 +737,11 @@ def confirmar_importacao_nfe(
 
     try:
         for parcela in request.parcelas:
-            categoria_id = int(parcela.plano_contas_id or 0)
+            categoria_id = int(parcela.plano_contas_id or request.plano_contas_id or 0)
             if not categoria_id:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Parcela {parcela.indice} sem categoria. Selecione manualmente antes de confirmar.",
+                    detail=f"Parcela {parcela.indice} sem categoria. Defina uma categoria padrao antes de confirmar.",
                 )
             _assert_categoria_valida(
                 db,
@@ -544,11 +750,11 @@ def confirmar_importacao_nfe(
                 tipo_lancamento=tipo_lancamento,
             )
 
-            entidade_id = int(parcela.entidade_id or request.entidade_id or 0)
+            entidade_id = int(parcela.entidade_id or request.entidade_id or entidade_padrao.id or 0)
             if not entidade_id:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Parcela {parcela.indice} sem entidade. Selecione uma entidade para concluir a importacao.",
+                    detail=f"Parcela {parcela.indice} sem entidade. Nao foi possivel resolver o emitente da NF-e.",
                 )
             _assert_entidade_valida(db, empresa_id=empresa_id, entidade_id=entidade_id)
 
@@ -562,6 +768,7 @@ def confirmar_importacao_nfe(
             competencia = data_competencia.strftime("%m/%Y")
             import_hash = _import_hash(empresa_id, chave_nfe, parcela.indice)
 
+            observacao_base = str(request.observacao or f"NF-e {numero_nfe} | Chave {chave_nfe}").strip()
             lancamento = Lancamento(
                 descricao=descricao,
                 tipo=tipo_lancamento,
@@ -579,7 +786,7 @@ def confirmar_importacao_nfe(
                 competencia=competencia,
                 numero_parcela=parcela.indice,
                 id_parcelamento=parcela_group_id,
-                observacao=f"NF-e {numero_nfe} | Chave {chave_nfe}",
+                observacao=observacao_base,
                 conciliado=False,
                 import_hash=import_hash,
                 transferencia_grupo_id=None,

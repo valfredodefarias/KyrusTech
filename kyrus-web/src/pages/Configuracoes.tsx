@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api, fetchLancamentosPaged, toPublicAssetUrl } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
+import { RbacManager } from '../components/RbacManager';
 import { 
   Building2, UploadCloud, Layers, Save, Loader2, 
   Palette, Check, AlertCircle, Camera, RefreshCw,
@@ -644,7 +645,7 @@ const ExportacaoFinanceira = () => {
 
 // --- PÁGINA PRINCIPAL ---
 export function Configuracoes() {
-  const [activeTab, setActiveTab] = useState<'EMPRESA' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO'>('EMPRESA');
+  const [activeTab, setActiveTab] = useState<'EMPRESA' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO' | 'RBAC'>('EMPRESA');
 
   // Classe utilitária para as abas (Estilo Sênior)
   const getTabClass = (tab: string) => `
@@ -675,6 +676,9 @@ export function Configuracoes() {
             <button onClick={() => setActiveTab('FINANCEIRO')} className={getTabClass('FINANCEIRO')}>
               <Download className="w-4 h-4"/> Exportação Financeira
             </button>
+            <button onClick={() => setActiveTab('RBAC')} className={getTabClass('RBAC')}>
+              <Layers className="w-4 h-4"/> Perfis de Acesso
+            </button>
         </div>
       </div>
 
@@ -689,6 +693,7 @@ export function Configuracoes() {
             </div>
         )}
         {activeTab === 'FINANCEIRO' && <ExportacaoFinanceira />}
+        {activeTab === 'RBAC' && <RbacManager />}
       </div>
     </div>
   );

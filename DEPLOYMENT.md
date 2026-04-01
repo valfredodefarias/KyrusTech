@@ -68,6 +68,11 @@ As seguintes variáveis devem ser configuradas no `.env`:
 - `POSTGRES_USER`: Usuário do banco
 - `POSTGRES_PASSWORD`: Senha do banco
 - `POSTGRES_DB`: Nome do banco
+- `POSTGRES_ALLOWED_CIDRS`: Lista separada por vírgula para gerar regras de acesso administrativo no `pg_hba.conf`
+
+No compose atual, o backend fala com o serviço `db_kyrustech` na porta interna `5432`, e a porta exposta no host fica em `5444` por padrão.
+
+Se precisar acessar o banco por DBeaver, inclua na lista a subnet do Docker usada pelo app e os IPs/CIDRs administrativos autorizados.
 
 ### AWS S3 (Opcional)
 - `AWS_ACCESS_KEY_ID`

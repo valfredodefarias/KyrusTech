@@ -32,26 +32,6 @@ function resolveConfiguredApiUrl() {
 
 export const baseURL = resolveConfiguredApiUrl();
 
-let cachedAllowedAssetHosts: Set<string> | null = null;
-
-function getAllowedAssetHosts(): Set<string> {
-  if (cachedAllowedAssetHosts) return cachedAllowedAssetHosts;
-
-  const allowedHosts = new Set<string>();
-  if (typeof window !== 'undefined') {
-    allowedHosts.add(window.location.host);
-    try {
-      const apiParsed = new URL(baseURL, window.location.origin);
-      allowedHosts.add(apiParsed.host);
-    } catch {
-      // No-op
-    }
-  }
-
-  cachedAllowedAssetHosts = allowedHosts;
-  return allowedHosts;
-}
-
 export function getPublicBaseUrl() {
   if (typeof window !== 'undefined') {
     if (baseURL.startsWith('/')) {
@@ -70,24 +50,29 @@ export function getPublicBaseUrl() {
 export function toPublicAssetUrl(url?: string | null) {
   if (!url) return null;
   if (url.startsWith('blob:') || url.startsWith('data:')) return url;
-  const allowedHosts = getAllowedAssetHosts();
+  const normalizedUrl = url.trim();
 
-  if (url.startsWith('/static/')) {
-    return `${getPublicBaseUrl()}${url}`;
+  if (!normalizedUrl) return null;
+
+  if (normalizedUrl.startsWith('/static/')) {
+    return `${getPublicBaseUrl()}${normalizedUrl}`;
   }
-  if (url.startsWith('/')) {
+
+  if (normalizedUrl.startsWith('static/')) {
+    return `${getPublicBaseUrl()}/${normalizedUrl}`;
+  }
+
+  if (normalizedUrl.startsWith('/')) {
     return null;
   }
-  if ((url.startsWith('http://') || url.startsWith('https://')) && url.includes('/static/')) {
+
+  if ((normalizedUrl.startsWith('http://') || normalizedUrl.startsWith('https://')) && normalizedUrl.includes('/static/')) {
     try {
-      const parsed = new URL(url);
-      if (allowedHosts.size > 0 && !allowedHosts.has(parsed.host)) {
-        return null;
-      }
+      const parsed = new URL(normalizedUrl);
       if (!parsed.pathname.startsWith('/static/')) {
         return null;
       }
-      return `${getPublicBaseUrl()}${parsed.pathname}`;
+      return `${getPublicBaseUrl()}${parsed.pathname}${parsed.search}${parsed.hash}`;
     } catch {
       return null;
     }
@@ -133,9 +118,14 @@ api.interceptors.response.use(
   (error) => {
     const status = error?.response?.status;
     if (status === 401 || status === 403) {
-      useAuthStore.getState().logout();
-      if (window.location.pathname !== '/') {
-        window.location.href = '/';
+      const requestUrl = String(error?.config?.url || '');
+      const isAuthFlowRequest =
+        requestUrl.includes('/usuarios/me') ||
+        requestUrl.includes('/auth/login') ||
+        requestUrl.includes('/auth/logout');
+
+      if (!isAuthFlowRequest) {
+        useAuthStore.getState().logout();
       }
     }
     return Promise.reject(error);

@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from typing import ClassVar, Optional, TYPE_CHECKING
 
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 
 from .base_audit import AuditMixin
@@ -19,6 +22,12 @@ class UserCompanyProfile(AuditMixin, SQLModel, table=True):
     profile_id: int = Field(foreign_key="access_profiles.id", index=True)
     is_active: bool = Field(default=True, index=True)
 
-    usuario: "Usuario" = Relationship(back_populates="company_profiles")
-    empresa: "Empresa" = Relationship(back_populates="user_company_profiles")
-    profile: "AccessProfile" = Relationship(back_populates="user_assignments")
+    usuario: "Usuario" = Relationship(
+        sa_relationship=relationship("Usuario", back_populates="company_profiles")
+    )
+    empresa: "Empresa" = Relationship(
+        sa_relationship=relationship("Empresa", back_populates="user_company_profiles")
+    )
+    profile: "AccessProfile" = Relationship(
+        sa_relationship=relationship("AccessProfile", back_populates="user_assignments")
+    )

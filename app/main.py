@@ -12,10 +12,12 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from loguru import logger
 from sqlalchemy import text
+from sqlmodel import Session
 from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.audit_context import set_audit_request, clear_audit_context
 from app.db.session import engine
+from app.services.access_seed_service import ensure_rbac_seed
 
 # --- CRIAR DIRETÓRIOS NECESSÁRIOS ---
 os.makedirs("static/uploads", exist_ok=True)
@@ -70,6 +72,21 @@ def _run_startup_migrations() -> None:
             connection.close()
 
 
+def _ensure_rbac_defaults() -> None:
+    try:
+        with Session(engine) as session:
+            stats = ensure_rbac_seed(session)
+            logger.info(
+                "RBAC seed ensured: permissions={}, templates={}, company_profiles={}, user_assignments={}",
+                stats.get("permissions_created", 0),
+                stats.get("templates_created", 0),
+                stats.get("company_profiles_created", 0),
+                stats.get("user_assignments_created", 0),
+            )
+    except Exception as exc:
+        logger.warning(f"RBAC seed could not be ensured at startup: {exc}")
+
+
 def _apply_legacy_schema_compatibility() -> None:
     statements = [
         "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS tipo_pessoa VARCHAR DEFAULT 'PJ'",
@@ -86,7 +103,26 @@ def _apply_legacy_schema_compatibility() -> None:
         "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS cidade VARCHAR",
         "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS uf VARCHAR(2)",
         "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS observacoes TEXT",
+        "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS tipo_pessoa VARCHAR DEFAULT 'PJ'",
+        "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS agencia VARCHAR",
+        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS conta_numero VARCHAR",
+        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS conta_digito VARCHAR",
+        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS logo_url VARCHAR",
         "ALTER TABLE contas ADD COLUMN IF NOT EXISTS conta_como_disponibilidade BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS nome VARCHAR",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS foto_url VARCHAR",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS consultor_role VARCHAR NOT NULL DEFAULT 'USUARIO_NORMAL'",
+        "ALTER TABLE usuarios ALTER COLUMN empresa_id DROP NOT NULL",
+        "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS previsto BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS competencia VARCHAR",
+        "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS import_hash VARCHAR",
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS intervalo_sincronizacao_minutos INTEGER NOT NULL DEFAULT 60",
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS ultima_sincronizacao TIMESTAMP WITHOUT TIME ZONE",
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS proxima_sincronizacao TIMESTAMP WITHOUT TIME ZONE",
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS categoria_padrao_id INTEGER",
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS usar_categoria_a_categorizar BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS centro_custo_id INTEGER",
         "ALTER TABLE plano_contas ADD COLUMN IF NOT EXISTS eh_operacional BOOLEAN NOT NULL DEFAULT TRUE",
         "ALTER TABLE plano_contas ADD COLUMN IF NOT EXISTS dre_grupo VARCHAR NOT NULL DEFAULT 'DESPESAS_OPERACIONAIS'",
         "UPDATE entidades SET tipo_pessoa = CASE WHEN upper(coalesce(cpf_cnpj, '')) ~ '^[0-9]{12,}$' THEN 'PJ' WHEN upper(coalesce(tipo, '')) IN ('PESSOA_FISICA', 'PF') THEN 'PF' WHEN upper(coalesce(tipo, '')) IN ('PESSOA_JURIDICA', 'PJ') THEN 'PJ' ELSE coalesce(tipo_pessoa, 'PJ') END WHERE tipo_pessoa IS NULL OR trim(tipo_pessoa) = ''",
@@ -111,6 +147,7 @@ app = FastAPI(
 @app.on_event("startup")
 def startup_event() -> None:
     _run_startup_migrations()
+    _ensure_rbac_defaults()
 
 # --- CONFIGURAÇÃO DE CORS ---
 # Converte CORS origins para lista se for string "*"

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # app/models/audit_log.py
 from typing import Optional, Any
 from sqlmodel import Field, SQLModel

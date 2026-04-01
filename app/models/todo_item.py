@@ -1,5 +1,8 @@
 # app/models/todo_item.py
+from __future__ import annotations
+
 from typing import Optional, TYPE_CHECKING
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, SQLModel, Relationship
 from datetime import datetime
 from .base_audit import AuditMixin
@@ -33,5 +36,5 @@ class TodoItem(AuditMixin, SQLModel, table=True):
     finished_at: Optional[datetime] = None
     total_seconds: int = Field(default=0)
 
-    empresa: Optional["Empresa"] = Relationship()
-    consultor: Optional["Usuario"] = Relationship()
+    empresa: Optional["Empresa"] = Relationship(sa_relationship=relationship("Empresa"))
+    consultor: Optional["Usuario"] = Relationship(sa_relationship=relationship("Usuario"))

@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 # app/models/empresa.py
-from typing import List, Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 import datetime
 from .base_audit import AuditMixin
@@ -37,29 +40,61 @@ class Empresa(AuditMixin, SQLModel, table=True):
     # o Mixin sobrescreve se não declarar, ou complementa.
     
     # Relacionamentos
-    usuarios: List["Usuario"] = Relationship(back_populates="empresa")
-    plano_contas: List["PlanoContas"] = Relationship(back_populates="empresa")
-    contas: List["Conta"] = Relationship(back_populates="empresa")
-    entidades: List["Entidade"] = Relationship(back_populates="empresa")
-    cartoes: List["Cartao"] = Relationship(back_populates="empresa")
-    centros_custo: List["CentroCusto"] = Relationship(back_populates="empresa")
-    lancamentos: List["Lancamento"] = Relationship(back_populates="empresa")
-    consultores: List["ConsultorEmpresa"] = Relationship(
-        back_populates="empresa",
-        sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan")
+    usuarios: list["Usuario"] = Relationship(
+        sa_relationship=relationship("Usuario", back_populates="empresa")
     )
-    integracoes_bancarias: List["IntegracaoBancaria"] = Relationship(back_populates="empresa")
-    access_profiles: List["AccessProfile"] = Relationship(
-        back_populates="empresa",
-        sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan")
+    plano_contas: list["PlanoContas"] = Relationship(
+        sa_relationship=relationship("PlanoContas", back_populates="empresa")
     )
-    user_company_profiles: List["UserCompanyProfile"] = Relationship(
-        back_populates="empresa",
-        sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan")
+    contas: list["Conta"] = Relationship(
+        sa_relationship=relationship("Conta", back_populates="empresa")
+    )
+    entidades: list["Entidade"] = Relationship(
+        sa_relationship=relationship("Entidade", back_populates="empresa")
+    )
+    cartoes: list["Cartao"] = Relationship(
+        sa_relationship=relationship("Cartao", back_populates="empresa")
+    )
+    centros_custo: list["CentroCusto"] = Relationship(
+        sa_relationship=relationship("CentroCusto", back_populates="empresa")
+    )
+    lancamentos: list["Lancamento"] = Relationship(
+        sa_relationship=relationship("Lancamento", back_populates="empresa")
+    )
+    consultores: list["ConsultorEmpresa"] = Relationship(
+        sa_relationship=relationship(
+            "ConsultorEmpresa",
+            back_populates="empresa",
+            lazy="selectin",
+            cascade="all, delete-orphan",
+        )
+    )
+    integracoes_bancarias: list["IntegracaoBancaria"] = Relationship(
+        sa_relationship=relationship("IntegracaoBancaria", back_populates="empresa")
+    )
+    access_profiles: list["AccessProfile"] = Relationship(
+        sa_relationship=relationship(
+            "AccessProfile",
+            back_populates="empresa",
+            lazy="selectin",
+            cascade="all, delete-orphan",
+        )
+    )
+    user_company_profiles: list["UserCompanyProfile"] = Relationship(
+        sa_relationship=relationship(
+            "UserCompanyProfile",
+            back_populates="empresa",
+            lazy="selectin",
+            cascade="all, delete-orphan",
+        )
     )
     dashboard_view_config: Optional["DashboardViewConfig"] = Relationship(
-        back_populates="empresa",
-        sa_relationship_kwargs=dict(uselist=False, cascade="all, delete-orphan")
+        sa_relationship=relationship(
+            "DashboardViewConfig",
+            back_populates="empresa",
+            uselist=False,
+            cascade="all, delete-orphan",
+        )
     )
     # anexo_lancamento não precisa de back_populates direto aqui geralmente, mas pode ter se necessário
 

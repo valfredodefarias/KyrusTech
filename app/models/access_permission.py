@@ -1,4 +1,8 @@
-from typing import ClassVar, List, Optional, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import ClassVar, Optional, TYPE_CHECKING
+
+from sqlalchemy.orm import relationship
 
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -19,7 +23,11 @@ class AccessPermission(AuditMixin, SQLModel, table=True):
     is_page_level: bool = Field(default=False, index=True)
     is_active: bool = Field(default=True, index=True)
 
-    profile_links: List["AccessProfilePermission"] = Relationship(
-        back_populates="permission",
-        sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan"),
+    profile_links: list["AccessProfilePermission"] = Relationship(
+        sa_relationship=relationship(
+            "AccessProfilePermission",
+            back_populates="permission",
+            lazy="selectin",
+            cascade="all, delete-orphan",
+        )
     )

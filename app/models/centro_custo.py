@@ -1,6 +1,9 @@
 # app/models/centro_custo.py
 
-from typing import Optional, List, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Optional, TYPE_CHECKING
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 from .base_audit import AuditMixin
 
@@ -17,6 +20,8 @@ class CentroCusto(AuditMixin, SQLModel, table=True):
     status: str = Field(default="ATIVO") 
 
     empresa_id: int = Field(foreign_key="empresas.id", index=True)
-    empresa: "Empresa" = Relationship(back_populates="centros_custo")
+    empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa", back_populates="centros_custo"))
 
-    lancamentos: List["Lancamento"] = Relationship(back_populates="centro_custo")
+    lancamentos: list["Lancamento"] = Relationship(
+        sa_relationship=relationship("Lancamento", back_populates="centro_custo")
+    )

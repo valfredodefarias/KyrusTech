@@ -127,6 +127,10 @@ Arquivos principais:
 - Em cenário base roda em container de frontend
 - Em produção é servido por Nginx (prod/ssl)
 
+Diretriz obrigatória de interface:
+
+- [FRONTEND_UI_GUIDELINES.md](FRONTEND_UI_GUIDELINES.md) - regras para telas leves, amigáveis e com boa experiência de uso.
+
 Arquivos principais:
 
 - kyrus-web/Dockerfile
@@ -258,7 +262,10 @@ POSTGRES_PORT=5432
 POSTGRES_USER=<usuario>
 POSTGRES_PASSWORD=<senha>
 POSTGRES_DB=<database>
+POSTGRES_ALLOWED_CIDRS=<cidrs-autorizados>
 ```
+
+No stack atual, o PostgreSQL próprio sobe como `db_kyrustech` e a porta pública padrão é `5444`.
 
 Regras:
 
@@ -301,6 +308,9 @@ Controles atuais:
 4. Upload com validação de extensão, MIME, assinatura binária (magic bytes), tamanho e arquivo vazio.
 5. Exclusão de anexo com validação de caminho local seguro (sem path traversal).
 6. Frontend aceita URL de asset apenas de host confiável (mesma origem/API) e caminho /static.
+7. Acesso administrativo ao banco deve usar `POSTGRES_ALLOWED_CIDRS` + regras geradas por `scripts/generate_postgres_hba.py`.
+
+Quando for liberar DBeaver, inclua a subnet do Docker do app e apenas os IPs/CIDRs que realmente precisam de acesso direto ao PostgreSQL.
 
 Controles obrigatórios contínuos:
 

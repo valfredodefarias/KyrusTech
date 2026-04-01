@@ -1,5 +1,8 @@
 # app/models/entidade.py
-from typing import Optional, List, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Optional, TYPE_CHECKING
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 from .base_audit import AuditMixin
 
@@ -31,6 +34,8 @@ class Entidade(AuditMixin, SQLModel, table=True):
     status: str = Field(default="ATIVO")
     
     empresa_id: int = Field(foreign_key="empresas.id", index=True)
-    empresa: "Empresa" = Relationship(back_populates="entidades")
+    empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa", back_populates="entidades"))
     
-    lancamentos: List["Lancamento"] = Relationship(back_populates="entidade")
+    lancamentos: list["Lancamento"] = Relationship(
+        sa_relationship=relationship("Lancamento", back_populates="entidade")
+    )

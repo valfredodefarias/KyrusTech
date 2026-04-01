@@ -1,6 +1,10 @@
 # app/models/plano_contas.py
 
-from typing import Optional, List, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Optional, TYPE_CHECKING
+
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 from .base_audit import AuditMixin
 
@@ -42,13 +46,22 @@ class PlanoContas(AuditMixin, SQLModel, table=True):
     empresa_id: int = Field(foreign_key="empresas.id", index=True)
 
     # Relacionamentos
-    empresa: "Empresa" = Relationship(back_populates="plano_contas")
+    empresa: "Empresa" = Relationship(
+        sa_relationship=relationship("Empresa", back_populates="plano_contas")
+    )
     
     conta_pai: Optional["PlanoContas"] = Relationship(
-        back_populates="contas_filhas",
-        sa_relationship_kwargs={"remote_side": "PlanoContas.id"}
+        sa_relationship=relationship(
+            "PlanoContas",
+            back_populates="contas_filhas",
+            remote_side="PlanoContas.id",
+        )
     )
-    contas_filhas: List["PlanoContas"] = Relationship(back_populates="conta_pai")
+    contas_filhas: list["PlanoContas"] = Relationship(
+        sa_relationship=relationship("PlanoContas", back_populates="conta_pai")
+    )
     
     # Para integrações (Saber onde jogar a taxa do Asaas, por exemplo)
-    mapeamentos: List["MapeamentoCategoria"] = Relationship(back_populates="plano_contas")
+    mapeamentos: list["MapeamentoCategoria"] = Relationship(
+        sa_relationship=relationship("MapeamentoCategoria", back_populates="plano_contas")
+    )

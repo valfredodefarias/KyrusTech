@@ -1,4 +1,8 @@
-from typing import ClassVar, List, Optional, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import ClassVar, Optional, TYPE_CHECKING
+
+from sqlalchemy.orm import relationship
 
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -23,12 +27,22 @@ class AccessProfile(AuditMixin, SQLModel, table=True):
     is_template: bool = Field(default=False, index=True)
     base_template_code: Optional[str] = Field(default=None, max_length=80)
 
-    empresa: Optional["Empresa"] = Relationship(back_populates="access_profiles")
-    permissions: List["AccessProfilePermission"] = Relationship(
-        back_populates="profile",
-        sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan"),
+    empresa: Optional["Empresa"] = Relationship(
+        sa_relationship=relationship("Empresa", back_populates="access_profiles")
     )
-    user_assignments: List["UserCompanyProfile"] = Relationship(
-        back_populates="profile",
-        sa_relationship_kwargs=dict(lazy="selectin", cascade="all, delete-orphan"),
+    permissions: list["AccessProfilePermission"] = Relationship(
+        sa_relationship=relationship(
+            "AccessProfilePermission",
+            back_populates="profile",
+            lazy="selectin",
+            cascade="all, delete-orphan",
+        )
+    )
+    user_assignments: list["UserCompanyProfile"] = Relationship(
+        sa_relationship=relationship(
+            "UserCompanyProfile",
+            back_populates="profile",
+            lazy="selectin",
+            cascade="all, delete-orphan",
+        )
     )

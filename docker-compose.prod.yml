@@ -1,4 +1,25 @@
 services:
+  db_kyrustech:
+    image: postgres:17-alpine
+    container_name: db_kyrustech
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-kyrus_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
+      - POSTGRES_DB=${POSTGRES_DB:-kyrus_erp}
+      - POSTGRES_ALLOWED_CIDRS=${POSTGRES_ALLOWED_CIDRS:-}
+    volumes:
+      - db_kyrustech_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - kyrus_portal
+      - kyrustech_network
+
   backend:
     build: .
     container_name: kyrustech_backend_prod
@@ -11,11 +32,19 @@ services:
       - ALGORITHM=${ALGORITHM:-HS256}
       - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       - AUTO_RUN_MIGRATIONS=${AUTO_RUN_MIGRATIONS:-0}
-      - POSTGRES_SERVER=${POSTGRES_SERVER:-postgresql}
-      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_SERVER=db_kyrustech
+      - POSTGRES_PORT=5432
       - POSTGRES_USER=${POSTGRES_USER:-kyrus_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
-      - POSTGRES_DB=${POSTGRES_DB:-kyrus_db}
+      - POSTGRES_DB=${POSTGRES_DB:-kyrus_erp}
+      - POSTGRES_ALLOWED_CIDRS=${POSTGRES_ALLOWED_CIDRS:-}
+      - COPY_LEGACY_DATABASE=${COPY_LEGACY_DATABASE:-0}
+      - DROP_UNUSED_TABLES=${DROP_UNUSED_TABLES:-0}
+      - LEGACY_POSTGRES_SERVER=${LEGACY_POSTGRES_SERVER:-postgresql}
+      - LEGACY_POSTGRES_PORT=${LEGACY_POSTGRES_PORT:-5432}
+      - LEGACY_POSTGRES_USER=${LEGACY_POSTGRES_USER:-casaos}
+      - LEGACY_POSTGRES_PASSWORD=${LEGACY_POSTGRES_PASSWORD:-casaos}
+      - LEGACY_POSTGRES_DB=${LEGACY_POSTGRES_DB:-casaos}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME:-}
@@ -26,6 +55,9 @@ services:
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+    depends_on:
+      db_kyrustech:
+        condition: service_healthy
     volumes:
       - ./static:/app/static
     networks:
@@ -60,4 +92,5 @@ networks:
   kyrustech_network:
     driver: bridge
 
-volumes: {}
+volumes:
+  db_kyrustech_data:

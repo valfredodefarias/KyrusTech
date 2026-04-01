@@ -118,6 +118,7 @@ def run_migrations():
     """Executa Alembic upgrade"""
     try:
         from app.core.config import settings
+        from app.db.bootstrap import should_auto_bootstrap_legacy_database
 
         if settings.COPY_LEGACY_DATABASE or settings.DROP_UNUSED_TABLES or should_auto_bootstrap_legacy_database():
             return run_legacy_database_bootstrap()

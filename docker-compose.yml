@@ -8,8 +8,6 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
       - POSTGRES_DB=${POSTGRES_DB:-kyrus_erp}
       - POSTGRES_ALLOWED_CIDRS=${POSTGRES_ALLOWED_CIDRS:-}
-    ports:
-      - "${POSTGRES_PORT:-5444}:5432"
     volumes:
       - db_kyrustech_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,8 +17,7 @@ services:
       retries: 10
       start_period: 10s
     networks:
-      - kyrus_portal
-      - default
+      - kyrus_db_internal
 
   backend:
     build: .
@@ -63,7 +60,7 @@ services:
       - ./static:/app/static
     networks:
       - kyrus_portal
-      - default
+      - kyrus_db_internal
     depends_on:
       db_kyrustech:
         condition: service_healthy
@@ -75,7 +72,7 @@ services:
       dockerfile: Dockerfile
       args:
         # Isso "imprime" o IP dentro do código HTML/JS na hora de construir
-        VITE_API_URL: https://api.kyrustech.com.br/api/v1
+        VITE_API_URL: http://localhost:8000/api/v1
     container_name: kyrustech_frontend
     restart: always
     ports:
@@ -87,6 +84,8 @@ services:
 networks:
   kyrus_portal:
     external: true
+  kyrus_db_internal:
+    internal: true
 
 volumes:
   db_kyrustech_data:

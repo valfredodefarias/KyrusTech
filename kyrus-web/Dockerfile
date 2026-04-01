@@ -10,7 +10,7 @@ RUN npm ci
 COPY . .
 
 # Build da aplicação
-ARG VITE_API_URL=http://localhost:8000/api/v1
+ARG VITE_API_URL=
 ENV VITE_API_URL=$VITE_API_URL
 
 RUN npm run build

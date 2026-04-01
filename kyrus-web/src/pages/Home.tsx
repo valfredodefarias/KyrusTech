@@ -82,8 +82,8 @@ export function Home() {
 
         setEmpresa(empresaAtual);
 
-        const resContas = await api.get<ContaResumo[]>('/contas/');
-        setContas(resContas.data || []);
+        const resContas = await api.get<unknown>('/contas/');
+        setContas(normalizeContasResponse(resContas.data));
       } catch (error) {
         console.error('Erro ao carregar home:', error);
       } finally {
@@ -100,13 +100,12 @@ export function Home() {
     return conta.saldo_atual !== undefined ? Number(conta.saldo_atual) : Number(conta.saldo_inicial);
   };
 
-  const contasVisaoGeral = useMemo(
-    () =>
-      contas.filter(
-        (conta) => String(conta.status || 'ATIVO').toUpperCase() === 'ATIVO' && conta.conta_como_disponibilidade !== false,
-      ),
-    [contas],
-  );
+  const contasVisaoGeral = useMemo(() => {
+    const listaContas = Array.isArray(contas) ? contas : [];
+    return listaContas.filter(
+      (conta) => String(conta.status || 'ATIVO').toUpperCase() === 'ATIVO' && conta.conta_como_disponibilidade !== false,
+    );
+  }, [contas]);
 
   const saldoTotal = useMemo(() => contasVisaoGeral.reduce((acc, conta) => acc + getSaldo(conta), 0), [contasVisaoGeral]);
   const contasPositivas = useMemo(() => contasVisaoGeral.filter((conta) => getSaldo(conta) >= 0).length, [contasVisaoGeral]);
@@ -282,6 +281,28 @@ function adjustBrightness(color: string, amount: number) {
   const b = clamp((value & 0xff) + amount);
 
   return `#${(r << 16 | g << 8 | b).toString(16).padStart(6, '0')}`;
+}
+
+function normalizeContasResponse(data: unknown): ContaResumo[] {
+  if (Array.isArray(data)) {
+    return data as ContaResumo[];
+  }
+
+  if (data && typeof data === 'object') {
+    const payload = data as {
+      data?: unknown;
+      items?: unknown;
+      results?: unknown;
+      contas?: unknown;
+    };
+
+    const candidate = payload.data ?? payload.items ?? payload.results ?? payload.contas;
+    if (Array.isArray(candidate)) {
+      return candidate as ContaResumo[];
+    }
+  }
+
+  return [];
 }
 
 function HeroMetric({ label, value }: { label: string; value: string }) {

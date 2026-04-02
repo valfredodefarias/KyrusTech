@@ -30,7 +30,8 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
       - ALGORITHM=${ALGORITHM:-HS256}
-      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      - BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL:-https://api.seu-dominio.com}
+      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-https://seu-dominio.com,https://www.seu-dominio.com}
       - AUTO_RUN_MIGRATIONS=${AUTO_RUN_MIGRATIONS:-0}
       - POSTGRES_SERVER=db_kyrustech
       - POSTGRES_PORT=5432

@@ -211,15 +211,6 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
               className="mx-auto h-6 w-auto"
                 />
             )}
-            {user?.consultor_role ? (
-              <span className="mt-2 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:bg-slate-700 dark:text-slate-200">
-                {user.consultor_role.replace(/_/g, ' ')}
-              </span>
-            ) : isConsultor ? (
-              <span className="mt-2 inline-flex rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-200">
-                Consultor
-              </span>
-            ) : null}
         </div>
 
       </div>

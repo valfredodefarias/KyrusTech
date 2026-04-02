@@ -100,33 +100,14 @@ const DadosEmpresa = () => {
       if (userData.foto_url) {
         setUserPhotoPreview(toPublicAssetUrl(userData.foto_url));
       }
-      let empresaAtual: Empresa | null = null;
-
       if (userData.empresa_id) {
-        try {
-          const { data: emp } = await api.get<Empresa>(`/empresas/${userData.empresa_id}`);
-          empresaAtual = emp;
-        } catch {
-          empresaAtual = null;
-        }
-      }
-
-      if (!empresaAtual && userData.is_consultor) {
-        try {
-          const { data: contexto } = await api.get<{ empresa_atual?: Empresa }>('/consultor/meu-contexto');
-          empresaAtual = contexto?.empresa_atual || null;
-        } catch {
-          empresaAtual = null;
-        }
-      }
-
-      if (empresaAtual) {
-        setEmpresa(empresaAtual);
-        if (empresaAtual.cor_primaria) setCor(empresaAtual.cor_primaria);
-
+        const { data: emp } = await api.get(`/empresas/${userData.empresa_id}`);
+        setEmpresa(emp);
+        if (emp.cor_primaria) setCor(emp.cor_primaria);
+        
         // Ajusta URL da logo se for relativa (vem do backend)
-        if (empresaAtual.logo_url) {
-          setPreviewUrl(toPublicAssetUrl(empresaAtual.logo_url));
+        if (emp.logo_url) {
+          setPreviewUrl(toPublicAssetUrl(emp.logo_url));
         }
       }
     } catch (e) { console.error(e); } finally { setLoading(false); }

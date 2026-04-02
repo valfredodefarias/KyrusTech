@@ -10,7 +10,11 @@ function resolveConfiguredApiUrl() {
       if (host === 'localhost' || host === '127.0.0.1') {
         return 'http://localhost:8000/api/v1';
       }
-      return '/api/v1';
+      if (host.startsWith('api.')) {
+        return `${window.location.origin}/api/v1`;
+      }
+      const baseHost = host.startsWith('www.') ? host.slice(4) : host;
+      return `https://api.${baseHost}/api/v1`;
     }
     return 'http://localhost:8000/api/v1';
   }

@@ -25,7 +25,7 @@ services:
     restart: always
     environment:
       - PROJECT_NAME=${PROJECT_NAME:-KyrusTech}
-      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production-env}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
       - ALGORITHM=${ALGORITHM:-HS256}

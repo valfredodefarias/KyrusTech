@@ -28,12 +28,8 @@ export function Login() {
     e.preventDefault();
     setLoading(true);
     setError('');
-    setAuthenticated(false);
-    setUser(null);
 
     try {
-      await api.post('/auth/logout').catch(() => undefined);
-
       const formData = new URLSearchParams();
       formData.append('username', email);
       formData.append('password', password);

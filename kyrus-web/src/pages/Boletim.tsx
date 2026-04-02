@@ -1,18 +1,13 @@
 import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  BarChart3,
   Building2,
   CalendarDays,
   Landmark,
-  PieChart,
   Rows3,
   Sparkles,
-  TrendingDown,
-  TrendingUp,
 } from 'lucide-react';
 
-import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
 import { Lancamentos } from './Lancamentos';
 import { api, fetchLancamentosPaged, normalizeListResponse, toPublicAssetUrl } from '../services/api';
@@ -20,187 +15,6 @@ import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
 interface ContaResumo {
   id: number;
-  nome: string;
-  banco?: string | null;
-  logo_url?: string | null;
-  tipo: string;
-  saldo_inicial: number;
-  saldo_atual?: number;
-  status?: 'ATIVO' | 'INATIVO' | string;
-  conta_como_disponibilidade?: boolean;
-}
-
-interface LancamentoResumo {
-  id: number;
-  descricao: string;
-  tipo: string;
-  status: string;
-  data_vencimento: string;
-  data_pagamento?: string | null;
-  data_competencia?: string | null;
-  competencia?: string | null;
-  valor_previsto: number;
-  valor_pago?: number | null;
-  plano_contas_id?: number | null;
-  conta_id?: number | null;
-  entidade_id?: number | null;
-  centro_custo_id?: number | null;
-}
-
-interface PlanoContaResumo {
-  id: number;
-  nome: string;
-  tipo: string;
-  conta_pai_id?: number | null;
-  eh_operacional?: boolean;
-  dre_grupo?: string;
-}
-
-interface ContaSaldoMovimento {
-  id: number;
-  descricao: string;
-  tipo: string;
-  status: string;
-  data_vencimento: string;
-  data_pagamento?: string | null;
-  valor_entrada: number;
-  valor_saida: number;
-  saldo_apos_movimento?: number | null;
-}
-
-interface ContaSaldoDetalhe {
-  conta_id: number;
-  conta_nome: string;
-  saldo_atual: number;
-  quantidade_movimentos: number;
-  movimentos: ContaSaldoMovimento[];
-}
-
-interface EntidadeResumo {
-  id: number;
-  nome: string;
-  nome_fantasia?: string | null;
-}
-
-interface CentroCustoResumo {
-  id: number;
-  nome: string;
-  codigo?: string | null;
-}
-
-interface UserInfo {
-  empresa_id?: number | null;
-  is_consultor?: boolean;
-}
-
-interface EmpresaInfo {
-  id?: number;
-  nome_fantasia: string;
-  razao_social?: string;
-  cor_primaria?: string;
-  logo_url?: string | null;
-}
-
-interface ConsultorContextoResponse {
-  empresa_atual: EmpresaInfo;
-}
-
-type ViewMode = 'executivo' | 'pay-receive';
-type StatusFilter = 'TODOS' | 'PAGO' | 'EM_ABERTO' | 'ATRASADO' | 'HOJE' | 'AMANHA';
-type FlowFilter = 'ALL' | 'PAGAMENTO' | 'RECEBIMENTO';
-
-interface NormalizedRow {
-  id: number;
-  descricao: string;
-  flowType: FlowFilter;
-  statusKey: StatusFilter;
-  statusLabel: string;
-  dataVencimento: string;
-  monthIndex: number;
-  dayOfMonth: number;
-  valor: number;
-  valorAbsoluto: number;
-  interessado: string;
-  contaId?: number | null;
-  contaNome: string;
-}
-
-type AuditPanelMode = 'LANCAMENTOS' | 'EXTRATO_BANCO';
-
-interface AuditPanelState {
-  mode: AuditPanelMode;
-  title: string;
-  subtitle: string;
-  rows?: NormalizedRow[];
-  conta?: ContaResumo;
-  extrato?: ContaSaldoDetalhe;
-}
-
-const BRL = new Intl.NumberFormat('pt-BR', {
-  style: 'currency',
-  currency: 'BRL',
-  maximumFractionDigits: 0,
-});
-
-const MONTH_NAMES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-
-function normalizeText(value?: string | null) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-}
-
-function parseDateOnly(value?: string | null) {
-  if (!value) return null;
-  const datePart = value.slice(0, 10);
-  const [y, m, d] = datePart.split('-').map(Number);
-  if (!y || !m || !d) return null;
-  return new Date(y, m - 1, d);
-}
-
-function toIsoDate(value: Date) {
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
-}
-
-function formatDate(value?: string | null) {
-  const parsed = parseDateOnly(value);
-  return parsed ? parsed.toLocaleDateString('pt-BR') : '-';
-}
-
-function formatCurrency(value: number) {
-  return BRL.format(value).replace(/\s/g, '\u00A0');
-}
-
-function getValueTone(value: number, isDark: boolean) {
-  if (value < 0) return isDark ? 'text-rose-300' : 'text-rose-600';
-  if (value > 0) return isDark ? 'text-emerald-300' : 'text-emerald-600';
-  return isDark ? 'text-white' : 'text-slate-900';
-}
-
-function getStatusLabel(status: StatusFilter) {
-  const labels: Record<StatusFilter, string> = {
-    TODOS: 'Todos',
-    PAGO: 'Pago',
-    EM_ABERTO: 'Em aberto',
-    ATRASADO: 'Atrasado',
-    HOJE: 'Vence hoje',
-    AMANHA: 'Vence amanhã',
-  };
-  return labels[status];
-}
-
-function isReceita(tipo?: string | null) {
-  return String(tipo || '').toUpperCase().startsWith('R');
-}
-
-function isDespesa(tipo?: string | null) {
-  return String(tipo || '').toUpperCase().startsWith('D');
-}
-
-function parseCompetenciaMonthIndex(competencia?: string | null) {
-  if (!competencia) return -1;
-  const match = String(competencia).trim().match(/^(\d{2})-(\d{4})$/);
   if (!match) return -1;
   const month = Number(match[1]);
   return Number.isFinite(month) && month >= 1 && month <= 12 ? month - 1 : -1;
@@ -546,10 +360,10 @@ export function Boletim() {
     tomorrow.setDate(now.getDate() + 1);
     const tomorrowIso = toIsoDate(tomorrow);
     const effectiveMonthIndex = selectedMonthIndex ?? fallbackMonthIndex;
-    const daysInEffectiveMonth = new Date(currentYear, effectiveMonthIndex + 1, 0).getDate();
     const entityMap = new Map(entidades.map((item) => [item.id, item.nome_fantasia || item.nome]));
     const contaMap = new Map(contas.map((item) => [item.id, item]));
-    const bankBalances = contas
+    const contasFiltradasPorCentro = contas.filter((conta) => selectedCentroCustoId === 'ALL' || Number(conta.centro_custo_id) === selectedCentroCustoId);
+    const bankBalances = contasFiltradasPorCentro
       .filter((conta) => String(conta.status || 'ATIVO').toUpperCase() !== 'INATIVO')
       .map((conta) => ({ ...conta, saldo: Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0) }))
       .sort((left, right) => right.saldo - left.saldo);
@@ -685,45 +499,6 @@ export function Boletim() {
     const resultadoOperacionalMes = resultadoOperacionalMonthly[effectiveMonthIndex] || 0;
     const resultadoFinalMes = resultadoFinalMonthly[effectiveMonthIndex] || 0;
 
-    const monthlyRows = applyFilters(baseRows, {
-      flowType: flowFilter,
-      status: statusFilter,
-      monthIndex: selectedMonthIndex,
-      dayOfMonth: selectedDayOfMonth,
-      fallbackMonthIndex,
-    }, { ignoreMonth: true, ignoreDay: true });
-
-    const monthlyPagar = Array.from({ length: 12 }, () => 0);
-    const monthlyReceber = Array.from({ length: 12 }, () => 0);
-    monthlyRows.forEach((item) => {
-      if (item.flowType === 'PAGAMENTO') monthlyPagar[item.monthIndex] += item.valorAbsoluto;
-      else monthlyReceber[item.monthIndex] += item.valorAbsoluto;
-    });
-    const monthlyResultado = resultadoFinalMonthly;
-
-    const dailyRows = applyFilters(baseRows, {
-      flowType: flowFilter,
-      status: statusFilter,
-      monthIndex: selectedMonthIndex,
-      dayOfMonth: selectedDayOfMonth,
-      fallbackMonthIndex,
-    }, { ignoreMonth: true, ignoreDay: true }).filter((item) => item.monthIndex === effectiveMonthIndex);
-
-    const dailyPagar = Array.from({ length: daysInEffectiveMonth }, () => 0);
-    const dailyReceber = Array.from({ length: daysInEffectiveMonth }, () => 0);
-    dailyRows.forEach((item) => {
-      if (item.flowType === 'PAGAMENTO') dailyPagar[item.dayOfMonth - 1] += item.valorAbsoluto;
-      else dailyReceber[item.dayOfMonth - 1] += item.valorAbsoluto;
-    });
-
-    const donutRows = applyFilters(baseRows, {
-      flowType: flowFilter,
-      status: statusFilter,
-      monthIndex: selectedMonthIndex,
-      dayOfMonth: selectedDayOfMonth,
-      fallbackMonthIndex,
-    }, { ignoreFlow: true });
-
     const situacaoRows = applyFilters(baseRows, {
       flowType: flowFilter,
       status: statusFilter,
@@ -751,7 +526,6 @@ export function Boletim() {
       fallbackMonthIndex,
       effectiveMonthIndex,
       effectiveMonthLabel: buildMonthLabel(effectiveMonthIndex, currentYear),
-      dayLabels: Array.from({ length: daysInEffectiveMonth }, (_, index) => String(index + 1)),
       monthLabels: MONTH_NAMES.map((label) => `${label}/${String(currentYear).slice(2)}`),
       banks: bankBalances,
       baseRows,
@@ -768,15 +542,6 @@ export function Boletim() {
       resultadoOperacionalMonthly,
       resultadoFinalMonthly,
       tableRows,
-      monthlyPagar,
-      monthlyReceber,
-      monthlyResultado,
-      dailyPagar,
-      dailyReceber,
-      donutSeries: [
-        sumValues(donutRows.filter((item) => item.flowType === 'PAGAMENTO')),
-        sumValues(donutRows.filter((item) => item.flowType === 'RECEBIMENTO')),
-      ],
       situacao,
     };
   }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
@@ -927,200 +692,6 @@ export function Boletim() {
     { label: 'Vcto Amanhã', key: 'AMANHA', value: dashboard.situacao.AMANHA },
     { label: 'Vcto Hoje', key: 'HOJE', value: dashboard.situacao.HOJE },
   ];
-
-  const monthlyChartOptions = useMemo<any>(() => ({
-    chart: {
-      toolbar: { show: false },
-      background: 'transparent',
-      foreColor: isDark ? '#cbd5e1' : '#475569',
-      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-      events: {
-        dataPointSelection: (_: unknown, __: unknown, opts: { seriesIndex?: number; dataPointIndex?: number }) => {
-          const monthIndex = opts.dataPointIndex ?? -1;
-          if (monthIndex < 0) return;
-          const flowType: FlowFilter = opts.seriesIndex === 0 ? 'PAGAMENTO' : 'RECEBIMENTO';
-          setFlowFilter(flowType);
-          setSelectedMonthIndex(monthIndex);
-          setSelectedDayOfMonth(null);
-        },
-      },
-    },
-    plotOptions: { bar: { columnWidth: '48%', borderRadius: 10, borderRadiusApplication: 'end' } },
-    dataLabels: { enabled: false },
-    colors: ['#ff5a47', '#4d8cf3'],
-    legend: {
-      position: 'top',
-      horizontalAlign: 'left',
-      labels: { colors: isDark ? '#e2e8f0' : '#334155' },
-    },
-    grid: { borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.18)', strokeDashArray: 3 },
-    xaxis: {
-      categories: dashboard.monthLabels,
-      labels: { style: { colors: Array.from({ length: dashboard.monthLabels.length }, () => isDark ? '#cbd5e1' : '#334155') } },
-    },
-    yaxis: {
-      labels: {
-        formatter: (value: number) => BRL.format(value),
-        style: { colors: [isDark ? '#cbd5e1' : '#334155'] },
-      },
-    },
-    tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (value: number) => BRL.format(value) } },
-  }), [dashboard.monthLabels, isDark]);
-
-  const dailyChartOptions = useMemo<any>(() => ({
-    chart: {
-      toolbar: { show: false },
-      background: 'transparent',
-      foreColor: isDark ? '#cbd5e1' : '#475569',
-      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-      events: {
-        dataPointSelection: (_: unknown, __: unknown, opts: { seriesIndex?: number; dataPointIndex?: number }) => {
-          const dayIndex = opts.dataPointIndex ?? -1;
-          if (dayIndex < 0) return;
-          const flowType: FlowFilter = opts.seriesIndex === 0 ? 'PAGAMENTO' : 'RECEBIMENTO';
-          setFlowFilter(flowType);
-          setSelectedDayOfMonth(dayIndex + 1);
-        },
-      },
-    },
-    plotOptions: { bar: { columnWidth: '58%', borderRadius: 6, borderRadiusApplication: 'end' } },
-    dataLabels: { enabled: false },
-    colors: ['#ff5a47', '#4d8cf3'],
-    legend: {
-      position: 'top',
-      horizontalAlign: 'left',
-      labels: { colors: isDark ? '#e2e8f0' : '#334155' },
-    },
-    grid: { borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.18)', strokeDashArray: 3 },
-    xaxis: {
-      categories: dashboard.dayLabels,
-      labels: { style: { colors: Array.from({ length: dashboard.dayLabels.length }, () => isDark ? '#cbd5e1' : '#334155') } },
-    },
-    yaxis: {
-      labels: {
-        formatter: (value: number) => BRL.format(value),
-        style: { colors: [isDark ? '#cbd5e1' : '#334155'] },
-      },
-    },
-    tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (value: number) => BRL.format(value) } },
-  }), [dashboard.dayLabels, isDark]);
-
-  const donutChartOptions = useMemo<any>(() => ({
-    chart: {
-      background: 'transparent',
-      toolbar: { show: false },
-      events: {
-        dataPointSelection: (_: unknown, __: unknown, opts: { dataPointIndex?: number }) => {
-          const flowType: FlowFilter = opts.dataPointIndex === 0 ? 'PAGAMENTO' : 'RECEBIMENTO';
-          setFlowFilter((current) => current === flowType ? 'ALL' : flowType);
-        },
-      },
-    },
-    labels: ['Pagamento', 'Recebimento'],
-    colors: ['#ff5a47', '#4d8cf3'],
-    stroke: { width: 0 },
-    legend: {
-      position: 'bottom',
-      labels: { colors: isDark ? '#e2e8f0' : '#334155' },
-      markers: { radius: 12 },
-    },
-    dataLabels: { enabled: false },
-    tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (value: number) => BRL.format(value) } },
-    plotOptions: {
-      pie: {
-        donut: {
-          size: '68%',
-          labels: {
-            show: true,
-            name: { color: isDark ? '#94a3b8' : '#64748b' },
-            value: { color: isDark ? '#f8fafc' : '#0f172a', formatter: (value: string) => BRL.format(Number(value)) },
-            total: {
-              show: true,
-              label: 'Total',
-              color: isDark ? '#cbd5e1' : '#334155',
-              formatter: () => BRL.format(dashboard.donutSeries.reduce((sum: number, item: number) => sum + item, 0)),
-            },
-          },
-        },
-      },
-    },
-  }), [dashboard.donutSeries, isDark]);
-
-  const monthlyTrendChartOptions = useMemo<any>(() => ({
-    chart: {
-      toolbar: { show: false },
-      zoom: { enabled: false },
-      selection: { enabled: false },
-      background: 'transparent',
-      foreColor: isDark ? '#cbd5e1' : '#475569',
-      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-    },
-    stroke: { curve: 'smooth', width: 3 },
-    markers: { size: 4, strokeWidth: 0, hover: { size: 4 } },
-    dataLabels: { enabled: false },
-    colors: ['#ff5a47', '#4d8cf3'],
-    legend: {
-      position: 'top',
-      horizontalAlign: 'left',
-      labels: { colors: isDark ? '#e2e8f0' : '#334155' },
-      onItemClick: { toggleDataSeries: false },
-      onItemHover: { highlightDataSeries: false },
-    },
-    states: {
-      hover: { filter: { type: 'none' } },
-      active: { filter: { type: 'none' } },
-    },
-    grid: { borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.18)', strokeDashArray: 3 },
-    xaxis: {
-      categories: dashboard.monthLabels,
-      labels: { style: { colors: Array.from({ length: dashboard.monthLabels.length }, () => isDark ? '#cbd5e1' : '#334155') } },
-    },
-    yaxis: {
-      labels: {
-        formatter: (value: number) => BRL.format(value),
-        style: { colors: [isDark ? '#cbd5e1' : '#334155'] },
-      },
-    },
-    tooltip: { enabled: false },
-  }), [dashboard.monthLabels, isDark]);
-
-  const resultadoTrendChartOptions = useMemo<any>(() => ({
-    chart: {
-      toolbar: { show: false },
-      zoom: { enabled: false },
-      selection: { enabled: false },
-      background: 'transparent',
-      foreColor: isDark ? '#cbd5e1' : '#475569',
-      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-    },
-    stroke: { curve: 'smooth', width: 3 },
-    markers: { size: 4, strokeWidth: 0, hover: { size: 4 } },
-    dataLabels: { enabled: false },
-    colors: ['#22c55e', '#0ea5e9'],
-    legend: {
-      position: 'top',
-      horizontalAlign: 'left',
-      labels: { colors: isDark ? '#e2e8f0' : '#334155' },
-      onItemClick: { toggleDataSeries: false },
-      onItemHover: { highlightDataSeries: false },
-    },
-    states: {
-      hover: { filter: { type: 'none' } },
-      active: { filter: { type: 'none' } },
-    },
-    grid: { borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.18)', strokeDashArray: 3 },
-    xaxis: {
-      categories: dashboard.monthLabels,
-      labels: { style: { colors: Array.from({ length: dashboard.monthLabels.length }, () => isDark ? '#cbd5e1' : '#334155') } },
-    },
-    yaxis: {
-      labels: {
-        formatter: (value: number) => BRL.format(value),
-        style: { colors: [isDark ? '#cbd5e1' : '#334155'] },
-      },
-    },
-    tooltip: { enabled: false },
-  }), [dashboard.monthLabels, isDark]);
 
   const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
   const companyName = empresa?.nome_fantasia || 'Sua Empresa';
@@ -1403,49 +974,6 @@ export function Boletim() {
                 </div>
               </section>
 
-              <section className="grid gap-4 xl:grid-cols-2">
-                <div className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
-                  <div className="mb-4 flex items-center justify-between gap-4">
-                    <div>
-                      <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>Histórico mensal</div>
-                      <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Tendência mensal de pagamento e recebimento.</div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-[#ff5a47]"><TrendingDown className="h-4 w-4" />Pagamento</span>
-                      <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-[#4d8cf3]"><TrendingUp className="h-4 w-4" />Recebimento</span>
-                    </div>
-                  </div>
-                  <AsyncApexChart
-                    type="line"
-                    height={340}
-                    series={[
-                      { name: 'Pagamento', data: dashboard.monthlyPagar },
-                      { name: 'Recebimento', data: dashboard.monthlyReceber },
-                    ]}
-                    options={monthlyTrendChartOptions}
-                  />
-                </div>
-
-                <div className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
-                  <div className="mb-4 flex items-center justify-between gap-4">
-                    <div>
-                      <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>Resultado mensal</div>
-                      <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Linha no padrão DRE (resultado final mensal).</div>
-                    </div>
-                  </div>
-                  <AsyncApexChart
-                    type="line"
-                    height={340}
-                    series={[
-                      { name: 'Resultado Final (DRE)', data: dashboard.monthlyResultado },
-                      { name: 'Resultado Operacional (DRE)', data: dashboard.resultadoOperacionalMonthly },
-                    ]}
-                    options={resultadoTrendChartOptions}
-                  />
-                </div>
-              </section>
-            </div>
-
             <section className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
               <div className="mb-5 flex items-center justify-between gap-3">
                 <div>
@@ -1510,55 +1038,6 @@ export function Boletim() {
           </section>
         ) : (
           <section className="space-y-5">
-            <div className="grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)_minmax(0,1.35fr)]">
-              <section className={`rounded-[28px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Filtro</div>
-                  <PieChart className={`h-4 w-4 ${isDark ? 'text-amber-200' : 'text-amber-700'}`} />
-                </div>
-                <div className={`mb-3 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Clique no donut para alternar entre pagamentos e recebimentos.</div>
-                <AsyncApexChart type="donut" height={265} series={dashboard.donutSeries} options={donutChartOptions} />
-              </section>
-
-              <section className={`rounded-[28px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>A pagar vs a receber por mês</div>
-                    <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Clique na barra para aplicar mês e tipo.</div>
-                  </div>
-                  <BarChart3 className={`h-4 w-4 ${isDark ? 'text-white/60' : 'text-slate-500'}`} />
-                </div>
-                <AsyncApexChart
-                  type="bar"
-                  height={260}
-                  series={[
-                    { name: 'Pagamento', data: dashboard.monthlyPagar },
-                    { name: 'Recebimento', data: dashboard.monthlyReceber },
-                  ]}
-                  options={monthlyChartOptions}
-                />
-              </section>
-
-              <section className={`rounded-[28px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-white/75' : 'text-slate-700'}`}>A pagar vs a receber por dia</div>
-                    <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Mostrando {dashboard.effectiveMonthLabel}. Clique para combinar o dia.</div>
-                  </div>
-                  <Rows3 className={`h-4 w-4 ${isDark ? 'text-white/60' : 'text-slate-500'}`} />
-                </div>
-                <AsyncApexChart
-                  type="bar"
-                  height={260}
-                  series={[
-                    { name: 'Pagamento', data: dashboard.dailyPagar },
-                    { name: 'Recebimento', data: dashboard.dailyReceber },
-                  ]}
-                  options={dailyChartOptions}
-                />
-              </section>
-            </div>
-
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
               <section className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
                 <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">

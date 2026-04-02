@@ -1,10 +1,23 @@
 import { create } from 'zustand';
 
+export interface AuthUser {
+  id: number;
+  email: string;
+  nome?: string | null;
+  is_consultor: boolean;
+  consultor_role?: string;
+  empresa_id?: number | null;
+  permissions?: string[] | null;
+  foto_url?: string | null;
+}
+
 interface AuthState {
   authenticated: boolean;
   initialized: boolean;
+  user: AuthUser | null;
   setAuthenticated: (authenticated: boolean) => void;
   setInitialized: (initialized: boolean) => void;
+  setUser: (user: AuthUser | null) => void;
   logout: () => void;
   isAuthenticated: () => boolean;
 }
@@ -12,13 +25,16 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set, get) => ({
   authenticated: false,
   initialized: false,
+  user: null,
 
   setAuthenticated: (authenticated) => set({ authenticated }),
 
   setInitialized: (initialized) => set({ initialized }),
 
+  setUser: (user) => set({ user }),
+
   logout: () => {
-    set({ authenticated: false, initialized: true });
+    set({ authenticated: false, initialized: true, user: null });
   },
 
   isAuthenticated: () => get().authenticated,

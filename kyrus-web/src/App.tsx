@@ -47,19 +47,22 @@ function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
   const setAuthenticated = useAuthStore((state) => state.setAuthenticated);
   const setInitialized = useAuthStore((state) => state.setInitialized);
+  const setUser = useAuthStore((state) => state.setUser);
 
   useEffect(() => {
     let active = true;
 
     api.get('/usuarios/me')
-      .then(() => {
+      .then(({ data }) => {
         if (active) {
           setAuthenticated(true);
+          setUser(data);
         }
       })
       .catch(() => {
         if (active) {
           setAuthenticated(false);
+          setUser(null);
         }
       })
       .finally(() => {

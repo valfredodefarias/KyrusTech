@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
@@ -13,14 +13,27 @@ export function Login() {
   
   const setAuthenticated = useAuthStore((state) => state.setAuthenticated);
   const setInitialized = useAuthStore((state) => state.setInitialized);
+  const setUser = useAuthStore((state) => state.setUser);
+  const authenticated = useAuthStore((state) => state.authenticated);
+  const initialized = useAuthStore((state) => state.initialized);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (initialized && authenticated) {
+      navigate('/home', { replace: true });
+    }
+  }, [authenticated, initialized, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setAuthenticated(false);
+    setUser(null);
 
     try {
+      await api.post('/auth/logout').catch(() => undefined);
+
       const formData = new URLSearchParams();
       formData.append('username', email);
       formData.append('password', password);
@@ -29,12 +42,17 @@ export function Login() {
          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       });
 
+      const { data: user } = await api.get('/usuarios/me');
+
       setAuthenticated(true);
+      setUser(user);
       setInitialized(true);
       navigate('/home');
 
     } catch (err) {
       console.error(err);
+      setAuthenticated(false);
+      setUser(null);
       setError('E-mail ou senha incorretos.');
     } finally {
       setLoading(false);

@@ -27,6 +27,8 @@ interface UserInfo {
   email: string;
   nome?: string | null;
   foto_url?: string | null;
+  is_consultor?: boolean;
+  consultor_role?: string;
 }
 
 interface ContaExportacao {

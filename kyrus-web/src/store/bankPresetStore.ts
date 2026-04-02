@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import { api } from '../services/api';
+import { api, normalizeListResponse } from '../services/api';
 
 export interface BankPreset {
   key: string;
@@ -36,7 +36,7 @@ export const useBankPresetStore = create<BankPresetState>((set, get) => ({
     set({ loading: true });
     presetsPromise = api.get<BankPreset[]>('/bank-presets/')
       .then((response) => {
-        const data = response.data || [];
+        const data = normalizeListResponse<BankPreset>(response.data);
         set({ presets: data, loaded: true, loading: false });
         return data;
       })

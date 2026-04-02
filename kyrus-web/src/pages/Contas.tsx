@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { api, toPublicAssetUrl } from '../services/api';
+import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { BankAvatar } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
 import { useBankPresetStore } from '../store/bankPresetStore';
@@ -545,9 +545,11 @@ export function Contas() {
         api.get('/contas/'),
         api.get('/centro-custo/') 
       ]);
-      setContas(resContas.data);
-      setCentros(resCentros.data);
-      return resContas.data as Conta[];
+      const contasNormalizadas = normalizeListResponse<Conta>(resContas.data);
+      const centrosNormalizados = normalizeListResponse<CentroCusto>(resCentros.data);
+      setContas(contasNormalizadas);
+      setCentros(centrosNormalizados);
+      return contasNormalizadas;
     } catch (error) {
       console.error("Erro ao carregar dados", error);
       return [] as Conta[];
@@ -559,7 +561,7 @@ export function Contas() {
   async function carregarCategorias() {
     try {
       const { data } = await api.get('/plano-contas/');
-      setCategorias(data || []);
+      setCategorias(normalizeListResponse<PlanoContas>(data));
     } catch (error) {
       console.error("Erro ao carregar categorias", error);
     }

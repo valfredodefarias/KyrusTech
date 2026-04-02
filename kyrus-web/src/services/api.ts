@@ -86,6 +86,33 @@ export const api = axios.create({
   withCredentials: true,
 });
 
+export function normalizeListResponse<T>(data: unknown): T[] {
+  if (Array.isArray(data)) {
+    return data as T[];
+  }
+
+  if (data && typeof data === 'object') {
+    const payload = data as {
+      data?: unknown;
+      items?: unknown;
+      results?: unknown;
+      items_list?: unknown;
+      contas?: unknown;
+      categorias?: unknown;
+      centros?: unknown;
+      entidades?: unknown;
+      presets?: unknown;
+    };
+
+    const candidate = payload.data ?? payload.items ?? payload.results ?? payload.items_list ?? payload.contas ?? payload.categorias ?? payload.centros ?? payload.entidades ?? payload.presets;
+    if (Array.isArray(candidate)) {
+      return candidate as T[];
+    }
+  }
+
+  return [];
+}
+
 export async function fetchLancamentosPaged<T = any>(
   params: Record<string, any> = {},
   options?: { pageSize?: number; maxPages?: number; signal?: AbortSignal }

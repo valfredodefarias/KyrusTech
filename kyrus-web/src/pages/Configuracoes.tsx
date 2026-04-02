@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api, fetchLancamentosPaged, toPublicAssetUrl } from '../services/api';
+import { api, fetchLancamentosPaged, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
 import { RbacManager } from '../components/RbacManager';
 import { 
@@ -377,7 +377,7 @@ const GestaoPlanoContas = () => {
     setLoading(true);
     try {
       const data = await fetchPlanoContas(force);
-      setCategorias(data);
+      setCategorias(normalizeListResponse<any>(data));
     } catch(e) { console.error(e); } finally { setLoading(false); }
   }
 
@@ -445,8 +445,8 @@ const ExportacaoFinanceira = () => {
         api.get('/contas/', { params: { include_saldo: false } }),
         api.get('/plano-contas/'),
       ]);
-      setContas(rContas.data || []);
-      setCategorias(rCategorias.data || []);
+      setContas(normalizeListResponse<ContaExportacao>(rContas.data));
+      setCategorias(normalizeListResponse<CategoriaExportacao>(rCategorias.data));
     } catch (error) {
       console.error(error);
     } finally {

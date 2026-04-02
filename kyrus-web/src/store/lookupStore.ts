@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { api } from '../services/api';
+import { api, normalizeListResponse } from '../services/api';
 
 interface LookupState {
   entidades: any[];
@@ -45,7 +45,7 @@ export const useLookupStore = create<LookupState>((set, get) => ({
     set({ loadingEntidades: true });
     entidadesPromise = api.get('/entidades/')
       .then((res) => {
-        const data = res.data || [];
+        const data = normalizeListResponse<any>(res.data);
         set({ entidades: data, entidadesLoaded: true, loadingEntidades: false });
         return data;
       })
@@ -66,7 +66,7 @@ export const useLookupStore = create<LookupState>((set, get) => ({
     set({ loadingEntidadesLookup: true });
     entidadesLookupPromise = api.get('/entidades/lookup')
       .then((res) => {
-        const data = res.data || [];
+        const data = normalizeListResponse<any>(res.data);
         set({ entidadesLookup: data, entidadesLookupLoaded: true, loadingEntidadesLookup: false });
         return data;
       })
@@ -87,7 +87,7 @@ export const useLookupStore = create<LookupState>((set, get) => ({
     set({ loadingPlano: true });
     planoPromise = api.get('/plano-contas/')
       .then((res) => {
-        const data = res.data || [];
+        const data = normalizeListResponse<any>(res.data);
         set({ planoContas: data, planoLoaded: true, loadingPlano: false });
         return data;
       })

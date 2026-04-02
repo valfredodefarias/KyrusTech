@@ -2,7 +2,7 @@ import { type MouseEvent as ReactMouseEvent, Fragment, useEffect, useMemo, useRe
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarDays, Sigma, TrendingDown, TrendingUp } from 'lucide-react';
 
-import { api } from '../services/api';
+import { api, normalizeListResponse } from '../services/api';
 import { Lancamentos } from './Lancamentos';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
@@ -310,7 +310,7 @@ export function Dre() {
           somente_pagos: onlyPaid,
         },
       });
-      return response.data || [];
+      return normalizeListResponse<LancamentoResumo>(response.data);
     }
 
     async function load() {
@@ -325,9 +325,9 @@ export function Dre() {
 
         if (!active) return;
 
-        setCategorias(categoriasRes.data || []);
+        setCategorias(normalizeListResponse<PlanoConta>(categoriasRes.data));
         setLancamentos(lancamentosPaid);
-        setCentrosCusto(centrosCustoRes.data || []);
+        setCentrosCusto(normalizeListResponse<CentroCustoResumo>(centrosCustoRes.data));
         setContas([]);
         setEntidades([]);
         setSomentePagos(true);
@@ -363,7 +363,7 @@ export function Dre() {
           somente_pagos: false,
         },
       });
-      setLancamentos(response.data || []);
+      setLancamentos(normalizeListResponse<LancamentoResumo>(response.data));
       loadedAllLancamentosRef.current = true;
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Nao foi possivel carregar os lancamentos completos do ano.');
@@ -381,8 +381,8 @@ export function Dre() {
         api.get<ContaResumo[]>('/contas/'),
         api.get<EntidadeResumo[]>('/entidades/'),
       ]);
-      setContas(contasRes.data || []);
-      setEntidades(entidadesRes.data || []);
+      setContas(normalizeListResponse<ContaResumo>(contasRes.data));
+      setEntidades(normalizeListResponse<EntidadeResumo>(entidadesRes.data));
       auditMetaLoadedRef.current = true;
     } catch {
       // Keep panel usable with fallback labels when metadata fails.

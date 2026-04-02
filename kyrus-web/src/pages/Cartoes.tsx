@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { api, fetchLancamentosPaged } from '../services/api';
+import { api, fetchLancamentosPaged, normalizeListResponse } from '../services/api';
 import { BrandAvatar, CARD_BRAND_OPTIONS, inferCardBrand } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
 import { 
@@ -277,11 +277,11 @@ export function Cartoes() {
                 api.get('/plano-contas/')
             ]);
 
-      setCartoes(resC.data || []);
+            setCartoes(normalizeListResponse<Cartao>(resC.data));
     setLancamentos(resL || []);
-    setCentros(resCC.data || []);
-    setContas(resConta.data || []);
-    setCategorias(resCat.data || []);
+        setCentros(normalizeListResponse<any>(resCC.data));
+        setContas(normalizeListResponse<any>(resConta.data));
+        setCategorias(normalizeListResponse<Categoria>(resCat.data));
     } catch (e: any) { 
         console.error("Erro ao carregar dados:", e);
     } finally { 

@@ -15,7 +15,7 @@ import {
 import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
 import { Lancamentos } from './Lancamentos';
-import { api, fetchLancamentosPaged, toPublicAssetUrl } from '../services/api';
+import { api, fetchLancamentosPaged, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
 interface ContaResumo {
@@ -511,11 +511,11 @@ export function Boletim() {
         if (!active) return;
 
         setEmpresa(empresaAtual);
-        setContas(contasRes.status === 'fulfilled' ? (contasRes.value.data || []) : []);
-        setLancamentos(lancamentosRes.status === 'fulfilled' ? (lancamentosRes.value || []) : []);
-        setCategorias(categoriasRes.status === 'fulfilled' ? (categoriasRes.value.data || []) : []);
-        setEntidades(entidadesRes.status === 'fulfilled' ? (entidadesRes.value.data || []) : []);
-        setCentrosCusto(centrosCustoRes.status === 'fulfilled' ? (centrosCustoRes.value.data || []) : []);
+        setContas(contasRes.status === 'fulfilled' ? normalizeListResponse<ContaResumo>(contasRes.value.data) : []);
+        setLancamentos(lancamentosRes.status === 'fulfilled' ? (Array.isArray(lancamentosRes.value) ? lancamentosRes.value : []) : []);
+        setCategorias(categoriasRes.status === 'fulfilled' ? normalizeListResponse<PlanoContaResumo>(categoriasRes.value.data) : []);
+        setEntidades(entidadesRes.status === 'fulfilled' ? normalizeListResponse<EntidadeResumo>(entidadesRes.value.data) : []);
+        setCentrosCusto(centrosCustoRes.status === 'fulfilled' ? normalizeListResponse<CentroCustoResumo>(centrosCustoRes.value.data) : []);
 
         const failures = [contasRes, lancamentosRes, categoriasRes, entidadesRes, centrosCustoRes].filter((result) => result.status === 'rejected');
         if (failures.length > 0) {

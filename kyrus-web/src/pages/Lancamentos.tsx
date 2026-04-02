@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api, fetchLancamentosPaged, toPublicAssetUrl } from '../services/api';
+import { api, fetchLancamentosPaged, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { useLookupStore } from '../store/lookupStore';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
@@ -975,7 +975,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
   const refreshContasComSaldo = async () => {
     try {
       const rC = await api.get('/contas/', { params: { include_saldo: true } });
-      setContas(rC.data || []);
+      setContas(normalizeListResponse<any>(rC.data));
     } catch (e) {
       console.error(e);
     }
@@ -1129,7 +1129,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
         fetchEntidadesLookup(),
         fetchPlanoContas()
       ]);
-      setContas(rC.data); setCartoes(rCt.data); setCentros(rCC.data); setEntidades(rE); setCategorias(rCat);
+      setContas(normalizeListResponse<any>(rC.data)); setCartoes(normalizeListResponse<any>(rCt.data)); setCentros(normalizeListResponse<any>(rCC.data)); setEntidades(normalizeListResponse<any>(rE)); setCategorias(normalizeListResponse<any>(rCat));
       auxLoadedRef.current = true;
     } catch(e) { console.error(e); }
   }
@@ -1141,9 +1141,9 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
         fetchPlanoContas(true),
         api.get('/contas/', { params: { include_saldo: true } })
       ]);
-      setEntidades(rE);
-      setCategorias(rCat);
-      setContas(rC.data || []);
+      setEntidades(normalizeListResponse<any>(rE));
+      setCategorias(normalizeListResponse<any>(rCat));
+      setContas(normalizeListResponse<any>(rC.data));
       pushToast('success', 'Cadastros e saldos sincronizados.');
     } catch (e) {
       console.error(e);

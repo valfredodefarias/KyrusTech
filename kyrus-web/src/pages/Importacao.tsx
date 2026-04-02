@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../services/api';
+import { api, normalizeListResponse } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
 import { 
@@ -1860,7 +1860,12 @@ export function Importacao() {
                 api.get('/centro-custo/'),
                 fetchEntidadesLookup()
             ]);
-            setSistemaData({ contas: rContas.data || [], categorias: rCats || [], centros: rCentros.data || [], entidades: rEnt || [] });
+            setSistemaData({
+                contas: normalizeListResponse<Conta>(rContas.data),
+                categorias: normalizeListResponse<ItemSistema>(rCats),
+                centros: normalizeListResponse<any>(rCentros.data),
+                entidades: normalizeListResponse<any>(rEnt),
+            });
     } catch (error) { console.error("Erro dados iniciais", error); setFeedback({ type: 'error', message: 'Falha ao carregar dados.' }); }
   }
 

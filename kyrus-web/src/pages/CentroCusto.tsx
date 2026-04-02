@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../services/api';
+import { api, normalizeListResponse } from '../services/api';
 import { 
   Layers, PlusCircle, Search, Edit3, Trash2, X, Check, 
   Loader2, Hash, Type, Activity, AlertTriangle 
@@ -47,7 +47,7 @@ export function CentroCusto() {
   async function carregarDados() {
     try {
       const res = await api.get('/centro-custo/'); 
-      setCentros(res.data);
+      setCentros(normalizeListResponse<CentroCusto>(res.data));
     } catch (error) {
       console.error("Erro ao listar centros", error);
     } finally {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '../services/api';
+import { api, normalizeListResponse } from '../services/api';
 import { RefreshCw, Search, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react';
 
 interface AuditLogItem {
@@ -49,7 +49,7 @@ export function Auditoria() {
         }
         if (me.data.is_consultor) {
           const resEmp = await api.get('/empresas/');
-          setEmpresas(resEmp.data || []);
+          setEmpresas(normalizeListResponse<EmpresaInfo>(resEmp.data));
         }
       } catch (e) {
         console.error(e);
@@ -82,8 +82,9 @@ export function Auditoria() {
           end: end || undefined
         }
       });
-      setItems(data.items || []);
-      setTotal(data.total || 0);
+      const items = normalizeListResponse<AuditLogItem>(data.items ?? data);
+      setItems(items);
+      setTotal(Number(data?.total ?? items.length ?? 0));
     } catch (e) {
       console.error(e);
     } finally {

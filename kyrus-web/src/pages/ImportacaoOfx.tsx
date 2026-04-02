@@ -18,7 +18,7 @@ import {
 
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { BankAvatar } from '../components/BrandAvatar';
-import { api } from '../services/api';
+import { api, normalizeListResponse } from '../services/api';
 
 function normalizarDescricao(texto?: string | null) {
   if (!texto) return '';
@@ -353,8 +353,8 @@ export function ImportacaoOfx() {
           api.get<ContaItem[]>('/contas/?include_saldo=false'),
           api.get<CartaoItem[]>('/cartoes/'),
         ]);
-        setContas(contasRes.data || []);
-        setCartoes(cartoesRes.data || []);
+        setContas(normalizeListResponse<ContaItem>(contasRes.data));
+        setCartoes(normalizeListResponse<CartaoItem>(cartoesRes.data));
       } catch (error) {
         console.error('Erro ao carregar contas/cartoes', error);
       }
@@ -370,16 +370,16 @@ export function ImportacaoOfx() {
           api.get<EntidadeItem[]>('/entidades/lookup'),
           api.get<any[]>('/lancamentos/?limit=5000'),
         ]);
-        setCategorias(catsRes.data || []);
-        setEntidades(entRes.data || []);
+        setCategorias(normalizeListResponse<CategoriaItem>(catsRes.data));
+        setEntidades(normalizeListResponse<EntidadeItem>(entRes.data));
 
         const entidadesPorId = new Map<number, string>();
-        (entRes.data || []).forEach((ent) => {
+        normalizeListResponse<EntidadeItem>(entRes.data).forEach((ent) => {
           entidadesPorId.set(Number(ent.id), String(ent.nome || ''));
         });
 
         const map: Record<string, LancamentoSugestao> = {};
-        (lancRes.data || []).forEach((lanc) => {
+        normalizeListResponse<any>(lancRes.data).forEach((lanc) => {
           const desc = normalizarDescricao(lanc.descricao);
           if (!desc) return;
           const key = `${lanc.tipo || ''}|${desc}`;
@@ -472,7 +472,7 @@ export function ImportacaoOfx() {
   const reloadEntidadesLookup = async () => {
     try {
       const { data } = await api.get<EntidadeItem[]>('/entidades/lookup');
-      setEntidades(data || []);
+      setEntidades(normalizeListResponse<EntidadeItem>(data));
     } catch (error) {
       console.error('Erro ao recarregar entidades', error);
     }

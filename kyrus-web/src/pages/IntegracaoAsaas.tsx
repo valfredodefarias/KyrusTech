@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api } from '../services/api';
+import { api, normalizeListResponse } from '../services/api';
 import { RefreshCw, Link as LinkIcon, Loader2, Check, X, Plug } from 'lucide-react';
 
 interface Conta {
@@ -138,9 +138,9 @@ export function IntegracaoAsaas() {
         api.get('/plano-contas/'),
         api.get('/integracoes-bancarias/')
       ]);
-      setContas(resContas.data || []);
-      setCategorias(resCategorias.data || []);
-      setIntegracoes(resIntegracoes.data || []);
+      setContas(normalizeListResponse<Conta>(resContas.data));
+      setCategorias(normalizeListResponse<PlanoContas>(resCategorias.data));
+      setIntegracoes(normalizeListResponse<IntegracaoBancaria>(resIntegracoes.data));
     } catch (e) {
       console.error(e);
     } finally {
@@ -151,7 +151,7 @@ export function IntegracaoAsaas() {
   async function carregarTiposAsaas(integracaoId: number) {
     try {
       const { data } = await api.get(`/integracoes-bancarias/${integracaoId}/tipos-asaas`);
-      setTiposAsaas(data || []);
+      setTiposAsaas(normalizeListResponse<TipoAsaas>(data));
     } catch (e) {
       console.error(e);
       setTiposAsaas([]);
@@ -161,9 +161,9 @@ export function IntegracaoAsaas() {
   async function carregarMapeamentos(integracaoId: number) {
     try {
       const { data } = await api.get(`/integracoes-bancarias/${integracaoId}/mapeamentos`);
-      setMapeamentos(data || []);
+      setMapeamentos(normalizeListResponse<MapeamentoCategoria>(data));
       const nextSelections: Record<string, number | ''> = {};
-      (data || []).forEach((m: MapeamentoCategoria) => {
+      normalizeListResponse<MapeamentoCategoria>(data).forEach((m) => {
         nextSelections[m.categoria_externa] = m.plano_contas_id;
       });
       setMappingSelections(nextSelections);
@@ -178,7 +178,7 @@ export function IntegracaoAsaas() {
       const { data } = await api.get(`/integracoes-bancarias/${integracaoId}/asaas/cobrancas`, {
         params: { limit }
       });
-      setCobrancas(data || []);
+      setCobrancas(normalizeListResponse<CobrancaAsaas>(data));
     } catch (e) {
       console.error(e);
       setCobrancas([]);
@@ -190,7 +190,7 @@ export function IntegracaoAsaas() {
       const { data } = await api.get(`/integracoes-bancarias/${integracaoId}/asaas/assinaturas`, {
         params: { limit }
       });
-      setAssinaturas(data || []);
+      setAssinaturas(normalizeListResponse<AssinaturaAsaas>(data));
     } catch (e) {
       console.error(e);
       setAssinaturas([]);
@@ -202,8 +202,8 @@ export function IntegracaoAsaas() {
       const { data } = await api.get(`/integracoes-bancarias/${integracaoId}/asaas/contas-receber`, {
         params: { limit }
       });
-      setContasReceberAbertas(data?.abertas || []);
-      setContasReceberAtrasadas(data?.atrasadas || []);
+      setContasReceberAbertas(normalizeListResponse<CobrancaAsaas>(data?.abertas));
+      setContasReceberAtrasadas(normalizeListResponse<CobrancaAsaas>(data?.atrasadas));
     } catch (e) {
       console.error(e);
       setContasReceberAbertas([]);

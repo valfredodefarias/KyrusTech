@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BankAvatar } from '../components/BrandAvatar';
-import { api, toPublicAssetUrl } from '../services/api';
+import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { useBankPresetStore, type BankPreset } from '../store/bankPresetStore';
 import { PlanoContasManager } from './Importacao';
 import type { ItemSistema } from './Importacao';
@@ -374,7 +374,7 @@ export function Consultor() {
     try {
       const res = await api.get('/consultor/super/consultores');
       // Backend retorna { id, nome, email, consultor_role }
-      const formatted = res.data.map((c: any) => ({
+      const formatted = normalizeListResponse<Consultor>(res.data).map((c) => ({
         id: c.id,
         nome: c.nome || c.email,  // Usar nome real, fallback para email
         email: c.email,
@@ -389,7 +389,7 @@ export function Consultor() {
   async function carregarEmpresas() {
     try {
       const res = await api.get('/consultor/empresas'); 
-      setEmpresas(res.data);
+      setEmpresas(normalizeListResponse<Empresa>(res.data));
     } catch (error) {
       console.error("Erro ao listar empresas", error);
     } finally {
@@ -401,7 +401,7 @@ export function Consultor() {
     try {
       setLoadingUsuarios(true);
       const res = await api.get('/consultor/super/usuarios');
-      setUsuarios(res.data);
+      setUsuarios(normalizeListResponse<UsuarioItem>(res.data));
     } catch (error) {
       console.error("Erro ao listar usuários", error);
     } finally {
@@ -414,7 +414,7 @@ export function Consultor() {
       setLoadingTemplateCategorias(true);
       setTemplateCategoriasError(null);
       const res = await api.get(`/consultor/super/plano-contas-templates/${tipoPessoa}`);
-      setTemplateCategorias(res.data || []);
+      setTemplateCategorias(normalizeListResponse<ItemSistema>(res.data));
     } catch (error) {
       const message = getApiErrorDetails(error, `Nao foi possivel carregar o template ${tipoPessoa}.`);
       console.error(`[CONSULTOR][TEMPLATE] Falha ao carregar template ${tipoPessoa}`, {
@@ -477,7 +477,7 @@ export function Consultor() {
   async function carregarPlanoContasEmpresaOpcoes(empresaId: number) {
     try {
       const res = await api.get<EmpresaPlanoContasOption[]>(`/consultor/super/empresas/${empresaId}/plano-contas-opcoes`);
-      setEmpresaPlanoOptions(res.data || []);
+      setEmpresaPlanoOptions(normalizeListResponse<EmpresaPlanoContasOption>(res.data));
     } catch (error) {
       console.error('[CONSULTOR][AUTO-AJUSTE][EMPRESA] Falha ao carregar categorias', error);
       setEmpresaPlanoOptions([]);
@@ -523,8 +523,9 @@ export function Consultor() {
     try {
       setLoadingBankPresets(true);
       const res = await api.get<BankPreset[]>('/bank-presets/', { params: { include_inactive: true } });
-      setBankPresets(res.data || []);
-      setBankPresetStore((res.data || []).filter((item) => item.is_active));
+      const presets = normalizeListResponse<BankPreset>(res.data);
+      setBankPresets(presets);
+      setBankPresetStore(presets.filter((item) => item.is_active));
     } catch (error) {
       console.error('Erro ao listar presets de banco', error);
     } finally {
@@ -781,7 +782,7 @@ export function Consultor() {
     try {
       const res = await api.get(`/consultor/super/consultores/${consultor.id}/empresas`);
       // Backend retorna array de { acesso_id, empresa_id, nome_fantasia, ativo }
-      const formatted = res.data.map((ce: any) => ({
+      const formatted = normalizeListResponse<any>(res.data).map((ce) => ({
         empresa_id: ce.empresa_id,
         empresa_nome: ce.nome_fantasia || ce.empresa_nome,
         ativo: ce.ativo
@@ -799,7 +800,7 @@ export function Consultor() {
       await api.post(`/consultor/super/consultores/${consultorId}/empresas/${empresaId}/adicionar`);
       // Recarregar empresas do consultor
       const res = await api.get(`/consultor/super/consultores/${consultorId}/empresas`);
-      const formatted = res.data.map((ce: any) => ({
+      const formatted = normalizeListResponse<any>(res.data).map((ce) => ({
         empresa_id: ce.empresa_id,
         empresa_nome: ce.nome_fantasia || ce.empresa_nome,
         ativo: ce.ativo
@@ -815,7 +816,7 @@ export function Consultor() {
       await api.post(`/consultor/super/consultores/${consultorId}/empresas/${empresaId}/revogar`);
       // Recarregar empresas do consultor
       const res = await api.get(`/consultor/super/consultores/${consultorId}/empresas`);
-      const formatted = res.data.map((ce: any) => ({
+      const formatted = normalizeListResponse<any>(res.data).map((ce) => ({
         empresa_id: ce.empresa_id,
         empresa_nome: ce.nome_fantasia || ce.empresa_nome,
         ativo: ce.ativo

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, FileText, Loader2, UploadCloud } from 'lucide-react';
 
-import { api } from '../services/api';
+import { api, normalizeListResponse } from '../services/api';
 
 interface CategoriaItem {
   id: number;
@@ -248,13 +248,13 @@ export function ImportacaoNfe() {
 
         if (!ativo) return;
 
-        const categoriasValidas = (categoriasRes.data || []).filter((item) => {
+        const categoriasValidas = normalizeListResponse<CategoriaItem>(categoriasRes.data).filter((item) => {
           const ativa = String(item.status || 'ATIVO').toUpperCase() !== 'INATIVO';
           return ativa && !item.eh_cabecalho && item.permite_lancamentos !== false;
         });
 
         setCategorias(categoriasValidas);
-        setEntidades(entidadesRes.data || []);
+        setEntidades(normalizeListResponse<EntidadeItem>(entidadesRes.data));
       } catch (error) {
         if (!ativo) return;
         setFeedback({ type: 'error', message: 'Erro ao carregar categorias e entidades.' });

@@ -15,6 +15,188 @@ import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
 interface ContaResumo {
   id: number;
+  nome: string;
+  banco?: string | null;
+  logo_url?: string | null;
+  centro_custo_id?: number | null;
+  tipo: string;
+  saldo_inicial: number;
+  saldo_atual?: number;
+  status?: 'ATIVO' | 'INATIVO' | string;
+  conta_como_disponibilidade?: boolean;
+}
+
+interface LancamentoResumo {
+  id: number;
+  descricao: string;
+  tipo: string;
+  status: string;
+  data_vencimento: string;
+  data_pagamento?: string | null;
+  data_competencia?: string | null;
+  competencia?: string | null;
+  valor_previsto: number;
+  valor_pago?: number | null;
+  plano_contas_id?: number | null;
+  conta_id?: number | null;
+  entidade_id?: number | null;
+  centro_custo_id?: number | null;
+}
+
+interface PlanoContaResumo {
+  id: number;
+  nome: string;
+  tipo: string;
+  conta_pai_id?: number | null;
+  eh_operacional?: boolean;
+  dre_grupo?: string;
+}
+
+interface ContaSaldoMovimento {
+  id: number;
+  descricao: string;
+  tipo: string;
+  status: string;
+  data_vencimento: string;
+  data_pagamento?: string | null;
+  valor_entrada: number;
+  valor_saida: number;
+  saldo_apos_movimento?: number | null;
+}
+
+interface ContaSaldoDetalhe {
+  conta_id: number;
+  conta_nome: string;
+  saldo_atual: number;
+  quantidade_movimentos: number;
+  movimentos: ContaSaldoMovimento[];
+}
+
+interface EntidadeResumo {
+  id: number;
+  nome: string;
+  nome_fantasia?: string | null;
+}
+
+interface CentroCustoResumo {
+  id: number;
+  nome: string;
+  codigo?: string | null;
+}
+
+interface UserInfo {
+  empresa_id?: number | null;
+  is_consultor?: boolean;
+}
+
+interface EmpresaInfo {
+  id?: number;
+  nome_fantasia: string;
+  razao_social?: string;
+  cor_primaria?: string;
+  logo_url?: string | null;
+}
+
+interface ConsultorContextoResponse {
+  empresa_atual: EmpresaInfo;
+}
+
+type ViewMode = 'executivo' | 'pay-receive';
+type StatusFilter = 'TODOS' | 'PAGO' | 'EM_ABERTO' | 'ATRASADO' | 'HOJE' | 'AMANHA';
+type FlowFilter = 'ALL' | 'PAGAMENTO' | 'RECEBIMENTO';
+
+interface NormalizedRow {
+  id: number;
+  descricao: string;
+  flowType: FlowFilter;
+  statusKey: StatusFilter;
+  statusLabel: string;
+  dataVencimento: string;
+  monthIndex: number;
+  dayOfMonth: number;
+  valor: number;
+  valorAbsoluto: number;
+  interessado: string;
+  contaId?: number | null;
+  contaNome: string;
+}
+
+type AuditPanelMode = 'LANCAMENTOS' | 'EXTRATO_BANCO';
+
+interface AuditPanelState {
+  mode: AuditPanelMode;
+  title: string;
+  subtitle: string;
+  rows?: NormalizedRow[];
+  conta?: ContaResumo;
+  extrato?: ContaSaldoDetalhe;
+}
+
+const BRL = new Intl.NumberFormat('pt-BR', {
+  style: 'currency',
+  currency: 'BRL',
+  maximumFractionDigits: 0,
+});
+
+const MONTH_NAMES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+function normalizeText(value?: string | null) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function parseDateOnly(value?: string | null) {
+  if (!value) return null;
+  const datePart = value.slice(0, 10);
+  const [y, m, d] = datePart.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+function toIsoDate(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+}
+
+function formatDate(value?: string | null) {
+  const parsed = parseDateOnly(value);
+  return parsed ? parsed.toLocaleDateString('pt-BR') : '-';
+}
+
+function formatCurrency(value: number) {
+  return BRL.format(value).replace(/\s/g, '\u00A0');
+}
+
+function getValueTone(value: number, isDark: boolean) {
+  if (value < 0) return isDark ? 'text-rose-300' : 'text-rose-600';
+  if (value > 0) return isDark ? 'text-emerald-300' : 'text-emerald-600';
+  return isDark ? 'text-white' : 'text-slate-900';
+}
+
+function getStatusLabel(status: StatusFilter) {
+  const labels: Record<StatusFilter, string> = {
+    TODOS: 'Todos',
+    PAGO: 'Pago',
+    EM_ABERTO: 'Em aberto',
+    ATRASADO: 'Atrasado',
+    HOJE: 'Vence hoje',
+    AMANHA: 'Vence amanh├ú',
+  };
+  return labels[status];
+}
+
+function isReceita(tipo?: string | null) {
+  return String(tipo || '').toUpperCase().startsWith('R');
+}
+
+function isDespesa(tipo?: string | null) {
+  return String(tipo || '').toUpperCase().startsWith('D');
+}
+
+function parseCompetenciaMonthIndex(competencia?: string | null) {
+  if (!competencia) return -1;
+  const match = String(competencia).trim().match(/^(\d{2})-(\d{4})$/);
   if (!match) return -1;
   const month = Number(match[1]);
   return Number.isFinite(month) && month >= 1 && month <= 12 ? month - 1 : -1;
@@ -973,6 +1155,8 @@ export function Boletim() {
                   })}
                 </div>
               </section>
+
+            </div>
 
             <section className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
               <div className="mb-5 flex items-center justify-between gap-3">

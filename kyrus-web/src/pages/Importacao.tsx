@@ -1861,7 +1861,7 @@ export function Importacao() {
                 fetchEntidadesLookup()
             ]);
             setSistemaData({
-                contas: normalizeListResponse<Conta>(rContas.data),
+                contas: normalizeListResponse<any>(rContas.data),
                 categorias: normalizeListResponse<ItemSistema>(rCats),
                 centros: normalizeListResponse<any>(rCentros.data),
                 entidades: normalizeListResponse<any>(rEnt),

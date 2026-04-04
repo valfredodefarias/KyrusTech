@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, fetchLancamentosPaged, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
 import { RbacManager } from '../components/RbacManager';
 import { 
   Building2, UploadCloud, Layers, Save, Loader2, 
   Palette, Check, AlertCircle, Camera, RefreshCw,
-  Download, CalendarRange, Landmark, Trash2
+  Download, CalendarRange, Landmark, Trash2, Users,
+  PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
+import { Entidades } from './Entidades';
 
 // Importa os componentes do arquivo de Importação
 // ATENÇÃO: Certifique-se de que eles estão exportados no arquivo de origem!
@@ -69,8 +72,6 @@ const DadosEmpresa = () => {
   const [cor, setCor] = useState('#2563eb');
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [userPhotoFile, setUserPhotoFile] = useState<File | null>(null);
-  const [userPhotoPreview, setUserPhotoPreview] = useState<string | null>(null);
   const invalidatePlanoContas = useLookupStore((state) => state.invalidatePlanoContas);
   const canResetEmpresa = AUTHORIZED_COMPANY_RESET_EMAILS.includes((user?.email || '').trim().toLowerCase());
 
@@ -85,21 +86,10 @@ const DadosEmpresa = () => {
     }
   }, [logoFile]);
 
-  useEffect(() => {
-    if (userPhotoFile) {
-      const url = URL.createObjectURL(userPhotoFile);
-      setUserPhotoPreview(url);
-      return () => URL.revokeObjectURL(url);
-    }
-  }, [userPhotoFile]);
-
   async function loadEmpresa() {
     try {
       const { data: userData } = await api.get<UserInfo & { empresa_id?: number }>('/usuarios/me');
       setUser(userData);
-      if (userData.foto_url) {
-        setUserPhotoPreview(toPublicAssetUrl(userData.foto_url));
-      }
       if (userData.empresa_id) {
         const { data: emp } = await api.get(`/empresas/${userData.empresa_id}`);
         setEmpresa(emp);
@@ -119,34 +109,10 @@ const DadosEmpresa = () => {
     }
   };
 
-  const handleUserPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setUserPhotoFile(e.target.files[0]);
-    }
-  };
-
-  async function handleRemoveUserPhoto() {
-    try {
-      await api.delete('/usuarios/me/foto');
-      setUserPhotoFile(null);
-      setUserPhotoPreview(null);
-      setUser(prev => prev ? { ...prev, foto_url: null } : prev);
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao remover foto.');
-    }
-  }
-
   async function handleSave() {
     if (!empresa) return;
     setSaving(true);
     try {
-       if (userPhotoFile) {
-         const fdUser = new FormData();
-         fdUser.append('file', userPhotoFile);
-         const { data } = await api.post('/usuarios/me/foto', fdUser);
-         setUser(data);
-       }
         // 1. Upload da Logo (se houve alteração)
         if (logoFile) {
              const fdLogo = new FormData();
@@ -205,7 +171,7 @@ const DadosEmpresa = () => {
   if (!empresa) return <div className="p-10 text-center text-slate-500">Empresa não encontrada.</div>;
 
   return (
-    <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4">
+    <div className="w-full animate-in fade-in slide-in-from-bottom-4">
       <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 sm:p-8 shadow-xl">
         
         {/* CABEÇALHO COM LOGO (CROPADA/REDONDA) */}
@@ -247,43 +213,6 @@ const DadosEmpresa = () => {
                     <Check className="w-3 h-3"/> CONTA ATIVA
                 </span>
             </div>
-          </div>
-        </div>
-
-        {/* FOTO DO USUÁRIO */}
-        <div className="mb-10">
-          <label className="text-xs font-bold text-slate-700 dark:text-white uppercase mb-4 flex items-center gap-2">
-            <Camera className="w-4 h-4 text-blue-500"/> Minha Foto
-          </label>
-          <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center gap-6">
-            <div className="relative group">
-              <div className="w-24 h-24 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center overflow-hidden border-4 border-slate-200 dark:border-slate-700 shadow-xl">
-                {userPhotoPreview ? (
-                  <img src={userPhotoPreview} className="w-full h-full object-cover" alt="Foto do usuário" />
-                ) : (
-                  <span className="text-xl font-bold text-slate-400 bg-slate-200 dark:bg-slate-800 w-full h-full flex items-center justify-center">
-                    {(user?.nome || user?.email || 'U').substring(0,2).toUpperCase()}
-                  </span>
-                )}
-              </div>
-              <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full cursor-pointer shadow-lg transition-transform hover:scale-110 border-4 border-white dark:border-slate-800">
-                <Camera className="w-4 h-4"/>
-                <input type="file" accept="image/*" className="hidden" onChange={handleUserPhotoChange}/>
-              </label>
-            </div>
-            <div className="flex-1 text-center sm:text-left">
-              <p className="text-slate-900 dark:text-white font-bold mb-1">{user?.nome || user?.email}</p>
-              <p className="text-sm text-slate-400">Sua foto aparece na sidebar e nos dashboards.</p>
-            </div>
-            {userPhotoPreview && (
-              <button
-                type="button"
-                onClick={handleRemoveUserPhoto}
-                className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-              >
-                Remover
-              </button>
-            )}
           </div>
         </div>
 
@@ -361,6 +290,155 @@ const DadosEmpresa = () => {
             </div>
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+};
+
+const DadosUsuario = () => {
+  const [user, setUser] = useState<UserInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [userPhotoFile, setUserPhotoFile] = useState<File | null>(null);
+  const [userPhotoPreview, setUserPhotoPreview] = useState<string | null>(null);
+
+  useEffect(() => {
+    void loadUser();
+  }, []);
+
+  useEffect(() => {
+    if (!userPhotoFile) return;
+    const url = URL.createObjectURL(userPhotoFile);
+    setUserPhotoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [userPhotoFile]);
+
+  async function loadUser() {
+    try {
+      const { data } = await api.get<UserInfo>('/usuarios/me');
+      setUser(data);
+      if (data?.foto_url) {
+        setUserPhotoPreview(toPublicAssetUrl(data.foto_url));
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const handleUserPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files[0]) {
+      setUserPhotoFile(event.target.files[0]);
+    }
+  };
+
+  async function handleRemoveUserPhoto() {
+    try {
+      await api.delete('/usuarios/me/foto');
+      setUserPhotoFile(null);
+      setUserPhotoPreview(null);
+      setUser((prev) => (prev ? { ...prev, foto_url: null } : prev));
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao remover foto do usuário.');
+    }
+  }
+
+  async function handleSave() {
+    if (!userPhotoFile) return;
+    setSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', userPhotoFile);
+      const { data } = await api.post<UserInfo>('/usuarios/me/foto', fd);
+      setUser(data);
+      setUserPhotoFile(null);
+      if (data?.foto_url) {
+        setUserPhotoPreview(toPublicAssetUrl(data.foto_url));
+      }
+      alert('Dados do usuário salvos com sucesso!');
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao salvar dados do usuário.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>;
+  if (!user) return <div className="p-10 text-center text-slate-500">Usuário não encontrado.</div>;
+
+  return (
+    <div className="w-full animate-in fade-in slide-in-from-bottom-4">
+      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 sm:p-8 shadow-xl">
+        <div className="mb-8 rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-900/50">
+          <label className="text-xs font-bold text-slate-700 dark:text-white uppercase mb-4 flex items-center gap-2">
+            <Camera className="w-4 h-4 text-blue-500" /> Minha Foto
+          </label>
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+            <div className="relative group">
+              <div className="w-24 h-24 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center overflow-hidden border-4 border-slate-200 dark:border-slate-700 shadow-xl">
+                {userPhotoPreview ? (
+                  <img src={userPhotoPreview} className="w-full h-full object-cover" alt="Foto do usuário" />
+                ) : (
+                  <span className="text-xl font-bold text-slate-400 bg-slate-200 dark:bg-slate-800 w-full h-full flex items-center justify-center">
+                    {(user?.nome || user?.email || 'U').substring(0, 2).toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full cursor-pointer shadow-lg transition-transform hover:scale-110 border-4 border-white dark:border-slate-800">
+                <Camera className="w-4 h-4" />
+                <input type="file" accept="image/*" className="hidden" onChange={handleUserPhotoChange} />
+              </label>
+            </div>
+
+            <div className="flex-1">
+              <p className="text-slate-900 dark:text-white font-bold text-lg">{user?.nome || 'Usuário sem nome'}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-300">{user?.email}</p>
+              <p className="mt-1 text-sm text-slate-400">Sua foto aparece na sidebar e nos dashboards.</p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {userPhotoPreview ? (
+                <button
+                  type="button"
+                  onClick={handleRemoveUserPhoto}
+                  className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                >
+                  Remover
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={!userPhotoFile || saving}
+                className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? 'Salvando...' : 'Salvar foto'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-2">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Nome</label>
+            <input
+              disabled
+              value={user.nome || ''}
+              className="w-full p-4 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 font-medium cursor-not-allowed opacity-70"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">E-mail</label>
+            <input
+              disabled
+              value={user.email || ''}
+              className="w-full p-4 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 font-medium cursor-not-allowed opacity-70"
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -647,55 +725,116 @@ const ExportacaoFinanceira = () => {
 
 // --- PÁGINA PRINCIPAL ---
 export function Configuracoes() {
-  const [activeTab, setActiveTab] = useState<'EMPRESA' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO' | 'RBAC'>('EMPRESA');
+  type ConfigTab = 'EMPRESA' | 'USUARIO' | 'INTERESSADOS' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO' | 'RBAC';
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [menuCollapsed, setMenuCollapsed] = useState(false);
 
-  // Classe utilitária para as abas (Estilo Sênior)
-  const getTabClass = (tab: string) => `
-    flex-1 py-4 text-sm font-bold border-b-2 transition-all flex items-center justify-center gap-2 cursor-pointer select-none
-    ${activeTab === tab 
-      ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-slate-100 dark:bg-slate-800/50' 
-      : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30'}
-  `;
+  const isConfigTab = (value: string | null): value is ConfigTab => {
+    return value === 'EMPRESA' || value === 'USUARIO' || value === 'INTERESSADOS' || value === 'PLANO' || value === 'IMPORTACAO' || value === 'FINANCEIRO' || value === 'RBAC';
+  };
+
+  const [activeTab, setActiveTab] = useState<ConfigTab>(() => {
+    const queryTab = searchParams.get('tab');
+    return isConfigTab(queryTab) ? queryTab : 'EMPRESA';
+  });
+
+  useEffect(() => {
+    const queryTab = searchParams.get('tab');
+    if (isConfigTab(queryTab)) {
+      setActiveTab((prev) => (prev === queryTab ? prev : queryTab));
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const currentTab = searchParams.get('tab');
+    if ((activeTab === 'EMPRESA' && currentTab === null) || currentTab === activeTab) {
+      return;
+    }
+
+    const next = new URLSearchParams(searchParams);
+    if (activeTab === 'EMPRESA') {
+      next.delete('tab');
+    } else {
+      next.set('tab', activeTab);
+    }
+    setSearchParams(next, { replace: true });
+  }, [activeTab, searchParams, setSearchParams]);
+
+  const tabs: Array<{ key: ConfigTab; label: string; description: string; icon: typeof Building2 }> = [
+    { key: 'EMPRESA', label: 'Minha Empresa', description: 'Identidade visual e dados da conta', icon: Building2 },
+    { key: 'USUARIO', label: 'Meu Usuário', description: 'Foto e dados da conta', icon: Camera },
+    { key: 'INTERESSADOS', label: 'Interessados', description: 'Clientes, fornecedores e contatos', icon: Users },
+    { key: 'PLANO', label: 'Plano de Contas', description: 'Estrutura e organização contábil', icon: Layers },
+    { key: 'IMPORTACAO', label: 'Importação de Dados', description: 'Entradas em lote e conciliações', icon: UploadCloud },
+    { key: 'FINANCEIRO', label: 'Exportação Financeira', description: 'Extração por conta e período', icon: Download },
+    { key: 'RBAC', label: 'Perfis de Acesso', description: 'Permissões e governança', icon: Layers },
+  ];
+
+  const getTabClass = (tab: ConfigTab) => {
+    const active = activeTab === tab;
+    return `flex w-full rounded-xl border transition ${menuCollapsed ? 'items-center justify-center px-2 py-2.5' : 'items-start gap-3 px-3 py-3 text-left'} ${active ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/50 dark:bg-blue-500/10 dark:text-blue-300' : 'border-transparent text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60'}`;
+  };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 overflow-y-auto custom-scrollbar">
-      
-      {/* HEADER FIXO COM TABS */}
-      <div className="sticky top-0 z-30 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700 px-6 pt-6">
-        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-6">Configurações</h1>
-        
-        {/* TAB NAVIGATION */}
-        <div className="flex w-full max-w-4xl border-b border-slate-200 dark:border-slate-800">
-            <button onClick={() => setActiveTab('EMPRESA')} className={getTabClass('EMPRESA')}>
-                <Building2 className="w-4 h-4"/> Minha Empresa
-            </button>
-            <button onClick={() => setActiveTab('PLANO')} className={getTabClass('PLANO')}>
-                <Layers className="w-4 h-4"/> Plano de Contas
-            </button>
-            <button onClick={() => setActiveTab('IMPORTACAO')} className={getTabClass('IMPORTACAO')}>
-                <UploadCloud className="w-4 h-4"/> Importação de Dados
-            </button>
-            <button onClick={() => setActiveTab('FINANCEIRO')} className={getTabClass('FINANCEIRO')}>
-              <Download className="w-4 h-4"/> Exportação Financeira
-            </button>
-            <button onClick={() => setActiveTab('RBAC')} className={getTabClass('RBAC')}>
-              <Layers className="w-4 h-4"/> Perfis de Acesso
-            </button>
-        </div>
-      </div>
-
-      {/* ÁREA DE CONTEÚDO */}
-      <div className="p-6 pb-20">
-        {activeTab === 'EMPRESA' && <DadosEmpresa />}
-        {activeTab === 'PLANO' && <GestaoPlanoContas />}
-        {activeTab === 'IMPORTACAO' && (
-            <div className="animate-in fade-in slide-in-from-right-4">
-                {/* Importação Completa */}
-                <Importacao /> 
+    <div className="flex h-full min-h-0 flex-col bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+      <div className="flex w-full min-h-0 flex-1 flex-col px-4 pb-6 pt-5 sm:px-6">
+        <div className={`grid min-h-0 flex-1 gap-4 ${menuCollapsed ? 'lg:grid-cols-[86px_minmax(0,1fr)]' : 'lg:grid-cols-[280px_minmax(0,1fr)]'}`}>
+          <aside className="custom-scrollbar rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-800/80 lg:max-h-full lg:overflow-y-auto">
+            <div className={`mb-2 flex ${menuCollapsed ? 'justify-center' : 'justify-end'}`}>
+              <button
+                type="button"
+                onClick={() => setMenuCollapsed((prev) => !prev)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
+                title={menuCollapsed ? 'Expandir menu' : 'Recolher menu'}
+                aria-label={menuCollapsed ? 'Expandir menu de configurações' : 'Recolher menu de configurações'}
+              >
+                {menuCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+              </button>
             </div>
-        )}
-        {activeTab === 'FINANCEIRO' && <ExportacaoFinanceira />}
-        {activeTab === 'RBAC' && <RbacManager />}
+            <div className="space-y-1">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setActiveTab(tab.key)}
+                    className={getTabClass(tab.key)}
+                    title={menuCollapsed ? tab.label : undefined}
+                  >
+                    <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-700/70 dark:text-slate-200">
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    {!menuCollapsed ? (
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-bold">{tab.label}</span>
+                        <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{tab.description}</span>
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+
+          <section className="custom-scrollbar min-h-0 overflow-y-auto pr-1">
+            {activeTab === 'EMPRESA' && <DadosEmpresa />}
+            {activeTab === 'USUARIO' && <DadosUsuario />}
+            {activeTab === 'INTERESSADOS' && (
+              <div className="min-h-[74vh] animate-in fade-in slide-in-from-right-4">
+                <Entidades />
+              </div>
+            )}
+            {activeTab === 'PLANO' && <GestaoPlanoContas />}
+            {activeTab === 'IMPORTACAO' && (
+              <div className="animate-in fade-in slide-in-from-right-4">
+                <Importacao />
+              </div>
+            )}
+            {activeTab === 'FINANCEIRO' && <ExportacaoFinanceira />}
+            {activeTab === 'RBAC' && <RbacManager />}
+          </section>
+        </div>
       </div>
     </div>
   );

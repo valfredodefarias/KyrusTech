@@ -104,6 +104,13 @@ const moneyFormatter = new Intl.NumberFormat('pt-BR', {
   maximumFractionDigits: 0,
 });
 
+const moneyDetailFormatter = new Intl.NumberFormat('pt-BR', {
+  style: 'currency',
+  currency: 'BRL',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 const percentFormatter = new Intl.NumberFormat('pt-BR', {
   style: 'percent',
   minimumFractionDigits: 1,
@@ -178,16 +185,6 @@ function normalizeText(value?: string | null) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
-}
-
-function formatDateBr(dateValue?: string | null) {
-  if (!dateValue) return '-';
-  const safe = String(dateValue).slice(0, 10);
-  const parts = safe.split('-');
-  if (parts.length !== 3) return safe;
-  const [year, month, day] = parts;
-  if (!year || !month || !day) return safe;
-  return `${day}/${month}/${year}`;
 }
 
 function useIsDarkMode() {
@@ -398,10 +395,6 @@ export function Dre() {
       return true;
     });
   }, [lancamentos, selectedCentroCustoId, somentePagos]);
-
-  const contaNomePorId = useMemo(() => {
-    return new Map(contas.map((conta) => [conta.id, conta.banco || conta.nome || 'Sem banco']));
-  }, [contas]);
 
   const entidadeNomePorId = useMemo(() => {
     return new Map(entidades.map((entidade) => [entidade.id, entidade.nome_fantasia || entidade.nome || 'Sem interessado']));
@@ -1321,29 +1314,29 @@ export function Dre() {
                   <table className="w-full text-sm">
                     <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
                       <tr>
-                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">{somentePagos ? 'Data pagamento' : 'Competencia'}</th>
                         <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
                         <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
                         <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
-                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Banco</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {auditPanel.rows.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
+                          <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
                         </tr>
                       ) : auditMetaLoading && contas.length === 0 && entidades.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Carregando detalhes de banco e interessado...</td>
+                          <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Carregando detalhes de banco e interessado...</td>
                         </tr>
                       ) : auditPanel.rows.map((item) => {
-                        const contaNome = contaNomePorId.get(Number(item.conta_id)) || 'Sem banco';
                         const interessadoNome = entidadeNomePorId.get(Number(item.entidade_id)) || 'Sem interessado';
                         const valor = resolveLancamentoValue(item, somentePagos);
                         const valorClass = valor >= 0
                           ? (isDark ? 'text-emerald-300' : 'text-emerald-600')
                           : (isDark ? 'text-rose-300' : 'text-rose-600');
+                        const statusLabel = String(item.status || '').trim() || (isLancamentoPago(item) ? 'PAGO' : 'EM ABERTO');
+                        const statusKey = statusLabel.toUpperCase();
 
                         return (
                           <tr
@@ -1352,11 +1345,14 @@ export function Dre() {
                             className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
                             title="Abrir edição do lançamento"
                           >
-                            <td className="px-3 py-2.5 whitespace-nowrap">{somentePagos ? formatDateBr(item.data_pagamento) : (item.competencia || formatDateBr(item.data_competencia))}</td>
-                            <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${valorClass}`}>{moneyFormatter.format(Math.abs(valor))}</td>
+                            <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${valorClass}`}>{moneyDetailFormatter.format(Math.abs(valor))}</td>
                             <td className="px-3 py-2.5">{interessadoNome}</td>
                             <td className="max-w-72 truncate px-3 py-2.5" title={item.descricao}>{item.descricao}</td>
-                            <td className="px-3 py-2.5">{contaNome}</td>
+                            <td className="px-3 py-2.5">
+                              <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                                {statusLabel}
+                              </span>
+                            </td>
                           </tr>
                         );
                       })}
@@ -1376,20 +1372,7 @@ export function Dre() {
               onClick={() => setInlineLancamentoParams(null)}
               aria-label="Fechar editor"
             />
-            <aside className="absolute right-0 top-0 flex h-full w-[clamp(420px,34vw,640px)] max-w-[100vw] flex-col border-l border-slate-200 bg-white shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] dark:border-slate-700 dark:bg-slate-950">
-              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-                <div>
-                  <div className="text-sm font-black uppercase tracking-[0.16em] text-slate-800 dark:text-slate-100">Editar lançamento</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Formulário da tela de lançamentos, sem sair da DRE.</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setInlineLancamentoParams(null)}
-                  className="rounded-full border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                >
-                  Fechar
-                </button>
-              </div>
+            <aside className="absolute right-0 top-0 h-full w-[clamp(420px,34vw,640px)] max-w-[100vw] border-l border-slate-200 bg-white shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] dark:border-slate-700 dark:bg-slate-950">
               <div className="h-full w-full overflow-hidden">
                 <Lancamentos
                   key={inlineLancamentoParams.toString()}

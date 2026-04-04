@@ -573,7 +573,7 @@ export function Cartoes() {
         </div>
       </header>
 
-      <div className="p-6 space-y-8 max-w-7xl mx-auto w-full">
+    <div className="w-full space-y-8 p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredCartoes.length === 0 && !loading && (
                 <div className="col-span-full py-12 text-center text-slate-500 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl">Nenhum cartão encontrado. Clique em "Novo" para criar.</div>

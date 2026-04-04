@@ -39,6 +39,9 @@ interface ToastItem {
   message: string;
 }
 
+type ListaSortKey = 'descricao' | 'interessado' | 'valor' | 'status';
+type ListaSortDirection = 'asc' | 'desc';
+
 // --- UTILS (CORREÇÃO DE DATA) ---
 const fixDate = (dateString: string) => {
   if (!dateString) return null;
@@ -501,6 +504,10 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
   const [filtrosRailCollapsed, setFiltrosRailCollapsed] = useState(() => localStorage.getItem('lancamentos.filtrosRailCollapsed') === '1');
+  const [listaSort, setListaSort] = useState<{ key: ListaSortKey; direction: ListaSortDirection }>({
+    key: 'valor',
+    direction: 'desc',
+  });
   const [boletimIdsFiltro, setBoletimIdsFiltro] = useState<Set<number> | null>(null);
   // Barra/ações em lote
   const [showBulkPay, setShowBulkPay] = useState(false);
@@ -678,7 +685,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
     return Boolean(parseDescricaoParcela(formData?.descricao));
   }, [isEditing, formData?.id_parcelamento, formData?.numero_parcela, formData?.descricao]);
 
-  const shouldShowParcelasSerie = isEditingParcelado || showParcelasSeriePanel;
+  const shouldShowParcelasSerie = !isBoletimEmbed && (isEditingParcelado || showParcelasSeriePanel);
 
   const loadParcelasSerie = async (parcelamentoId?: string, referencia?: Lancamento) => {
     if (!parcelamentoId) {
@@ -1358,6 +1365,44 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
     const groups: Record<string, Lancamento[]> = {};
     let r = 0, d = 0;
     const categoriasOperacionaisResultado = buildOperationalCategoriaIds(categorias);
+    const interessadosPorId = new Map(
+      entidades.map((entidade: any) => [
+        Number(entidade.id),
+        String(entidade.nome || entidade.razao_social || ''),
+      ]),
+    );
+
+    const statusRank = (item: Lancamento) => {
+      const pago = String(item.status).toUpperCase() === 'PAGO';
+      const atrasado = isLancamentoAtrasado(item);
+      if (atrasado) return 0;
+      if (!pago && String(item.status).toUpperCase() === 'PENDENTE') return 1;
+      if (!pago && String(item.status).toUpperCase() === 'EM ABERTO') return 2;
+      if (pago) return 3;
+      return 4;
+    };
+
+    const compareLancamentos = (a: Lancamento, b: Lancamento) => {
+      let result = 0;
+
+      if (listaSort.key === 'descricao') {
+        result = String(a.descricao || '').localeCompare(String(b.descricao || ''), 'pt-BR');
+      } else if (listaSort.key === 'interessado') {
+        const interessadoA = String(interessadosPorId.get(Number(a.entidade_id || 0)) || '');
+        const interessadoB = String(interessadosPorId.get(Number(b.entidade_id || 0)) || '');
+        result = interessadoA.localeCompare(interessadoB, 'pt-BR');
+      } else if (listaSort.key === 'status') {
+        result = statusRank(a) - statusRank(b);
+      } else {
+        result = Number(a.valor_previsto || 0) - Number(b.valor_previsto || 0);
+      }
+
+      if (result === 0) {
+        result = Number(a.id || 0) - Number(b.id || 0);
+      }
+
+      return listaSort.direction === 'asc' ? result : -result;
+    };
 
     filteredList.forEach(l => {
       if (!groups[l.data_vencimento]) groups[l.data_vencimento] = [];
@@ -1371,10 +1416,10 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
     });
 
     const sortedDates = Object.keys(groups).sort((a, b) => a.localeCompare(b));
-    sortedDates.forEach(date => groups[date].sort((a, b) => b.valor_previsto - a.valor_previsto));
+    sortedDates.forEach(date => groups[date].sort(compareLancamentos));
 
     return { grouped: { groups, sortedDates }, kpis: { r, d, s: r-d } };
-  }, [filteredList, categorias]);
+  }, [filteredList, categorias, entidades, listaSort]);
 
   const aiContexto = useMemo(() => {
     return {
@@ -1956,6 +2001,27 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
     { label: 'Saldo', value: BRL.format(kpis.s), tone: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-500/10 dark:bg-blue-900/20', icon: Wallet },
   ];
 
+  const toggleListaSort = (key: ListaSortKey) => {
+    setListaSort((prev) => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      }
+      return { key, direction: key === 'valor' ? 'desc' : 'asc' };
+    });
+  };
+
+  const getHeaderAriaSort = (key: ListaSortKey): 'none' | 'ascending' | 'descending' => {
+    if (listaSort.key !== key) return 'none';
+    return listaSort.direction === 'asc' ? 'ascending' : 'descending';
+  };
+
+  const getSortIconClass = (key: ListaSortKey) => {
+    if (listaSort.key !== key) {
+      return 'h-3.5 w-3.5 opacity-35 transition-all group-hover:opacity-70';
+    }
+    return `h-3.5 w-3.5 text-blue-500 opacity-100 transition-all ${listaSort.direction === 'asc' ? 'rotate-180' : ''}`;
+  };
+
   return (
     <div className="flex h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 overflow-hidden relative">
       {!isBoletimEmbed && (
@@ -1990,9 +2056,30 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
 
         {filtrosRailCollapsed ? (
           <div className="flex flex-1 flex-col items-center gap-3 px-3 py-4">
-            <button type="button" onClick={() => setResumoTopoModo('KPIS')} className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition ${resumoTopoModo === 'KPIS' ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300' : 'border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`} title="KPIs"><TrendingUp className="h-4 w-4" /></button>
-            <button type="button" onClick={() => setResumoTopoModo('BANCOS')} className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition ${resumoTopoModo === 'BANCOS' ? 'border-emerald-500 bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300' : 'border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`} title="Bancos"><Landmark className="h-4 w-4" /></button>
-            <button type="button" onClick={() => setFiltroRapido('ATRASADO')} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800" title="Atrasados"><AlertCircle className="h-4 w-4" /></button>
+            <button
+              type="button"
+              onClick={() => setFiltroRapido((prev) => (prev === 'ATRASADO' ? null : 'ATRASADO'))}
+              className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition ${filtroRapido === 'ATRASADO' ? 'border-red-500 bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-300' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+              title="Atrasados"
+            >
+              <AlertCircle className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setFiltroRapido((prev) => (prev === 'EM_ABERTO' ? null : 'EM_ABERTO'))}
+              className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition ${filtroRapido === 'EM_ABERTO' ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+              title="Em aberto"
+            >
+              <Layers className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={resetFiltros}
+              className="flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+              title="Limpar filtros"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
             <div className="mt-2 flex w-full flex-col items-center gap-2 rounded-2xl border border-dashed border-slate-200 px-2 py-3 text-center dark:border-slate-700">
               <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Ativos</span>
               <span className="text-lg font-black text-slate-700 dark:text-slate-200">{filtrosAtivosCount}</span>
@@ -2025,72 +2112,6 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                   <span>Extrato filtrado: {contas.find(c => Number(c.id) === contaExtratoAtivaId)?.nome || `Conta ${contaExtratoAtivaId}`}</span>
                   <X className="h-3.5 w-3.5" />
                 </button>
-              )}
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
-              <div className="mb-3 inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-950">
-                <button onClick={() => setResumoTopoModo('KPIS')} className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${resumoTopoModo === 'KPIS' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}>KPIs</button>
-                <button onClick={() => setResumoTopoModo('BANCOS')} className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${resumoTopoModo === 'BANCOS' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}>Bancos</button>
-              </div>
-
-              {resumoTopoModo === 'KPIS' ? (
-                <div className="space-y-2.5">
-                  {kpiCards.map((card) => (
-                    <div key={card.label} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/80">
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">{card.label}</p>
-                        <p className={`text-lg font-black ${card.tone}`}>{card.value}</p>
-                      </div>
-                      <div className={`rounded-xl p-2 ${card.bg}`}><card.icon className={`h-4 w-4 ${card.tone}`} /></div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between pb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Saldos por banco</span>
-                    <button onClick={() => setBancosRetratilFechado(prev => !prev)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800" title={bancosRetratilFechado ? 'Expandir' : 'Recolher'}>
-                      <ChevronDown className={`h-4 w-4 transition-transform ${bancosRetratilFechado ? '-rotate-90' : ''}`} />
-                    </button>
-                  </div>
-                  {!bancosRetratilFechado && (
-                    <>
-                      <div className={`rounded-xl border px-3 py-2 text-xs font-bold ${saldoContasTotal >= 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300' : 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300'}`}>
-                        Total em bancos: {BRL.format(saldoContasTotal)}
-                      </div>
-                      <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
-                        {contasFiltradas.length === 0 ? (
-                          <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">Nenhuma conta encontrada para os filtros atuais.</div>
-                        ) : (
-                          contasFiltradas.map((conta) => {
-                            const saldo = getContaSaldo(conta);
-                            const logo = getFullLogoUrl(conta.logo_url);
-                            const ativo = Number(conta.id) === contaExtratoAtivaId;
-                            return (
-                              <button key={conta.id} type="button" onClick={() => {
-                                setContaExtratoAtivaId((prev) => {
-                                  if (prev === Number(conta.id)) return null;
-                                  setFiltroRapido(null);
-                                  return Number(conta.id);
-                                });
-                              }} className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${ativo ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-200 bg-slate-50 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950/80 dark:hover:border-slate-700'}`}>
-                                <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
-                                  <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={conta.nome} integrationType={conta.tipo_integracao} size="sm" className="h-9 w-9" imageClassName="rounded-full" fallbackClassName="rounded-full border-0 shadow-none" />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate text-sm font-bold text-slate-700 dark:text-slate-100">{conta.nome}</p>
-                                  <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{conta.banco || conta.tipo || 'Conta bancária'}</p>
-                                </div>
-                                <div className={`text-sm font-black ${saldo >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{BRL.format(saldo)}</div>
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
               )}
             </section>
 
@@ -2221,11 +2242,11 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
             </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 w-full lg:w-auto">
-          <button onClick={()=>setShowTransfer(true)} className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-600 dark:text-slate-300 transition-all w-full sm:w-auto justify-center"><ArrowRightLeft className="w-4 h-4"/> <span className="hidden lg:inline">Transf.</span></button>
-          <button onClick={() => setFiltrosRailCollapsed((prev) => !prev)} className="hidden xl:flex px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-bold items-center gap-2 transition-all justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"><Filter className="w-4 h-4"/> Painel</button>
-          <button onClick={()=>setShowFiltrosSidebar(true)} className={`xl:hidden px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold flex items-center gap-2 transition-all w-full sm:w-auto justify-center ${showFiltrosSidebar ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'}`}><Filter className="w-4 h-4"/> <span className="hidden lg:inline">Filtros</span></button>
-          <button onClick={()=>openDrawer()} className="px-5 py-2 rounded-lg shadow-lg text-white font-bold text-sm flex gap-2 hover:brightness-110 transition bg-blue-600 hover:bg-blue-500 w-full sm:w-auto justify-center"><Plus className="w-4 h-4"/> Novo</button>
+        <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+          <button onClick={()=>setShowTransfer(true)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"><ArrowRightLeft className="w-4 h-4"/> <span className="hidden lg:inline">Transf.</span></button>
+          <button onClick={() => setFiltrosRailCollapsed((prev) => !prev)} className="hidden xl:inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"><Filter className="w-4 h-4"/> Painel</button>
+          <button onClick={()=>openDrawer()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 hover:brightness-110"><Plus className="w-4 h-4"/> Novo</button>
+          <button onClick={()=>setShowFiltrosSidebar(true)} className={`xl:hidden inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold transition-all dark:border-slate-600 ${showFiltrosSidebar ? 'border-blue-600 bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'}`}><Filter className="w-4 h-4"/> <span className="hidden lg:inline">Filtros</span></button>
         </div>
       </header>
 
@@ -2361,15 +2382,51 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
 
                     <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden">
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                        <thead className="bg-slate-50 dark:bg-slate-900/40 text-[11px] uppercase font-bold text-slate-500">
+                        <table className="w-full table-fixed text-left">
+                        <thead className="bg-slate-50 text-[11px] font-bold uppercase text-slate-500 dark:bg-slate-900/40">
                           <tr>
-                            <th className="p-2.5 w-12 text-center">Sel</th>
-                            <th className="p-2.5 w-12 text-center">IPP</th>
-                            <th className="p-2.5">Descrição</th>
-                            <th className="p-2.5 hidden md:table-cell">Interessado / Categoria</th>
-                            <th className="p-2.5 text-right">Valor</th>
-                            <th className="p-2.5 text-center w-24">Status</th>
+                            <th className="w-12 p-2.5 text-center">Sel</th>
+                            <th className="w-12 p-2.5 text-center">IPP</th>
+                            <th className="w-[36%] p-2.5" aria-sort={getHeaderAriaSort('descricao')}>
+                              <button
+                                type="button"
+                                onClick={() => toggleListaSort('descricao')}
+                                className="group inline-flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
+                              >
+                                <span>Descrição</span>
+                                <ChevronDown className={getSortIconClass('descricao')} />
+                              </button>
+                            </th>
+                            <th className="hidden w-[30%] p-2.5 md:table-cell" aria-sort={getHeaderAriaSort('interessado')}>
+                              <button
+                                type="button"
+                                onClick={() => toggleListaSort('interessado')}
+                                className="group inline-flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
+                              >
+                                <span>Interessado / Categoria</span>
+                                <ChevronDown className={getSortIconClass('interessado')} />
+                              </button>
+                            </th>
+                            <th className="w-32 p-2.5 text-right" aria-sort={getHeaderAriaSort('valor')}>
+                              <button
+                                type="button"
+                                onClick={() => toggleListaSort('valor')}
+                                className="group inline-flex w-full items-center justify-end gap-1 rounded-md px-1 py-0.5 text-right transition hover:bg-slate-100 dark:hover:bg-slate-800"
+                              >
+                                <span>Valor</span>
+                                <ChevronDown className={getSortIconClass('valor')} />
+                              </button>
+                            </th>
+                            <th className="w-28 p-2.5 text-center" aria-sort={getHeaderAriaSort('status')}>
+                              <button
+                                type="button"
+                                onClick={() => toggleListaSort('status')}
+                                className="group inline-flex w-full items-center justify-center gap-1 rounded-md px-1 py-0.5 transition hover:bg-slate-100 dark:hover:bg-slate-800"
+                              >
+                                <span>Status</span>
+                                <ChevronDown className={getSortIconClass('status')} />
+                              </button>
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="text-[15px] divide-y divide-slate-200 dark:divide-slate-700">
@@ -2379,7 +2436,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                                     const statusLabel = pago ? 'PAGO' : atrasado ? 'ATRASADO' : l.status;
                                     return (
                                     <tr key={l.id} onClick={() => { if (!isTransferencia(l)) openDrawer(l); }} className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition group ${isTransferencia(l) ? 'cursor-default' : 'cursor-pointer'} ${selectedIds.has(l.id)?'bg-blue-100/80 dark:bg-blue-900/25': pago ? 'bg-emerald-100/70 dark:bg-emerald-900/25' : atrasado ? 'bg-red-200/80 dark:bg-red-900/40' : ''}`}>
-                                      <td className="p-2.5 w-12 text-center" onClick={e=>e.stopPropagation()}>
+                                      <td className="w-12 p-2.5 text-center align-middle" onClick={e=>e.stopPropagation()}>
                                         <button
                                           type="button"
                                           aria-label="Selecionar lançamento"
@@ -2393,7 +2450,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                                           <Check className={`w-3 h-3 ${selectedIds.has(l.id) ? 'opacity-100' : 'opacity-0'}`} />
                                         </button>
                                       </td>
-                                        <td className="p-2.5 w-12 text-center" onClick={(e)=>e.stopPropagation()} onMouseDown={(e)=>e.stopPropagation()}>
+                                        <td className="w-12 p-2.5 text-center align-middle" onClick={(e)=>e.stopPropagation()} onMouseDown={(e)=>e.stopPropagation()}>
                                           <button
                                             type="button"
                                             onMouseDown={(e)=>e.stopPropagation()}
@@ -2406,16 +2463,19 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                                             <Check className="w-3 h-3"/>
                                           </button>
                                         </td>
-                                        <td className={`p-2.5 font-semibold text-slate-800 dark:text-white ${contaExtratoAtivaId !== null ? 'text-[13px]' : ''}`}>
-                                          <div className="flex items-center gap-2">{l.descricao} {l.anexos?.length > 0 && <Paperclip className="w-3 h-3 text-blue-400"/>}</div>
+                                        <td className={`p-2.5 align-middle font-semibold text-slate-800 dark:text-white ${contaExtratoAtivaId !== null ? 'text-[13px]' : ''}`}>
+                                          <div className="flex min-w-0 items-center gap-2">
+                                            <span className="truncate">{l.descricao}</span>
+                                            {l.anexos?.length > 0 && <Paperclip className="h-3 w-3 shrink-0 text-blue-400"/>}
+                                          </div>
                                             {l.numero_parcela && <span className="text-[10px] text-slate-500">Parcela {l.numero_parcela}</span>}
                                         </td>
-                                        <td className="p-2.5 hidden md:table-cell">
-                                          <div className="text-sm font-bold text-slate-700 dark:text-slate-300">{entidades.find(e=>e.id===l.entidade_id)?.nome || '-'}</div>
-                                          <div className="text-[12px] text-slate-500">{getCategoriaLabel(l)}</div>
+                                        <td className="hidden p-2.5 align-middle md:table-cell">
+                                          <div className="truncate text-sm font-bold text-slate-700 dark:text-slate-300">{entidades.find(e=>e.id===l.entidade_id)?.nome || '-'}</div>
+                                          <div className="truncate text-[12px] text-slate-500">{getCategoriaLabel(l)}</div>
                                         </td>
-                                        <td className={`p-2.5 text-right font-bold ${l.tipo==='RECEITA'?'text-emerald-400':'text-red-400'}`}>{BRL.format(l.valor_previsto)}</td>
-                                        <td className="p-2.5 text-center w-24">
+                                        <td className={`p-2.5 text-right align-middle tabular-nums font-bold ${l.tipo==='RECEITA'?'text-emerald-400':'text-red-400'}`}>{BRL.format(l.valor_previsto)}</td>
+                                        <td className="w-28 p-2.5 text-center align-middle">
                                           <span className={`px-2.5 py-1 rounded text-[11px] font-bold uppercase border ${pago?'bg-emerald-200/90 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800': atrasado ? 'bg-red-200/90 dark:bg-red-900/35 text-red-700 dark:text-red-300 border-red-300 dark:border-red-800' : 'bg-slate-100 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600'}`}>{statusLabel}</span>
                                         </td>
                                     </tr>
@@ -2710,36 +2770,36 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
           ) : null}
           <div className={`${isBoletimEmbed ? 'relative z-10 flex h-full w-full' : 'relative z-10 flex h-full'}`}>
             {shouldShowParcelasSerie && (
-              <aside className="hidden h-full w-[33vw] min-w-[420px] max-w-[560px] flex-col border-r border-amber-300/80 bg-amber-50/98 p-4 shadow-2xl backdrop-blur lg:flex dark:border-amber-700/60 dark:bg-slate-900/98">
+              <aside className="hidden h-full w-[33vw] min-w-[420px] max-w-[560px] flex-col border-r border-slate-200 bg-white p-4 shadow-2xl backdrop-blur lg:flex dark:border-slate-700 dark:bg-slate-900/98">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-[11px] font-black uppercase tracking-[0.14em] text-amber-700 dark:text-amber-300">Série de Parcelas</p>
-                    <p className="text-xs font-semibold text-amber-900 dark:text-amber-100">Parcela atual {currentParcelaNumber}/{currentParcelaTotal}</p>
+                    <p className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-700 dark:text-slate-200">Série de Parcelas</p>
+                    <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Parcela atual {currentParcelaNumber}/{currentParcelaTotal}</p>
                   </div>
                 </div>
 
-                <label className="mt-2 flex items-center gap-2 text-[11px] text-amber-900 dark:text-amber-200">
+                <label className="mt-2 flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300">
                   <input
                     type="checkbox"
                     checked={ajustarParaDiaUtil}
                     onChange={(e) => setAjustarParaDiaUtil(e.target.checked)}
-                    className="accent-amber-500"
+                    className="accent-blue-500"
                   />
                   Ajustar vencimentos para próximo dia útil ao salvar
                 </label>
 
-                <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border border-amber-300/80 bg-white/90 dark:border-amber-700/60 dark:bg-slate-950/70">
+                <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950/70">
                   {parcelasSerieLoading ? (
-                    <div className="p-3 text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                    <div className="p-3 text-xs text-slate-600 dark:text-slate-300 flex items-center gap-2">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       Carregando parcelas...
                     </div>
                   ) : sortedParcelasSerie.length === 0 ? (
-                    <div className="p-3 text-xs text-amber-700 dark:text-amber-300">Não há outras parcelas identificadas para esta série.</div>
+                    <div className="p-3 text-xs text-slate-600 dark:text-slate-300">Não há outras parcelas identificadas para esta série.</div>
                   ) : (
                     <div className="h-full overflow-y-auto">
                       <table className="w-full text-sm">
-                        <thead className="sticky top-0 z-10 bg-amber-100/90 text-amber-800 dark:bg-slate-900 dark:text-amber-200">
+                        <thead className="sticky top-0 z-10 bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
                           <tr>
                             <th className="px-2 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Parcela</th>
                             <th className="px-2 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
@@ -2754,9 +2814,9 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                               <tr
                                 key={item.id}
                                 onClick={() => handleSelecionarParcelaSerie(item)}
-                                className={`cursor-pointer border-t border-amber-200/70 transition dark:border-amber-800/50 ${isCurrent ? 'bg-amber-200/60 dark:bg-amber-800/35' : 'hover:bg-amber-100/60 dark:hover:bg-slate-800/70'}`}
+                                className={`cursor-pointer border-t border-slate-200 transition dark:border-slate-800 ${isCurrent ? 'bg-blue-50 dark:bg-blue-900/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/70'}`}
                               >
-                                <td className="px-2 py-2 text-xs font-black text-amber-800 dark:text-amber-200">{item.numero_parcela || '-'}</td>
+                                <td className="px-2 py-2 text-xs font-black text-slate-700 dark:text-slate-300">{item.numero_parcela || '-'}</td>
                                 <td className="px-2 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
                                   <p className="truncate">{item.descricao || 'Sem descrição'}</p>
                                 </td>
@@ -2769,7 +2829,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                                     value={parcelasVencimentosEdit[item.id] || item.data_vencimento || ''}
                                     onChange={(e) => setParcelasVencimentosEdit((prev) => ({ ...prev, [item.id]: e.target.value }))}
                                     onClick={(e) => e.stopPropagation()}
-                                    className="w-full rounded-md border border-amber-300 bg-white px-2 py-1 text-xs text-slate-700 dark:border-amber-700 dark:bg-slate-900 dark:text-slate-100"
+                                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                                   />
                                 </td>
                               </tr>
@@ -2812,7 +2872,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                     Duplicar
                   </button>
                 )}
-                {isEditing && canOpenParcelasSerie && (
+                {isEditing && canOpenParcelasSerie && !isBoletimEmbed && (
                   <button
                     type="button"
                     title="Abrir a série completa de parcelas"

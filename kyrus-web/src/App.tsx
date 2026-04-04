@@ -17,7 +17,6 @@ const Contas = lazy(() => import('./pages/Contas').then((module) => ({ default: 
 const Importacao = lazy(() => import('./pages/Importacao').then((module) => ({ default: module.Importacao })));
 const ImportacaoEntidades = lazy(() => import('./pages/ImportacaoEntidades').then((module) => ({ default: module.ImportacaoEntidades })));
 const Lancamentos = lazy(() => import('./pages/Lancamentos').then((module) => ({ default: module.Lancamentos })));
-const Entidades = lazy(() => import('./pages/Entidades').then((module) => ({ default: module.Entidades })));
 const Cartoes = lazy(() => import('./pages/Cartoes').then((module) => ({ default: module.Cartoes })));
 const Configuracoes = lazy(() => import('./pages/Configuracoes').then((module) => ({ default: module.Configuracoes })));
 const Auditoria = lazy(() => import('./pages/Auditoria').then((module) => ({ default: module.Auditoria })));
@@ -96,7 +95,7 @@ function App() {
             <Route path="/dre" element={<Dre />} />
             <Route path="/consultor" element={<Consultor />} />
             <Route path="/lancamentos" element={<Lancamentos />} />
-            <Route path="/entidades" element={<Entidades />} />
+            <Route path="/entidades" element={<Navigate to="/config?tab=INTERESSADOS" replace />} />
             <Route path="/contas" element={<Contas />} />
             <Route path="/cartoes" element={<Cartoes />} />
             <Route path="/centro-custo" element={<CentroCusto />} />

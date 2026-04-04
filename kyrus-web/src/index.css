@@ -10,8 +10,27 @@ html.dark {
   color-scheme: dark;
 }
 
+body {
+  font-family: "Manrope", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.dark body {
+  background-color: #020617;
+  color: #e2e8f0;
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
+}
+
+.kyrus-shell .rounded-2xl {
+  border-radius: 0.85rem;
+}
+
+.kyrus-shell .rounded-3xl {
+  border-radius: 1rem;
 }

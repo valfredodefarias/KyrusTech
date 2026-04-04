@@ -173,7 +173,7 @@ export function Home() {
   ];
 
   return (
-    <div className="w-full space-y-8 animate-fade-in pb-10">
+    <div className="w-full space-y-6 animate-fade-in pb-8">
       <header className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-bold flex items-center gap-2 text-slate-700 dark:text-white">
           <HomeIcon className="w-5 h-5" style={{ color: primaryColor }} /> Visão Geral
@@ -183,13 +183,13 @@ export function Home() {
         </div>
       </header>
 
-      <section className="relative overflow-hidden rounded-[30px] p-6 text-white shadow-2xl shadow-slate-900/10 sm:p-8" style={bgStyle}>
+      <section className="relative overflow-hidden rounded-xl border border-slate-200/35 p-6 text-white shadow-sm sm:p-7" style={bgStyle}>
         <div className="pointer-events-none absolute -right-6 top-0 h-full w-1/3 skew-x-12 bg-white/10" />
         <div className="pointer-events-none absolute -bottom-10 left-8 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
         <div className="relative z-10">
           <h1 className="text-2xl font-extrabold sm:text-3xl">Olá, {nomeUsuario}!</h1>
           <p className="mt-2 text-white/90">
-            Empresa atual: <strong className="bg-white/20 px-2 py-0.5 rounded">{empresa?.nome_fantasia || 'Não definida'}</strong>
+            Empresa atual: <strong className="rounded-md bg-white/20 px-2 py-0.5">{empresa?.nome_fantasia || 'Não definida'}</strong>
           </p>
 
           <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -210,7 +210,7 @@ export function Home() {
         </div>
       </section>
 
-      <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <h3 className="mb-4 flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200">
           <Wallet className="w-5 h-5 text-slate-400" /> Contas e saldos
         </h3>
@@ -225,7 +225,7 @@ export function Home() {
               <Link
                 key={conta.id}
                 to={`/contas?extrato_conta_id=${conta.id}`}
-                className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 dark:border-slate-700 dark:bg-slate-900/40"
+                className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-slate-50/80 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 dark:border-slate-700 dark:bg-slate-900/40"
               >
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 shrink-0 flex items-center justify-center overflow-hidden" style={{ color: primaryColor }}>
@@ -307,7 +307,7 @@ function normalizeContasResponse(data: unknown): ContaResumo[] {
 
 function HeroMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-sm">
+    <div className="rounded-lg border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-sm">
       <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-white/70">{label}</p>
       <p className="mt-2 text-xl font-black text-white">{value}</p>
     </div>
@@ -316,9 +316,9 @@ function HeroMetric({ label, value }: { label: string; value: string }) {
 
 function AtalhoCard({ to, icon: Icon, label, description, colorClass, bgClass }: AtalhoCardProps) {
   return (
-    <Link to={to} className="group block rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600 dark:hover:shadow-black/20">
+    <Link to={to} className="group block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600 dark:hover:shadow-black/20">
       <div className="flex items-start justify-between gap-3">
-        <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${bgClass} ${colorClass} transition group-hover:scale-110`}>
+        <div className={`flex h-12 w-12 items-center justify-center rounded-lg ${bgClass} ${colorClass} transition group-hover:scale-110`}>
           <Icon size={22} />
         </div>
         <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500 dark:text-slate-600 dark:group-hover:text-slate-300" />

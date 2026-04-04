@@ -8,6 +8,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 
+import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
 import { Lancamentos } from './Lancamentos';
 import { api, fetchLancamentosPaged, normalizeListResponse, toPublicAssetUrl } from '../services/api';
@@ -168,6 +169,23 @@ function formatCurrency(value: number) {
   return BRL.format(value).replace(/\s/g, '\u00A0');
 }
 
+function formatCurrencyDetailed(value: number) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0)).replace(/\s/g, '\u00A0');
+}
+
+function formatCurrencyCompact(value: number) {
+  const abs = Math.abs(Number(value || 0));
+  if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)} bi`;
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} mi`;
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(0)}k`;
+  return `${Math.round(value)}`;
+}
+
 function getValueTone(value: number, isDark: boolean) {
   if (value < 0) return isDark ? 'text-rose-300' : 'text-rose-600';
   if (value > 0) return isDark ? 'text-emerald-300' : 'text-emerald-600';
@@ -246,7 +264,7 @@ function useIsDarkMode() {
 function ViewToggle({ current, onChange, isDark }: { current: ViewMode; onChange: (mode: ViewMode) => void; isDark: boolean }) {
   const options: Array<{ id: ViewMode; label: string; icon: typeof Sparkles }> = [
     { id: 'executivo', label: 'Executivo', icon: Sparkles },
-    { id: 'pay-receive', label: 'A Pagar e a Receber', icon: Rows3 },
+    { id: 'pay-receive', label: 'Indicadores', icon: Rows3 },
   ];
 
   return (
@@ -781,7 +799,7 @@ export function Boletim() {
     }
     if (metricKey === 'pagar_pagas_mes') {
       setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas pagas no mês', `Lançamentos de pagamento quitados na competência ${monthLabel}.`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.monthIndex === dashboard.effectiveMonthIndex && item.statusKey === 'PAGO'));
+      openAuditRows('Pagas no mês', `Lançamentos de pagamento quitados na competência ${monthLabel}.`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.monthIndex === dashboard.effectiveMonthIndex && item.statusKey === 'PAGO'));
       return;
     }
     if (metricKey === 'receber_mes') {
@@ -791,7 +809,7 @@ export function Boletim() {
     }
     if (metricKey === 'receber_recebidas_mes') {
       setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas recebidas no mês', `Lançamentos de recebimento quitados na competência ${monthLabel}.`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.monthIndex === dashboard.effectiveMonthIndex && item.statusKey === 'PAGO'));
+      openAuditRows('Recebidas no mês', `Lançamentos de recebimento quitados na competência ${monthLabel}.`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.monthIndex === dashboard.effectiveMonthIndex && item.statusKey === 'PAGO'));
       return;
     }
     if (metricKey === 'resultado_operacional') {
@@ -875,6 +893,374 @@ export function Boletim() {
     { label: 'Vcto Hoje', key: 'HOJE', value: dashboard.situacao.HOJE },
   ];
 
+  const payReceiveCharts = useMemo(() => {
+    const pagamentoColor = '#ff4d4f';
+    const recebimentoColor = '#4d8cf3';
+    const destaqueColor = '#f2c94c';
+    const dimStrength = isDark ? 0.45 : 0.4;
+    const labelColor = isDark ? '#cbd5e1' : '#475569';
+    const gridColor = isDark ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.16)';
+    const cardStrokeColor = isDark ? '#081124' : '#ffffff';
+    const chartTheme = isDark ? 'dark' : 'light';
+    const effectiveMonth = selectedMonthIndex ?? dashboard.fallbackMonthIndex;
+
+    const darkenHexColor = (hexColor: string, intensity: number) => {
+      const clean = String(hexColor || '').trim().replace('#', '');
+      if (!/^[0-9a-fA-F]{6}$/.test(clean)) return hexColor;
+
+      const factor = Math.max(0, Math.min(1, 1 - intensity));
+      const toChannel = (start: number) => Math.max(0, Math.min(255, Math.round(parseInt(clean.slice(start, start + 2), 16) * factor)));
+      const r = toChannel(0).toString(16).padStart(2, '0');
+      const g = toChannel(2).toString(16).padStart(2, '0');
+      const b = toChannel(4).toString(16).padStart(2, '0');
+      return `#${r}${g}${b}`;
+    };
+
+    const resolveFlowColor = (flow: FlowFilter) => flow === 'PAGAMENTO' ? pagamentoColor : recebimentoColor;
+    const shouldDimFlow = (flow: FlowFilter) => flowFilter !== 'ALL' && flowFilter !== flow;
+
+    const rowsForFlow = applyFilters(dashboard.baseRows, {
+      flowType: flowFilter,
+      status: statusFilter,
+      monthIndex: selectedMonthIndex,
+      dayOfMonth: selectedDayOfMonth,
+      fallbackMonthIndex: dashboard.fallbackMonthIndex,
+    }, {
+      ignoreFlow: true,
+    });
+
+    const flowTotals = rowsForFlow.reduce((acc, row) => {
+      if (row.flowType === 'PAGAMENTO') acc.pagamento += row.valorAbsoluto;
+      if (row.flowType === 'RECEBIMENTO') acc.recebimento += row.valorAbsoluto;
+      return acc;
+    }, { pagamento: 0, recebimento: 0 });
+
+    const rowsForTimeline = applyFilters(dashboard.baseRows, {
+      flowType: flowFilter,
+      status: statusFilter,
+      monthIndex: selectedMonthIndex,
+      dayOfMonth: selectedDayOfMonth,
+      fallbackMonthIndex: dashboard.fallbackMonthIndex,
+    }, {
+      ignoreFlow: true,
+      ignoreMonth: true,
+      ignoreDay: true,
+    });
+
+    const monthlyPagamento = Array.from({ length: 12 }, () => 0);
+    const monthlyRecebimento = Array.from({ length: 12 }, () => 0);
+
+    rowsForTimeline.forEach((row) => {
+      if (row.monthIndex < 0 || row.monthIndex > 11) return;
+      if (row.flowType === 'PAGAMENTO') monthlyPagamento[row.monthIndex] += row.valorAbsoluto;
+      if (row.flowType === 'RECEBIMENTO') monthlyRecebimento[row.monthIndex] += row.valorAbsoluto;
+    });
+
+    const daysInMonth = new Date(dashboard.currentYear, effectiveMonth + 1, 0).getDate();
+    const dailyPagamento = Array.from({ length: daysInMonth }, () => 0);
+    const dailyRecebimento = Array.from({ length: daysInMonth }, () => 0);
+
+    rowsForTimeline
+      .filter((row) => row.monthIndex === effectiveMonth)
+      .forEach((row) => {
+        const dayIndex = Number(row.dayOfMonth || 0) - 1;
+        if (dayIndex < 0 || dayIndex >= daysInMonth) return;
+        if (row.flowType === 'PAGAMENTO') dailyPagamento[dayIndex] += row.valorAbsoluto;
+        if (row.flowType === 'RECEBIMENTO') dailyRecebimento[dayIndex] += row.valorAbsoluto;
+      });
+
+    const donutSeries = [flowTotals.pagamento, flowTotals.recebimento];
+    const donutColors = [
+      shouldDimFlow('PAGAMENTO') ? darkenHexColor(pagamentoColor, dimStrength) : pagamentoColor,
+      shouldDimFlow('RECEBIMENTO') ? darkenHexColor(recebimentoColor, dimStrength) : recebimentoColor,
+    ];
+
+    const monthlySeries = [
+      {
+        name: 'Pagamento',
+        data: monthlyPagamento.map((value, monthIndex) => {
+          const shouldDim = shouldDimFlow('PAGAMENTO') || (selectedMonthIndex !== null && selectedMonthIndex !== monthIndex);
+          return {
+            x: dashboard.monthLabels[monthIndex],
+            y: value,
+            fillColor: shouldDim ? darkenHexColor(resolveFlowColor('PAGAMENTO'), dimStrength) : resolveFlowColor('PAGAMENTO'),
+          };
+        }),
+      },
+      {
+        name: 'Recebimento',
+        data: monthlyRecebimento.map((value, monthIndex) => {
+          const shouldDim = shouldDimFlow('RECEBIMENTO') || (selectedMonthIndex !== null && selectedMonthIndex !== monthIndex);
+          return {
+            x: dashboard.monthLabels[monthIndex],
+            y: value,
+            fillColor: shouldDim ? darkenHexColor(resolveFlowColor('RECEBIMENTO'), dimStrength) : resolveFlowColor('RECEBIMENTO'),
+          };
+        }),
+      },
+    ];
+
+    const dailySeries = [
+      {
+        name: 'Pagamento',
+        data: dailyPagamento.map((value, dayIndex) => {
+          const day = dayIndex + 1;
+          const shouldDim = shouldDimFlow('PAGAMENTO') || (selectedDayOfMonth !== null && selectedDayOfMonth !== day);
+          return {
+            x: String(day),
+            y: value,
+            fillColor: shouldDim ? darkenHexColor(resolveFlowColor('PAGAMENTO'), dimStrength) : resolveFlowColor('PAGAMENTO'),
+          };
+        }),
+      },
+      {
+        name: 'Recebimento',
+        data: dailyRecebimento.map((value, dayIndex) => {
+          const day = dayIndex + 1;
+          const shouldDim = shouldDimFlow('RECEBIMENTO') || (selectedDayOfMonth !== null && selectedDayOfMonth !== day);
+          return {
+            x: String(day),
+            y: value,
+            fillColor: shouldDim ? darkenHexColor(resolveFlowColor('RECEBIMENTO'), dimStrength) : resolveFlowColor('RECEBIMENTO'),
+          };
+        }),
+      },
+    ];
+
+    const resolveFlowBySeriesIndex = (seriesIndex: number): FlowFilter | null => {
+      if (seriesIndex === 0) return 'PAGAMENTO';
+      if (seriesIndex === 1) return 'RECEBIMENTO';
+      return null;
+    };
+
+    const donutOptions: any = {
+      chart: {
+        type: 'donut',
+        background: 'transparent',
+        toolbar: { show: false },
+        animations: { enabled: true, easing: 'easeinout', speed: 320 },
+        events: {
+          legendClick: (_chartCtx: any, seriesIndex: number) => {
+            const nextFlow = resolveFlowBySeriesIndex(Number(seriesIndex));
+            if (!nextFlow) return;
+            setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
+          },
+          dataPointSelection: (_event: any, _ctx: any, config: any) => {
+            const idx = Number(config?.dataPointIndex);
+            if (idx < 0) return;
+            const nextFlow: FlowFilter = idx === 0 ? 'PAGAMENTO' : 'RECEBIMENTO';
+            setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
+          },
+        },
+      },
+      noData: { text: 'Sem dados' },
+      labels: ['Pagamento', 'Recebimento'],
+      colors: donutColors,
+      stroke: { width: 2, colors: [cardStrokeColor] },
+      states: {
+        hover: { filter: { type: 'none', value: 0 } },
+        active: { filter: { type: 'none', value: 0 } },
+      },
+      theme: { mode: chartTheme },
+      dataLabels: {
+        enabled: true,
+        formatter: (value: number) => `${value.toFixed(0)}%`,
+      },
+      legend: {
+        show: true,
+        position: 'bottom',
+        fontSize: '11px',
+        labels: { colors: labelColor },
+        onItemClick: { toggleDataSeries: false },
+      },
+      plotOptions: {
+        pie: {
+          donut: {
+            size: '62%',
+            labels: {
+              show: true,
+              total: {
+                show: true,
+                label: 'Total',
+                formatter: () => formatCurrency(flowTotals.pagamento + flowTotals.recebimento),
+              },
+            },
+          },
+        },
+      },
+      tooltip: {
+        theme: chartTheme,
+        y: {
+          formatter: (value: number) => formatCurrency(value),
+        },
+      },
+    };
+
+    const monthlyOptions: any = {
+      chart: {
+        type: 'bar',
+        background: 'transparent',
+        toolbar: { show: false },
+        animations: { enabled: true, easing: 'easeinout', speed: 320 },
+        events: {
+          legendClick: (_chartCtx: any, seriesIndex: number) => {
+            const nextFlow = resolveFlowBySeriesIndex(Number(seriesIndex));
+            if (!nextFlow) return;
+            setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
+          },
+          dataPointSelection: (_event: any, _ctx: any, config: any) => {
+            const monthIndex = Number(config?.dataPointIndex);
+            const nextFlow = resolveFlowBySeriesIndex(Number(config?.seriesIndex));
+            if (!Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) return;
+
+            setSelectedDayOfMonth(null);
+
+            if (nextFlow) {
+              const sameSelection = selectedMonthIndex === monthIndex && flowFilter === nextFlow;
+              if (sameSelection) {
+                setSelectedMonthIndex(null);
+                setFlowFilter('ALL');
+                return;
+              }
+              setSelectedMonthIndex(monthIndex);
+              setFlowFilter(nextFlow);
+              return;
+            }
+
+            setSelectedMonthIndex((prev) => (prev === monthIndex ? null : monthIndex));
+          },
+        },
+      },
+      noData: { text: 'Sem dados' },
+      theme: { mode: chartTheme },
+      colors: [pagamentoColor, recebimentoColor, destaqueColor],
+      plotOptions: {
+        bar: {
+          horizontal: false,
+          borderRadius: 2,
+          columnWidth: '58%',
+        },
+      },
+      dataLabels: { enabled: false },
+      stroke: { show: false },
+      states: {
+        hover: { filter: { type: 'lighten', value: 0.08 } },
+        active: { filter: { type: 'lighten', value: 0.18 } },
+      },
+      grid: { borderColor: gridColor, strokeDashArray: 2 },
+      legend: {
+        position: 'top',
+        horizontalAlign: 'left',
+        labels: { colors: labelColor },
+        onItemClick: { toggleDataSeries: false },
+      },
+      xaxis: {
+        categories: dashboard.monthLabels,
+        labels: {
+          style: { colors: labelColor, fontSize: '10px' },
+        },
+      },
+      yaxis: {
+        labels: {
+          style: { colors: labelColor, fontSize: '10px' },
+          formatter: (value: number) => formatCurrencyCompact(value),
+        },
+      },
+      tooltip: {
+        theme: chartTheme,
+        y: { formatter: (value: number) => formatCurrency(value) },
+      },
+    };
+
+    const dailyOptions: any = {
+      chart: {
+        type: 'bar',
+        background: 'transparent',
+        toolbar: { show: false },
+        animations: { enabled: true, easing: 'easeinout', speed: 320 },
+        events: {
+          legendClick: (_chartCtx: any, seriesIndex: number) => {
+            const nextFlow = resolveFlowBySeriesIndex(Number(seriesIndex));
+            if (!nextFlow) return;
+            setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
+          },
+          dataPointSelection: (_event: any, _ctx: any, config: any) => {
+            const dayIndex = Number(config?.dataPointIndex);
+            const nextFlow = resolveFlowBySeriesIndex(Number(config?.seriesIndex));
+            if (!Number.isFinite(dayIndex) || dayIndex < 0) return;
+
+            const day = dayIndex + 1;
+
+            if (nextFlow) {
+              const sameSelection = selectedMonthIndex === effectiveMonth && selectedDayOfMonth === day && flowFilter === nextFlow;
+              if (sameSelection) {
+                setSelectedDayOfMonth(null);
+                setFlowFilter('ALL');
+                return;
+              }
+              setSelectedMonthIndex(effectiveMonth);
+              setSelectedDayOfMonth(day);
+              setFlowFilter(nextFlow);
+              return;
+            }
+
+            setSelectedMonthIndex(effectiveMonth);
+            setSelectedDayOfMonth((prev) => (prev === day ? null : day));
+          },
+        },
+      },
+      noData: { text: 'Sem dados' },
+      theme: { mode: chartTheme },
+      colors: [pagamentoColor, recebimentoColor],
+      plotOptions: {
+        bar: {
+          horizontal: false,
+          borderRadius: 2,
+          columnWidth: '66%',
+        },
+      },
+      dataLabels: { enabled: false },
+      stroke: { show: false },
+      states: {
+        hover: { filter: { type: 'lighten', value: 0.08 } },
+        active: { filter: { type: 'lighten', value: 0.18 } },
+      },
+      grid: { borderColor: gridColor, strokeDashArray: 2 },
+      legend: {
+        position: 'top',
+        horizontalAlign: 'left',
+        labels: { colors: labelColor },
+        onItemClick: { toggleDataSeries: false },
+      },
+      xaxis: {
+        categories: Array.from({ length: daysInMonth }, (_, index) => String(index + 1)),
+        labels: {
+          style: { colors: labelColor, fontSize: '10px' },
+        },
+      },
+      yaxis: {
+        labels: {
+          style: { colors: labelColor, fontSize: '10px' },
+          formatter: (value: number) => formatCurrencyCompact(value),
+        },
+      },
+      tooltip: {
+        theme: chartTheme,
+        y: { formatter: (value: number) => formatCurrency(value) },
+      },
+    };
+
+    return {
+      donutSeries,
+      donutOptions,
+      monthlySeries,
+      monthlyOptions,
+      dailySeries,
+      dailyOptions,
+      effectiveMonthLabel: dashboard.monthLabels[effectiveMonth],
+    };
+  }, [dashboard.baseRows, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, flowFilter, isDark, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
+
   const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
   const companyName = empresa?.nome_fantasia || 'Sua Empresa';
 
@@ -900,30 +1286,27 @@ export function Boletim() {
               </div>
               <div>
                 <div className={`text-2xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{companyName}</div>
-                <div className={`mt-1 text-[11px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Boletim financeiro interativo</div>
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 xl:items-end">
+            <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
               <ViewToggle current={viewMode} onChange={setViewMode} isDark={isDark} />
-              <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                <div className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.14em] ${isDark ? 'border-white/12 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
-                  <CalendarDays className="h-4 w-4" />
-                  Data base {dashboard.now.toLocaleDateString('pt-BR')}
-                </div>
-                <select
-                  value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
-                  onChange={(event) => setSelectedCentroCustoId(event.target.value === 'ALL' ? 'ALL' : Number(event.target.value))}
-                  className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white md:w-72"
-                >
-                  <option value="ALL">Todos os centros de custo</option>
-                  {centrosCusto.map((centro) => (
-                    <option key={centro.id} value={centro.id}>
-                      {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
-                    </option>
-                  ))}
-                </select>
+              <div className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.14em] ${isDark ? 'border-white/12 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                <CalendarDays className="h-4 w-4" />
+                Data {dashboard.now.toLocaleDateString('pt-BR')}
               </div>
+              <select
+                value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
+                onChange={(event) => setSelectedCentroCustoId(event.target.value === 'ALL' ? 'ALL' : Number(event.target.value))}
+                className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white md:w-72"
+              >
+                <option value="ALL">Todos os centros de custo</option>
+                {centrosCusto.map((centro) => (
+                  <option key={centro.id} value={centro.id}>
+                    {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -995,15 +1378,16 @@ export function Boletim() {
                         <table className="w-full text-sm">
                           <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
                             <tr>
-                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
-                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
                               <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Status</th>
                             </tr>
                           </thead>
                           <tbody>
                             {(auditPanel.rows || []).length === 0 ? (
                               <tr>
-                                <td colSpan={3} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
+                                <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
                               </tr>
                             ) : (auditPanel.rows || []).map((row) => (
                               <tr
@@ -1012,9 +1396,14 @@ export function Boletim() {
                                 className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
                                 title="Abrir edição do lançamento"
                               >
-                                <td className="px-3 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
+                                <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrencyDetailed(row.valor)}</td>
                                 <td className="px-3 py-2.5">{row.interessado}</td>
-                                <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${row.flowType === 'RECEBIMENTO' ? getValueTone(row.valorAbsoluto, isDark) : getValueTone(-row.valorAbsoluto, isDark)}`}>{formatCurrency(row.valorAbsoluto)}</td>
+                                <td className="max-w-56 truncate px-3 py-2.5" title={row.descricao}>{row.descricao}</td>
+                                <td className="px-3 py-2.5">
+                                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${row.statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : row.statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                                    {row.statusLabel}
+                                  </span>
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -1048,8 +1437,8 @@ export function Boletim() {
                                   <tr key={`extrato-${movimento.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
                                     <td className="px-3 py-2.5">{formatDate(movimento.data_pagamento || movimento.data_vencimento)}</td>
                                     <td className="max-w-50 truncate px-3 py-2.5" title={movimento.descricao}>{movimento.descricao}</td>
-                                    <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(signed, isDark)}`}>{formatCurrency(signed)}</td>
-                                    <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(Number(movimento.saldo_apos_movimento || 0), isDark)}`}>{formatCurrency(Number(movimento.saldo_apos_movimento || 0))}</td>
+                                    <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(signed, isDark)}`}>{formatCurrencyDetailed(signed)}</td>
+                                    <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(Number(movimento.saldo_apos_movimento || 0), isDark)}`}>{formatCurrencyDetailed(Number(movimento.saldo_apos_movimento || 0))}</td>
                                   </tr>
                                 );
                               })}
@@ -1071,20 +1460,7 @@ export function Boletim() {
                   onClick={() => setInlineLancamentoParams(null)}
                   aria-label="Fechar editor"
                 />
-                <aside className="absolute right-0 top-0 flex h-full w-[clamp(420px,34vw,640px)] max-w-[100vw] flex-col border-l border-slate-200 bg-white shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] dark:border-slate-700 dark:bg-slate-950">
-                  <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-                    <div>
-                      <div className="text-sm font-black uppercase tracking-[0.16em] text-slate-800 dark:text-slate-100">Editar lançamento</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">Formulário da tela de lançamentos, sem sair do boletim.</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setInlineLancamentoParams(null)}
-                      className="rounded-full border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                    >
-                      Fechar
-                    </button>
-                  </div>
+                <aside className="absolute right-0 top-0 h-full w-[clamp(420px,34vw,640px)] max-w-[100vw] border-l border-slate-200 bg-white shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] dark:border-slate-700 dark:bg-slate-950">
                   <div className="h-full w-full overflow-hidden">
                     <Lancamentos
                       key={inlineLancamentoParams.toString()}
@@ -1110,7 +1486,7 @@ export function Boletim() {
                     { key: 'pagar_atrasadas', label: 'Atrasadas', value: dashboard.pagar.atrasadas },
                     { key: 'pagar_em_aberto', label: 'Em aberto no mês', value: dashboard.pagar.emAberto },
                     { key: 'pagar_mes', label: 'Do mês', value: dashboard.pagarNoMes },
-                    { key: 'pagar_pagas_mes', label: 'Contas pagas no mês', value: dashboard.pagarPagasNoMes },
+                    { key: 'pagar_pagas_mes', label: 'Pagas no mês', value: dashboard.pagarPagasNoMes },
                   ]}
                 />
 
@@ -1126,7 +1502,7 @@ export function Boletim() {
                     { key: 'receber_atrasadas', label: 'Atrasadas', value: dashboard.receber.atrasadas },
                     { key: 'receber_em_aberto', label: 'Em aberto no mês', value: dashboard.receber.emAberto },
                     { key: 'receber_mes', label: 'Do mês', value: dashboard.receberNoMes },
-                    { key: 'receber_recebidas_mes', label: 'Contas recebidas no mês', value: dashboard.receberRecebidasNoMes },
+                    { key: 'receber_recebidas_mes', label: 'Recebidas no mês', value: dashboard.receberRecebidasNoMes },
                   ]}
                 />
               </div>
@@ -1162,7 +1538,6 @@ export function Boletim() {
               <div className="mb-5 flex items-center justify-between gap-3">
                 <div>
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Bancos</div>
-                  <div className={`mt-1 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Amanhã considera o vencimento real de amanhã, mesmo se cair fora do mês atual. Em aberto continua restrito ao mês.</div>
                 </div>
                 <Landmark className={`h-5 w-5 ${isDark ? 'text-amber-200' : 'text-amber-700'}`} />
               </div>
@@ -1222,94 +1597,146 @@ export function Boletim() {
           </section>
         ) : (
           <section className="space-y-5">
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
-              <section className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
-                <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>A Pagar e a Receber</div>
-                    <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>A tabela combina centro de custo, tipo, mês, dia e situação.</div>
+            <div className="overflow-x-auto pb-1 custom-scrollbar">
+              <div className="grid min-w-[1180px] gap-4 xl:grid-cols-[230px_minmax(0,1fr)_minmax(0,1fr)]">
+                <section className={`rounded-[24px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Filtro</div>
+                    <button
+                      type="button"
+                      onClick={() => setFlowFilter('ALL')}
+                      className={`text-[10px] font-black uppercase tracking-[0.14em] ${flowFilter === 'ALL' ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white/45 hover:text-white/75' : 'text-slate-400 hover:text-slate-700'}`}
+                    >
+                      Limpar
+                    </button>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <FilterPill active={statusFilter === 'TODOS'} label="Todos" onClick={() => setStatusFilter('TODOS')} isDark={isDark} />
-                    <FilterPill active={statusFilter === 'PAGO'} label="Pago" onClick={() => setStatusFilter('PAGO')} isDark={isDark} />
-                    <FilterPill active={statusFilter === 'EM_ABERTO'} label="Em aberto" onClick={() => setStatusFilter('EM_ABERTO')} isDark={isDark} />
-                    <FilterPill active={statusFilter === 'ATRASADO'} label="Atrasado" onClick={() => setStatusFilter('ATRASADO')} isDark={isDark} />
-                    <FilterPill active={statusFilter === 'AMANHA'} label="Vcto amanhã" onClick={() => setStatusFilter('AMANHA')} isDark={isDark} />
-                    <FilterPill active={statusFilter === 'HOJE'} label="Vcto hoje" onClick={() => setStatusFilter('HOJE')} isDark={isDark} />
-                  </div>
-                </div>
+                  <AsyncApexChart type="donut" height={235} series={payReceiveCharts.donutSeries} options={payReceiveCharts.donutOptions} />
+                  <div className={`mt-1 text-[10px] ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Clique na rosca para filtrar por pagamento ou recebimento.</div>
+                </section>
 
-                <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-230 text-sm">
-                      <thead className={isDark ? 'bg-[#f2c94c] text-slate-950' : 'bg-amber-300 text-slate-950'}>
-                        <tr>
-                          <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.14em]">Data Vcto</th>
-                          <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.14em]">Nome Interessado</th>
-                          <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.14em]">Descrição</th>
-                          <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.14em]">Tipo</th>
-                          <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.14em]">Status</th>
-                          <th className="px-4 py-3 text-right text-[11px] font-black uppercase tracking-[0.14em]">Valor</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {dashboard.tableRows.length === 0 ? (
+                <section className={`rounded-[24px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>A pagar vs receber por mês (vcto)</div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedMonthIndex(null);
+                        setSelectedDayOfMonth(null);
+                      }}
+                      className={`text-[10px] font-black uppercase tracking-[0.14em] ${selectedMonthIndex === null ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white/45 hover:text-white/75' : 'text-slate-400 hover:text-slate-700'}`}
+                    >
+                      Limpar mês
+                    </button>
+                  </div>
+                  <AsyncApexChart type="bar" height={235} series={payReceiveCharts.monthlySeries} options={payReceiveCharts.monthlyOptions} />
+                </section>
+
+                <section className={`rounded-[24px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>A pagar vs receber por dia (vcto)</div>
+                    <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{payReceiveCharts.effectiveMonthLabel}</div>
+                  </div>
+                  <AsyncApexChart type="bar" height={235} series={payReceiveCharts.dailySeries} options={payReceiveCharts.dailyOptions} />
+                </section>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto pb-1 custom-scrollbar">
+              <div className="grid min-w-[1180px] gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+                <section className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
+                  <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                      <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Indicadores</div>
+                      <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Grade rolável para não estourar a tela.</div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <FilterPill active={statusFilter === 'TODOS'} label="Todos" onClick={() => setStatusFilter('TODOS')} isDark={isDark} />
+                      <FilterPill active={statusFilter === 'PAGO'} label="Pago" onClick={() => setStatusFilter('PAGO')} isDark={isDark} />
+                      <FilterPill active={statusFilter === 'EM_ABERTO'} label="Em aberto" onClick={() => setStatusFilter('EM_ABERTO')} isDark={isDark} />
+                      <FilterPill active={statusFilter === 'ATRASADO'} label="Atrasado" onClick={() => setStatusFilter('ATRASADO')} isDark={isDark} />
+                      <FilterPill active={statusFilter === 'AMANHA'} label="Vcto amanha" onClick={() => setStatusFilter('AMANHA')} isDark={isDark} />
+                      <FilterPill active={statusFilter === 'HOJE'} label="Vcto hoje" onClick={() => setStatusFilter('HOJE')} isDark={isDark} />
+                    </div>
+                  </div>
+
+                  <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                    <div className="max-h-[62vh] overflow-auto custom-scrollbar">
+                      <table className="w-full min-w-[980px] text-[13px]">
+                        <thead className={isDark ? 'sticky top-0 z-10 bg-[#f2c94c] text-slate-950' : 'sticky top-0 z-10 bg-amber-300 text-slate-950'}>
                           <tr>
-                            <td colSpan={6} className={`px-4 py-12 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Nenhum lançamento para os filtros atuais.</td>
+                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data Vcto</th>
+                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Nome Interessado</th>
+                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
+                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Tipo</th>
+                            <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Status</th>
+                            <th className="px-4 py-3 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
                           </tr>
-                        ) : dashboard.tableRows.map((row) => (
-                          <tr key={row.id} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
-                            <td className="px-4 py-3 font-medium">{formatDate(row.dataVencimento)}</td>
-                            <td className="px-4 py-3 font-semibold">{row.interessado}</td>
-                            <td className="max-w-85 truncate px-4 py-3" title={row.descricao}>{row.descricao}</td>
-                            <td className={`px-4 py-3 font-semibold ${row.flowType === 'RECEBIMENTO' ? 'text-[#4d8cf3]' : 'text-[#ff5a47]'}`}>{row.flowType === 'RECEBIMENTO' ? 'Recebimento' : 'Pagamento'}</td>
-                            <td className="px-4 py-3">
-                              <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${row.statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : row.statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                                {row.statusLabel}
-                              </span>
-                            </td>
-                            <td className={`px-4 py-3 text-right font-black whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrency(row.valor)}</td>
+                        </thead>
+                        <tbody>
+                          {dashboard.tableRows.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className={`px-4 py-12 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Nenhum lançamento para os filtros atuais.</td>
+                            </tr>
+                          ) : dashboard.tableRows.map((row) => (
+                            <tr key={row.id} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
+                              <td className="px-4 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
+                              <td className="px-4 py-2.5 font-semibold">{row.interessado}</td>
+                              <td className="max-w-85 truncate px-4 py-2.5" title={row.descricao}>{row.descricao}</td>
+                              <td className="px-4 py-2.5">
+                                <span
+                                  title={row.flowType === 'RECEBIMENTO' ? 'Recebimento' : 'Pagamento'}
+                                  className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-black ${row.flowType === 'RECEBIMENTO' ? isDark ? 'border border-blue-400/35 bg-blue-500/20 text-blue-300' : 'border border-blue-200 bg-blue-100 text-blue-700' : isDark ? 'border border-rose-400/35 bg-rose-500/20 text-rose-300' : 'border border-rose-200 bg-rose-100 text-rose-700'}`}
+                                >
+                                  {row.flowType === 'RECEBIMENTO' ? 'R' : 'P'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${row.statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : row.statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                                  {row.statusLabel}
+                                </span>
+                              </td>
+                              <td className={`px-4 py-2.5 text-right font-black whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrency(row.valor)}</td>
+                            </tr>
+                          ))}
+                          <tr className={isDark ? 'border-t border-white/10 bg-black/25 text-white' : 'border-t border-slate-200 bg-slate-50 text-slate-900'}>
+                            <td colSpan={5} className="px-4 py-3 text-right font-black uppercase tracking-[0.14em]">Total geral</td>
+                            <td className={`px-4 py-3 text-right font-black whitespace-nowrap ${getValueTone(dashboard.tableRows.reduce((sum, row) => sum + row.valor, 0), isDark)}`}>{formatCurrency(dashboard.tableRows.reduce((sum, row) => sum + row.valor, 0))}</td>
                           </tr>
-                        ))}
-                        <tr className={isDark ? 'border-t border-white/10 bg-black/25 text-white' : 'border-t border-slate-200 bg-slate-50 text-slate-900'}>
-                          <td colSpan={5} className="px-4 py-3 text-right font-black uppercase tracking-[0.14em]">Total geral</td>
-                          <td className={`px-4 py-3 text-right font-black whitespace-nowrap ${getValueTone(dashboard.tableRows.reduce((sum, row) => sum + row.valor, 0), isDark)}`}>{formatCurrency(dashboard.tableRows.reduce((sum, row) => sum + row.valor, 0))}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                </div>
-              </section>
+                </section>
 
-              <section className={`rounded-[28px] border px-4 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Situação</div>
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('TODOS')}
-                    className={`text-[10px] font-black uppercase tracking-[0.14em] ${statusFilter === 'TODOS' ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white/45 hover:text-white/75' : 'text-slate-400 hover:text-slate-700'}`}
-                  >
-                    Mostrar tudo
-                  </button>
-                </div>
-                <div className={`mb-4 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Os cards usam os outros filtros ativos e aplicam a situação na tabela.</div>
-                <div className="space-y-2.5">
-                  {situacaoCards.map((item) => {
-                    const active = statusFilter === item.key;
-                    return (
-                      <button
-                        key={item.key}
-                        type="button"
-                        onClick={() => setStatusFilter((current) => current === item.key ? 'TODOS' : item.key)}
-                        className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-3 text-left transition ${active ? isDark ? 'border-amber-300/50 bg-amber-300/10' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035] hover:bg-white/6' : 'border-slate-200 bg-white/85 hover:bg-slate-50'}`}
-                      >
-                        <span className={`font-black ${isDark ? 'text-white/85' : 'text-slate-800'}`}>{item.label}</span>
-                        <span className={`font-black whitespace-nowrap ${active ? isDark ? 'text-amber-200' : 'text-amber-700' : getValueTone(item.value, isDark)}`}>{formatCurrency(item.value)}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
+                <section className={`rounded-[28px] border px-4 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Situação</div>
+                    <button
+                      type="button"
+                      onClick={() => setStatusFilter('TODOS')}
+                      className={`text-[10px] font-black uppercase tracking-[0.14em] ${statusFilter === 'TODOS' ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white/45 hover:text-white/75' : 'text-slate-400 hover:text-slate-700'}`}
+                    >
+                      Mostrar tudo
+                    </button>
+                  </div>
+                  <div className="space-y-2.5 max-h-[62vh] overflow-y-auto custom-scrollbar pr-1">
+                    {situacaoCards.map((item) => {
+                      const active = statusFilter === item.key;
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => setStatusFilter((current) => current === item.key ? 'TODOS' : item.key)}
+                          className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-3 text-left transition ${active ? isDark ? 'border-amber-300/50 bg-amber-300/10' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035] hover:bg-white/6' : 'border-slate-200 bg-white/85 hover:bg-slate-50'}`}
+                        >
+                          <span className={`font-black ${isDark ? 'text-white/85' : 'text-slate-800'}`}>{item.label}</span>
+                          <span className={`font-black whitespace-nowrap ${active ? isDark ? 'text-amber-200' : 'text-amber-700' : getValueTone(item.value, isDark)}`}>{formatCurrency(item.value)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              </div>
             </div>
           </section>
         )}

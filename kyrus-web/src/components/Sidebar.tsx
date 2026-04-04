@@ -1,32 +1,12 @@
 import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
-  Home, BarChart2, PlusCircle, Users, 
-  Landmark, CreditCard, Settings, LogOut,
+  Home, BarChart2, PlusCircle,
+  Landmark, CreditCard, Settings,
   Briefcase, X, LineChart, FileText,
-  Sun, Moon
 } from 'lucide-react';
-import { useAuthStore } from '../store/authStore';
-import { api, toPublicAssetUrl } from '../services/api';
-
-// --- TIPAGEM ---
-interface EmpresaInfo {
-  id?: number;
-  nome_fantasia: string;
-  logo_url?: string;
-  cor_primaria?: string;
-  is_active?: boolean;
-}
-
-interface UserInfo {
-  is_consultor: boolean;
-  consultor_role?: string;
-  empresa_id?: number | null;
-  nome?: string | null;
-  email?: string;
-  foto_url?: string | null;
-  permissions?: string[] | null;
-}
+import { useAuthStore, type AuthUser } from '../store/authStore';
+import { api } from '../services/api';
 
 interface MenuItem {
   icon: typeof Home;
@@ -48,75 +28,44 @@ function hasAnyPermission(permissions: string[] | null | undefined, requiredPerm
   return requiredPermissions.some((permission) => permissions.includes(permission));
 }
 
-interface ConsultorContextoResponse {
-  empresa_atual: EmpresaInfo;
-}
-
 interface SidebarPanelProps {
   onNavigate?: () => void;
   showClose?: boolean;
   collapsed?: boolean;
-  onToggleCollapse?: () => void;
-  theme?: 'dark' | 'light';
-  onToggleTheme?: () => void;
 }
 
-function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }: SidebarPanelProps) {
-  const logout = useAuthStore((state) => state.logout);
+function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
   const storedUser = useAuthStore((state) => state.user);
-  const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
-  const [isConsultor, setIsConsultor] = useState(false);
-  const [user, setUser] = useState<UserInfo | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(storedUser);
 
   useEffect(() => {
-    if (!storedUser) return;
     setUser(storedUser);
-    setIsConsultor(storedUser.is_consultor);
   }, [storedUser]);
 
-  // --- CARREGAMENTO DE DADOS ---
   useEffect(() => {
-    async function loadData() {
-      try {
-        const { data: user } = await api.get<UserInfo>('/usuarios/me');
-        setIsConsultor(user.is_consultor);
-        setUser(user);
+    let active = true;
 
-        let empresaAtual: EmpresaInfo | null = null;
-
-        if (user.empresa_id) {
-          try {
-            const { data: emp } = await api.get<EmpresaInfo>(`/empresas/${user.empresa_id}`);
-            empresaAtual = emp;
-          } catch {
-            empresaAtual = null;
-          }
+    api.get<AuthUser>('/usuarios/me')
+      .then(({ data }) => {
+        if (active) {
+          setUser(data);
         }
+      })
+      .catch(() => undefined);
 
-        if (!empresaAtual && user.is_consultor) {
-          const { data } = await api.get<ConsultorContextoResponse>('/consultor/meu-contexto');
-          empresaAtual = data.empresa_atual;
-        }
-
-        setEmpresa(empresaAtual);
-
-        if (empresaAtual?.cor_primaria) {
-          document.documentElement.style.setProperty('--color-primary', empresaAtual.cor_primaria);
-        }
-      } catch (error) {
-        console.error("Erro ao carregar sidebar", error);
-      }
-    }
-    loadData();
+    return () => {
+      active = false;
+    };
   }, []);
 
-  // --- ESTRUTURA DO MENU ---
-  const menuItems: MenuItem[] = [
+  const isConsultor = Boolean(user?.is_consultor);
+  const permissions = user?.permissions || [];
+
+  const baseMenuItems: MenuItem[] = [
     { icon: Home, label: 'Visão Geral', path: '/home' },
     { icon: Landmark, label: 'Contas Bancárias', path: '/contas' },
     { icon: PlusCircle, label: 'Lançamentos', path: '/lancamentos' },
     { icon: BarChart2, label: 'Boletim', path: '/boletim' },
-    { icon: Users, label: 'Interessados', path: '/entidades' },
     { icon: CreditCard, label: 'Cartões', path: '/cartoes' },
     {
       icon: FileText,
@@ -128,95 +77,28 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
     { icon: Settings, label: 'Configurações', path: '/config' },
   ];
 
-  // Adiciona menu de Consultor se for o caso
+  const menuItems = [...baseMenuItems];
   if (isConsultor) {
     menuItems.unshift({ icon: Briefcase, label: 'Área do Consultor', path: '/consultor' });
   }
 
-  const permissions = user?.permissions || [];
   const menuItemsFiltered = menuItems.filter((item) => hasAnyPermission(permissions, item.requiredPermissions));
 
-  // Cor padrão se a empresa não tiver uma definida
-  const primaryColor = empresa?.cor_primaria || '#2563eb'; 
-
-  // Helper para montar a URL da imagem
-  const getLogoUrl = (url?: string) => {
-    if (!url) return undefined;
-    return toPublicAssetUrl(url) || undefined;
-  };
-
-  const logoSrc = getLogoUrl(empresa?.logo_url);
-  const userFotoSrc = getLogoUrl(user?.foto_url || undefined);
-  const companyTitle = empresa?.nome_fantasia || 'KyrusTECH';
-
-  const handleLogout = () => {
-    api.post('/auth/logout').catch(() => undefined).finally(() => {
-      logout();
-      onNavigate?.();
-      window.location.href = '/';
-    });
-  };
-
   return (
-    <>
-      {/* --- HEADER DA EMPRESA --- */}
-      <div className={`relative flex w-full flex-col items-center justify-center gap-2.5 border-b border-slate-100 text-center transition-all duration-300 dark:border-slate-700 ${collapsed ? 'min-h-32 px-0 py-4' : 'min-h-36 p-4'}`}>
-        {showClose && (
+    <div className="flex h-full min-h-0 flex-col">
+      {showClose ? (
+        <div className="flex items-center justify-end px-3 pt-2">
           <button
             onClick={onNavigate}
-            className="absolute right-4 top-4 p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
             aria-label="Fechar menu"
           >
-            <X size={18} />
+            <X size={17} />
           </button>
-        )}
-        
-        {/* LOGO EM BOLINHA (CROPADA PERFEITA) */}
-        <div className={`${collapsed ? 'mt-2 h-16 w-full -ml-8 justify-start' : 'h-16 w-16 justify-center'} flex items-center overflow-hidden shrink-0 transition-all duration-300`}>
-          <div className="h-16 w-16 rounded-full bg-white dark:bg-slate-700 flex items-center justify-center overflow-hidden border-4 border-slate-100 dark:border-slate-600 shadow-md shrink-0">
-              {logoSrc ? (
-                <img 
-                  src={logoSrc} 
-                  alt={empresa?.nome_fantasia} 
-                  className="h-full w-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
-                />
-              ) : (
-                <img
-                  src="/kyrus.png"
-                  alt="Logo Kyrus"
-                  className="h-full w-full object-contain p-2 bg-slate-50 dark:bg-slate-800"
-                />
-              )}
-          </div>
         </div>
+      ) : null}
 
-        {/* NOME DA EMPRESA */}
-        <div className={`w-full px-2 transition-all duration-300 ${collapsed ? 'invisible h-0 opacity-0' : 'visible h-11 opacity-100'}`} aria-hidden={collapsed}>
-            {empresa?.nome_fantasia ? (
-                <>
-                    <h1 className="text-lg font-bold text-slate-800 dark:text-white leading-tight truncate">
-                {companyTitle}
-                    </h1>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 block">
-                        Gestão Financeira
-                    </span>
-                </>
-            ) : (
-                <img
-                  src="/kyrusnamegg.png"
-                  alt="KyrusTech"
-              className="mx-auto h-6 w-auto"
-                />
-            )}
-        </div>
-
-      </div>
-
-      {/* --- NAVEGAÇÃO --- */}
-      <nav className={`flex-1 overflow-y-auto custom-scrollbar mt-1 ${collapsed ? 'pl-0 pr-2 py-2 space-y-1.5' : 'pl-0 pr-3 py-3 space-y-1'}`}>
+      <nav className={`custom-scrollbar min-h-0 flex-1 overflow-y-auto ${collapsed ? 'space-y-1 px-2 py-2' : 'space-y-1 px-3 py-2'}`}>
         {menuItemsFiltered.map((item) => (
           <NavLink
             key={item.path}
@@ -230,34 +112,37 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
               }
 
               return {
-                backgroundColor: `${primaryColor}15`,
-                color: primaryColor,
+                backgroundColor: 'color-mix(in srgb, var(--color-primary, #2563eb) 14%, transparent)',
+                color: 'var(--color-primary, #2563eb)',
+                borderColor: 'color-mix(in srgb, var(--color-primary, #2563eb) 28%, transparent)',
               };
             }}
             className={({ isActive }) => `
-              w-full grid items-center ${collapsed ? 'grid-cols-[2.25rem] justify-start justify-items-center pl-3 pr-2 rounded-r-2xl rounded-l-none' : 'grid-cols-[2.25rem_minmax(0,1fr)] pl-4 pr-3 rounded-r-2xl rounded-l-none'} py-2.5 transition-[background-color,color,transform] duration-200 font-medium text-sm group
-              ${!isActive 
-                ? collapsed
-                  ? 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white hover:-translate-y-0.5'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white'
-                : ''}
+              grid w-full items-center border px-2 py-2 text-sm font-medium transition-colors duration-150 group
+              ${collapsed ? 'grid-cols-[2.1rem] justify-items-center rounded-lg' : 'grid-cols-[2.1rem_minmax(0,1fr)] rounded-lg'}
+              ${isActive
+                ? 'shadow-[inset_0_0_0_1px_rgba(148,163,184,0.08)]'
+                : 'border-transparent text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700/70 dark:hover:text-white'}
             `}
           >
             {({ isActive }) => {
               const iconStyle = isActive
-                ? { backgroundColor: `${primaryColor}18`, color: primaryColor }
+                ? {
+                    backgroundColor: 'color-mix(in srgb, var(--color-primary, #2563eb) 16%, transparent)',
+                    color: 'var(--color-primary, #2563eb)',
+                  }
                 : undefined;
 
               return (
                 <>
                   <span
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors ${collapsed ? 'bg-slate-50 shadow-sm dark:bg-slate-900/70' : 'bg-transparent'} group-hover:bg-white/80 dark:group-hover:bg-slate-800/80`}
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors ${collapsed ? 'bg-slate-100/80 dark:bg-slate-800/70' : ''}`}
                     style={iconStyle}
                   >
-                    <item.icon 
-                        size={16} 
-                        strokeWidth={2.35} 
-                        className="transition-transform"
+                    <item.icon
+                      size={16}
+                      strokeWidth={2.2}
+                      className="transition-transform"
                     />
                   </span>
                   {!collapsed && <span className="truncate">{item.label}</span>}
@@ -267,72 +152,19 @@ function SidebarPanel({ onNavigate, showClose, collapsed, theme, onToggleTheme }
           </NavLink>
         ))}
       </nav>
-
-      {/* --- FOOTER / SAIR --- */}
-      <div className={`border-t border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/60 transition-all duration-300 ${collapsed ? 'p-3' : 'p-4'}`}>
-        {!collapsed ? (
-          <div className="mb-3 flex items-center gap-3 px-3 py-2 rounded-xl bg-white/80 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            <div className="w-9 h-9 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
-              {userFotoSrc ? (
-                <img src={userFotoSrc} alt="Usuário" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-xs font-bold text-slate-500">
-                  {(user?.nome || user?.email || 'U').substring(0,2).toUpperCase()}
-                </span>
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{user?.nome || user?.email || 'Usuário'}</p>
-              <p className="text-[10px] text-slate-400 truncate">{user?.email || ''}</p>
-            </div>
-          </div>
-        ) : (
-          <div className="mb-3 flex justify-center">
-            <div title={user?.nome || user?.email || 'Usuário'} className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white/90 text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200">
-              {userFotoSrc ? (
-                <img src={userFotoSrc} alt="Usuário" className="h-full w-full rounded-full object-cover" />
-              ) : (
-                <span className="text-xs font-bold">
-                  {(user?.nome || user?.email || 'U').substring(0, 2).toUpperCase()}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-        <button
-          onClick={onToggleTheme}
-          title={collapsed ? (theme === 'dark' ? 'Tema Claro' : 'Tema Escuro') : undefined}
-          className={`grid items-center ${collapsed ? 'grid-cols-[2.25rem] px-2.5' : 'grid-cols-[2.25rem_minmax(0,1fr)] px-3'} py-2.5 w-full text-left text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors font-bold text-sm mb-2`}
-        >
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white/80 dark:border-slate-700 dark:bg-slate-900/70">
-            {theme === 'dark' ? <Sun size={16} strokeWidth={2.35} /> : <Moon size={16} strokeWidth={2.35} />}
-          </span>
-          {!collapsed && <span className="truncate">{theme === 'dark' ? 'Tema Claro' : 'Tema Escuro'}</span>}
-        </button>
-        <button 
-            onClick={handleLogout} 
-            title={collapsed ? 'Sair do Sistema' : undefined}
-            className={`grid items-center ${collapsed ? 'grid-cols-[2.25rem] px-2.5' : 'grid-cols-[2.25rem_minmax(0,1fr)] px-3'} py-2.5 w-full text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors font-bold text-sm`}
-        >
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-red-200 bg-red-50/80 dark:border-red-900/60 dark:bg-red-950/30">
-            <LogOut size={16} strokeWidth={2.35} />
-          </span>
-          {!collapsed && <span className="truncate">Sair do Sistema</span>}
-        </button>
-      </div>
-    </>
+    </div>
   );
 }
 
-export function Sidebar({ collapsed, onToggleCollapse, onMouseEnter, onMouseLeave, theme, onToggleTheme }: { collapsed: boolean; onToggleCollapse: () => void; onMouseEnter?: () => void; onMouseLeave?: () => void; theme: 'dark' | 'light'; onToggleTheme: () => void; }) {
+export function Sidebar({ collapsed, onMouseEnter, onMouseLeave }: { collapsed: boolean; onMouseEnter?: () => void; onMouseLeave?: () => void; }) {
   return (
-    <aside onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className={`${collapsed ? 'w-19' : 'w-60'} bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] dark:bg-[linear-gradient(180deg,#0f172a_0%,#111c34_100%)] border-r border-slate-200/80 dark:border-slate-700 hidden md:flex flex-col h-screen sticky top-0 transition-[width] duration-200 z-30 shadow-sm overflow-hidden`}> 
-      <SidebarPanel collapsed={collapsed} onToggleCollapse={onToggleCollapse} theme={theme} onToggleTheme={onToggleTheme} />
+    <aside onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className={`${collapsed ? 'w-[76px]' : 'w-[232px]'} hidden h-full min-h-0 shrink-0 overflow-hidden border-r border-slate-200/80 bg-slate-50/90 shadow-sm transition-[width] duration-200 dark:border-slate-700/80 dark:bg-slate-900/80 md:flex`}>
+      <SidebarPanel collapsed={collapsed} />
     </aside>
   );
 }
 
-export function MobileSidebar({ open, onClose, theme, onToggleTheme }: { open: boolean; onClose: () => void; theme: 'dark' | 'light'; onToggleTheme: () => void; }) {
+export function MobileSidebar({ open, onClose }: { open: boolean; onClose: () => void; }) {
   return (
     <div className={`fixed inset-0 z-40 md:hidden ${open ? '' : 'pointer-events-none'}`}>
       <div
@@ -340,9 +172,9 @@ export function MobileSidebar({ open, onClose, theme, onToggleTheme }: { open: b
         onClick={onClose}
       />
       <aside
-        className={`absolute left-0 top-0 h-full w-72 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 shadow-xl transform transition-transform ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`absolute left-0 top-0 h-full w-72 border-r border-slate-200 bg-white shadow-xl transition-transform dark:border-slate-700 dark:bg-slate-900 ${open ? 'translate-x-0' : '-translate-x-full'}`}
       >
-        <SidebarPanel onNavigate={onClose} showClose collapsed={false} theme={theme} onToggleTheme={onToggleTheme} />
+        <SidebarPanel onNavigate={onClose} showClose collapsed={false} />
       </aside>
     </div>
   );

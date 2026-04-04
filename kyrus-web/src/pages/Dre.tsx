@@ -224,7 +224,7 @@ function MetricCard({
 
   return (
     <div
-      className={`rounded-3xl border px-5 py-4 ${toneClass}`}
+      className={`rounded-xl border px-4 py-3 ${toneClass}`}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
@@ -233,7 +233,7 @@ function MetricCard({
           <p className="text-[10px] font-black uppercase tracking-[0.24em] opacity-60">{label}</p>
           <p className="mt-2 text-2xl font-black tracking-tight">{value}</p>
         </div>
-        <div className={`rounded-2xl border border-current/10 p-3 ${isDark ? 'bg-white/5' : 'bg-white/80'}`}>{icon}</div>
+        <div className={`rounded-lg border border-current/10 p-3 ${isDark ? 'bg-white/5' : 'bg-white/80'}`}>{icon}</div>
       </div>
     </div>
   );
@@ -920,9 +920,9 @@ export function Dre() {
     : 'border-amber-300/70 bg-amber-200/50 !text-slate-900';
 
   return (
-    <div className={`min-h-full px-3 py-6 sm:px-4 lg:px-6 ${pageBg}`}>
+    <div className={`min-h-full ${pageBg}`}>
       <div className="w-full space-y-6">
-        <section className={`rounded-[30px] border px-6 py-6 shadow-[0_30px_90px_-60px_rgba(15,23,42,0.45)] md:px-8 ${isDark ? 'border-slate-800 bg-slate-950/70' : 'border-slate-200 bg-white'}`}>
+        <section className={`rounded-none border px-4 py-4 shadow-[0_25px_70px_-60px_rgba(15,23,42,0.45)] md:px-6 ${isDark ? 'border-slate-800 bg-slate-950/70' : 'border-slate-200 bg-white'}`}>
           <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
             <div>
               <p className={`text-[11px] font-black uppercase tracking-[0.3em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Demonstrativo</p>
@@ -932,7 +932,7 @@ export function Dre() {
             </div>
 
             <div className="flex flex-col gap-3 md:flex-row md:items-center">
-              <div className={`rounded-[22px] border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
+              <div className={`rounded-lg border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
                 <label className={`block text-[10px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Ano</label>
                 <div className="mt-2 flex items-center gap-3">
                   <CalendarDays className={`h-4 w-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`} />
@@ -950,7 +950,7 @@ export function Dre() {
                 </div>
               </div>
 
-              <div className={`rounded-[22px] border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
+              <div className={`rounded-lg border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
                 <label className={`block text-[10px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Mes</label>
                 <select
                   value={selectedMonth === null ? 'ALL' : String(selectedMonth)}
@@ -966,7 +966,7 @@ export function Dre() {
                 </select>
               </div>
 
-              <div className={`rounded-[22px] border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
+              <div className={`rounded-lg border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
                 <label className={`block text-[10px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Centro de custo</label>
                 <select
                   value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
@@ -985,7 +985,7 @@ export function Dre() {
                 </select>
               </div>
 
-              <div className={`rounded-[22px] border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
+              <div className={`rounded-lg border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
                 <label className={`block text-[10px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Lançamentos</label>
                 <button
                   type="button"
@@ -1011,7 +1011,7 @@ export function Dre() {
         </section>
 
         {error ? (
-          <div className={`rounded-3xl border px-5 py-4 text-sm font-semibold ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-200' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+          <div className={`rounded-lg border px-5 py-4 text-sm font-semibold ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-200' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
             {error}
           </div>
         ) : null}
@@ -1046,7 +1046,7 @@ export function Dre() {
           </aside>
         ) : null}
 
-        <section className={`overflow-hidden rounded-[30px] border shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] ${isDark ? 'border-slate-800 bg-slate-950/75' : 'border-slate-200 bg-white'}`}>
+        <section className={`overflow-hidden rounded-none border shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] ${isDark ? 'border-slate-800 bg-slate-950/75' : 'border-slate-200 bg-white'}`}>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1520px] border-separate border-spacing-0 text-sm">
               <thead>

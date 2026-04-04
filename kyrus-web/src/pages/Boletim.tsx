@@ -312,7 +312,7 @@ function SoftMetricGrid({
     : isDark ? 'text-emerald-300' : 'text-emerald-600';
 
   return (
-    <section className={`rounded-[28px] border bg-linear-to-br px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${toneClass}`}>
+    <section className={`rounded-xl border bg-linear-to-br px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${toneClass}`}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className={`text-sm font-black uppercase tracking-[0.18em] ${titleClass}`}>{title}</h2>
         <div className={`h-2.5 w-2.5 rounded-full ${accent === 'rose' ? 'bg-rose-400' : 'bg-sky-400'}`} />
@@ -325,7 +325,7 @@ function SoftMetricGrid({
             key={metric.key}
             type="button"
             onClick={() => onMetricClick?.(metric.key)}
-            className={`rounded-2xl border px-4 py-4 text-left transition hover:-translate-y-0.5 ${isActive ? isDark ? 'border-amber-300/55 bg-amber-300/12' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035]' : 'border-slate-200 bg-white/85'} ${onMetricClick ? 'cursor-pointer' : 'cursor-default'}`}
+            className={`rounded-lg border px-4 py-4 text-left transition ${isActive ? isDark ? 'border-amber-300/55 bg-amber-300/12' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035]' : 'border-slate-200 bg-white/85'} ${onMetricClick ? 'cursor-pointer' : 'cursor-default'}`}
           >
             <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{metric.label}</div>
             <div className={`mt-2 whitespace-nowrap text-2xl font-black tracking-tight ${valueClass}`}>{formatCurrency(metric.value)}</div>
@@ -1276,12 +1276,12 @@ export function Boletim() {
   const auditPanelShellClass = isDark ? 'border-amber-300/35 bg-slate-950 text-white' : 'border-amber-300 bg-white text-slate-900';
 
   return (
-    <div className={`min-h-full px-3 py-6 sm:px-4 lg:px-6 ${pageClass}`}>
+    <div className={`min-h-full ${pageClass}`}>
       <div className="mx-auto w-full space-y-5">
-        <header className={`overflow-hidden rounded-4xl border px-6 py-5 shadow-[0_35px_100px_-70px_rgba(15,23,42,0.95)] ${shellClass}`}>
+        <header className={`overflow-hidden rounded-none border px-4 py-4 shadow-[0_25px_70px_-60px_rgba(15,23,42,0.95)] ${shellClass}`}>
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center gap-4">
-              <div className={`flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border ${isDark ? 'border-white/10 bg-white/95' : 'border-slate-200 bg-slate-100'}`}>
+              <div className={`flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border ${isDark ? 'border-white/10 bg-white/95' : 'border-slate-200 bg-slate-100'}`}>
                 {companyLogo ? <img src={companyLogo} alt={companyName} className="h-full w-full object-cover" /> : <Building2 className="h-8 w-8 text-slate-400" />}
               </div>
               <div>
@@ -1340,7 +1340,7 @@ export function Boletim() {
         </header>
 
         {loadError ? (
-          <div className={`rounded-3xl border px-5 py-4 text-sm font-semibold ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+          <div className={`rounded-lg border px-5 py-4 text-sm font-semibold ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
             {loadError}
           </div>
         ) : null}

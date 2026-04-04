@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, fetchLancamentosPaged, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
@@ -172,10 +172,10 @@ const DadosEmpresa = () => {
 
   return (
     <div className="w-full animate-in fade-in slide-in-from-bottom-4">
-      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 sm:p-8 shadow-xl">
+      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-none p-4 sm:p-6 shadow-sm">
         
         {/* CABEÇALHO COM LOGO (CROPADA/REDONDA) */}
-        <div className="flex flex-col md:flex-row items-center gap-6 md:gap-8 mb-10 pb-10 border-b border-slate-200 dark:border-slate-700">
+        <div className="flex flex-col md:flex-row items-center gap-4 md:gap-6 mb-6 pb-6 border-b border-slate-200 dark:border-slate-700">
           
           {/* Container da Logo */}
           <div className="relative group">
@@ -217,7 +217,7 @@ const DadosEmpresa = () => {
         </div>
 
         {/* FORMULÁRIO (DADOS FISCAIS) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
+        <div className="grid grid-cols-1 gap-4 mb-6 md:grid-cols-2">
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Razão Social</label>
             <input disabled value={empresa.razao_social} className="w-full p-4 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 font-medium cursor-not-allowed opacity-70" />
@@ -234,7 +234,7 @@ const DadosEmpresa = () => {
           <label className="text-xs font-bold text-slate-700 dark:text-white uppercase mb-4 flex items-center gap-2">
             <Palette className="w-4 h-4 text-blue-500"/> Identidade Visual
           </label>
-          <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center gap-6">
+          <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center gap-4">
             <div className="relative group cursor-pointer">
                 <input 
                   type="color" 
@@ -258,11 +258,11 @@ const DadosEmpresa = () => {
         </div>
 
         {/* BOTÃO SALVAR */}
-        <div className="mt-10 pt-6 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+        <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-end">
           <button 
             onClick={handleSave} 
             disabled={saving} 
-            className="px-10 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-xl shadow-blue-900/20 flex items-center gap-3 transition-all hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0" 
+            className="px-7 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold shadow-sm flex items-center gap-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" 
             style={{ backgroundColor: cor }}
           >
             {saving ? <Loader2 className="animate-spin w-5 h-5"/> : <Save className="w-5 h-5"/>} 
@@ -271,7 +271,7 @@ const DadosEmpresa = () => {
         </div>
 
         {canResetEmpresa ? (
-          <div className="mt-8 rounded-2xl border border-red-200 bg-red-50 p-6 dark:border-red-900/60 dark:bg-red-950/20">
+          <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/60 dark:bg-red-950/20">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-red-500">Zona crítica</p>
@@ -371,8 +371,8 @@ const DadosUsuario = () => {
 
   return (
     <div className="w-full animate-in fade-in slide-in-from-bottom-4">
-      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 sm:p-8 shadow-xl">
-        <div className="mb-8 rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-900/50">
+      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-none p-4 sm:p-6 shadow-sm">
+        <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/50">
           <label className="text-xs font-bold text-slate-700 dark:text-white uppercase mb-4 flex items-center gap-2">
             <Camera className="w-4 h-4 text-blue-500" /> Minha Foto
           </label>
@@ -448,6 +448,8 @@ const DadosUsuario = () => {
 const GestaoPlanoContas = () => {
   const [categorias, setCategorias] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [importingPlano, setImportingPlano] = useState(false);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
   const setPlanoContasCache = useLookupStore((state) => state.setPlanoContas);
@@ -469,27 +471,96 @@ const GestaoPlanoContas = () => {
     setPlanoContasCache(newCats);
   };
 
+  const handleOpenImportPlano = () => {
+    if (loading || importingPlano) return;
+    importInputRef.current?.click();
+  };
+
+  const handleImportPlano = async (event: any) => {
+    const selectedFile: File | undefined = event?.target?.files?.[0];
+    if (!selectedFile) return;
+
+    setImportingPlano(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', selectedFile);
+      await api.post('/plano-contas/importar', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 0,
+      });
+      await loadCats(true);
+    } catch (error) {
+      console.error(error);
+      alert('Nao foi possivel importar o plano de contas.');
+    } finally {
+      if (event?.target) event.target.value = '';
+      setImportingPlano(false);
+    }
+  };
+
+  const handleExportPlano = async () => {
+    try {
+      const response = await api.get('/plano-contas/exportar', { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'plano_de_contas.csv');
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error(error);
+      alert('Nao foi possivel exportar o plano de contas.');
+    }
+  };
+
   if(loading) return <div className="p-20 text-center"><Loader2 className="animate-spin w-10 h-10 text-blue-500 mx-auto"/></div>;
 
   return (
     <div className="w-full animate-in fade-in">
-        <div className="mb-8 rounded-4xl border border-slate-200 bg-white/90 p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800/90">
+        <div className="mb-4 rounded-none border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-2xl font-black text-slate-900 dark:text-white">Plano de Contas</h2>
+            <h2 className="text-xl font-black text-slate-900 dark:text-white">Plano de Contas</h2>
             <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".xlsx,.xlsm,.csv"
+                className="hidden"
+                onChange={handleImportPlano}
+              />
               <button
                 onClick={() => loadCats(true)}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                disabled={loading || importingPlano}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-800"
               >
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                 Sincronizar plano
+              </button>
+              <button
+                onClick={handleOpenImportPlano}
+                disabled={loading || importingPlano}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                {importingPlano ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
+                {importingPlano ? 'Importando...' : 'Importar XLSX'}
+              </button>
+              <button
+                onClick={handleExportPlano}
+                disabled={loading || importingPlano}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                <Download className="h-4 w-4" />
+                Exportar plano de contas
               </button>
             </div>
           </div>
         </div>
         
         {/* Renderiza o componente importado de Importacao.tsx */}
-        <PlanoContasManager categorias={categorias} onUpdateList={handleUpdate} />
+        <PlanoContasManager categorias={categorias} onUpdateList={handleUpdate} showTopActions={false} />
     </div>
   );
 };
@@ -630,7 +701,7 @@ const ExportacaoFinanceira = () => {
 
   return (
     <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="rounded-none border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Exportação financeira</p>
@@ -638,15 +709,15 @@ const ExportacaoFinanceira = () => {
             <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-300">Essa área produz um recorte limpo do financeiro para contabilidade, auditoria, fechamento ou compartilhamento com o cliente.</p>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+            <div className="rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-700">
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Receitas</p>
               <p className="mt-2 text-xl font-black text-emerald-600">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resumo.receitas)}</p>
             </div>
-            <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+            <div className="rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-700">
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Despesas</p>
               <p className="mt-2 text-xl font-black text-rose-500">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resumo.despesas)}</p>
             </div>
-            <div className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+            <div className="rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-700">
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Saldo</p>
               <p className={`mt-2 text-xl font-black ${saldo >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(saldo)}</p>
             </div>
@@ -654,7 +725,7 @@ const ExportacaoFinanceira = () => {
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr_1fr_auto]">
-          <label className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+          <label className="rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-700">
             <span className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-400"><CalendarRange className="h-4 w-4" /> Período</span>
             <div className="flex flex-wrap items-center gap-2">
               <input type="date" value={periodoIni} onChange={(e) => setPeriodoIni(e.target.value)} className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm outline-none dark:border-slate-700" />
@@ -663,7 +734,7 @@ const ExportacaoFinanceira = () => {
             </div>
           </label>
 
-          <label className="rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+          <label className="rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-700">
             <span className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-400"><Landmark className="h-4 w-4" /> Banco / conta</span>
             <select value={contaId} onChange={(e) => setContaId(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm outline-none dark:border-slate-700">
               <option value="">Todas as contas</option>
@@ -674,18 +745,18 @@ const ExportacaoFinanceira = () => {
           </label>
 
           <div className="grid grid-cols-1 gap-2">
-            <button onClick={() => handleExport('csv')} disabled={exportRows.length === 0 || exportando !== null} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-600 dark:hover:bg-blue-500">
+            <button onClick={() => handleExport('csv')} disabled={exportRows.length === 0 || exportando !== null} className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-600 dark:hover:bg-blue-500">
               {exportando === 'csv' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               Exportar CSV
             </button>
-            <button onClick={() => handleExport('xlsx')} disabled={exportRows.length === 0 || exportando !== null} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/40">
+            <button onClick={() => handleExport('xlsx')} disabled={exportRows.length === 0 || exportando !== null} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/40">
               {exportando === 'xlsx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               Exportar XLSX
             </button>
           </div>
         </div>
 
-        <div className="mt-6 overflow-x-auto rounded-3xl border border-slate-200 dark:border-slate-700">
+        <div className="mt-6 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.16em] text-slate-400 dark:bg-slate-900/50">
               <tr>
@@ -777,9 +848,9 @@ export function Configuracoes() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100">
-      <div className="flex w-full min-h-0 flex-1 flex-col px-4 pb-6 pt-5 sm:px-6">
-        <div className={`grid min-h-0 flex-1 gap-4 ${menuCollapsed ? 'lg:grid-cols-[86px_minmax(0,1fr)]' : 'lg:grid-cols-[280px_minmax(0,1fr)]'}`}>
-          <aside className="custom-scrollbar rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-800/80 lg:max-h-full lg:overflow-y-auto">
+      <div className="flex w-full min-h-0 flex-1 flex-col px-0 pb-0 pt-0">
+        <div className={`grid min-h-0 flex-1 gap-0 ${menuCollapsed ? 'lg:grid-cols-[86px_minmax(0,1fr)]' : 'lg:grid-cols-[260px_minmax(0,1fr)]'}`}>
+          <aside className="custom-scrollbar rounded-none border border-slate-200 bg-white p-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-800/80 lg:max-h-full lg:overflow-y-auto">
             <div className={`mb-2 flex ${menuCollapsed ? 'justify-center' : 'justify-end'}`}>
               <button
                 type="button"
@@ -817,18 +888,18 @@ export function Configuracoes() {
             </div>
           </aside>
 
-          <section className="custom-scrollbar min-h-0 overflow-y-auto pr-1">
+          <section className="custom-scrollbar min-h-0 overflow-y-auto pr-0">
             {activeTab === 'EMPRESA' && <DadosEmpresa />}
             {activeTab === 'USUARIO' && <DadosUsuario />}
             {activeTab === 'INTERESSADOS' && (
-              <div className="min-h-[74vh] animate-in fade-in slide-in-from-right-4">
+              <div className="animate-in fade-in slide-in-from-right-4">
                 <Entidades />
               </div>
             )}
             {activeTab === 'PLANO' && <GestaoPlanoContas />}
             {activeTab === 'IMPORTACAO' && (
               <div className="animate-in fade-in slide-in-from-right-4">
-                <Importacao />
+                <Importacao embedded />
               </div>
             )}
             {activeTab === 'FINANCEIRO' && <ExportacaoFinanceira />}

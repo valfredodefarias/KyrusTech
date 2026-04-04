@@ -429,10 +429,10 @@ export function Entidades() {
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
       
       {/* HEADER */}
-      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-8 py-5 flex flex-col lg:flex-row lg:items-center justify-between shadow-sm z-10 gap-4">
+      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3.5 flex flex-col lg:flex-row lg:items-center justify-between shadow-sm z-10 gap-3">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white flex items-center gap-2">
-            Interessados <span className="text-sm font-normal text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">{total}</span>
+          <h2 className="text-xl font-bold tracking-tight text-slate-800 dark:text-white flex items-center gap-2">
+            Interessados <span className="text-xs font-normal text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">{total}</span>
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Gestão de clientes, fornecedores e demais interessados</p>
         </div>
@@ -443,7 +443,7 @@ export function Entidades() {
             <input 
               type="text" 
               placeholder="Buscar..." 
-              className="w-full sm:w-64 pl-9 pr-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 focus:outline-none focus:ring-2 transition-all text-sm text-slate-700 dark:text-slate-200 shadow-sm"
+              className="w-full sm:w-64 pl-9 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 focus:outline-none focus:ring-2 transition-colors text-sm text-slate-700 dark:text-slate-200 shadow-sm"
               // Aplica a cor primária no anel de foco via style inline para garantir prioridade
               style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
               value={searchTerm}
@@ -452,7 +452,7 @@ export function Entidades() {
           </div>
           <button 
             onClick={handleOpenCreate}
-            className="text-white px-5 py-2 rounded-xl shadow-lg flex items-center gap-2 font-bold transition-all active:scale-95 text-sm whitespace-nowrap hover:brightness-110"
+            className="text-white px-5 py-2 rounded-lg shadow-sm flex items-center gap-2 font-bold transition-colors text-sm whitespace-nowrap hover:brightness-110"
             style={{ backgroundColor: primaryColor }}
           >
             <Plus className="w-4 h-4" /> Novo Cadastro
@@ -461,8 +461,8 @@ export function Entidades() {
       </header>
 
       {/* LISTA */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-8 custom-scrollbar">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-0 custom-scrollbar">
+        <div className="bg-white dark:bg-slate-800 rounded-none shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">

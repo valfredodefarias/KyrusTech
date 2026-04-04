@@ -66,6 +66,19 @@ const normalizeImportMapKey = (value?: string) =>
         .trim()
         .toUpperCase();
 
+const inferCategoriaTipoPorNome = (value?: string): 'R' | 'D' => {
+    const normalized = normalizeImportMapKey(value);
+    if (
+        normalized.startsWith('R') ||
+        normalized.startsWith('ENTRADA') ||
+        normalized.includes('RECEB') ||
+        normalized.includes('RECEITA')
+    ) {
+        return 'R';
+    }
+    return 'D';
+};
+
 const normalizeEntityNameKey = (value?: string) =>
     String(value || '')
         .normalize('NFKD')
@@ -748,18 +761,23 @@ export const PlanoContasManager = ({
     onUpdateList,
     apiBasePath = '/plano-contas',
     syncWithLookupStore = true,
+    showTopActions = true,
 }: {
     categorias: ItemSistema[];
     onUpdateList: (l: any) => void;
     apiBasePath?: string;
     syncWithLookupStore?: boolean;
+    showTopActions?: boolean;
 }) => {
     const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
     const normalizedApiBasePath = apiBasePath.endsWith('/') ? apiBasePath.slice(0, -1) : apiBasePath;
+    const isCompanyPlanoApi = normalizedApiBasePath === '/plano-contas';
+    const importInputRef = useRef<HTMLInputElement>(null);
     const [currentUserEmail, setCurrentUserEmail] = useState('');
   const [localList, setLocalList] = useState<ItemSistema[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
+    const [importing, setImporting] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [draggedItem, setDraggedItem] = useState<ItemSistema | null>(null);
     const [managerFeedback, setManagerFeedback] = useState<Feedback | null>(null);
@@ -1195,6 +1213,29 @@ export const PlanoContasManager = ({
     setSaving(true);
         setManagerFeedback(null);
     try {
+        if (isCompanyPlanoApi) {
+            await api.post('/plano-contas/bulk-sync', {
+                items: localList.map((item) => ({
+                    id: item.id,
+                    nome: item.nome,
+                    tipo: normalizeTipo(item.tipo),
+                    codigo: item.codigo || null,
+                    conta_pai_id: item.conta_pai_id ?? null,
+                    permite_lancamentos: item.permite_lancamentos !== false,
+                    eh_operacional: item.eh_operacional !== false,
+                    considerar_nos_resultados: item.considerar_nos_resultados ?? true,
+                    dre_grupo: normalizeDreGrupo(item.dre_grupo, item.tipo),
+                })),
+            });
+
+            setHasChanges(false);
+            setManagerFeedback({ type: 'success', message: 'Plano de contas salvo com sucesso.' });
+
+            const updated = await refreshRemoteList();
+            onUpdateList(updated);
+            return;
+        }
+
         const originalMap = new Map(categorias.map((item) => [item.id, item]));
         const currentPositiveIds = new Set(localList.filter((item) => item.id > 0).map((item) => item.id));
         const createdItems = localList.filter((item) => item.id < 0);
@@ -1284,6 +1325,44 @@ export const PlanoContasManager = ({
               type: 'error',
               message: getApiErrorMessage(e, 'Nao foi possivel exportar o plano de contas.'),
           });
+      }
+  };
+
+  const handleOpenImportPlanoContas = () => {
+      if (!isCompanyPlanoApi || importing) return;
+      importInputRef.current?.click();
+  };
+
+  const handleImportPlanoContas = async (event: any) => {
+      const selectedFile: File | undefined = event?.target?.files?.[0];
+      if (!selectedFile) return;
+
+      setImporting(true);
+      setManagerFeedback(null);
+      try {
+          const fd = new FormData();
+          fd.append('file', selectedFile);
+          const { data } = await api.post('/plano-contas/importar', fd, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+              timeout: 0,
+          });
+
+          const updated = await refreshRemoteList();
+          onUpdateList(updated);
+          setHasChanges(false);
+
+          setManagerFeedback({
+              type: 'success',
+              message: `${data?.categorias_criadas || 0} criadas, ${data?.categorias_atualizadas || 0} atualizadas, ${data?.linhas_ignoradas || 0} ignoradas.`,
+          });
+      } catch (error: any) {
+          setManagerFeedback({
+              type: 'error',
+              message: getApiErrorMessage(error, 'Nao foi possivel importar o plano de contas.'),
+          });
+      } finally {
+          if (event?.target) event.target.value = '';
+          setImporting(false);
       }
   };
 
@@ -1397,16 +1476,38 @@ export const PlanoContasManager = ({
 
   return (
     <div className="relative">
-      <div className="mb-4 flex justify-end">
-          <button
-              type="button"
-              onClick={handleExportPlanoContas}
-              className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-          >
-              <Download className="h-3.5 w-3.5" />
-              Exportar plano de contas
-          </button>
-      </div>
+      {showTopActions && (
+          <div className="mb-4 flex flex-wrap justify-end gap-2">
+              {isCompanyPlanoApi && (
+                  <>
+                      <input
+                          ref={importInputRef}
+                          type="file"
+                          accept=".xlsx,.xlsm,.csv"
+                          className="hidden"
+                          onChange={handleImportPlanoContas}
+                      />
+                      <button
+                          type="button"
+                          onClick={handleOpenImportPlanoContas}
+                          disabled={importing || saving}
+                          className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                      >
+                          {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
+                          {importing ? 'Importando...' : 'Importar XLSX'}
+                      </button>
+                  </>
+              )}
+              <button
+                  type="button"
+                  onClick={handleExportPlanoContas}
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                  <Download className="h-3.5 w-3.5" />
+                  Exportar plano de contas
+              </button>
+          </div>
+      )}
 
       {hasChanges && (
           <div className="mb-6 flex justify-end">
@@ -1500,7 +1601,7 @@ export const PlanoContasManager = ({
               <button
                   type="button"
                   onClick={handleCancelChanges}
-                  disabled={saving}
+                  disabled={saving || importing}
                   className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-slate-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70"
               >
                   <X className="h-4 w-4" />
@@ -1509,7 +1610,7 @@ export const PlanoContasManager = ({
               <button
                   type="button"
                   onClick={handleSaveOrder}
-                  disabled={saving}
+                  disabled={saving || importing}
                   className="inline-flex items-center gap-2 rounded-full bg-cyan-600 px-4 py-3 text-sm font-bold text-white shadow-xl transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-70"
               >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -1647,7 +1748,7 @@ const MappingRow = ({ label, original, value, options, onChange, onCreate, typeL
     </div>
 );
 
-export function Importacao() {
+export function Importacao({ embedded = false }: { embedded?: boolean }) {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
     const [isDragActive, setIsDragActive] = useState(false);
@@ -2187,12 +2288,77 @@ export function Importacao() {
               return;
           }
 
-          const results = await Promise.allSettled(normalizedMissingList.map(async (name) => {
-              if (type === 'CATEGORIA') {
-                  const tipo = name.toUpperCase().startsWith('R') ? 'R' : 'D';
-                  const response = await api.post('/plano-contas/', { nome: name, tipo, permite_lancamentos: true, eh_operacional: true, considerar_nos_resultados: true });
-                  return { name, data: response.data };
+          if (type === 'CATEGORIA') {
+              const payload = normalizedMissingList.map((name) => ({
+                  nome: name,
+                  tipo: inferCategoriaTipoPorNome(name),
+                  permite_lancamentos: true,
+                  eh_operacional: true,
+                  considerar_nos_resultados: true,
+              }));
+
+              await api.post('/plano-contas/bulk', payload);
+
+              let categoriasAtualizadas: ItemSistema[] = [];
+              try {
+                  const refreshed = await fetchPlanoContas(true);
+                  categoriasAtualizadas = normalizeListResponse<ItemSistema>(refreshed);
+              } catch {
+                  categoriasAtualizadas = sistemaData.categorias;
               }
+
+              setSistemaData((prev) => ({ ...prev, categorias: categoriasAtualizadas }));
+              setPlanoContasCache(categoriasAtualizadas);
+
+              const categoriaIdByKey = new Map<string, string>();
+              categoriasAtualizadas.forEach((item) => {
+                  const id = Number(item?.id);
+                  if (!Number.isFinite(id) || id <= 0) return;
+                  const key = `${normalizeTipo(item.tipo)}::${normalizeEntityNameKey(item.nome)}`;
+                  if (!categoriaIdByKey.has(key)) {
+                      categoriaIdByKey.set(key, String(id));
+                  }
+              });
+
+              const nextMapCategorias = { ...mapCategorias };
+              let resolvedCount = 0;
+              const unresolvedNames: string[] = [];
+              missingList.forEach((nomeOriginal) => {
+                  if (nextMapCategorias[nomeOriginal]) return;
+                  const key = `${inferCategoriaTipoPorNome(nomeOriginal)}::${normalizeEntityNameKey(nomeOriginal)}`;
+                  const categoriaId = categoriaIdByKey.get(key);
+                  if (categoriaId) {
+                      nextMapCategorias[nomeOriginal] = categoriaId;
+                      resolvedCount += 1;
+                  } else {
+                      unresolvedNames.push(nomeOriginal);
+                  }
+              });
+              setMapCategorias(nextMapCategorias);
+
+              if (unresolvedNames.length > 0) {
+                  const details = unresolvedNames.slice(0, 6).map((nome) => `Sem vinculo automatico: ${nome}`);
+                  if (unresolvedNames.length > 6) {
+                      details.push(`...e mais ${unresolvedNames.length - 6} categoria(s).`);
+                  }
+                  setFeedback({
+                      type: resolvedCount > 0 ? 'success' : 'error',
+                      message: resolvedCount > 0
+                          ? `${resolvedCount} categoria(s) mapeada(s), mas ${unresolvedNames.length} ainda exigem ajuste manual.`
+                          : 'Nao foi possivel mapear as categorias automaticamente.',
+                      details,
+                  });
+              } else if (resolvedCount > 0) {
+                  setFeedback({
+                      type: 'success',
+                      message: `${resolvedCount} categoria(s) mapeada(s) automaticamente.`,
+                  });
+              }
+
+              return;
+          }
+
+          const results = await Promise.allSettled(normalizedMissingList.map(async (name) => {
               if (type === 'CONTA') {
                   const response = await api.post('/contas/', {
                       nome: name,
@@ -2212,14 +2378,7 @@ export function Importacao() {
 
           successResults.forEach((res) => {
               if (!res) return;
-              if (type === 'CATEGORIA') {
-                                    setSistemaData(prev => {
-                                        const next = [...prev.categorias, res.data];
-                                        setPlanoContasCache(next);
-                                        return { ...prev, categorias: next };
-                                    });
-                  setMapCategorias(prev => ({ ...prev, [res.name]: String(res.data.id) }));
-              } else if (type === 'CONTA') {
+              if (type === 'CONTA') {
                   setSistemaData(prev => ({ ...prev, contas: [...prev.contas, res.data] }));
                   setMapContas(prev => ({ ...prev, [res.name]: String(res.data.id) }));
               } else if (type === 'CENTRO') {
@@ -2311,50 +2470,50 @@ export function Importacao() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 overflow-y-auto custom-scrollbar p-6 pb-32">
-      <div className="max-w-5xl mx-auto w-full mb-8">
+    <div className={`flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 overflow-y-auto custom-scrollbar ${embedded ? 'p-4 pb-8' : 'p-6 pb-24'}`}>
+      <div className={`${embedded ? 'w-full' : 'mx-auto max-w-5xl'} w-full mb-6`}>
         <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
             <div><h1 className="text-2xl font-bold flex items-center gap-2 text-slate-900 dark:text-white"><UploadCloud className="w-8 h-8 text-blue-500" />Importação Inteligente</h1><p className="text-slate-500 dark:text-slate-400 mt-1">Concilie dados externos com seu sistema.</p></div>
-            <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
                 <StepBadge num={1} current={step} label="Upload" /><StepBadge num={2} current={step} label="Classificação" /><StepBadge num={3} current={step} label="Origem" /><StepBadge num={4} current={step} label="Validação" />
             </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 mb-8 lg:grid-cols-2">
-            <Link to="/importacao_interessados" className="group rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <Link to="/importacao_interessados" className="group rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm transition hover:border-slate-300 dark:hover:border-slate-600">
                 <div className="flex items-start justify-between gap-4">
                     <div>
                         <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-blue-500">Interessados</p>
                         <h3 className="mt-2 text-lg font-bold text-slate-900 dark:text-white">Importar interessados</h3>
                         <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Suba uma planilha própria com CPF/CNPJ, contato responsável, e-mail, telefone, celular/WhatsApp, CEP e número.</p>
                     </div>
-                    <div className="rounded-2xl bg-blue-50 p-3 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
+                    <div className="rounded-lg bg-blue-50 p-3 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
                         <Users className="w-6 h-6" />
                     </div>
                 </div>
                 <div className="mt-4 text-sm font-bold text-blue-600 dark:text-blue-300">Abrir fluxo de interessados</div>
             </Link>
-            <Link to="/importacao_ofx" className="group rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+            <Link to="/importacao_ofx" className="group rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm transition hover:border-slate-300 dark:hover:border-slate-600">
                 <div className="flex items-start justify-between gap-4">
                     <div>
                         <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-emerald-500">OFX Multibancos</p>
                         <h3 className="mt-2 text-lg font-bold text-slate-900 dark:text-white">Conciliação OFX inteligente</h3>
                         <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Cruze receitas e despesas com previstos e atrasados usando tolerância de até 5% sobre o valor do movimento.</p>
                     </div>
-                    <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300">
+                    <div className="rounded-lg bg-emerald-50 p-3 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300">
                         <UploadCloud className="w-6 h-6" />
                     </div>
                 </div>
                 <div className="mt-4 text-sm font-bold text-emerald-600 dark:text-emerald-300">Abrir fluxo OFX</div>
             </Link>
-            <Link to="/importacao_nfe" className="group rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+            <Link to="/importacao_nfe" className="group rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm transition hover:border-slate-300 dark:hover:border-slate-600">
                 <div className="flex items-start justify-between gap-4">
                     <div>
                         <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-cyan-500">XML NF-e</p>
                         <h3 className="mt-2 text-lg font-bold text-slate-900 dark:text-white">Importação de faturamento NF-e</h3>
                         <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Faça upload do XML, aplique autopreenchimento de categoria por CFOP/NCM e gere parcelas no financeiro.</p>
                     </div>
-                    <div className="rounded-2xl bg-cyan-50 p-3 text-cyan-600 dark:bg-cyan-950/40 dark:text-cyan-300">
+                    <div className="rounded-lg bg-cyan-50 p-3 text-cyan-600 dark:bg-cyan-950/40 dark:text-cyan-300">
                         <FileText className="w-6 h-6" />
                     </div>
                 </div>
@@ -2369,11 +2528,11 @@ export function Importacao() {
                 onDragLeave={handleUploadDragLeave}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={handleUploadDrop}
-                className={`bg-white dark:bg-slate-800 p-10 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center min-h-100 border-dashed relative overflow-hidden transition-all duration-300 ${isDragActive ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/20 scale-[1.01] shadow-2xl shadow-blue-900/10' : 'hover:border-blue-500/50'}`}
+                className={`bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center min-h-72 border-dashed relative overflow-hidden transition-colors duration-200 ${isDragActive ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/20' : 'hover:border-blue-400/60'}`}
             >
                 <input type="file" accept=".xlsx,.xls" onChange={e=>setFile(e.target.files?.[0]||null)} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10" />
                 <div className={`pointer-events-none absolute inset-0 transition-opacity duration-300 ${isDragActive ? 'opacity-100' : 'opacity-0'}`}>
-                    <div className="absolute inset-x-8 inset-y-6 rounded-[28px] border-2 border-dashed border-blue-400/70 bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.18),transparent_58%)]" />
+                    <div className="absolute inset-x-8 inset-y-6 rounded-[20px] border-2 border-dashed border-blue-400/70 bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.14),transparent_58%)]" />
                     <div className="absolute left-1/2 top-1/2 h-32 w-32 -translate-x-1/2 -translate-y-1/2 rounded-full border border-blue-300/60 animate-ping" />
                     <div className="absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-500/15 backdrop-blur-sm" />
                 </div>
@@ -2382,8 +2541,8 @@ export function Importacao() {
                     {file ? (<div className="animate-in fade-in zoom-in-95"><h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">{file.name}</h3><p className="text-emerald-400 font-mono text-sm">{(file.size/1024).toFixed(1)} KB • Pronto para envio</p></div>) : isDragActive ? (<div className="animate-in fade-in zoom-in-95"><h3 className="text-2xl font-bold text-blue-700 dark:text-blue-300 mb-2">Solte a planilha aqui</h3><p className="text-blue-600/80 dark:text-blue-200/80">O arquivo será anexado assim que você soltar, com destaque visual no estilo de conversa.</p></div>) : (<div><h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Arraste ou clique para selecionar</h3><p className="text-slate-500 dark:text-slate-400">Suporta arquivos Excel (.xlsx, .xls)</p></div>)}
                 </div>
                 <div className="mt-10 z-20 flex gap-4">
-                    <button onClick={handleDownloadModelo} className="px-5 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white font-bold flex gap-2 items-center transition"><Download className="w-4 h-4"/> Baixar Modelo</button>
-                    <button onClick={handleAnalise} disabled={!file||loading} className="px-8 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg shadow-blue-900/20 flex gap-2 items-center disabled:opacity-50 disabled:cursor-not-allowed transition hover:scale-105 active:scale-95">{loading && importJob?.kind === 'ANALYZE' ? <Loader2 className="animate-spin w-5 h-5"/> : <ArrowRight className="w-5 h-5"/>} {loading && importJob?.kind === 'ANALYZE' ? 'Analisando...' : 'Continuar'}</button>
+                    <button onClick={handleDownloadModelo} className="px-5 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white font-bold flex gap-2 items-center transition"><Download className="w-4 h-4"/> Baixar Modelo</button>
+                    <button onClick={handleAnalise} disabled={!file||loading} className="px-8 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold shadow-sm flex gap-2 items-center disabled:opacity-50 disabled:cursor-not-allowed transition">{loading && importJob?.kind === 'ANALYZE' ? <Loader2 className="animate-spin w-5 h-5"/> : <ArrowRight className="w-5 h-5"/>} {loading && importJob?.kind === 'ANALYZE' ? 'Analisando...' : 'Continuar'}</button>
                 </div>
             </div>
         )}

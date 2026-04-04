@@ -1074,9 +1074,21 @@ export function Contas() {
       
       {/* HEADER */}
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm z-20 gap-4">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-slate-800 dark:text-white">Contas Bancárias</h2>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-xl font-bold tracking-tight text-slate-800 dark:text-white">Contas Bancárias</h2>
+            {!extratoOpen ? (
+              <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-900">
+                <Landmark className="h-4 w-4 text-slate-500 dark:text-slate-300" />
+                <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Saldo disponível</span>
+                <span className={`text-sm font-black ${saldoTotal >= 0 ? 'text-slate-800 dark:text-white' : 'text-rose-500'}`}>{BRL.format(saldoTotal)}</span>
+              </div>
+            ) : null}
+          </div>
           <p className="text-sm text-slate-400">Caixas, Bancos e Investimentos</p>
+          {!extratoOpen && filterCentroId ? (
+            <p className="text-[10px] font-bold" style={{ color: primaryColor }}>* Filtrado por Centro de Custo</p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           {extratoOpen && (
@@ -1415,24 +1427,6 @@ export function Contas() {
           </div>
         ) : (
           <>
-            {/* CARD DE RESUMO */}
-            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between">
-                <div>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Saldo Geral Disponível</p>
-                    <p className={`text-2xl font-black mt-1 ${saldoTotal >= 0 ? 'text-slate-800 dark:text-white' : 'text-red-500'}`}>
-                      {BRL.format(saldoTotal)}
-                    </p>
-                    {filterCentroId && (
-                      <p className="text-[10px] mt-1 font-bold" style={{ color: primaryColor }}>
-                        * Filtrado por Centro de Custo
-                      </p>
-                    )}
-                </div>
-                <div className="p-3 rounded-full" style={{ backgroundColor: `${primaryColor}15`, color: primaryColor }}>
-                    <Landmark className="w-6 h-6" />
-                </div>
-            </div>
-
             {/* BARRA DE FILTROS */}
             <div className="flex flex-col md:flex-row gap-4">
                 <div className="relative group flex-1">

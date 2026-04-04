@@ -56,7 +56,15 @@ const normalizeDreGrupo = (dreGrupo: string | undefined, tipo: string | undefine
 
 const normalizeTipo = (tipo?: string) => ((tipo || '').trim().toUpperCase().startsWith('R') ? 'R' : 'D');
 
-const normalizeImportMapKey = (value?: string) => String(value || '').trim().toUpperCase();
+const normalizeImportMapKey = (value?: string) =>
+    String(value || '')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\u00a0/g, ' ')
+        .replace(/[\u200b\ufeff]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toUpperCase();
 
 const normalizeEntityNameKey = (value?: string) =>
     String(value || '')

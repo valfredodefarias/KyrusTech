@@ -57,6 +57,9 @@ tmp_auth_cookie.txt
 static/uploads/*
 !static/uploads/.gitkeep
 
+# Local spreadsheet artifacts
+xlsx/
+
 # Frontend
 kyrus-web/node_modules/
 kyrus-web/dist/

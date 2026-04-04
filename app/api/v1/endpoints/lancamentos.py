@@ -178,13 +178,87 @@ def _ensure_import_prerequisites(sistema: dict[str, list[dict[str, Any]]]) -> No
         )
 
 
+def _normalize_import_lookup_key(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    normalized = normalized.replace("\u00a0", " ").replace("\u200b", "").replace("\ufeff", "")
+    normalized = re.sub(r"\s+", " ", normalized).strip().upper()
+    return normalized
+
+
 def _build_import_name_map(rows: list[dict[str, Any]], selectable_only: bool = False) -> dict[str, int]:
-    return {
-        str(row["nome"]).upper().strip(): int(row["id"])
-        for row in rows
-        if not selectable_only or (row.get("permite_lancamentos", True) and not row.get("eh_cabecalho", False))
-        if row.get("id") is not None and str(row.get("nome") or "").strip()
-    }
+    mapping: dict[str, int] = {}
+    for row in rows:
+        if selectable_only and not (row.get("permite_lancamentos", True) and not row.get("eh_cabecalho", False)):
+            continue
+        if row.get("id") is None:
+            continue
+        key = _normalize_import_lookup_key(row.get("nome"))
+        if not key:
+            continue
+        mapping[key] = int(row["id"])
+    return mapping
+
+
+def _extract_import_category_code(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = re.match(r"^\s*(\d+(?:\s*[\.\-]\s*\d+)+)", text)
+    if not match:
+        return ""
+    parts = re.findall(r"\d+", match.group(1))
+    return ".".join(parts)
+
+
+def _build_import_category_code_map(rows: list[dict[str, Any]], selectable_only: bool = False) -> dict[str, int]:
+    code_to_ids: dict[str, set[int]] = defaultdict(set)
+    for row in rows:
+        if selectable_only and not (row.get("permite_lancamentos", True) and not row.get("eh_cabecalho", False)):
+            continue
+        if row.get("id") is None:
+            continue
+        row_id = int(row["id"])
+        code = _extract_import_category_code(row.get("codigo")) or _extract_import_category_code(row.get("nome"))
+        if not code:
+            continue
+        code_to_ids[code].add(row_id)
+    return {code: next(iter(ids)) for code, ids in code_to_ids.items() if len(ids) == 1}
+
+
+def _resolve_import_category_alias(
+    cat_key: str,
+    nomes_cats_sist: dict[str, int],
+    codigos_cats_sist: dict[str, int],
+) -> Optional[int]:
+    if not cat_key:
+        return None
+
+    # Regra explícita para arquivos legados onde "Saldo Inicial" deve seguir
+    # a categoria operacional de recebimento de empréstimos dos sócios.
+    if cat_key == "SALDO INICIAL":
+        alias_candidates = [
+            "05.05 RECEBIMENTO DE EMPRESTIMOS A SOCIOS",
+            "RECEBIMENTO DE EMPRESTIMOS A SOCIOS",
+            "RECEBIMENTO DE EMPRESTIMOS A SOCIO",
+        ]
+        for alias in alias_candidates:
+            alias_key = _normalize_import_lookup_key(alias)
+            if alias_key in nomes_cats_sist:
+                return int(nomes_cats_sist[alias_key])
+
+        if "05.05" in codigos_cats_sist:
+            return int(codigos_cats_sist["05.05"])
+
+        semantic_matches = {
+            int(cat_id)
+            for nome, cat_id in nomes_cats_sist.items()
+            if "EMPRESTIM" in nome and "SOCI" in nome and ("RECEB" in nome or "ENTRADA" in nome)
+        }
+        if len(semantic_matches) == 1:
+            return next(iter(semantic_matches))
+
+    return None
 
 
 def _normalize_import_headers(header_values: tuple[Any, ...] | list[Any]) -> list[str]:
@@ -272,6 +346,24 @@ def _parse_import_decimal(raw_value: Any, cache: dict[str, Decimal]) -> Decimal:
     cleaned = cleaned or "0"
     cache[key] = Decimal(cleaned)
     return cache[key]
+
+
+def _build_import_duplicate_signature(
+    data_vencimento: date,
+    descricao_normalizada: str,
+    tipo: str,
+    valor: Decimal,
+    conta_id: Optional[int],
+) -> tuple[date, str, str, str, Optional[int]]:
+    # Normaliza o valor em 2 casas para manter assinatura estável entre leitura e persistência.
+    valor_norm = Decimal(str(valor)).quantize(Decimal("0.01"))
+    return (
+        data_vencimento,
+        descricao_normalizada,
+        str(tipo or "").upper().strip(),
+        f"{valor_norm:.2f}",
+        int(conta_id) if conta_id is not None else None,
+    )
 
 
 def _split_import_date_parts(raw_value: str) -> Optional[tuple[int, int, int]]:
@@ -381,6 +473,7 @@ def _prepare_import_chunk(
     map_centros: dict[str, Any],
     map_entidades: dict[str, Any],
     nomes_cats_sist: dict[str, int],
+    codigos_cats_sist: dict[str, int],
     nomes_contas_sist: dict[str, int],
     nomes_centros_sist: dict[str, int],
     nomes_entidades_sist: dict[str, int],
@@ -401,11 +494,17 @@ def _prepare_import_chunk(
         inferencia = inference_cache.get((descricao.strip(), tipo.strip()), {"plano_contas_id": None, "entidade_id": None}) if descricao else {"plano_contas_id": None, "entidade_id": None}
 
         plano_contas_id: Optional[int] = None
-        cat_key = categoria_nome.upper().strip()
+        cat_key = _normalize_import_lookup_key(categoria_nome)
+        cat_code = _extract_import_category_code(categoria_nome)
+        cat_alias_id = _resolve_import_category_alias(cat_key, nomes_cats_sist, codigos_cats_sist)
         if cat_key and cat_key in map_categorias:
             plano_contas_id = int(map_categorias[cat_key])
         elif cat_key and cat_key in nomes_cats_sist:
             plano_contas_id = int(nomes_cats_sist[cat_key])
+        elif cat_code and cat_code in codigos_cats_sist:
+            plano_contas_id = int(codigos_cats_sist[cat_code])
+        elif cat_alias_id is not None:
+            plano_contas_id = int(cat_alias_id)
         elif inferencia.get("plano_contas_id") is not None:
             plano_contas_id = int(cast(int, inferencia.get("plano_contas_id")))
 
@@ -415,7 +514,7 @@ def _prepare_import_chunk(
             tipo = "DESPESA"
 
         entidade_id: Optional[int] = None
-        ent_key = entidade_nome.upper().strip()
+        ent_key = _normalize_import_lookup_key(entidade_nome)
         if ent_key and ent_key in map_entidades:
             entidade_id = int(map_entidades[ent_key])
         elif ent_key and ent_key in nomes_entidades_sist:
@@ -426,7 +525,7 @@ def _prepare_import_chunk(
             missing_entities[ent_key] = entidade_nome
 
         conta_id: Optional[int] = None
-        conta_key = conta_nome.upper().strip()
+        conta_key = _normalize_import_lookup_key(conta_nome)
         if conta_key:
             if conta_key in map_contas:
                 conta_id = int(map_contas[conta_key])
@@ -434,7 +533,7 @@ def _prepare_import_chunk(
                 conta_id = int(nomes_contas_sist[conta_key])
 
         centro_custo_id: Optional[int] = None
-        centro_key = centro_nome.upper().strip()
+        centro_key = _normalize_import_lookup_key(centro_nome)
         if centro_key:
             if centro_key in map_centros:
                 centro_custo_id = int(map_centros[centro_key])
@@ -677,6 +776,7 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
     _ensure_import_prerequisites(sistema)
     nomes_contas = _build_import_name_map(sistema["contas"])
     nomes_cats = _build_import_name_map(sistema["categorias"], selectable_only=True)
+    codigos_cats = _build_import_category_code_map(sistema["categorias"], selectable_only=True)
     nomes_centros = _build_import_name_map(sistema["centros"])
     nomes_entidades = _build_import_name_map(sistema["entidades"])
 
@@ -702,17 +802,23 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
         entidade_nome = _coerce_row_value(row, col_entidade)
         conta_nome = _coerce_row_value(row, col_conta)
         centro_nome = _coerce_row_value(row, col_centro)
+        categoria_key = _normalize_import_lookup_key(categoria_nome)
+        categoria_code = _extract_import_category_code(categoria_nome)
+        categoria_alias_id = _resolve_import_category_alias(categoria_key, nomes_cats, codigos_cats)
+        entidade_key = _normalize_import_lookup_key(entidade_nome)
+        conta_key = _normalize_import_lookup_key(conta_nome)
+        centro_key = _normalize_import_lookup_key(centro_nome)
 
-        if conta_nome and conta_nome.upper().strip() not in nomes_contas:
+        if conta_key and conta_key not in nomes_contas:
             conflitos_contas.add(conta_nome)
-        if categoria_nome and categoria_nome.upper().strip() not in nomes_cats:
+        if categoria_key and categoria_key not in nomes_cats and not (categoria_code and categoria_code in codigos_cats) and categoria_alias_id is None:
             conflitos_categorias.add(categoria_nome)
             if descricao:
                 categoria_samples[categoria_nome][(descricao, tipo)] += 1
                 inference_keys.add((descricao.strip(), tipo.strip()))
-        if centro_nome and centro_nome.upper().strip() not in nomes_centros:
+        if centro_key and centro_key not in nomes_centros:
             conflitos_centros.add(centro_nome)
-        if entidade_nome and entidade_nome.upper().strip() not in nomes_entidades:
+        if entidade_key and entidade_key not in nomes_entidades:
             conflitos_entidades.add(entidade_nome)
             if descricao:
                 entidade_samples[entidade_nome][(descricao, tipo)] += 1
@@ -764,8 +870,21 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
         categoria_nome = str(row.get("categoria_arquivo") or "")
         entidade_nome = str(row.get("entidade_arquivo") or "")
 
-        categoria_mapeada_id = sugestoes["categorias"].get(categoria_nome) if categoria_nome else None
-        entidade_mapeada_id = sugestoes["entidades"].get(entidade_nome) if entidade_nome else None
+        categoria_key = _normalize_import_lookup_key(categoria_nome)
+        categoria_code = _extract_import_category_code(categoria_nome)
+        categoria_alias_id = _resolve_import_category_alias(categoria_key, nomes_cats, codigos_cats)
+        entidade_key = _normalize_import_lookup_key(entidade_nome)
+        categoria_mapeada_id = nomes_cats.get(categoria_key) if categoria_key else None
+        if categoria_mapeada_id is None and categoria_code:
+            categoria_mapeada_id = codigos_cats.get(categoria_code)
+        if categoria_mapeada_id is None and categoria_alias_id is not None:
+            categoria_mapeada_id = categoria_alias_id
+        entidade_mapeada_id = nomes_entidades.get(entidade_key) if entidade_key else None
+
+        if categoria_mapeada_id is None and categoria_nome:
+            categoria_mapeada_id = sugestoes["categorias"].get(categoria_nome)
+        if entidade_mapeada_id is None and entidade_nome:
+            entidade_mapeada_id = sugestoes["entidades"].get(entidade_nome)
 
         if descricao and (categoria_mapeada_id is None or entidade_mapeada_id is None):
             inferencia = _infer_learning_ids_cached(descricao, tipo, learning_refs, inference_cache, learning_ref_index)
@@ -809,10 +928,26 @@ def _execute_import_contents(
         progress_callback(5, "Lendo arquivo XLSX em streaming")
     headers, row_iter = _iter_spreadsheet_rows(file_bytes)
 
-    map_categorias = {str(k).upper().strip(): v for k, v in mapeamento.get("map_categorias", {}).items() if v is not None}
-    map_contas = {str(k).upper().strip(): v for k, v in mapeamento.get("map_contas", {}).items() if v is not None}
-    map_centros = {str(k).upper().strip(): v for k, v in mapeamento.get("map_centros", {}).items() if v is not None}
-    map_entidades = {str(k).upper().strip(): v for k, v in mapeamento.get("map_entidades", {}).items() if v is not None}
+    map_categorias = {
+        _normalize_import_lookup_key(k): v
+        for k, v in mapeamento.get("map_categorias", {}).items()
+        if v is not None and str(v).strip() != ""
+    }
+    map_contas = {
+        _normalize_import_lookup_key(k): v
+        for k, v in mapeamento.get("map_contas", {}).items()
+        if v is not None and str(v).strip() != ""
+    }
+    map_centros = {
+        _normalize_import_lookup_key(k): v
+        for k, v in mapeamento.get("map_centros", {}).items()
+        if v is not None and str(v).strip() != ""
+    }
+    map_entidades = {
+        _normalize_import_lookup_key(k): v
+        for k, v in mapeamento.get("map_entidades", {}).items()
+        if v is not None and str(v).strip() != ""
+    }
 
     col_venc = _find_column_in_headers(headers, ["DATA VENCIMENTO", "VENCIMENTO", "DATA"])
     col_pag = _find_column_in_headers(headers, ["DATA PAGAMENTO", "PAGAMENTO"])
@@ -828,6 +963,7 @@ def _execute_import_contents(
     _ensure_import_prerequisites(sistema)
     cache_tipos = {int(item["id"]): item.get("tipo") for item in sistema["categorias"] if item.get("id") is not None}
     nomes_cats_sist = _build_import_name_map(sistema["categorias"], selectable_only=True)
+    codigos_cats_sist = _build_import_category_code_map(sistema["categorias"], selectable_only=True)
     nomes_contas_sist = _build_import_name_map(sistema["contas"])
     nomes_centros_sist = _build_import_name_map(sistema["centros"])
     nomes_entidades_sist = _build_import_name_map(sistema["entidades"])
@@ -862,9 +998,17 @@ def _execute_import_contents(
             }
         )
         if descricao:
-            categoria_key = categoria_nome.upper().strip()
-            entidade_key = entidade_nome.upper().strip()
-            categoria_resolvida = not categoria_key or categoria_key in map_categorias or categoria_key in nomes_cats_sist
+            categoria_key = _normalize_import_lookup_key(categoria_nome)
+            categoria_code = _extract_import_category_code(categoria_nome)
+            categoria_alias_id = _resolve_import_category_alias(categoria_key, nomes_cats_sist, codigos_cats_sist)
+            entidade_key = _normalize_import_lookup_key(entidade_nome)
+            categoria_resolvida = (
+                not categoria_key
+                or categoria_key in map_categorias
+                or categoria_key in nomes_cats_sist
+                or (categoria_code and categoria_code in codigos_cats_sist)
+                or categoria_alias_id is not None
+            )
             entidade_resolvida = not entidade_key or entidade_key in map_entidades or entidade_key in nomes_entidades_sist
             if not categoria_resolvida or not entidade_resolvida:
                 inference_keys.add((descricao.strip(), tipo.strip()))
@@ -895,6 +1039,7 @@ def _execute_import_contents(
                     map_centros,
                     map_entidades,
                     nomes_cats_sist,
+                    codigos_cats_sist,
                     nomes_contas_sist,
                     nomes_centros_sist,
                     nomes_entidades_sist,
@@ -949,20 +1094,36 @@ def _execute_import_contents(
     batch: list[Lancamento] = []
 
     existing_import_rows = db.exec(
-        select(Lancamento.data_vencimento, Lancamento.descricao).where(
+        select(
+            Lancamento.data_vencimento,
+            Lancamento.descricao,
+            Lancamento.tipo,
+            Lancamento.valor_previsto,
+            Lancamento.conta_id,
+        ).where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.is_deleted == False,
             Lancamento.origem == "IMPORTACAO",
         )
     ).all()
-    imported_signatures: set[tuple[date, str]] = set()
-    for existing_date, existing_desc in existing_import_rows:
+    existing_signature_counts: dict[tuple[date, str, str, str, Optional[int]], int] = defaultdict(int)
+    for existing_date, existing_desc, existing_tipo, existing_valor, existing_conta_id in existing_import_rows:
         if existing_date is None:
             continue
         normalized_desc = _normalizar_texto_importacao(existing_desc)
         if not normalized_desc:
             continue
-        imported_signatures.add((existing_date, normalized_desc))
+        valor_assinatura = Decimal(str(existing_valor if existing_valor is not None else 0))
+        signature = _build_import_duplicate_signature(
+            existing_date,
+            normalized_desc,
+            str(existing_tipo or ""),
+            valor_assinatura,
+            int(existing_conta_id) if existing_conta_id is not None else None,
+        )
+        existing_signature_counts[signature] += 1
+
+    incoming_signature_counts: dict[tuple[date, str, str, str, Optional[int]], int] = defaultdict(int)
 
     for index, row in enumerate(prepared_rows, start=1):
         try:
@@ -972,12 +1133,21 @@ def _execute_import_contents(
             data_pagamento = _parse_import_date(row["data_pag_raw"], parse_date_cache, dayfirst=inferred_dayfirst)
             valor = _parse_import_decimal(row["valor_raw"], parse_decimal_cache)
             plano_contas_id = row["plano_contas_id"]
+            conta_id = int(row["conta_id"]) if row["conta_id"] else None
 
             descricao_normalizada = _normalizar_texto_importacao(str(row["descricao"] or ""))
-            signature = (data_vencimento, descricao_normalizada)
-            if descricao_normalizada and signature in imported_signatures:
-                ignorados_duplicidade += 1
-                continue
+            if descricao_normalizada:
+                signature = _build_import_duplicate_signature(
+                    data_vencimento,
+                    descricao_normalizada,
+                    str(row["tipo"]),
+                    valor,
+                    conta_id,
+                )
+                if incoming_signature_counts[signature] < existing_signature_counts.get(signature, 0):
+                    incoming_signature_counts[signature] += 1
+                    ignorados_duplicidade += 1
+                    continue
 
             entidade_id = row["entidade_id"]
             if entidade_id is None and row["entidade_key"]:
@@ -1000,13 +1170,13 @@ def _execute_import_contents(
                     empresa_id=empresa_id,
                     plano_contas_id=int(plano_contas_id),
                     entidade_id=int(entidade_id) if entidade_id else None,
-                    conta_id=int(row["conta_id"]) if row["conta_id"] else None,
+                    conta_id=conta_id,
                     centro_custo_id=int(centro_custo_id) if centro_custo_id else None,
                     ipp=False,
                 )
             )
             if descricao_normalizada:
-                imported_signatures.add(signature)
+                incoming_signature_counts[signature] += 1
             importados += 1
 
             if len(batch) >= IMPORT_INSERT_BATCH_SIZE:

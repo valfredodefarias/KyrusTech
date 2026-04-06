@@ -186,6 +186,13 @@ function formatCurrencyCompact(value: number) {
   return `${Math.round(value)}`;
 }
 
+function resolveContaDisplayName(conta?: Pick<ContaResumo, 'nome' | 'banco'> | null) {
+  const accountName = String(conta?.nome || '').trim();
+  if (accountName) return accountName;
+  const bankName = String(conta?.banco || '').trim();
+  return bankName || 'Sem banco';
+}
+
 function getValueTone(value: number, isDark: boolean) {
   if (value < 0) return isDark ? 'text-rose-300' : 'text-rose-600';
   if (value > 0) return isDark ? 'text-emerald-300' : 'text-emerald-600';
@@ -430,6 +437,7 @@ export function Boletim() {
     setInlineLancamentoParams(new URLSearchParams(queryPart));
   };
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [contas, setContas] = useState<ContaResumo[]>([]);
   const [lancamentos, setLancamentos] = useState<LancamentoResumo[]>([]);
@@ -442,12 +450,18 @@ export function Boletim() {
   const [flowFilter, setFlowFilter] = useState<FlowFilter>('ALL');
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
   const [selectedDayOfMonth, setSelectedDayOfMonth] = useState<number | null>(null);
+  const [referenceDate, setReferenceDate] = useState(() => toIsoDate(new Date()));
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>('ALL');
   const [auditPanel, setAuditPanel] = useState<AuditPanelState | null>(null);
   const [activeAuditMetricKey, setActiveAuditMetricKey] = useState<string | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditPanelWidth, setAuditPanelWidth] = useState(420);
   const auditResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const initialLoadDoneRef = useRef(false);
+  const referenceYear = useMemo(() => {
+    const parsedReference = parseDateOnly(referenceDate);
+    return (parsedReference || new Date()).getFullYear();
+  }, [referenceDate]);
   const isDark = useIsDarkMode();
 
   useEffect(() => {
@@ -490,12 +504,16 @@ export function Boletim() {
     let active = true;
 
     async function loadData() {
-      setLoading(true);
+      const isInitialLoad = !initialLoadDoneRef.current;
+      if (isInitialLoad) {
+        setLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
       setLoadError(null);
       try {
-        const today = new Date();
-        const yearStart = `${today.getFullYear()}-01-01`;
-        const yearEnd = `${today.getFullYear()}-12-31`;
+        const yearStart = `${referenceYear}-01-01`;
+        const yearEnd = `${referenceYear}-12-31`;
 
         const userRes = await api.get<UserInfo>('/usuarios/me');
 
@@ -541,7 +559,11 @@ export function Boletim() {
           setLoadError('Nao foi possivel carregar o boletim financeiro.');
         }
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+          setIsRefreshing(false);
+          initialLoadDoneRef.current = true;
+        }
       }
     }
 
@@ -549,10 +571,13 @@ export function Boletim() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [referenceYear]);
 
   const dashboard = useMemo(() => {
-    const now = new Date();
+    const parsedReference = parseDateOnly(referenceDate);
+    const now = parsedReference
+      ? new Date(parsedReference.getFullYear(), parsedReference.getMonth(), parsedReference.getDate())
+      : new Date();
     const currentYear = now.getFullYear();
     const fallbackMonthIndex = now.getMonth();
     const todayIso = toIsoDate(now);
@@ -593,7 +618,7 @@ export function Boletim() {
           valorAbsoluto: Math.abs(signedValue),
           interessado: entityMap.get(Number(item.entidade_id)) || 'Sem interessado',
           contaId: item.conta_id,
-          contaNome: contaMap.get(Number(item.conta_id))?.banco || contaMap.get(Number(item.conta_id))?.nome || 'Sem banco',
+          contaNome: resolveContaDisplayName(contaMap.get(Number(item.conta_id))),
         } satisfies NormalizedRow;
       })
       .filter((item) => item.monthIndex >= 0 && item.dayOfMonth >= 0);
@@ -744,7 +769,7 @@ export function Boletim() {
       tableRows,
       situacao,
     };
-  }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
+  }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter, referenceDate]);
 
   function openAuditRows(title: string, subtitle: string, rows: NormalizedRow[]) {
     setAuditPanel({ mode: 'LANCAMENTOS', title, subtitle, rows });
@@ -834,7 +859,7 @@ export function Boletim() {
     setAuditLoading(true);
     setAuditPanel({
       mode: 'EXTRATO_BANCO',
-      title: `Extrato do banco ${conta.banco || conta.nome}`,
+      title: `Extrato do banco ${resolveContaDisplayName(conta)}`,
       subtitle: 'Mostrando lançamentos que influenciam o saldo atual da conta.',
       conta,
     });
@@ -1264,7 +1289,7 @@ export function Boletim() {
   const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
   const companyName = empresa?.nome_fantasia || 'Sua Empresa';
 
-  if (loading) {
+  if (loading && !initialLoadDoneRef.current) {
     return <div className="p-10 text-center text-slate-400">Carregando boletim...</div>;
   }
 
@@ -1291,9 +1316,37 @@ export function Boletim() {
 
             <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
               <ViewToggle current={viewMode} onChange={setViewMode} isDark={isDark} />
-              <div className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.14em] ${isDark ? 'border-white/12 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+              <div className={`inline-flex flex-wrap items-center gap-2 rounded-full border px-3 py-2 ${isDark ? 'border-white/12 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
                 <CalendarDays className="h-4 w-4" />
-                Data {dashboard.now.toLocaleDateString('pt-BR')}
+                <span className="text-[11px] font-black uppercase tracking-[0.14em]">Data</span>
+                <input
+                  type="date"
+                  value={referenceDate}
+                  onChange={(event) => {
+                    if (!event.target.value) return;
+                    setReferenceDate(event.target.value);
+                    setSelectedMonthIndex(null);
+                    setSelectedDayOfMonth(null);
+                  }}
+                  className={`rounded-lg border px-2 py-1 text-xs font-semibold outline-none transition ${isDark ? 'border-white/15 bg-slate-950/50 text-white [color-scheme:dark] focus:border-amber-300/60' : 'border-slate-300 bg-white text-slate-700 focus:border-blue-500'}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const todayIso = toIsoDate(new Date());
+                    setReferenceDate(todayIso);
+                    setSelectedMonthIndex(null);
+                    setSelectedDayOfMonth(null);
+                  }}
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] transition ${isDark ? 'bg-white/10 text-white/80 hover:bg-white/16 hover:text-white' : 'bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+                >
+                  Hoje
+                </button>
+                {isRefreshing ? (
+                  <span className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-amber-200' : 'text-blue-600'}`}>
+                    Atualizando
+                  </span>
+                ) : null}
               </div>
               <select
                 value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
@@ -1566,19 +1619,20 @@ export function Boletim() {
                       const logo = getFullLogoUrl(conta.logo_url || null);
                       const foraDoDisponivel = conta.conta_como_disponibilidade === false;
                       const activeBank = auditPanel?.mode === 'EXTRATO_BANCO' && auditPanel.conta?.id === conta.id;
+                      const contaDisplayName = resolveContaDisplayName(conta);
                       return (
                         <tr key={conta.id} className={foraDoDisponivel ? isDark ? 'border-t border-amber-300/12 bg-amber-300/5 text-white' : 'border-t border-amber-100 bg-amber-50/60 text-slate-800' : isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
                           <td className="px-4 py-3">
                             <button type="button" onClick={() => handleBankAuditClick(conta)} className={`flex w-full items-center gap-2 rounded-xl px-1 py-1 text-left transition ${activeBank ? isDark ? 'bg-amber-300/12' : 'bg-amber-100/70' : ''}`}>
                               <div className={`flex h-9 w-9 items-center justify-center overflow-hidden rounded-2xl ${logo ? '' : isDark ? 'bg-white/8 text-white/55' : 'bg-slate-100 text-slate-400'}`}>
                                 {logo ? (
-                                  <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={conta.nome} integrationType={conta.tipo} size="sm" className="h-9 w-9" imageClassName="rounded-2xl" fallbackClassName="rounded-2xl border-0 shadow-none" />
+                                  <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={contaDisplayName} integrationType={conta.tipo} size="sm" className="h-9 w-9" imageClassName="rounded-2xl" fallbackClassName="rounded-2xl border-0 shadow-none" />
                                 ) : (
                                   <Landmark className="h-4 w-4" />
                                 )}
                               </div>
                               <div>
-                                <div>{conta.banco || conta.nome}</div>
+                                <div>{contaDisplayName}</div>
                                 {foraDoDisponivel ? (
                                   <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Nao soma no saldo disponivel</div>
                                 ) : null}

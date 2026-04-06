@@ -331,6 +331,29 @@ def _coerce_row_value(row: dict[str, Any], column: str) -> str:
     return _format_preview_value(value)
 
 
+def _resolve_import_value_raw(
+    row: dict[str, Any],
+    col_valor: str,
+    col_valor_pago: str,
+    col_valor_previsto: str,
+    col_data_pagamento: str,
+) -> str:
+    """
+    Resolve o valor da linha com suporte a layouts que separam
+    VALOR PAGO e VALOR PREVISTO.
+    """
+    if col_valor:
+        return _coerce_row_value(row, col_valor)
+
+    valor_pago = _coerce_row_value(row, col_valor_pago)
+    valor_previsto = _coerce_row_value(row, col_valor_previsto)
+    data_pagamento = _coerce_row_value(row, col_data_pagamento)
+
+    if data_pagamento:
+        return valor_pago or valor_previsto
+    return valor_previsto or valor_pago
+
+
 def _parse_import_decimal(raw_value: Any, cache: dict[str, Decimal]) -> Decimal:
     key = _format_preview_value(raw_value)
     if key in cache:
@@ -766,11 +789,20 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
     col_desc = _find_column_in_headers(headers, ["DESCRIÇÃO", "DESCRICAO", "HISTÓRICO", "HISTORICO"])
     col_tipo = _find_column_in_headers(headers, ["TIPO"])
     col_venc = _find_column_in_headers(headers, ["DATA VENCIMENTO", "VENCIMENTO", "DATA"])
-    col_valor = _find_column_in_headers(headers, ["VALOR", "VALOR PAGO", "VALOR PREVISTO"])
+    col_pag = _find_column_in_headers(headers, ["DATA PAGAMENTO", "PAGAMENTO"])
+    col_valor = _find_column_in_headers(headers, ["VALOR"])
+    col_valor_pago = _find_column_in_headers(headers, ["VALOR PAGO"])
+    col_valor_previsto = _find_column_in_headers(headers, ["VALOR PREVISTO"])
     col_conta = _find_column_in_headers(headers, ["CONTA", "BANCO"])
     col_cat = _find_column_in_headers(headers, ["CATEGORIA", "PLANO DE CONTAS"])
     col_centro = _find_column_in_headers(headers, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO"])
     col_entidade = _find_column_in_headers(headers, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
+
+    if not col_valor and not col_valor_pago and not col_valor_previsto:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Arquivo sem coluna de valor. Informe VALOR ou VALOR PAGO/VALOR PREVISTO.",
+        )
 
     sistema = _load_import_system_rows(session, empresa_id)
     _ensure_import_prerequisites(sistema)
@@ -829,7 +861,13 @@ def _analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: in
                 "linha": row_idx,
                 "descricao": descricao,
                 "tipo": tipo if tipo else _coerce_row_value(row, col_tipo),
-                "valor": _coerce_row_value(row, col_valor),
+                "valor": _resolve_import_value_raw(
+                    row,
+                    col_valor,
+                    col_valor_pago,
+                    col_valor_previsto,
+                    col_pag,
+                ),
                 "data_vencimento": _coerce_row_value(row, col_venc),
                 "categoria_arquivo": categoria_nome,
                 "entidade_arquivo": entidade_nome,
@@ -952,12 +990,20 @@ def _execute_import_contents(
     col_venc = _find_column_in_headers(headers, ["DATA VENCIMENTO", "VENCIMENTO", "DATA"])
     col_pag = _find_column_in_headers(headers, ["DATA PAGAMENTO", "PAGAMENTO"])
     col_desc = _find_column_in_headers(headers, ["DESCRIÇÃO", "DESCRICAO", "HISTÓRICO", "HISTORICO"])
-    col_valor = _find_column_in_headers(headers, ["VALOR", "VALOR PAGO", "VALOR PREVISTO"])
+    col_valor = _find_column_in_headers(headers, ["VALOR"])
+    col_valor_pago = _find_column_in_headers(headers, ["VALOR PAGO"])
+    col_valor_previsto = _find_column_in_headers(headers, ["VALOR PREVISTO"])
     col_cat = _find_column_in_headers(headers, ["CATEGORIA", "PLANO DE CONTAS"])
     col_ent = _find_column_in_headers(headers, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
     col_conta = _find_column_in_headers(headers, ["CONTA", "BANCO"])
     col_centro = _find_column_in_headers(headers, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO"])
     col_tipo = _find_column_in_headers(headers, ["TIPO"])
+
+    if not col_valor and not col_valor_pago and not col_valor_previsto:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Arquivo sem coluna de valor. Informe VALOR ou VALOR PAGO/VALOR PREVISTO.",
+        )
 
     sistema = _load_import_system_rows(db, empresa_id)
     _ensure_import_prerequisites(sistema)
@@ -992,7 +1038,13 @@ def _execute_import_contents(
                 "conta_nome": conta_nome,
                 "centro_nome": centro_nome,
                 "tipo": tipo,
-                "valor_raw": _coerce_row_value(row, col_valor),
+                "valor_raw": _resolve_import_value_raw(
+                    row,
+                    col_valor,
+                    col_valor_pago,
+                    col_valor_previsto,
+                    col_pag,
+                ),
                 "data_venc_raw": _coerce_row_value(row, col_venc),
                 "data_pag_raw": _coerce_row_value(row, col_pag),
             }

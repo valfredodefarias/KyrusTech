@@ -55,6 +55,7 @@ class IntegracaoBancariaRead(SQLModel):
     usar_categoria_a_categorizar: bool
     conta_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
+    token_configurado: bool = True
     empresa_id: int
     created_at: datetime
     updated_at: datetime

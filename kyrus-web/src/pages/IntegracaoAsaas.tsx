@@ -6,6 +6,10 @@ import { RefreshCw, Link as LinkIcon, Loader2, Check, X, Plug } from 'lucide-rea
 interface Conta {
   id: number;
   nome: string;
+  tipo?: string | null;
+  status?: string | null;
+  saldo_inicial?: number;
+  saldo_atual?: number;
   banco?: string;
   agencia?: string | null;
   conta_numero?: string | null;
@@ -28,6 +32,8 @@ interface IntegracaoBancaria {
   tipo: string;
   ambiente: string;
   ativo: boolean;
+  token_configurado?: boolean;
+  ultima_sincronizacao?: string | null;
   conta_id?: number | null;
   centro_custo_id?: number | null;
 }
@@ -63,6 +69,15 @@ interface AssinaturaAsaas {
   value?: number;
 }
 
+interface SaldoAsaasResumo {
+  saldo_asaas: number;
+  saldo_bloqueado: number;
+  saldo_disponivel: number;
+  atualizado_em?: string;
+  conta_vinculada_id?: number | null;
+  conta_vinculada_nome?: string | null;
+}
+
 export function IntegracaoAsaas() {
   const [searchParams] = useSearchParams();
   const contaIdParam = searchParams.get('conta_id');
@@ -84,15 +99,24 @@ export function IntegracaoAsaas() {
   const [limiteCobrancas, setLimiteCobrancas] = useState(20);
   const [limiteAssinaturas, setLimiteAssinaturas] = useState(20);
   const [limiteContasReceber, setLimiteContasReceber] = useState(20);
+  const [saldoAsaas, setSaldoAsaas] = useState<SaldoAsaasResumo | null>(null);
+  const [loadingSaldoAsaas, setLoadingSaldoAsaas] = useState(false);
 
   const [formNome, setFormNome] = useState('Asaas Principal');
   const [formAmbiente] = useState('PRODUCAO');
   const [formToken, setFormToken] = useState('');
   const [formContaId, setFormContaId] = useState<number | ''>(contaIdParam ? parseInt(contaIdParam) : '');
+  const [showTokenEditor, setShowTokenEditor] = useState(false);
+  const [novoToken, setNovoToken] = useState('');
 
-  const contasAsaas = useMemo(
-    () => contas.filter(c => (c.tipo_integracao || '').toUpperCase() === 'ASAAS'),
+  const contasVinculaveis = useMemo(
+    () => contas.filter(c => String(c.status || 'ATIVO').toUpperCase() === 'ATIVO' && String(c.tipo || '').toUpperCase() !== 'CAIXA'),
     [contas]
+  );
+
+  const categoriasLancaveis = useMemo(
+    () => categorias.filter((categoria) => categoria.permite_lancamentos !== false),
+    [categorias]
   );
 
   const integracoesAsaas = useMemo(
@@ -100,23 +124,39 @@ export function IntegracaoAsaas() {
     [integracoes]
   );
 
+  const integracaoSelecionada = useMemo(
+    () => integracoesAsaas.find((item) => item.id === selectedIntegracaoId) || null,
+    [integracoesAsaas, selectedIntegracaoId]
+  );
+
+  const integracaoAtiva = integracaoSelecionada || integracoesAsaas[0] || null;
+
+  const contaVinculadaAtiva = useMemo(() => {
+    if (!integracaoAtiva?.conta_id) return null;
+    return contas.find((conta) => conta.id === integracaoAtiva.conta_id) || null;
+  }, [contas, integracaoAtiva]);
+
+  const saldoContaVinculada = Number(contaVinculadaAtiva?.saldo_atual ?? contaVinculadaAtiva?.saldo_inicial ?? 0);
+  const saldoAsaasAtual = Number(saldoAsaas?.saldo_asaas ?? 0);
+  const diferencaSaldo = saldoAsaas ? saldoContaVinculada - saldoAsaasAtual : null;
+
   const contaSelecionada = useMemo(() => {
     if (formContaId === '') return null;
-    return contasAsaas.find(c => c.id === formContaId) || null;
-  }, [formContaId, contasAsaas]);
+    return contasVinculaveis.find(c => c.id === formContaId) || null;
+  }, [formContaId, contasVinculaveis]);
 
   useEffect(() => {
-    if (contasAsaas.length === 1 && formContaId === '') {
-      setFormContaId(contasAsaas[0].id);
+    if (contasVinculaveis.length === 1 && formContaId === '') {
+      setFormContaId(contasVinculaveis[0].id);
     }
-  }, [contasAsaas, formContaId]);
+  }, [contasVinculaveis, formContaId]);
 
   useEffect(() => {
     carregarDados();
   }, []);
 
   useEffect(() => {
-    if (integracoesAsaas.length === 1 && !selectedIntegracaoId) {
+    if (integracoesAsaas.length > 0 && !selectedIntegracaoId) {
       setSelectedIntegracaoId(integracoesAsaas[0].id);
     }
   }, [integracoesAsaas, selectedIntegracaoId]);
@@ -128,6 +168,7 @@ export function IntegracaoAsaas() {
     carregarCobrancas(selectedIntegracaoId, limiteCobrancas);
     carregarAssinaturas(selectedIntegracaoId, limiteAssinaturas);
     carregarContasReceber(selectedIntegracaoId, limiteContasReceber);
+    carregarSaldoAsaas(selectedIntegracaoId);
   }, [selectedIntegracaoId, limiteCobrancas, limiteAssinaturas, limiteContasReceber]);
 
   async function carregarDados() {
@@ -161,10 +202,14 @@ export function IntegracaoAsaas() {
   async function carregarMapeamentos(integracaoId: number) {
     try {
       const { data } = await api.get(`/integracoes-bancarias/${integracaoId}/mapeamentos`);
-      setMapeamentos(normalizeListResponse<MapeamentoCategoria>(data));
+      const mapeamentosNormalizados = normalizeListResponse<MapeamentoCategoria>(data).map((item) => ({
+        ...item,
+        categoria_externa: String(item.categoria_externa || '').trim().toUpperCase(),
+      }));
+      setMapeamentos(mapeamentosNormalizados);
       const nextSelections: Record<string, number | ''> = {};
-      normalizeListResponse<MapeamentoCategoria>(data).forEach((m) => {
-        nextSelections[m.categoria_externa] = m.plano_contas_id;
+      mapeamentosNormalizados.forEach((m) => {
+        nextSelections[String(m.categoria_externa || '').trim().toUpperCase()] = m.plano_contas_id;
       });
       setMappingSelections(nextSelections);
     } catch (e) {
@@ -211,9 +256,22 @@ export function IntegracaoAsaas() {
     }
   }
 
+  async function carregarSaldoAsaas(integracaoId: number) {
+    setLoadingSaldoAsaas(true);
+    try {
+      const { data } = await api.get(`/integracoes-bancarias/${integracaoId}/asaas/saldo`);
+      setSaldoAsaas(data as SaldoAsaasResumo);
+    } catch (e) {
+      console.error(e);
+      setSaldoAsaas(null);
+    } finally {
+      setLoadingSaldoAsaas(false);
+    }
+  }
+
   async function handleCriarIntegracao() {
     if (!formNome || !formToken) return alert('Preencha nome e token do Asaas.');
-    if (contasAsaas.length > 1 && !formContaId) return alert('Selecione a conta Asaas.');
+    if (!formContaId) return alert('Selecione a conta bancária para vincular ao Asaas.');
 
     setSaving(true);
     try {
@@ -236,9 +294,51 @@ export function IntegracaoAsaas() {
       if (data?.id) {
         setSelectedIntegracaoId(data.id);
       }
+      alert('Integração Asaas criada com sucesso. O token foi salvo com segurança e não será exibido novamente.');
     } catch (e) {
       console.error(e);
       alert('Erro ao salvar integração.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDesvincularConta() {
+    if (!selectedIntegracaoId) return;
+    if (!window.confirm('Deseja realmente desvincular a conta bancária desta integração Asaas?')) return;
+
+    setSaving(true);
+    try {
+      await api.patch(`/integracoes-bancarias/${selectedIntegracaoId}`, {
+        conta_id: null,
+        centro_custo_id: null,
+      });
+      await carregarDados();
+      alert('Conta desvinculada com sucesso.');
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao desvincular conta.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAtualizarToken() {
+    if (!selectedIntegracaoId) return;
+    if (!novoToken.trim()) return alert('Informe o novo token do Asaas.');
+
+    setSaving(true);
+    try {
+      await api.patch(`/integracoes-bancarias/${selectedIntegracaoId}`, {
+        token: novoToken.trim(),
+      });
+      setNovoToken('');
+      setShowTokenEditor(false);
+      await carregarDados();
+      alert('Token atualizado com sucesso.');
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao atualizar token.');
     } finally {
       setSaving(false);
     }
@@ -248,8 +348,16 @@ export function IntegracaoAsaas() {
     if (!selectedIntegracaoId) return;
     setSyncing(true);
     try {
-      await api.post(`/integracoes-bancarias/${selectedIntegracaoId}/sincronizar`);
-      alert('Sincronização concluída.');
+      const { data } = await api.post(`/integracoes-bancarias/${selectedIntegracaoId}/sincronizar`);
+      const criados = Number(data?.lancamentos_criados || 0);
+      const atualizados = Number(data?.lancamentos_atualizados || 0);
+      const processado = Number(data?.total_processado || 0);
+      const dataInicio = data?.data_inicio_utilizada ? String(data.data_inicio_utilizada) : 'início padrão da API';
+      const ultimaConciliacao = data?.data_ultima_conciliacao ? String(data.data_ultima_conciliacao) : 'sem conciliação prévia';
+      await carregarSaldoAsaas(selectedIntegracaoId);
+      alert(
+        `Sincronização concluída.\nProcessados: ${processado}\nCriados: ${criados}\nAtualizados: ${atualizados}\nInício usado: ${dataInicio}\nÚltima conciliação: ${ultimaConciliacao}`
+      );
     } catch (e) {
       console.error(e);
       alert('Erro ao sincronizar.');
@@ -260,17 +368,18 @@ export function IntegracaoAsaas() {
 
   async function handleSalvarMapeamento(codigo: string) {
     if (!selectedIntegracaoId) return;
-    const planoId = mappingSelections[codigo];
+    const codigoNormalizado = String(codigo || '').trim().toUpperCase();
+    const planoId = mappingSelections[codigoNormalizado];
     if (!planoId) return alert('Selecione uma categoria.');
 
     try {
-      const existente = mapeamentos.find(m => m.categoria_externa === codigo);
+      const existente = mapeamentos.find(m => String(m.categoria_externa || '').trim().toUpperCase() === codigoNormalizado);
       if (existente && existente.plano_contas_id !== planoId) {
         await api.delete(`/integracoes-bancarias/${selectedIntegracaoId}/mapeamentos/${existente.id}`);
       }
       if (!existente || existente.plano_contas_id !== planoId) {
         await api.post(`/integracoes-bancarias/${selectedIntegracaoId}/mapeamentos`, {
-          categoria_externa: codigo,
+          categoria_externa: codigoNormalizado,
           plano_contas_id: planoId
         });
       }
@@ -284,7 +393,8 @@ export function IntegracaoAsaas() {
 
   async function handleRemoverMapeamento(codigo: string) {
     if (!selectedIntegracaoId) return;
-    const existente = mapeamentos.find(m => m.categoria_externa === codigo);
+    const codigoNormalizado = String(codigo || '').trim().toUpperCase();
+    const existente = mapeamentos.find(m => String(m.categoria_externa || '').trim().toUpperCase() === codigoNormalizado);
     if (!existente) return;
     try {
       await api.delete(`/integracoes-bancarias/${selectedIntegracaoId}/mapeamentos/${existente.id}`);
@@ -324,73 +434,180 @@ export function IntegracaoAsaas() {
       </div>
 
       <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 space-y-4">
-        <h3 className="text-lg font-bold text-slate-800 dark:text-white">Criar integração</h3>
+        <h3 className="text-lg font-bold text-slate-800 dark:text-white">Configuração da integração</h3>
 
-        {contasAsaas.length === 0 && (
+        {contasVinculaveis.length === 0 && (
           <div className="p-4 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 text-sm text-slate-500">
-            Crie uma conta especial Asaas em Contas para habilitar a integração.
+            Crie ao menos uma conta bancária ativa em Contas para vincular ao Asaas.
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Nome</label>
-            <input
-              className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-              value={formNome}
-              onChange={e => setFormNome(e.target.value)}
-              placeholder="Ex: Asaas Produção"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Ambiente</label>
-            <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
-              Produção
+        {integracoesAsaas.length === 0 ? (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Nome</label>
+                <input
+                  className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  value={formNome}
+                  onChange={e => setFormNome(e.target.value)}
+                  placeholder="Ex: Asaas Produção"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Ambiente</label>
+                <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
+                  Produção
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Token Asaas</label>
+                <input
+                  type="password"
+                  className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  value={formToken}
+                  onChange={e => setFormToken(e.target.value)}
+                  placeholder="Token de API"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">Solicitado apenas nesta configuração inicial. O backend guarda o token criptografado.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta bancária vinculada</label>
+                <select
+                  className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  value={formContaId}
+                  onChange={e => setFormContaId(e.target.value ? parseInt(e.target.value) : '')}
+                >
+                  <option value="">Selecione...</option>
+                  {contasVinculaveis.map(conta => (
+                    <option key={conta.id} value={conta.id}>{contaLabel(conta)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <button
+              onClick={handleCriarIntegracao}
+              disabled={saving || contasVinculaveis.length === 0}
+              className="px-5 py-3 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-60 inline-flex items-center gap-2"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plug className="w-4 h-4" />}
+              Conectar Asaas
+            </button>
+          </>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:text-emerald-200">
+              Integração conectada. O token fica salvo com criptografia e não precisa ser informado novamente no dia a dia.
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Integração ativa</label>
+                <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
+                  {integracaoAtiva ? `${integracaoAtiva.nome} (${integracaoAtiva.ambiente})` : 'Integração Asaas'}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Token</label>
+                <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
+                  {integracaoAtiva?.token_configurado ? 'Configurado com segurança' : 'Não configurado'}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta bancária vinculada</label>
+                <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
+                  {contaVinculadaAtiva ? contaLabel(contaVinculadaAtiva) : 'Nenhuma conta vinculada'}
+                </div>
+              </div>
+              <button
+                onClick={handleDesvincularConta}
+                disabled={saving || !selectedIntegracaoId || !integracaoAtiva?.conta_id}
+                className="px-4 py-3 rounded-lg bg-rose-600 text-white font-bold hover:bg-rose-700 disabled:opacity-60"
+              >
+                Desvincular conta
+              </button>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Conferência de saldo Asaas x ERP</p>
+                <button
+                  type="button"
+                  onClick={() => selectedIntegracaoId && carregarSaldoAsaas(selectedIntegracaoId)}
+                  disabled={loadingSaldoAsaas || !selectedIntegracaoId}
+                  className="text-xs font-bold text-blue-600 hover:underline disabled:opacity-60"
+                >
+                  {loadingSaldoAsaas ? 'Atualizando...' : 'Atualizar saldo'}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                  <div className="text-[11px] uppercase font-bold text-slate-500">Saldo Asaas</div>
+                  <div className="text-lg font-black text-slate-900 dark:text-white">
+                    {saldoAsaasAtual.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                  <div className="text-[11px] uppercase font-bold text-slate-500">Saldo no ERP (conta vinculada)</div>
+                  <div className="text-lg font-black text-slate-900 dark:text-white">
+                    {saldoContaVinculada.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                  <div className="text-[11px] uppercase font-bold text-slate-500">Diferença (ERP - Asaas)</div>
+                  <div className={`text-lg font-black ${diferencaSaldo !== null && Math.abs(diferencaSaldo) > 0.009 ? 'text-rose-600 dark:text-rose-300' : 'text-emerald-600 dark:text-emerald-300'}`}>
+                    {(diferencaSaldo || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </div>
+                </div>
+              </div>
+              {saldoAsaas?.atualizado_em ? (
+                <p className="text-[11px] text-slate-500">Atualizado em {new Date(saldoAsaas.atualizado_em).toLocaleString('pt-BR')}</p>
+              ) : null}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Reconfigurar token (opcional)</p>
+                <button
+                  type="button"
+                  onClick={() => setShowTokenEditor((prev) => !prev)}
+                  className="text-xs font-bold text-blue-600 hover:underline"
+                >
+                  {showTokenEditor ? 'Fechar' : 'Atualizar token'}
+                </button>
+              </div>
+
+              {showTokenEditor ? (
+                <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Novo token Asaas</label>
+                    <input
+                      type="password"
+                      className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      value={novoToken}
+                      onChange={e => setNovoToken(e.target.value)}
+                      placeholder="Novo token de API"
+                    />
+                  </div>
+                  <button
+                    onClick={handleAtualizarToken}
+                    disabled={saving || !selectedIntegracaoId}
+                    className="px-4 py-3 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-60"
+                  >
+                    Salvar token
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Token Asaas</label>
-            <input
-              type="password"
-              className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-              value={formToken}
-              onChange={e => setFormToken(e.target.value)}
-              placeholder="Token de API"
-            />
-            <p className="text-[11px] text-slate-400 mt-1">O token é enviado apenas na criação e nunca é retornado pelo backend.</p>
-          </div>
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta Asaas</label>
-            {contasAsaas.length <= 1 ? (
-              <div className="px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
-                {contaSelecionada ? contaLabel(contaSelecionada) : 'Nenhuma conta Asaas disponível'}
-              </div>
-            ) : (
-              <select
-                className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                value={formContaId}
-                onChange={e => setFormContaId(e.target.value ? parseInt(e.target.value) : '')}
-              >
-                <option value="">Selecione...</option>
-                {contasAsaas.map(conta => (
-                  <option key={conta.id} value={conta.id}>{contaLabel(conta)}</option>
-                ))}
-              </select>
-            )}
-          </div>
-        </div>
-
-        <button
-          onClick={handleCriarIntegracao}
-          disabled={saving || contasAsaas.length === 0}
-          className="px-5 py-3 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-60 inline-flex items-center gap-2"
-        >
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plug className="w-4 h-4" />}
-          Criar integração
-        </button>
+        )}
       </div>
 
       <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 space-y-4">
@@ -434,48 +651,69 @@ export function IntegracaoAsaas() {
             {tiposAsaas.length === 0 ? (
               <div className="text-sm text-slate-400">Nenhum tipo carregado.</div>
             ) : (
-              tiposAsaas.map(tipo => {
-                const selected = mappingSelections[tipo.codigo] || '';
-                const mapped = mapeamentos.find(m => m.categoria_externa === tipo.codigo);
-                return (
-                  <div key={tipo.codigo} className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row md:items-center gap-3">
-                    <div className="flex-1">
-                      <div className="font-semibold text-slate-800 dark:text-slate-100">{tipo.descricao}</div>
-                      <div className="text-xs text-slate-400">{tipo.codigo}</div>
-                    </div>
-                    <div className="flex-1">
-                      <select
-                        className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
-                        value={selected}
-                        onChange={e => setMappingSelections(prev => ({ ...prev, [tipo.codigo]: e.target.value ? parseInt(e.target.value) : '' }))}
-                      >
-                        <option value="">Selecione categoria...</option>
-                        {categorias.map(cat => (
-                          <option key={cat.id} value={cat.id}>{cat.nome}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 flex items-center gap-1"
-                        onClick={() => handleSalvarMapeamento(tipo.codigo)}
-                      >
-                        <Check className="w-3 h-3" />
-                        Salvar
-                      </button>
-                      {mapped && (
-                        <button
-                          className="px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-xs font-bold text-slate-600 dark:text-slate-200 flex items-center gap-1"
-                          onClick={() => handleRemoverMapeamento(tipo.codigo)}
-                        >
-                          <X className="w-3 h-3" />
-                          Remover
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                <table className="w-full min-w-[980px] text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-300 text-xs uppercase tracking-[0.12em]">
+                    <tr>
+                      <th className="px-3 py-3 text-left">Tipo</th>
+                      <th className="px-3 py-3 text-left">Descrição</th>
+                      <th className="px-3 py-3 text-left">Categoria mapeada</th>
+                      <th className="px-3 py-3 text-center">Status</th>
+                      <th className="px-3 py-3 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                    {tiposAsaas.map((tipo) => {
+                      const codigoNormalizado = String(tipo.codigo || '').trim().toUpperCase();
+                      const selected = mappingSelections[codigoNormalizado] || '';
+                      const mapped = mapeamentos.find((m) => String(m.categoria_externa || '').trim().toUpperCase() === codigoNormalizado);
+                      return (
+                        <tr key={tipo.codigo}>
+                          <td className="px-3 py-3 font-mono text-[12px] text-slate-700 dark:text-slate-200">{tipo.codigo}</td>
+                          <td className="px-3 py-3 text-slate-700 dark:text-slate-200">{tipo.descricao}</td>
+                          <td className="px-3 py-3">
+                            <select
+                              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+                              value={selected}
+                              onChange={e => setMappingSelections(prev => ({ ...prev, [codigoNormalizado]: e.target.value ? parseInt(e.target.value) : '' }))}
+                            >
+                              <option value="">Selecione categoria...</option>
+                              {categoriasLancaveis.map(cat => (
+                                <option key={cat.id} value={cat.id}>{cat.nome}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${mapped ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'}`}>
+                              {mapped ? 'Mapeado' : 'Pendente'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 flex items-center gap-1"
+                                onClick={() => handleSalvarMapeamento(codigoNormalizado)}
+                              >
+                                <Check className="w-3 h-3" />
+                                Salvar
+                              </button>
+                              {mapped ? (
+                                <button
+                                  className="px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-xs font-bold text-slate-600 dark:text-slate-200 flex items-center gap-1"
+                                  onClick={() => handleRemoverMapeamento(codigoNormalizado)}
+                                >
+                                  <X className="w-3 h-3" />
+                                  Remover
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         )}

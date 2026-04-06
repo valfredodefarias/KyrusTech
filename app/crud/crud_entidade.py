@@ -492,20 +492,31 @@ def create_bulk(db: Session, *, items_in: List[EntidadeCreate], empresa_id: int)
         entity = _consolidate_matching_entities(db, payload=payload, empresa_id=empresa_id, candidate_pool=existing_entities)
         resolved_entities.append(entity)
 
-    db.commit()
+    # Garante IDs para novos registros antes do commit final.
+    db.flush()
+
     unique_results: list[Entidade] = []
     seen_ids: set[int] = set()
     for entity in resolved_entities:
         if entity.id is None:
-            db.refresh(entity)
-        elif entity.id not in seen_ids:
-            db.refresh(entity)
-        if entity.id is None:
             continue
-        if int(entity.id) in seen_ids:
+
+        entity_id = int(entity.id)
+        if entity_id in seen_ids:
             continue
-        seen_ids.add(int(entity.id))
+
+        seen_ids.add(entity_id)
         unique_results.append(entity)
+
+    # Evita expirar instancias no commit para nao gerar N consultas extras no response_model.
+    previous_expire_on_commit = getattr(db, "expire_on_commit", None)
+    if previous_expire_on_commit is not None:
+        db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        if previous_expire_on_commit is not None:
+            db.expire_on_commit = previous_expire_on_commit
 
     if any(str(entity.tipo_pessoa or "").strip().upper() == "PF" for entity in unique_results):
         ensure_centro_custo_principal(db=db, empresa_id=empresa_id)

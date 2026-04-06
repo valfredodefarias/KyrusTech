@@ -87,6 +87,18 @@ const normalizeEntityNameKey = (value?: string) =>
         .trim()
         .toUpperCase();
 
+const FINANCEIRO_ENTIDADES_BULK_CHUNK_SIZE = 300;
+
+function chunkArray<T>(items: T[], chunkSize: number): T[][] {
+    if (!Array.isArray(items) || items.length === 0) return [];
+    const safeSize = Math.max(1, Math.trunc(chunkSize));
+    const chunks: T[][] = [];
+    for (let index = 0; index < items.length; index += safeSize) {
+        chunks.push(items.slice(index, index + safeSize));
+    }
+    return chunks;
+}
+
 function getApiErrorMessage(error: any, fallback: string) {
     const detail = error?.response?.data?.detail;
     const message = error?.response?.data?.message;
@@ -2203,8 +2215,17 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
 
       try {
           if (type === 'ENTIDADE') {
-              const { data } = await api.post('/entidades/bulk', normalizedMissingList.map((name) => ({ nome: name })));
-              const resolvedItems = Array.isArray(data) ? data : [];
+              const payload = normalizedMissingList.map((name) => ({ nome: name }));
+              const payloadChunks = chunkArray(payload, FINANCEIRO_ENTIDADES_BULK_CHUNK_SIZE);
+              const resolvedItems: any[] = [];
+
+              for (let index = 0; index < payloadChunks.length; index += 1) {
+                  const chunk = payloadChunks[index];
+                  const { data } = await api.post('/entidades/bulk', chunk);
+                  if (Array.isArray(data) && data.length > 0) {
+                      resolvedItems.push(...data);
+                  }
+              }
 
               const entidadesById = new Map<number, any>();
               [...sistemaData.entidades, ...resolvedItems].forEach((item) => {
@@ -2268,6 +2289,9 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
 
               if (unresolvedNames.length > 0) {
                   const details = unresolvedNames.slice(0, 6).map((nome) => `Sem vinculo automatico: ${nome}`);
+                  if (payloadChunks.length > 1) {
+                      details.unshift(`Criacao executada em ${payloadChunks.length} lote(s) de ate ${FINANCEIRO_ENTIDADES_BULK_CHUNK_SIZE} interessados.`);
+                  }
                   if (unresolvedNames.length > 6) {
                       details.push(`...e mais ${unresolvedNames.length - 6} interessado(s).`);
                   }
@@ -2279,9 +2303,13 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
                       details,
                   });
               } else if (resolvedCount > 0) {
+                  const details = payloadChunks.length > 1
+                      ? [`Criacao executada em ${payloadChunks.length} lote(s) de ate ${FINANCEIRO_ENTIDADES_BULK_CHUNK_SIZE} interessados.`]
+                      : undefined;
                   setFeedback({
                       type: 'success',
                       message: `${resolvedCount} interessado(s) mapeado(s) automaticamente.`,
+                      details,
                   });
               }
 

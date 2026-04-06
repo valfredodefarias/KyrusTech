@@ -65,6 +65,7 @@ export type AiAssistenteProps = {
   titulo?: string;
   sugestoes?: string[];
   lookups?: AssistenteLookups;
+  triggerPlacement?: 'left' | 'right';
 };
 
 type ApiResponse = {
@@ -252,6 +253,7 @@ export function AiAssistente({
   titulo = 'Assistente KyrusTECH',
   sugestoes = DEFAULT_SUGESTOES,
   lookups,
+  triggerPlacement = 'right',
 }: AiAssistenteProps) {
   const initialMessage = useMemo(() => {
     if (tela === 'dashboard') {
@@ -456,13 +458,14 @@ export function AiAssistente({
   const modalClassName = isExpanded
     ? 'fixed inset-4 md:inset-6 z-50 flex flex-col rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900'
     : 'fixed bottom-20 right-5 z-50 flex h-[min(82vh,760px)] w-[min(94vw,960px)] max-w-4xl flex-col rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900';
+  const triggerPlacementClass = triggerPlacement === 'left' ? 'left-5 md:left-[92px]' : 'right-5';
 
   return (
     <>
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 rounded-full bg-cyan-600 px-4 py-3 text-sm font-bold text-white shadow-xl transition hover:bg-cyan-500"
+        className={`fixed bottom-5 ${triggerPlacementClass} z-40 inline-flex items-center gap-2 rounded-full bg-cyan-600 px-4 py-3 text-sm font-bold text-white shadow-xl transition hover:bg-cyan-500`}
       >
         <Sparkles className="h-4 w-4" />
         Assistente

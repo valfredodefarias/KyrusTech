@@ -113,6 +113,7 @@ function LayoutShell() {
     return params.get('embed_boletim') === '1';
   }, [location.search]);
   const assistenteDefaults = useMemo(() => resolveAssistenteDefaults(location.pathname), [location.pathname]);
+  const assistenteTriggerPlacement = location.pathname.startsWith('/boletim') ? 'left' as const : 'right' as const;
   const assistenteConfig = useMemo(() => ({
     tela: pageAssistenteConfig.tela ?? assistenteDefaults.tela,
     titulo: pageAssistenteConfig.titulo ?? assistenteDefaults.titulo,
@@ -332,6 +333,7 @@ function LayoutShell() {
         titulo={assistenteConfig.titulo}
         sugestoes={assistenteConfig.sugestoes}
         lookups={assistenteConfig.lookups}
+        triggerPlacement={assistenteTriggerPlacement}
       />
     </div>
   );

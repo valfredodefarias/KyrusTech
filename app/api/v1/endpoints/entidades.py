@@ -1,4 +1,5 @@
 # app/api/v1/endpoints/entidades.py
+import time
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
@@ -83,8 +84,12 @@ def create_entidades_bulk(
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     logger.info(f"Empresa {empresa_id} criando {len(obj_in_list)} entidade(s) em massa")
+    started_at = time.perf_counter()
     entidades = crud_entidade.create_bulk(db=db, items_in=obj_in_list, empresa_id=empresa_id)
-    logger.success(f"Empresa {empresa_id} processou {len(entidades)} entidade(s) no bulk")
+    elapsed_seconds = time.perf_counter() - started_at
+    logger.success(
+        f"Empresa {empresa_id} processou {len(entidades)} entidade(s) no bulk em {elapsed_seconds:.2f}s"
+    )
     return entidades
 
 @router.put(

@@ -2,11 +2,12 @@
 Endpoints para gerenciar integrações bancárias.
 Permite configurar, listar, atualizar e sincronizar integrações.
 """
-from datetime import date
+from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
 from loguru import logger
 from typing import List, Optional
+from sqlalchemy import func
 
 from app.db.session import get_db
 from app.api.v1.deps import get_empresa_id_from_user, require_permission
@@ -20,13 +21,22 @@ from app.schemas.integracao_bancaria import (
 )
 from app.models.mapeamento_categoria import MapeamentoCategoria
 from app.models.plano_contas import PlanoContas
+from app.models.conta import Conta
+from app.models.integracao_bancaria import IntegracaoBancaria
 from sqlmodel import select
 from app.services.integracao_asaas import (
     buscar_cobrancas_asaas,
-    buscar_assinaturas_asaas
+    buscar_assinaturas_asaas,
+    buscar_saldo_asaas,
 )
 
 router = APIRouter()
+
+
+def _serialize_integracao(integracao: IntegracaoBancaria) -> dict:
+    payload = integracao.model_dump()
+    payload["token_configurado"] = bool(str(integracao.token_criptografado or "").strip())
+    return payload
 
 
 @router.get("/", response_model=List[IntegracaoBancariaRead])
@@ -39,7 +49,7 @@ def listar_integracoes(
     """
     logger.info(f"Listando integrações bancárias da empresa ID: {empresa_id}")
     integracoes = crud_integracao_bancaria.get_by_empresa(db=db, empresa_id=empresa_id)
-    return integracoes
+    return [_serialize_integracao(integracao) for integracao in integracoes]
 
 
 @router.get("/{integracao_id}", response_model=IntegracaoBancariaRead)
@@ -57,7 +67,7 @@ def obter_integracao(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Integração não encontrada"
         )
-    return integracao
+    return _serialize_integracao(integracao)
 
 
 @router.post(
@@ -91,14 +101,47 @@ def criar_integracao(
             detail="Integrações Asaas só são permitidas em PRODUCAO."
         )
 
+    conta_id = integracao_in.conta_id
+    centro_custo_id = integracao_in.centro_custo_id
+
+    if conta_id:
+        conta = db.exec(
+            select(Conta).where(Conta.id == conta_id, Conta.empresa_id == empresa_id)
+        ).first()
+        if not conta:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conta bancária para vinculação não encontrada"
+            )
+
+        if centro_custo_id is None and conta.centro_custo_id:
+            centro_custo_id = conta.centro_custo_id
+
+        duplicada = db.exec(
+            select(IntegracaoBancaria).where(
+                IntegracaoBancaria.empresa_id == empresa_id,
+                IntegracaoBancaria.tipo == integracao_in.tipo.upper(),
+                IntegracaoBancaria.conta_id == conta_id,
+            )
+        ).first()
+        if duplicada:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Esta conta já está vinculada a uma integração deste tipo"
+            )
+
+    integracao_payload = integracao_in.model_dump()
+    integracao_payload["centro_custo_id"] = centro_custo_id
+    integracao_obj = IntegracaoBancariaCreate(**integracao_payload)
+
     integracao = crud_integracao_bancaria.create(
         db=db,
-        obj_in=integracao_in,
+        obj_in=integracao_obj,
         empresa_id=empresa_id
     )
     
     logger.success(f"Integração bancária criada com sucesso! ID: {integracao.id}")
-    return integracao
+    return _serialize_integracao(integracao)
 
 
 @router.patch(
@@ -129,13 +172,48 @@ def atualizar_integracao(
             detail="Integrações Asaas só são permitidas em PRODUCAO."
         )
 
+    update_payload = integracao_in.model_dump(exclude_unset=True)
+    if "token" in update_payload and not str(update_payload.get("token") or "").strip():
+        update_payload.pop("token")
+
+    if "conta_id" in update_payload:
+        conta_id = update_payload.get("conta_id")
+        if conta_id is not None:
+            conta = db.exec(
+                select(Conta).where(Conta.id == conta_id, Conta.empresa_id == empresa_id)
+            ).first()
+            if not conta:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Conta bancária para vinculação não encontrada"
+                )
+
+            duplicada = db.exec(
+                select(IntegracaoBancaria).where(
+                    IntegracaoBancaria.empresa_id == empresa_id,
+                    IntegracaoBancaria.tipo == integracao.tipo,
+                    IntegracaoBancaria.conta_id == conta_id,
+                    IntegracaoBancaria.id != integracao.id,
+                )
+            ).first()
+            if duplicada:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Esta conta já está vinculada a outra integração deste tipo"
+                )
+
+            if "centro_custo_id" not in update_payload and conta.centro_custo_id:
+                update_payload["centro_custo_id"] = conta.centro_custo_id
+
+    integracao_update = IntegracaoBancariaUpdate(**update_payload)
+
     integracao = crud_integracao_bancaria.update(
         db=db,
         db_obj=integracao,
-        obj_in=integracao_in
+        obj_in=integracao_update
     )
-    
-    return integracao
+
+    return _serialize_integracao(integracao)
 
 
 @router.delete(
@@ -232,9 +310,10 @@ def listar_mapeamentos(
     resultado = []
     for mapeamento in mapeamentos:
         plano_contas = db.get(PlanoContas, mapeamento.plano_contas_id)
+        categoria_externa_normalizada = str(mapeamento.categoria_externa or "").strip().upper()
         resultado.append({
             "id": mapeamento.id,  # Adiciona ID para poder deletar
-            "categoria_externa": mapeamento.categoria_externa,
+            "categoria_externa": categoria_externa_normalizada,
             "plano_contas_id": mapeamento.plano_contas_id,
             "plano_contas_nome": plano_contas.nome if plano_contas else None
         })
@@ -273,11 +352,18 @@ def criar_mapeamento(
             detail="Categoria não encontrada"
         )
     
+    categoria_externa = str(mapeamento_in.categoria_externa or "").strip().upper()
+    if not categoria_externa:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Categoria externa invalida"
+        )
+
     # Verifica se mapeamento já existe
     mapeamento_existente = db.exec(
         select(MapeamentoCategoria).where(
             MapeamentoCategoria.integracao_id == integracao_id,
-            MapeamentoCategoria.categoria_externa == mapeamento_in.categoria_externa
+            func.upper(MapeamentoCategoria.categoria_externa) == categoria_externa
         )
     ).first()
     
@@ -289,7 +375,7 @@ def criar_mapeamento(
     
     # Cria mapeamento
     mapeamento = MapeamentoCategoria(
-        categoria_externa=mapeamento_in.categoria_externa,
+        categoria_externa=categoria_externa,
         plano_contas_id=mapeamento_in.plano_contas_id,
         integracao_id=integracao_id
     )
@@ -298,7 +384,7 @@ def criar_mapeamento(
     db.refresh(mapeamento)
     
     return {
-        "categoria_externa": mapeamento.categoria_externa,
+        "categoria_externa": categoria_externa,
         "plano_contas_id": mapeamento.plano_contas_id,
         "plano_contas_nome": plano_contas.nome
     }
@@ -391,14 +477,21 @@ def listar_tipos_asaas(
         )
     ).all()
     
-    tipos_mapeados = {m.categoria_externa for m in mapeamentos_existentes}
+    tipos_mapeados = {str(m.categoria_externa or "").strip().upper() for m in mapeamentos_existentes}
     
     # Adiciona flag de mapeado
     for tipo in tipos_asaas:
         tipo["mapeado"] = tipo["codigo"] in tipos_mapeados
         if tipo["mapeado"]:
             # Busca o mapeamento para mostrar a categoria
-            mapeamento = next((m for m in mapeamentos_existentes if m.categoria_externa == tipo["codigo"]), None)
+            mapeamento = next(
+                (
+                    m
+                    for m in mapeamentos_existentes
+                    if str(m.categoria_externa or "").strip().upper() == tipo["codigo"]
+                ),
+                None,
+            )
             if mapeamento:
                 plano_contas = db.get(PlanoContas, mapeamento.plano_contas_id)
                 tipo["categoria_mapeada"] = plano_contas.nome if plano_contas else None
@@ -456,6 +549,41 @@ def listar_contas_receber_asaas(
     return {
         "abertas": abertas,
         "atrasadas": atrasadas
+    }
+
+
+@router.get("/{integracao_id}/asaas/saldo")
+def obter_saldo_asaas(
+    integracao_id: int,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    integracao = crud_integracao_bancaria.get(db=db, id=integracao_id, empresa_id=empresa_id)
+    if not integracao:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+    if integracao.tipo.upper() != "ASAAS":
+        raise HTTPException(status_code=400, detail="Esta integração não é do tipo Asaas")
+
+    try:
+        saldo = buscar_saldo_asaas(db=db, integracao=integracao)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao consultar saldo no Asaas: {exc}")
+
+    conta_nome = None
+    if integracao.conta_id:
+        conta = db.exec(
+            select(Conta).where(Conta.id == integracao.conta_id, Conta.empresa_id == empresa_id)
+        ).first()
+        if conta:
+            conta_nome = conta.nome
+
+    return {
+        "saldo_asaas": float(saldo.get("saldo") or 0),
+        "saldo_bloqueado": float(saldo.get("saldo_bloqueado") or 0),
+        "saldo_disponivel": float(saldo.get("saldo_disponivel") or 0),
+        "conta_vinculada_id": integracao.conta_id,
+        "conta_vinculada_nome": conta_nome,
+        "atualizado_em": datetime.utcnow().isoformat(),
     }
 
 

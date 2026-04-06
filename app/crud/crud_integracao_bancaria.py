@@ -56,6 +56,7 @@ def create(db: Session, *, obj_in: IntegracaoBancariaCreate, empresa_id: int) ->
         ativo=obj_in.ativo,
         sincronizar_automaticamente=obj_in.sincronizar_automaticamente,
         intervalo_sincronizacao_minutos=obj_in.intervalo_sincronizacao_minutos,
+        data_inicio_sincronizacao=obj_in.data_inicio_sincronizacao,
         categoria_padrao_id=obj_in.categoria_padrao_id,
         usar_categoria_a_categorizar=obj_in.usar_categoria_a_categorizar,
         conta_id=obj_in.conta_id,

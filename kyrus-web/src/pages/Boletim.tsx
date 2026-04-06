@@ -133,6 +133,8 @@ interface AuditPanelState {
   extrato?: ContaSaldoDetalhe;
 }
 
+const BOLETIM_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
+
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
   currency: 'BRL',
@@ -191,6 +193,38 @@ function resolveContaDisplayName(conta?: Pick<ContaResumo, 'nome' | 'banco'> | n
   if (accountName) return accountName;
   const bankName = String(conta?.banco || '').trim();
   return bankName || 'Sem banco';
+}
+
+function extractAsaasInterestedFromDescricao(descricao?: string | null) {
+  const text = String(descricao || '').trim();
+  if (!text) return null;
+
+  const patterns = [
+    /(?:cliente|customer|pagador)\s*:\s*([^\n|;,]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const value = String(match?.[1] || '').trim().replace(/[\s.]+$/, '');
+    if (value) return value;
+  }
+
+  return null;
+}
+
+function resolveLancamentoInteressado(
+  item: Pick<LancamentoResumo, 'entidade_id' | 'descricao'>,
+  entityMap: Map<number, string>
+) {
+  const defaultInterested = String(entityMap.get(Number(item.entidade_id)) || '').trim();
+  const isGenericAsaas = normalizeText(defaultInterested).includes('asaas');
+
+  if (!defaultInterested || isGenericAsaas) {
+    const extracted = extractAsaasInterestedFromDescricao(item.descricao);
+    if (extracted) return extracted;
+  }
+
+  return defaultInterested || 'Sem interessado';
 }
 
 function getValueTone(value: number, isDark: boolean) {
@@ -502,6 +536,7 @@ export function Boletim() {
 
   useEffect(() => {
     let active = true;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
 
     async function loadData() {
       const isInitialLoad = !initialLoadDoneRef.current;
@@ -568,8 +603,15 @@ export function Boletim() {
     }
 
     loadData();
+    intervalId = setInterval(() => {
+      void loadData();
+    }, BOLETIM_REFRESH_INTERVAL_MS);
+
     return () => {
       active = false;
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
     };
   }, [referenceYear]);
 
@@ -616,7 +658,7 @@ export function Boletim() {
           dayOfMonth: due ? due.getDate() : -1,
           valor: signedValue,
           valorAbsoluto: Math.abs(signedValue),
-          interessado: entityMap.get(Number(item.entidade_id)) || 'Sem interessado',
+          interessado: resolveLancamentoInteressado(item, entityMap),
           contaId: item.conta_id,
           contaNome: resolveContaDisplayName(contaMap.get(Number(item.conta_id))),
         } satisfies NormalizedRow;
@@ -1431,6 +1473,7 @@ export function Boletim() {
                         <table className="w-full text-sm">
                           <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
                             <tr>
+                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Vencimento</th>
                               <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
                               <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
                               <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
@@ -1440,7 +1483,7 @@ export function Boletim() {
                           <tbody>
                             {(auditPanel.rows || []).length === 0 ? (
                               <tr>
-                                <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
+                                <td colSpan={5} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
                               </tr>
                             ) : (auditPanel.rows || []).map((row) => (
                               <tr
@@ -1449,6 +1492,7 @@ export function Boletim() {
                                 className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
                                 title="Abrir edição do lançamento"
                               >
+                                <td className="px-3 py-2.5 font-medium whitespace-nowrap">{formatDate(row.dataVencimento)}</td>
                                 <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrencyDetailed(row.valor)}</td>
                                 <td className="px-3 py-2.5">{row.interessado}</td>
                                 <td className="max-w-56 truncate px-3 py-2.5" title={row.descricao}>{row.descricao}</td>

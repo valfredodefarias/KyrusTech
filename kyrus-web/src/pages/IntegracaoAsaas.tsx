@@ -34,6 +34,7 @@ interface IntegracaoBancaria {
   ativo: boolean;
   token_configurado?: boolean;
   ultima_sincronizacao?: string | null;
+  data_inicio_sincronizacao?: string | null;
   conta_id?: number | null;
   centro_custo_id?: number | null;
 }
@@ -78,6 +79,12 @@ interface SaldoAsaasResumo {
   conta_vinculada_nome?: string | null;
 }
 
+interface UsuarioMe {
+  email?: string;
+}
+
+const AUTHORIZED_ASAAS_RESET_EMAILS = ['cirocue12@gmail.com', 'cirocaue12@gmail.com'];
+
 export function IntegracaoAsaas() {
   const [searchParams] = useSearchParams();
   const contaIdParam = searchParams.get('conta_id');
@@ -96,6 +103,7 @@ export function IntegracaoAsaas() {
   const [assinaturas, setAssinaturas] = useState<AssinaturaAsaas[]>([]);
   const [contasReceberAbertas, setContasReceberAbertas] = useState<CobrancaAsaas[]>([]);
   const [contasReceberAtrasadas, setContasReceberAtrasadas] = useState<CobrancaAsaas[]>([]);
+  const [contasReceberRecebidas, setContasReceberRecebidas] = useState<CobrancaAsaas[]>([]);
   const [limiteCobrancas, setLimiteCobrancas] = useState(20);
   const [limiteAssinaturas, setLimiteAssinaturas] = useState(20);
   const [limiteContasReceber, setLimiteContasReceber] = useState(20);
@@ -108,6 +116,9 @@ export function IntegracaoAsaas() {
   const [formContaId, setFormContaId] = useState<number | ''>(contaIdParam ? parseInt(contaIdParam) : '');
   const [showTokenEditor, setShowTokenEditor] = useState(false);
   const [novoToken, setNovoToken] = useState('');
+  const [dataInicioSync, setDataInicioSync] = useState('');
+  const [isResettingAsaas, setIsResettingAsaas] = useState(false);
+  const [canManageAsaasReset, setCanManageAsaasReset] = useState(false);
 
   const contasVinculaveis = useMemo(
     () => contas.filter(c => String(c.status || 'ATIVO').toUpperCase() === 'ATIVO' && String(c.tipo || '').toUpperCase() !== 'CAIXA'),
@@ -130,6 +141,10 @@ export function IntegracaoAsaas() {
   );
 
   const integracaoAtiva = integracaoSelecionada || integracoesAsaas[0] || null;
+
+  useEffect(() => {
+    setDataInicioSync(integracaoAtiva?.data_inicio_sincronizacao || '');
+  }, [integracaoAtiva?.id, integracaoAtiva?.data_inicio_sincronizacao]);
 
   const contaVinculadaAtiva = useMemo(() => {
     if (!integracaoAtiva?.conta_id) return null;
@@ -174,16 +189,20 @@ export function IntegracaoAsaas() {
   async function carregarDados() {
     setLoading(true);
     try {
-      const [resContas, resCategorias, resIntegracoes] = await Promise.all([
+      const [resContas, resCategorias, resIntegracoes, resMe] = await Promise.all([
         api.get('/contas/'),
         api.get('/plano-contas/'),
-        api.get('/integracoes-bancarias/')
+        api.get('/integracoes-bancarias/'),
+        api.get<UsuarioMe>('/usuarios/me'),
       ]);
       setContas(normalizeListResponse<Conta>(resContas.data));
       setCategorias(normalizeListResponse<PlanoContas>(resCategorias.data));
       setIntegracoes(normalizeListResponse<IntegracaoBancaria>(resIntegracoes.data));
+      const email = String(resMe?.data?.email || '').trim().toLowerCase();
+      setCanManageAsaasReset(AUTHORIZED_ASAAS_RESET_EMAILS.includes(email));
     } catch (e) {
       console.error(e);
+      setCanManageAsaasReset(false);
     } finally {
       setLoading(false);
     }
@@ -249,10 +268,12 @@ export function IntegracaoAsaas() {
       });
       setContasReceberAbertas(normalizeListResponse<CobrancaAsaas>(data?.abertas));
       setContasReceberAtrasadas(normalizeListResponse<CobrancaAsaas>(data?.atrasadas));
+      setContasReceberRecebidas(normalizeListResponse<CobrancaAsaas>(data?.recebidas));
     } catch (e) {
       console.error(e);
       setContasReceberAbertas([]);
       setContasReceberAtrasadas([]);
+      setContasReceberRecebidas([]);
     }
   }
 
@@ -353,16 +374,61 @@ export function IntegracaoAsaas() {
       const atualizados = Number(data?.lancamentos_atualizados || 0);
       const processado = Number(data?.total_processado || 0);
       const dataInicio = data?.data_inicio_utilizada ? String(data.data_inicio_utilizada) : 'início padrão da API';
+      const dataInicioConfigurada = data?.data_inicio_configurada ? String(data.data_inicio_configurada) : 'não configurada';
       const ultimaConciliacao = data?.data_ultima_conciliacao ? String(data.data_ultima_conciliacao) : 'sem conciliação prévia';
       await carregarSaldoAsaas(selectedIntegracaoId);
       alert(
-        `Sincronização concluída.\nProcessados: ${processado}\nCriados: ${criados}\nAtualizados: ${atualizados}\nInício usado: ${dataInicio}\nÚltima conciliação: ${ultimaConciliacao}`
+        `Sincronização concluída.\nProcessados: ${processado}\nCriados: ${criados}\nAtualizados: ${atualizados}\nInício configurado: ${dataInicioConfigurada}\nInício usado: ${dataInicio}\nÚltima conciliação: ${ultimaConciliacao}`
       );
     } catch (e) {
       console.error(e);
       alert('Erro ao sincronizar.');
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function handleSalvarDataInicioSincronizacao() {
+    if (!selectedIntegracaoId) return;
+
+    setSaving(true);
+    try {
+      await api.patch(`/integracoes-bancarias/${selectedIntegracaoId}`, {
+        data_inicio_sincronizacao: dataInicioSync || null,
+      });
+      await carregarDados();
+      alert('Data de início da sincronização atualizada com sucesso.');
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao salvar data de início da sincronização.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleResetarLancamentosAsaas() {
+    if (!selectedIntegracaoId) return;
+    if (!window.confirm('Essa ação vai apagar todos os lançamentos de origem Asaas desta empresa e manter apenas os próximos syncs. Deseja continuar?')) {
+      return;
+    }
+
+    setIsResettingAsaas(true);
+    try {
+      const { data } = await api.post(`/integracoes-bancarias/${selectedIntegracaoId}/asaas/reset`, {
+        data_inicio_sincronizacao: dataInicioSync || null,
+      });
+      const totalResetado = Number(data?.lancamentos_resetados || 0);
+      await carregarDados();
+      await carregarContasReceber(selectedIntegracaoId, limiteContasReceber);
+      await carregarCobrancas(selectedIntegracaoId, limiteCobrancas);
+      await carregarAssinaturas(selectedIntegracaoId, limiteAssinaturas);
+      alert(`Reset Asaas concluído. Lançamentos removidos: ${totalResetado}.`);
+    } catch (e: any) {
+      console.error(e);
+      const detail = e?.response?.data?.detail;
+      alert(typeof detail === 'string' && detail ? detail : 'Erro ao resetar lançamentos Asaas.');
+    } finally {
+      setIsResettingAsaas(false);
     }
   }
 
@@ -606,6 +672,41 @@ export function IntegracaoAsaas() {
                 </div>
               ) : null}
             </div>
+
+            {canManageAsaasReset ? (
+            <div className="rounded-xl border border-amber-200 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-900/20 p-4 space-y-3">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Controle de corte e limpeza Asaas</p>
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                Defina a data mínima para sincronização. Nada antes dessa data será buscado.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-amber-700 dark:text-amber-300 mb-1">Data de início da sincronização</label>
+                  <input
+                    type="date"
+                    className="w-full px-4 py-3 rounded-lg border border-amber-200 dark:border-amber-700 bg-white dark:bg-slate-900"
+                    value={dataInicioSync}
+                    onChange={(e) => setDataInicioSync(e.target.value)}
+                  />
+                </div>
+                <button
+                  onClick={handleSalvarDataInicioSincronizacao}
+                  disabled={saving || !selectedIntegracaoId}
+                  className="px-4 py-3 rounded-lg bg-amber-600 text-white font-bold hover:bg-amber-700 disabled:opacity-60"
+                >
+                  Salvar corte
+                </button>
+              </div>
+              <button
+                onClick={handleResetarLancamentosAsaas}
+                disabled={isResettingAsaas || !selectedIntegracaoId}
+                className="px-4 py-3 rounded-lg bg-rose-600 text-white font-bold hover:bg-rose-700 disabled:opacity-60 inline-flex items-center gap-2"
+              >
+                {isResettingAsaas ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                Apagar lançamentos Asaas e reiniciar sincronização
+              </button>
+            </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -847,7 +948,7 @@ export function IntegracaoAsaas() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4">
             <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-2">Abertas</h4>
             {contasReceberAbertas.length === 0 ? (
@@ -855,6 +956,21 @@ export function IntegracaoAsaas() {
             ) : (
               <ul className="space-y-2 text-sm">
                 {contasReceberAbertas.map(item => (
+                  <li key={item.id} className="flex items-center justify-between">
+                    <span className="text-slate-600 dark:text-slate-300">{item.description || item.id}</span>
+                    <span className="text-slate-700 dark:text-slate-100 font-semibold">{item.value?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || '-'}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-2">Recebidas</h4>
+            {contasReceberRecebidas.length === 0 ? (
+              <div className="text-sm text-slate-400">Nenhuma cobrança recebida.</div>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {contasReceberRecebidas.map(item => (
                   <li key={item.id} className="flex items-center justify-between">
                     <span className="text-slate-600 dark:text-slate-300">{item.description || item.id}</span>
                     <span className="text-slate-700 dark:text-slate-100 font-semibold">{item.value?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || '-'}</span>

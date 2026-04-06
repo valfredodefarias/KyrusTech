@@ -7,10 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
 from loguru import logger
 from typing import List, Optional
-from sqlalchemy import func
+from pydantic import BaseModel
+from sqlalchemy import func, or_
 
 from app.db.session import get_db
-from app.api.v1.deps import get_empresa_id_from_user, require_permission
+from app.api.v1.deps import get_empresa_id_from_user, require_permission, get_current_user
 from app.crud import crud_integracao_bancaria
 from app.schemas.integracao_bancaria import (
     IntegracaoBancariaCreate,
@@ -23,6 +24,9 @@ from app.models.mapeamento_categoria import MapeamentoCategoria
 from app.models.plano_contas import PlanoContas
 from app.models.conta import Conta
 from app.models.integracao_bancaria import IntegracaoBancaria
+from app.models.lancamento import Lancamento
+from app.models.usuario import Usuario
+from app.enums import ConsultorRole
 from sqlmodel import select
 from app.services.integracao_asaas import (
     buscar_cobrancas_asaas,
@@ -31,6 +35,20 @@ from app.services.integracao_asaas import (
 )
 
 router = APIRouter()
+AUTHORIZED_ASAAS_RESET_EMAILS = {"cirocue12@gmail.com", "cirocaue12@gmail.com"}
+
+
+class AsaasResetRequest(BaseModel):
+    data_inicio_sincronizacao: Optional[date] = None
+
+
+def _can_manage_asaas_reset(current_user: Usuario) -> bool:
+    email = (getattr(current_user, "email", "") or "").strip().lower()
+    is_super = bool(
+        current_user.is_consultor
+        and str(current_user.consultor_role or "").upper() == ConsultorRole.SUPER_CONSULTOR.value
+    )
+    return is_super or email in AUTHORIZED_ASAAS_RESET_EMAILS
 
 
 def _serialize_integracao(integracao: IntegracaoBancaria) -> dict:
@@ -265,6 +283,11 @@ def sincronizar_integracao(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Integração está inativa"
         )
+
+    data_inicio_efetiva = data_inicio
+    if integracao.data_inicio_sincronizacao:
+        if data_inicio_efetiva is None or data_inicio_efetiva < integracao.data_inicio_sincronizacao:
+            data_inicio_efetiva = integracao.data_inicio_sincronizacao
     
     # Sincroniza conforme o tipo
     if integracao.tipo.upper() == "ASAAS":
@@ -272,7 +295,7 @@ def sincronizar_integracao(
         resultado = sincronizar_asaas(
             db=db,
             integracao=integracao,
-            data_inicio=data_inicio,
+            data_inicio=data_inicio_efetiva,
             data_fim=data_fim
         )
     else:
@@ -280,8 +303,82 @@ def sincronizar_integracao(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Sincronização para tipo {integracao.tipo} ainda não implementada"
         )
+
+    if isinstance(resultado, dict):
+        resultado.setdefault(
+            "data_inicio_configurada",
+            integracao.data_inicio_sincronizacao.isoformat() if integracao.data_inicio_sincronizacao else None,
+        )
     
     return resultado
+
+
+@router.post(
+    "/{integracao_id}/asaas/reset",
+    dependencies=[Depends(require_permission("integracoes:sync"))],
+)
+def resetar_lancamentos_asaas(
+    integracao_id: int,
+    payload: AsaasResetRequest,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    current_user: Usuario = Depends(get_current_user),
+):
+    if not _can_manage_asaas_reset(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ação restrita para este usuário.",
+        )
+
+    integracao = crud_integracao_bancaria.get(db=db, id=integracao_id, empresa_id=empresa_id)
+    if not integracao:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Integração não encontrada")
+    if integracao.tipo.upper() != "ASAAS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Esta integração não é do tipo Asaas")
+
+    agora = datetime.utcnow()
+    lancamentos_asaas = db.exec(
+        select(Lancamento).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            or_(
+                Lancamento.origem == "ASAAS",
+                Lancamento.import_hash.like("ASAAS:%"),
+                Lancamento.observacao.ilike("%Asaas ID:%"),
+            ),
+        )
+    ).all()
+
+    total_resetado = 0
+    user_id = int(getattr(current_user, "id", 0) or 0)
+    for lancamento in lancamentos_asaas:
+        lancamento.is_deleted = True
+        lancamento.deleted_at = agora
+        lancamento.deleted_by_id = user_id or None
+        db.add(lancamento)
+        total_resetado += 1
+
+    integracao.data_inicio_sincronizacao = payload.data_inicio_sincronizacao
+    integracao.ultima_sincronizacao = None
+    if integracao.sincronizar_automaticamente:
+        integracao.proxima_sincronizacao = agora
+    db.add(integracao)
+    db.commit()
+
+    logger.warning(
+        "Reset Asaas solicitado por {} na empresa {}: {} lançamentos marcados como removidos. data_inicio_sincronizacao={}",
+        current_user.email,
+        empresa_id,
+        total_resetado,
+        payload.data_inicio_sincronizacao,
+    )
+
+    return {
+        "sucesso": True,
+        "lancamentos_resetados": total_resetado,
+        "data_inicio_sincronizacao": payload.data_inicio_sincronizacao.isoformat() if payload.data_inicio_sincronizacao else None,
+        "mensagem": "Lançamentos de origem Asaas resetados com sucesso.",
+    }
 
 
 @router.get("/{integracao_id}/mapeamentos", response_model=List[MapeamentoCategoriaRead])
@@ -546,9 +643,11 @@ def listar_contas_receber_asaas(
 
     abertas = buscar_cobrancas_asaas(db, integracao=integracao, status="PENDING", limit=limit)
     atrasadas = buscar_cobrancas_asaas(db, integracao=integracao, status="OVERDUE", limit=limit)
+    recebidas = buscar_cobrancas_asaas(db, integracao=integracao, status="RECEIVED", limit=limit)
     return {
         "abertas": abertas,
-        "atrasadas": atrasadas
+        "atrasadas": atrasadas,
+        "recebidas": recebidas,
     }
 
 

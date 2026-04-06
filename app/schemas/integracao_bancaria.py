@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Optional
 from sqlmodel import SQLModel
-from datetime import datetime
+from datetime import datetime, date
 
 
 class IntegracaoBancariaBase(SQLModel):
@@ -17,6 +17,7 @@ class IntegracaoBancariaBase(SQLModel):
     ativo: bool = True
     sincronizar_automaticamente: bool = True
     intervalo_sincronizacao_minutos: int = 60
+    data_inicio_sincronizacao: Optional[date] = None
     categoria_padrao_id: Optional[int] = None
     usar_categoria_a_categorizar: bool = True
     conta_id: Optional[int] = None
@@ -35,6 +36,7 @@ class IntegracaoBancariaUpdate(SQLModel):
     ativo: Optional[bool] = None
     sincronizar_automaticamente: Optional[bool] = None
     intervalo_sincronizacao_minutos: Optional[int] = None
+    data_inicio_sincronizacao: Optional[date] = None
     categoria_padrao_id: Optional[int] = None
     usar_categoria_a_categorizar: Optional[bool] = None
     conta_id: Optional[int] = None
@@ -49,6 +51,7 @@ class IntegracaoBancariaRead(SQLModel):
     ativo: bool
     sincronizar_automaticamente: bool
     intervalo_sincronizacao_minutos: int
+    data_inicio_sincronizacao: Optional[date] = None
     ultima_sincronizacao: Optional[datetime] = None
     proxima_sincronizacao: Optional[datetime] = None
     categoria_padrao_id: Optional[int] = None

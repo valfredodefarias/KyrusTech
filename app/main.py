@@ -3,6 +3,8 @@
 import os
 import re
 import sys
+import asyncio
+from threading import Event
 from pathlib import Path
 from subprocess import run
 from fastapi import FastAPI, Request
@@ -18,11 +20,14 @@ from app.core.config import settings
 from app.core.audit_context import set_audit_request, clear_audit_context
 from app.db.session import engine
 from app.services.access_seed_service import ensure_rbac_seed
+from app.services.integracao_scheduler import run_integracao_scheduler
 
 # --- CRIAR DIRETÓRIOS NECESSÁRIOS ---
 os.makedirs("static/uploads", exist_ok=True)
 ROOT_DIR = Path(__file__).resolve().parent.parent
 MIGRATION_LOCK_ID = 24030901
+SCHEDULER_STOP_EVENT = Event()
+SCHEDULER_TASK: asyncio.Task | None = None
 
 
 def _should_auto_run_migrations() -> bool:
@@ -118,6 +123,7 @@ def _apply_legacy_schema_compatibility() -> None:
         "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS competencia VARCHAR",
         "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS import_hash VARCHAR",
         "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS intervalo_sincronizacao_minutos INTEGER NOT NULL DEFAULT 60",
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS data_inicio_sincronizacao DATE",
         "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS ultima_sincronizacao TIMESTAMP WITHOUT TIME ZONE",
         "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS proxima_sincronizacao TIMESTAMP WITHOUT TIME ZONE",
         "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS categoria_padrao_id INTEGER",
@@ -146,8 +152,24 @@ app = FastAPI(
 
 @app.on_event("startup")
 def startup_event() -> None:
+    global SCHEDULER_TASK
     _run_startup_migrations()
     _ensure_rbac_defaults()
+    SCHEDULER_STOP_EVENT.clear()
+    SCHEDULER_TASK = asyncio.create_task(run_integracao_scheduler(SCHEDULER_STOP_EVENT))
+
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    global SCHEDULER_TASK
+    SCHEDULER_STOP_EVENT.set()
+    if SCHEDULER_TASK is not None:
+        try:
+            await SCHEDULER_TASK
+        except Exception as exc:
+            logger.warning(f"Falha ao finalizar scheduler de integração: {exc}")
+        finally:
+            SCHEDULER_TASK = None
 
 # --- CONFIGURAÇÃO DE CORS ---
 # Converte CORS origins para lista se for string "*"

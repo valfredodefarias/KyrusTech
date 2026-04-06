@@ -7,7 +7,7 @@ from typing import Optional, TYPE_CHECKING
 from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 from .base_audit import AuditMixin # <--- Auditoria
-from datetime import datetime
+from datetime import datetime, date
 
 if TYPE_CHECKING:
     from .empresa import Empresa
@@ -37,6 +37,7 @@ class IntegracaoBancaria(AuditMixin, SQLModel, table=True):
     # Automação
     sincronizar_automaticamente: bool = Field(default=True)
     intervalo_sincronizacao_minutos: int = Field(default=60)
+    data_inicio_sincronizacao: Optional[date] = Field(default=None)
     ultima_sincronizacao: Optional[datetime] = None
     proxima_sincronizacao: Optional[datetime] = None
     categoria_padrao_id: Optional[int] = Field(default=None, foreign_key="plano_contas.id")

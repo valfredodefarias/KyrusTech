@@ -29,9 +29,14 @@ ASAAS_MAX_PAGES = 50
 ASAAS_MAX_RETRIES = 4
 ASAAS_REQUEST_PAUSE_SECONDS = 0.12
 ASAAS_INCREMENTAL_REPROCESS_DAYS = 7
+ASAAS_STATUS_PAGOS = {"RECEIVED", "CONFIRMED", "DONE", "RECEIVED_IN_CASH"}
+ASAAS_STATUS_ABERTOS = {"PENDING", "AWAITING_PAYMENT", "OVERDUE"}
 ASAAS_OBSERVACAO_ID_REGEXES = [
     re.compile(r"asaas\s*id\s*:\s*([A-Za-z0-9_\-]+)", re.IGNORECASE),
     re.compile(r"\bid\s*:\s*([A-Za-z0-9_\-]+)", re.IGNORECASE),
+]
+ASAAS_INTERESSADO_DESCRICAO_REGEXES = [
+    re.compile(r"(?:cliente|customer|pagador)\s*:\s*([^\n|;,]+)", re.IGNORECASE),
 ]
 
 
@@ -78,12 +83,153 @@ def _extract_asaas_transaction_flow(item: Dict[str, Any]) -> str:
     return "DESPESA" if value_decimal < 0 else "RECEITA"
 
 
+def _extract_asaas_status(item: Dict[str, Any]) -> str:
+    return str(item.get("status") or item.get("paymentStatus") or "").strip().upper()
+
+
+def _is_asaas_paid(item: Dict[str, Any]) -> bool:
+    status = _extract_asaas_status(item)
+    if status in ASAAS_STATUS_PAGOS:
+        return True
+    return bool(_parse_asaas_date(item.get("paymentDate")))
+
+
+def _extract_asaas_mapping_candidates(item: Dict[str, Any]) -> List[str]:
+    candidates: List[str] = []
+    for raw_value in (
+        item.get("type"),
+        item.get("transactionType"),
+        item.get("transactionTypeCode"),
+        item.get("billingType"),
+        item.get("status"),
+        item.get("paymentStatus"),
+        "PAYMENT",
+    ):
+        value = str(raw_value or "").strip().upper()
+        if value and value not in candidates:
+            candidates.append(value)
+    return candidates
+
+
 def _normalize_description_key(value: Optional[str]) -> str:
     if value is None:
         return ""
     normalized = str(value).strip().upper()
     normalized = re.sub(r"\s+", " ", normalized)
     return normalized
+
+
+def _extract_asaas_customer_id(item: Dict[str, Any]) -> Optional[str]:
+    raw_customer = item.get("customer")
+    if isinstance(raw_customer, dict):
+        raw_customer = raw_customer.get("id") or raw_customer.get("customer")
+    customer_id = str(raw_customer or "").strip()
+    return customer_id or None
+
+
+def _extract_asaas_interessado_from_description(description: Optional[str]) -> Optional[str]:
+    text = str(description or "").strip()
+    if not text:
+        return None
+
+    for pattern in ASAAS_INTERESSADO_DESCRICAO_REGEXES:
+        match = pattern.search(text)
+        if not match:
+            continue
+        candidate = str(match.group(1) or "").strip().rstrip(".,;")
+        if candidate:
+            return candidate
+
+    return None
+
+
+def _is_generic_asaas_entity_name(name: Optional[str]) -> bool:
+    normalized = _normalize_description_key(name)
+    return "ASAAS" in normalized
+
+
+def _fetch_asaas_customer_name(
+    *,
+    integracao: IntegracaoBancaria,
+    access_token: Optional[str],
+    customer_id: Optional[str],
+    customer_name_cache: Dict[str, Optional[str]],
+) -> Optional[str]:
+    if not customer_id:
+        return None
+
+    if customer_id in customer_name_cache:
+        return customer_name_cache[customer_id]
+
+    if not access_token:
+        customer_name_cache[customer_id] = None
+        return None
+
+    base_url = get_asaas_base_url(integracao.ambiente)
+    headers = {
+        "access_token": access_token,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        payload = _request_asaas_json(
+            url=f"{base_url}/customers/{customer_id}",
+            headers=headers,
+            params={},
+        )
+    except Exception as customer_error:
+        logger.warning(
+            "Nao foi possivel buscar customer {} no Asaas para integracao {}: {}",
+            customer_id,
+            integracao.id,
+            customer_error,
+        )
+        customer_name_cache[customer_id] = None
+        return None
+
+    candidate = str(
+        payload.get("name")
+        or payload.get("company")
+        or payload.get("email")
+        or ""
+    ).strip()
+    resolved = candidate or None
+    customer_name_cache[customer_id] = resolved
+    return resolved
+
+
+def _get_or_create_asaas_customer_entity(
+    db: Session,
+    *,
+    empresa_id: int,
+    customer_name: Optional[str],
+) -> Optional[int]:
+    name = str(customer_name or "").strip()
+    if not name:
+        return None
+
+    normalized_name = _normalize_description_key(name)
+
+    entidade = db.exec(
+        select(Entidade).where(
+            Entidade.empresa_id == empresa_id,
+            Entidade.is_deleted == False,
+            func.upper(Entidade.nome) == normalized_name,
+        )
+    ).first()
+    if entidade:
+        return entidade.id
+
+    nova_entidade = Entidade(
+        nome=name,
+        tipo="CLIENTE",
+        cpf_cnpj=None,
+        status="ATIVO",
+        empresa_id=empresa_id,
+    )
+    db.add(nova_entidade)
+    db.flush()
+    return nova_entidade.id
 
 
 def _extract_asaas_ids_from_text(value: Optional[str]) -> List[str]:
@@ -774,7 +920,9 @@ def converter_pagamento_asaas_para_lancamento(
     db: Session,
     pagamento_asaas: Dict,
     integracao: IntegracaoBancaria,
-    empresa_id: int
+    empresa_id: int,
+    access_token: Optional[str] = None,
+    customer_name_cache: Optional[Dict[str, Optional[str]]] = None,
 ) -> Dict:
     """
     Converte um pagamento do Asaas para o formato de lancamento do sistema.
@@ -789,25 +937,20 @@ def converter_pagamento_asaas_para_lancamento(
     tipo = "DESPESA" if valor_bruto < 0 else "RECEITA"
     plano_contas_id = None
 
-    if tipo_movimentacao:
-        tipo_upper = str(tipo_movimentacao).upper().strip()
-        logger.info("Buscando mapeamento para tipo Asaas: {}", tipo_upper)
-
+    for candidate in _extract_asaas_mapping_candidates(pagamento_asaas):
         mapeamento_tipo = db.exec(
             select(MapeamentoCategoria).where(
                 MapeamentoCategoria.integracao_id == integracao.id,
-                func.upper(MapeamentoCategoria.categoria_externa) == tipo_upper
+                func.upper(MapeamentoCategoria.categoria_externa) == candidate,
             )
         ).first()
-
         if mapeamento_tipo:
             plano_contas_id = mapeamento_tipo.plano_contas_id
-            logger.info("Categoria mapeada por tipo {} -> {}", tipo_upper, plano_contas_id)
-        else:
-            logger.warning("Tipo {} nao encontrado nos mapeamentos da integracao {}", tipo_upper, integracao.id)
+            logger.info("Categoria mapeada por tipo/status {} -> {}", candidate, plano_contas_id)
+            break
 
     if not plano_contas_id:
-        categoria_externa = str(pagamento_asaas.get("description", "") or "").strip().lower()
+        categoria_externa = str(pagamento_asaas.get("description") or pagamento_asaas.get("externalReference") or "").strip().lower()
         if categoria_externa:
             mapeamento = db.exec(
                 select(MapeamentoCategoria).where(
@@ -889,29 +1032,67 @@ def converter_pagamento_asaas_para_lancamento(
                 f"Tipo: {tipo}, Empresa: {empresa_id}."
             )
 
-    data_movimentacao = _extract_asaas_transaction_date(pagamento_asaas) or date.today()
-    data_vencimento = data_movimentacao
-    data_pagamento = data_movimentacao
+    data_vencimento = _parse_asaas_date(pagamento_asaas.get("dueDate"))
+    data_pagamento = _parse_asaas_date(pagamento_asaas.get("paymentDate"))
+    data_movimentacao = _extract_asaas_transaction_date(pagamento_asaas) or data_pagamento or data_vencimento or date.today()
+    if data_vencimento is None:
+        data_vencimento = data_movimentacao
 
     valor_absoluto = abs(valor_bruto)
-    valor_pago = valor_absoluto
+    pago = _is_asaas_paid(pagamento_asaas)
+    valor_pago = valor_absoluto if pago else Decimal("0.00")
     valor_previsto = valor_absoluto
 
-    entidade_id = criar_entidade_banco_asaas(db, empresa_id)
+    status_asaas = _extract_asaas_status(pagamento_asaas)
+    status_final = "PAGO"
+    if not pago:
+        status_final = "EM ABERTO"
+        if status_asaas == "OVERDUE":
+            status_final = "ATRASADO"
+
+    customer_cache = customer_name_cache if customer_name_cache is not None else {}
+    customer_id = _extract_asaas_customer_id(pagamento_asaas)
+    customer_name = _fetch_asaas_customer_name(
+        integracao=integracao,
+        access_token=access_token,
+        customer_id=customer_id,
+        customer_name_cache=customer_cache,
+    )
+
+    if not customer_name:
+        customer_name = _extract_asaas_interessado_from_description(pagamento_asaas.get("description"))
+
+    entidade_id = _get_or_create_asaas_customer_entity(
+        db,
+        empresa_id=empresa_id,
+        customer_name=customer_name,
+    )
+    if not entidade_id:
+        entidade_id = criar_entidade_banco_asaas(db, empresa_id)
+
     conta_id = integracao.conta_id
     centro_custo_id = integracao.centro_custo_id
+
+    observacao_parts = [
+        f"Asaas ID: {pagamento_asaas.get('id')}",
+        f"Tipo: {tipo_movimentacao}",
+    ]
+    if customer_id:
+        observacao_parts.append(f"Customer ID: {customer_id}")
+    if customer_name:
+        observacao_parts.append(f"Customer: {customer_name}")
 
     lancamento_data = {
         "descricao": pagamento_asaas.get("description", "Lancamento do Asaas"),
         "tipo": tipo,
-        "status": "PAGO",
+        "status": status_final,
         "origem": "ASAAS",
         "valor_previsto": valor_previsto,
         "valor_pago": valor_pago,
         "data_vencimento": data_vencimento,
-        "data_pagamento": data_pagamento,
+        "data_pagamento": data_pagamento if pago else None,
         "data_competencia": data_pagamento or data_vencimento or date.today(),
-        "observacao": f"Asaas ID: {pagamento_asaas.get('id')} | Tipo: {tipo_movimentacao}",
+        "observacao": " | ".join(observacao_parts),
         "empresa_id": empresa_id,
         "plano_contas_id": plano_contas_id,
         "conta_id": conta_id,
@@ -1004,8 +1185,9 @@ def sincronizar_asaas(
                 "observacao": "Nenhum novo lancamento para importar no periodo informado.",
             }
 
+        pagamentos_pago: List[Dict[str, Any]] = []
         try:
-            pagamentos = buscar_movimentacoes_financeiras_asaas(
+            pagamentos_pago = buscar_movimentacoes_financeiras_asaas(
                 db=db,
                 integracao=integracao,
                 data_inicio=data_inicio_utilizada,
@@ -1018,7 +1200,7 @@ def sincronizar_asaas(
                 integracao.id,
                 movimentacao_error,
             )
-            pagamentos = buscar_pagamentos_asaas(
+            pagamentos_pago = buscar_pagamentos_asaas(
                 db=db,
                 integracao=integracao,
                 data_inicio=data_inicio_utilizada,
@@ -1026,11 +1208,53 @@ def sincronizar_asaas(
                 limit=ASAAS_DEFAULT_PAGE_LIMIT,
             )
 
+        contas_abertas = buscar_cobrancas_asaas(
+            db=db,
+            integracao=integracao,
+            status="PENDING",
+            limit=ASAAS_DEFAULT_PAGE_LIMIT,
+        )
+        contas_atrasadas = buscar_cobrancas_asaas(
+            db=db,
+            integracao=integracao,
+            status="OVERDUE",
+            limit=ASAAS_DEFAULT_PAGE_LIMIT,
+        )
+
+        pagamentos_indexados: Dict[str, Dict[str, Any]] = {}
+        for item in [*pagamentos_pago, *contas_abertas, *contas_atrasadas]:
+            asaas_id = str(item.get("id") or "").strip()
+            if not asaas_id:
+                continue
+            pagamentos_indexados[asaas_id] = item
+        pagamentos = list(pagamentos_indexados.values())
+
         existing_by_import_hash, existing_by_asaas_id, existing_by_natural_key = _index_existing_lancamentos_for_sync(
             db=db,
             integracao=integracao,
             pagamentos=pagamentos,
         )
+        token_para_customer: Optional[str] = None
+        try:
+            token_para_customer = get_token_decrypted(db, integracao=integracao)
+        except Exception as token_error:
+            logger.warning(
+                "Nao foi possivel preparar token para buscar customers do Asaas na integracao {}: {}",
+                integracao.id,
+                token_error,
+            )
+
+        customer_name_cache: Dict[str, Optional[str]] = {}
+        generic_asaas_entity_ids = {
+            int(entidade_id)
+            for entidade_id in db.exec(
+                select(Entidade.id).where(
+                    Entidade.empresa_id == integracao.empresa_id,
+                    Entidade.is_deleted == False,
+                    func.upper(Entidade.nome).like("%ASAAS%"),
+                )
+            ).all()
+        }
         used_existing_ids: set[int] = set()
 
         lancamentos_criados = 0
@@ -1054,6 +1278,8 @@ def sincronizar_asaas(
                     pagamento_asaas=pagamento,
                     integracao=integracao,
                     empresa_id=integracao.empresa_id,
+                    access_token=token_para_customer,
+                    customer_name_cache=customer_name_cache,
                 )
 
                 import_hash = f"ASAAS:{asaas_id}" if asaas_id else None
@@ -1091,11 +1317,23 @@ def sincronizar_asaas(
                         if lancamento_data.get("plano_contas_id"):
                             lancamento_existente.plano_contas_id = lancamento_data.get("plano_contas_id")
 
-                        lancamento_existente.valor_pago = lancamento_data.get("valor_pago", lancamento_existente.valor_pago)
-                        lancamento_existente.data_pagamento = lancamento_data.get("data_pagamento") or lancamento_existente.data_pagamento
+                        lancamento_existente.valor_previsto = lancamento_data.get("valor_previsto", lancamento_existente.valor_previsto)
+                        novo_valor_pago = lancamento_data.get("valor_pago")
+                        if novo_valor_pago is not None:
+                            lancamento_existente.valor_pago = novo_valor_pago
+                        if lancamento_data.get("status") == "PAGO":
+                            lancamento_existente.data_pagamento = lancamento_data.get("data_pagamento") or lancamento_existente.data_pagamento
+                        else:
+                            lancamento_existente.data_pagamento = None
                         lancamento_existente.data_vencimento = lancamento_data.get("data_vencimento") or lancamento_existente.data_vencimento
                         lancamento_existente.status = lancamento_data.get("status", lancamento_existente.status)
                         lancamento_existente.origem = "ASAAS"
+                        lancamento_existente.data_competencia = (
+                            lancamento_data.get("data_competencia")
+                            or lancamento_existente.data_pagamento
+                            or lancamento_existente.data_vencimento
+                            or lancamento_existente.data_competencia
+                        )
 
                     else:
                         if not lancamento_existente.data_pagamento and lancamento_data.get("data_pagamento"):
@@ -1111,8 +1349,24 @@ def sincronizar_asaas(
                     if integracao.centro_custo_id and not lancamento_existente.centro_custo_id:
                         lancamento_existente.centro_custo_id = integracao.centro_custo_id
 
-                    if lancamento_data.get("entidade_id") and not lancamento_existente.entidade_id:
-                        lancamento_existente.entidade_id = lancamento_data.get("entidade_id")
+                    novo_entidade_id = lancamento_data.get("entidade_id")
+                    if novo_entidade_id:
+                        try:
+                            novo_entidade_id_int = int(novo_entidade_id)
+                        except (TypeError, ValueError):
+                            novo_entidade_id_int = None
+
+                        if not lancamento_existente.entidade_id:
+                            if novo_entidade_id_int:
+                                lancamento_existente.entidade_id = novo_entidade_id_int
+                        else:
+                            entidade_atual_id = int(lancamento_existente.entidade_id)
+                            if (
+                                novo_entidade_id_int
+                                and entidade_atual_id in generic_asaas_entity_ids
+                                and entidade_atual_id != novo_entidade_id_int
+                            ):
+                                lancamento_existente.entidade_id = novo_entidade_id_int
 
                     if is_existing_asaas and import_hash:
                         lancamento_existente.import_hash = import_hash

@@ -37,6 +37,42 @@ def _build_encoding_candidates(header_text: str) -> list[str]:
     return unique_candidates
 
 
+def _header_value(header_text: str, key: str) -> Optional[str]:
+    pattern = rf"^\s*{re.escape(key)}\s*:\s*(.+?)\s*$"
+    match = re.search(pattern, header_text, flags=re.MULTILINE | re.IGNORECASE)
+    if not match:
+        return None
+    value = match.group(1).strip()
+    return value or None
+
+
+def _build_canonical_utf8_header(original_header: str) -> str:
+    header_clean = (original_header or "").lstrip("\ufeff\r\n\t ")
+    values = {
+        "OFXHEADER": _header_value(header_clean, "OFXHEADER") or "100",
+        "DATA": _header_value(header_clean, "DATA") or "OFXSGML",
+        "VERSION": _header_value(header_clean, "VERSION") or "102",
+        "SECURITY": _header_value(header_clean, "SECURITY") or "NONE",
+        "ENCODING": "UTF-8",
+        "CHARSET": "NONE",
+        "COMPRESSION": _header_value(header_clean, "COMPRESSION") or "NONE",
+        "OLDFILEUID": _header_value(header_clean, "OLDFILEUID") or "NONE",
+        "NEWFILEUID": _header_value(header_clean, "NEWFILEUID") or "NONE",
+    }
+    ordered_keys = [
+        "OFXHEADER",
+        "DATA",
+        "VERSION",
+        "SECURITY",
+        "ENCODING",
+        "CHARSET",
+        "COMPRESSION",
+        "OLDFILEUID",
+        "NEWFILEUID",
+    ]
+    return "\n".join(f"{key}:{values[key]}" for key in ordered_keys) + "\n\n"
+
+
 def _normalize_ofx_bytes(arquivo_bytes: bytes) -> bytes:
     first_tag_index = arquivo_bytes.find(b"<")
     header_slice = arquivo_bytes[:first_tag_index] if first_tag_index > 0 else arquivo_bytes[:10240]
@@ -71,29 +107,10 @@ def _normalize_ofx_bytes(arquivo_bytes: bytes) -> bytes:
         header_part = decoded_content
         body_part = ""
 
-    if header_part:
-        if re.search(r"^ENCODING:", header_part, re.MULTILINE):
-            header_part = re.sub(r"^ENCODING:.*$", "ENCODING:UTF-8", header_part, count=1, flags=re.MULTILINE)
-        else:
-            header_part = f"ENCODING:UTF-8\n{header_part}"
-
-        if re.search(r"^CHARSET:", header_part, re.MULTILINE):
-            header_part = re.sub(r"^CHARSET:.*$", "CHARSET:NONE", header_part, count=1, flags=re.MULTILINE)
-    else:
-        # Alguns OFX (principalmente XML puro) chegam sem cabecalho SGML.
-        # O ofxparse assume ASCII quando nao encontra ENCODING, gerando erro
-        # com acentuacao. Injeta cabecalho minimo para forcar UTF-8.
-        header_part = (
-            "OFXHEADER:100\n"
-            "DATA:OFXSGML\n"
-            "VERSION:102\n"
-            "SECURITY:NONE\n"
-            "ENCODING:UTF-8\n"
-            "CHARSET:NONE\n"
-            "COMPRESSION:NONE\n"
-            "OLDFILEUID:NONE\n"
-            "NEWFILEUID:NONE\n\n"
-        )
+    # Alguns bancos enviam OFX sem cabecalho, com cabecalho quebrado
+    # ou com linha em branco inicial. O ofxparse cai para ASCII nesses
+    # casos, entao sempre geramos um cabecalho canonico UTF-8.
+    header_part = _build_canonical_utf8_header(header_part)
 
     normalized_content = f"{header_part}{body_part}"
     logger.info(f"OFX normalizado para UTF-8 usando encoding de origem: {selected_encoding}")

@@ -79,6 +79,21 @@ def _normalize_ofx_bytes(arquivo_bytes: bytes) -> bytes:
 
         if re.search(r"^CHARSET:", header_part, re.MULTILINE):
             header_part = re.sub(r"^CHARSET:.*$", "CHARSET:NONE", header_part, count=1, flags=re.MULTILINE)
+    else:
+        # Alguns OFX (principalmente XML puro) chegam sem cabecalho SGML.
+        # O ofxparse assume ASCII quando nao encontra ENCODING, gerando erro
+        # com acentuacao. Injeta cabecalho minimo para forcar UTF-8.
+        header_part = (
+            "OFXHEADER:100\n"
+            "DATA:OFXSGML\n"
+            "VERSION:102\n"
+            "SECURITY:NONE\n"
+            "ENCODING:UTF-8\n"
+            "CHARSET:NONE\n"
+            "COMPRESSION:NONE\n"
+            "OLDFILEUID:NONE\n"
+            "NEWFILEUID:NONE\n\n"
+        )
 
     normalized_content = f"{header_part}{body_part}"
     logger.info(f"OFX normalizado para UTF-8 usando encoding de origem: {selected_encoding}")
@@ -221,6 +236,17 @@ def processar_ofx(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
         statement = getattr(conta, "statement", None)
         if not statement:
             continue
+
+        saldo_extrato_valor: Optional[Decimal] = None
+        saldo_extrato_data, _ = _to_date(getattr(statement, "balance_date", None))
+        saldo_extrato_raw = getattr(statement, "balance", None)
+        if saldo_extrato_raw is not None:
+            try:
+                saldo_extrato_valor = Decimal(str(saldo_extrato_raw))
+            except Exception:
+                saldo_extrato_valor = None
+                logger.warning("Saldo do extrato OFX invalido para conta {}", account_metadata.get("ofx_conta_numero"))
+
         for txn in statement.transactions:
             data_lanc, data_hora = _to_date(getattr(txn, "date", None))
             if not data_lanc:
@@ -270,6 +296,8 @@ def processar_ofx(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
                 "origem": "OFX_EXTRATO",
                 "linha_arquivo": linha,
                 "saldo_informativo": saldo_informativo,
+                "ofx_saldo_arquivo": float(saldo_extrato_valor) if saldo_extrato_valor is not None else None,
+                "ofx_saldo_data": saldo_extrato_data.isoformat() if saldo_extrato_data else None,
                 **account_metadata,
             })
             linha += 1

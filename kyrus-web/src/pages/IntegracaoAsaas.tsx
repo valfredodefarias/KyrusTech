@@ -476,16 +476,30 @@ export function IntegracaoAsaas() {
     return contasVinculaveis.find(c => c.id === formContaId) || null;
   }, [formContaId, contasVinculaveis]);
 
+  const contaParamValida = useMemo(() => {
+    if (!contaIdParamNumber) return false;
+    return contasVinculaveis.some((conta) => conta.id === contaIdParamNumber);
+  }, [contaIdParamNumber, contasVinculaveis]);
+
+  const bloqueioPorContaParam = Boolean(contaIdParamNumber && contaParamValida && contaSelecionada);
+
   useEffect(() => {
-    if (contaIdParamNumber && formContaId !== contaIdParamNumber) {
-      setFormContaId(contaIdParamNumber);
+    if (contaIdParamNumber && contaParamValida) {
+      if (formContaId !== contaIdParamNumber) {
+        setFormContaId(contaIdParamNumber);
+      }
+      return;
+    }
+
+    if (formContaId !== '' && !contasVinculaveis.some((conta) => conta.id === formContaId)) {
+      setFormContaId('');
       return;
     }
 
     if (contasVinculaveis.length === 1 && formContaId === '') {
       setFormContaId(contasVinculaveis[0].id);
     }
-  }, [contaIdParamNumber, contasVinculaveis, formContaId]);
+  }, [contaIdParamNumber, contaParamValida, contasVinculaveis, formContaId]);
 
   useEffect(() => {
     if (!contaSelecionada) return;
@@ -919,21 +933,28 @@ export function IntegracaoAsaas() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta Asaas vinculada</label>
-                {contaIdParamNumber ? (
+                {bloqueioPorContaParam ? (
                   <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
                     {contaSelecionada ? contaLabel(contaSelecionada) : 'Selecione a conta Asaas em Contas para continuar.'}
                   </div>
                 ) : (
-                  <select
-                    className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                    value={formContaId}
-                    onChange={(e) => setFormContaId(e.target.value ? Number.parseInt(e.target.value, 10) : '')}
-                  >
-                    <option value="">Selecione...</option>
-                    {contasVinculaveis.map((conta) => (
-                      <option key={conta.id} value={conta.id}>{contaLabel(conta)}</option>
-                    ))}
-                  </select>
+                  <div className="space-y-2">
+                    {contaIdParamNumber && !contaParamValida ? (
+                      <p className="text-[11px] text-amber-600 dark:text-amber-300">
+                        A conta enviada no link não está disponível para integração Asaas nesta empresa. Escolha uma conta abaixo.
+                      </p>
+                    ) : null}
+                    <select
+                      className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      value={formContaId}
+                      onChange={(e) => setFormContaId(e.target.value ? Number.parseInt(e.target.value, 10) : '')}
+                    >
+                      <option value="">Selecione...</option>
+                      {contasVinculaveis.map((conta) => (
+                        <option key={conta.id} value={conta.id}>{contaLabel(conta)}</option>
+                      ))}
+                    </select>
+                  </div>
                 )}
               </div>
               <div>

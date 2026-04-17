@@ -513,6 +513,8 @@ def _detectar_data_inicio_sincronizacao(
     if not integracao.conta_id:
         return None, None
 
+    data_fim_referencia = data_fim or date.today()
+
     # Caso já tenha importações do Asaas, continua do dia seguinte ao último importado.
     ultimo_importado = db.exec(
         select(Lancamento)
@@ -520,6 +522,14 @@ def _detectar_data_inicio_sincronizacao(
             Lancamento.empresa_id == integracao.empresa_id,
             Lancamento.conta_id == integracao.conta_id,
             Lancamento.is_deleted == False,
+            or_(
+                Lancamento.status == "PAGO",
+                Lancamento.data_pagamento.is_not(None),
+            ),
+            or_(
+                Lancamento.data_pagamento <= data_fim_referencia,
+                Lancamento.data_vencimento <= data_fim_referencia,
+            ),
             or_(
                 Lancamento.origem == "ASAAS",
                 Lancamento.import_hash.like("ASAAS:%"),
@@ -543,7 +553,7 @@ def _detectar_data_inicio_sincronizacao(
             return data_inicio_reprocessamento, ultima_data
 
     # Primeira carga: tenta conciliar com lançamentos já existentes na conta.
-    janela_fim = data_fim or date.today()
+    janela_fim = data_fim_referencia
     janela_inicio = janela_fim - timedelta(days=540)
 
     lancamentos_locais = db.exec(
@@ -559,6 +569,10 @@ def _detectar_data_inicio_sincronizacao(
             or_(
                 Lancamento.data_pagamento >= janela_inicio,
                 Lancamento.data_vencimento >= janela_inicio,
+            ),
+            or_(
+                Lancamento.data_pagamento <= janela_fim,
+                Lancamento.data_vencimento <= janela_fim,
             ),
         )
         .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).desc(), Lancamento.id.desc())
@@ -1231,10 +1245,20 @@ def _obter_ultima_data_lancamento_asaas(
     db: Session,
     integracao: IntegracaoBancaria,
     data_inicio_minima: Optional[date] = None,
+    data_fim_maxima: Optional[date] = None,
 ) -> Optional[date]:
+    data_fim_referencia = data_fim_maxima or date.today()
     filtros = [
         Lancamento.empresa_id == integracao.empresa_id,
         Lancamento.is_deleted == False,
+        or_(
+            Lancamento.status == "PAGO",
+            Lancamento.data_pagamento.is_not(None),
+        ),
+        or_(
+            Lancamento.data_pagamento <= data_fim_referencia,
+            Lancamento.data_vencimento <= data_fim_referencia,
+        ),
         or_(
             Lancamento.origem == "ASAAS",
             Lancamento.import_hash.like("ASAAS:%"),
@@ -1304,6 +1328,7 @@ def sincronizar_asaas(
             db=db,
             integracao=integracao,
             data_inicio_minima=data_inicio_configurada or data_inicio_utilizada,
+            data_fim_maxima=data_fim_utilizada,
         )
         if ultima_data_lancamentos:
             data_ultima_conciliacao = ultima_data_lancamentos
@@ -1311,6 +1336,8 @@ def sincronizar_asaas(
             piso_inicio = data_inicio_configurada or data_inicio_utilizada
             if piso_inicio and candidato_inicio < piso_inicio:
                 candidato_inicio = piso_inicio
+            if candidato_inicio > data_fim_utilizada:
+                candidato_inicio = data_fim_utilizada
             if data_inicio_utilizada is None or candidato_inicio > data_inicio_utilizada:
                 data_inicio_utilizada = candidato_inicio
 

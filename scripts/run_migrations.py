@@ -91,6 +91,20 @@ def ensure_rbac_defaults() -> dict[str, int]:
         return ensure_rbac_seed(session)
 
 
+def ensure_integracoes_scheduler_schema() -> None:
+    """Garante colunas exigidas pelo scheduler quando o schema estiver com drift."""
+    from app.core.config import settings
+
+    engine = create_engine(settings.DATABASE_URL)
+    statements = [
+        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS data_inicio_sincronizacao DATE",
+    ]
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
 def run_legacy_database_bootstrap() -> bool:
     """Cria o banco novo e copia os dados do banco legado quando a flag estiver habilitada."""
     try:
@@ -136,6 +150,7 @@ def run_migrations():
         if result.returncode == 0:
             print("Migrations executadas com sucesso!")
             print(result.stdout)
+            ensure_integracoes_scheduler_schema()
             stats = ensure_rbac_defaults()
             print(
                 "RBAC seed concluido. "

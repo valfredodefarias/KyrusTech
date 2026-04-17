@@ -1,23 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, normalizeListResponse } from '../services/api';
-import { RefreshCw, Link as LinkIcon, Loader2, X, Plug, Save, Search, ChevronDown } from 'lucide-react';
+import { RefreshCw, Link as LinkIcon, Loader2, Save, Search, ChevronDown } from 'lucide-react';
 
 interface Conta {
   id: number;
   nome: string;
   tipo?: string | null;
   status?: string | null;
-  saldo_inicial?: number;
-  saldo_atual?: number;
-  banco?: string;
-  agencia?: string | null;
-  conta_numero?: string | null;
-  conta_digito?: string | null;
-  centro_custo_id?: number | null;
-  tipo_integracao?: string | null;
 }
-
 
 interface PlanoContas {
   id: number;
@@ -31,12 +22,7 @@ interface IntegracaoBancaria {
   nome: string;
   tipo: string;
   ambiente: string;
-  ativo: boolean;
-  token_configurado?: boolean;
-  ultima_sincronizacao?: string | null;
-  data_inicio_sincronizacao?: string | null;
   conta_id?: number | null;
-  centro_custo_id?: number | null;
 }
 
 interface TipoAsaas {
@@ -52,39 +38,6 @@ interface MapeamentoCategoria {
   categoria_externa: string;
   plano_contas_id: number;
 }
-
-interface CobrancaAsaas {
-  id: string;
-  customer?: string;
-  description?: string;
-  status?: string;
-  dueDate?: string;
-  value?: number;
-}
-
-interface AssinaturaAsaas {
-  id: string;
-  customer?: string;
-  description?: string;
-  status?: string;
-  nextDueDate?: string;
-  value?: number;
-}
-
-interface SaldoAsaasResumo {
-  saldo_asaas: number;
-  saldo_bloqueado: number;
-  saldo_disponivel: number;
-  atualizado_em?: string;
-  conta_vinculada_id?: number | null;
-  conta_vinculada_nome?: string | null;
-}
-
-interface UsuarioMe {
-  email?: string;
-}
-
-const AUTHORIZED_ASAAS_RESET_EMAILS = ['cirocue12@gmail.com', 'cirocaue12@gmail.com'];
 
 type NaturezaAsaas = 'RECEITA' | 'DESPESA' | 'AMBOS';
 
@@ -333,47 +286,31 @@ export function IntegracaoAsaas() {
   const [tiposAsaas, setTiposAsaas] = useState<TipoAsaas[]>([]);
   const [mapeamentos, setMapeamentos] = useState<MapeamentoCategoria[]>([]);
   const [mappingSelections, setMappingSelections] = useState<Record<string, number | ''>>({});
-  const [syncing, setSyncing] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [savingMapeamentos, setSavingMapeamentos] = useState(false);
-  const [cobrancas, setCobrancas] = useState<CobrancaAsaas[]>([]);
-  const [assinaturas, setAssinaturas] = useState<AssinaturaAsaas[]>([]);
-  const [contasReceberAbertas, setContasReceberAbertas] = useState<CobrancaAsaas[]>([]);
-  const [contasReceberAtrasadas, setContasReceberAtrasadas] = useState<CobrancaAsaas[]>([]);
-  const [contasReceberRecebidas, setContasReceberRecebidas] = useState<CobrancaAsaas[]>([]);
-  const [limiteCobrancas, setLimiteCobrancas] = useState(20);
-  const [limiteAssinaturas, setLimiteAssinaturas] = useState(20);
-  const [limiteContasReceber, setLimiteContasReceber] = useState(20);
-  const [saldoAsaas, setSaldoAsaas] = useState<SaldoAsaasResumo | null>(null);
-  const [loadingSaldoAsaas, setLoadingSaldoAsaas] = useState(false);
 
-  const [formNome, setFormNome] = useState('Asaas');
-  const [formAmbiente] = useState('PRODUCAO');
-  const [formToken, setFormToken] = useState('');
-  const [formContaId, setFormContaId] = useState<number | ''>(contaIdParamNumber ?? '');
-  const [showTokenEditor, setShowTokenEditor] = useState(false);
-  const [novoToken, setNovoToken] = useState('');
-  const [dataInicioSync, setDataInicioSync] = useState('');
-  const [isResettingAsaas, setIsResettingAsaas] = useState(false);
-  const [canManageAsaasReset, setCanManageAsaasReset] = useState(false);
+  const contaSelecionada = useMemo(() => {
+    if (!contaIdParamNumber) return null;
+    return contas.find((conta) => conta.id === contaIdParamNumber) || null;
+  }, [contas, contaIdParamNumber]);
 
-  const contasAtivasNaoCaixa = useMemo(
-    () =>
-      contas.filter(
-        (conta) =>
-          String(conta.status || 'ATIVO').toUpperCase() === 'ATIVO' &&
-          String(conta.tipo || '').toUpperCase() !== 'CAIXA'
-      ),
-    [contas]
+  const integracoesAsaas = useMemo(
+    () => integracoes.filter((item) => String(item.tipo || '').toUpperCase() === 'ASAAS'),
+    [integracoes]
   );
 
-  const contasVinculaveis = useMemo(() => {
-    const base = contasAtivasNaoCaixa;
-    if (contaIdParamNumber && base.some((conta) => conta.id === contaIdParamNumber)) {
-      return base.filter((conta) => conta.id === contaIdParamNumber);
-    }
-    return base;
-  }, [contasAtivasNaoCaixa, contaIdParamNumber]);
+  const integracaoDaConta = useMemo(() => {
+    if (!contaIdParamNumber) return null;
+    return integracoesAsaas.find((item) => item.conta_id === contaIdParamNumber) || null;
+  }, [integracoesAsaas, contaIdParamNumber]);
+
+  const integracaoSelecionada = useMemo(
+    () => integracoesAsaas.find((item) => item.id === selectedIntegracaoId) || null,
+    [integracoesAsaas, selectedIntegracaoId]
+  );
+
+  const integracaoAtiva = contaIdParamNumber
+    ? integracaoDaConta
+    : integracaoSelecionada || integracoesAsaas[0] || null;
 
   const categoriasLancaveis = useMemo(
     () => categorias.filter((categoria) => categoria.permite_lancamentos !== false),
@@ -442,118 +379,42 @@ export function IntegracaoAsaas() {
     return total;
   }, [tiposAsaas, mappingSelections, mapeamentosPorCodigo]);
 
-  const integracoesAsaas = useMemo(
-    () => integracoes.filter(i => (i.tipo || '').toUpperCase() === 'ASAAS'),
-    [integracoes]
-  );
-
-  const integracaoSelecionada = useMemo(
-    () => integracoesAsaas.find((item) => item.id === selectedIntegracaoId) || null,
-    [integracoesAsaas, selectedIntegracaoId]
-  );
-
-  const integracaoDaContaSelecionada = useMemo(() => {
-    if (formContaId === '') return null;
-    return integracoesAsaas.find((item) => item.conta_id === formContaId) || null;
-  }, [integracoesAsaas, formContaId]);
-
-  const integracaoAtiva = integracaoSelecionada || integracoesAsaas[0] || null;
-  const integracaoConfig = formContaId !== '' ? integracaoDaContaSelecionada : integracaoAtiva;
-  const deveCriarIntegracao = formContaId !== '' ? !integracaoDaContaSelecionada : integracoesAsaas.length === 0;
-
-  useEffect(() => {
-    setDataInicioSync(integracaoConfig?.data_inicio_sincronizacao || '');
-  }, [integracaoConfig?.id, integracaoConfig?.data_inicio_sincronizacao]);
-
-  const contaVinculadaAtiva = useMemo(() => {
-    if (!integracaoConfig?.conta_id) return null;
-    return contas.find((conta) => conta.id === integracaoConfig.conta_id) || null;
-  }, [contas, integracaoConfig]);
-
-  const saldoContaVinculada = Number(contaVinculadaAtiva?.saldo_atual ?? contaVinculadaAtiva?.saldo_inicial ?? 0);
-  const saldoAsaasAtual = Number(saldoAsaas?.saldo_asaas ?? 0);
-  const diferencaSaldo = saldoAsaas ? saldoContaVinculada - saldoAsaasAtual : null;
-
-  const contaSelecionada = useMemo(() => {
-    if (formContaId === '') return null;
-    return contasVinculaveis.find(c => c.id === formContaId) || null;
-  }, [formContaId, contasVinculaveis]);
-
-  useEffect(() => {
-    if (contaIdParamNumber) {
-      if (formContaId !== contaIdParamNumber) {
-        setFormContaId(contaIdParamNumber);
-      }
-      return;
-    }
-
-    if (formContaId !== '' && !contasVinculaveis.some((conta) => conta.id === formContaId)) {
-      setFormContaId('');
-      return;
-    }
-
-    if (contasVinculaveis.length === 1 && formContaId === '') {
-      setFormContaId(contasVinculaveis[0].id);
-    }
-  }, [contaIdParamNumber, contasVinculaveis, formContaId]);
-
-  useEffect(() => {
-    if (!contaSelecionada) return;
-    const nomeSugerido = String(contaSelecionada.banco || contaSelecionada.nome || 'Asaas').trim() || 'Asaas';
-    if (formNome !== nomeSugerido) {
-      setFormNome(nomeSugerido);
-    }
-  }, [contaSelecionada, formNome]);
-
   useEffect(() => {
     carregarDados();
   }, []);
 
   useEffect(() => {
-    if (formContaId !== '') {
-      const daConta = integracoesAsaas.find((item) => item.conta_id === formContaId);
-      if (daConta) {
-        if (selectedIntegracaoId !== daConta.id) {
-          setSelectedIntegracaoId(daConta.id);
-        }
-      } else if (selectedIntegracaoId !== null) {
-        setSelectedIntegracaoId(null);
-      }
+    const activeId = integracaoAtiva?.id || null;
+    if (activeId !== selectedIntegracaoId) {
+      setSelectedIntegracaoId(activeId);
+    }
+  }, [integracaoAtiva?.id, selectedIntegracaoId]);
+
+  useEffect(() => {
+    if (!selectedIntegracaoId) {
+      setTiposAsaas([]);
+      setMapeamentos([]);
+      setMappingSelections({});
       return;
     }
 
-    if (integracoesAsaas.length > 0 && !selectedIntegracaoId) {
-      setSelectedIntegracaoId(integracoesAsaas[0].id);
-    }
-  }, [integracoesAsaas, selectedIntegracaoId, formContaId]);
-
-  useEffect(() => {
-    if (!selectedIntegracaoId) return;
     carregarMapeamentos(selectedIntegracaoId);
     carregarTiposAsaas(selectedIntegracaoId);
-    carregarCobrancas(selectedIntegracaoId, limiteCobrancas);
-    carregarAssinaturas(selectedIntegracaoId, limiteAssinaturas);
-    carregarContasReceber(selectedIntegracaoId, limiteContasReceber);
-    carregarSaldoAsaas(selectedIntegracaoId);
-  }, [selectedIntegracaoId, limiteCobrancas, limiteAssinaturas, limiteContasReceber]);
+  }, [selectedIntegracaoId]);
 
   async function carregarDados() {
     setLoading(true);
     try {
-      const [resContas, resCategorias, resIntegracoes, resMe] = await Promise.all([
+      const [resContas, resCategorias, resIntegracoes] = await Promise.all([
         api.get('/contas/'),
         api.get('/plano-contas/'),
         api.get('/integracoes-bancarias/'),
-        api.get<UsuarioMe>('/usuarios/me'),
       ]);
       setContas(normalizeListResponse<Conta>(resContas.data));
       setCategorias(normalizeListResponse<PlanoContas>(resCategorias.data));
       setIntegracoes(normalizeListResponse<IntegracaoBancaria>(resIntegracoes.data));
-      const email = String(resMe?.data?.email || '').trim().toLowerCase();
-      setCanManageAsaasReset(AUTHORIZED_ASAAS_RESET_EMAILS.includes(email));
-    } catch (e) {
-      console.error(e);
-      setCanManageAsaasReset(false);
+    } catch (error) {
+      console.error(error);
     } finally {
       setLoading(false);
     }
@@ -563,8 +424,8 @@ export function IntegracaoAsaas() {
     try {
       const { data } = await api.get(`/integracoes-bancarias/${integracaoId}/tipos-asaas`);
       setTiposAsaas(normalizeListResponse<TipoAsaas>(data));
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
       setTiposAsaas([]);
     }
   }
@@ -577,190 +438,16 @@ export function IntegracaoAsaas() {
         categoria_externa: String(item.categoria_externa || '').trim().toUpperCase(),
       }));
       setMapeamentos(mapeamentosNormalizados);
+
       const nextSelections: Record<string, number | ''> = {};
-      mapeamentosNormalizados.forEach((m) => {
-        nextSelections[String(m.categoria_externa || '').trim().toUpperCase()] = m.plano_contas_id;
+      mapeamentosNormalizados.forEach((mapeamento) => {
+        nextSelections[String(mapeamento.categoria_externa || '').trim().toUpperCase()] = mapeamento.plano_contas_id;
       });
       setMappingSelections(nextSelections);
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
       setMapeamentos([]);
-    }
-  }
-
-  async function carregarCobrancas(integracaoId: number, limit = 20) {
-    try {
-      const { data } = await api.get(`/integracoes-bancarias/${integracaoId}/asaas/cobrancas`, {
-        params: { limit }
-      });
-      setCobrancas(normalizeListResponse<CobrancaAsaas>(data));
-    } catch (e) {
-      console.error(e);
-      setCobrancas([]);
-    }
-  }
-
-  async function carregarAssinaturas(integracaoId: number, limit = 20) {
-    try {
-      const { data } = await api.get(`/integracoes-bancarias/${integracaoId}/asaas/assinaturas`, {
-        params: { limit }
-      });
-      setAssinaturas(normalizeListResponse<AssinaturaAsaas>(data));
-    } catch (e) {
-      console.error(e);
-      setAssinaturas([]);
-    }
-  }
-
-  async function carregarContasReceber(integracaoId: number, limit = 20) {
-    try {
-      const { data } = await api.get(`/integracoes-bancarias/${integracaoId}/asaas/contas-receber`, {
-        params: { limit }
-      });
-      setContasReceberAbertas(normalizeListResponse<CobrancaAsaas>(data?.abertas));
-      setContasReceberAtrasadas(normalizeListResponse<CobrancaAsaas>(data?.atrasadas));
-      setContasReceberRecebidas(normalizeListResponse<CobrancaAsaas>(data?.recebidas));
-    } catch (e) {
-      console.error(e);
-      setContasReceberAbertas([]);
-      setContasReceberAtrasadas([]);
-      setContasReceberRecebidas([]);
-    }
-  }
-
-  async function carregarSaldoAsaas(integracaoId: number) {
-    setLoadingSaldoAsaas(true);
-    try {
-      const { data } = await api.get(`/integracoes-bancarias/${integracaoId}/asaas/saldo`);
-      setSaldoAsaas(data as SaldoAsaasResumo);
-    } catch (e) {
-      console.error(e);
-      setSaldoAsaas(null);
-    } finally {
-      setLoadingSaldoAsaas(false);
-    }
-  }
-
-  async function handleCriarIntegracao() {
-    if (!formToken.trim()) return alert('Informe o token do Asaas.');
-    if (!formContaId) return alert('Selecione a conta bancária para vincular ao Asaas.');
-
-    setSaving(true);
-    try {
-      const centroId = contaSelecionada?.centro_custo_id || null;
-      const nomeIntegracao = String(formNome || contaSelecionada?.banco || contaSelecionada?.nome || 'Asaas').trim() || 'Asaas';
-      const payload = {
-        nome: nomeIntegracao,
-        tipo: 'ASAAS',
-        ambiente: formAmbiente,
-        token: formToken.trim(),
-        conta_id: contaSelecionada?.id || null,
-        centro_custo_id: centroId,
-        ativo: true,
-        sincronizar_automaticamente: true,
-        intervalo_sincronizacao_minutos: 60,
-        usar_categoria_a_categorizar: true
-      };
-      const { data } = await api.post('/integracoes-bancarias/', payload);
-      setFormToken('');
-      await carregarDados();
-      if (data?.id) {
-        setSelectedIntegracaoId(data.id);
-      }
-      alert('Integração Asaas criada com sucesso. O token foi salvo com segurança e não será exibido novamente.');
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao salvar integração.');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleAtualizarToken() {
-    if (!selectedIntegracaoId) return;
-    if (!novoToken.trim()) return alert('Informe o novo token do Asaas.');
-
-    setSaving(true);
-    try {
-      await api.patch(`/integracoes-bancarias/${selectedIntegracaoId}`, {
-        token: novoToken.trim(),
-      });
-      setNovoToken('');
-      setShowTokenEditor(false);
-      await carregarDados();
-      alert('Token atualizado com sucesso.');
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao atualizar token.');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleSincronizar() {
-    if (!selectedIntegracaoId) return;
-    setSyncing(true);
-    try {
-      const { data } = await api.post(`/integracoes-bancarias/${selectedIntegracaoId}/sincronizar`);
-      const criados = Number(data?.lancamentos_criados || 0);
-      const atualizados = Number(data?.lancamentos_atualizados || 0);
-      const processado = Number(data?.total_processado || 0);
-      const dataInicio = data?.data_inicio_utilizada ? String(data.data_inicio_utilizada) : 'início padrão da API';
-      const dataInicioConfigurada = data?.data_inicio_configurada ? String(data.data_inicio_configurada) : 'não configurada';
-      const ultimaConciliacao = data?.data_ultima_conciliacao ? String(data.data_ultima_conciliacao) : 'sem conciliação prévia';
-      await carregarSaldoAsaas(selectedIntegracaoId);
-      alert(
-        `Sincronização concluída.\nProcessados: ${processado}\nCriados: ${criados}\nAtualizados: ${atualizados}\nInício configurado: ${dataInicioConfigurada}\nInício usado: ${dataInicio}\nÚltima conciliação: ${ultimaConciliacao}`
-      );
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao sincronizar.');
-    } finally {
-      setSyncing(false);
-    }
-  }
-
-  async function handleSalvarDataInicioSincronizacao() {
-    if (!selectedIntegracaoId) return;
-
-    setSaving(true);
-    try {
-      await api.patch(`/integracoes-bancarias/${selectedIntegracaoId}`, {
-        data_inicio_sincronizacao: dataInicioSync || null,
-      });
-      await carregarDados();
-      alert('Data de início da sincronização atualizada com sucesso.');
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao salvar data de início da sincronização.');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleResetarLancamentosAsaas() {
-    if (!selectedIntegracaoId) return;
-    if (!window.confirm('Essa ação vai apagar todos os lançamentos de origem Asaas desta empresa e manter apenas os próximos syncs. Deseja continuar?')) {
-      return;
-    }
-
-    setIsResettingAsaas(true);
-    try {
-      const { data } = await api.post(`/integracoes-bancarias/${selectedIntegracaoId}/asaas/reset`, {
-        data_inicio_sincronizacao: dataInicioSync || null,
-      });
-      const totalResetado = Number(data?.lancamentos_resetados || 0);
-      await carregarDados();
-      await carregarContasReceber(selectedIntegracaoId, limiteContasReceber);
-      await carregarCobrancas(selectedIntegracaoId, limiteCobrancas);
-      await carregarAssinaturas(selectedIntegracaoId, limiteAssinaturas);
-      alert(`Reset Asaas concluído. Lançamentos removidos: ${totalResetado}.`);
-    } catch (e: any) {
-      console.error(e);
-      const detail = e?.response?.data?.detail;
-      alert(typeof detail === 'string' && detail ? detail : 'Erro ao resetar lançamentos Asaas.');
-    } finally {
-      setIsResettingAsaas(false);
+      setMappingSelections({});
     }
   }
 
@@ -826,9 +513,7 @@ export function IntegracaoAsaas() {
         const selecionado = mappingSelections[codigo] || '';
         const existente = mapeamentosPorCodigo.get(codigo);
 
-        if (!selecionado && !existente) {
-          continue;
-        }
+        if (!selecionado && !existente) continue;
 
         if (!selecionado && existente) {
           await api.delete(`/integracoes-bancarias/${selectedIntegracaoId}/mapeamentos/${existente.id}`);
@@ -837,9 +522,7 @@ export function IntegracaoAsaas() {
         }
 
         const planoId = Number(selecionado);
-        if (existente && existente.plano_contas_id === planoId) {
-          continue;
-        }
+        if (existente && existente.plano_contas_id === planoId) continue;
 
         if (existente) {
           await api.delete(`/integracoes-bancarias/${selectedIntegracaoId}/mapeamentos/${existente.id}`);
@@ -864,20 +547,14 @@ export function IntegracaoAsaas() {
         `Mapeamentos salvos com sucesso.\nCriados: ${criados}\nAtualizados: ${atualizados}\nRemovidos: ${removidos}\n` +
           'Os lançamentos Asaas já importados desse tipo são recategorizados automaticamente.'
       );
-    } catch (e: any) {
-      console.error(e);
-      const detail = e?.response?.data?.detail;
+    } catch (error: any) {
+      console.error(error);
+      const detail = error?.response?.data?.detail;
       alert(typeof detail === 'string' && detail ? detail : 'Erro ao salvar mapeamentos em lote.');
     } finally {
       setSavingMapeamentos(false);
     }
   }
-
-  const contaLabel = (conta: Conta) => {
-    const agencia = conta.agencia ? `Ag ${conta.agencia}` : 'Ag -';
-    const numero = conta.conta_numero ? `Cc ${conta.conta_numero}${conta.conta_digito ? '-' + conta.conta_digito : ''}` : 'Cc -';
-    return `${conta.nome} (${conta.banco || 'Asaas'}) - ${agencia} / ${numero}`;
-  };
 
   return (
     <div className="space-y-6">
@@ -888,7 +565,7 @@ export function IntegracaoAsaas() {
           </div>
           <div>
             <h2 className="text-xl font-bold text-slate-800 dark:text-white">Integração Asaas</h2>
-            <p className="text-sm text-slate-400">Token seguro, mapeamento de categorias e sincronização financeira.</p>
+            <p className="text-sm text-slate-400">Mapeamento de categorias por tipo de movimentação.</p>
           </div>
         </div>
         <button
@@ -901,269 +578,67 @@ export function IntegracaoAsaas() {
       </div>
 
       <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 space-y-4">
-        <h3 className="text-lg font-bold text-slate-800 dark:text-white">Configuração da integração</h3>
-
-        {contasAtivasNaoCaixa.length === 0 && (
-          <div className="p-4 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 text-sm text-slate-500">
-            Crie ao menos uma conta bancária ativa em Contas para configurar esta conexão.
-          </div>
-        )}
-
-        {!contaIdParamNumber ? (
-          <div className="p-3 rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-900/20 text-xs text-amber-700 dark:text-amber-300">
-            Para configurar o Asaas, abra esta tela clicando na conta desejada em Contas.
-          </div>
-        ) : null}
-
-        {deveCriarIntegracao ? (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Nome da integração</label>
-                <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
-                  {formNome || 'Asaas'}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Ambiente</label>
-                <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
-                  Produção (fixo)
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta Asaas vinculada</label>
-                <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
-                  {contaSelecionada ? contaLabel(contaSelecionada) : 'Conta não identificada. Volte em Contas e clique na conta que deseja conectar ao Asaas.'}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Token Asaas</label>
-                <input
-                  type="password"
-                  className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                  value={formToken}
-                  onChange={e => setFormToken(e.target.value)}
-                  placeholder="Token de API"
-                />
-              </div>
-            </div>
-
-            <p className="text-[11px] text-slate-400">Solicitado apenas nesta configuração inicial. O backend guarda o token criptografado.</p>
-
-            <button
-              onClick={handleCriarIntegracao}
-              disabled={saving || !contaSelecionada}
-              className="px-5 py-3 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-60 inline-flex items-center gap-2"
-            >
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plug className="w-4 h-4" />}
-              Conectar Asaas
-            </button>
-          </>
-        ) : (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:text-emerald-200">
-              Integração conectada. O token fica salvo com criptografia e não precisa ser informado novamente no dia a dia.
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Integração ativa</label>
-                <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
-                  {integracaoConfig ? `${integracaoConfig.nome} (Produção)` : 'Integração Asaas'}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Token</label>
-                <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
-                  {integracaoConfig?.token_configurado ? 'Configurado com segurança' : 'Não configurado'}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta Asaas vinculada</label>
-                <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
-                  {contaVinculadaAtiva ? contaLabel(contaVinculadaAtiva) : 'Nenhuma conta vinculada'}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Conferência de saldo Asaas x ERP</p>
-                <button
-                  type="button"
-                  onClick={() => selectedIntegracaoId && carregarSaldoAsaas(selectedIntegracaoId)}
-                  disabled={loadingSaldoAsaas || !selectedIntegracaoId}
-                  className="text-xs font-bold text-blue-600 hover:underline disabled:opacity-60"
-                >
-                  {loadingSaldoAsaas ? 'Atualizando...' : 'Atualizar saldo'}
-                </button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
-                  <div className="text-[11px] uppercase font-bold text-slate-500">Saldo Asaas</div>
-                  <div className="text-lg font-black text-slate-900 dark:text-white">
-                    {saldoAsaasAtual.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                  </div>
-                </div>
-                <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
-                  <div className="text-[11px] uppercase font-bold text-slate-500">Saldo no ERP (conta vinculada)</div>
-                  <div className="text-lg font-black text-slate-900 dark:text-white">
-                    {saldoContaVinculada.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                  </div>
-                </div>
-                <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
-                  <div className="text-[11px] uppercase font-bold text-slate-500">Diferença (ERP - Asaas)</div>
-                  <div className={`text-lg font-black ${diferencaSaldo !== null && Math.abs(diferencaSaldo) > 0.009 ? 'text-rose-600 dark:text-rose-300' : 'text-emerald-600 dark:text-emerald-300'}`}>
-                    {(diferencaSaldo || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                  </div>
-                </div>
-              </div>
-              {saldoAsaas?.atualizado_em ? (
-                <p className="text-[11px] text-slate-500">Atualizado em {new Date(saldoAsaas.atualizado_em).toLocaleString('pt-BR')}</p>
-              ) : null}
-            </div>
-
-            <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Reconfigurar token (opcional)</p>
-                <button
-                  type="button"
-                  onClick={() => setShowTokenEditor((prev) => !prev)}
-                  className="text-xs font-bold text-blue-600 hover:underline"
-                >
-                  {showTokenEditor ? 'Fechar' : 'Atualizar token'}
-                </button>
-              </div>
-
-              {showTokenEditor ? (
-                <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
-                  <div>
-                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Novo token Asaas</label>
-                    <input
-                      type="password"
-                      className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                      value={novoToken}
-                      onChange={e => setNovoToken(e.target.value)}
-                      placeholder="Novo token de API"
-                    />
-                  </div>
-                  <button
-                    onClick={handleAtualizarToken}
-                    disabled={saving || !selectedIntegracaoId}
-                    className="px-4 py-3 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-60"
-                  >
-                    Salvar token
-                  </button>
-                </div>
-              ) : null}
-            </div>
-
-            {canManageAsaasReset ? (
-            <div className="rounded-xl border border-amber-200 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-900/20 p-4 space-y-3">
-              <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Controle de corte e limpeza Asaas</p>
-              <p className="text-xs text-amber-700 dark:text-amber-300">
-                Defina a data mínima para sincronização. Nada antes dessa data será buscado.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-amber-700 dark:text-amber-300 mb-1">Data de início da sincronização</label>
-                  <input
-                    type="date"
-                    className="w-full px-4 py-3 rounded-lg border border-amber-200 dark:border-amber-700 bg-white dark:bg-slate-900"
-                    value={dataInicioSync}
-                    onChange={(e) => setDataInicioSync(e.target.value)}
-                  />
-                </div>
-                <button
-                  onClick={handleSalvarDataInicioSincronizacao}
-                  disabled={saving || !selectedIntegracaoId}
-                  className="px-4 py-3 rounded-lg bg-amber-600 text-white font-bold hover:bg-amber-700 disabled:opacity-60"
-                >
-                  Salvar corte
-                </button>
-              </div>
-              <button
-                onClick={handleResetarLancamentosAsaas}
-                disabled={isResettingAsaas || !selectedIntegracaoId}
-                className="px-4 py-3 rounded-lg bg-rose-600 text-white font-bold hover:bg-rose-700 disabled:opacity-60 inline-flex items-center gap-2"
-              >
-                {isResettingAsaas ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
-                Apagar lançamentos Asaas e reiniciar sincronização
-              </button>
-            </div>
-            ) : null}
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white">Mapeamento de categorias</h3>
-            <p className="text-sm text-slate-400">Mapeie tipos financeiros do Asaas para o plano de contas.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleAplicarSugestoesPendentes}
-              disabled={!selectedIntegracaoId || tiposAsaas.length === 0 || savingMapeamentos}
-              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold disabled:opacity-60"
-            >
-              Aplicar sugestões
-            </button>
-            <button
-              onClick={handleSalvarTodosMapeamentos}
-              disabled={!selectedIntegracaoId || savingMapeamentos || alteracoesPendentesMapeamento === 0}
-              className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-2 disabled:opacity-60"
-            >
-              {savingMapeamentos ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Salvar tudo {alteracoesPendentesMapeamento > 0 ? `(${alteracoesPendentesMapeamento})` : ''}
-            </button>
-            <button
-              onClick={handleSincronizar}
-              disabled={!selectedIntegracaoId || syncing}
-              className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 disabled:opacity-60"
-            >
-              {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-              Sincronizar agora
-            </button>
-          </div>
-        </div>
-
-        {selectedIntegracaoId ? (
+        {contaIdParamNumber ? (
           <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
-            Exibindo tipos detectados nas 100 últimas movimentações do Asaas e todos os tipos já mapeados anteriormente. O seletor permite pesquisa e sugere opções compatíveis com a natureza.
+            {contaSelecionada
+              ? `Conta selecionada: ${contaSelecionada.nome}`
+              : `Conta selecionada (ID ${contaIdParamNumber})`}
           </div>
         ) : null}
 
-        {!contaIdParamNumber && integracoesAsaas.length > 1 && (
+        {!contaIdParamNumber && integracoesAsaas.length > 1 ? (
           <div>
             <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Integração</label>
             <select
               className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
               value={selectedIntegracaoId || ''}
-              onChange={e => setSelectedIntegracaoId(e.target.value ? parseInt(e.target.value) : null)}
+              onChange={(e) => setSelectedIntegracaoId(e.target.value ? parseInt(e.target.value, 10) : null)}
             >
               <option value="">Selecione...</option>
-              {integracoesAsaas.map(integ => (
-                <option key={integ.id} value={integ.id}>{integ.nome} ({integ.ambiente})</option>
+              {integracoesAsaas.map((integracao) => (
+                <option key={integracao.id} value={integracao.id}>
+                  {integracao.nome} ({integracao.ambiente})
+                </option>
               ))}
             </select>
           </div>
-        )}
+        ) : null}
 
-        {!selectedIntegracaoId && (
-          <div className="text-sm text-slate-400">Selecione uma integração Asaas para mapear.</div>
-        )}
+        {!selectedIntegracaoId ? (
+          <div className="p-4 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 text-sm text-slate-500">
+            {contaIdParamNumber
+              ? 'Esta conta ainda não possui integração Asaas configurada.'
+              : 'Nenhuma integração Asaas disponível para mapeamento.'}
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 dark:text-white">Mapeamento de categorias</h3>
+                <p className="text-sm text-slate-400">
+                  Exibindo tipos detectados nas 100 últimas movimentações do Asaas e tipos já mapeados.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleAplicarSugestoesPendentes}
+                  disabled={tiposAsaas.length === 0 || savingMapeamentos}
+                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold disabled:opacity-60"
+                >
+                  Aplicar sugestões
+                </button>
+                <button
+                  onClick={handleSalvarTodosMapeamentos}
+                  disabled={savingMapeamentos || alteracoesPendentesMapeamento === 0}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-2 disabled:opacity-60"
+                >
+                  {savingMapeamentos ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Salvar tudo {alteracoesPendentesMapeamento > 0 ? `(${alteracoesPendentesMapeamento})` : ''}
+                </button>
+              </div>
+            </div>
 
-        {selectedIntegracaoId && (
-          <div className="space-y-3">
             {tiposAsaas.length === 0 ? (
               <div className="text-sm text-slate-400">Nenhum tipo carregado.</div>
             ) : (
@@ -1188,17 +663,28 @@ export function IntegracaoAsaas() {
                       const opcoesCompativeis = categoriasCompativeisPorCodigo.get(codigoNormalizado) || [];
                       const sugestoes = sugestoesPorCodigo.get(codigoNormalizado) || [];
                       const categoriaSelecionada = selected ? categoriasPorId.get(Number(selected)) || null : null;
-                      const opcoesDropdown = categoriaSelecionada && !opcoesCompativeis.some((item) => item.id === categoriaSelecionada.id)
-                        ? [categoriaSelecionada, ...opcoesCompativeis]
-                        : opcoesCompativeis;
-                      const selecaoIncompativel = Boolean(categoriaSelecionada && !categoriaCompativelComNatureza(categoriaSelecionada, natureza));
+                      const opcoesDropdown =
+                        categoriaSelecionada && !opcoesCompativeis.some((item) => item.id === categoriaSelecionada.id)
+                          ? [categoriaSelecionada, ...opcoesCompativeis]
+                          : opcoesCompativeis;
+                      const selecaoIncompativel = Boolean(
+                        categoriaSelecionada && !categoriaCompativelComNatureza(categoriaSelecionada, natureza)
+                      );
 
                       return (
-                        <tr key={tipo.codigo}>
+                        <tr key={codigoNormalizado || tipo.descricao}>
                           <td className="px-3 py-3 font-mono text-[12px] text-slate-700 dark:text-slate-200">{tipo.codigo}</td>
                           <td className="px-3 py-3 text-slate-700 dark:text-slate-200">{tipo.descricao}</td>
                           <td className="px-3 py-3">
-                            <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${natureza === 'RECEITA' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : natureza === 'DESPESA' ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200'}`}>
+                            <span
+                              className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${
+                                natureza === 'RECEITA'
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                  : natureza === 'DESPESA'
+                                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+                                    : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200'
+                              }`}
+                            >
                               {natureza === 'RECEITA' ? 'Receita' : natureza === 'DESPESA' ? 'Despesa' : 'Ambos'}
                             </span>
                           </td>
@@ -1207,7 +693,9 @@ export function IntegracaoAsaas() {
                               options={opcoesDropdown}
                               suggestions={sugestoes}
                               value={selected}
-                              onChange={(novoValor) => setMappingSelections((prev) => ({ ...prev, [codigoNormalizado]: novoValor }))}
+                              onChange={(novoValor) =>
+                                setMappingSelections((prev) => ({ ...prev, [codigoNormalizado]: novoValor }))
+                              }
                             />
                             {selecaoIncompativel ? (
                               <div className="mt-1 text-[11px] text-rose-600 dark:text-rose-300">
@@ -1216,7 +704,13 @@ export function IntegracaoAsaas() {
                             ) : null}
                           </td>
                           <td className="px-3 py-3 text-center">
-                            <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${mapped ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'}`}>
+                            <span
+                              className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${
+                                mapped
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                  : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                              }`}
+                            >
                               {mapped ? 'Mapeado' : 'Pendente'}
                             </span>
                           </td>
@@ -1238,195 +732,18 @@ export function IntegracaoAsaas() {
                 </table>
               </div>
             )}
-          </div>
+          </>
         )}
       </div>
 
-      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white">Cobranças</h3>
-            <p className="text-sm text-slate-400">Últimas cobranças do Asaas.</p>
-          </div>
-          <button
-            onClick={() => selectedIntegracaoId && carregarCobrancas(selectedIntegracaoId, limiteCobrancas)}
-            className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Atualizar
-          </button>
-        </div>
-
-        <div className="flex items-center justify-end">
-          <button
-            onClick={() => setLimiteCobrancas(prev => prev + 20)}
-            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            Ver mais
-          </button>
-        </div>
-
-        {cobrancas.length === 0 ? (
-          <div className="text-sm text-slate-400">Nenhuma cobrança encontrada.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs text-slate-400 uppercase">
-                <tr>
-                  <th className="py-2 text-left">Descrição</th>
-                  <th className="py-2 text-left">Vencimento</th>
-                  <th className="py-2 text-left">Status</th>
-                  <th className="py-2 text-right">Valor</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                {cobrancas.map(cobranca => (
-                  <tr key={cobranca.id}>
-                    <td className="py-2 text-slate-700 dark:text-slate-200">{cobranca.description || cobranca.id}</td>
-                    <td className="py-2 text-slate-500">{cobranca.dueDate || '-'}</td>
-                    <td className="py-2 text-slate-500">{cobranca.status || '-'}</td>
-                    <td className="py-2 text-right text-slate-700 dark:text-slate-200">{cobranca.value?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white">Assinaturas</h3>
-            <p className="text-sm text-slate-400">Assinaturas ativas do Asaas.</p>
-          </div>
-          <button
-            onClick={() => selectedIntegracaoId && carregarAssinaturas(selectedIntegracaoId, limiteAssinaturas)}
-            className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Atualizar
-          </button>
-        </div>
-
-        <div className="flex items-center justify-end">
-          <button
-            onClick={() => setLimiteAssinaturas(prev => prev + 20)}
-            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            Ver mais
-          </button>
-        </div>
-
-        {assinaturas.length === 0 ? (
-          <div className="text-sm text-slate-400">Nenhuma assinatura encontrada.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs text-slate-400 uppercase">
-                <tr>
-                  <th className="py-2 text-left">Descrição</th>
-                  <th className="py-2 text-left">Próximo vencimento</th>
-                  <th className="py-2 text-left">Status</th>
-                  <th className="py-2 text-right">Valor</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                {assinaturas.map(assinatura => (
-                  <tr key={assinatura.id}>
-                    <td className="py-2 text-slate-700 dark:text-slate-200">{assinatura.description || assinatura.id}</td>
-                    <td className="py-2 text-slate-500">{assinatura.nextDueDate || '-'}</td>
-                    <td className="py-2 text-slate-500">{assinatura.status || '-'}</td>
-                    <td className="py-2 text-right text-slate-700 dark:text-slate-200">{assinatura.value?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white">Contas a receber</h3>
-            <p className="text-sm text-slate-400">Abertas e atrasadas no Asaas.</p>
-          </div>
-          <button
-            onClick={() => selectedIntegracaoId && carregarContasReceber(selectedIntegracaoId, limiteContasReceber)}
-            className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Atualizar
-          </button>
-        </div>
-
-        <div className="flex items-center justify-end">
-          <button
-            onClick={() => setLimiteContasReceber(prev => prev + 20)}
-            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            Ver mais
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4">
-            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-2">Abertas</h4>
-            {contasReceberAbertas.length === 0 ? (
-              <div className="text-sm text-slate-400">Nenhuma cobrança aberta.</div>
-            ) : (
-              <ul className="space-y-2 text-sm">
-                {contasReceberAbertas.map(item => (
-                  <li key={item.id} className="flex items-center justify-between">
-                    <span className="text-slate-600 dark:text-slate-300">{item.description || item.id}</span>
-                    <span className="text-slate-700 dark:text-slate-100 font-semibold">{item.value?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || '-'}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4">
-            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-2">Recebidas</h4>
-            {contasReceberRecebidas.length === 0 ? (
-              <div className="text-sm text-slate-400">Nenhuma cobrança recebida.</div>
-            ) : (
-              <ul className="space-y-2 text-sm">
-                {contasReceberRecebidas.map(item => (
-                  <li key={item.id} className="flex items-center justify-between">
-                    <span className="text-slate-600 dark:text-slate-300">{item.description || item.id}</span>
-                    <span className="text-slate-700 dark:text-slate-100 font-semibold">{item.value?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || '-'}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4">
-            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-2">Atrasadas</h4>
-            {contasReceberAtrasadas.length === 0 ? (
-              <div className="text-sm text-slate-400">Nenhuma cobrança atrasada.</div>
-            ) : (
-              <ul className="space-y-2 text-sm">
-                {contasReceberAtrasadas.map(item => (
-                  <li key={item.id} className="flex items-center justify-between">
-                    <span className="text-slate-600 dark:text-slate-300">{item.description || item.id}</span>
-                    <span className="text-slate-700 dark:text-slate-100 font-semibold">{item.value?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || '-'}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {loading && (
+      {loading ? (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="px-6 py-4 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center gap-2">
             <Loader2 className="w-4 h-4 animate-spin" />
             Carregando...
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

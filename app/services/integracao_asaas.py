@@ -664,9 +664,9 @@ def buscar_movimentacoes_financeiras_asaas(
         params: Dict[str, Any] = {}
         
         if data_inicio:
-            params["dateCreated[ge]"] = data_inicio.isoformat()
+            params["date[ge]"] = data_inicio.isoformat()
         if data_fim:
-            params["dateCreated[le]"] = data_fim.isoformat()
+            params["date[le]"] = data_fim.isoformat()
         
         # Busca movimentações financeiras (endpoint que retorna tipos)
         url = f"{base_url}/financialTransactions"
@@ -1289,21 +1289,8 @@ def sincronizar_asaas(
                 limit=ASAAS_DEFAULT_PAGE_LIMIT,
             )
 
-        contas_abertas = buscar_cobrancas_asaas(
-            db=db,
-            integracao=integracao,
-            status="PENDING",
-            limit=ASAAS_DEFAULT_PAGE_LIMIT,
-        )
-        contas_atrasadas = buscar_cobrancas_asaas(
-            db=db,
-            integracao=integracao,
-            status="OVERDUE",
-            limit=ASAAS_DEFAULT_PAGE_LIMIT,
-        )
-
         pagamentos_indexados: Dict[str, Dict[str, Any]] = {}
-        for item in [*pagamentos_pago, *contas_abertas, *contas_atrasadas]:
+        for item in pagamentos_pago:
             asaas_id = str(item.get("id") or "").strip()
             if not asaas_id:
                 continue
@@ -1342,17 +1329,18 @@ def sincronizar_asaas(
         lancamentos_atualizados = 0
         erros: List[str] = []
 
-        for pagamento in pagamentos:
+        for index_pagamento, pagamento in enumerate(pagamentos, start=1):
             try:
                 asaas_id_raw = pagamento.get("id")
                 asaas_id = str(asaas_id_raw).strip() if asaas_id_raw else None
                 tipo_mov = pagamento.get("type") or pagamento.get("transactionType") or pagamento.get("transactionTypeCode")
-                logger.debug(
-                    "Processando pagamento Asaas ID: {}, Tipo: {}, Status: {}",
-                    asaas_id,
-                    tipo_mov,
-                    pagamento.get("status"),
-                )
+                if index_pagamento <= 5:
+                    logger.debug(
+                        "Processando pagamento Asaas ID: {}, Tipo: {}, Status: {}",
+                        asaas_id,
+                        tipo_mov,
+                        pagamento.get("status"),
+                    )
 
                 lancamento_data = converter_pagamento_asaas_para_lancamento(
                     db=db,

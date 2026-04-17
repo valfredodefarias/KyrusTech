@@ -1443,14 +1443,14 @@ export function Contas() {
                                 </div>
 
                                 <div className="opacity-0 group-hover:opacity-100 transition flex gap-1">
-                                  {c.tipo_integracao === 'ASAAS' && (
+                                  {c.tipo !== 'CAIXA' && (
                                     <button
                                       onClick={(event) => {
                                         event.stopPropagation();
                                         navigate(`/integracoes/asaas?conta_id=${c.id}`);
                                       }}
                                       className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded text-slate-500"
-                                      title="Configurar integração Asaas"
+                                      title={c.tipo_integracao === 'ASAAS' ? 'Gerenciar integração Asaas' : 'Conectar Asaas nesta conta'}
                                     >
                                       <Settings className="w-4 h-4" />
                                     </button>

@@ -367,20 +367,13 @@ export function IntegracaoAsaas() {
     [contas]
   );
 
-  const contasAsaasAtivas = useMemo(
-    () => contasAtivasNaoCaixa.filter((conta) => String(conta.tipo_integracao || '').toUpperCase() === 'ASAAS'),
-    [contasAtivasNaoCaixa]
-  );
-
-  const usandoFallbackContas = contasAsaasAtivas.length === 0;
-
   const contasVinculaveis = useMemo(() => {
-    const base = usandoFallbackContas ? contasAtivasNaoCaixa : contasAsaasAtivas;
+    const base = contasAtivasNaoCaixa;
     if (contaIdParamNumber && base.some((conta) => conta.id === contaIdParamNumber)) {
       return base.filter((conta) => conta.id === contaIdParamNumber);
     }
     return base;
-  }, [usandoFallbackContas, contasAtivasNaoCaixa, contasAsaasAtivas, contaIdParamNumber]);
+  }, [contasAtivasNaoCaixa, contaIdParamNumber]);
 
   const categoriasLancaveis = useMemo(
     () => categorias.filter((categoria) => categoria.permite_lancamentos !== false),
@@ -486,15 +479,8 @@ export function IntegracaoAsaas() {
     return contasVinculaveis.find(c => c.id === formContaId) || null;
   }, [formContaId, contasVinculaveis]);
 
-  const contaParamValida = useMemo(() => {
-    if (!contaIdParamNumber) return false;
-    return contasVinculaveis.some((conta) => conta.id === contaIdParamNumber);
-  }, [contaIdParamNumber, contasVinculaveis]);
-
-  const bloqueioPorContaParam = Boolean(contaIdParamNumber && contaParamValida && contaSelecionada);
-
   useEffect(() => {
-    if (contaIdParamNumber && contaParamValida) {
+    if (contaIdParamNumber) {
       if (formContaId !== contaIdParamNumber) {
         setFormContaId(contaIdParamNumber);
       }
@@ -509,7 +495,7 @@ export function IntegracaoAsaas() {
     if (contasVinculaveis.length === 1 && formContaId === '') {
       setFormContaId(contasVinculaveis[0].id);
     }
-  }, [contaIdParamNumber, contaParamValida, contasVinculaveis, formContaId]);
+  }, [contaIdParamNumber, contasVinculaveis, formContaId]);
 
   useEffect(() => {
     if (!contaSelecionada) return;
@@ -923,9 +909,9 @@ export function IntegracaoAsaas() {
           </div>
         )}
 
-        {usandoFallbackContas && contasAtivasNaoCaixa.length > 0 ? (
+        {!contaIdParamNumber ? (
           <div className="p-3 rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-900/20 text-xs text-amber-700 dark:text-amber-300">
-            Nenhuma conta está marcada como Asaas nesta empresa. Você pode selecionar uma conta ativa agora e ela será marcada automaticamente ao conectar.
+            Para configurar o Asaas, abra esta tela clicando na conta desejada em Contas.
           </div>
         ) : null}
 
@@ -949,29 +935,9 @@ export function IntegracaoAsaas() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta Asaas vinculada</label>
-                {bloqueioPorContaParam ? (
-                  <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
-                    {contaSelecionada ? contaLabel(contaSelecionada) : 'Selecione a conta Asaas em Contas para continuar.'}
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {contaIdParamNumber && !contaParamValida ? (
-                      <p className="text-[11px] text-amber-600 dark:text-amber-300">
-                        A conta enviada no link não está disponível para integração Asaas nesta empresa. Escolha uma conta abaixo.
-                      </p>
-                    ) : null}
-                    <select
-                      className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                      value={formContaId}
-                      onChange={(e) => setFormContaId(e.target.value ? Number.parseInt(e.target.value, 10) : '')}
-                    >
-                      <option value="">Selecione...</option>
-                      {contasVinculaveis.map((conta) => (
-                        <option key={conta.id} value={conta.id}>{contaLabel(conta)}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <div className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm">
+                  {contaSelecionada ? contaLabel(contaSelecionada) : 'Conta não identificada. Volte em Contas e clique na conta que deseja conectar ao Asaas.'}
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Token Asaas</label>
@@ -1176,7 +1142,7 @@ export function IntegracaoAsaas() {
           </div>
         ) : null}
 
-        {integracoesAsaas.length > 1 && (
+        {!contaIdParamNumber && integracoesAsaas.length > 1 && (
           <div>
             <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Integração</label>
             <select

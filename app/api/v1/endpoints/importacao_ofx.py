@@ -1756,7 +1756,12 @@ def _obter_referencia_saldo_ofx(lancamentos: List[Dict[str, Any]]) -> tuple[Opti
     return None, None
 
 
-def _calcular_saldo_atual_conta(db: Session, empresa_id: int, conta_id: int) -> Decimal:
+def _calcular_saldo_atual_conta(
+    db: Session,
+    empresa_id: int,
+    conta_id: int,
+    data_referencia: Optional[date] = None,
+) -> Decimal:
     tipo_receita = func.upper(Lancamento.tipo).like("R%")
     tipo_despesa = func.upper(Lancamento.tipo).like("D%")
     movimento_pago = or_(Lancamento.status == "PAGO", Lancamento.data_pagamento.is_not(None))
@@ -1770,17 +1775,23 @@ def _calcular_saldo_atual_conta(db: Session, empresa_id: int, conta_id: int) -> 
     if not conta:
         return Decimal("0.00")
 
+    filtros_saldo = [
+        Lancamento.empresa_id == empresa_id,
+        Lancamento.conta_id == conta_id,
+        Lancamento.is_deleted == False,
+        movimento_pago,
+    ]
+    if data_referencia is not None:
+        filtros_saldo.append(
+            func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento) <= data_referencia
+        )
+
     soma = db.exec(
         select(
             func.sum(case((tipo_receita, Lancamento.valor_pago), else_=0)).label("receitas"),
             func.sum(case((tipo_despesa, Lancamento.valor_pago), else_=0)).label("despesas"),
         )
-        .where(
-            Lancamento.empresa_id == empresa_id,
-            Lancamento.conta_id == conta_id,
-            Lancamento.is_deleted == False,
-            movimento_pago,
-        )
+        .where(*filtros_saldo)
     ).first()
 
     receitas = Decimal(str((soma[0] if soma else 0) or 0))
@@ -1796,7 +1807,12 @@ def _calcular_divergencia_saldo_ofx(
     saldo_ofx: Decimal,
     data_referencia: Optional[date],
 ) -> Optional[Dict[str, Any]]:
-    saldo_calculado = _calcular_saldo_atual_conta(db, empresa_id, conta_id)
+    saldo_calculado = _calcular_saldo_atual_conta(
+        db,
+        empresa_id,
+        conta_id,
+        data_referencia=data_referencia,
+    )
     diferenca = saldo_ofx - saldo_calculado
     if abs(diferenca) < Decimal("0.01"):
         return None

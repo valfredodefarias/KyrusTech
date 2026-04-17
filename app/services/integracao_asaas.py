@@ -66,6 +66,28 @@ def _extract_asaas_transaction_date(item: Dict[str, Any]) -> Optional[date]:
     return None
 
 
+def _filter_asaas_items_by_interval(
+    items: List[Dict[str, Any]],
+    data_inicio: Optional[date],
+    data_fim: Optional[date],
+) -> List[Dict[str, Any]]:
+    if not data_inicio and not data_fim:
+        return items
+
+    filtrados: List[Dict[str, Any]] = []
+    for item in items:
+        data_item = _extract_asaas_transaction_date(item)
+        if not data_item:
+            continue
+        if data_inicio and data_item < data_inicio:
+            continue
+        if data_fim and data_item > data_fim:
+            continue
+        filtrados.append(item)
+
+    return filtrados
+
+
 def _extract_asaas_transaction_value(item: Dict[str, Any]) -> Decimal:
     raw_value = item.get("value", 0)
     try:
@@ -87,11 +109,25 @@ def _extract_asaas_status(item: Dict[str, Any]) -> str:
     return str(item.get("status") or item.get("paymentStatus") or "").strip().upper()
 
 
+def _is_asaas_financial_transaction_item(item: Dict[str, Any]) -> bool:
+    return _parse_asaas_date(item.get("date")) is not None
+
+
 def _is_asaas_paid(item: Dict[str, Any]) -> bool:
     status = _extract_asaas_status(item)
     if status in ASAAS_STATUS_PAGOS:
         return True
-    return bool(_parse_asaas_date(item.get("paymentDate")))
+
+    payment_date = _parse_asaas_date(item.get("paymentDate"))
+    if payment_date:
+        return True
+
+    # financialTransactions representam movimentacoes efetivadas; quando sem
+    # paymentDate explicito, usa a data da transacao como data de liquidacao.
+    if _is_asaas_financial_transaction_item(item):
+        return status not in ASAAS_STATUS_ABERTOS
+
+    return False
 
 
 def _extract_asaas_mapping_candidates(item: Dict[str, Any]) -> List[str]:
@@ -700,9 +736,24 @@ def buscar_movimentacoes_financeiras_asaas(
             status = str(item.get("status") or item.get("paymentStatus") or "").upper()
             if status in {"", "RECEIVED", "CONFIRMED", "DONE"}:
                 movimentacoes_recebidas.append(item)
+
+        movimentacoes_no_intervalo = _filter_asaas_items_by_interval(
+            movimentacoes_recebidas,
+            data_inicio=data_inicio,
+            data_fim=data_fim,
+        )
+
+        if (data_inicio or data_fim) and len(movimentacoes_no_intervalo) != len(movimentacoes_recebidas):
+            logger.info(
+                "Filtro local de intervalo Asaas aplicado em financialTransactions: recebidas={}, no_intervalo={}, inicio={}, fim={}",
+                len(movimentacoes_recebidas),
+                len(movimentacoes_no_intervalo),
+                data_inicio,
+                data_fim,
+            )
         
-        logger.success(f"Encontradas {len(movimentacoes_recebidas)} movimentações RECEBIDAS no Asaas")
-        return movimentacoes_recebidas
+        logger.success(f"Encontradas {len(movimentacoes_no_intervalo)} movimentações RECEBIDAS no Asaas")
+        return movimentacoes_no_intervalo
         
     except requests.exceptions.RequestException as e:
         logger.warning(f"Erro ao buscar movimentações financeiras do Asaas (tentando payments): {e}")
@@ -765,9 +816,24 @@ def buscar_pagamentos_asaas(
         
         # Filtra apenas os que realmente estão RECEIVED (segurança extra)
         pagamentos_recebidos = [p for p in pagamentos if p.get("status") == "RECEIVED"]
+
+        pagamentos_no_intervalo = _filter_asaas_items_by_interval(
+            pagamentos_recebidos,
+            data_inicio=data_inicio,
+            data_fim=data_fim,
+        )
+
+        if (data_inicio or data_fim) and len(pagamentos_no_intervalo) != len(pagamentos_recebidos):
+            logger.info(
+                "Filtro local de intervalo Asaas aplicado em payments: recebidos={}, no_intervalo={}, inicio={}, fim={}",
+                len(pagamentos_recebidos),
+                len(pagamentos_no_intervalo),
+                data_inicio,
+                data_fim,
+            )
         
-        logger.success(f"Encontrados {len(pagamentos_recebidos)} pagamentos RECEBIDOS no Asaas")
-        return pagamentos_recebidos
+        logger.success(f"Encontrados {len(pagamentos_no_intervalo)} pagamentos RECEBIDOS no Asaas")
+        return pagamentos_no_intervalo
         
     except requests.exceptions.RequestException as e:
         logger.error(f"Erro ao buscar pagamentos do Asaas: {e}")
@@ -1018,7 +1084,7 @@ def converter_pagamento_asaas_para_lancamento(
         ).first()
         if mapeamento_tipo:
             plano_contas_id = mapeamento_tipo.plano_contas_id
-            logger.info("Categoria mapeada por tipo/status {} -> {}", candidate, plano_contas_id)
+            logger.debug("Categoria mapeada por tipo/status {} -> {}", candidate, plano_contas_id)
             break
 
     if not plano_contas_id:
@@ -1092,6 +1158,8 @@ def converter_pagamento_asaas_para_lancamento(
 
     valor_absoluto = abs(valor_bruto)
     pago = _is_asaas_paid(pagamento_asaas)
+    if pago and not data_pagamento:
+        data_pagamento = data_movimentacao
     valor_pago = valor_absoluto if pago else Decimal("0.00")
     valor_previsto = valor_absoluto
 
@@ -1463,50 +1531,50 @@ def sincronizar_asaas(
                     candidates = [
                         item
                         for item in existing_by_natural_key.get(natural_key, [])
-                        if int(item.id or 0) <= 0 or int(item.id or 0) not in used_existing_ids
+                        if _lancamento_tem_vinculo_asaas(item)
+                        and (int(item.id or 0) <= 0 or int(item.id or 0) not in used_existing_ids)
                     ]
                     lancamento_existente = _choose_best_existing_match(candidates, asaas_id=asaas_id)
-
-                if lancamento_existente and lancamento_existente.id:
-                    used_existing_ids.add(int(lancamento_existente.id))
 
                 if lancamento_existente:
                     is_existing_asaas = _lancamento_tem_vinculo_asaas(lancamento_existente)
 
-                    if is_existing_asaas:
-                        if lancamento_data.get("plano_contas_id"):
-                            lancamento_existente.plano_contas_id = lancamento_data.get("plano_contas_id")
+                    if not is_existing_asaas:
+                        # Nao converte lancamento generico em Asaas por natural key para evitar
+                        # "atualizados" sem reflexo no extrato da integracao.
+                        lancamento_existente = None
 
-                        lancamento_existente.valor_previsto = lancamento_data.get("valor_previsto", lancamento_existente.valor_previsto)
-                        novo_valor_pago = lancamento_data.get("valor_pago")
-                        if novo_valor_pago is not None:
-                            lancamento_existente.valor_pago = novo_valor_pago
-                        if lancamento_data.get("status") == "PAGO":
-                            lancamento_existente.data_pagamento = lancamento_data.get("data_pagamento") or lancamento_existente.data_pagamento
-                        else:
-                            lancamento_existente.data_pagamento = None
-                        lancamento_existente.data_vencimento = lancamento_data.get("data_vencimento") or lancamento_existente.data_vencimento
-                        lancamento_existente.status = lancamento_data.get("status", lancamento_existente.status)
-                        lancamento_existente.origem = "ASAAS"
-                        lancamento_existente.data_competencia = (
-                            lancamento_data.get("data_competencia")
-                            or lancamento_existente.data_pagamento
-                            or lancamento_existente.data_vencimento
-                            or lancamento_existente.data_competencia
-                        )
+                if lancamento_existente:
+                    is_existing_asaas = True
 
+                    if lancamento_existente.id:
+                        used_existing_ids.add(int(lancamento_existente.id))
+
+                    if lancamento_data.get("plano_contas_id"):
+                        lancamento_existente.plano_contas_id = lancamento_data.get("plano_contas_id")
+
+                    lancamento_existente.valor_previsto = lancamento_data.get("valor_previsto", lancamento_existente.valor_previsto)
+                    novo_valor_pago = lancamento_data.get("valor_pago")
+                    if novo_valor_pago is not None:
+                        lancamento_existente.valor_pago = novo_valor_pago
+                    if lancamento_data.get("status") == "PAGO":
+                        lancamento_existente.data_pagamento = lancamento_data.get("data_pagamento") or lancamento_existente.data_pagamento
                     else:
-                        if not lancamento_existente.data_pagamento and lancamento_data.get("data_pagamento"):
-                            lancamento_existente.data_pagamento = lancamento_data.get("data_pagamento")
-                        if not lancamento_existente.data_vencimento and lancamento_data.get("data_vencimento"):
-                            lancamento_existente.data_vencimento = lancamento_data.get("data_vencimento")
-                        if str(lancamento_existente.status or "").upper() != "PAGO" and lancamento_data.get("status"):
-                            lancamento_existente.status = lancamento_data.get("status")
+                        lancamento_existente.data_pagamento = None
+                    lancamento_existente.data_vencimento = lancamento_data.get("data_vencimento") or lancamento_existente.data_vencimento
+                    lancamento_existente.status = lancamento_data.get("status", lancamento_existente.status)
+                    lancamento_existente.origem = "ASAAS"
+                    lancamento_existente.data_competencia = (
+                        lancamento_data.get("data_competencia")
+                        or lancamento_existente.data_pagamento
+                        or lancamento_existente.data_vencimento
+                        or lancamento_existente.data_competencia
+                    )
 
-                    if integracao.conta_id and not lancamento_existente.conta_id:
+                    if integracao.conta_id:
                         lancamento_existente.conta_id = integracao.conta_id
 
-                    if integracao.centro_custo_id and not lancamento_existente.centro_custo_id:
+                    if integracao.centro_custo_id:
                         lancamento_existente.centro_custo_id = integracao.centro_custo_id
 
                     novo_entidade_id = lancamento_data.get("entidade_id")
@@ -1528,14 +1596,13 @@ def sincronizar_asaas(
                             ):
                                 lancamento_existente.entidade_id = novo_entidade_id_int
 
-                    if is_existing_asaas and import_hash:
+                    if import_hash:
                         lancamento_existente.import_hash = import_hash
                         existing_by_import_hash.setdefault(import_hash, []).append(lancamento_existente)
 
-                    if is_existing_asaas:
-                        lancamento_existente.observacao = _append_asaas_id_to_observacao(lancamento_existente.observacao, asaas_id)
-                        if asaas_id:
-                            existing_by_asaas_id.setdefault(asaas_id, []).append(lancamento_existente)
+                    lancamento_existente.observacao = _append_asaas_id_to_observacao(lancamento_existente.observacao, asaas_id)
+                    if asaas_id:
+                        existing_by_asaas_id.setdefault(asaas_id, []).append(lancamento_existente)
 
                     if not lancamento_existente.plano_contas_id:
                         raise ValueError(f"Lancamento {lancamento_existente.id} nao pode ter plano_contas_id vazio")

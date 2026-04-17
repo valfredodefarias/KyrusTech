@@ -357,20 +357,30 @@ export function IntegracaoAsaas() {
   const [isResettingAsaas, setIsResettingAsaas] = useState(false);
   const [canManageAsaasReset, setCanManageAsaasReset] = useState(false);
 
-  const contasVinculaveis = useMemo(() => {
-    const base = contas.filter(
-      (conta) =>
-        String(conta.status || 'ATIVO').toUpperCase() === 'ATIVO' &&
-        String(conta.tipo || '').toUpperCase() !== 'CAIXA' &&
-        String(conta.tipo_integracao || '').toUpperCase() === 'ASAAS'
-    );
+  const contasAtivasNaoCaixa = useMemo(
+    () =>
+      contas.filter(
+        (conta) =>
+          String(conta.status || 'ATIVO').toUpperCase() === 'ATIVO' &&
+          String(conta.tipo || '').toUpperCase() !== 'CAIXA'
+      ),
+    [contas]
+  );
 
-    if (contaIdParamNumber) {
+  const contasAsaasAtivas = useMemo(
+    () => contasAtivasNaoCaixa.filter((conta) => String(conta.tipo_integracao || '').toUpperCase() === 'ASAAS'),
+    [contasAtivasNaoCaixa]
+  );
+
+  const usandoFallbackContas = contasAsaasAtivas.length === 0;
+
+  const contasVinculaveis = useMemo(() => {
+    const base = usandoFallbackContas ? contasAtivasNaoCaixa : contasAsaasAtivas;
+    if (contaIdParamNumber && base.some((conta) => conta.id === contaIdParamNumber)) {
       return base.filter((conta) => conta.id === contaIdParamNumber);
     }
-
     return base;
-  }, [contas, contaIdParamNumber]);
+  }, [usandoFallbackContas, contasAtivasNaoCaixa, contasAsaasAtivas, contaIdParamNumber]);
 
   const categoriasLancaveis = useMemo(
     () => categorias.filter((categoria) => categoria.permite_lancamentos !== false),
@@ -907,11 +917,17 @@ export function IntegracaoAsaas() {
       <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 space-y-4">
         <h3 className="text-lg font-bold text-slate-800 dark:text-white">Configuração da integração</h3>
 
-        {contasVinculaveis.length === 0 && (
+        {contasAtivasNaoCaixa.length === 0 && (
           <div className="p-4 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 text-sm text-slate-500">
-            Marque uma conta ativa com integração Asaas em Contas para configurar esta conexão.
+            Crie ao menos uma conta bancária ativa em Contas para configurar esta conexão.
           </div>
         )}
+
+        {usandoFallbackContas && contasAtivasNaoCaixa.length > 0 ? (
+          <div className="p-3 rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-900/20 text-xs text-amber-700 dark:text-amber-300">
+            Nenhuma conta está marcada como Asaas nesta empresa. Você pode selecionar uma conta ativa agora e ela será marcada automaticamente ao conectar.
+          </div>
+        ) : null}
 
         {deveCriarIntegracao ? (
           <>

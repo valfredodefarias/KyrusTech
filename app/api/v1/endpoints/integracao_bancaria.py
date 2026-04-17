@@ -460,6 +460,9 @@ def criar_integracao(
     if integracao_in.tipo.upper() == "ASAAS" and conta_vinculada:
         nome_padrao = str(conta_vinculada.banco or conta_vinculada.nome or "Asaas").strip() or "Asaas"
         integracao_payload["nome"] = nome_padrao
+        if str(conta_vinculada.tipo_integracao or "").upper() != "ASAAS":
+            conta_vinculada.tipo_integracao = "ASAAS"
+            db.add(conta_vinculada)
     integracao_obj = IntegracaoBancariaCreate(**integracao_payload)
 
     integracao = crud_integracao_bancaria.create(

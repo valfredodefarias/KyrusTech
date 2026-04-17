@@ -23,6 +23,7 @@ interface IntegracaoBancaria {
   tipo: string;
   ambiente: string;
   conta_id?: number | null;
+  data_inicio_sincronizacao?: string | null;
 }
 
 interface TipoAsaas {
@@ -287,6 +288,9 @@ export function IntegracaoAsaas() {
   const [mapeamentos, setMapeamentos] = useState<MapeamentoCategoria[]>([]);
   const [mappingSelections, setMappingSelections] = useState<Record<string, number | ''>>({});
   const [savingMapeamentos, setSavingMapeamentos] = useState(false);
+  const [savingConciliacao, setSavingConciliacao] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [dataInicioSync, setDataInicioSync] = useState('');
 
   const contaSelecionada = useMemo(() => {
     if (!contaIdParamNumber) return null;
@@ -401,6 +405,10 @@ export function IntegracaoAsaas() {
     carregarMapeamentos(selectedIntegracaoId);
     carregarTiposAsaas(selectedIntegracaoId);
   }, [selectedIntegracaoId]);
+
+  useEffect(() => {
+    setDataInicioSync(integracaoAtiva?.data_inicio_sincronizacao || '');
+  }, [integracaoAtiva?.id, integracaoAtiva?.data_inicio_sincronizacao]);
 
   async function carregarDados() {
     setLoading(true);
@@ -556,6 +564,49 @@ export function IntegracaoAsaas() {
     }
   }
 
+  async function handleSalvarDataInicioSincronizacao() {
+    if (!selectedIntegracaoId) return;
+
+    setSavingConciliacao(true);
+    try {
+      await api.patch(`/integracoes-bancarias/${selectedIntegracaoId}`, {
+        data_inicio_sincronizacao: dataInicioSync || null,
+      });
+      await carregarDados();
+      alert('Data de início da conciliação atualizada com sucesso.');
+    } catch (error: any) {
+      console.error(error);
+      const detail = error?.response?.data?.detail;
+      alert(typeof detail === 'string' && detail ? detail : 'Erro ao salvar data de início da conciliação.');
+    } finally {
+      setSavingConciliacao(false);
+    }
+  }
+
+  async function handleSincronizar() {
+    if (!selectedIntegracaoId) return;
+
+    setSyncing(true);
+    try {
+      const { data } = await api.post(`/integracoes-bancarias/${selectedIntegracaoId}/sincronizar`);
+      const processados = Number(data?.total_processado || 0);
+      const criados = Number(data?.lancamentos_criados || 0);
+      const atualizados = Number(data?.lancamentos_atualizados || 0);
+      const inicioUsado = String(data?.data_inicio_utilizada || '-');
+      const fimUsado = String(data?.data_fim_utilizada || '-');
+      await carregarDados();
+      alert(
+        `Sincronização concluída.\nProcessados: ${processados}\nCriados: ${criados}\nAtualizados: ${atualizados}\nInício usado: ${inicioUsado}\nFim usado: ${fimUsado}`
+      );
+    } catch (error: any) {
+      console.error(error);
+      const detail = error?.response?.data?.detail;
+      alert(typeof detail === 'string' && detail ? detail : 'Erro ao sincronizar integração Asaas.');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 flex items-center justify-between">
@@ -612,6 +663,40 @@ export function IntegracaoAsaas() {
           </div>
         ) : (
           <>
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto] gap-3 items-end">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Data de início da conciliação</label>
+                  <input
+                    type="date"
+                    value={dataInicioSync}
+                    onChange={(event) => setDataInicioSync(event.target.value)}
+                    className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSalvarDataInicioSincronizacao}
+                  disabled={savingConciliacao}
+                  className="px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-60"
+                >
+                  {savingConciliacao ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar data'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSincronizar}
+                  disabled={syncing}
+                  className="px-4 py-3 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2"
+                >
+                  {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  Sincronizar agora
+                </button>
+              </div>
+              <p className="text-xs text-slate-500">
+                A conciliação busca da data de início até hoje e, nos próximos ciclos, reprocessa 1 dia antes do último dia com lançamentos sem voltar antes da data de início configurada.
+              </p>
+            </div>
+
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-lg font-bold text-slate-800 dark:text-white">Mapeamento de categorias</h3>

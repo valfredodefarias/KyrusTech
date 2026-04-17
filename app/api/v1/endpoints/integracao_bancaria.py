@@ -610,18 +610,13 @@ def sincronizar_integracao(
             detail="Integração está inativa"
         )
 
-    data_inicio_efetiva = data_inicio
-    if integracao.data_inicio_sincronizacao:
-        if data_inicio_efetiva is None or data_inicio_efetiva < integracao.data_inicio_sincronizacao:
-            data_inicio_efetiva = integracao.data_inicio_sincronizacao
-    
     # Sincroniza conforme o tipo
     if integracao.tipo.upper() == "ASAAS":
         from app.services.integracao_asaas import sincronizar_asaas
         resultado = sincronizar_asaas(
             db=db,
             integracao=integracao,
-            data_inicio=data_inicio_efetiva,
+            data_inicio=data_inicio,
             data_fim=data_fim
         )
     else:

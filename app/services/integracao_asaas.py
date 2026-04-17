@@ -28,7 +28,7 @@ ASAAS_DEFAULT_PAGE_LIMIT = 100
 ASAAS_MAX_PAGES = 50
 ASAAS_MAX_RETRIES = 4
 ASAAS_REQUEST_PAUSE_SECONDS = 0.12
-ASAAS_INCREMENTAL_REPROCESS_DAYS = 7
+ASAAS_INCREMENTAL_REPROCESS_DAYS = 1
 ASAAS_STATUS_PAGOS = {"RECEIVED", "CONFIRMED", "DONE", "RECEIVED_IN_CASH"}
 ASAAS_STATUS_ABERTOS = {"PENDING", "AWAITING_PAYMENT", "OVERDUE"}
 ASAAS_OBSERVACAO_ID_REGEXES = [
@@ -1227,6 +1227,45 @@ def _pick_unmatched_candidate(candidates: List[Lancamento], used_ids: set[int]) 
     return candidates[0]
 
 
+def _obter_ultima_data_lancamento_asaas(
+    db: Session,
+    integracao: IntegracaoBancaria,
+    data_inicio_minima: Optional[date] = None,
+) -> Optional[date]:
+    filtros = [
+        Lancamento.empresa_id == integracao.empresa_id,
+        Lancamento.is_deleted == False,
+        or_(
+            Lancamento.origem == "ASAAS",
+            Lancamento.import_hash.like("ASAAS:%"),
+            Lancamento.observacao.ilike("%Asaas ID:%"),
+        ),
+    ]
+
+    if integracao.conta_id:
+        filtros.append(Lancamento.conta_id == integracao.conta_id)
+
+    if data_inicio_minima:
+        filtros.append(
+            or_(
+                Lancamento.data_pagamento >= data_inicio_minima,
+                Lancamento.data_vencimento >= data_inicio_minima,
+            )
+        )
+
+    ultimo_lancamento = db.exec(
+        select(Lancamento)
+        .where(*filtros)
+        .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).desc(), Lancamento.id.desc())
+        .limit(1)
+    ).first()
+
+    if not ultimo_lancamento:
+        return None
+
+    return ultimo_lancamento.data_pagamento or ultimo_lancamento.data_vencimento
+
+
 def sincronizar_asaas(
     db: Session,
     integracao: IntegracaoBancaria,
@@ -1240,17 +1279,42 @@ def sincronizar_asaas(
     logger.info("Iniciando sincronizacao Asaas para integracao ID: {}", integracao.id)
 
     try:
+        data_fim_utilizada = data_fim or date.today()
+        data_inicio_configurada = integracao.data_inicio_sincronizacao
         data_inicio_utilizada = data_inicio
         data_ultima_conciliacao = None
 
+        if data_inicio_configurada and (data_inicio_utilizada is None or data_inicio_utilizada < data_inicio_configurada):
+            data_inicio_utilizada = data_inicio_configurada
+
         if data_inicio_utilizada is None:
-            data_inicio_utilizada, data_ultima_conciliacao = _detectar_data_inicio_sincronizacao(
+            data_inicio_detectada, data_ultima_detectada = _detectar_data_inicio_sincronizacao(
                 db=db,
                 integracao=integracao,
-                data_fim=data_fim,
+                data_fim=data_fim_utilizada,
             )
+            if data_inicio_detectada:
+                data_inicio_utilizada = data_inicio_detectada
+            data_ultima_conciliacao = data_ultima_detectada
 
-        if data_inicio_utilizada and data_fim and data_inicio_utilizada > data_fim:
+        if data_inicio_configurada and data_inicio_utilizada and data_inicio_utilizada < data_inicio_configurada:
+            data_inicio_utilizada = data_inicio_configurada
+
+        ultima_data_lancamentos = _obter_ultima_data_lancamento_asaas(
+            db=db,
+            integracao=integracao,
+            data_inicio_minima=data_inicio_configurada or data_inicio_utilizada,
+        )
+        if ultima_data_lancamentos:
+            data_ultima_conciliacao = ultima_data_lancamentos
+            candidato_inicio = ultima_data_lancamentos - timedelta(days=1)
+            piso_inicio = data_inicio_configurada or data_inicio_utilizada
+            if piso_inicio and candidato_inicio < piso_inicio:
+                candidato_inicio = piso_inicio
+            if data_inicio_utilizada is None or candidato_inicio > data_inicio_utilizada:
+                data_inicio_utilizada = candidato_inicio
+
+        if data_inicio_utilizada and data_inicio_utilizada > data_fim_utilizada:
             from app.crud.crud_integracao_bancaria import atualizar_ultima_sincronizacao
 
             atualizar_ultima_sincronizacao(db, integracao=integracao, sucesso=True)
@@ -1261,7 +1325,7 @@ def sincronizar_asaas(
                 "total_processado": 0,
                 "erros": [],
                 "data_inicio_utilizada": data_inicio_utilizada.isoformat(),
-                "data_fim_utilizada": data_fim.isoformat(),
+                "data_fim_utilizada": data_fim_utilizada.isoformat(),
                 "data_ultima_conciliacao": data_ultima_conciliacao.isoformat() if data_ultima_conciliacao else None,
                 "observacao": "Nenhum novo lancamento para importar no periodo informado.",
             }
@@ -1272,7 +1336,7 @@ def sincronizar_asaas(
                 db=db,
                 integracao=integracao,
                 data_inicio=data_inicio_utilizada,
-                data_fim=data_fim,
+                data_fim=data_fim_utilizada,
                 limit=ASAAS_DEFAULT_PAGE_LIMIT,
             )
         except Exception as movimentacao_error:
@@ -1285,7 +1349,7 @@ def sincronizar_asaas(
                 db=db,
                 integracao=integracao,
                 data_inicio=data_inicio_utilizada,
-                data_fim=data_fim,
+                data_fim=data_fim_utilizada,
                 limit=ASAAS_DEFAULT_PAGE_LIMIT,
             )
 
@@ -1498,7 +1562,7 @@ def sincronizar_asaas(
             "total_processado": len(pagamentos),
             "erros": erros,
             "data_inicio_utilizada": data_inicio_utilizada.isoformat() if data_inicio_utilizada else None,
-            "data_fim_utilizada": data_fim.isoformat() if data_fim else None,
+            "data_fim_utilizada": data_fim_utilizada.isoformat() if data_fim_utilizada else None,
             "data_ultima_conciliacao": data_ultima_conciliacao.isoformat() if data_ultima_conciliacao else None,
         }
 

@@ -47,16 +47,11 @@ def run_due_integracoes_sync() -> None:
                     integracao.id,
                     integracao.empresa_id,
                 )
-                data_inicio = integracao.data_inicio_sincronizacao
-                ultima_sync = _to_utc_naive(integracao.ultima_sincronizacao)
-                if ultima_sync and (data_inicio is None or ultima_sync.date() > data_inicio):
-                    data_inicio = ultima_sync.date()
-
                 sincronizar_asaas(
                     db=db,
                     integracao=integracao,
-                    data_inicio=data_inicio,
-                    data_fim=None,
+                    data_inicio=None,
+                    data_fim=now.date(),
                 )
             except Exception as exc:
                 logger.error(

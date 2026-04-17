@@ -4,9 +4,11 @@ import os
 import re
 import sys
 import asyncio
+from datetime import datetime
 from threading import Event
 from pathlib import Path
 from subprocess import run
+from zoneinfo import ZoneInfo
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +30,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 MIGRATION_LOCK_ID = 24030901
 SCHEDULER_STOP_EVENT = Event()
 SCHEDULER_TASK: asyncio.Task | None = None
+BUSINESS_TZ = ZoneInfo("America/Sao_Paulo")
 
 
 def _should_auto_run_migrations() -> bool:
@@ -276,7 +279,14 @@ async def read_root():
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Health check para verificar se a API está online"""
-    return {"status": "ok", "message": "API is running"}
+    now = datetime.now(BUSINESS_TZ)
+    return {
+        "status": "ok",
+        "message": "API is running",
+        "server_datetime": now.isoformat(),
+        "server_date": now.date().isoformat(),
+        "server_timezone": "America/Sao_Paulo",
+    }
 
 # --- INCLUIR ROTAS ---
 app.include_router(api_router, prefix=settings.API_V1_STR)

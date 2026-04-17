@@ -3,10 +3,11 @@ Endpoints para gerenciar integrações bancárias.
 Permite configurar, listar, atualizar e sincronizar integrações.
 """
 from datetime import date, datetime
+import re
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
 from loguru import logger
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 from pydantic import BaseModel
 from sqlalchemy import func, or_
 
@@ -32,10 +33,201 @@ from app.services.integracao_asaas import (
     buscar_cobrancas_asaas,
     buscar_assinaturas_asaas,
     buscar_saldo_asaas,
+    listar_tipos_recentes_asaas,
 )
 
 router = APIRouter()
 AUTHORIZED_ASAAS_RESET_EMAILS = {"cirocue12@gmail.com", "cirocaue12@gmail.com"}
+ASAAS_TIPO_OBSERVACAO_REGEX = re.compile(r"tipo\s*:\s*([^|]+)", re.IGNORECASE)
+
+
+ASAAS_TIPOS_EXTRATO_DOCUMENTACAO: List[Tuple[str, str]] = [
+    ("ASAAS_CARD_RECHARGE", "Recarga de cartao Asaas"),
+    ("ASAAS_CARD_RECHARGE_REVERSAL", "Estorno da recarga de cartao"),
+    ("ASAAS_CARD_TRANSACTION", "Transacao efetuada com o cartao Asaas"),
+    ("ASAAS_CARD_CASHBACK", "Cashback recebido com o cartao Asaas"),
+    ("ASAAS_CARD_TRANSACTION_FEE", "Taxa para transacao efetuada com o cartao Asaas"),
+    ("ASAAS_CARD_TRANSACTION_FEE_REFUND", "Estorno de taxa para transacao efetuada com o cartao Asaas"),
+    ("ASAAS_CARD_TRANSACTION_PARTIAL_REFUND", "Estorno parcial de transacao efetuada com o cartao Asaas"),
+    ("ASAAS_CARD_TRANSACTION_PARTIAL_REFUND_CANCELLATION", "Cancelamento do estorno parcial de transacao efetuada com o cartao Asaas"),
+    ("ASAAS_CARD_TRANSACTION_REFUND", "Estorno de transacao efetuada com o cartao Asaas"),
+    ("ASAAS_CARD_TRANSACTION_REFUND_CANCELLATION", "Cancelamento do estorno de transacao efetuada com o cartao Asaas"),
+    ("ASAAS_MONEY_PAYMENT_ANTICIPATION_FEE_REFUND", "Estorno taxa de parcelamento ASAAS Money"),
+    ("ASAAS_MONEY_PAYMENT_COMPROMISED_BALANCE", "Bloqueio de saldo comprometido com pagamento Asaas Money"),
+    ("ASAAS_MONEY_PAYMENT_COMPROMISED_BALANCE_REFUND", "Cancelamento do bloqueio de saldo comprometido com pagamento Asaas Money"),
+    ("ASAAS_MONEY_PAYMENT_FINANCING_FEE", "Taxa de financiamento ASAAS Money"),
+    ("ASAAS_MONEY_PAYMENT_FINANCING_FEE_REFUND", "Estorno taxa de financiamento ASAAS Money"),
+    ("ASAAS_MONEY_TRANSACTION_CASHBACK", "Cashback ASAAS Money"),
+    ("ASAAS_MONEY_TRANSACTION_CASHBACK_REFUND", "Estorno de cashback ASAAS Money"),
+    ("ASAAS_MONEY_TRANSACTION_CHARGEBACK", "Chargeback transacao Asaas Money"),
+    ("ASAAS_MONEY_TRANSACTION_CHARGEBACK_REVERSAL", "Estorno chargeback transacao Asaas Money"),
+    ("BILL_PAYMENT", "Pagamento de conta"),
+    ("BILL_PAYMENT_CANCELLED", "Cancelamento do pagamento de conta"),
+    ("BILL_PAYMENT_REFUNDED", "Estorno do pagamento de conta"),
+    ("BILL_PAYMENT_FEE", "Taxa de pagamento de conta"),
+    ("BILL_PAYMENT_FEE_CANCELLED", "Cancelamento da taxa de pagamento de conta"),
+    ("CHARGEBACK", "Bloqueio de saldo devido ao chargeback de cobranca"),
+    ("CHARGEBACK_REVERSAL", "Cancelamento do bloqueio de saldo devido ao chargeback"),
+    ("CHARGED_FEE_REFUND", "Estorno da taxa para negativacao da cobranca ou Pix"),
+    ("CONTRACTUAL_EFFECT_SETTLEMENT", "Valor em recebiveis reservado"),
+    ("CONTRACTUAL_EFFECT_SETTLEMENT_REVERSAL", "Estorno do valor em recebiveis reservado"),
+    ("CREDIT", "Credito"),
+    ("CREDIT_BUREAU_REPORT", "Taxa de consulta Serasa"),
+    ("CUSTOMER_COMMISSION_SETTLEMENT_CREDIT", "Credito de liquidacao de comissao de parceiros"),
+    ("CUSTOMER_COMMISSION_SETTLEMENT_DEBIT", "Debito de liquidacao de comissao de parceiros"),
+    ("DEBIT", "Debito"),
+    ("DEBIT_REVERSAL", "Estorno de debito"),
+    ("DEBT_RECOVERY_NEGOTIATION_FINANCIAL_CHARGES", "Encargos sobre renegociacao"),
+    ("FREE_PAYMENT_USE", "Estorno por campanha promocional na tarifa"),
+    ("INTERNAL_TRANSFER_CREDIT", "Transferencia da conta Asaas"),
+    ("INTERNAL_TRANSFER_DEBIT", "Transferencia para a conta Asaas"),
+    ("INTERNAL_TRANSFER_REVERSAL", "Estorno de transferencia para a conta Asaas"),
+    ("INVOICE_FEE", "Taxa de emissao da nota fiscal de servico"),
+    ("PARTIAL_PAYMENT", "Cobranca parcialmente recebida"),
+    ("PAYMENT_DUNNING_CANCELLATION_FEE", "Taxa para cancelamento de negativacao de cobranca"),
+    ("PAYMENT_DUNNING_RECEIVED_FEE", "Taxa para negativacao de cobranca"),
+    ("PAYMENT_DUNNING_RECEIVED_IN_CASH_FEE", "Taxa para negativacao em dinheiro de cobranca"),
+    ("PAYMENT_DUNNING_REQUEST_FEE", "Taxa para negativacao de cobranca"),
+    ("PAYMENT_FEE", "Taxa de boleto, cartao ou Pix"),
+    ("PAYMENT_FEE_REVERSAL", "Estorno da taxa de boleto, cartao ou Pix"),
+    ("PAYMENT_MESSAGING_NOTIFICATION_FEE", "Taxa de mensageria de fatura"),
+    ("PAYMENT_RECEIVED", "Cobranca recebida"),
+    ("PAYMENT_CUSTODY_BLOCK", "Bloqueio de saldo por custodia"),
+    ("PAYMENT_CUSTODY_BLOCK_REVERSAL", "Desbloqueio de saldo por custodia"),
+    ("PAYMENT_REFUND_CANCELLED", "Cancelamento do estorno de fatura"),
+    ("PAYMENT_REVERSAL", "Estorno de fatura"),
+    ("PAYMENT_SMS_NOTIFICATION_FEE", "Taxa de notificacao por SMS de cobranca"),
+    ("PAYMENT_INSTANT_TEXT_MESSAGE_FEE", "Taxa de notificacao por mensagem instantanea de cobranca"),
+    ("PHONE_CALL_NOTIFICATION_FEE", "Taxa de notificacao por voz"),
+    ("PIX_TRANSACTION_CREDIT", "Transferencia via Pix recebida"),
+    ("PIX_TRANSACTION_CREDIT_FEE", "Taxa de transferencia Pix recebida"),
+    ("PIX_TRANSACTION_CREDIT_REFUND", "Estorno de recebimento via Pix"),
+    ("PIX_TRANSACTION_CREDIT_REFUND_CANCELLATION", "Cancelamento de estorno de recebimento via Pix"),
+    ("PIX_TRANSACTION_DEBIT", "Transacao via Pix"),
+    ("PIX_TRANSACTION_DEBIT_FEE", "Taxa para Pix"),
+    ("PIX_TRANSACTION_DEBIT_REFUND", "Estorno de transacao via Pix"),
+    ("POSTAL_SERVICE_FEE", "Taxa de envio de boletos via Correios"),
+    ("PRODUCT_INVOICE_FEE", "Taxa de emissao da nota fiscal de produto emitida via Base ERP"),
+    ("CONSUMER_INVOICE_FEE", "Taxa de emissao da nota fiscal de consumidor emitida via Base ERP"),
+    ("PROMOTIONAL_CODE_CREDIT", "Desconto na taxa"),
+    ("PROMOTIONAL_CODE_DEBIT", "Estorno do desconto na taxa"),
+    ("RECEIVABLE_ANTICIPATION_GROSS_CREDIT", "Antecipacao de parcelamento ou cobranca"),
+    ("RECEIVABLE_ANTICIPATION_DEBIT", "Baixa da parcela ou antecipacao"),
+    ("RECEIVABLE_ANTICIPATION_FEE", "Taxa de antecipacao de parcelamento ou cobranca"),
+    ("RECEIVABLE_ANTICIPATION_PARTNER_SETTLEMENT", "Baixa da parcela ou antecipacao"),
+    ("REFUND_REQUEST_CANCELLED", "Cancelamento do estorno de fatura"),
+    ("REFUND_REQUEST_FEE", "Taxa de realizacao de estorno de fatura"),
+    ("REFUND_REQUEST_FEE_REVERSAL", "Cancelamento da taxa de realizacao de estorno de fatura"),
+    ("REVERSAL", "Estorno"),
+    ("TRANSFER", "Transferencia para conta bancaria"),
+    ("TRANSFER_FEE", "Taxa de transferencia para conta bancaria"),
+    ("TRANSFER_REVERSAL", "Estorno de transferencia para conta bancaria"),
+    ("MOBILE_PHONE_RECHARGE", "Recarga de celular"),
+    ("REFUND_MOBILE_PHONE_RECHARGE", "Estorno de recarga de celular"),
+    ("CANCEL_MOBILE_PHONE_RECHARGE", "Cancelamento de recarga de celular"),
+    ("INSTANT_TEXT_MESSAGE_FEE", "Taxa de notificacao por WhatsApp"),
+    ("ASAAS_CARD_BALANCE_REFUND", "Estorno de cartao Asaas"),
+    ("ASAAS_MONEY_PAYMENT_ANTICIPATION_FEE", "Taxa de parcelamento ASAAS Money"),
+    ("BACEN_JUDICIAL_LOCK", "Bloqueio judicial"),
+    ("BACEN_JUDICIAL_UNLOCK", "Desbloqueio judicial"),
+    ("BACEN_JUDICIAL_TRANSFER", "Transferencia judicial"),
+    ("ASAAS_DEBIT_CARD_REQUEST_FEE", "Taxa de adesao do cartao Elo debito"),
+    ("ASAAS_PREPAID_CARD_REQUEST_FEE", "Taxa de adesao do cartao Elo pre-pago"),
+    ("EXTERNAL_SETTLEMENT_CONTRACTUAL_EFFECT_BATCH_CREDIT", "Credito de valores para liquidacao de efeitos de contrato"),
+    ("EXTERNAL_SETTLEMENT_CONTRACTUAL_EFFECT_BATCH_REVERSAL", "Estorno de valores referentes a liquidacao de efeitos de contrato"),
+    ("ASAAS_CARD_BILL_PAYMENT", "Pagamento de fatura do cartao Asaas"),
+    ("ASAAS_CARD_BILL_PAYMENT_REFUND", "Estorno de pagamento de fatura do cartao Asaas"),
+    ("CHILD_ACCOUNT_KNOWN_YOUR_CUSTOMER_BATCH_FEE", "Taxa de criacao de contas filhas"),
+    ("CONTRACTED_CUSTOMER_PLAN_FEE", "Taxa da mensalidade do plano Asaas"),
+    ("ACCOUNT_INACTIVITY_FEE", "Taxa de conta inativa"),
+]
+
+ASAAS_TIPOS_COMPATIBILIDADE: List[Tuple[str, str]] = [
+    ("PAYMENT", "Compatibilidade com pagamentos sem type"),
+    ("REFUND", "Compatibilidade com estornos sem type"),
+    ("RECEIVED", "Status de cobranca recebida"),
+    ("CONFIRMED", "Status de cobranca confirmada"),
+    ("DONE", "Status de operacao concluida"),
+    ("RECEIVED_IN_CASH", "Status de cobranca recebida em dinheiro"),
+    ("PENDING", "Status de cobranca pendente"),
+    ("AWAITING_PAYMENT", "Status aguardando pagamento"),
+    ("OVERDUE", "Status de cobranca vencida"),
+    ("BOLETO", "Tipo de cobranca boleto"),
+    ("CREDIT_CARD", "Tipo de cobranca cartao de credito"),
+    ("PIX", "Tipo de cobranca Pix"),
+]
+
+
+def _normalizar_codigo_externo(valor: Optional[str]) -> str:
+    return str(valor or "").strip().upper()
+
+
+def _montar_catalogo_tipos_asaas() -> List[Dict[str, str]]:
+    catalogo: List[Dict[str, str]] = []
+    codigos_vistos = set()
+
+    for codigo, descricao in [*ASAAS_TIPOS_EXTRATO_DOCUMENTACAO, *ASAAS_TIPOS_COMPATIBILIDADE]:
+        codigo_normalizado = _normalizar_codigo_externo(codigo)
+        if not codigo_normalizado or codigo_normalizado in codigos_vistos:
+            continue
+        codigos_vistos.add(codigo_normalizado)
+        catalogo.append({
+            "codigo": codigo_normalizado,
+            "descricao": descricao,
+        })
+
+    return catalogo
+
+
+def _inferir_fluxo_asaas(codigo_externo: Optional[str]) -> Optional[str]:
+    """
+    Retorna fluxo sugerido para validacao de categoria:
+      - "R" para receita
+      - "D" para despesa
+      - None quando ambiguo
+    """
+    codigo = _normalizar_codigo_externo(codigo_externo)
+    if not codigo:
+        return None
+
+    # Estornos/cancelamentos podem inverter sinal conforme contexto, entao nao bloqueamos.
+    if any(token in codigo for token in ("REFUND", "REVERSAL", "CANCELLED", "CANCELLATION")):
+        return None
+
+    codigos_receita = {
+        "CREDIT",
+        "PAYMENT_RECEIVED",
+        "PARTIAL_PAYMENT",
+        "INTERNAL_TRANSFER_CREDIT",
+        "PIX_TRANSACTION_CREDIT",
+        "RECEIVABLE_ANTICIPATION_GROSS_CREDIT",
+        "CUSTOMER_COMMISSION_SETTLEMENT_CREDIT",
+        "PROMOTIONAL_CODE_CREDIT",
+        "EXTERNAL_SETTLEMENT_CONTRACTUAL_EFFECT_BATCH_CREDIT",
+    }
+    codigos_despesa = {
+        "DEBIT",
+        "BILL_PAYMENT",
+        "TRANSFER",
+        "PIX_TRANSACTION_DEBIT",
+        "RECEIVABLE_ANTICIPATION_DEBIT",
+        "CONTRACTUAL_EFFECT_SETTLEMENT",
+        "CHARGEBACK",
+        "PAYMENT_CUSTODY_BLOCK",
+        "BACEN_JUDICIAL_LOCK",
+        "ASAAS_CARD_TRANSACTION",
+        "ASAAS_CARD_RECHARGE",
+        "ASAAS_CARD_BILL_PAYMENT",
+        "MOBILE_PHONE_RECHARGE",
+    }
+
+    if codigo in codigos_receita or codigo.endswith("_CREDIT") or "CASHBACK" in codigo:
+        return "R"
+
+    if codigo in codigos_despesa or codigo.endswith("_DEBIT") or "_FEE" in codigo:
+        return "D"
+
+    return None
 
 
 class AsaasResetRequest(BaseModel):
@@ -55,6 +247,114 @@ def _serialize_integracao(integracao: IntegracaoBancaria) -> dict:
     payload = integracao.model_dump()
     payload["token_configurado"] = bool(str(integracao.token_criptografado or "").strip())
     return payload
+
+
+def _extrair_tipo_asaas_da_observacao(observacao: Optional[str]) -> Optional[str]:
+    texto = str(observacao or "").strip()
+    if not texto:
+        return None
+    match = ASAAS_TIPO_OBSERVACAO_REGEX.search(texto)
+    if not match:
+        return None
+    tipo = _normalizar_codigo_externo(match.group(1))
+    if not tipo or tipo in {"NAO_INFORMADO", "NONE", "N/A", "NULL"}:
+        return None
+    return tipo
+
+
+def _listar_tipos_recentes_asaas_local(
+    *,
+    db: Session,
+    integracao: IntegracaoBancaria,
+    empresa_id: int,
+    limite: int = 100,
+) -> List[str]:
+    limite_efetivo = max(1, min(int(limite or 100), 100))
+
+    statement = select(Lancamento).where(
+        Lancamento.empresa_id == empresa_id,
+        Lancamento.is_deleted == False,
+        or_(
+            Lancamento.origem == "ASAAS",
+            Lancamento.import_hash.like("ASAAS:%"),
+            Lancamento.observacao.ilike("%Asaas ID:%"),
+        ),
+    )
+
+    if integracao.conta_id:
+        statement = statement.where(Lancamento.conta_id == integracao.conta_id)
+
+    lancamentos = db.exec(
+        statement.order_by(
+            func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento, Lancamento.data_competencia).desc(),
+            Lancamento.id.desc(),
+        ).limit(limite_efetivo)
+    ).all()
+
+    codigos: List[str] = []
+    for lancamento in lancamentos:
+        codigo = _extrair_tipo_asaas_da_observacao(lancamento.observacao)
+        if not codigo:
+            continue
+        if codigo not in codigos:
+            codigos.append(codigo)
+
+    return codigos
+
+
+def _descricao_padrao_tipo_asaas(codigo: str) -> str:
+    codigo_normalizado = _normalizar_codigo_externo(codigo)
+    if not codigo_normalizado:
+        return "Tipo Asaas"
+    return "Tipo detectado no Asaas: " + codigo_normalizado.replace("_", " ").title()
+
+
+def _propagar_mapeamento_asaas_para_lancamentos(
+    *,
+    db: Session,
+    integracao: IntegracaoBancaria,
+    empresa_id: int,
+    categoria_externa: str,
+    plano_contas: PlanoContas,
+) -> int:
+    codigo_normalizado = _normalizar_codigo_externo(categoria_externa)
+    if not codigo_normalizado:
+        return 0
+
+    filtros_tipo = [func.upper(Lancamento.observacao).like(f"%TIPO: {codigo_normalizado}%")]
+    if codigo_normalizado == "PAYMENT":
+        filtros_tipo.append(func.upper(Lancamento.observacao).like("%TIPO: NAO_INFORMADO%"))
+        filtros_tipo.append(func.upper(Lancamento.observacao).like("%TIPO: NONE%"))
+
+    statement = select(Lancamento).where(
+        Lancamento.empresa_id == empresa_id,
+        Lancamento.is_deleted == False,
+        Lancamento.plano_contas_id != plano_contas.id,
+        or_(
+            Lancamento.origem == "ASAAS",
+            Lancamento.import_hash.like("ASAAS:%"),
+            Lancamento.observacao.ilike("%Asaas ID:%"),
+        ),
+        or_(*filtros_tipo),
+    )
+
+    if integracao.conta_id:
+        statement = statement.where(Lancamento.conta_id == integracao.conta_id)
+
+    tipo_plano = str(plano_contas.tipo or "").strip().upper()
+    if tipo_plano.startswith("R"):
+        statement = statement.where(func.upper(Lancamento.tipo) == "RECEITA")
+    elif tipo_plano.startswith("D"):
+        statement = statement.where(func.upper(Lancamento.tipo) == "DESPESA")
+
+    lancamentos = db.exec(statement).all()
+    atualizados = 0
+    for lancamento in lancamentos:
+        lancamento.plano_contas_id = plano_contas.id
+        db.add(lancamento)
+        atualizados += 1
+
+    return atualizados
 
 
 @router.get("/", response_model=List[IntegracaoBancariaRead])
@@ -121,19 +421,26 @@ def criar_integracao(
 
     conta_id = integracao_in.conta_id
     centro_custo_id = integracao_in.centro_custo_id
+    conta_vinculada: Optional[Conta] = None
+
+    if integracao_in.tipo.upper() == "ASAAS" and not conta_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Integração Asaas exige conta bancária vinculada."
+        )
 
     if conta_id:
-        conta = db.exec(
+        conta_vinculada = db.exec(
             select(Conta).where(Conta.id == conta_id, Conta.empresa_id == empresa_id)
         ).first()
-        if not conta:
+        if not conta_vinculada:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Conta bancária para vinculação não encontrada"
             )
 
-        if centro_custo_id is None and conta.centro_custo_id:
-            centro_custo_id = conta.centro_custo_id
+        if centro_custo_id is None and conta_vinculada.centro_custo_id:
+            centro_custo_id = conta_vinculada.centro_custo_id
 
         duplicada = db.exec(
             select(IntegracaoBancaria).where(
@@ -150,6 +457,9 @@ def criar_integracao(
 
     integracao_payload = integracao_in.model_dump()
     integracao_payload["centro_custo_id"] = centro_custo_id
+    if integracao_in.tipo.upper() == "ASAAS" and conta_vinculada:
+        nome_padrao = str(conta_vinculada.banco or conta_vinculada.nome or "Asaas").strip() or "Asaas"
+        integracao_payload["nome"] = nome_padrao
     integracao_obj = IntegracaoBancariaCreate(**integracao_payload)
 
     integracao = crud_integracao_bancaria.create(
@@ -193,6 +503,19 @@ def atualizar_integracao(
     update_payload = integracao_in.model_dump(exclude_unset=True)
     if "token" in update_payload and not str(update_payload.get("token") or "").strip():
         update_payload.pop("token")
+
+    if integracao.tipo.upper() == "ASAAS" and "conta_id" in update_payload:
+        conta_id_update = update_payload.get("conta_id")
+        if conta_id_update is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Integração Asaas deve permanecer vinculada a uma conta."
+            )
+        if integracao.conta_id and int(conta_id_update) != int(integracao.conta_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Para trocar a conta Asaas, configure uma nova integração pela conta desejada."
+            )
 
     if "conta_id" in update_payload:
         conta_id = update_payload.get("conta_id")
@@ -456,6 +779,16 @@ def criar_mapeamento(
             detail="Categoria externa invalida"
         )
 
+    if integracao.tipo.upper() == "ASAAS":
+        fluxo_sugerido = _inferir_fluxo_asaas(categoria_externa)
+        tipo_plano = str(plano_contas.tipo or "").strip().upper()
+        if fluxo_sugerido and not tipo_plano.startswith(fluxo_sugerido):
+            natureza = "receita" if fluxo_sugerido == "R" else "despesa"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Categoria selecionada incompatível com o tipo Asaas ({natureza}).",
+            )
+
     # Verifica se mapeamento já existe
     mapeamento_existente = db.exec(
         select(MapeamentoCategoria).where(
@@ -477,8 +810,29 @@ def criar_mapeamento(
         integracao_id=integracao_id
     )
     db.add(mapeamento)
+    db.flush()
+
+    lancamentos_atualizados = 0
+    if integracao.tipo.upper() == "ASAAS":
+        lancamentos_atualizados = _propagar_mapeamento_asaas_para_lancamentos(
+            db=db,
+            integracao=integracao,
+            empresa_id=empresa_id,
+            categoria_externa=categoria_externa,
+            plano_contas=plano_contas,
+        )
+
     db.commit()
     db.refresh(mapeamento)
+
+    if lancamentos_atualizados > 0:
+        logger.info(
+            "Mapeamento Asaas aplicado em lote: integracao={} categoria_externa={} plano_contas_id={} lancamentos_atualizados={}",
+            integracao_id,
+            categoria_externa,
+            plano_contas.id,
+            lancamentos_atualizados,
+        )
     
     return {
         "categoria_externa": categoria_externa,
@@ -545,54 +899,85 @@ def listar_tipos_asaas(
             detail="Esta integração não é do tipo Asaas"
         )
     
-    # Lista de tipos do Asaas baseada na documentação
-    tipos_asaas = [
-        {"codigo": "ASAAS_CARD_RECHARGE", "descricao": "Recarga de cartão Asaas"},
-        {"codigo": "ASAAS_CARD_RECHARGE_REVERSAL", "descricao": "Estorno da recarga de cartão"},
-        {"codigo": "ASAAS_CARD_TRANSACTION", "descricao": "Transação efetuada com o cartão Asaas"},
-        {"codigo": "ASAAS_CARD_CASHBACK", "descricao": "Cashback recebido com o cartão Asaas"},
-        {"codigo": "ASAAS_CARD_TRANSACTION_FEE", "descricao": "Taxa para transação efetuada com o cartão Asaas"},
-        {"codigo": "ASAAS_CARD_TRANSACTION_FEE_REFUND", "descricao": "Estorno de taxa para transação efetuada com o cartão Asaas"},
-        {"codigo": "ASAAS_CARD_TRANSACTION_PARTIAL_REFUND", "descricao": "Estorno parcial de transação efetuada com o cartão Asaas"},
-        {"codigo": "ASAAS_CARD_TRANSACTION_PARTIAL_REFUND_CANCELLATION", "descricao": "Cancelamento do estorno parcial de transação efetuada com o cartão Asaas"},
-        {"codigo": "ASAAS_CARD_TRANSACTION_REFUND", "descricao": "Estorno de transação efetuada com o cartão Asaas"},
-        {"codigo": "ASAAS_CARD_TRANSACTION_REFUND_CANCELLATION", "descricao": "Cancelamento do estorno de transação efetuada com o cartão Asaas"},
-        {"codigo": "ASAAS_MONEY_PAYMENT_ANTICIPATION_FEE_REFUND", "descricao": "Estorno taxa de Parcelamento ASAAS Money"},
-        {"codigo": "ASAAS_MONEY_PAYMENT_COMPROMISED_BALANCE", "descricao": "Bloqueio de saldo comprometido com pagamento Asaas Money"},
-        {"codigo": "ASAAS_MONEY_PAYMENT_COMPROMISED_BALANCE_REFUND", "descricao": "Cancelamento do bloqueio de saldo comprometido com pagamento Asaas Money"},
-        {"codigo": "ASAAS_MONEY_PAYMENT_FINANCING_FEE", "descricao": "Taxa de financiamento ASAAS Money"},
-        {"codigo": "ASAAS_MONEY_PAYMENT_FINANCING_FEE_REFUND", "descricao": "Estorno taxa de financiamento ASAAS"},
-        {"codigo": "PAYMENT", "descricao": "Pagamento/Recebimento padrão"},
-        {"codigo": "TRANSFER", "descricao": "Transferência"},
-        {"codigo": "REFUND", "descricao": "Estorno"},
-    ]
-    
-    # Verifica quais tipos já estão mapeados
+    catalogo_padrao = _montar_catalogo_tipos_asaas()
+    descricao_por_codigo = {
+        _normalizar_codigo_externo(item.get("codigo")): str(item.get("descricao") or "").strip()
+        for item in catalogo_padrao
+        if _normalizar_codigo_externo(item.get("codigo"))
+    }
+
     mapeamentos_existentes = db.exec(
         select(MapeamentoCategoria).where(
             MapeamentoCategoria.integracao_id == integracao_id
         )
     ).all()
-    
-    tipos_mapeados = {str(m.categoria_externa or "").strip().upper() for m in mapeamentos_existentes}
-    
-    # Adiciona flag de mapeado
-    for tipo in tipos_asaas:
-        tipo["mapeado"] = tipo["codigo"] in tipos_mapeados
-        if tipo["mapeado"]:
-            # Busca o mapeamento para mostrar a categoria
-            mapeamento = next(
-                (
-                    m
-                    for m in mapeamentos_existentes
-                    if str(m.categoria_externa or "").strip().upper() == tipo["codigo"]
-                ),
-                None,
+
+    mapeamentos_por_codigo = {}
+    for mapeamento in mapeamentos_existentes:
+        codigo = _normalizar_codigo_externo(mapeamento.categoria_externa)
+        if codigo:
+            mapeamentos_por_codigo[codigo] = mapeamento
+
+    codigos_detectados: List[str] = _listar_tipos_recentes_asaas_local(
+        db=db,
+        integracao=integracao,
+        empresa_id=empresa_id,
+        limite=100,
+    )
+
+    if not codigos_detectados:
+        try:
+            codigos_detectados = listar_tipos_recentes_asaas(db=db, integracao=integracao, limit=100)
+        except Exception as exc:
+            logger.warning(
+                "Nao foi possivel detectar tipos recentes do Asaas para integracao {}: {}",
+                integracao_id,
+                exc,
             )
-            if mapeamento:
-                plano_contas = db.get(PlanoContas, mapeamento.plano_contas_id)
-                tipo["categoria_mapeada"] = plano_contas.nome if plano_contas else None
-    
+
+    tipos_asaas: List[Dict[str, str]] = []
+    codigos_adicionados = set()
+
+    for codigo in codigos_detectados:
+        codigo_normalizado = _normalizar_codigo_externo(codigo)
+        if not codigo_normalizado or codigo_normalizado in codigos_adicionados:
+            continue
+        tipos_asaas.append(
+            {
+                "codigo": codigo_normalizado,
+                "descricao": descricao_por_codigo.get(codigo_normalizado) or _descricao_padrao_tipo_asaas(codigo_normalizado),
+            }
+        )
+        codigos_adicionados.add(codigo_normalizado)
+
+    for codigo in sorted(mapeamentos_por_codigo.keys()):
+        if codigo in codigos_adicionados:
+            continue
+        tipos_asaas.append(
+            {
+                "codigo": codigo,
+                "descricao": descricao_por_codigo.get(codigo) or "Tipo customizado mapeado anteriormente",
+            }
+        )
+        codigos_adicionados.add(codigo)
+
+    for tipo in tipos_asaas:
+        codigo = _normalizar_codigo_externo(tipo.get("codigo"))
+        fluxo_sugerido = _inferir_fluxo_asaas(codigo)
+        if fluxo_sugerido == "R":
+            tipo["natureza_sugerida"] = "RECEITA"
+        elif fluxo_sugerido == "D":
+            tipo["natureza_sugerida"] = "DESPESA"
+        else:
+            tipo["natureza_sugerida"] = "AMBOS"
+
+        mapeamento = mapeamentos_por_codigo.get(codigo)
+        tipo["mapeado"] = bool(mapeamento)
+        if not mapeamento:
+            continue
+        plano_contas = db.get(PlanoContas, mapeamento.plano_contas_id)
+        tipo["categoria_mapeada"] = plano_contas.nome if plano_contas else None
+
     return tipos_asaas
 
 

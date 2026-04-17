@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
-from sqlmodel import Session, or_, select
+from sqlmodel import Session, or_, select, func, case
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -17,11 +17,9 @@ from app.db.session import get_db
 from app.api.v1.deps import get_empresa_id_from_user, require_permission
 from app.services.integracao_ofx import processar_ofx
 from app.services.importacao_bancaria_service import (
-    verificar_duplicata,
     verificar_duplicata_ofx_por_fallback,
     buscar_lancamento_previsto_mesmo_dia_valor,
     buscar_lancamento_atrasado_mesmo_valor,
-    criar_entidade_se_nao_existir,
     gerar_import_hash,
     _normalizar_nome_entidade,
 )
@@ -185,6 +183,7 @@ TOKENS_JURIDICOS_FRACOS = {
 
 class RelacionamentoResumo(BaseModel):
     descricao: str
+    interessado: Optional[str] = None
     data_vencimento: str
     valor_previsto: float
     score: int
@@ -217,6 +216,8 @@ class LancamentoImportado(BaseModel):
     ofx_bank_id: Optional[str] = None
     ofx_agencia: Optional[str] = None
     ofx_conta_numero: Optional[str] = None
+    ofx_saldo_arquivo: Optional[float] = None
+    ofx_saldo_data: Optional[str] = None
     lancamento_previsto_id: Optional[int] = None
     lancamentos_atrasados_ids: List[int] = Field(default_factory=list)
     duplicata_id: Optional[int] = None
@@ -728,6 +729,9 @@ def _buscar_duplicata_historica(
             continue
 
         similaridade = _calcular_similaridade_texto(lancamento_ofx, candidato)
+        descricao_ofx_tokens = set(_normalizar_texto(lancamento_ofx.get("descricao")).split())
+        descricao_candidato_tokens = set(_normalizar_texto(candidato.descricao).split())
+        tokens_em_comum = len(descricao_ofx_tokens & descricao_candidato_tokens)
         contexto_candidato = _normalizar_texto(f"{candidato.descricao} {candidato.observacao or ''}")
         entidade_bate = bool(interessado_norm and interessado_norm in contexto_candidato)
         mesmo_dia = data_candidata == data_base
@@ -737,12 +741,14 @@ def _buscar_duplicata_historica(
         # Mesmo dia+valor pode ocorrer em movimentos distintos;
         # exige evidencias adicionais para evitar falso positivo de "ja importado".
         if mesmo_dia_pagamento and valor_exato:
-            if similaridade >= 0.8 or entidade_bate:
+            if entidade_bate or tokens_em_comum >= 4 or (similaridade >= 0.82 and tokens_em_comum >= 2):
                 motivo = "Mesmo valor e mesma data de pagamento de um lancamento ja baixado"
-                if similaridade >= 0.8:
+                if similaridade >= 0.82 and tokens_em_comum >= 2:
                     motivo += " com descricao muito parecida"
                 elif entidade_bate:
                     motivo += " com favorecido/interessado compativel"
+                elif tokens_em_comum >= 4:
+                    motivo += " com termos relevantes em comum na descricao"
                 if candidato.conta_id is None:
                     motivo += " (lancamento sem conta vinculada)"
                 return candidato, motivo
@@ -751,9 +757,10 @@ def _buscar_duplicata_historica(
         # Match historico conservador: evita falso positivo em movimento distinto
         # no mesmo intervalo, exigindo evidencias mais fortes.
         evidencias_fortes = (
-            (dia_muito_proximo and valor_exato and similaridade >= 0.9)
+            (dia_muito_proximo and valor_exato and similaridade >= 0.82)
             or (dia_muito_proximo and valor_exato and entidade_bate and similaridade >= 0.55)
             or (mesmo_dia and valor_exato and entidade_bate)
+            or (mesmo_dia and valor_exato and tokens_em_comum >= 5)
         )
         if evidencias_fortes:
             motivo = "Mesmo valor e data muito proxima de um lancamento ja registrado"
@@ -761,9 +768,53 @@ def _buscar_duplicata_historica(
                 motivo += " com descricao muito parecida"
             elif entidade_bate:
                 motivo += " com favorecido/interessado compativel"
+            elif tokens_em_comum >= 5:
+                motivo += " com termos relevantes em comum na descricao"
             return candidato, motivo
 
     return None, None
+
+
+def _carregar_duplicatas_por_hash(
+    db: Session,
+    empresa_id: int,
+    import_hashes: List[str],
+) -> Dict[str, Lancamento]:
+    hashes_validos = [hash_item for hash_item in {str(item) for item in import_hashes if item}]
+    if not hashes_validos:
+        return {}
+
+    duplicatas: Dict[str, Lancamento] = {}
+    tamanho_lote = 500
+    lancamento_table = getattr(Lancamento, "__table__")
+    for inicio in range(0, len(hashes_validos), tamanho_lote):
+        lote = hashes_validos[inicio:inicio + tamanho_lote]
+        encontrados = db.exec(
+            select(Lancamento).where(
+                lancamento_table.c.empresa_id == empresa_id,
+                lancamento_table.c.is_deleted == False,
+                lancamento_table.c.import_hash.in_(lote),
+            )
+        ).all()
+
+        for lancamento in encontrados:
+            chave = str(lancamento.import_hash or "")
+            if chave and chave not in duplicatas:
+                duplicatas[chave] = lancamento
+
+    return duplicatas
+
+
+def _agrupar_historico_por_tipo(historico: List[Lancamento]) -> Dict[str, List[Lancamento]]:
+    agrupado: Dict[str, List[Lancamento]] = {}
+    for item in historico:
+        if not item.plano_contas_id:
+            continue
+        tipo = str(item.tipo or "")
+        if not tipo:
+            continue
+        agrupado.setdefault(tipo, []).append(item)
+    return agrupado
 
 
 def _carregar_contexto_classificacao(
@@ -863,7 +914,11 @@ def _aplicar_sugestao_historica(
     entidades_por_id: Dict[int, Entidade],
     conta_id: int,
 ) -> List[Lancamento]:
-    candidatos = [item for item in historico if item.tipo == lancamento_ofx.get("tipo") and item.plano_contas_id]
+    tipo_ofx = str(lancamento_ofx.get("tipo") or "")
+    candidatos = [
+        item for item in historico
+        if item.plano_contas_id and (not tipo_ofx or str(item.tipo or "") == tipo_ofx)
+    ]
     ranked = sorted(
         candidatos,
         key=lambda item: _score_historico(lancamento_ofx, item, entidades_por_id, conta_id),
@@ -972,6 +1027,8 @@ def _aplicar_sugestoes_deterministicas(
     historico_empresa: List[Lancamento],
     entidades_por_id: Dict[int, Entidade],
 ) -> None:
+    historico_por_tipo = _agrupar_historico_por_tipo(historico_empresa)
+
     for item in lancamentos:
         if item.get("duplicata_id"):
             continue
@@ -987,7 +1044,12 @@ def _aplicar_sugestoes_deterministicas(
             if _interessado_tem_confianca(interessado_limpo):
                 item["interessado_sugerido"] = interessado_limpo
 
-        melhor_historico = _buscar_melhor_historico_deterministico(item, historico_empresa, entidades_por_id)
+        tipo_item = str(item.get("tipo") or "")
+        melhor_historico = _buscar_melhor_historico_deterministico(
+            item,
+            historico_por_tipo.get(tipo_item, []),
+            entidades_por_id,
+        )
         if melhor_historico:
             if not item.get("plano_contas_id") and melhor_historico.plano_contas_id:
                 item["plano_contas_id"] = int(melhor_historico.plano_contas_id)
@@ -1018,8 +1080,6 @@ def _build_match_reason(data_diferenca: int, valor_diferenca: Decimal, similarid
         partes.append("descricao muito parecida")
     elif similaridade >= 0.48:
         partes.append("descricao com alguma semelhanca")
-    elif kind == "previsto":
-        partes.append("descricao diferente nao bloqueia conciliacao por data e valor")
     return ", ".join(partes)
 
 
@@ -1042,9 +1102,21 @@ def _score_candidate(origem: Dict, lancamento: Lancamento, kind: str) -> tuple[i
     return score, _build_match_reason(data_diferenca, valor_diferenca, similaridade, kind)
 
 
-def _build_resumo(lancamento: Lancamento, score: int, motivo: str) -> RelacionamentoResumo:
+def _build_resumo(
+    lancamento: Lancamento,
+    score: int,
+    motivo: str,
+    entidades_por_id: Optional[Dict[int, Entidade]] = None,
+) -> RelacionamentoResumo:
+    interessado: Optional[str] = None
+    if entidades_por_id and lancamento.entidade_id:
+        entidade = entidades_por_id.get(int(lancamento.entidade_id or 0))
+        if entidade and entidade.nome:
+            interessado = entidade.nome
+
     return RelacionamentoResumo(
         descricao=lancamento.descricao,
+        interessado=interessado,
         data_vencimento=lancamento.data_vencimento.isoformat(),
         valor_previsto=float(lancamento.valor_previsto),
         score=score,
@@ -1277,6 +1349,27 @@ async def upload_ofx(
         hashes_vistos: set[str] = set()
         entidade_cache: Dict[str, Optional[int]] = {}
 
+        entidades_por_documento: Dict[str, int] = {}
+        entidades_por_nome_exato: Dict[str, int] = {}
+        entidades_para_busca: Dict[int, tuple[str, set[str]]] = {}
+        entidades_por_token: Dict[str, List[int]] = {}
+        for entidade_id, entidade in entidades_por_id.items():
+            doc = re.sub(r"[^0-9]", "", str(entidade.cpf_cnpj or ""))
+            if doc and doc not in entidades_por_documento:
+                entidades_por_documento[doc] = int(entidade_id)
+
+            nome_norm = _normalizar_texto(_normalizar_nome_entidade(entidade.nome))
+            if not nome_norm:
+                continue
+            if nome_norm not in entidades_por_nome_exato:
+                entidades_por_nome_exato[nome_norm] = int(entidade_id)
+
+            tokens_nome = {token for token in nome_norm.split() if len(token) >= 3}
+            entidade_id_int = int(entidade_id)
+            entidades_para_busca[entidade_id_int] = (nome_norm, tokens_nome)
+            for token in tokens_nome:
+                entidades_por_token.setdefault(token, []).append(entidade_id_int)
+
         def _resolve_entidade_id_local(lanc_raw_item: Dict[str, Any]) -> Optional[int]:
             nome_base = str(lanc_raw_item.get("razao_social") or lanc_raw_item.get("interessado_sugerido") or "").strip()
             cpf = str(lanc_raw_item.get("cpf_cnpj") or "").strip()
@@ -1287,12 +1380,51 @@ async def upload_ofx(
             if cache_key in entidade_cache:
                 return entidade_cache[cache_key]
 
-            entidade_id_local = criar_entidade_se_nao_existir(
-                db,
-                nome_base,
-                cpf,
-                empresa_id,
-            )
+            doc = re.sub(r"[^0-9]", "", cpf)
+            entidade_id_local = entidades_por_documento.get(doc) if doc else None
+
+            if entidade_id_local is None and nome_base:
+                nome_norm = _normalizar_texto(_normalizar_nome_entidade(nome_base))
+                if nome_norm:
+                    entidade_id_local = entidades_por_nome_exato.get(nome_norm)
+
+                if entidade_id_local is None and nome_norm:
+                    tokens_origem = {token for token in nome_norm.split() if len(token) >= 3}
+                    candidatos_ids: Optional[set[int]] = None
+                    if tokens_origem:
+                        ids_indexados: set[int] = set()
+                        for token in tokens_origem:
+                            ids_indexados.update(entidades_por_token.get(token, []))
+                        if ids_indexados:
+                            candidatos_ids = ids_indexados
+
+                    melhor_id: Optional[int] = None
+                    melhor_score = 0.0
+                    if candidatos_ids:
+                        iterador = (
+                            (candidato_id, entidades_para_busca[candidato_id])
+                            for candidato_id in candidatos_ids
+                            if candidato_id in entidades_para_busca
+                        )
+                    else:
+                        iterador = entidades_para_busca.items()
+
+                    for candidato_id, (nome_ref, tokens_ref) in iterador:
+                        if tokens_origem and tokens_ref and not (tokens_origem & tokens_ref):
+                            continue
+
+                        if len(nome_norm) >= 8 and (nome_norm in nome_ref or nome_ref in nome_norm):
+                            melhor_id = candidato_id
+                            melhor_score = 1.0
+                            break
+
+                        score = SequenceMatcher(None, nome_norm, nome_ref).ratio()
+                        if score >= 0.86 and score > melhor_score:
+                            melhor_id = candidato_id
+                            melhor_score = score
+
+                    entidade_id_local = melhor_id
+
             entidade_cache[cache_key] = entidade_id_local
             return entidade_id_local
 
@@ -1313,6 +1445,18 @@ async def upload_ofx(
                 conta_id=conta_db_id,
                 cartao_id=(int(cartao.id) if cartao and cartao.id is not None else None),
             )
+
+        duplicatas_por_hash = _carregar_duplicatas_por_hash(
+            db,
+            empresa_id,
+            [str(item.get("import_hash") or "") for item in lancamentos_raw],
+        )
+        historico_por_tipo = _agrupar_historico_por_tipo(historico_empresa)
+        cache_relacionamentos: Dict[str, tuple[Optional[tuple[Lancamento, int, str]], List[tuple[Lancamento, int, str]]]] = {}
+        previstos_sugeridos_no_lote: set[int] = set()
+        atrasados_sugeridos_no_lote: set[int] = set()
+
+        for lanc_raw in lancamentos_raw:
 
             if _eh_movimento_saldo_informativo(lanc_raw):
                 lanc_raw["saldo_informativo"] = True
@@ -1336,7 +1480,8 @@ async def upload_ofx(
                 continue
             hashes_vistos.add(lanc_raw["import_hash"])
 
-            duplicata = verificar_duplicata(db, lanc_raw, empresa_id, conta_id=conta_db_id)
+            import_hash_atual = str(lanc_raw.get("import_hash") or "")
+            duplicata = duplicatas_por_hash.get(import_hash_atual)
             if not duplicata:
                 duplicata = verificar_duplicata_ofx_por_fallback(db, lanc_raw, empresa_id, conta_id=conta_db_id)
             duplicata_historica_motivo = None
@@ -1359,12 +1504,41 @@ async def upload_ofx(
                 lancamentos_processados.append(lanc_raw)
                 continue
 
-            melhor_previsto, melhores_atrasados = _buscar_melhores_relacionamentos(
-                db,
-                lanc_raw,
-                empresa_id,
-                centro_custo_id_resolvido,
-            )
+            chave_relacionamento = "|".join([
+                str(lanc_raw.get("tipo") or ""),
+                str(lanc_raw.get("data") or ""),
+                str(lanc_raw.get("valor") or ""),
+                str(centro_custo_id_resolvido or 0),
+                _normalizar_texto(lanc_raw.get("descricao")),
+                _normalizar_texto(lanc_raw.get("razao_social")),
+                _normalizar_texto(lanc_raw.get("referencia")),
+            ])
+            if chave_relacionamento in cache_relacionamentos:
+                melhor_previsto, melhores_atrasados = cache_relacionamentos[chave_relacionamento]
+            else:
+                melhor_previsto, melhores_atrasados = _buscar_melhores_relacionamentos(
+                    db,
+                    lanc_raw,
+                    empresa_id,
+                    centro_custo_id_resolvido,
+                )
+                cache_relacionamentos[chave_relacionamento] = (melhor_previsto, melhores_atrasados)
+
+            if melhor_previsto:
+                lanc_previsto_candidato = melhor_previsto[0]
+                previsto_candidato_id = int(lanc_previsto_candidato.id or 0)
+                if previsto_candidato_id and previsto_candidato_id in previstos_sugeridos_no_lote:
+                    melhor_previsto = None
+                elif previsto_candidato_id:
+                    previstos_sugeridos_no_lote.add(previsto_candidato_id)
+
+            if melhores_atrasados:
+                melhores_atrasados = [
+                    item
+                    for item in melhores_atrasados
+                    if int(item[0].id or 0) not in atrasados_sugeridos_no_lote
+                ]
+
             if melhor_previsto:
                 previstos += 1
                 lanc_previsto, score_previsto, motivo_previsto = melhor_previsto
@@ -1373,13 +1547,22 @@ async def upload_ofx(
                 lanc_raw["sugestao_acao"] = "BAIXAR_PREVISTO"
                 lanc_raw["score_conciliacao"] = score_previsto
                 lanc_raw["motivo_conciliacao"] = motivo_previsto
-                lanc_raw["lancamento_previsto_resumo"] = _build_resumo(lanc_previsto, score_previsto, motivo_previsto)
+                lanc_raw["lancamento_previsto_resumo"] = _build_resumo(
+                    lanc_previsto,
+                    score_previsto,
+                    motivo_previsto,
+                    entidades_por_id,
+                )
 
             if melhores_atrasados:
                 atrasados += 1
+                for lancamento_atrasado, _, _ in melhores_atrasados:
+                    atraso_id = int(lancamento_atrasado.id or 0)
+                    if atraso_id:
+                        atrasados_sugeridos_no_lote.add(atraso_id)
                 lanc_raw["lancamentos_atrasados_ids"] = [l.id for l, _, _ in melhores_atrasados]
                 lanc_raw["lancamentos_atrasados_resumo"] = [
-                    _build_resumo(lancamento, score, motivo)
+                    _build_resumo(lancamento, score, motivo, entidades_por_id)
                     for lancamento, score, motivo in melhores_atrasados
                 ]
                 if not melhor_previsto:
@@ -1393,7 +1576,7 @@ async def upload_ofx(
 
             _aplicar_sugestao_historica(
                 lanc_raw,
-                historico_empresa,
+                historico_por_tipo.get(str(lanc_raw.get("tipo") or ""), []),
                 entidades_por_id,
                 conta_db_id,
             )
@@ -1558,6 +1741,75 @@ def _buscar_lancamento_por_import_hash(db: Session, empresa_id: int, import_hash
     ).first()
 
 
+def _obter_referencia_saldo_ofx(lancamentos: List[Dict[str, Any]]) -> tuple[Optional[Decimal], Optional[date]]:
+    for item in lancamentos:
+        saldo_raw = item.get("ofx_saldo_arquivo")
+        data_raw = item.get("ofx_saldo_data")
+        if saldo_raw in (None, "") or not data_raw:
+            continue
+        try:
+            saldo_ref = Decimal(str(saldo_raw))
+            data_ref = datetime.fromisoformat(str(data_raw)).date()
+            return saldo_ref, data_ref
+        except Exception:
+            continue
+    return None, None
+
+
+def _calcular_saldo_atual_conta(db: Session, empresa_id: int, conta_id: int) -> Decimal:
+    tipo_receita = func.upper(Lancamento.tipo).like("R%")
+    tipo_despesa = func.upper(Lancamento.tipo).like("D%")
+    movimento_pago = or_(Lancamento.status == "PAGO", Lancamento.data_pagamento.is_not(None))
+
+    conta = db.exec(
+        select(Conta).where(
+            Conta.empresa_id == empresa_id,
+            Conta.id == conta_id,
+        )
+    ).first()
+    if not conta:
+        return Decimal("0.00")
+
+    soma = db.exec(
+        select(
+            func.sum(case((tipo_receita, Lancamento.valor_pago), else_=0)).label("receitas"),
+            func.sum(case((tipo_despesa, Lancamento.valor_pago), else_=0)).label("despesas"),
+        )
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.conta_id == conta_id,
+            Lancamento.is_deleted == False,
+            movimento_pago,
+        )
+    ).first()
+
+    receitas = Decimal(str((soma[0] if soma else 0) or 0))
+    despesas = Decimal(str((soma[1] if soma else 0) or 0))
+    saldo_inicial = Decimal(str(conta.saldo_inicial or 0))
+    return saldo_inicial + receitas - despesas
+
+
+def _calcular_divergencia_saldo_ofx(
+    db: Session,
+    empresa_id: int,
+    conta_id: int,
+    saldo_ofx: Decimal,
+    data_referencia: Optional[date],
+) -> Optional[Dict[str, Any]]:
+    saldo_calculado = _calcular_saldo_atual_conta(db, empresa_id, conta_id)
+    diferenca = saldo_ofx - saldo_calculado
+    if abs(diferenca) < Decimal("0.01"):
+        return None
+
+    return {
+        "conta_id": conta_id,
+        "saldo_ofx": float(saldo_ofx),
+        "saldo_sistema": float(saldo_calculado),
+        "diferenca": float(diferenca),
+        "data_referencia": data_referencia.isoformat() if data_referencia else None,
+    }
+
+
 class ConfirmarLancamentosRequest(BaseModel):
     lancamentos: List[Dict[str, Any]]
     conta_id: Optional[int] = None
@@ -1579,6 +1831,8 @@ async def confirmar_lancamentos(
     lancamentos_atualizados = 0
     erros: List[str] = []
     import_hashes_processados: set[str] = set()
+    previstos_compensados_no_lote: set[int] = set()
+    atrasados_compensados_no_lote: set[int] = set()
     ignorados_descartar = 0
     ignorados_sugestao_pendente = 0
     ignorados_duplicata_payload = 0
@@ -1592,6 +1846,8 @@ async def confirmar_lancamentos(
         "idempotencia_lote": [],
         "idempotencia_historico": [],
     }
+    divergencia_saldo_ofx_antes: Optional[Dict[str, Any]] = None
+    divergencia_saldo_ofx: Optional[Dict[str, Any]] = None
 
     def _registrar_amostra_ignorada(chave: str, item: Dict[str, Any]) -> None:
         bucket = amostras_ignorados.get(chave)
@@ -1634,6 +1890,93 @@ async def confirmar_lancamentos(
             empresa_id,
             request.conta_id,
             request.centro_custo_id,
+        )
+    conta_resolvida_id: Optional[int] = None
+    if conta_resolvida and conta_resolvida.id is not None:
+        conta_resolvida_id = conta_resolvida.id
+
+    saldo_ofx_referencia: Optional[Decimal] = None
+    data_ofx_referencia: Optional[date] = None
+    if not modo_cartao:
+        saldo_ofx_referencia, data_ofx_referencia = _obter_referencia_saldo_ofx(request.lancamentos or [])
+        if conta_resolvida_id is not None and saldo_ofx_referencia is not None:
+            divergencia_saldo_ofx_antes = _calcular_divergencia_saldo_ofx(
+                db,
+                empresa_id,
+                conta_resolvida_id,
+                saldo_ofx_referencia,
+                data_ofx_referencia,
+            )
+
+    def _lancamento_aberto_para_conciliar(lancamento: Lancamento) -> bool:
+        status_normalizado = str(lancamento.status or "").upper()
+        return status_normalizado in STATUS_ABERTOS and lancamento.data_pagamento is None
+
+    conflitos_previstos: Dict[int, set[int]] = {}
+    conflitos_atrasados: Dict[int, set[int]] = {}
+    for lanc_data in request.lancamentos or []:
+        sugestao_acao_raw = str(lanc_data.get("sugestao_acao") or "").strip().upper()
+        sugestao_confirmada = bool(lanc_data.get("sugestao_confirmada")) if "sugestao_confirmada" in lanc_data else True
+        possui_previsto = bool(lanc_data.get("lancamento_previsto_id"))
+        possui_atrasados = bool(lanc_data.get("lancamentos_atrasados_relacionados"))
+
+        if not sugestao_acao_raw:
+            if possui_previsto:
+                acao = "BAIXAR_PREVISTO"
+            elif possui_atrasados:
+                acao = "RELACIONAR_ATRASADOS"
+            else:
+                acao = "CRIAR_NOVO"
+        else:
+            acao = sugestao_acao_raw
+
+        if acao in {"IGNORAR_DUPLICATA", "DESCARTAR"}:
+            continue
+        if acao in {"BAIXAR_PREVISTO", "RELACIONAR_ATRASADOS"} and not sugestao_confirmada:
+            continue
+
+        linha_arquivo = int(lanc_data.get("linha_arquivo") or 0)
+
+        if not modo_cartao and acao == "BAIXAR_PREVISTO" and lanc_data.get("lancamento_previsto_id"):
+            try:
+                previsto_id = int(lanc_data.get("lancamento_previsto_id"))
+            except Exception:
+                previsto_id = 0
+            if previsto_id > 0:
+                conflitos_previstos.setdefault(previsto_id, set()).add(linha_arquivo)
+
+        if not modo_cartao and acao == "RELACIONAR_ATRASADOS":
+            atrasados_ids = lanc_data.get("lancamentos_atrasados_relacionados") or []
+            if not isinstance(atrasados_ids, list):
+                continue
+            vistos_local: set[int] = set()
+            for atraso_id_raw in atrasados_ids:
+                try:
+                    atraso_id = int(atraso_id_raw)
+                except Exception:
+                    continue
+                if atraso_id <= 0 or atraso_id in vistos_local:
+                    continue
+                vistos_local.add(atraso_id)
+                conflitos_atrasados.setdefault(atraso_id, set()).add(linha_arquivo)
+
+    previstos_repetidos = {item_id: linhas for item_id, linhas in conflitos_previstos.items() if len(linhas) > 1}
+    atrasados_repetidos = {item_id: linhas for item_id, linhas in conflitos_atrasados.items() if len(linhas) > 1}
+    if previstos_repetidos or atrasados_repetidos:
+        conflitos_resumo: List[str] = []
+        for previsto_id, linhas in sorted(previstos_repetidos.items())[:5]:
+            linhas_validas = sorted([linha for linha in linhas if linha > 0])
+            conflitos_resumo.append(f"Previsto {previsto_id} repetido nas linhas {linhas_validas or ['?']}")
+        for atraso_id, linhas in sorted(atrasados_repetidos.items())[:5]:
+            linhas_validas = sorted([linha for linha in linhas if linha > 0])
+            conflitos_resumo.append(f"Atrasado {atraso_id} repetido nas linhas {linhas_validas or ['?']}")
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Conflito de conciliação: a mesma sugestão foi selecionada em mais de um lançamento. Remova as duplicidades e tente novamente.",
+                "conflitos": conflitos_resumo,
+            },
         )
 
     for lanc_data in request.lancamentos:
@@ -1700,41 +2043,82 @@ async def confirmar_lancamentos(
             from app.services.importacao_bancaria_service import parsear_data
 
             if acao == "BAIXAR_PREVISTO" and lanc_data.get("lancamento_previsto_id") and not modo_cartao:
-                lanc_existente = db.get(Lancamento, int(lanc_data["lancamento_previsto_id"]))
-                if lanc_existente and not lanc_existente.is_deleted and int(lanc_existente.empresa_id) == int(empresa_id):
-                    data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
-                    data_vencimento = parsear_data(lanc_data["data_vencimento"]) if lanc_data.get("data_vencimento") else None
+                previsto_id = int(lanc_data["lancamento_previsto_id"])
+                if previsto_id in previstos_compensados_no_lote:
+                    erros.append(
+                        f"Previsto id={previsto_id} apareceu em mais de um movimento no mesmo lote. O movimento foi convertido para criacao nova: {lanc_data.get('descricao')}"
+                    )
+                    logger.warning(
+                        "[OFX] Previsto reutilizado no mesmo lote empresa_id={} previsto_id={} descricao={}",
+                        empresa_id,
+                        previsto_id,
+                        str(lanc_data.get("descricao") or "")[:140],
+                    )
+                    acao = "CRIAR_NOVO"
+                else:
+                    lanc_existente = db.get(Lancamento, previsto_id)
+                    if (
+                        lanc_existente
+                        and not lanc_existente.is_deleted
+                        and int(lanc_existente.empresa_id) == int(empresa_id)
+                        and _lancamento_aberto_para_conciliar(lanc_existente)
+                    ):
+                        data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
+                        data_vencimento = parsear_data(lanc_data["data_vencimento"]) if lanc_data.get("data_vencimento") else None
 
-                    if data_vencimento:
-                        lanc_existente.data_vencimento = data_vencimento
+                        if data_vencimento:
+                            lanc_existente.data_vencimento = data_vencimento
 
-                    lanc_existente.data_pagamento = data_pagamento
-                    lanc_existente.status = "PAGO"
-                    lanc_existente.conciliado = True
-                    lanc_existente.valor_pago = Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"]))
-                    if lanc_data.get("plano_contas_id"):
-                        lanc_existente.plano_contas_id = int(lanc_data["plano_contas_id"])
-                    if lanc_data.get("entidade_id"):
-                        lanc_existente.entidade_id = int(lanc_data["entidade_id"])
-                    if conta_resolvida:
-                        lanc_existente.conta_id = conta_resolvida.id
-                    if centro_custo_resolvido:
-                        lanc_existente.centro_custo_id = centro_custo_resolvido
-                    if import_hash and not lanc_existente.import_hash:
-                        lanc_existente.import_hash = import_hash
-                    db.add(lanc_existente)
-                    lancamentos_atualizados += 1
-                    continue
-                erros.append(
-                    f"Previsto id={lanc_data.get('lancamento_previsto_id')} nao encontrado/ativo para compensacao: {lanc_data.get('descricao')}"
-                )
-                continue
+                        lanc_existente.data_pagamento = data_pagamento
+                        lanc_existente.status = "PAGO"
+                        lanc_existente.conciliado = True
+                        lanc_existente.valor_pago = Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"]))
+                        if lanc_data.get("plano_contas_id"):
+                            lanc_existente.plano_contas_id = int(lanc_data["plano_contas_id"])
+                        if lanc_data.get("entidade_id"):
+                            lanc_existente.entidade_id = int(lanc_data["entidade_id"])
+                        if conta_resolvida:
+                            lanc_existente.conta_id = conta_resolvida.id
+                        if centro_custo_resolvido:
+                            lanc_existente.centro_custo_id = centro_custo_resolvido
+                        if import_hash and not lanc_existente.import_hash:
+                            lanc_existente.import_hash = import_hash
+                        db.add(lanc_existente)
+                        previstos_compensados_no_lote.add(previsto_id)
+                        lancamentos_atualizados += 1
+                        continue
+
+                    erros.append(
+                        f"Previsto id={previsto_id} nao encontrado/aberto para compensacao; movimento sera criado como novo: {lanc_data.get('descricao')}"
+                    )
+                    logger.warning(
+                        "[OFX] Previsto indisponivel para conciliacao empresa_id={} previsto_id={} descricao={}",
+                        empresa_id,
+                        previsto_id,
+                        str(lanc_data.get("descricao") or "")[:140],
+                    )
+                    acao = "CRIAR_NOVO"
 
             if acao == "RELACIONAR_ATRASADOS" and lanc_data.get("lancamentos_atrasados_relacionados") and not modo_cartao:
                 atualizados_atrasados = 0
-                for atrasado_id in lanc_data["lancamentos_atrasados_relacionados"]:
-                    lanc_atrasado = db.get(Lancamento, int(atrasado_id))
+                atrasados_ids_unicos: List[int] = []
+                for atrasado_id_raw in lanc_data["lancamentos_atrasados_relacionados"]:
+                    try:
+                        atrasado_id = int(atrasado_id_raw)
+                    except Exception:
+                        continue
+                    if atrasado_id <= 0 or atrasado_id in atrasados_ids_unicos:
+                        continue
+                    atrasados_ids_unicos.append(atrasado_id)
+
+                for atrasado_id in atrasados_ids_unicos:
+                    if atrasado_id in atrasados_compensados_no_lote:
+                        continue
+
+                    lanc_atrasado = db.get(Lancamento, atrasado_id)
                     if not lanc_atrasado or lanc_atrasado.is_deleted or int(lanc_atrasado.empresa_id) != int(empresa_id):
+                        continue
+                    if not _lancamento_aberto_para_conciliar(lanc_atrasado):
                         continue
 
                     data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
@@ -1753,6 +2137,7 @@ async def confirmar_lancamentos(
                     if import_hash and not lanc_atrasado.import_hash:
                         lanc_atrasado.import_hash = import_hash
                     db.add(lanc_atrasado)
+                    atrasados_compensados_no_lote.add(atrasado_id)
                     lancamentos_atualizados += 1
                     atualizados_atrasados += 1
 
@@ -1760,9 +2145,17 @@ async def confirmar_lancamentos(
                     erros.append(
                         f"Nenhum atraso selecionado foi localizado para conciliacao: {lanc_data.get('descricao')}"
                     )
-
-                if lanc_data.get("relacionar_apenas_atrasados"):
+                    logger.warning(
+                        "[OFX] Nenhum atraso atualizado na conciliacao empresa_id={} descricao={} ids={}",
+                        empresa_id,
+                        str(lanc_data.get("descricao") or "")[:140],
+                        atrasados_ids_unicos,
+                    )
                     continue
+
+                # Ao selecionar RELACIONAR_ATRASADOS, o comportamento esperado
+                # e somente quitar os selecionados, sem criar novo lancamento.
+                continue
 
             plano_contas_id = lanc_data.get("plano_contas_id")
             if not plano_contas_id:
@@ -1798,6 +2191,36 @@ async def confirmar_lancamentos(
             data_vencimento = parsear_data(lanc_data["data_vencimento"]) if lanc_data.get("data_vencimento") else (data_pagamento or data_compra_base)
             data_vencimento = data_vencimento or data_pagamento or data_compra_base or date.today()
             data_pagamento = data_pagamento or data_vencimento or date.today()
+
+            if acao == "CRIAR_NOVO" and not modo_cartao and conta_resolvida_id is not None:
+                lancamento_probe = {
+                    "data": data_pagamento,
+                    "valor": lanc_data.get("valor_pago") or lanc_data.get("valor"),
+                    "tipo": lanc_data.get("tipo"),
+                    "descricao": lanc_data.get("descricao"),
+                    "razao_social": lanc_data.get("razao_social"),
+                    "interessado_sugerido": lanc_data.get("interessado_sugerido"),
+                    "referencia": lanc_data.get("referencia"),
+                }
+                duplicata_confirmacao, motivo_confirmacao = _buscar_duplicata_historica(
+                    db,
+                    lancamento_probe,
+                    empresa_id,
+                    conta_resolvida_id,
+                )
+                if duplicata_confirmacao:
+                    ignorados_duplicata_payload += 1
+                    lanc_data["sugestao_acao"] = "DESCARTAR"
+                    lanc_data["motivo_conciliacao"] = f"Duplicata detectada na confirmacao: {motivo_confirmacao or 'movimento ja registrado na conta'}"
+                    _registrar_amostra_ignorada("duplicata_payload", lanc_data)
+                    logger.warning(
+                        "[OFX] Criacao evitada por duplicata detectada na confirmacao conta_id={} empresa_id={} candidato_id={} descricao={}",
+                        conta_resolvida_id,
+                        empresa_id,
+                        duplicata_confirmacao.id,
+                        str(lanc_data.get("descricao") or "")[:140],
+                    )
+                    continue
 
             status_novo = "PAGO"
             origem_nova = str(lanc_data["origem"])
@@ -1842,10 +2265,46 @@ async def confirmar_lancamentos(
             logger.error(f"Erro ao confirmar lancamento OFX: {exc}")
             erros.append(str(exc))
 
+    try:
+        if not modo_cartao and conta_resolvida_id is not None and saldo_ofx_referencia is not None:
+            db.flush()
+            divergencia_saldo_ofx = _calcular_divergencia_saldo_ofx(
+                db,
+                empresa_id,
+                conta_resolvida_id,
+                saldo_ofx_referencia,
+                data_ofx_referencia,
+            )
+            abs_divergencia_antes = abs(Decimal(str((divergencia_saldo_ofx_antes or {}).get("diferenca") or "0")))
+            abs_divergencia_depois = abs(Decimal(str((divergencia_saldo_ofx or {}).get("diferenca") or "0")))
+            if abs_divergencia_depois > abs_divergencia_antes + Decimal("0.01"):
+                logger.warning(
+                    "[OFX] Divergencia de saldo piorou apos confirmacao conta_id={} empresa_id={} abs_antes={} abs_depois={} antes={} depois={}",
+                    conta_resolvida_id,
+                    empresa_id,
+                    abs_divergencia_antes,
+                    abs_divergencia_depois,
+                    divergencia_saldo_ofx_antes,
+                    divergencia_saldo_ofx,
+                )
+                db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "message": "Importacao OFX cancelada: a divergencia de saldo aumentou apos a conciliacao. O sistema bloqueou para evitar inclusoes indevidas.",
+                        "divergencia_saldo_ofx_antes": divergencia_saldo_ofx_antes,
+                        "divergencia_saldo_ofx_depois": divergencia_saldo_ofx,
+                    },
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[OFX] Falha ao calcular divergencia de saldo com referencia do extrato: {}", exc)
+
     db.commit()
 
     logger.info(
-        "[OFX] Confirmacao finalizada empresa_id={} criados={} atualizados={} erros={} ignorados_descartar={} ignorados_sugestao_pendente={} ignorados_duplicata_payload={} ignorados_idempotencia_lote={} ignorados_idempotencia_historico={}",
+        "[OFX] Confirmacao finalizada empresa_id={} criados={} atualizados={} erros={} ignorados_descartar={} ignorados_sugestao_pendente={} ignorados_duplicata_payload={} ignorados_idempotencia_lote={} ignorados_idempotencia_historico={} divergencia_saldo_ofx={}",
         empresa_id,
         lancamentos_criados,
         lancamentos_atualizados,
@@ -1855,6 +2314,7 @@ async def confirmar_lancamentos(
         ignorados_duplicata_payload,
         ignorados_idempotencia_lote,
         ignorados_idempotencia_historico,
+        bool(divergencia_saldo_ofx),
     )
     logger.info(
         "[OFX] Confirmacao amostras_ignorados empresa_id={} descartar={} sugestao_pendente={} duplicata_payload={} idempotencia_lote={} idempotencia_historico={}",
@@ -1871,4 +2331,6 @@ async def confirmar_lancamentos(
         "lancamentos_criados": lancamentos_criados,
         "lancamentos_atualizados": lancamentos_atualizados,
         "erros": erros,
+        "divergencia_saldo_ofx_antes": divergencia_saldo_ofx_antes,
+        "divergencia_saldo_ofx": divergencia_saldo_ofx,
     }

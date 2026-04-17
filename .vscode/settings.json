@@ -11,5 +11,11 @@
         "**/*.scss",
         "**/*.sass",
         "**/*.ts"
-    ]
+    ],
+    "chat.tools.terminal.autoApprove": {
+        "/^c:/Users/Ciro/Documents/ERP/KyrusERP/\\.venv/Scripts/python\\.exe run\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
 }

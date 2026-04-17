@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# VCS / editor
+.git/
+.vscode/
+.idea/
+
+# Env and local caches
+.env
+.env.local
+*.log
+coverage/
+.nyc_output/

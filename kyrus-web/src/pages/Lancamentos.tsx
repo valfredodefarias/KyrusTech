@@ -265,6 +265,7 @@ const initialQuickEntityData: QuickEntityFormState = {
 // 1. MultiSelect Dropdown
 const MultiSelectDropdown = ({ options, selectedIds, onChange, label, placeholder }: any) => {
     const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
     const wrapperRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -275,6 +276,10 @@ const MultiSelectDropdown = ({ options, selectedIds, onChange, label, placeholde
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [wrapperRef]);
 
+  useEffect(() => {
+    if (!isOpen) setSearch('');
+  }, [isOpen]);
+
     const toggleOption = (id: number) => {
         const newSet = new Set(selectedIds);
         if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
@@ -282,6 +287,10 @@ const MultiSelectDropdown = ({ options, selectedIds, onChange, label, placeholde
     };
 
     const selectedLabel = selectedIds.size > 0 ? `${selectedIds.size} selecionados` : placeholder;
+  const term = search.trim().toLowerCase();
+  const filteredOptions = term
+    ? options.filter((opt: any) => String(opt.nome || opt.label || '').toLowerCase().includes(term))
+    : options;
 
     return (
         <div className="relative w-full" ref={wrapperRef}>
@@ -291,8 +300,19 @@ const MultiSelectDropdown = ({ options, selectedIds, onChange, label, placeholde
                 <ChevronDown className="w-4 h-4 text-slate-400"/>
             </div>
             {isOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl shadow-2xl max-h-96 overflow-y-auto custom-scrollbar p-1 animate-in fade-in zoom-in-95">
-                    {options.map((opt: any) => {
+        <div className="mt-1 w-full rounded-xl border border-slate-300 bg-white p-2 shadow-xl dark:border-slate-600 dark:bg-slate-800 animate-in fade-in zoom-in-95">
+          <div className="mb-2">
+            <input
+            autoFocus
+            type="text"
+            placeholder="Digite para pesquisar categoria"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+            />
+          </div>
+          <div className="space-y-1">
+          {filteredOptions.map((opt: any) => {
                       const isDisabled = opt.disabled || opt.eh_cabecalho || opt.permite_lancamentos === false;
                       const tipo = String(opt.tipo || opt.grupo || opt.label || opt.nome || '').toUpperCase();
                       const colorClass = tipo.startsWith('D') ? 'text-red-400' : tipo.startsWith('R') ? 'text-emerald-400' : '';
@@ -308,6 +328,10 @@ const MultiSelectDropdown = ({ options, selectedIds, onChange, label, placeholde
                         </div>
                       );
                     })}
+                    {filteredOptions.length === 0 && (
+                      <div className="px-3 py-2 text-xs text-slate-500">Nenhuma categoria encontrada.</div>
+                    )}
+                    </div>
                 </div>
             )}
         </div>
@@ -472,6 +496,8 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
     setUrlSearchParams(next, options);
   };
   const isBoletimEmbed = searchParams.get('embed_boletim') === '1';
+  const isContasExtratoEmbed = isBoletimEmbed && searchParams.get('origem') === 'contas_extrato';
+  const embedFullscreenDrawer = isBoletimEmbed && !isContasExtratoEmbed;
   // --- DADOS ---
   const [loading, setLoading] = useState(true);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
@@ -503,7 +529,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
-  const [filtrosRailCollapsed, setFiltrosRailCollapsed] = useState(() => localStorage.getItem('lancamentos.filtrosRailCollapsed') === '1');
+  const [filtrosRailCollapsed, setFiltrosRailCollapsed] = useState(true);
   const [listaSort, setListaSort] = useState<{ key: ListaSortKey; direction: ListaSortDirection }>({
     key: 'valor',
     direction: 'desc',
@@ -1075,7 +1101,6 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('novo');
     nextParams.delete('conta_id');
-    nextParams.delete('origem');
     setSearchParams(nextParams, { replace: true });
   }, [searchParams, setSearchParams, contas.length]);
 
@@ -1100,7 +1125,6 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
         if (cancelled) return;
         const nextParams = new URLSearchParams(searchParams);
         nextParams.delete('editar_id');
-        nextParams.delete('origem');
         setSearchParams(nextParams, { replace: true });
       }
     };
@@ -2023,18 +2047,12 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
   };
 
   return (
-    <div className="flex h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 overflow-hidden relative">
+    <div className={`flex h-full text-slate-800 dark:text-slate-100 overflow-hidden relative ${isContasExtratoEmbed ? 'bg-transparent' : 'bg-slate-50 dark:bg-slate-900'}`}>
       {!isBoletimEmbed && (
       <>
-      <aside className={`hidden xl:flex h-full shrink-0 flex-col border-r border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-950/80 backdrop-blur-xl transition-all duration-300 ${filtrosRailCollapsed ? 'w-24' : 'w-90'}`}>
+      <aside className="hidden">
         <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 p-3">
-          {!filtrosRailCollapsed && (
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-400">Console</p>
-              <h2 className="text-sm font-black text-slate-800 dark:text-slate-100">Filtros e contexto</h2>
-            </div>
-          )}
-          <div className={`flex items-center gap-2 ${filtrosRailCollapsed ? 'w-full flex-col' : ''}`}>
+          <div className="flex w-full flex-col items-center gap-2">
             <button
               type="button"
               onClick={toggleMainSidebar}
@@ -2045,11 +2063,11 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
             </button>
             <button
               type="button"
-              onClick={() => setFiltrosRailCollapsed((prev) => !prev)}
+              onClick={() => setShowFiltrosSidebar((prev) => !prev)}
               className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
-              title={filtrosRailCollapsed ? 'Expandir barra lateral da tela' : 'Retrair barra lateral da tela'}
+              title={showFiltrosSidebar ? 'Fechar painel de filtros' : 'Abrir painel de filtros'}
             >
-              {filtrosRailCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+              {showFiltrosSidebar ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             </button>
           </div>
         </div>
@@ -2086,7 +2104,29 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
             </div>
           </div>
         ) : (
-          <div className="flex-1 space-y-5 overflow-y-auto p-4 custom-scrollbar">
+          <>
+            <button
+              type="button"
+              onClick={() => setFiltrosRailCollapsed(true)}
+              className="fixed inset-0 z-30 bg-slate-900/20 backdrop-blur-[1px]"
+              aria-label="Fechar painel de filtros"
+            />
+            <div className="absolute inset-y-0 left-24 z-40 flex w-[min(34vw,560px)] min-w-[380px] max-w-[620px] flex-col border-r border-slate-200 bg-white/98 shadow-2xl dark:border-slate-700 dark:bg-slate-900/98">
+              <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-400">Console</p>
+                  <h2 className="text-sm font-black text-slate-800 dark:text-slate-100">Filtros e contexto</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFiltrosRailCollapsed(true)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                  title="Fechar painel"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex-1 space-y-5 overflow-y-auto p-4 custom-scrollbar">
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
               <select className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" value={centroCustoFiltro} onChange={e=>setCentroCustoFiltro(e.target.value)}>
                 <option value="">Todos os centros de custo</option>
@@ -2199,7 +2239,9 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                 <MultiSelectDropdown label="Categorias" placeholder="Selecione categorias..." options={categorias} selectedIds={filtrosAvancados.categoriaIds} onChange={(s:any)=>setFiltrosAvancados({...filtrosAvancados, categoriaIds:s})} />
               </div>
             </section>
-          </div>
+              </div>
+            </div>
+          </>
         )}
       </aside>
 
@@ -2242,11 +2284,21 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
             </div>
         </div>
 
-        <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
-          <button onClick={()=>setShowTransfer(true)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"><ArrowRightLeft className="w-4 h-4"/> <span className="hidden lg:inline">Transf.</span></button>
-          <button onClick={() => setFiltrosRailCollapsed((prev) => !prev)} className="hidden xl:inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"><Filter className="w-4 h-4"/> Painel</button>
-          <button onClick={()=>openDrawer()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 hover:brightness-110"><Plus className="w-4 h-4"/> Novo</button>
-          <button onClick={()=>setShowFiltrosSidebar(true)} className={`xl:hidden inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold transition-all dark:border-slate-600 ${showFiltrosSidebar ? 'border-blue-600 bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'}`}><Filter className="w-4 h-4"/> <span className="hidden lg:inline">Filtros</span></button>
+        <div className="flex w-full items-center gap-2 overflow-x-auto lg:w-auto lg:justify-end lg:overflow-visible">
+          <div className="hidden shrink-0 lg:block lg:w-56">
+            <select
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+              value={centroCustoFiltro}
+              onChange={e=>setCentroCustoFiltro(e.target.value)}
+            >
+              <option value="">Centro de custo</option>
+              {centros.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+          </div>
+          <button onClick={()=>setShowTransfer(true)} className="shrink-0 inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"><ArrowRightLeft className="w-4 h-4"/> <span className="hidden lg:inline">Transf.</span></button>
+          <button onClick={() => setShowFiltrosSidebar((prev) => !prev)} className={`hidden shrink-0 xl:inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold transition-all dark:border-slate-700 ${showFiltrosSidebar ? 'border-blue-600 bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}><Filter className="w-4 h-4"/> Filtros</button>
+          <button onClick={()=>setShowFiltrosSidebar(true)} className={`xl:hidden shrink-0 inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold transition-all dark:border-slate-600 ${showFiltrosSidebar ? 'border-blue-600 bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'}`}><Filter className="w-4 h-4"/> Filtros</button>
+          <button onClick={()=>openDrawer()} className="shrink-0 inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 hover:brightness-110"><Plus className="w-4 h-4"/> Novo</button>
         </div>
       </header>
 
@@ -2512,7 +2564,13 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
       )}
 
       {/* --- SIDEBAR FILTROS (MULTI-SELECT + BOTOES CONTAS) --- */}
-      <div className={`fixed inset-y-0 right-0 w-80 bg-white dark:bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 xl:hidden ${showFiltrosSidebar?'translate-x-0':'translate-x-full'}`}>
+      <button
+        type="button"
+        aria-label="Fechar painel de filtros"
+        onClick={() => setShowFiltrosSidebar(false)}
+        className={`fixed inset-0 z-50 bg-slate-900/20 backdrop-blur-[1px] transition-opacity duration-200 ${showFiltrosSidebar ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+      />
+      <div className={`fixed inset-y-0 right-0 w-80 xl:w-[min(34vw,560px)] xl:min-w-[380px] xl:max-w-[620px] bg-white dark:bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 ${showFiltrosSidebar?'translate-x-0':'translate-x-full'}`}>
         <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center"><h3 className="font-bold flex gap-2 text-slate-800 dark:text-white"><Filter className="w-4 h-4 text-blue-500"/> Filtros Avançados</h3><button onClick={()=>setShowFiltrosSidebar(false)}><X className="w-5 h-5 text-slate-400 hover:text-slate-700 dark:hover:text-white"/></button></div>
         <div className="p-4 space-y-6 overflow-y-auto h-[calc(100vh-60px)] custom-scrollbar">
            
@@ -2647,7 +2705,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
       </>
       )}
 
-      {isBoletimEmbed && !showDrawer ? (
+      {isBoletimEmbed && !isContasExtratoEmbed && !showDrawer ? (
         <div className="flex h-full w-full items-center justify-center bg-slate-50 text-center dark:bg-slate-900">
           <div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white px-6 py-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div className="animate-pulse space-y-4">
@@ -2764,11 +2822,11 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
 
       {/* DRAWER NOVO/EDITAR */}
       {showDrawer && (
-        <div className={`${isBoletimEmbed ? 'absolute inset-0 z-10 flex justify-end bg-slate-50 dark:bg-slate-900' : 'fixed inset-0 z-50 flex justify-end'}`}>
-          {!isBoletimEmbed ? (
+        <div className={`${embedFullscreenDrawer ? 'absolute inset-0 z-10 flex justify-end bg-slate-50 dark:bg-slate-900' : 'fixed inset-0 z-50 flex justify-end'}`}>
+          {!embedFullscreenDrawer ? (
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => void requestCloseDrawer()}></div>
           ) : null}
-          <div className={`${isBoletimEmbed ? 'relative z-10 flex h-full w-full' : 'relative z-10 flex h-full'}`}>
+          <div className={`${embedFullscreenDrawer ? 'relative z-10 flex h-full w-full' : 'relative z-10 flex h-full'}`}>
             {shouldShowParcelasSerie && (
               <aside className="hidden h-full w-[33vw] min-w-[420px] max-w-[560px] flex-col border-r border-slate-200 bg-white p-4 shadow-2xl backdrop-blur lg:flex dark:border-slate-700 dark:bg-slate-900/98">
                 <div className="flex items-start justify-between gap-3">
@@ -2843,7 +2901,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
               </aside>
             )}
 
-          <div className={`relative w-full bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700 ${isBoletimEmbed ? 'max-w-none' : 'max-w-xl'}`}>
+          <div className={`relative w-full bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700 ${embedFullscreenDrawer ? 'max-w-none' : 'max-w-xl'}`}>
             <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
               <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing?'Editar':'Novo'} Lançamento</h2>
               <div className="flex items-center gap-1">
@@ -3050,8 +3108,8 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                     const contasAtivasNoCentro = getContasAtivasByCentro(formData.centro_custo_id);
                     return (
                       <>
-                  <div className={`overflow-hidden transition-all duration-300 ease-out ${formData.status==='PAGO' ? 'max-h-80 opacity-100' : 'max-h-0 opacity-0'}`}>
-                    <div className="pb-1">
+                  <div className={`overflow-hidden transition-all duration-300 ease-out ${formData.status==='PAGO' ? 'max-h-[55vh] opacity-100' : 'max-h-0 opacity-0'}`}>
+                    <div className="pb-1 max-h-[52vh] overflow-y-auto pr-1 custom-scrollbar">
                       <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><Wallet className="w-3 h-3"/> Contas Bancárias</p>
                       <div className="grid grid-cols-2 gap-2">
                         {contasAtivasNoCentro.length === 0 && <span className="text-xs text-slate-500 italic col-span-2">Nenhuma conta ativa neste centro.</span>}

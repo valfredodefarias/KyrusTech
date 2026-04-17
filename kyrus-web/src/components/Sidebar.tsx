@@ -158,8 +158,14 @@ function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
 
 export function Sidebar({ collapsed, onMouseEnter, onMouseLeave }: { collapsed: boolean; onMouseEnter?: () => void; onMouseLeave?: () => void; }) {
   return (
-    <aside onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className={`${collapsed ? 'w-[76px]' : 'w-[232px]'} hidden h-full min-h-0 shrink-0 overflow-hidden border-r border-slate-200/80 bg-slate-50/90 shadow-sm transition-[width] duration-200 dark:border-slate-700/80 dark:bg-slate-900/80 md:flex`}>
-      <SidebarPanel collapsed={collapsed} />
+    <aside className="relative hidden h-full min-h-0 w-[76px] shrink-0 overflow-visible md:flex">
+      <div
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        className={`${collapsed ? 'w-[76px]' : 'w-[232px]'} absolute inset-y-0 left-0 z-30 min-h-0 overflow-hidden border-r border-slate-200/80 bg-slate-50/90 shadow-sm transition-[width] duration-200 dark:border-slate-700/80 dark:bg-slate-900/80`}
+      >
+        <SidebarPanel collapsed={collapsed} />
+      </div>
     </aside>
   );
 }

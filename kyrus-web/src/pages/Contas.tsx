@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { BankAvatar } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
+import { Lancamentos } from './Lancamentos';
 import { useBankPresetStore } from '../store/bankPresetStore';
 import { 
   Landmark, RefreshCw, Plus, Edit2, Trash2, ChevronRight, X, Check, Loader2, ChevronDown,
@@ -115,6 +116,11 @@ function isTransferencia(item?: Pick<LancamentoItem, 'origem'> | null) {
   return String(item?.origem || '').toUpperCase() === 'TRANSFERENCIA';
 }
 
+function isCompensadoOuPago(item?: Pick<LancamentoItem, 'status' | 'data_pagamento' | 'conciliado'> | null) {
+  const statusPago = String(item?.status || '').toUpperCase() === 'PAGO';
+  return Boolean(statusPago || item?.data_pagamento || item?.conciliado);
+}
+
 interface ContaSaldoDetalhe {
   conta_id: number;
   conta_nome: string;
@@ -218,84 +224,6 @@ function parseDateInput(value: string) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-const SearchableSelect = ({ options, value, onChange, placeholder, label }: any) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const wrapperRef = useRef<HTMLDivElement>(null);
-
-  const selectedOption = options.flatMap((g: any) => g.options).find((o: any) => String(o.id) === String(value));
-
-  useEffect(() => {
-    function handleClickOutside(event: any) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) setIsOpen(false);
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [wrapperRef]);
-
-  const filteredGroups = options.map((group: any) => ({
-    ...group,
-    options: group.options.filter((opt: any) => opt.label.toLowerCase().includes(search.toLowerCase()))
-  })).filter((group: any) => group.options.length > 0);
-
-  return (
-    <div className="relative" ref={wrapperRef}>
-      {label && <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{label}</label>}
-      <div 
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 cursor-pointer flex justify-between items-center text-sm min-h-11.5 hover:border-blue-500 transition shadow-sm"
-      >
-        <span className={selectedOption ? 'text-slate-800 dark:text-white font-medium' : 'text-slate-500'}>
-          {selectedOption ? selectedOption.label : placeholder}
-        </span>
-        <ChevronDown className="w-4 h-4 text-slate-400"/>
-      </div>
-
-      {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl shadow-2xl max-h-96 flex flex-col animate-in fade-in zoom-in-95 duration-100">
-          <div className="p-2 border-b border-slate-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800 rounded-t-xl">
-            <input 
-              autoFocus
-              type="text" 
-              placeholder="Pesquisar..." 
-              className="w-full p-2 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg outline-none text-slate-700 dark:text-white focus:border-blue-500"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </div>
-          <div className="overflow-y-auto custom-scrollbar p-1">
-            {filteredGroups.map((group: any, idx: number) => (
-              <div key={idx} className="mb-2">
-                <div className="px-3 py-1.5 text-[10px] font-bold text-blue-300 uppercase tracking-wider bg-slate-700/30 rounded mb-1 pointer-events-none select-none">
-                  {group.label}
-                </div>
-                {group.options.map((opt: any) => (
-                  (() => {
-                    const isDisabled = opt.disabled || opt.eh_cabecalho || opt.permite_lancamentos === false;
-                    const tipo = String(opt.tipo || opt.grupo || opt.label || '').toUpperCase();
-                    const colorClass = tipo.startsWith('D') ? 'text-red-400' : tipo.startsWith('R') ? 'text-emerald-400' : '';
-                    return (
-                      <div 
-                        key={opt.id}
-                        onClick={() => { if (!isDisabled) { onChange(opt.id); setIsOpen(false); setSearch(''); } }}
-                        className={`px-3 py-2 text-sm rounded transition flex items-center justify-between ${String(value) === String(opt.id) ? 'bg-blue-600 text-white' : `text-slate-600 dark:text-slate-300 ${colorClass}`} ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                      >
-                        {opt.label}
-                        {String(value) === String(opt.id) && <Check className="w-3 h-3"/>}
-                      </div>
-                    );
-                  })()
-                ))}
-              </div>
-            ))}
-            {filteredGroups.length === 0 && <div className="p-4 text-center text-xs text-slate-500">Nada encontrado.</div>}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
 export function Contas() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -351,20 +279,12 @@ export function Contas() {
   const [extratoSelecionados, setExtratoSelecionados] = useState<number[]>([]);
   const [extratoFaturasExpandidas, setExtratoFaturasExpandidas] = useState<Record<string, boolean>>({});
   const [excluindoSelecionados, setExcluindoSelecionados] = useState(false);
-  const [lancamentoModalOpen, setLancamentoModalOpen] = useState(false);
-  const [lancamentoSaving, setLancamentoSaving] = useState(false);
-  const [lancamentoEditing, setLancamentoEditing] = useState<LancamentoItem | null>(null);
-  const [lancamentoForm, setLancamentoForm] = useState({
-    descricao: '',
-    tipo: 'RECEITA',
-    status: 'EM ABERTO',
-    data_vencimento: '',
-    data_pagamento: '',
-    valor_previsto: '',
-    valor_pago: '',
-    plano_contas_id: '',
-    centro_custo_id: ''
-  });
+  const [extratoDeleteModalOpen, setExtratoDeleteModalOpen] = useState(false);
+  const [extratoDeleteStep, setExtratoDeleteStep] = useState(1);
+  const [extratoDeletePhrase, setExtratoDeletePhrase] = useState('');
+  const [extratoDeletePaidPhrase, setExtratoDeletePaidPhrase] = useState('');
+  const [extratoDeleteIds, setExtratoDeleteIds] = useState<number[]>([]);
+  const [lancamentosEmbedParams, setLancamentosEmbedParams] = useState<URLSearchParams | null>(null);
 
   // Formulário
   const [form, setForm] = useState<FormConta>({
@@ -702,18 +622,14 @@ export function Contas() {
     }
   }
 
-  function resetLancamentoForm(conta?: Conta) {
-    setLancamentoForm({
-      descricao: '',
-      tipo: 'RECEITA',
-      status: 'EM ABERTO',
-      data_vencimento: '',
-      data_pagamento: '',
-      valor_previsto: '',
-      valor_pago: '',
-      plano_contas_id: '',
-      centro_custo_id: conta?.centro_custo_id ? String(conta.centro_custo_id) : ''
-    });
+  async function refreshExtratoContaContext(contaId: number) {
+    await fetchLancamentosConta(contaId);
+    const contasAtualizadas = await carregarDados();
+    const contaAtualizada = contasAtualizadas.find((conta) => conta.id === contaId) || null;
+    setExtratoConta(contaAtualizada);
+    if (contaAtualizada) {
+      setContaExtratoNome(contaAtualizada.nome);
+    }
   }
 
   async function handleVerExtrato(conta: Conta) {
@@ -726,6 +642,7 @@ export function Contas() {
     setExtratoPeriodoInicio('');
     setExtratoPeriodoFim('');
     setExtratoLancamentos([]);
+    setLancamentosEmbedParams(null);
     if (categorias.length === 0) {
       await carregarCategorias();
     }
@@ -745,6 +662,7 @@ export function Contas() {
     setExtratoConta(null);
     setExtratoContaId(null);
     setContaExtratoNome('');
+    setLancamentosEmbedParams(null);
   }
 
   function toggleExtratoSelecionado(id: number) {
@@ -755,115 +673,100 @@ export function Contas() {
     setExtratoFaturasExpandidas((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
+  function resetExtratoDeleteFlow() {
+    setExtratoDeleteModalOpen(false);
+    setExtratoDeleteStep(1);
+    setExtratoDeletePhrase('');
+    setExtratoDeletePaidPhrase('');
+    setExtratoDeleteIds([]);
+  }
+
+  function openExtratoDeleteFlow(ids: number[]) {
+    const sanitizedIds = Array.from(new Set(ids.filter((id) => Number.isFinite(id) && id > 0)));
+    if (sanitizedIds.length === 0) return;
+
+    setExtratoDeleteIds(sanitizedIds);
+    setExtratoDeleteStep(1);
+    setExtratoDeletePhrase('');
+    setExtratoDeletePaidPhrase('');
+    setExtratoDeleteModalOpen(true);
+  }
+
   async function handleExcluirSelecionadosExtrato() {
     if (extratoSelecionados.length === 0 || !extratoContaId) return;
-    if (!window.confirm(`Deseja excluir ${extratoSelecionados.length} lançamento(s) que influenciam o saldo desta conta?`)) return;
-
-    setExcluindoSelecionados(true);
-    try {
-      await api.post('/lancamentos/bulk-delete', { ids: extratoSelecionados });
-      await fetchLancamentosConta(extratoContaId);
-      const contasAtualizadas = await carregarDados();
-      const contaAtualizada = contasAtualizadas.find((conta) => conta.id === extratoContaId) || null;
-      setExtratoConta(contaAtualizada);
-      if (contaAtualizada) {
-        setContaExtratoNome(contaAtualizada.nome);
-      }
-    } catch (error) {
-      console.error('Erro ao excluir lançamentos selecionados', error);
-      alert('Erro ao excluir lançamentos selecionados.');
-    } finally {
-      setExcluindoSelecionados(false);
-    }
+    openExtratoDeleteFlow(extratoSelecionados);
   }
 
   function handleAbrirLancamentoModal(lancamento?: LancamentoItem) {
     if (lancamento && isTransferencia(lancamento)) {
       return;
     }
-    if (lancamento) {
-      setLancamentoEditing(lancamento);
-      setLancamentoForm({
-        descricao: lancamento.descricao || '',
-        tipo: lancamento.tipo as string,
-        status: lancamento.status || 'EM ABERTO',
-        data_vencimento: lancamento.data_vencimento?.slice(0, 10) || '',
-        data_pagamento: lancamento.data_pagamento ? lancamento.data_pagamento.slice(0, 10) : '',
-        valor_previsto: String(lancamento.valor_previsto || 0),
-        valor_pago: String(lancamento.valor_pago || 0),
-        plano_contas_id: lancamento.plano_contas_id ? String(lancamento.plano_contas_id) : '',
-        centro_custo_id: lancamento.centro_custo_id ? String(lancamento.centro_custo_id) : (extratoConta?.centro_custo_id ? String(extratoConta.centro_custo_id) : '')
-      });
-    } else {
-      setLancamentoEditing(null);
-      resetLancamentoForm(extratoConta || undefined);
-    }
-    setLancamentoModalOpen(true);
-  }
+    const params = new URLSearchParams();
+    params.set('embed_boletim', '1');
+    params.set('origem', 'contas_extrato');
 
-  async function handleSalvarLancamento() {
-    if (!extratoContaId) return;
-    if (!lancamentoForm.descricao || !lancamentoForm.data_vencimento || !lancamentoForm.valor_previsto || !lancamentoForm.plano_contas_id) {
-      alert('Preencha descrição, data, valor e categoria.');
+    if (lancamento?.id) {
+      params.set('editar_id', String(lancamento.id));
+      setLancamentosEmbedParams(params);
       return;
     }
-    setLancamentoSaving(true);
-    try {
-      const statusPago = lancamentoForm.status === 'PAGO';
-      const payloadBase: any = {
-        descricao: lancamentoForm.descricao,
-        tipo: lancamentoForm.tipo,
-        valor_previsto: Number(lancamentoForm.valor_previsto || 0),
-        valor_pago: statusPago ? Number(lancamentoForm.valor_pago || lancamentoForm.valor_previsto || 0) : 0,
-        data_vencimento: lancamentoForm.data_vencimento,
-        data_pagamento: statusPago ? (lancamentoForm.data_pagamento || lancamentoForm.data_vencimento) : null,
-        plano_contas_id: Number(lancamentoForm.plano_contas_id),
-        conta_id: extratoContaId,
-        centro_custo_id: lancamentoForm.centro_custo_id ? Number(lancamentoForm.centro_custo_id) : null
-      };
 
-      if (lancamentoEditing) {
-        await api.put(`/lancamentos/${lancamentoEditing.id}`, {
-          ...payloadBase,
-          status: lancamentoForm.status
-        });
-      } else {
-        await api.post('/lancamentos/', payloadBase);
-      }
-      setLancamentoModalOpen(false);
-      setLancamentoEditing(null);
-      resetLancamentoForm(extratoConta || undefined);
-      await fetchLancamentosConta(extratoContaId);
-      const contasAtualizadas = await carregarDados();
-      const contaAtualizada = contasAtualizadas.find((conta) => conta.id === extratoContaId) || null;
-      setExtratoConta(contaAtualizada);
-      if (contaAtualizada) {
-        setContaExtratoNome(contaAtualizada.nome);
-      }
+    if (!extratoContaId) return;
+    params.set('novo', '1');
+    params.set('conta_id', String(extratoContaId));
+    setLancamentosEmbedParams(params);
+  }
+
+  async function handleFecharLancamentosEmbed() {
+    setLancamentosEmbedParams(null);
+    if (!extratoContaId) return;
+
+    try {
+      await refreshExtratoContaContext(extratoContaId);
     } catch (error) {
-      console.error('Erro ao salvar lançamento', error);
-      alert('Erro ao salvar lançamento.');
-    } finally {
-      setLancamentoSaving(false);
+      console.error('Erro ao atualizar extrato apos fechar o formulario de lancamento', error);
     }
   }
 
   async function handleExcluirLancamento(id: number) {
-    if (!window.confirm('Deseja excluir este lançamento?')) return;
+    openExtratoDeleteFlow([id]);
+  }
+
+  async function handleConfirmarExcluirExtrato() {
+    if (extratoDeleteIds.length === 0 || !extratoContaId) return;
+
+    const ids = [...extratoDeleteIds];
+    const confirmarExclusaoPagos = extratoDeleteHasCompensados;
+
+    setExcluindoSelecionados(true);
     try {
-      await api.delete(`/lancamentos/${id}`);
-      if (extratoContaId) {
-        await fetchLancamentosConta(extratoContaId);
-        const contasAtualizadas = await carregarDados();
-        const contaAtualizada = contasAtualizadas.find((conta) => conta.id === extratoContaId) || null;
-        setExtratoConta(contaAtualizada);
-        if (contaAtualizada) {
-          setContaExtratoNome(contaAtualizada.nome);
-        }
+      if (ids.length === 1) {
+        await api.delete(`/lancamentos/${ids[0]}`, {
+          params: {
+            confirmar_exclusao_pagos: confirmarExclusaoPagos,
+          },
+        });
+      } else {
+        await api.post('/lancamentos/bulk-delete', {
+          ids,
+          confirmar_exclusao_pagos: confirmarExclusaoPagos,
+        });
       }
+
+      resetExtratoDeleteFlow();
+      await refreshExtratoContaContext(extratoContaId);
+      setNotice({
+        type: 'success',
+        message: ids.length === 1 ? 'Lancamento apagado com sucesso.' : 'Lancamentos apagados com sucesso.',
+      });
     } catch (error) {
-      console.error('Erro ao excluir lançamento', error);
-      alert('Erro ao excluir lançamento.');
+      console.error('Erro ao excluir lancamento(s) do extrato', error);
+      setNotice({
+        type: 'error',
+        message: getApiErrorMessage(error, 'Erro ao excluir lancamento(s).'),
+      });
+    } finally {
+      setExcluindoSelecionados(false);
     }
   }
 
@@ -941,6 +844,19 @@ export function Contas() {
     setExtratoSelecionados((prev) => prev.filter((id) => visibleIds.has(id)));
   }, [extratoLancamentosFiltrados]);
 
+  const extratoDeleteItems = useMemo(() => {
+    if (extratoDeleteIds.length === 0) return [];
+    const deleteSet = new Set(extratoDeleteIds);
+    return extratoLancamentos.filter((item) => deleteSet.has(item.id));
+  }, [extratoDeleteIds, extratoLancamentos]);
+
+  const extratoDeleteCompensadosCount = useMemo(
+    () => extratoDeleteItems.filter((item) => isCompensadoOuPago(item)).length,
+    [extratoDeleteItems],
+  );
+
+  const extratoDeleteHasCompensados = extratoDeleteCompensadosCount > 0;
+
   const extratoAgrupado = useMemo(() => {
     const singleRows: Array<{ type: 'single'; item: LancamentoItem }> = [];
     const grouped = new Map<string, ExtratoGrupoFatura>();
@@ -991,35 +907,6 @@ export function Contas() {
       return getDateTimestamp(rightDate) - getDateTimestamp(leftDate);
     });
   }, [extratoLancamentosFiltrados]);
-
-  const catOptions = [
-    {
-      label: 'SAIDAS',
-      options: categorias
-        .filter(c => (c.tipo || '').trim().toUpperCase().startsWith('D'))
-        .map(c => ({
-          id: c.id,
-          label: c.nome,
-          tipo: c.tipo,
-          eh_cabecalho: c.eh_cabecalho,
-          permite_lancamentos: c.permite_lancamentos,
-          disabled: c.eh_cabecalho || c.permite_lancamentos === false
-        }))
-    },
-    {
-      label: 'ENTRADAS',
-      options: categorias
-        .filter(c => (c.tipo || '').trim().toUpperCase().startsWith('R'))
-        .map(c => ({
-          id: c.id,
-          label: c.nome,
-          tipo: c.tipo,
-          eh_cabecalho: c.eh_cabecalho,
-          permite_lancamentos: c.permite_lancamentos,
-          disabled: c.eh_cabecalho || c.permite_lancamentos === false
-        }))
-    }
-  ];
 
   const getIcon = (tipo: string) => {
     switch(tipo) {
@@ -1128,13 +1015,15 @@ export function Contas() {
               <Plus className="w-4 h-4" /> Novo lancamento
             </button>
           )}
-          <button 
-            onClick={handleOpenCreate}
-            className="text-white px-5 py-2 rounded-lg shadow-md flex items-center gap-2 font-bold transition active:scale-95 text-sm whitespace-nowrap hover:opacity-90"
-            style={{ backgroundColor: primaryColor }}
-          >
-            <Plus className="w-4 h-4" /> Nova Conta
-          </button>
+          {!extratoOpen ? (
+            <button 
+              onClick={handleOpenCreate}
+              className="text-white px-5 py-2 rounded-lg shadow-md flex items-center gap-2 font-bold transition active:scale-95 text-sm whitespace-nowrap hover:opacity-90"
+              style={{ backgroundColor: primaryColor }}
+            >
+              <Plus className="w-4 h-4" /> Nova Conta
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -1512,9 +1401,22 @@ export function Contas() {
                           const nomeCentro = centros.find(ct => ct.id === c.centro_custo_id)?.nome;
 
                           return (
-                            <div key={c.id}
-                              className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5 relative group transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
+                            <div
+                              key={c.id}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => {
+                                void handleVerExtrato(c);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  void handleVerExtrato(c);
+                                }
+                              }}
+                              className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5 relative group cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                               style={{ '--hover-color': primaryColor } as React.CSSProperties}
+                              aria-label={`Abrir extrato da conta ${c.nome}`}
                             >
                               <div
                                 className="absolute inset-0 rounded-xl border-2 border-transparent pointer-events-none transition-colors duration-300"
@@ -1543,18 +1445,25 @@ export function Contas() {
                                 <div className="opacity-0 group-hover:opacity-100 transition flex gap-1">
                                   {c.tipo_integracao === 'ASAAS' && (
                                     <button
-                                      onClick={() => navigate(`/integracoes/asaas?conta_id=${c.id}`)}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        navigate(`/integracoes/asaas?conta_id=${c.id}`);
+                                      }}
                                       className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded text-slate-500"
                                       title="Configurar integração Asaas"
                                     >
                                       <Settings className="w-4 h-4" />
                                     </button>
                                   )}
-                                  <button onClick={() => handleOpenEdit(c)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded" style={{ color: primaryColor }}>
+                                  <button
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleOpenEdit(c);
+                                    }}
+                                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded"
+                                    style={{ color: primaryColor }}
+                                  >
                                     <Edit2 className="w-4 h-4" />
-                                  </button>
-                                  <button onClick={() => setItemToDelete(c)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded text-red-500">
-                                    <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
                               </div>
@@ -1567,13 +1476,12 @@ export function Contas() {
                                       {BRL.format(saldo)}
                                     </p>
                                   </div>
-                                  <button
-                                    onClick={() => handleVerExtrato(c)}
-                                    className="text-xs font-bold hover:underline flex items-center gap-1"
+                                  <span
+                                    className="text-xs font-bold flex items-center gap-1"
                                     style={{ color: primaryColor }}
                                   >
                                     Ver Extrato <ChevronRight className="w-3 h-3" />
-                                  </button>
+                                  </span>
                                 </div>
 
                                 {nomeCentro && (
@@ -1886,112 +1794,122 @@ export function Contas() {
           </div>
       </div>
 
-      {/* --- MODAL DE LANÇAMENTO (CRIAR/EDITAR) --- */}
-      {lancamentoModalOpen && (
-        <div className="fixed inset-0 z-60 flex justify-end">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setLancamentoModalOpen(false)} />
-          <div className="relative w-full max-w-xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700">
-            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-white dark:bg-slate-800">
-              <h2 className="text-lg font-bold text-slate-800 dark:text-white">{lancamentoEditing ? 'Editar lançamento' : 'Novo lançamento'}</h2>
-              <button onClick={() => setLancamentoModalOpen(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-400 transition">
-                <X className="w-5 h-5 text-slate-600 dark:text-slate-300" />
-              </button>
+      {lancamentosEmbedParams && (
+        <div className="fixed inset-0 z-[70]">
+          <Lancamentos
+            forcedSearchParams={lancamentosEmbedParams}
+            onRequestCloseEmbed={() => {
+              void handleFecharLancamentosEmbed();
+            }}
+          />
+        </div>
+      )}
+
+      {extratoDeleteModalOpen && (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm"
+            onClick={() => {
+              if (!excluindoSelecionados) resetExtratoDeleteFlow();
+            }}
+          />
+          <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-white">Apagar lancamentos do extrato</h3>
+              <span className="text-[11px] font-bold text-slate-400">Etapa {extratoDeleteStep} de 2</span>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Descrição</label>
-                <input
-                  className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  value={lancamentoForm.descricao}
-                  onChange={e => setLancamentoForm(prev => ({ ...prev, descricao: e.target.value }))}
-                />
+            {extratoDeleteStep === 1 && (
+              <div className="space-y-3">
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-700/70 dark:bg-rose-900/20 dark:text-rose-200">
+                  Voce esta prestes a apagar <strong>{extratoDeleteIds.length}</strong> lancamento(s) que influenciam o saldo desta conta. Esta acao e irreversivel.
                 </div>
-                <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Tipo</label>
-                <select
-                  className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  value={lancamentoForm.tipo}
-                  onChange={e => setLancamentoForm(prev => ({ ...prev, tipo: e.target.value }))}
-                >
-                  <option value="RECEITA">Receita</option>
-                  <option value="DESPESA">Despesa</option>
-                </select>
-                </div>
-                <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Status</label>
-                <select
-                  className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  value={lancamentoForm.status}
-                  onChange={e => setLancamentoForm(prev => ({ ...prev, status: e.target.value }))}
-                >
-                  <option value="EM ABERTO">Em aberto</option>
-                  <option value="PAGO">Pago</option>
-                </select>
-                </div>
-                <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Data vencimento</label>
-                <input
-                  type="date"
-                  className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  value={lancamentoForm.data_vencimento}
-                  onChange={e => setLancamentoForm(prev => ({ ...prev, data_vencimento: e.target.value }))}
-                />
-                </div>
-                <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Data pagamento</label>
-                <input
-                  type="date"
-                  className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  value={lancamentoForm.data_pagamento}
-                  onChange={e => setLancamentoForm(prev => ({ ...prev, data_pagamento: e.target.value }))}
-                />
-                </div>
-                <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Valor previsto</label>
-                <CurrencyInput
-                  className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  value={lancamentoForm.valor_previsto}
-                  onValueChange={(value) => setLancamentoForm(prev => ({ ...prev, valor_previsto: value }))}
-                />
-                </div>
-                <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Valor pago</label>
-                <CurrencyInput
-                  className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  value={lancamentoForm.valor_pago}
-                  onValueChange={(value) => setLancamentoForm(prev => ({ ...prev, valor_pago: value }))}
-                />
-                </div>
-                <div className="md:col-span-2">
-                <SearchableSelect
-                  label="Categoria"
-                  options={catOptions}
-                  value={lancamentoForm.plano_contas_id}
-                  placeholder="Selecione..."
-                  onChange={(id: number) => setLancamentoForm(prev => ({ ...prev, plano_contas_id: String(id) }))}
-                />
-                </div>
+                {extratoDeleteHasCompensados && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-700/70 dark:bg-amber-900/20 dark:text-amber-200">
+                    Atencao: <strong>{extratoDeleteCompensadosCount}</strong> item(ns) pago(s)/compensado(s) exigem confirmacao adicional.
+                  </div>
+                )}
+                <p className="text-xs text-slate-500 dark:text-slate-300">Revise os itens e avance para confirmar a exclusao.</p>
               </div>
-            </div>
+            )}
 
-            <div className="flex gap-3 border-t border-slate-200 px-6 py-5 dark:border-slate-700">
+            {extratoDeleteStep === 2 && (
+              <div className="space-y-3">
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-700/70 dark:bg-rose-900/20 dark:text-rose-200">
+                  Digite <strong>APAGAR</strong> para confirmar.
+                </div>
+                <input
+                  type="text"
+                  value={extratoDeletePhrase}
+                  onChange={(event) => setExtratoDeletePhrase(event.target.value)}
+                  placeholder="Digite APAGAR"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:ring-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                  style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                />
+
+                {extratoDeleteHasCompensados && (
+                  <>
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-700/70 dark:bg-amber-900/20 dark:text-amber-200">
+                      Como ha itens pagos/compensados, digite <strong>EXCLUIR PAGOS</strong>.
+                    </div>
+                    <input
+                      type="text"
+                      value={extratoDeletePaidPhrase}
+                      onChange={(event) => setExtratoDeletePaidPhrase(event.target.value)}
+                      placeholder="Digite EXCLUIR PAGOS"
+                      className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:ring-1 dark:border-amber-700 dark:bg-slate-900 dark:text-white"
+                      style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                    />
+                  </>
+                )}
+              </div>
+            )}
+
+            <div className="mt-6 flex gap-2">
               <button
-                onClick={() => setLancamentoModalOpen(false)}
-                className="flex-1 py-3 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
+                type="button"
+                onClick={resetExtratoDeleteFlow}
+                disabled={excluindoSelecionados}
+                className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
               >
                 Cancelar
               </button>
-              <button
-                onClick={handleSalvarLancamento}
-                disabled={lancamentoSaving}
-                className="flex-1 py-3 rounded-xl text-white font-bold flex items-center justify-center gap-2 disabled:opacity-60 shadow-lg"
-                style={{ backgroundColor: primaryColor }}
-              >
-                {lancamentoSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                Salvar
-              </button>
+              {extratoDeleteStep > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setExtratoDeleteStep((prev) => Math.max(1, prev - 1))}
+                  disabled={excluindoSelecionados}
+                  className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
+                >
+                  Voltar
+                </button>
+              )}
+              {extratoDeleteStep < 2 ? (
+                <button
+                  type="button"
+                  onClick={() => setExtratoDeleteStep(2)}
+                  disabled={excluindoSelecionados}
+                  className="flex-1 rounded-lg px-3 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  Continuar
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleConfirmarExcluirExtrato();
+                  }}
+                  disabled={
+                    excluindoSelecionados
+                    || extratoDeletePhrase.trim() !== 'APAGAR'
+                    || (extratoDeleteHasCompensados && extratoDeletePaidPhrase.trim().toUpperCase() !== 'EXCLUIR PAGOS')
+                  }
+                  className="flex-1 rounded-lg bg-rose-600 px-3 py-2 text-sm font-bold text-white hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {excluindoSelecionados ? 'Apagando...' : 'Apagar agora'}
+                </button>
+              )}
             </div>
           </div>
         </div>

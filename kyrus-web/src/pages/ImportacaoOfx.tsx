@@ -82,6 +82,7 @@ interface LancamentoSugestao {
 
 interface RelacionamentoResumo {
   descricao: string;
+  interessado?: string | null;
   data_vencimento: string;
   valor_previsto: number;
   score: number;
@@ -131,7 +132,6 @@ interface LancamentoImportado {
 
 interface LancamentoEditado extends LancamentoImportado {
   lancamentos_atrasados_relacionados: number[];
-  relacionar_apenas_atrasados: boolean;
   auto_preenchido: boolean;
   sugestao_acao_original: NonNullable<LancamentoImportado['sugestao_acao']>;
   sugestao_confirmada: boolean;
@@ -157,6 +157,22 @@ interface ConfirmacaoProgressState {
   totalItems: number;
   criados: number;
   atualizados: number;
+}
+
+interface DivergenciaSaldoOfx {
+  conta_id: number;
+  saldo_ofx: number;
+  saldo_sistema: number;
+  diferenca: number;
+  data_referencia?: string | null;
+}
+
+interface ConfirmarLancamentosResponse {
+  sucesso: boolean;
+  lancamentos_criados: number;
+  lancamentos_atualizados: number;
+  erros?: string[];
+  divergencia_saldo_ofx?: DivergenciaSaldoOfx | null;
 }
 
 type FiltroStatus = 'todos' | 'conciliar' | 'novo' | 'duplicado' | 'descartado';
@@ -442,6 +458,28 @@ export function ImportacaoOfx() {
     return { conciliaveis, novos, receitas, despesas, semCategoria };
   }, [lancamentosEditados]);
 
+  const atrasadosSelecionadosPorId = useMemo(() => {
+    const mapa = new Map<number, Set<number>>();
+    for (const item of lancamentosEditados) {
+      const selecionados = Array.isArray(item.lancamentos_atrasados_relacionados)
+        ? item.lancamentos_atrasados_relacionados
+        : [];
+      const unicos = new Set<number>();
+      for (const atrasoIdRaw of selecionados) {
+        const atrasoId = Number(atrasoIdRaw || 0);
+        if (atrasoId > 0) {
+          unicos.add(atrasoId);
+        }
+      }
+      for (const atrasoId of unicos) {
+        const linhas = mapa.get(atrasoId) || new Set<number>();
+        linhas.add(Number(item.linha_arquivo || 0));
+        mapa.set(atrasoId, linhas);
+      }
+    }
+    return mapa;
+  }, [lancamentosEditados]);
+
   const assistenteConfig = useMemo(() => ({
     tela: 'geral' as const,
     titulo: 'Assistente KyrusTECH',
@@ -545,7 +583,7 @@ export function ImportacaoOfx() {
           modo_importacao: modoImportacao,
         };
 
-        const { data } = await api.post('/importacao/confirmar-lancamentos', payload);
+        const { data } = await api.post<ConfirmarLancamentosResponse>('/importacao/confirmar-lancamentos', payload);
         criados += Number(data?.lancamentos_criados || 0);
         atualizados += Number(data?.lancamentos_atualizados || 0);
         const errosChunk = Array.isArray(data?.erros) ? data.erros.filter(Boolean) : [];
@@ -585,7 +623,23 @@ export function ImportacaoOfx() {
         : '/lancamentos';
       setTimeout(() => navigate(destinoPosImportacao), 900);
     } catch (error: any) {
-      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao confirmar importação.' });
+      const detail = error?.response?.data?.detail;
+      if (detail && typeof detail === 'object') {
+        const message = detail?.message || 'Erro ao confirmar importação.';
+        const divergenciaDepois = (detail?.divergencia_saldo_ofx_depois || detail?.divergencia_saldo_ofx) as DivergenciaSaldoOfx | undefined;
+        const divergenciaAntes = detail?.divergencia_saldo_ofx_antes as DivergenciaSaldoOfx | undefined;
+        if (divergenciaDepois) {
+          const blocoAntes = divergenciaAntes
+            ? ` Antes: ${formatCurrency(divergenciaAntes.diferenca)}.`
+            : '';
+          const msgDivergencia = `${message}${blocoAntes} Depois: ${formatCurrency(divergenciaDepois.diferenca)}. Saldo OFX: ${formatCurrency(divergenciaDepois.saldo_ofx)} | Saldo sistema: ${formatCurrency(divergenciaDepois.saldo_sistema)}.`;
+          setFeedback({ type: 'error', message: msgDivergencia });
+        } else {
+          setFeedback({ type: 'error', message });
+        }
+      } else {
+        setFeedback({ type: 'error', message: detail || 'Erro ao confirmar importação.' });
+      }
     } finally {
       setConfirming(false);
       setConfirmProgress(null);
@@ -615,7 +669,6 @@ export function ImportacaoOfx() {
         sugestao_acao_original: sugestaoOriginal,
         sugestao_acao: lanc.sugestao_acao || sugestaoOriginal,
         lancamentos_atrasados_relacionados: [],
-        relacionar_apenas_atrasados: sugestaoOriginal === 'RELACIONAR_ATRASADOS',
         sugestao_confirmada: false,
       } as LancamentoEditado;
     });
@@ -974,6 +1027,13 @@ export function ImportacaoOfx() {
                   tone: 'bg-slate-200 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700',
                 }
                 : acaoBase;
+              const mostrarBadgeAcao = duplicadoAnterior || lanc.sugestao_acao !== 'CRIAR_NOVO';
+              const motivoPadraoSemCorrespondencia = 'Nenhum previsto ou atraso compativel foi encontrado com o mesmo tipo e tolerancia de 5% no valor.';
+              const motivoConciliacao = String(lanc.motivo_conciliacao || '').trim();
+              const mostrarMotivoConciliacao = Boolean(
+                motivoConciliacao
+                && motivoConciliacao !== motivoPadraoSemCorrespondencia,
+              );
               const cardToneClass = duplicadoAnterior
                 ? 'border-slate-300 bg-slate-100/95 dark:border-slate-700 dark:bg-slate-900/70'
                 : conciliadoVisual
@@ -1004,21 +1064,21 @@ export function ImportacaoOfx() {
                             Conciliado
                           </span>
                         ) : null}
-                        <span className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] ${acao.tone}`}>{acao.label}</span>
-                        <span className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] ${lanc.tipo === 'RECEITA' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300' : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-300'}`}>{lanc.tipo}</span>
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">score {lanc.score_conciliacao || 0}</span>
+                        {mostrarBadgeAcao ? (
+                          <span className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] ${acao.tone}`}>{acao.label}</span>
+                        ) : null}
                       </div>
 
                       <div>
                         <h3 className="text-lg font-black text-slate-900 dark:text-white">{lanc.descricao}</h3>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                          <span className="font-black text-red-600 dark:text-red-300">{formatDate(lanc.data)}</span> • {lanc.razao_social || 'Favorecido não informado'}
+                          <span className="font-black text-red-600 dark:text-red-300">{formatDate(lanc.data)}</span>
+                          {lanc.razao_social ? ` • ${lanc.razao_social}` : ''}
                         </p>
                       </div>
 
-                      <p className="max-w-3xl text-sm text-slate-600 dark:text-slate-300">{lanc.motivo_conciliacao || 'Movimento carregado para revisão.'}</p>
-                      {lanc.interessado_sugerido ? (
-                        <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Interessado sugerido: {lanc.interessado_sugerido}</p>
+                      {mostrarMotivoConciliacao ? (
+                        <p className="max-w-3xl text-sm text-slate-600 dark:text-slate-300">{motivoConciliacao}</p>
                       ) : null}
                       <div className="flex flex-wrap gap-2 pt-1">
                         {descartado ? (
@@ -1027,7 +1087,6 @@ export function ImportacaoOfx() {
                               type="button"
                               onClick={() => updateLancamento(lanc.linha_arquivo, {
                                 sugestao_acao: lanc.sugestao_acao_original,
-                                relacionar_apenas_atrasados: lanc.sugestao_acao_original === 'RELACIONAR_ATRASADOS',
                                 lancamentos_atrasados_relacionados: [],
                                 sugestao_confirmada: false,
                               })}
@@ -1038,7 +1097,7 @@ export function ImportacaoOfx() {
                             {!lanc.duplicata_id ? (
                               <button
                                 type="button"
-                                onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', relacionar_apenas_atrasados: false, lancamentos_atrasados_relacionados: [] })}
+                                onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', lancamentos_atrasados_relacionados: [] })}
                                     className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-lime-300 bg-lime-50 text-lime-800 dark:border-lime-800 dark:bg-lime-950/35 dark:text-lime-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                               >
                                 Criar novo
@@ -1048,7 +1107,7 @@ export function ImportacaoOfx() {
                         ) : lanc.lancamento_previsto_id ? (
                           <button
                             type="button"
-                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'BAIXAR_PREVISTO', relacionar_apenas_atrasados: false, sugestao_confirmada: false })}
+                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'BAIXAR_PREVISTO', sugestao_confirmada: false })}
                             className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'BAIXAR_PREVISTO' ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                           >
                             Baixar previsto
@@ -1066,7 +1125,7 @@ export function ImportacaoOfx() {
                         {!lanc.duplicata_id ? (
                           <button
                             type="button"
-                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', relacionar_apenas_atrasados: false, lancamentos_atrasados_relacionados: [] })}
+                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', lancamentos_atrasados_relacionados: [] })}
                             className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-lime-300 bg-lime-50 text-lime-800 dark:border-lime-800 dark:bg-lime-950/35 dark:text-lime-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                           >
                             Criar novo
@@ -1074,7 +1133,7 @@ export function ImportacaoOfx() {
                         ) : null}
                         <button
                           type="button"
-                          onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'DESCARTAR', relacionar_apenas_atrasados: false, lancamentos_atrasados_relacionados: [] })}
+                          onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'DESCARTAR', lancamentos_atrasados_relacionados: [] })}
                           className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${descartado ? 'border-zinc-400 bg-zinc-100 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -1098,11 +1157,6 @@ export function ImportacaoOfx() {
                         Movimento bancário
                       </div>
                       <p className={`mt-3 text-2xl font-black ${valorClass}`}>{formatCurrency(Number(lanc.valor || 0))}</p>
-                      <div className="mt-3 space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
-                        <p>Banco OFX: {lanc.ofx_bank_id || contaSelecionada?.banco || 'Não informado'}</p>
-                        <p>Agência OFX: {lanc.ofx_agencia || 'Não informada'}</p>
-                        <p>Conta OFX: {lanc.ofx_conta_numero || 'Não informada'}</p>
-                      </div>
                     </div>
                   </div>
 
@@ -1119,14 +1173,13 @@ export function ImportacaoOfx() {
                       <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">Melhor previsto encontrado</p>
                       <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                         <div>
+                          {lanc.lancamento_previsto_resumo.interessado ? (
+                            <p className="text-xs font-bold text-slate-900 dark:text-white">Interessado: {lanc.lancamento_previsto_resumo.interessado}</p>
+                          ) : null}
                           <p className="font-bold text-slate-900 dark:text-white">{lanc.lancamento_previsto_resumo.descricao}</p>
                           <p className="text-sm text-slate-600 dark:text-slate-300">Vence em {formatDate(lanc.lancamento_previsto_resumo.data_vencimento)} • {formatCurrency(lanc.lancamento_previsto_resumo.valor_previsto)}</p>
                         </div>
-                        <div className="rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-emerald-700 dark:bg-slate-900/70 dark:text-emerald-300">
-                          Score {lanc.lancamento_previsto_resumo.score}
-                        </div>
                       </div>
-                      <p className="mt-2 text-sm text-emerald-800 dark:text-emerald-200">{lanc.lancamento_previsto_resumo.motivo}</p>
                     </div>
                   )}
 
@@ -1137,26 +1190,30 @@ export function ImportacaoOfx() {
                           <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">Atrasados compatíveis</p>
                           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Selecione os atrasados que este movimento deve quitar.</p>
                         </div>
-                        <label className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                          <input
-                            type="checkbox"
-                            checked={!!lanc.relacionar_apenas_atrasados}
-                            onChange={(e) => updateLancamento(lanc.linha_arquivo, { relacionar_apenas_atrasados: e.target.checked })}
-                          />
-                          Não criar novo lançamento
-                        </label>
                       </div>
                       <div className="mt-3 space-y-3">
                         {lanc.lancamentos_atrasados_resumo.map((atrasado, index) => {
                           const atrasoId = lanc.lancamentos_atrasados_ids?.[index];
                           const marcado = atrasoId ? lanc.lancamentos_atrasados_relacionados.includes(atrasoId) : false;
+                          const linhasComMesmoAtraso = atrasoId ? atrasadosSelecionadosPorId.get(atrasoId) : undefined;
+                          const selecionadoEmOutroLancamento = Boolean(
+                            atrasoId
+                              && linhasComMesmoAtraso
+                              && Array.from(linhasComMesmoAtraso).some((linha) => linha !== lanc.linha_arquivo),
+                          );
+                          const bloqueadoPorOutroLancamento = !marcado && selecionadoEmOutroLancamento;
                           return (
-                            <label key={`${lanc.linha_arquivo}-${index}`} className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200/70 bg-white/80 p-3 dark:border-amber-900/40 dark:bg-slate-900/60">
+                            <label
+                              key={`${lanc.linha_arquivo}-${index}`}
+                              className={`flex items-start gap-3 rounded-2xl border border-amber-200/70 bg-white/80 p-3 dark:border-amber-900/40 dark:bg-slate-900/60 ${bloqueadoPorOutroLancamento ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                            >
                               <input
                                 type="checkbox"
                                 checked={marcado}
+                                disabled={bloqueadoPorOutroLancamento}
                                 onChange={(e) => {
                                   if (!atrasoId) return;
+                                  if (bloqueadoPorOutroLancamento) return;
                                   const proximo = e.target.checked
                                     ? [...lanc.lancamentos_atrasados_relacionados, atrasoId]
                                     : lanc.lancamentos_atrasados_relacionados.filter((item) => item !== atrasoId);
@@ -1164,12 +1221,16 @@ export function ImportacaoOfx() {
                                 }}
                               />
                               <div className="min-w-0 flex-1">
-                                <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                                {atrasado.interessado ? (
+                                  <p className="text-xs font-bold text-slate-900 dark:text-white">Interessado: {atrasado.interessado}</p>
+                                ) : null}
+                                <div className="flex flex-col gap-1">
                                   <p className="font-bold text-slate-900 dark:text-white">{atrasado.descricao}</p>
-                                  <span className="text-xs font-bold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">Score {atrasado.score}</span>
                                 </div>
                                 <p className="text-sm text-slate-600 dark:text-slate-300">Venceu em {formatDate(atrasado.data_vencimento)} • {formatCurrency(atrasado.valor_previsto)}</p>
-                                <p className="mt-1 text-sm text-amber-800 dark:text-amber-200">{atrasado.motivo}</p>
+                                {bloqueadoPorOutroLancamento ? (
+                                  <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">Esta sugestão já foi selecionada em outro lançamento.</p>
+                                ) : null}
                               </div>
                             </label>
                           );

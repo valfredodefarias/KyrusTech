@@ -111,6 +111,22 @@ def _extract_asaas_mapping_candidates(item: Dict[str, Any]) -> List[str]:
     return candidates
 
 
+def _extract_primary_asaas_type(item: Dict[str, Any]) -> Optional[str]:
+    for raw_value in (
+        item.get("type"),
+        item.get("transactionType"),
+        item.get("transactionTypeCode"),
+        item.get("billingType"),
+        item.get("status"),
+        item.get("paymentStatus"),
+        "PAYMENT",
+    ):
+        value = str(raw_value or "").strip().upper()
+        if value:
+            return value
+    return None
+
+
 def _normalize_description_key(value: Optional[str]) -> str:
     if value is None:
         return ""
@@ -628,7 +644,8 @@ def buscar_movimentacoes_financeiras_asaas(
     integracao: IntegracaoBancaria,
     data_inicio: Optional[date] = None,
     data_fim: Optional[date] = None,
-    limit: int = 100
+    limit: int = 100,
+    max_pages: int = ASAAS_MAX_PAGES,
 ) -> List[Dict]:
     """
     Busca movimentações financeiras RECEBIDAS do Asaas (incluindo tipos específicos).
@@ -660,6 +677,7 @@ def buscar_movimentacoes_financeiras_asaas(
             headers=headers,
             params=params,
             page_limit=limit,
+            max_pages=max_pages,
         )
         
         # Filtra apenas movimentações RECEBIDAS (pagos)
@@ -675,7 +693,7 @@ def buscar_movimentacoes_financeiras_asaas(
     except requests.exceptions.RequestException as e:
         logger.warning(f"Erro ao buscar movimentações financeiras do Asaas (tentando payments): {e}")
         # Fallback para payments se o endpoint de financialTransactions não existir
-        return buscar_pagamentos_asaas(db, integracao, data_inicio, data_fim, limit)
+        return buscar_pagamentos_asaas(db, integracao, data_inicio, data_fim, limit, max_pages=max_pages)
     except Exception as e:
         logger.error(f"Erro inesperado ao buscar movimentações financeiras do Asaas: {e}")
         raise
@@ -686,7 +704,8 @@ def buscar_pagamentos_asaas(
     integracao: IntegracaoBancaria,
     data_inicio: Optional[date] = None,
     data_fim: Optional[date] = None,
-    limit: int = 100
+    limit: int = 100,
+    max_pages: int = ASAAS_MAX_PAGES,
 ) -> List[Dict]:
     """
     Busca apenas pagamentos RECEBIDOS (pagos) do Asaas.
@@ -727,6 +746,7 @@ def buscar_pagamentos_asaas(
             headers=headers,
             params=params,
             page_limit=limit,
+            max_pages=max_pages,
         )
         
         # Filtra apenas os que realmente estão RECEIVED (segurança extra)
@@ -743,6 +763,42 @@ def buscar_pagamentos_asaas(
     except Exception as e:
         logger.error(f"Erro inesperado ao buscar pagamentos do Asaas: {e}")
         raise
+
+
+def listar_tipos_recentes_asaas(
+    db: Session,
+    integracao: IntegracaoBancaria,
+    limit: int = 100,
+) -> List[str]:
+    """
+    Retorna os códigos de tipo identificados nas últimas movimentações do Asaas.
+    """
+    limite = max(1, min(int(limit or 100), ASAAS_DEFAULT_PAGE_LIMIT))
+
+    movimentacoes = buscar_movimentacoes_financeiras_asaas(
+        db=db,
+        integracao=integracao,
+        data_inicio=None,
+        data_fim=None,
+        limit=limite,
+        max_pages=1,
+    )
+
+    movimentacoes_ordenadas = sorted(
+        movimentacoes,
+        key=lambda item: _extract_asaas_transaction_date(item) or date.min,
+        reverse=True,
+    )[:limite]
+
+    codigos: List[str] = []
+    for item in movimentacoes_ordenadas:
+        codigo = _extract_primary_asaas_type(item)
+        if not codigo:
+            continue
+        if codigo not in codigos:
+            codigos.append(codigo)
+
+    return codigos
 
 
 def buscar_recebimentos_asaas(
@@ -932,6 +988,8 @@ def converter_pagamento_asaas_para_lancamento(
         pagamento_asaas.get("transactionType") or
         pagamento_asaas.get("transactionTypeCode")
     )
+    if not tipo_movimentacao:
+        tipo_movimentacao = _extract_primary_asaas_type(pagamento_asaas)
 
     valor_bruto = Decimal(str(pagamento_asaas.get("value", 0)))
     tipo = "DESPESA" if valor_bruto < 0 else "RECEITA"
@@ -968,28 +1026,12 @@ def converter_pagamento_asaas_para_lancamento(
             plano_contas_id = integracao.categoria_padrao_id
             logger.info("Usando categoria padrao da integracao: {}", plano_contas_id)
         elif integracao.usar_categoria_a_categorizar:
-            categoria_a_categorizar = db.exec(
-                select(PlanoContas).where(
-                    PlanoContas.empresa_id == empresa_id,
-                    PlanoContas.nome.ilike("%categorizar%"),
-                    PlanoContas.tipo == ("D" if tipo == "DESPESA" else "R")
-                )
-            ).first()
-
-            if categoria_a_categorizar:
-                plano_contas_id = categoria_a_categorizar.id
-            else:
-                categoria_a_categorizar = PlanoContas(
-                    nome="A Categorizar",
-                    tipo="D" if tipo == "DESPESA" else "R",
-                    empresa_id=empresa_id,
-                    permite_lancamentos=True
-                )
-                db.add(categoria_a_categorizar)
-                db.commit()
-                db.refresh(categoria_a_categorizar)
-                plano_contas_id = categoria_a_categorizar.id
-                logger.info("Categoria A Categorizar criada: {}", plano_contas_id)
+            categoria_a_categorizar = _ensure_categoria_a_categorizar_asaas(
+                db=db,
+                empresa_id=empresa_id,
+                tipo_lancamento=tipo,
+            )
+            plano_contas_id = categoria_a_categorizar.id
         else:
             categoria_fallback = db.exec(
                 select(PlanoContas).where(
@@ -1003,15 +1045,11 @@ def converter_pagamento_asaas_para_lancamento(
                 plano_contas_id = categoria_fallback.id
                 logger.warning("Usando categoria fallback: {} ({})", categoria_fallback.nome, plano_contas_id)
             else:
-                categoria_a_categorizar = PlanoContas(
-                    nome="A Categorizar",
-                    tipo="D" if tipo == "DESPESA" else "R",
+                categoria_a_categorizar = _ensure_categoria_a_categorizar_asaas(
+                    db=db,
                     empresa_id=empresa_id,
-                    permite_lancamentos=True
+                    tipo_lancamento=tipo,
                 )
-                db.add(categoria_a_categorizar)
-                db.commit()
-                db.refresh(categoria_a_categorizar)
                 plano_contas_id = categoria_a_categorizar.id
                 logger.warning("Criada categoria A Categorizar como ultimo recurso: {}", plano_contas_id)
 
@@ -1075,7 +1113,7 @@ def converter_pagamento_asaas_para_lancamento(
 
     observacao_parts = [
         f"Asaas ID: {pagamento_asaas.get('id')}",
-        f"Tipo: {tipo_movimentacao}",
+        f"Tipo: {tipo_movimentacao or 'NAO_INFORMADO'}",
     ]
     if customer_id:
         observacao_parts.append(f"Customer ID: {customer_id}")
@@ -1102,6 +1140,49 @@ def converter_pagamento_asaas_para_lancamento(
     }
 
     return lancamento_data
+
+
+def _ensure_categoria_a_categorizar_asaas(
+    db: Session,
+    *,
+    empresa_id: int,
+    tipo_lancamento: str,
+) -> PlanoContas:
+    tipo_normalizado = "D" if str(tipo_lancamento).upper() == "DESPESA" else "R"
+    nome_categoria = "A Categorizar Despesa" if tipo_normalizado == "D" else "A Categorizar Receita"
+
+    categoria = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.tipo == tipo_normalizado,
+            func.upper(PlanoContas.nome) == nome_categoria.upper(),
+        )
+    ).first()
+
+    if not categoria:
+        categoria = PlanoContas(
+            nome=nome_categoria,
+            tipo=tipo_normalizado,
+            empresa_id=empresa_id,
+            permite_lancamentos=True,
+            eh_operacional=False,
+            considerar_nos_resultados=False,
+            dre_grupo="NAO_OPERACIONAL",
+            oculta=False,
+        )
+        db.add(categoria)
+        db.flush()
+        logger.info("Categoria Asaas criada para pendencias: {} ({})", nome_categoria, categoria.id)
+        return categoria
+
+    categoria.permite_lancamentos = True
+    categoria.eh_operacional = False
+    categoria.considerar_nos_resultados = False
+    categoria.dre_grupo = "NAO_OPERACIONAL"
+    categoria.oculta = False
+    db.add(categoria)
+    db.flush()
+    return categoria
 
 
 def criar_entidade_banco_asaas(db: Session, empresa_id: int) -> Optional[int]:

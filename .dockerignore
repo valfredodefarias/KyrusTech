@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.venv/
+.venv311/
 env/
 venv/
 ENV/
@@ -25,6 +27,7 @@ wheels/
 MANIFEST
 
 # Frontend shared source that must stay in Docker context
+kyrus-web/**
 !kyrus-web/src/lib/
 !kyrus-web/src/lib/**
 
@@ -54,9 +57,17 @@ postgres_data/
 static/uploads/
 
 # Frontend
+node_modules/
 kyrus-web/node_modules/
 kyrus-web/.env
 kyrus-web/dist/
+
+# Local data / artifacts not required in image
+xlsx/
+backups/
+auth_*.txt
+tmp_*.json
+tmp_*.txt
 
 # Environment
 .env

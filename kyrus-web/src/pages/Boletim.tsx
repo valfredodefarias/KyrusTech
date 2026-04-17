@@ -11,7 +11,7 @@ import {
 import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
 import { Lancamentos } from './Lancamentos';
-import { api, fetchLancamentosPaged, normalizeListResponse, toPublicAssetUrl } from '../services/api';
+import { api, fetchLancamentosPaged, getPublicBaseUrl, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
 interface ContaResumo {
@@ -102,6 +102,11 @@ interface ConsultorContextoResponse {
   empresa_atual: EmpresaInfo;
 }
 
+interface HealthResponse {
+  server_date?: string;
+  server_datetime?: string;
+}
+
 type ViewMode = 'executivo' | 'pay-receive';
 type StatusFilter = 'TODOS' | 'PAGO' | 'EM_ABERTO' | 'ATRASADO' | 'HOJE' | 'AMANHA';
 type FlowFilter = 'ALL' | 'PAGAMENTO' | 'RECEBIMENTO';
@@ -160,6 +165,34 @@ function parseDateOnly(value?: string | null) {
 
 function toIsoDate(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+}
+
+function getTodayInTimeZoneIso(timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+
+  if (!year || !month || !day) {
+    return toIsoDate(new Date());
+  }
+
+  return `${year}-${month}-${day}`;
+}
+
+function getBusinessTodayIso() {
+  return getTodayInTimeZoneIso('America/Sao_Paulo');
+}
+
+function extractIsoDate(value?: string | null) {
+  const match = String(value || '').trim().match(/^\d{4}-\d{2}-\d{2}/);
+  return match?.[0] || null;
 }
 
 function formatDate(value?: string | null) {
@@ -484,7 +517,7 @@ export function Boletim() {
   const [flowFilter, setFlowFilter] = useState<FlowFilter>('ALL');
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
   const [selectedDayOfMonth, setSelectedDayOfMonth] = useState<number | null>(null);
-  const [referenceDate, setReferenceDate] = useState(() => toIsoDate(new Date()));
+  const [referenceDate, setReferenceDate] = useState(() => getBusinessTodayIso());
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>('ALL');
   const [auditPanel, setAuditPanel] = useState<AuditPanelState | null>(null);
   const [activeAuditMetricKey, setActiveAuditMetricKey] = useState<string | null>(null);
@@ -494,9 +527,40 @@ export function Boletim() {
   const initialLoadDoneRef = useRef(false);
   const referenceYear = useMemo(() => {
     const parsedReference = parseDateOnly(referenceDate);
-    return (parsedReference || new Date()).getFullYear();
+    const fallbackDate = parseDateOnly(getBusinessTodayIso()) || new Date();
+    return (parsedReference || fallbackDate).getFullYear();
   }, [referenceDate]);
   const isDark = useIsDarkMode();
+
+  useEffect(() => {
+    let active = true;
+
+    async function syncReferenceDateWithServer() {
+      try {
+        const response = await api.get<HealthResponse>('/health', { baseURL: getPublicBaseUrl() });
+        if (!active) return;
+        const serverDate = extractIsoDate(response.data?.server_date || response.data?.server_datetime);
+        if (!serverDate) return;
+
+        setReferenceDate((current) => {
+          const fallbackToday = getBusinessTodayIso();
+          const currentDate = extractIsoDate(current);
+          if (!currentDate || currentDate === fallbackToday) {
+            return serverDate;
+          }
+          return current;
+        });
+      } catch {
+        // Mantem fallback local quando nao for possivel consultar a data do servidor.
+      }
+    }
+
+    void syncReferenceDateWithServer();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const initial = Math.round(window.innerWidth / 3);
@@ -617,9 +681,10 @@ export function Boletim() {
 
   const dashboard = useMemo(() => {
     const parsedReference = parseDateOnly(referenceDate);
+    const fallbackToday = parseDateOnly(getBusinessTodayIso()) || new Date();
     const now = parsedReference
       ? new Date(parsedReference.getFullYear(), parsedReference.getMonth(), parsedReference.getDate())
-      : new Date();
+      : fallbackToday;
     const currentYear = now.getFullYear();
     const fallbackMonthIndex = now.getMonth();
     const todayIso = toIsoDate(now);
@@ -1375,10 +1440,21 @@ export function Boletim() {
                 <button
                   type="button"
                   onClick={() => {
-                    const todayIso = toIsoDate(new Date());
+                    const todayIso = getBusinessTodayIso();
                     setReferenceDate(todayIso);
                     setSelectedMonthIndex(null);
                     setSelectedDayOfMonth(null);
+                    void (async () => {
+                      try {
+                        const response = await api.get<HealthResponse>('/health', { baseURL: getPublicBaseUrl() });
+                        const serverDate = extractIsoDate(response.data?.server_date || response.data?.server_datetime);
+                        if (serverDate) {
+                          setReferenceDate(serverDate);
+                        }
+                      } catch {
+                        // Mantem fallback local quando nao for possivel consultar a data do servidor.
+                      }
+                    })();
                   }}
                   className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] transition ${isDark ? 'bg-white/10 text-white/80 hover:bg-white/16 hover:text-white' : 'bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
                 >

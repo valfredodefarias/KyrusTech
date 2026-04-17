@@ -125,6 +125,7 @@ function LayoutShell() {
       rota_atual: location.pathname,
     },
   }), [assistenteDefaults, location.pathname, pageAssistenteConfig]);
+  const showAssistente = false;
 
   useEffect(() => {
     setHeaderUser(storedUser);
@@ -327,14 +328,16 @@ function LayoutShell() {
           </main>
         </div>
       </div>
-      <AiAssistente
-        tela={assistenteConfig.tela}
-        contexto={assistenteConfig.contexto}
-        titulo={assistenteConfig.titulo}
-        sugestoes={assistenteConfig.sugestoes}
-        lookups={assistenteConfig.lookups}
-        triggerPlacement={assistenteTriggerPlacement}
-      />
+      {showAssistente ? (
+        <AiAssistente
+          tela={assistenteConfig.tela}
+          contexto={assistenteConfig.contexto}
+          titulo={assistenteConfig.titulo}
+          sugestoes={assistenteConfig.sugestoes}
+          lookups={assistenteConfig.lookups}
+          triggerPlacement={assistenteTriggerPlacement}
+        />
+      ) : null}
     </div>
   );
 }

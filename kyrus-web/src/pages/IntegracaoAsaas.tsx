@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, normalizeListResponse } from '../services/api';
-import { RefreshCw, Link as LinkIcon, Loader2, Save, Search, ChevronDown } from 'lucide-react';
+import { RefreshCw, Link as LinkIcon, Loader2, Save, Search, ChevronDown, KeyRound } from 'lucide-react';
 
 interface Conta {
   id: number;
   nome: string;
+  banco?: string | null;
   tipo?: string | null;
   status?: string | null;
+  tipo_integracao?: string | null;
 }
 
 interface PlanoContas {
@@ -24,6 +26,7 @@ interface IntegracaoBancaria {
   ambiente: string;
   conta_id?: number | null;
   data_inicio_sincronizacao?: string | null;
+  token_configurado?: boolean;
 }
 
 interface TipoAsaas {
@@ -289,7 +292,10 @@ export function IntegracaoAsaas() {
   const [mappingSelections, setMappingSelections] = useState<Record<string, number | ''>>({});
   const [savingMapeamentos, setSavingMapeamentos] = useState(false);
   const [savingConciliacao, setSavingConciliacao] = useState(false);
+  const [savingToken, setSavingToken] = useState(false);
+  const [autoLinkingAsaas, setAutoLinkingAsaas] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
   const [dataInicioSync, setDataInicioSync] = useState('');
 
   const contaSelecionada = useMemo(() => {
@@ -315,6 +321,13 @@ export function IntegracaoAsaas() {
   const integracaoAtiva = contaIdParamNumber
     ? integracaoDaConta
     : integracaoSelecionada || integracoesAsaas[0] || null;
+
+  const contaEhAsaas = useMemo(
+    () => String(contaSelecionada?.tipo_integracao || '').trim().toUpperCase() === 'ASAAS',
+    [contaSelecionada?.tipo_integracao]
+  );
+
+  const tokenConfigurado = Boolean(integracaoAtiva?.token_configurado);
 
   const categoriasLancaveis = useMemo(
     () => categorias.filter((categoria) => categoria.permite_lancamentos !== false),
@@ -409,6 +422,61 @@ export function IntegracaoAsaas() {
   useEffect(() => {
     setDataInicioSync(integracaoAtiva?.data_inicio_sincronizacao || '');
   }, [integracaoAtiva?.id, integracaoAtiva?.data_inicio_sincronizacao]);
+
+  useEffect(() => {
+    let cancelado = false;
+
+    async function vincularContaAsaasSemIntegracao() {
+      if (!contaIdParamNumber || !contaSelecionada || !contaEhAsaas || integracaoDaConta || autoLinkingAsaas) {
+        return;
+      }
+
+      setAutoLinkingAsaas(true);
+      try {
+        await api.post('/integracoes-bancarias/', {
+          nome: String(contaSelecionada.banco || contaSelecionada.nome || 'Asaas').trim() || 'Asaas',
+          tipo: 'ASAAS',
+          ambiente: 'PRODUCAO',
+          token: '',
+          conta_id: contaSelecionada.id,
+          sincronizar_automaticamente: true,
+          intervalo_sincronizacao_minutos: 60,
+          usar_categoria_a_categorizar: true,
+          ativo: true,
+        });
+      } catch (error: any) {
+        const detail = String(error?.response?.data?.detail || '');
+        const duplicada = detail.toLowerCase().includes('ja esta vinculada');
+        if (!duplicada) {
+          console.error(error);
+          if (!cancelado) {
+            alert(
+              typeof error?.response?.data?.detail === 'string' && error.response.data.detail
+                ? error.response.data.detail
+                : 'Não foi possível vincular automaticamente a integração Asaas desta conta.'
+            );
+          }
+        }
+      } finally {
+        await carregarDados();
+        if (!cancelado) {
+          setAutoLinkingAsaas(false);
+        }
+      }
+    }
+
+    void vincularContaAsaasSemIntegracao();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [
+    contaIdParamNumber,
+    contaSelecionada,
+    contaEhAsaas,
+    integracaoDaConta?.id,
+    autoLinkingAsaas,
+  ]);
 
   async function carregarDados() {
     setLoading(true);
@@ -583,6 +651,30 @@ export function IntegracaoAsaas() {
     }
   }
 
+  async function handleSalvarToken() {
+    if (!selectedIntegracaoId) return;
+
+    const token = tokenInput.trim();
+    if (!token) {
+      alert('Informe o token do Asaas antes de salvar.');
+      return;
+    }
+
+    setSavingToken(true);
+    try {
+      await api.patch(`/integracoes-bancarias/${selectedIntegracaoId}`, { token });
+      setTokenInput('');
+      await carregarDados();
+      alert('Token salvo com sucesso.');
+    } catch (error: any) {
+      console.error(error);
+      const detail = error?.response?.data?.detail;
+      alert(typeof detail === 'string' && detail ? detail : 'Erro ao salvar token da integração Asaas.');
+    } finally {
+      setSavingToken(false);
+    }
+  }
+
   async function handleSincronizar() {
     if (!selectedIntegracaoId) return;
 
@@ -657,12 +749,61 @@ export function IntegracaoAsaas() {
 
         {!selectedIntegracaoId ? (
           <div className="p-4 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 text-sm text-slate-500">
-            {contaIdParamNumber
-              ? 'Esta conta ainda não possui integração Asaas configurada.'
+            {autoLinkingAsaas
+              ? 'Preparando vínculo automático da integração Asaas para esta conta...'
+              : contaIdParamNumber && contaEhAsaas
+                ? 'Vinculando conta Asaas automaticamente. Se persistir, atualize a página.'
+                : contaIdParamNumber
+                  ? 'Esta conta ainda não possui integração Asaas configurada.'
               : 'Nenhuma integração Asaas disponível para mapeamento.'}
           </div>
         ) : (
           <>
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                    <KeyRound className="w-4 h-4 text-amber-500" />
+                    Token do Asaas
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    O token não é exibido por segurança. Cole um novo token para salvar ou substituir.
+                  </p>
+                </div>
+                <span
+                  className={`text-xs font-bold px-2 py-1 rounded-full border ${
+                    tokenConfigurado
+                      ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
+                      : 'border-amber-200 text-amber-700 bg-amber-50'
+                  }`}
+                >
+                  {tokenConfigurado ? 'Token configurado' : 'Token pendente'}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Novo token</label>
+                  <input
+                    type="password"
+                    value={tokenInput}
+                    onChange={(event) => setTokenInput(event.target.value)}
+                    placeholder={tokenConfigurado ? 'Digite para substituir o token atual' : 'Cole o token API do Asaas'}
+                    className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    autoComplete="new-password"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSalvarToken}
+                  disabled={savingToken || !tokenInput.trim()}
+                  className="px-4 py-3 rounded-lg bg-amber-600 text-white font-semibold hover:bg-amber-700 disabled:opacity-60 flex items-center gap-2"
+                >
+                  {savingToken ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Salvar token
+                </button>
+              </div>
+            </div>
+
             <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto] gap-3 items-end">
                 <div>
@@ -685,7 +826,7 @@ export function IntegracaoAsaas() {
                 <button
                   type="button"
                   onClick={handleSincronizar}
-                  disabled={syncing}
+                  disabled={syncing || !tokenConfigurado}
                   className="px-4 py-3 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2"
                 >
                   {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
@@ -695,6 +836,11 @@ export function IntegracaoAsaas() {
               <p className="text-xs text-slate-500">
                 A conciliação busca da data de início até hoje e, nos próximos ciclos, reprocessa 1 dia antes do último dia com lançamentos sem voltar antes da data de início configurada.
               </p>
+              {!tokenConfigurado ? (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  Configure o token do Asaas para habilitar a sincronização desta conta.
+                </p>
+              ) : null}
             </div>
 
             <div className="flex items-center justify-between gap-3">

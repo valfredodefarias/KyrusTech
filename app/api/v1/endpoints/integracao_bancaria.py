@@ -14,6 +14,7 @@ from sqlalchemy import func, or_
 from app.db.session import get_db
 from app.api.v1.deps import get_empresa_id_from_user, require_permission, get_current_user
 from app.crud import crud_integracao_bancaria
+from app.core.encryption import decrypt_token
 from app.schemas.integracao_bancaria import (
     IntegracaoBancariaCreate,
     IntegracaoBancariaUpdate,
@@ -245,7 +246,18 @@ def _can_manage_asaas_reset(current_user: Usuario) -> bool:
 
 def _serialize_integracao(integracao: IntegracaoBancaria) -> dict:
     payload = integracao.model_dump()
-    payload["token_configurado"] = bool(str(integracao.token_criptografado or "").strip())
+    token_configurado = False
+    token_criptografado = str(integracao.token_criptografado or "").strip()
+
+    if token_criptografado:
+        try:
+            token_plano = decrypt_token(token_criptografado)
+            token_configurado = bool(str(token_plano or "").strip())
+        except Exception:
+            # Mantém compatibilidade com registros legados caso não seja possível decriptar.
+            token_configurado = True
+
+    payload["token_configurado"] = token_configurado
     return payload
 
 

@@ -537,6 +537,8 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
   const [filtrosRailCollapsed, setFiltrosRailCollapsed] = useState(true);
+  const [headerHeightPx, setHeaderHeightPx] = useState(0);
+  const lancamentosHeaderRef = useRef<HTMLElement | null>(null);
   const [listaSort, setListaSort] = useState<{ key: ListaSortKey; direction: ListaSortDirection }>({
     key: 'valor',
     direction: 'desc',
@@ -872,6 +874,29 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
   useEffect(() => {
     localStorage.setItem('lancamentos.filtrosRailCollapsed', filtrosRailCollapsed ? '1' : '0');
   }, [filtrosRailCollapsed]);
+
+  useEffect(() => {
+    const headerEl = lancamentosHeaderRef.current;
+    if (!headerEl) return;
+
+    const updateHeaderHeight = () => {
+      setHeaderHeightPx(Math.ceil(headerEl.getBoundingClientRect().height));
+    };
+
+    updateHeaderHeight();
+
+    const observer = new ResizeObserver(() => {
+      updateHeaderHeight();
+    });
+
+    observer.observe(headerEl);
+    window.addEventListener('resize', updateHeaderHeight);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateHeaderHeight);
+    };
+  }, []);
 
   const pushToast = (type: ToastItem['type'], message: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
@@ -2260,7 +2285,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
       <div className="min-w-0 flex-1 flex flex-col h-full overflow-hidden">
       
       {/* 1. TOP HEADER */}
-      <header className="sticky top-0 bg-white/95 dark:bg-slate-800/95 backdrop-blur border-b border-slate-200 dark:border-slate-700 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-30 shadow-md">
+      <header ref={lancamentosHeaderRef} className="fixed top-[66px] left-0 right-0 md:left-[76px] bg-white/95 dark:bg-slate-800/95 backdrop-blur border-b border-slate-200 dark:border-slate-700 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-20 shadow-md">
         <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1 shadow-inner border border-slate-200 dark:border-transparent">
@@ -2313,6 +2338,8 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
           <button onClick={()=>openDrawer()} className="shrink-0 inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 hover:brightness-110"><Plus className="w-4 h-4"/> Novo</button>
         </div>
       </header>
+
+      <div className="flex min-h-0 flex-1 flex-col" style={{ paddingTop: headerHeightPx > 0 ? `${headerHeightPx}px` : undefined }}>
 
       <div className="px-4 sm:px-6 pt-3 pb-2 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 xl:hidden">
         <div className="flex gap-2 overflow-x-auto custom-scrollbar">
@@ -2555,6 +2582,8 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
 
       </div>
 
+      </div>
+
       {/* Barra flutuante de ações em lote */}
       {selectedIds.size > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
@@ -2580,9 +2609,9 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
         type="button"
         aria-label="Fechar painel de filtros"
         onClick={() => setShowFiltrosSidebar(false)}
-        className={`fixed inset-0 z-50 bg-slate-900/20 backdrop-blur-[1px] transition-opacity duration-200 ${showFiltrosSidebar ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 z-20 bg-slate-900/20 backdrop-blur-[1px] transition-opacity duration-200 ${showFiltrosSidebar ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
       />
-      <div className={`fixed inset-y-0 right-0 w-80 xl:w-[min(34vw,560px)] xl:min-w-[380px] xl:max-w-[620px] bg-white dark:bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 ${showFiltrosSidebar?'translate-x-0':'translate-x-full'}`}>
+      <div className={`fixed inset-y-0 right-0 w-80 xl:w-[min(34vw,560px)] xl:min-w-[380px] xl:max-w-[620px] bg-white dark:bg-slate-800 shadow-2xl z-[22] transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 ${showFiltrosSidebar?'translate-x-0':'translate-x-full'}`}>
         <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center"><h3 className="font-bold flex gap-2 text-slate-800 dark:text-white"><Filter className="w-4 h-4 text-blue-500"/> Filtros Avançados</h3><button onClick={()=>setShowFiltrosSidebar(false)}><X className="w-5 h-5 text-slate-400 hover:text-slate-700 dark:hover:text-white"/></button></div>
         <div className="p-4 space-y-6 overflow-y-auto h-[calc(100vh-60px)] custom-scrollbar">
            

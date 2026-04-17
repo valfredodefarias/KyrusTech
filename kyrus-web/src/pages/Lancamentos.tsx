@@ -157,6 +157,13 @@ const isLancamentoAtrasado = (l: Lancamento) => {
   return l.data_vencimento < getTodayLocalYmd();
 };
 
+const isLancamentoPago = (l: Lancamento) => {
+  if (String(l.status).toUpperCase() === 'PAGO') return true;
+  if (Boolean(l.data_pagamento)) return true;
+  if (Boolean(l.conciliado)) return true;
+  return Number(l.valor_pago || 0) > 0;
+};
+
 const onlyDigits = (value: string) => value.replace(/\D/g, '');
 
 const formatCpfCnpj = (value: string) => {
@@ -1322,17 +1329,20 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
       // 2.5. Extrato por banco selecionado (somente pagos/recebidos)
       if (contaExtratoAtivaId !== null) {
         if (Number(l.conta_id || 0) !== contaExtratoAtivaId) return false;
-        if (String(l.status).toUpperCase() !== 'PAGO') return false;
+        if (!isLancamentoPago(l)) return false;
       }
 
       // 3. Filtros Rápidos
       const hoje = getTodayLocalYmd();
       const amanha = getTomorrowLocalYmd();
+      const pago = isLancamentoPago(l);
       if (filtroRapido === 'HOJE' && l.data_vencimento !== hoje) return false;
       if (filtroRapido === 'AMANHA' && l.data_vencimento !== amanha) return false;
       if (filtroRapido === 'IPP' && !l.ipp) return false;
       if (filtroRapido === 'ATRASADO' && !isLancamentoAtrasado(l)) return false;
-      if (filtroRapido === 'EM_ABERTO' && l.status === 'PAGO') return false;
+      if (filtroRapido === 'PAGO' && !pago) return false;
+      if (filtroRapido === 'NAO_PAGO' && pago) return false;
+      if (filtroRapido === 'EM_ABERTO' && (pago || isLancamentoAtrasado(l))) return false;
 
       // 4. Filtros Avançados
       if (filtrosAvancados.tipo !== 'TODOS' && l.tipo !== filtrosAvancados.tipo) return false;
@@ -2000,9 +2010,11 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
 
   const quickFilterOptions = [
     {id: null, label: 'Todos'},
-    {id: 'HOJE', label: 'Vencem Hoje', icon: CalendarClock},
+    {id: 'HOJE', label: 'Vcto Hoje', icon: CalendarClock},
     {id: 'AMANHA', label: 'Vcto Amanhã', icon: CalendarClock},
     {id: 'ATRASADO', label: 'Atrasados', icon: AlertCircle},
+    {id: 'PAGO', label: 'Pagos', icon: CheckCircle2},
+    {id: 'NAO_PAGO', label: 'Não pagos', icon: Layers},
     {id: 'IPP', label: 'IPP', icon: LayoutGrid},
     {id: 'EM_ABERTO', label: 'Em Aberto', icon: Layers}
   ];
@@ -2248,7 +2260,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
       <div className="min-w-0 flex-1 flex flex-col h-full overflow-hidden">
       
       {/* 1. TOP HEADER */}
-      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-20 shadow-md">
+      <header className="sticky top-0 bg-white/95 dark:bg-slate-800/95 backdrop-blur border-b border-slate-200 dark:border-slate-700 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-30 shadow-md">
         <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1 shadow-inner border border-slate-200 dark:border-transparent">
@@ -2584,6 +2596,22 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
                         {t}
                        </button>
                    ))}
+               </div>
+           </div>
+
+           <div>
+               <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Situação rápida</label>
+               <div className="grid grid-cols-2 gap-2">
+                 {quickFilterOptions.map(f => (
+                   <button
+                     key={String(f.id)}
+                     onClick={() => setFiltroRapido((prev) => (prev === f.id ? null : (f.id as string | null)))}
+                     className={`py-2 px-2 rounded-lg text-xs font-bold border transition flex items-center justify-center gap-1.5 ${f.id === null ? 'col-span-2' : ''} ${filtroRapido===f.id ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                   >
+                     {f.icon && <f.icon className="w-3 h-3"/>}
+                     {f.label}
+                   </button>
+                 ))}
                </div>
            </div>
 

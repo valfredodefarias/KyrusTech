@@ -306,6 +306,54 @@ def _buscar_categoria_sugerida(
     if not categorias:
         return None
 
+    if tipo == "D":
+        empresa = db.exec(
+            select(Empresa).where(
+                Empresa.id == empresa_id,
+                Empresa.is_deleted == False,
+            )
+        ).first()
+
+        categoria_configurada_id = int(getattr(empresa, "categoria_nfe_fornecedores_id", 0) or 0)
+        if categoria_configurada_id:
+            categoria_configurada = next(
+                (
+                    categoria
+                    for categoria in categorias
+                    if int(categoria.id or 0) == categoria_configurada_id
+                ),
+                None,
+            )
+            if categoria_configurada:
+                return categoria_configurada
+
+        melhor_fornecedores: Optional[PlanoContas] = None
+        melhor_fornecedores_score = -1
+        for categoria in categorias:
+            nome = _normalize_text(categoria.nome)
+            codigo = _normalize_text(str(categoria.codigo or ""))
+            score = 0
+
+            if nome == "fornecedores":
+                score += 20
+            if "fornecedores" in nome:
+                score += 14
+            if "fornecedor" in nome:
+                score += 12
+            if "fornec" in nome:
+                score += 10
+            if "contas a pagar" in nome or "a pagar" in nome or "pagar" in nome:
+                score += 6
+            if "fornec" in codigo:
+                score += 3
+
+            if score > melhor_fornecedores_score:
+                melhor_fornecedores = categoria
+                melhor_fornecedores_score = score
+
+        if melhor_fornecedores and melhor_fornecedores_score > 0:
+            return melhor_fornecedores
+
     contexto = " ".join([
         _normalize_text(natureza_operacao),
         " ".join(cfops),

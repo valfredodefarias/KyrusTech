@@ -23,6 +23,7 @@ interface Empresa {
   cnpj: string;
   cor_primaria?: string;
   logo_url?: string;
+  categoria_nfe_fornecedores_id?: number | null;
 }
 
 interface UserInfo {
@@ -43,6 +44,14 @@ interface ContaExportacao {
 interface CategoriaExportacao {
   id: number;
   nome: string;
+}
+
+interface CategoriaNfeConfig {
+  id: number;
+  nome: string;
+  tipo?: string | null;
+  permite_lancamentos?: boolean;
+  eh_cabecalho?: boolean;
 }
 
 interface LancamentoExportacao {
@@ -72,6 +81,9 @@ const DadosEmpresa = () => {
   const [cor, setCor] = useState('#2563eb');
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [categoriasDespesaNfe, setCategoriasDespesaNfe] = useState<CategoriaNfeConfig[]>([]);
+  const [categoriaNfeFornecedoresId, setCategoriaNfeFornecedoresId] = useState('');
+  const [loadingCategoriasNfe, setLoadingCategoriasNfe] = useState(false);
   const invalidatePlanoContas = useLookupStore((state) => state.invalidatePlanoContas);
   const canResetEmpresa = AUTHORIZED_COMPANY_RESET_EMAILS.includes((user?.email || '').trim().toLowerCase());
 
@@ -94,10 +106,27 @@ const DadosEmpresa = () => {
         const { data: emp } = await api.get(`/empresas/${userData.empresa_id}`);
         setEmpresa(emp);
         if (emp.cor_primaria) setCor(emp.cor_primaria);
+        setCategoriaNfeFornecedoresId(emp.categoria_nfe_fornecedores_id ? String(emp.categoria_nfe_fornecedores_id) : '');
         
         // Ajusta URL da logo se for relativa (vem do backend)
         if (emp.logo_url) {
           setPreviewUrl(toPublicAssetUrl(emp.logo_url));
+        }
+
+        setLoadingCategoriasNfe(true);
+        try {
+          const { data: planoContasData } = await api.get('/plano-contas/');
+          const categoriasDespesa = normalizeListResponse<CategoriaNfeConfig>(planoContasData)
+            .filter((item) => String(item.tipo || '').toUpperCase().startsWith('D'))
+            .filter((item) => item.permite_lancamentos !== false)
+            .filter((item) => item.eh_cabecalho !== true)
+            .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+          setCategoriasDespesaNfe(categoriasDespesa);
+        } catch (error) {
+          console.error(error);
+          setCategoriasDespesaNfe([]);
+        } finally {
+          setLoadingCategoriasNfe(false);
         }
       }
     } catch (e) { console.error(e); } finally { setLoading(false); }
@@ -121,7 +150,10 @@ const DadosEmpresa = () => {
         }
         
         // 2. Atualiza Cor e Dados da Empresa
-        await api.patch(`/empresas/${empresa.id}`, { cor_primaria: cor });
+        await api.patch(`/empresas/${empresa.id}`, {
+          cor_primaria: cor,
+          categoria_nfe_fornecedores_id: categoriaNfeFornecedoresId ? Number(categoriaNfeFornecedoresId) : null,
+        });
         
         // Aplica visualmente na hora (sem precisar de refresh para ver a cor)
         document.documentElement.style.setProperty('--color-primary', cor);
@@ -226,6 +258,27 @@ const DadosEmpresa = () => {
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">CNPJ</label>
             <input disabled value={empresa.cnpj} className="w-full p-4 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 font-mono cursor-not-allowed opacity-70" />
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <label className="text-xs font-bold text-slate-700 dark:text-white uppercase mb-4 flex items-center gap-2">
+            <Layers className="w-4 h-4 text-blue-500" /> NF-e no Financeiro
+          </label>
+          <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col gap-3">
+            <p className="text-sm font-semibold text-slate-900 dark:text-white">Categoria padrão para lançamento da NF-e</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Escolha a categoria de despesa usada na confirmação da importação de NF-e. Se não escolher, o sistema usa FORNECEDORES da empresa ou a categoria mais próxima automaticamente.</p>
+            <select
+              value={categoriaNfeFornecedoresId}
+              onChange={(event) => setCategoriaNfeFornecedoresId(event.target.value)}
+              disabled={saving || loadingCategoriasNfe}
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+            >
+              <option value="">Automático (FORNECEDORES mais próxima)</option>
+              {categoriasDespesaNfe.map((categoria) => (
+                <option key={categoria.id} value={categoria.id}>{categoria.nome}</option>
+              ))}
+            </select>
           </div>
         </div>
 

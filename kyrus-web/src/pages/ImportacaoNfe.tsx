@@ -66,6 +66,13 @@ interface EntidadeFornecedorOption {
   tipo?: string | null;
 }
 
+interface CentroCustoOption {
+  id: number;
+  nome: string;
+  codigo?: string | null;
+  status?: string | null;
+}
+
 interface NfeDraftItem {
   id: number;
   produtoServico: string;
@@ -413,6 +420,10 @@ export function ImportacaoNfe() {
   const [fornecedores, setFornecedores] = useState<EntidadeFornecedorOption[]>([]);
   const [loadingFornecedores, setLoadingFornecedores] = useState(false);
   const [erroFornecedores, setErroFornecedores] = useState<string | null>(null);
+  const [centrosCusto, setCentrosCusto] = useState<CentroCustoOption[]>([]);
+  const [loadingCentrosCusto, setLoadingCentrosCusto] = useState(false);
+  const [erroCentrosCusto, setErroCentrosCusto] = useState<string | null>(null);
+  const [centroCustoSelecionadoId, setCentroCustoSelecionadoId] = useState<number | null>(null);
   const [mostrarSugestoesEmitente, setMostrarSugestoesEmitente] = useState(false);
   const [emitenteSelecionadoId, setEmitenteSelecionadoId] = useState<number | null>(null);
   const [itensNota, setItensNota] = useState<NfeDraftItem[]>([]);
@@ -508,6 +519,45 @@ export function ImportacaoNfe() {
     };
   }, [mostrarNovoFormulario]);
 
+  useEffect(() => {
+    if (!mostrarNovoFormulario) return;
+
+    let ativo = true;
+
+    async function carregarCentrosCusto() {
+      setLoadingCentrosCusto(true);
+      setErroCentrosCusto(null);
+      try {
+        const { data } = await api.get<CentroCustoOption[]>('/centro-custo/');
+        if (!ativo) return;
+
+        const centrosAtivos = normalizeListResponse<CentroCustoOption>(data)
+          .filter((item) => String(item.status || 'ATIVO').trim().toUpperCase() === 'ATIVO')
+          .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+
+        setCentrosCusto(centrosAtivos);
+        setCentroCustoSelecionadoId((atual) => {
+          if (atual && centrosAtivos.some((item) => item.id === atual)) return atual;
+          const principal = centrosAtivos.find((item) => normalizeSearchText(item.nome) === 'principal');
+          if (principal) return principal.id;
+          return centrosAtivos.length === 1 ? centrosAtivos[0].id : null;
+        });
+      } catch {
+        if (!ativo) return;
+        setCentrosCusto([]);
+        setErroCentrosCusto('Nao foi possivel carregar os centros de custo.');
+      } finally {
+        if (ativo) setLoadingCentrosCusto(false);
+      }
+    }
+
+    void carregarCentrosCusto();
+
+    return () => {
+      ativo = false;
+    };
+  }, [mostrarNovoFormulario]);
+
   const rangeInfo = useMemo(() => {
     if (totalItems === 0) {
       return { start: 0, end: 0 };
@@ -562,6 +612,7 @@ export function ImportacaoNfe() {
   function abrirNovoFormulario() {
     setNovoForm(createDefaultNovoForm());
     setAnaliseNfe(null);
+    setCentroCustoSelecionadoId(null);
     setEmitenteSelecionadoId(null);
     setMostrarSugestoesEmitente(false);
     setItensNota([]);
@@ -580,6 +631,11 @@ export function ImportacaoNfe() {
   async function confirmarFormulario() {
     if (!analiseNfe) {
       setMostrarNovoFormulario(false);
+      return;
+    }
+
+    if (centrosCusto.length > 0 && !centroCustoSelecionadoId) {
+      setError('Selecione o centro de custo da NF-e antes de confirmar.');
       return;
     }
 
@@ -627,6 +683,7 @@ export function ImportacaoNfe() {
         emitente_documento: onlyDigits(novoForm.cpfCnpj || analiseNfe.emitente_documento || ''),
         entidade_id: Number(emitenteSelecionadoId || analiseNfe.entidade_sugerida_id || 0) || undefined,
         plano_contas_id: Number(analiseNfe.plano_contas_sugerido_id || 0) || undefined,
+        centro_custo_id: Number(centroCustoSelecionadoId || 0) || undefined,
         observacao: `NF-e ${novoForm.numero || analiseNfe.numero_nfe} | Chave ${onlyDigits(novoForm.chaveNfe || analiseNfe.chave_nfe)}`,
         parcelas: parcelasPayload,
       });
@@ -809,6 +866,7 @@ export function ImportacaoNfe() {
       });
 
       setAnaliseNfe(analise);
+      setCentroCustoSelecionadoId(null);
       setEmitenteSelecionadoId(null);
       setMostrarSugestoesEmitente(false);
       setItensNota(itensImportados);
@@ -1104,6 +1162,43 @@ export function ImportacaoNfe() {
                   <option value="CANCELADA">Cancelada</option>
                 </select>
               </label>
+
+              <div className="md:col-span-6">
+                <span className={labelClassName}>Centro de custo da NF-e</span>
+                {loadingCentrosCusto ? (
+                  <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Carregando centros de custo...
+                  </div>
+                ) : null}
+
+                {!loadingCentrosCusto && centrosCusto.length === 0 ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    Nenhum centro de custo ativo encontrado.
+                  </div>
+                ) : null}
+
+                {!loadingCentrosCusto && centrosCusto.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {centrosCusto.map((centro) => {
+                      const ativo = centroCustoSelecionadoId === centro.id;
+                      return (
+                        <button
+                          key={centro.id}
+                          type="button"
+                          onClick={() => setCentroCustoSelecionadoId(centro.id)}
+                          className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${ativo ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'}`}
+                        >
+                          {centro.nome}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {erroCentrosCusto ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{erroCentrosCusto}</p> : null}
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">O mesmo centro de custo selecionado aqui sera aplicado em todos os lancamentos financeiros da NF-e.</p>
+              </div>
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-5">

@@ -32,6 +32,7 @@ class Empresa(AuditMixin, SQLModel, table=True):
     tipo_pessoa: str = Field(default="PJ", index=True, description="PF ou PJ")
     logo_url: Optional[str] = None
     cor_primaria: Optional[str] = Field(default="#0d6efd")
+    categoria_nfe_fornecedores_id: Optional[int] = Field(default=None, index=True)
     is_active: bool = Field(default=True, index=True)
     
     # created_at e updated_at já vêm do AuditMixin, mas mantemos o default

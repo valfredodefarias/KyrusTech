@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal
 from difflib import SequenceMatcher
 import hashlib
+from math import ceil
 import re
 import unicodedata
 from typing import Optional
@@ -11,6 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from loguru import logger
 from pydantic import BaseModel, Field
+from sqlalchemy import String, asc, case, cast, desc, func
 from sqlmodel import Session, select
 
 from app.api.v1.deps import get_empresa_id_from_user, require_permission
@@ -115,6 +117,26 @@ class NfeConfirmarResponse(BaseModel):
     lancamento_ids: list[int]
 
 
+class NfeListItem(BaseModel):
+    id_parcelamento: str
+    numero_nfe: str
+    chave_nfe: Optional[str] = None
+    descricao: str
+    centro_custo_nome: Optional[str] = None
+    total_parcelas: int
+    valor_total: float
+    data_vencimento: Optional[str] = None
+    status: str
+
+
+class NfeListResponse(BaseModel):
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+    items: list[NfeListItem]
+
+
 def _normalize_text(value: str) -> str:
     base = unicodedata.normalize("NFKD", str(value or ""))
     no_accent = "".join(char for char in base if not unicodedata.combining(char))
@@ -127,6 +149,16 @@ def _normalizar_nome_entidade(value: str) -> str:
 
 def _only_digits(value: str) -> str:
     return re.sub(r"[^0-9]", "", value or "")
+
+
+def _extract_nfe_number(text: str) -> str:
+    match = re.search(r"NF-?e\s*[:#]?\s*\(?\s*(\d+)\)?", str(text or ""), flags=re.IGNORECASE)
+    return match.group(1) if match else "-"
+
+
+def _extract_nfe_key(text: str) -> Optional[str]:
+    match = re.search(r"Chave\s*([0-9]{44})", str(text or ""), flags=re.IGNORECASE)
+    return match.group(1) if match else None
 
 
 def _tipo_letra(tipo_lancamento: str) -> str:
@@ -501,12 +533,200 @@ def _resolver_entidade_confirmacao_nfe(
     return nova_entidade
 
 
+@router.get(
+    "/nfe/list",
+    response_model=NfeListResponse,
+    dependencies=[Depends(require_permission("lancamentos:import_nfe"))],
+)
+def listar_nfes_importadas(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None),
+    status_filtro: str = Query("TODOS", alias="status", pattern="^(TODOS|PAGO|ATRASADO|EM_ABERTO)$"),
+    order_by: str = Query("data", pattern="^(data|valor|descricao|status)$"),
+    order_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    termo_busca = str(search or "").strip()
+    group_key = func.coalesce(Lancamento.id_parcelamento, func.concat("NFE-ID-", cast(Lancamento.id, String)))
+    total_parcelas_expr = func.count(Lancamento.id)
+    total_pagas_expr = func.sum(case((Lancamento.status == "PAGO", 1), else_=0))
+    total_atrasadas_expr = func.sum(
+        case(
+            ((Lancamento.status != "PAGO") & (Lancamento.data_vencimento < date.today()), 1),
+            else_=0,
+        )
+    )
+
+    grouped_stmt = (
+        select(
+            group_key.label("id_parcelamento"),
+            func.max(Lancamento.id).label("id_referencia"),
+            func.coalesce(func.sum(Lancamento.valor_previsto), 0).label("valor_total"),
+            total_parcelas_expr.label("total_parcelas"),
+            total_pagas_expr.label("total_pagas"),
+            total_atrasadas_expr.label("total_atrasadas"),
+            func.min(Lancamento.data_vencimento).label("data_vencimento_min"),
+            func.max(Lancamento.data_vencimento).label("data_vencimento_max"),
+            func.max(Lancamento.descricao).label("descricao_ref"),
+            func.max(Lancamento.observacao).label("observacao_ref"),
+            func.max(Lancamento.centro_custo_id).label("centro_custo_id"),
+        )
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "NFE_XML",
+        )
+    )
+
+    if termo_busca:
+        like_term = f"%{termo_busca}%"
+        grouped_stmt = grouped_stmt.where(
+            Lancamento.descricao.ilike(like_term)
+            | Lancamento.observacao.ilike(like_term)
+            | Lancamento.id_parcelamento.ilike(like_term)
+        )
+
+    grouped_stmt = grouped_stmt.group_by(group_key)
+
+    if status_filtro == "PAGO":
+        grouped_stmt = grouped_stmt.having(total_pagas_expr >= total_parcelas_expr)
+    elif status_filtro == "ATRASADO":
+        grouped_stmt = grouped_stmt.having(total_atrasadas_expr > 0)
+    elif status_filtro == "EM_ABERTO":
+        grouped_stmt = grouped_stmt.having((total_pagas_expr < total_parcelas_expr) & (total_atrasadas_expr == 0))
+
+    grouped_subquery = grouped_stmt.subquery()
+    total_items = int(db.exec(select(func.count()).select_from(grouped_subquery)).first() or 0)
+    total_pages = max(1, ceil(total_items / page_size)) if total_items else 1
+    current_page = min(page, total_pages)
+    offset = (current_page - 1) * page_size
+
+    status_sort_rank = case(
+        (grouped_subquery.c.total_pagas >= grouped_subquery.c.total_parcelas, 0),
+        (grouped_subquery.c.total_atrasadas > 0, 2),
+        else_=1,
+    )
+    sort_map = {
+        "data": grouped_subquery.c.data_vencimento_max,
+        "valor": grouped_subquery.c.valor_total,
+        "descricao": grouped_subquery.c.descricao_ref,
+        "status": status_sort_rank,
+    }
+    sort_col = sort_map.get(order_by, grouped_subquery.c.data_vencimento_max)
+    sort_fn = asc if order_dir == "asc" else desc
+
+    paged_rows = db.exec(
+        select(
+            grouped_subquery.c.id_parcelamento,
+            grouped_subquery.c.id_referencia,
+            grouped_subquery.c.valor_total,
+            grouped_subquery.c.total_parcelas,
+            grouped_subquery.c.total_pagas,
+            grouped_subquery.c.total_atrasadas,
+            grouped_subquery.c.data_vencimento_max,
+            grouped_subquery.c.descricao_ref,
+            grouped_subquery.c.observacao_ref,
+            grouped_subquery.c.centro_custo_id,
+        )
+        .order_by(sort_fn(sort_col), desc(grouped_subquery.c.id_referencia))
+        .offset(offset)
+        .limit(page_size)
+    ).all()
+
+    centro_custo_ids = {
+        int(centro_custo_id)
+        for (
+            _id_parcelamento,
+            _id_referencia,
+            _valor_total,
+            _total_parcelas,
+            _total_pagas,
+            _total_atrasadas,
+            _data_vencimento,
+            _descricao_ref,
+            _observacao_ref,
+            centro_custo_id,
+        ) in paged_rows
+        if centro_custo_id is not None
+    }
+
+    centro_custo_map: dict[int, str] = {}
+    if centro_custo_ids:
+        centro_custo_rows = db.exec(
+            select(CentroCusto.id, CentroCusto.nome).where(
+                CentroCusto.id.in_(centro_custo_ids),
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False,
+            )
+        ).all()
+        centro_custo_map = {int(centro_custo_id): str(nome or "") for centro_custo_id, nome in centro_custo_rows}
+
+    items: list[NfeListItem] = []
+    for (
+        id_parcelamento_raw,
+        _id_referencia,
+        valor_total_raw,
+        total_parcelas_raw,
+        total_pagas_raw,
+        total_atrasadas_raw,
+        data_vencimento,
+        descricao_ref_raw,
+        observacao_ref_raw,
+        centro_custo_id,
+    ) in paged_rows:
+        id_parcelamento = str(id_parcelamento_raw or "")
+        descricao_ref = str(descricao_ref_raw or "").strip()
+        observacao_ref = str(observacao_ref_raw or "").strip()
+        texto_referencia = f"{observacao_ref} {descricao_ref}".strip()
+
+        numero_nfe = _extract_nfe_number(texto_referencia)
+        chave_nfe = _extract_nfe_key(texto_referencia)
+        if not chave_nfe and id_parcelamento.startswith("NFE-"):
+            possivel_chave = _only_digits(id_parcelamento)
+            if len(possivel_chave) == 44:
+                chave_nfe = possivel_chave
+
+        total_parcelas = int(total_parcelas_raw or 0)
+        total_pagas = int(total_pagas_raw or 0)
+        total_atrasadas = int(total_atrasadas_raw or 0)
+        if total_parcelas > 0 and total_pagas >= total_parcelas:
+            status_resumo = "PAGO"
+        elif total_atrasadas > 0:
+            status_resumo = "ATRASADO"
+        else:
+            status_resumo = "EM_ABERTO"
+
+        items.append(
+            NfeListItem(
+                id_parcelamento=id_parcelamento,
+                numero_nfe=numero_nfe,
+                chave_nfe=chave_nfe,
+                descricao=f"NF-e {numero_nfe}" if numero_nfe != "-" else (descricao_ref or "NF-e importada"),
+                centro_custo_nome=centro_custo_map.get(int(centro_custo_id)) if centro_custo_id is not None else None,
+                total_parcelas=total_parcelas,
+                valor_total=float(valor_total_raw or 0),
+                data_vencimento=data_vencimento.isoformat() if data_vencimento else None,
+                status=status_resumo,
+            )
+        )
+
+    return NfeListResponse(
+        page=current_page,
+        page_size=page_size,
+        total_items=total_items,
+        total_pages=total_pages,
+        items=items,
+    )
+
+
 @router.post(
     "/nfe/analisar",
     response_model=NfeAnaliseResponse,
     dependencies=[Depends(require_permission("lancamentos:import_nfe"))],
 )
-async def analisar_nfe_xml(
+def analisar_nfe_xml(
     arquivo: UploadFile = File(...),
     conta_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
@@ -535,7 +755,7 @@ async def analisar_nfe_xml(
             )
         ).first()
 
-        conteudo = await arquivo.read()
+        conteudo = arquivo.file.read()
         if len(conteudo) > NFE_FILE_SIZE_LIMIT:
             raise HTTPException(status_code=400, detail="Arquivo XML excede o limite de 5 MB")
 

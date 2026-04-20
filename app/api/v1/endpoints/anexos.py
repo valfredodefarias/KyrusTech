@@ -19,7 +19,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_IMAGE_UPLOAD_SIZE = 2 * 1024 * 1024
 
 @router.post("/upload", response_model=dict)
-async def upload_arquivo(
+def upload_arquivo(
     file: UploadFile = File(...),
     request: Request = None,
     # SEGURANÇA 1: Só permite upload se tiver TOKEN VÁLIDO de usuário logado

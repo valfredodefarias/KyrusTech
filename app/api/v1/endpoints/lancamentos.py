@@ -1918,7 +1918,7 @@ def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session =
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(require_permission("lancamentos:import"))],
 )
-async def analisar_arquivo_importacao_async(
+def analisar_arquivo_importacao_async(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: Usuario = Depends(get_current_user),
@@ -1926,7 +1926,7 @@ async def analisar_arquivo_importacao_async(
     empresa_id, user_id = require_empresa_user(current_user)
     if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser XLSX ou XLS")
-    file_bytes = await file.read()
+    file_bytes = file.file.read()
     job = _create_import_job("ANALYZE", empresa_id, user_id, file.filename)
     background_tasks.add_task(_run_import_analysis_job, job.job_id, empresa_id, user_id, file_bytes)
     return {"job_id": job.job_id, "status": job.status}
@@ -1959,7 +1959,7 @@ class ImportacaoRequest:
     "/importar/executar",
     dependencies=[Depends(require_permission("lancamentos:import"))],
 )
-async def importar_executar(
+def importar_executar(
     file: UploadFile = File(...),
     mapeamento_json: str = Form(...),
     db: Session = Depends(get_db),
@@ -1978,7 +1978,7 @@ async def importar_executar(
     try:
         mapeamento = json.loads(mapeamento_json)
         empresa_id, user_id = require_empresa_user(current_user)
-        conteudo = await file.read()
+        conteudo = file.file.read()
         return _execute_import_contents(db, conteudo, empresa_id, user_id, mapeamento)
     except HTTPException:
         raise
@@ -1995,7 +1995,7 @@ async def importar_executar(
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(require_permission("lancamentos:import"))],
 )
-async def importar_executar_async(
+def importar_executar_async(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     mapeamento_json: str = Form(...),
@@ -2009,7 +2009,7 @@ async def importar_executar_async(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mapeamento inválido") from exc
 
     empresa_id, user_id = require_empresa_user(current_user)
-    file_bytes = await file.read()
+    file_bytes = file.file.read()
     job = _create_import_job("EXECUTE", empresa_id, user_id, file.filename)
     background_tasks.add_task(_run_import_execute_job, job.job_id, empresa_id, user_id, file_bytes, mapeamento)
     return {"job_id": job.job_id, "status": job.status}

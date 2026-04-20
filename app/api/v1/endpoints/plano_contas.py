@@ -477,7 +477,7 @@ def bulk_sync_plano_contas(
 
 
 @router.post("/importar", status_code=200)
-async def importar_plano_contas_xlsx(
+def importar_plano_contas_xlsx(
     *,
     db: Session = Depends(get_db),
     file: UploadFile = File(...),
@@ -492,7 +492,7 @@ async def importar_plano_contas_xlsx(
     if not (lowered.endswith(".xlsx") or lowered.endswith(".xlsm") or lowered.endswith(".csv")):
         raise HTTPException(status_code=400, detail="Formato invalido. Envie um arquivo .xlsx, .xlsm ou .csv")
 
-    content = await file.read()
+    content = file.file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Arquivo vazio")
 

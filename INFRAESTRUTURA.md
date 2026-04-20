@@ -282,6 +282,20 @@ Regras:
 4. AUTO_RUN_MIGRATIONS deve ficar desabilitado (0) quando a migration já roda no comando do container, evitando execução duplicada.
 5. Em caso de falha de migration, aplica patch de compatibilidade legado (conforme app/main.py).
 6. Inicia Uvicorn e expõe /health e /api/v1.
+7. Scheduler de integrações Asaas roda em loop assíncrono, mas o ciclo pesado (DB + HTTP externo) é isolado em thread para não bloquear o event loop.
+8. Em ambiente com múltiplos workers, o scheduler usa advisory lock no PostgreSQL para garantir liderança única por ciclo e evitar execução duplicada.
+
+### 6.1 Concorrência para operações pesadas
+
+Regras operacionais para evitar sensação de sistema travado:
+
+1. Upload/confirmação OFX devem executar fora do event loop (endpoints síncronos em threadpool do FastAPI).
+2. Sincronização Asaas não deve monopolizar o event loop principal do worker.
+3. Em compose, configurar mais de um worker do Uvicorn para reduzir impacto de requisições longas.
+
+Recomendação prática:
+
+1. Ajustar `UVICORN_WORKERS` por cenário (`docker-compose.yml`, `docker-compose.prod.yml`, `docker-compose.ssl.yml`, `docker-compose.casaos.yml`) conforme CPU disponível.
 
 ## 7. Banco de dados e migrações
 

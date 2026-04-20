@@ -1292,7 +1292,7 @@ class ProcessarArquivoResponse(BaseModel):
     response_model=ProcessarArquivoResponse,
     dependencies=[Depends(require_permission("lancamentos:import"))],
 )
-async def upload_ofx(
+def upload_ofx(
     arquivo: UploadFile = File(...),
     conta_id: Optional[int] = Query(None),
     cartao_id: Optional[int] = Query(None),
@@ -1333,7 +1333,7 @@ async def upload_ofx(
         else:
             conta, centro_custo_id_resolvido = _resolver_conta_e_centro(db, empresa_id, conta_id, centro_custo_id)
             conta_db_id = int(conta.id or 0)
-        conteudo = await arquivo.read()
+        conteudo = arquivo.file.read()
         if len(conteudo) > OFX_FILE_SIZE_LIMIT:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1838,7 +1838,7 @@ class ConfirmarLancamentosRequest(BaseModel):
     "/confirmar-lancamentos",
     dependencies=[Depends(require_permission("lancamentos:import"))],
 )
-async def confirmar_lancamentos(
+def confirmar_lancamentos(
     request: ConfirmarLancamentosRequest,
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),

@@ -38,6 +38,8 @@ def apply_legacy_schema_compatibility() -> None:
         "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS observacoes TEXT",
         "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS tipo_pessoa VARCHAR DEFAULT 'PJ'",
         "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS categoria_nfe_fornecedores_id INTEGER",
+        "CREATE INDEX IF NOT EXISTS ix_empresas_categoria_nfe_fornecedores_id ON empresas (categoria_nfe_fornecedores_id)",
         "ALTER TABLE contas ADD COLUMN IF NOT EXISTS agencia VARCHAR",
         "ALTER TABLE contas ADD COLUMN IF NOT EXISTS conta_numero VARCHAR",
         "ALTER TABLE contas ADD COLUMN IF NOT EXISTS conta_digito VARCHAR",
@@ -98,6 +100,8 @@ def ensure_integracoes_scheduler_schema() -> None:
     engine = create_engine(settings.DATABASE_URL)
     statements = [
         "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS data_inicio_sincronizacao DATE",
+        "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS categoria_nfe_fornecedores_id INTEGER",
+        "CREATE INDEX IF NOT EXISTS ix_empresas_categoria_nfe_fornecedores_id ON empresas (categoria_nfe_fornecedores_id)",
     ]
 
     with engine.begin() as connection:

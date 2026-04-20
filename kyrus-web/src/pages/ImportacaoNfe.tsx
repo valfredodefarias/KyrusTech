@@ -19,6 +19,7 @@ type NfeStatus = 'PAGO' | 'ATRASADO' | 'EM_ABERTO';
 type SortKey = 'descricao' | 'valor' | 'status' | 'data';
 type SortDirection = 'asc' | 'desc';
 type StatusFilter = 'TODOS' | 'PAGO' | 'ATRASADO' | 'EM_ABERTO';
+type FormMode = 'NOVO' | 'EDITAR';
 
 interface NfeListItem {
   id_parcelamento: string;
@@ -87,6 +88,9 @@ interface NfeDraftPagamento {
   formaPagamento: string;
   parcelas: number;
   valor: number;
+  lancamentoId?: number;
+  dataVencimento?: string;
+  descricaoLancamento?: string;
 }
 
 interface ParsedNfeXml {
@@ -147,6 +151,51 @@ interface NfeConfirmarParcelaPayload {
   descricao: string;
   plano_contas_id?: number;
   entidade_id?: number;
+}
+
+interface NfeConfirmarResponse {
+  id_parcelamento: string;
+  chave_nfe: string;
+  numero_nfe: string;
+  tipo_lancamento: string;
+  total_parcelas: number;
+  lancamentos_criados: number;
+  lancamento_ids: number[];
+}
+
+interface NfeDetalheParcela {
+  id: number;
+  indice: number;
+  numero_parcela: string;
+  data_vencimento: string;
+  valor: number;
+  descricao: string;
+  status: string;
+}
+
+interface NfeDetalheResponse {
+  id_parcelamento: string;
+  numero_nfe: string;
+  chave_nfe?: string | null;
+  tipo_lancamento: string;
+  data_emissao: string;
+  emitente_nome: string;
+  emitente_documento: string;
+  entidade_id?: number | null;
+  plano_contas_id?: number | null;
+  centro_custo_id?: number | null;
+  centro_custo_nome?: string | null;
+  total_parcelas: number;
+  valor_total: number;
+  status: NfeStatus;
+  parcelas: NfeDetalheParcela[];
+}
+
+interface NfeEditarParcelaPayload {
+  id: number;
+  valor: number;
+  data_vencimento?: string;
+  descricao?: string;
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
@@ -433,6 +482,10 @@ export function ImportacaoNfe() {
   const [importandoXml, setImportandoXml] = useState(false);
   const [confirmandoImportacao, setConfirmandoImportacao] = useState(false);
   const [analiseNfe, setAnaliseNfe] = useState<NfeAnaliseResponse | null>(null);
+  const [formMode, setFormMode] = useState<FormMode>('NOVO');
+  const [idParcelamentoEditando, setIdParcelamentoEditando] = useState<string | null>(null);
+  const [planoContasSelecionadoId, setPlanoContasSelecionadoId] = useState<number | null>(null);
+  const [carregandoEdicaoId, setCarregandoEdicaoId] = useState<string | null>(null);
   const draftIdRef = useRef(1);
   const importXmlInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -609,7 +662,7 @@ export function ImportacaoNfe() {
     setPage((prev) => Math.min(totalPages, prev + 1));
   }
 
-  function abrirNovoFormulario() {
+  function limparFormularioDraft() {
     setNovoForm(createDefaultNovoForm());
     setAnaliseNfe(null);
     setCentroCustoSelecionadoId(null);
@@ -620,22 +673,155 @@ export function ImportacaoNfe() {
     setPdfAnexo(null);
     setErroPdf(null);
     draftIdRef.current = 1;
+  }
+
+  function abrirNovoFormulario() {
+    limparFormularioDraft();
+    setFormMode('NOVO');
+    setIdParcelamentoEditando(null);
+    setPlanoContasSelecionadoId(null);
     setMostrarNovoFormulario(true);
   }
 
   function fecharFormulario() {
+    setFormMode('NOVO');
+    setIdParcelamentoEditando(null);
+    setPlanoContasSelecionadoId(null);
     setAnaliseNfe(null);
     setMostrarNovoFormulario(false);
   }
 
-  async function confirmarFormulario() {
-    if (!analiseNfe) {
-      setMostrarNovoFormulario(false);
+  async function abrirEdicaoDaLinha(item: NfeListItem) {
+    if (confirmandoImportacao || carregandoEdicaoId) return;
+
+    const idParcelamento = String(item.id_parcelamento || '').trim();
+    if (!idParcelamento) {
+      setError('Nao foi possivel abrir a NF-e para edicao. Identificador invalido.');
       return;
     }
 
+    setCarregandoEdicaoId(idParcelamento);
+    setError(null);
+
+    try {
+      const { data } = await api.get<NfeDetalheResponse>(`/importacao/nfe/${encodeURIComponent(idParcelamento)}/detalhe`);
+
+      let nextId = 1;
+      const pagamentosImportados: NfeDraftPagamento[] = (Array.isArray(data.parcelas) ? data.parcelas : []).map((parcela) => ({
+        id: nextId++,
+        formaPagamento: 'BOLETO',
+        parcelas: 1,
+        valor: Number(parcela.valor || 0),
+        lancamentoId: Number(parcela.id || 0) || undefined,
+        dataVencimento: String(parcela.data_vencimento || '').trim() || undefined,
+        descricaoLancamento: String(parcela.descricao || '').trim() || undefined,
+      }));
+
+      setNovoForm({
+        ...createDefaultNovoForm(),
+        numero: String(data.numero_nfe || item.numero_nfe || '').trim(),
+        chaveNfe: String(data.chave_nfe || item.chave_nfe || '').trim(),
+        emitente: String(data.emitente_nome || '').trim(),
+        cpfCnpj: String(data.emitente_documento || '').trim(),
+        dataDocumento: String(data.data_emissao || todayISODate()).slice(0, 10),
+        situacao: String(data.status || '').toUpperCase() === 'PAGO' ? 'ENTREGUE' : 'AGUARDANDO_ENTREGA',
+      });
+
+      setFormMode('EDITAR');
+      setIdParcelamentoEditando(String(data.id_parcelamento || idParcelamento));
+      setPlanoContasSelecionadoId(Number(data.plano_contas_id || 0) || null);
+      setAnaliseNfe(null);
+      setEmitenteSelecionadoId(Number(data.entidade_id || 0) || null);
+      setCentroCustoSelecionadoId(Number(data.centro_custo_id || 0) || null);
+      setMostrarSugestoesEmitente(false);
+      setItensNota([]);
+      setPagamentosNota(pagamentosImportados);
+      setPdfAnexo(null);
+      setErroPdf(null);
+      draftIdRef.current = Math.max(1, nextId);
+      setMostrarNovoFormulario(true);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Nao foi possivel abrir a NF-e para edicao.');
+    } finally {
+      setCarregandoEdicaoId(null);
+    }
+  }
+
+  async function anexarPdfAoParcelamento(idParcelamento: string) {
+    if (!pdfAnexo) return;
+
+    const parcelamento = String(idParcelamento || '').trim();
+    if (!parcelamento) return;
+
+    const formData = new FormData();
+    formData.append('arquivo', pdfAnexo);
+    await api.post(`/importacao/nfe/${encodeURIComponent(parcelamento)}/anexo-pdf`, formData);
+  }
+
+  async function confirmarFormulario() {
     if (centrosCusto.length > 0 && !centroCustoSelecionadoId) {
       setError('Selecione o centro de custo da NF-e antes de confirmar.');
+      return;
+    }
+
+    if (formMode === 'EDITAR' && idParcelamentoEditando) {
+      const parcelasPayload: NfeEditarParcelaPayload[] = pagamentosNota
+        .map((pagamento) => ({
+          id: Number(pagamento.lancamentoId || 0),
+          valor: Number(pagamento.valor || 0),
+          data_vencimento: pagamento.dataVencimento || undefined,
+          descricao: pagamento.descricaoLancamento || undefined,
+        }))
+        .filter((parcela) => parcela.id > 0 && parcela.valor > 0);
+
+      if (parcelasPayload.length === 0) {
+        setError('Nao foi possivel salvar: nenhuma parcela com valor valido.');
+        return;
+      }
+
+      setConfirmandoImportacao(true);
+      setError(null);
+
+      try {
+        await api.put(`/importacao/nfe/${encodeURIComponent(idParcelamentoEditando)}`, {
+          numero_nfe: String(novoForm.numero || '').trim(),
+          chave_nfe: onlyDigits(novoForm.chaveNfe || ''),
+          data_emissao: String(novoForm.dataDocumento || todayISODate()),
+          emitente_nome: String(novoForm.emitente || '').trim() || undefined,
+          emitente_documento: onlyDigits(novoForm.cpfCnpj || ''),
+          entidade_id: Number(emitenteSelecionadoId || 0) || undefined,
+          plano_contas_id: Number(planoContasSelecionadoId || 0) || undefined,
+          centro_custo_id: Number(centroCustoSelecionadoId || 0) || undefined,
+          observacao: onlyDigits(novoForm.chaveNfe || '').length > 0
+            ? `NF-e ${String(novoForm.numero || '').trim()} | Chave ${onlyDigits(novoForm.chaveNfe)}`
+            : `NF-e ${String(novoForm.numero || '').trim()}`,
+          parcelas: parcelasPayload,
+        });
+
+        let avisoAnexo: string | null = null;
+        if (pdfAnexo) {
+          try {
+            await anexarPdfAoParcelamento(idParcelamentoEditando);
+          } catch (err: any) {
+            avisoAnexo = err?.response?.data?.detail || 'NF-e salva, mas nao foi possivel referenciar o PDF nos anexos dos lancamentos.';
+          }
+        }
+
+        fecharFormulario();
+        setRefreshToken((prev) => prev + 1);
+        if (avisoAnexo) {
+          setError(avisoAnexo);
+        }
+      } catch (err: any) {
+        setError(err?.response?.data?.detail || 'Nao foi possivel salvar a edicao da NF-e.');
+      } finally {
+        setConfirmandoImportacao(false);
+      }
+      return;
+    }
+
+    if (!analiseNfe) {
+      setMostrarNovoFormulario(false);
       return;
     }
 
@@ -659,7 +845,7 @@ export function ImportacaoNfe() {
         numero_parcela: String(parcela.numero_parcela || index + 1),
         data_vencimento: String(parcela.data_vencimento || novoForm.dataDocumento || todayISODate()),
         valor: valorParcela,
-        descricao: String(parcela.descricao || '').trim() || `NFE: (${novoForm.numero || analiseNfe.numero_nfe}) Parcela ${index + 1}/${analiseNfe.parcelas.length}`,
+        descricao: String(parcela.descricao || '').trim() || `NFE: (${novoForm.numero || analiseNfe.numero_nfe})`,
         plano_contas_id: Number(parcela.plano_contas_sugerido_id || analiseNfe.plano_contas_sugerido_id || 0) || undefined,
         entidade_id: Number(emitenteSelecionadoId || parcela.entidade_sugerida_id || analiseNfe.entidade_sugerida_id || 0) || undefined,
       };
@@ -674,7 +860,7 @@ export function ImportacaoNfe() {
     setError(null);
 
     try {
-      await api.post('/importacao/nfe/confirmar', {
+      const { data: confirmacao } = await api.post<NfeConfirmarResponse>('/importacao/nfe/confirmar', {
         chave_nfe: onlyDigits(novoForm.chaveNfe || analiseNfe.chave_nfe),
         numero_nfe: String(novoForm.numero || analiseNfe.numero_nfe || '').trim(),
         tipo_lancamento: tipoLancamento,
@@ -682,14 +868,27 @@ export function ImportacaoNfe() {
         emitente_nome: String(novoForm.emitente || analiseNfe.emitente_nome || '').trim() || undefined,
         emitente_documento: onlyDigits(novoForm.cpfCnpj || analiseNfe.emitente_documento || ''),
         entidade_id: Number(emitenteSelecionadoId || analiseNfe.entidade_sugerida_id || 0) || undefined,
-        plano_contas_id: Number(analiseNfe.plano_contas_sugerido_id || 0) || undefined,
+        plano_contas_id: Number(planoContasSelecionadoId || analiseNfe.plano_contas_sugerido_id || 0) || undefined,
         centro_custo_id: Number(centroCustoSelecionadoId || 0) || undefined,
         observacao: `NF-e ${novoForm.numero || analiseNfe.numero_nfe} | Chave ${onlyDigits(novoForm.chaveNfe || analiseNfe.chave_nfe)}`,
         parcelas: parcelasPayload,
       });
 
+      const idParcelamentoConfirmado = String(confirmacao?.id_parcelamento || '').trim();
+      let avisoAnexo: string | null = null;
+      if (pdfAnexo && idParcelamentoConfirmado) {
+        try {
+          await anexarPdfAoParcelamento(idParcelamentoConfirmado);
+        } catch (err: any) {
+          avisoAnexo = err?.response?.data?.detail || 'NF-e confirmada, mas nao foi possivel referenciar o PDF nos anexos dos lancamentos.';
+        }
+      }
+
       fecharFormulario();
       setRefreshToken((prev) => prev + 1);
+      if (avisoAnexo) {
+        setError(avisoAnexo);
+      }
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Nao foi possivel confirmar a importacao da NF-e.');
     } finally {
@@ -763,6 +962,8 @@ export function ImportacaoNfe() {
   }
 
   function adicionarNovoPagamento() {
+    if (formMode === 'EDITAR') return;
+
     setPagamentosNota((prev) => ([
       ...prev,
       {
@@ -808,6 +1009,9 @@ export function ImportacaoNfe() {
     setImportandoXml(true);
     setError(null);
     setAnaliseNfe(null);
+    setFormMode('NOVO');
+    setIdParcelamentoEditando(null);
+    setPlanoContasSelecionadoId(null);
 
     try {
       const formData = new FormData();
@@ -866,6 +1070,7 @@ export function ImportacaoNfe() {
       });
 
       setAnaliseNfe(analise);
+      setPlanoContasSelecionadoId(Number(analise.plano_contas_sugerido_id || 0) || null);
       setCentroCustoSelecionadoId(null);
       setEmitenteSelecionadoId(null);
       setMostrarSugestoesEmitente(false);
@@ -1032,7 +1237,9 @@ export function ImportacaoNfe() {
                 disabled={confirmandoImportacao}
                 className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
               >
-                {confirmandoImportacao ? 'Confirmando...' : 'Confirmar'}
+                {confirmandoImportacao
+                  ? (formMode === 'EDITAR' ? 'Salvando...' : 'Confirmando...')
+                  : (formMode === 'EDITAR' ? 'Salvar' : 'Confirmar')}
               </button>
             </div>
           )}
@@ -1051,7 +1258,7 @@ export function ImportacaoNfe() {
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <h2 className="text-2xl font-black text-slate-900 dark:text-white">Dados Fiscais</h2>
-                <span className="rounded bg-blue-600 px-2 py-1 text-xs font-bold text-white">Em digitacao</span>
+                <span className="rounded bg-blue-600 px-2 py-1 text-xs font-bold text-white">{formMode === 'EDITAR' ? 'Em edicao' : 'Em digitacao'}</span>
               </div>
             </div>
 
@@ -1336,10 +1543,11 @@ export function ImportacaoNfe() {
               <button
                 type="button"
                 onClick={adicionarNovoPagamento}
-                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-sm font-bold text-white transition hover:bg-cyan-500"
+                disabled={formMode === 'EDITAR'}
+                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-sm font-bold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Plus className="h-4 w-4" />
-                Novo pagamento
+                {formMode === 'EDITAR' ? 'Parcelas fixas na edicao' : 'Novo pagamento'}
               </button>
             </div>
 
@@ -1405,7 +1613,7 @@ export function ImportacaoNfe() {
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div className="mb-2">
               <h3 className="text-2xl font-black text-slate-900 dark:text-white">Anexo PDF</h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400">Anexe o PDF da nota fiscal para conferencias futuras.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Anexe o PDF da nota fiscal. O mesmo arquivo sera referenciado nos anexos de todas as parcelas financeiras desta NF-e.</p>
             </div>
 
             <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 transition hover:border-blue-500 dark:border-slate-700 dark:bg-slate-900">
@@ -1503,9 +1711,17 @@ export function ImportacaoNfe() {
                   ) : null}
 
                   {!loading && items.map((item) => (
-                    <tr key={item.id_parcelamento} className={`transition hover:bg-slate-50 dark:hover:bg-slate-700/50 ${rowClasses(item.status)}`}>
+                    <tr
+                      key={item.id_parcelamento}
+                      onClick={() => void abrirEdicaoDaLinha(item)}
+                      className={`cursor-pointer transition hover:bg-slate-50 dark:hover:bg-slate-700/50 ${rowClasses(item.status)} ${carregandoEdicaoId === item.id_parcelamento ? 'opacity-70' : ''}`}
+                      title="Clique para editar esta NF-e"
+                    >
                       <td className="p-2.5 text-center align-middle font-bold text-slate-700 dark:text-slate-200">
-                        {item.numero_nfe || '-'}
+                        <span className="inline-flex items-center gap-1.5">
+                          {item.numero_nfe || '-'}
+                          {carregandoEdicaoId === item.id_parcelamento ? <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" /> : null}
+                        </span>
                       </td>
 
                       <td className="p-2.5 align-middle font-semibold text-slate-800 dark:text-white">
@@ -1513,6 +1729,7 @@ export function ImportacaoNfe() {
                         <div className="mt-0.5 text-[11px] font-normal text-slate-500 dark:text-slate-400">
                           Chave: {item.chave_nfe || 'nao informada'} • Parcelas: {item.total_parcelas} • Venc.: {formatDate(item.data_vencimento)}
                         </div>
+                        <div className="mt-0.5 text-[11px] font-normal text-blue-600 dark:text-blue-300">Clique para editar</div>
                       </td>
 
                       <td className="p-2.5 text-right align-middle font-bold tabular-nums text-red-500 dark:text-red-300">

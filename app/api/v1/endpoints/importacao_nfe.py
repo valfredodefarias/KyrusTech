@@ -5,8 +5,10 @@ from decimal import Decimal
 from difflib import SequenceMatcher
 import hashlib
 from math import ceil
+from pathlib import Path
 import re
 import unicodedata
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -15,18 +17,22 @@ from pydantic import BaseModel, Field
 from sqlalchemy import String, asc, case, cast, desc, func
 from sqlmodel import Session, select
 
-from app.api.v1.deps import get_empresa_id_from_user, require_permission
+from app.api.v1.deps import get_current_user, get_empresa_id_from_user, require_permission
+from app.core.upload_security import ANEXO_ALLOWED_EXT_TO_MIME, UploadValidationError, write_validated_upload_file
 from app.db.session import get_db
+from app.models.anexo_lancamento import AnexoLancamento
 from app.models.centro_custo import CentroCusto
 from app.models.conta import Conta
 from app.models.empresa import Empresa
 from app.models.entidade import Entidade
 from app.models.lancamento import Lancamento
 from app.models.plano_contas import PlanoContas
+from app.models.usuario import Usuario
 from app.services.importacao_nfe_service import NFeDocumento, parse_nfe_xml
 
 router = APIRouter()
 NFE_FILE_SIZE_LIMIT = 5 * 1024 * 1024
+NFE_PDF_FILE_SIZE_LIMIT = 10 * 1024 * 1024
 
 
 class NfeParcelaAnalise(BaseModel):
@@ -109,11 +115,20 @@ class NfeConfirmarRequest(BaseModel):
 
 
 class NfeConfirmarResponse(BaseModel):
+    id_parcelamento: str
     chave_nfe: str
     numero_nfe: str
     tipo_lancamento: str
     total_parcelas: int
     lancamentos_criados: int
+    lancamento_ids: list[int]
+
+
+class NfeAnexoPdfResponse(BaseModel):
+    id_parcelamento: str
+    nome_arquivo: str
+    url: str
+    anexos_criados: int
     lancamento_ids: list[int]
 
 
@@ -135,6 +150,64 @@ class NfeListResponse(BaseModel):
     total_items: int
     total_pages: int
     items: list[NfeListItem]
+
+
+class NfeParcelaDetalhe(BaseModel):
+    id: int
+    indice: int
+    numero_parcela: str
+    data_vencimento: str
+    valor: float
+    descricao: str
+    status: str
+    plano_contas_id: Optional[int] = None
+    entidade_id: Optional[int] = None
+
+
+class NfeDetalheResponse(BaseModel):
+    id_parcelamento: str
+    numero_nfe: str
+    chave_nfe: Optional[str] = None
+    tipo_lancamento: str
+    data_emissao: str
+    emitente_nome: str
+    emitente_documento: str
+    entidade_id: Optional[int] = None
+    plano_contas_id: Optional[int] = None
+    centro_custo_id: Optional[int] = None
+    centro_custo_nome: Optional[str] = None
+    total_parcelas: int
+    valor_total: float
+    status: str
+    parcelas: list[NfeParcelaDetalhe]
+
+
+class NfeParcelaAtualizar(BaseModel):
+    id: int = Field(gt=0)
+    valor: Decimal = Field(gt=0)
+    data_vencimento: Optional[date] = None
+    descricao: Optional[str] = None
+
+
+class NfeAtualizarRequest(BaseModel):
+    numero_nfe: str
+    chave_nfe: Optional[str] = None
+    data_emissao: date
+    emitente_nome: Optional[str] = None
+    emitente_documento: Optional[str] = None
+    emitente_nome_fantasia: Optional[str] = None
+    entidade_id: Optional[int] = None
+    plano_contas_id: Optional[int] = None
+    centro_custo_id: Optional[int] = None
+    observacao: Optional[str] = None
+    parcelas: list[NfeParcelaAtualizar] = Field(default_factory=list)
+
+
+class NfeAtualizarResponse(BaseModel):
+    id_parcelamento: str
+    total_parcelas: int
+    lancamentos_atualizados: int
+    valor_total: float
 
 
 def _normalize_text(value: str) -> str:
@@ -166,7 +239,7 @@ def _tipo_letra(tipo_lancamento: str) -> str:
 
 
 def _descricao_parcela(numero_nfe: str, indice: int, total: int) -> str:
-    return f"NFE: ({numero_nfe}) Parcela {indice}/{total}"
+    return f"NFE: ({numero_nfe})"
 
 
 def _resumo_itens(itens: list, limite: int = 3) -> str:
@@ -769,6 +842,344 @@ def listar_nfes_importadas(
     )
 
 
+@router.get(
+    "/nfe/{id_parcelamento}/detalhe",
+    response_model=NfeDetalheResponse,
+    dependencies=[Depends(require_permission("lancamentos:import_nfe"))],
+)
+def obter_detalhe_nfe_importada(
+    id_parcelamento: str,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    group_id = str(id_parcelamento or "").strip()
+    if not group_id:
+        raise HTTPException(status_code=400, detail="Identificador da NF-e invalido")
+
+    lancamentos = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "NFE_XML",
+            Lancamento.id_parcelamento == group_id,
+        )
+        .order_by(Lancamento.numero_parcela.asc(), Lancamento.id.asc())
+    ).all()
+
+    if not lancamentos:
+        raise HTTPException(status_code=404, detail="NF-e importada nao encontrada")
+
+    texto_referencia = " ".join(
+        f"{str(l.observacao or '').strip()} {str(l.descricao or '').strip()}".strip() for l in lancamentos
+    ).strip()
+    numero_nfe = _extract_nfe_number(texto_referencia)
+    chave_nfe = _extract_nfe_key(texto_referencia)
+    if not chave_nfe and group_id.startswith("NFE-"):
+        possivel_chave = _only_digits(group_id)
+        if len(possivel_chave) == 44:
+            chave_nfe = possivel_chave
+
+    primeiro = lancamentos[0]
+    entidade: Optional[Entidade] = None
+    if primeiro.entidade_id is not None:
+        entidade = db.exec(
+            select(Entidade).where(
+                Entidade.id == primeiro.entidade_id,
+                Entidade.empresa_id == empresa_id,
+                Entidade.is_deleted == False,
+            )
+        ).first()
+
+    centro_custo_nome: Optional[str] = None
+    if primeiro.centro_custo_id is not None:
+        centro_custo_nome = db.exec(
+            select(CentroCusto.nome).where(
+                CentroCusto.id == primeiro.centro_custo_id,
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False,
+            )
+        ).first()
+
+    total_parcelas = len(lancamentos)
+    total_pagas = sum(1 for lancamento in lancamentos if str(lancamento.status or "").strip().upper() == "PAGO")
+    total_atrasadas = sum(
+        1
+        for lancamento in lancamentos
+        if str(lancamento.status or "").strip().upper() != "PAGO"
+        and bool(lancamento.data_vencimento and lancamento.data_vencimento < date.today())
+    )
+    if total_parcelas > 0 and total_pagas >= total_parcelas:
+        status_resumo = "PAGO"
+    elif total_atrasadas > 0:
+        status_resumo = "ATRASADO"
+    else:
+        status_resumo = "EM_ABERTO"
+
+    parcelas: list[NfeParcelaDetalhe] = []
+    total_valor = Decimal("0")
+    for idx, lancamento in enumerate(lancamentos, start=1):
+        valor = Decimal(lancamento.valor_previsto or 0)
+        total_valor += valor
+        indice = int(lancamento.numero_parcela or idx)
+        parcelas.append(
+            NfeParcelaDetalhe(
+                id=int(lancamento.id or 0),
+                indice=indice,
+                numero_parcela=str(lancamento.numero_parcela or indice),
+                data_vencimento=lancamento.data_vencimento.isoformat() if lancamento.data_vencimento else "",
+                valor=float(valor),
+                descricao=str(lancamento.descricao or ""),
+                status=str(lancamento.status or ""),
+                plano_contas_id=int(lancamento.plano_contas_id) if lancamento.plano_contas_id is not None else None,
+                entidade_id=int(lancamento.entidade_id) if lancamento.entidade_id is not None else None,
+            )
+        )
+
+    data_emissao = (primeiro.data_competencia or primeiro.data_vencimento or date.today()).isoformat()
+
+    return NfeDetalheResponse(
+        id_parcelamento=group_id,
+        numero_nfe=numero_nfe,
+        chave_nfe=chave_nfe,
+        tipo_lancamento=str(primeiro.tipo or "DESPESA").strip().upper() or "DESPESA",
+        data_emissao=data_emissao,
+        emitente_nome=str((entidade.nome if entidade else "") or ""),
+        emitente_documento=str((entidade.cpf_cnpj if entidade else "") or ""),
+        entidade_id=int(primeiro.entidade_id) if primeiro.entidade_id is not None else None,
+        plano_contas_id=int(primeiro.plano_contas_id) if primeiro.plano_contas_id is not None else None,
+        centro_custo_id=int(primeiro.centro_custo_id) if primeiro.centro_custo_id is not None else None,
+        centro_custo_nome=centro_custo_nome,
+        total_parcelas=total_parcelas,
+        valor_total=float(total_valor),
+        status=status_resumo,
+        parcelas=parcelas,
+    )
+
+
+@router.put(
+    "/nfe/{id_parcelamento}",
+    response_model=NfeAtualizarResponse,
+    dependencies=[Depends(require_permission("lancamentos:import_nfe"))],
+)
+def atualizar_nfe_importada(
+    id_parcelamento: str,
+    request: NfeAtualizarRequest,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    group_id = str(id_parcelamento or "").strip()
+    if not group_id:
+        raise HTTPException(status_code=400, detail="Identificador da NF-e invalido")
+
+    lancamentos = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "NFE_XML",
+            Lancamento.id_parcelamento == group_id,
+        )
+        .order_by(Lancamento.numero_parcela.asc(), Lancamento.id.asc())
+    ).all()
+
+    if not lancamentos:
+        raise HTTPException(status_code=404, detail="NF-e importada nao encontrada")
+
+    numero_nfe = str(request.numero_nfe or "").strip()
+    if not numero_nfe:
+        raise HTTPException(status_code=400, detail="Informe o numero da NF-e")
+
+    tipo_lancamento = str(lancamentos[0].tipo or "").strip().upper() or "DESPESA"
+    if tipo_lancamento != "DESPESA":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Apenas NF-e de DESPESA pode ser editada neste fluxo. Tipo atual: {tipo_lancamento}",
+        )
+
+    texto_referencia = " ".join(
+        f"{str(l.observacao or '').strip()} {str(l.descricao or '').strip()}".strip() for l in lancamentos
+    ).strip()
+    chave_nfe = _only_digits(request.chave_nfe or _extract_nfe_key(texto_referencia) or "")
+    if not chave_nfe and group_id.startswith("NFE-"):
+        possivel_chave = _only_digits(group_id)
+        if len(possivel_chave) == 44:
+            chave_nfe = possivel_chave
+
+    observacao_padrao = f"NF-e {numero_nfe}"
+    if chave_nfe:
+        observacao_padrao = f"{observacao_padrao} | Chave {chave_nfe}"
+    observacao_base = str(request.observacao or observacao_padrao).strip()
+
+    plano_contas_id_raw = request.plano_contas_id if request.plano_contas_id is not None else lancamentos[0].plano_contas_id
+    if plano_contas_id_raw is None:
+        raise HTTPException(status_code=400, detail="Categoria financeira nao definida para a NF-e")
+    plano_contas_id = int(plano_contas_id_raw)
+    _assert_categoria_valida(
+        db,
+        empresa_id=empresa_id,
+        categoria_id=plano_contas_id,
+        tipo_lancamento=tipo_lancamento,
+    )
+
+    entidade_id_raw = request.entidade_id if request.entidade_id is not None else lancamentos[0].entidade_id
+    if entidade_id_raw is None:
+        raise HTTPException(status_code=400, detail="Fornecedor da NF-e nao definido")
+    entidade_id = int(entidade_id_raw)
+    _assert_entidade_valida(db, empresa_id=empresa_id, entidade_id=entidade_id)
+
+    centro_custo_id_raw = (
+        request.centro_custo_id if request.centro_custo_id is not None else lancamentos[0].centro_custo_id
+    )
+    centro_custo_id = _resolver_centro_custo(
+        db,
+        empresa_id=empresa_id,
+        centro_custo_id=int(centro_custo_id_raw) if centro_custo_id_raw is not None else None,
+        conta=None,
+    )
+
+    parcelas_por_id = {int(parcela.id): parcela for parcela in request.parcelas}
+    ids_lancamentos = {int(lancamento.id) for lancamento in lancamentos if lancamento.id is not None}
+    ids_invalidos = sorted(parcela_id for parcela_id in parcelas_por_id if parcela_id not in ids_lancamentos)
+    if ids_invalidos:
+        raise HTTPException(status_code=400, detail=f"Parcelas invalidas para edicao: {ids_invalidos}")
+
+    competencia = request.data_emissao.strftime("%m/%Y")
+    atualizados = 0
+    total_valor = Decimal("0")
+
+    try:
+        for idx, lancamento in enumerate(lancamentos, start=1):
+            parcela_request = parcelas_por_id.get(int(lancamento.id or 0))
+            if parcela_request:
+                lancamento.valor_previsto = parcela_request.valor
+                if parcela_request.data_vencimento is not None:
+                    lancamento.data_vencimento = parcela_request.data_vencimento
+
+            lancamento.descricao = _descricao_parcela(numero_nfe, int(lancamento.numero_parcela or idx), len(lancamentos))
+
+            lancamento.data_competencia = request.data_emissao
+            lancamento.competencia = competencia
+            lancamento.observacao = observacao_base
+            lancamento.plano_contas_id = plano_contas_id
+            lancamento.entidade_id = entidade_id
+            lancamento.centro_custo_id = centro_custo_id
+
+            total_valor += Decimal(lancamento.valor_previsto or 0)
+            db.add(lancamento)
+            atualizados += 1
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    return NfeAtualizarResponse(
+        id_parcelamento=group_id,
+        total_parcelas=len(lancamentos),
+        lancamentos_atualizados=atualizados,
+        valor_total=float(total_valor),
+    )
+
+
+@router.post(
+    "/nfe/{id_parcelamento}/anexo-pdf",
+    response_model=NfeAnexoPdfResponse,
+    dependencies=[Depends(require_permission("lancamentos:import_nfe"))],
+)
+def anexar_pdf_nfe_importada(
+    id_parcelamento: str,
+    arquivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    current_user: Usuario = Depends(get_current_user),
+):
+    group_id = str(id_parcelamento or "").strip()
+    if not group_id:
+        raise HTTPException(status_code=400, detail="Identificador da NF-e invalido")
+
+    if not arquivo.filename:
+        raise HTTPException(status_code=400, detail="Informe o arquivo PDF da NF-e")
+
+    nome_arquivo = Path(arquivo.filename).name.strip()
+    if not nome_arquivo or not nome_arquivo.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Envie um arquivo PDF valido")
+
+    lancamento_id_rows = db.exec(
+        select(Lancamento.id)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "NFE_XML",
+            Lancamento.id_parcelamento == group_id,
+        )
+        .order_by(Lancamento.id.asc())
+    ).all()
+
+    lancamento_ids = [int(lancamento_id) for lancamento_id in lancamento_id_rows if lancamento_id is not None]
+    if not lancamento_ids:
+        raise HTTPException(status_code=404, detail="NF-e importada nao encontrada")
+
+    group_safe = re.sub(r"[^A-Za-z0-9_-]+", "_", group_id).strip("_") or "nfe"
+    destino_dir = Path("static/uploads/lancamentos") / str(empresa_id) / "nfe" / group_safe
+    nome_storage = f"{uuid.uuid4().hex}.pdf"
+    destino_arquivo = destino_dir / nome_storage
+
+    try:
+        _, tamanho_bytes, content_type = write_validated_upload_file(
+            upload=arquivo,
+            destination=destino_arquivo,
+            max_size=NFE_PDF_FILE_SIZE_LIMIT,
+            allowed_ext_to_mime=ANEXO_ALLOWED_EXT_TO_MIME,
+            max_filename_len=180,
+        )
+    except UploadValidationError as exc:
+        if exc.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Arquivo PDF muito grande. Maximo de 10 MB.",
+            )
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+    url_relativa = f"/static/uploads/lancamentos/{empresa_id}/nfe/{group_safe}/{nome_storage}"
+    user_id = int(getattr(current_user, "id", 0) or 0) or None
+
+    anexos_criados = 0
+    anexados_em: list[int] = []
+    for lancamento_id in lancamento_ids:
+        anexo = AnexoLancamento(
+            nome_arquivo=nome_arquivo,
+            url=url_relativa,
+            tipo="NOTA_FISCAL",
+            tamanho_bytes=tamanho_bytes,
+            content_type=content_type,
+            lancamento_id=lancamento_id,
+            empresa_id=empresa_id,
+            created_by_id=user_id,
+        )
+        db.add(anexo)
+        anexos_criados += 1
+        anexados_em.append(lancamento_id)
+
+    db.commit()
+
+    logger.info(
+        "[NFE] PDF anexado empresa_id={} id_parcelamento={} anexos_criados={} arquivo={}",
+        empresa_id,
+        group_id,
+        anexos_criados,
+        nome_arquivo,
+    )
+
+    return NfeAnexoPdfResponse(
+        id_parcelamento=group_id,
+        nome_arquivo=nome_arquivo,
+        url=url_relativa,
+        anexos_criados=anexos_criados,
+        lancamento_ids=anexados_em,
+    )
+
+
 @router.post(
     "/nfe/analisar",
     response_model=NfeAnaliseResponse,
@@ -1026,7 +1437,7 @@ def confirmar_importacao_nfe(
                 )
             _assert_entidade_valida(db, empresa_id=empresa_id, entidade_id=entidade_id)
 
-            descricao = str(parcela.descricao or "").strip() or _descricao_parcela(
+            descricao = _descricao_parcela(
                 numero_nfe,
                 parcela.indice,
                 total_parcelas,
@@ -1084,6 +1495,7 @@ def confirmar_importacao_nfe(
         )
 
         return NfeConfirmarResponse(
+            id_parcelamento=parcela_group_id,
             chave_nfe=chave_nfe,
             numero_nfe=numero_nfe,
             tipo_lancamento=tipo_lancamento,

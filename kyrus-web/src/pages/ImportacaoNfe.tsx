@@ -15,10 +15,10 @@ import {
 
 import { api, normalizeListResponse } from '../services/api';
 
-type NfeStatus = 'PAGO' | 'ATRASADO' | 'EM_ABERTO';
+type NfeStatus = 'AGUARDANDO_ENTREGA' | 'ENTREGUE' | 'CANCELADA';
 type SortKey = 'descricao' | 'valor' | 'status' | 'data';
 type SortDirection = 'asc' | 'desc';
-type StatusFilter = 'TODOS' | 'PAGO' | 'ATRASADO' | 'EM_ABERTO';
+type StatusFilter = 'TODOS' | 'AGUARDANDO_ENTREGA' | 'ENTREGUE' | 'CANCELADA';
 type FormMode = 'NOVO' | 'EDITAR';
 
 interface NfeListItem {
@@ -177,10 +177,13 @@ interface NfeDetalheResponse {
   id_parcelamento: string;
   numero_nfe: string;
   chave_nfe?: string | null;
+  cfop?: string | null;
   tipo_lancamento: string;
   data_emissao: string;
   emitente_nome: string;
   emitente_documento: string;
+  anexo_pdf_nome?: string | null;
+  anexo_pdf_url?: string | null;
   entidade_id?: number | null;
   plano_contas_id?: number | null;
   centro_custo_id?: number | null;
@@ -188,6 +191,7 @@ interface NfeDetalheResponse {
   total_parcelas: number;
   valor_total: number;
   status: NfeStatus;
+  itens?: NfeAnaliseItem[];
   parcelas: NfeDetalheParcela[];
 }
 
@@ -415,24 +419,35 @@ function formatDate(value?: string | null) {
   return date.toLocaleDateString('pt-BR');
 }
 
+function formaPagamentoLabel(value: string) {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (normalized === 'CARTAO_CREDITO') return 'Cartao de credito';
+  if (normalized === 'CARTAO_DEBITO') return 'Cartao de debito';
+  if (normalized === 'TRANSFERENCIA') return 'Transferencia';
+  if (normalized === 'BOLETO') return 'Boleto';
+  if (normalized === 'PIX') return 'PIX';
+  if (normalized === 'DINHEIRO') return 'Dinheiro';
+  return normalized || 'Nao informado';
+}
+
 function statusLabel(status: NfeStatus) {
-  if (status === 'EM_ABERTO') return 'EM ABERTO';
-  return status;
+  if (status === 'AGUARDANDO_ENTREGA') return 'AGUARDANDO ENTREGA';
+  return status.replace('_', ' ');
 }
 
 function statusClasses(status: NfeStatus) {
-  if (status === 'PAGO') {
+  if (status === 'ENTREGUE') {
     return 'bg-emerald-200/90 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800';
   }
-  if (status === 'ATRASADO') {
+  if (status === 'CANCELADA') {
     return 'bg-red-200/90 dark:bg-red-900/35 text-red-700 dark:text-red-300 border-red-300 dark:border-red-800';
   }
-  return 'bg-slate-100 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600';
+  return 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800';
 }
 
 function rowClasses(status: NfeStatus) {
-  if (status === 'PAGO') return 'bg-emerald-100/70 dark:bg-emerald-900/25';
-  if (status === 'ATRASADO') return 'bg-red-200/80 dark:bg-red-900/40';
+  if (status === 'ENTREGUE') return 'bg-emerald-100/70 dark:bg-emerald-900/25';
+  if (status === 'CANCELADA') return 'bg-red-200/80 dark:bg-red-900/40';
   return '';
 }
 
@@ -478,6 +493,7 @@ export function ImportacaoNfe() {
   const [itensNota, setItensNota] = useState<NfeDraftItem[]>([]);
   const [pagamentosNota, setPagamentosNota] = useState<NfeDraftPagamento[]>([]);
   const [pdfAnexo, setPdfAnexo] = useState<File | null>(null);
+  const [pdfAnexoExistente, setPdfAnexoExistente] = useState<{ nome: string; url: string } | null>(null);
   const [erroPdf, setErroPdf] = useState<string | null>(null);
   const [importandoXml, setImportandoXml] = useState(false);
   const [confirmandoImportacao, setConfirmandoImportacao] = useState(false);
@@ -638,6 +654,33 @@ export function ImportacaoNfe() {
       .slice(0, 20);
   }, [fornecedores, novoForm.emitente]);
 
+  const gruposPagamento = useMemo(() => {
+    const mapa = new Map<string, {
+      formaPagamento: string;
+      valorTotal: number;
+      pagamentos: Array<{ pagamento: NfeDraftPagamento; index: number }>;
+    }>();
+
+    pagamentosNota.forEach((pagamento, index) => {
+      const forma = String(pagamento.formaPagamento || 'DINHEIRO').trim().toUpperCase() || 'DINHEIRO';
+      const atual = mapa.get(forma);
+
+      if (!atual) {
+        mapa.set(forma, {
+          formaPagamento: forma,
+          valorTotal: Number(pagamento.valor || 0),
+          pagamentos: [{ pagamento, index }],
+        });
+        return;
+      }
+
+      atual.valorTotal += Number(pagamento.valor || 0);
+      atual.pagamentos.push({ pagamento, index });
+    });
+
+    return Array.from(mapa.values()).sort((a, b) => a.formaPagamento.localeCompare(b.formaPagamento, 'pt-BR'));
+  }, [pagamentosNota]);
+
   function toggleSort(clickedKey: SortKey) {
     const nextDirection = nextSortDirection(sortKey, sortDirection, clickedKey);
     setSortKey(clickedKey);
@@ -671,6 +714,7 @@ export function ImportacaoNfe() {
     setItensNota([]);
     setPagamentosNota([]);
     setPdfAnexo(null);
+    setPdfAnexoExistente(null);
     setErroPdf(null);
     draftIdRef.current = 1;
   }
@@ -707,6 +751,35 @@ export function ImportacaoNfe() {
       const { data } = await api.get<NfeDetalheResponse>(`/importacao/nfe/${encodeURIComponent(idParcelamento)}/detalhe`);
 
       let nextId = 1;
+      const itensDoDetalhe = Array.isArray(data.itens) ? data.itens : [];
+      const itensImportados: NfeDraftItem[] = itensDoDetalhe
+        .map((item) => {
+          const quantidade = Number(item.quantidade || 0);
+          const valorUnitario = Number(item.valor_unitario || 0);
+          const valorTotal = Number(item.valor_total || 0);
+          const desconto = Math.max(0, (quantidade > 0 ? quantidade * valorUnitario : valorUnitario) - valorTotal);
+          return {
+            id: nextId++,
+            produtoServico: String(item.descricao || '').trim() || 'Item',
+            qtd: quantidade > 0 ? quantidade : 1,
+            cfop: String(item.cfop || data.cfop || '').trim(),
+            valorUnitario: valorUnitario > 0 ? valorUnitario : valorTotal,
+            desconto,
+          };
+        })
+        .filter((item) => item.valorUnitario > 0 || item.produtoServico.length > 0);
+
+      const itensImportadosFallback = itensImportados.length > 0
+        ? itensImportados
+        : [{
+          id: nextId++,
+          produtoServico: `NF-e ${String(data.numero_nfe || item.numero_nfe || '').trim() || 'importada'}`,
+          qtd: 1,
+          cfop: String(data.cfop || '').trim(),
+          valorUnitario: Number(data.valor_total || 0),
+          desconto: 0,
+        }].filter((fallback) => fallback.valorUnitario > 0);
+
       const pagamentosImportados: NfeDraftPagamento[] = (Array.isArray(data.parcelas) ? data.parcelas : []).map((parcela) => ({
         id: nextId++,
         formaPagamento: 'BOLETO',
@@ -717,14 +790,22 @@ export function ImportacaoNfe() {
         descricaoLancamento: String(parcela.descricao || '').trim() || undefined,
       }));
 
+      const situacaoDetalhe = String(data.status || '').trim().toUpperCase();
+      const situacaoNormalizada = situacaoDetalhe === 'ENTREGUE' || situacaoDetalhe === 'CANCELADA'
+        ? situacaoDetalhe
+        : 'AGUARDANDO_ENTREGA';
+      const anexoPdfNome = String(data.anexo_pdf_nome || '').trim();
+      const anexoPdfUrl = String(data.anexo_pdf_url || '').trim();
+
       setNovoForm({
         ...createDefaultNovoForm(),
         numero: String(data.numero_nfe || item.numero_nfe || '').trim(),
         chaveNfe: String(data.chave_nfe || item.chave_nfe || '').trim(),
         emitente: String(data.emitente_nome || '').trim(),
         cpfCnpj: String(data.emitente_documento || '').trim(),
+        cfop: String(data.cfop || '').trim(),
         dataDocumento: String(data.data_emissao || todayISODate()).slice(0, 10),
-        situacao: String(data.status || '').toUpperCase() === 'PAGO' ? 'ENTREGUE' : 'AGUARDANDO_ENTREGA',
+        situacao: situacaoNormalizada,
       });
 
       setFormMode('EDITAR');
@@ -734,9 +815,13 @@ export function ImportacaoNfe() {
       setEmitenteSelecionadoId(Number(data.entidade_id || 0) || null);
       setCentroCustoSelecionadoId(Number(data.centro_custo_id || 0) || null);
       setMostrarSugestoesEmitente(false);
-      setItensNota([]);
+      setItensNota(itensImportadosFallback);
       setPagamentosNota(pagamentosImportados);
       setPdfAnexo(null);
+      setPdfAnexoExistente(anexoPdfUrl ? {
+        nome: anexoPdfNome || 'PDF da NF-e',
+        url: anexoPdfUrl,
+      } : null);
       setErroPdf(null);
       draftIdRef.current = Math.max(1, nextId);
       setMostrarNovoFormulario(true);
@@ -786,6 +871,8 @@ export function ImportacaoNfe() {
         await api.put(`/importacao/nfe/${encodeURIComponent(idParcelamentoEditando)}`, {
           numero_nfe: String(novoForm.numero || '').trim(),
           chave_nfe: onlyDigits(novoForm.chaveNfe || ''),
+          situacao: String(novoForm.situacao || 'AGUARDANDO_ENTREGA').toUpperCase(),
+          cfop: String(novoForm.cfop || '').trim() || undefined,
           data_emissao: String(novoForm.dataDocumento || todayISODate()),
           emitente_nome: String(novoForm.emitente || '').trim() || undefined,
           emitente_documento: onlyDigits(novoForm.cpfCnpj || ''),
@@ -795,6 +882,16 @@ export function ImportacaoNfe() {
           observacao: onlyDigits(novoForm.chaveNfe || '').length > 0
             ? `NF-e ${String(novoForm.numero || '').trim()} | Chave ${onlyDigits(novoForm.chaveNfe)}`
             : `NF-e ${String(novoForm.numero || '').trim()}`,
+          itens: itensNota
+            .map((item) => ({
+              descricao: String(item.produtoServico || '').trim() || 'Item',
+              quantidade: Number(item.qtd || 0) > 0 ? Number(item.qtd) : 1,
+              valor_unitario: Number(item.valorUnitario || 0),
+              valor_total: subtotalItem(item),
+              cfop: String(item.cfop || novoForm.cfop || '').trim() || undefined,
+              ncm: undefined,
+            }))
+            .filter((item) => item.valor_total > 0 || item.descricao.length > 0),
           parcelas: parcelasPayload,
         });
 
@@ -839,11 +936,12 @@ export function ImportacaoNfe() {
     const parcelasPayload: NfeConfirmarParcelaPayload[] = analiseNfe.parcelas.map((parcela, index) => {
       const valorEditado = Number(pagamentosNota[index]?.valor || 0);
       const valorParcela = valorEditado > 0 ? valorEditado : Number(parcela.valor || 0);
+      const dataVencimentoEditada = String(pagamentosNota[index]?.dataVencimento || '').trim();
 
       return {
         indice: Number(parcela.indice || index + 1),
         numero_parcela: String(parcela.numero_parcela || index + 1),
-        data_vencimento: String(parcela.data_vencimento || novoForm.dataDocumento || todayISODate()),
+        data_vencimento: dataVencimentoEditada || String(parcela.data_vencimento || novoForm.dataDocumento || todayISODate()),
         valor: valorParcela,
         descricao: String(parcela.descricao || '').trim() || `NFE: (${novoForm.numero || analiseNfe.numero_nfe})`,
         plano_contas_id: Number(parcela.plano_contas_sugerido_id || analiseNfe.plano_contas_sugerido_id || 0) || undefined,
@@ -864,6 +962,8 @@ export function ImportacaoNfe() {
         chave_nfe: onlyDigits(novoForm.chaveNfe || analiseNfe.chave_nfe),
         numero_nfe: String(novoForm.numero || analiseNfe.numero_nfe || '').trim(),
         tipo_lancamento: tipoLancamento,
+        situacao: String(novoForm.situacao || 'AGUARDANDO_ENTREGA').toUpperCase(),
+        cfop: String(novoForm.cfop || '').trim() || undefined,
         data_emissao: String(novoForm.dataDocumento || analiseNfe.data_emissao || todayISODate()),
         emitente_nome: String(novoForm.emitente || analiseNfe.emitente_nome || '').trim() || undefined,
         emitente_documento: onlyDigits(novoForm.cpfCnpj || analiseNfe.emitente_documento || ''),
@@ -871,6 +971,16 @@ export function ImportacaoNfe() {
         plano_contas_id: Number(planoContasSelecionadoId || analiseNfe.plano_contas_sugerido_id || 0) || undefined,
         centro_custo_id: Number(centroCustoSelecionadoId || 0) || undefined,
         observacao: `NF-e ${novoForm.numero || analiseNfe.numero_nfe} | Chave ${onlyDigits(novoForm.chaveNfe || analiseNfe.chave_nfe)}`,
+        itens: itensNota
+          .map((item) => ({
+            descricao: String(item.produtoServico || '').trim() || 'Item',
+            quantidade: Number(item.qtd || 0) > 0 ? Number(item.qtd) : 1,
+            valor_unitario: Number(item.valorUnitario || 0),
+            valor_total: subtotalItem(item),
+            cfop: String(item.cfop || novoForm.cfop || '').trim() || undefined,
+            ncm: undefined,
+          }))
+          .filter((item) => item.valor_total > 0 || item.descricao.length > 0),
         parcelas: parcelasPayload,
       });
 
@@ -1041,6 +1151,7 @@ export function ImportacaoNfe() {
             formaPagamento: 'BOLETO',
             parcelas: 1,
             valor: Number(parcela.valor || 0),
+            dataVencimento: String(parcela.data_vencimento || '').trim() || undefined,
           }))
           .filter((pagamento) => pagamento.valor > 0)
         : [];
@@ -1077,6 +1188,7 @@ export function ImportacaoNfe() {
       setItensNota(itensImportados);
       setPagamentosNota(pagamentosImportados);
       setPdfAnexo(null);
+      setPdfAnexoExistente(null);
       setErroPdf(null);
       draftIdRef.current = nextId;
       setMostrarNovoFormulario(true);
@@ -1152,9 +1264,9 @@ export function ImportacaoNfe() {
                   className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                 >
                   <option value="TODOS">Todos os status</option>
-                  <option value="EM_ABERTO">Em aberto</option>
-                  <option value="ATRASADO">Atrasado</option>
-                  <option value="PAGO">Pago</option>
+                  <option value="AGUARDANDO_ENTREGA">Aguardando entrega</option>
+                  <option value="ENTREGUE">Entregue</option>
+                  <option value="CANCELADA">Cancelada</option>
                 </select>
 
                 <select
@@ -1551,63 +1663,113 @@ export function ImportacaoNfe() {
               </button>
             </div>
 
+            <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+              Resumo agrupado por forma de pagamento. Abaixo, veja e ajuste vencimento e valor de cada parcela.
+            </p>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="border-b border-slate-200 text-[11px] font-bold uppercase text-slate-500 dark:border-slate-700">
                   <tr>
                     <th className="px-2 py-2">Item</th>
                     <th className="px-2 py-2">Forma de pagamento</th>
-                    <th className="px-2 py-2 text-center">Parcelas</th>
-                    <th className="px-2 py-2 text-right">Valor</th>
+                    <th className="px-2 py-2 text-center">Qtde parcelas</th>
+                    <th className="px-2 py-2 text-right">Valor total</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pagamentosNota.length === 0 ? (
+                  {gruposPagamento.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="px-2 py-8 text-center text-slate-400">Sem dados</td>
                     </tr>
-                  ) : pagamentosNota.map((pagamento, index) => (
-                    <tr key={pagamento.id} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0">
+                  ) : gruposPagamento.map((grupo, index) => (
+                    <tr key={grupo.formaPagamento} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0">
                       <td className="px-2 py-2 text-sm font-bold text-slate-700 dark:text-slate-200">{index + 1}</td>
-                      <td className="px-2 py-2">
-                        <select
-                          className={tableInputClassName}
-                          value={pagamento.formaPagamento}
-                          onChange={(event) => atualizarPagamento(pagamento.id, 'formaPagamento', event.target.value)}
-                        >
-                          <option value="DINHEIRO">Dinheiro</option>
-                          <option value="PIX">PIX</option>
-                          <option value="CARTAO_CREDITO">Cartao de credito</option>
-                          <option value="CARTAO_DEBITO">Cartao de debito</option>
-                          <option value="BOLETO">Boleto</option>
-                          <option value="TRANSFERENCIA">Transferencia</option>
-                        </select>
+                      <td className="px-2 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                        {formaPagamentoLabel(grupo.formaPagamento)}
                       </td>
-                      <td className="px-2 py-2">
-                        <input
-                          type="number"
-                          min={1}
-                          step="1"
-                          className={tableInputClassName}
-                          value={pagamento.parcelas}
-                          onChange={(event) => atualizarPagamento(pagamento.id, 'parcelas', Math.max(1, parseNumericInput(event.target.value)))}
-                        />
+                      <td className="px-2 py-2 text-center text-sm font-bold text-slate-700 dark:text-slate-200">
+                        {grupo.pagamentos.length}
                       </td>
-                      <td className="px-2 py-2">
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          className={tableInputClassName}
-                          value={pagamento.valor}
-                          onChange={(event) => atualizarPagamento(pagamento.id, 'valor', parseNumericInput(event.target.value))}
-                        />
+                      <td className="px-2 py-2 text-right text-sm font-bold text-slate-700 dark:text-slate-200">
+                        {formatCurrency(grupo.valorTotal)}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+
+            {gruposPagamento.length > 0 ? (
+              <div className="mt-4 space-y-3">
+                {gruposPagamento.map((grupo) => (
+                  <div
+                    key={`detalhe-${grupo.formaPagamento}`}
+                    className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/60"
+                  >
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                        {formaPagamentoLabel(grupo.formaPagamento)}
+                      </p>
+                      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                        {grupo.pagamentos.length} parcela(s)
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      {grupo.pagamentos.map(({ pagamento }, parcelaIndex) => (
+                        <div
+                          key={`pagamento-${pagamento.id}`}
+                          className="grid gap-2 rounded-md border border-slate-200 bg-white p-2 text-sm dark:border-slate-700 dark:bg-slate-800 md:grid-cols-[110px_1fr_1fr_170px]"
+                        >
+                          <div className="flex items-center font-bold text-slate-700 dark:text-slate-200">
+                            Parcela {parcelaIndex + 1}
+                          </div>
+
+                          <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            Forma
+                            <select
+                              className={tableInputClassName}
+                              value={pagamento.formaPagamento}
+                              onChange={(event) => atualizarPagamento(pagamento.id, 'formaPagamento', event.target.value)}
+                            >
+                              <option value="DINHEIRO">Dinheiro</option>
+                              <option value="PIX">PIX</option>
+                              <option value="CARTAO_CREDITO">Cartao de credito</option>
+                              <option value="CARTAO_DEBITO">Cartao de debito</option>
+                              <option value="BOLETO">Boleto</option>
+                              <option value="TRANSFERENCIA">Transferencia</option>
+                            </select>
+                          </label>
+
+                          <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            Vencimento
+                            <input
+                              type="date"
+                              className={tableInputClassName}
+                              value={String(pagamento.dataVencimento || '').slice(0, 10)}
+                              onChange={(event) => atualizarPagamento(pagamento.id, 'dataVencimento', event.target.value)}
+                            />
+                          </label>
+
+                          <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            Valor
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              className={tableInputClassName}
+                              value={pagamento.valor}
+                              onChange={(event) => atualizarPagamento(pagamento.id, 'valor', parseNumericInput(event.target.value))}
+                            />
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -1616,10 +1778,24 @@ export function ImportacaoNfe() {
               <p className="text-sm text-slate-500 dark:text-slate-400">Anexe o PDF da nota fiscal. O mesmo arquivo sera referenciado nos anexos de todas as parcelas financeiras desta NF-e.</p>
             </div>
 
+            {pdfAnexoExistente ? (
+              <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-300">
+                PDF atual:&nbsp;
+                <a
+                  href={pdfAnexoExistente.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold underline"
+                >
+                  {pdfAnexoExistente.nome}
+                </a>
+              </div>
+            ) : null}
+
             <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 transition hover:border-blue-500 dark:border-slate-700 dark:bg-slate-900">
               <Paperclip className="h-4 w-4 text-slate-500 dark:text-slate-300" />
               <span className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
-                {pdfAnexo ? pdfAnexo.name : 'Clique para selecionar um arquivo PDF'}
+                {pdfAnexo ? pdfAnexo.name : (pdfAnexoExistente?.nome || 'Clique para selecionar um arquivo PDF')}
               </span>
               <input
                 type="file"
@@ -1633,6 +1809,11 @@ export function ImportacaoNfe() {
             </label>
 
             {erroPdf ? <p className="mt-2 text-sm text-rose-600 dark:text-rose-300">{erroPdf}</p> : null}
+            {pdfAnexo && pdfAnexoExistente ? (
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                Um novo PDF foi selecionado e sera referenciado no lugar do arquivo atual apos salvar/confirmar.
+              </p>
+            ) : null}
             {pdfAnexo ? (
               <button
                 type="button"

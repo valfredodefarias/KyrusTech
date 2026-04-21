@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import base64
 from datetime import date
 from decimal import Decimal
 from difflib import SequenceMatcher
 import hashlib
+import json
 from math import ceil
 from pathlib import Path
 import re
@@ -98,10 +100,21 @@ class NfeParcelaConfirmar(BaseModel):
     entidade_id: Optional[int] = None
 
 
+class NfeItemPersistencia(BaseModel):
+    descricao: str
+    quantidade: float = Field(gt=0)
+    valor_unitario: float = Field(ge=0)
+    valor_total: float = Field(ge=0)
+    cfop: Optional[str] = None
+    ncm: Optional[str] = None
+
+
 class NfeConfirmarRequest(BaseModel):
     chave_nfe: str
     numero_nfe: str
     tipo_lancamento: str
+    situacao: Optional[str] = "AGUARDANDO_ENTREGA"
+    cfop: Optional[str] = None
     data_emissao: date
     emitente_nome: Optional[str] = None
     emitente_documento: Optional[str] = None
@@ -111,6 +124,7 @@ class NfeConfirmarRequest(BaseModel):
     entidade_id: Optional[int] = None
     plano_contas_id: Optional[int] = None
     observacao: Optional[str] = None
+    itens: list[NfeItemPersistencia] = Field(default_factory=list)
     parcelas: list[NfeParcelaConfirmar]
 
 
@@ -168,10 +182,13 @@ class NfeDetalheResponse(BaseModel):
     id_parcelamento: str
     numero_nfe: str
     chave_nfe: Optional[str] = None
+    cfop: Optional[str] = None
     tipo_lancamento: str
     data_emissao: str
     emitente_nome: str
     emitente_documento: str
+    anexo_pdf_nome: Optional[str] = None
+    anexo_pdf_url: Optional[str] = None
     entidade_id: Optional[int] = None
     plano_contas_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
@@ -179,6 +196,7 @@ class NfeDetalheResponse(BaseModel):
     total_parcelas: int
     valor_total: float
     status: str
+    itens: list[NfeItemAnalise] = Field(default_factory=list)
     parcelas: list[NfeParcelaDetalhe]
 
 
@@ -192,6 +210,8 @@ class NfeParcelaAtualizar(BaseModel):
 class NfeAtualizarRequest(BaseModel):
     numero_nfe: str
     chave_nfe: Optional[str] = None
+    situacao: Optional[str] = "AGUARDANDO_ENTREGA"
+    cfop: Optional[str] = None
     data_emissao: date
     emitente_nome: Optional[str] = None
     emitente_documento: Optional[str] = None
@@ -200,6 +220,7 @@ class NfeAtualizarRequest(BaseModel):
     plano_contas_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
     observacao: Optional[str] = None
+    itens: list[NfeItemPersistencia] = Field(default_factory=list)
     parcelas: list[NfeParcelaAtualizar] = Field(default_factory=list)
 
 
@@ -222,6 +243,221 @@ def _normalizar_nome_entidade(value: str) -> str:
 
 def _only_digits(value: str) -> str:
     return re.sub(r"[^0-9]", "", value or "")
+
+
+def _normalizar_situacao_nfe(value: Optional[str]) -> str:
+    bruto = str(value or "").strip()
+    if not bruto:
+        return "AGUARDANDO_ENTREGA"
+
+    normalizado = _normalize_text(bruto).replace("-", " ").replace("_", " ")
+    if normalizado in {"entregue", "pago", "paga", "concluido", "concluida"}:
+        return "ENTREGUE"
+    if normalizado in {"cancelada", "cancelado"}:
+        return "CANCELADA"
+    if normalizado in {"aguardando entrega", "em aberto", "aberto", "aberta", "pendente"}:
+        return "AGUARDANDO_ENTREGA"
+
+    return "AGUARDANDO_ENTREGA"
+
+
+def _extrair_situacao_nfe(text: str) -> str:
+    match = re.search(
+        r"Situac[aã]o\s*[:=]?\s*(AGUARDANDO[_ ]ENTREGA|ENTREGUE|CANCELADA)",
+        str(text or ""),
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return "AGUARDANDO_ENTREGA"
+    return _normalizar_situacao_nfe(match.group(1))
+
+
+def _normalizar_cfop(value: Optional[str]) -> Optional[str]:
+    digits = _only_digits(str(value or ""))
+    if not digits:
+        return None
+    return digits[:4]
+
+
+def _extract_cfop(text: str) -> Optional[str]:
+    match = re.search(r"CFOP\s*[:=]?\s*([0-9]{1,4})", str(text or ""), flags=re.IGNORECASE)
+    if not match:
+        return None
+    return _normalizar_cfop(match.group(1))
+
+
+def _extract_emitente_documento(text: str) -> Optional[str]:
+    match = re.search(
+        r"(?:EmitenteDoc|CNPJ\/?CPF|Documento)\s*[:=]?\s*([0-9]{11,14})",
+        str(text or ""),
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    return _only_digits(match.group(1))
+
+
+def _extract_cnpj_from_nfe_key(chave_nfe: Optional[str]) -> Optional[str]:
+    chave = _only_digits(chave_nfe or "")
+    if len(chave) != 44:
+        return None
+    return chave[6:20]
+
+
+def _normalizar_itens_nfe(itens: list[NfeItemPersistencia]) -> list[dict[str, object]]:
+    itens_normalizados: list[dict[str, object]] = []
+    for item in itens:
+        descricao = str(item.descricao or "").strip() or "Item"
+        quantidade = float(item.quantidade or 0)
+        valor_unitario = float(item.valor_unitario or 0)
+        valor_total = float(item.valor_total or 0)
+
+        if quantidade <= 0:
+            quantidade = 1.0
+        if valor_total <= 0 and valor_unitario > 0:
+            valor_total = valor_unitario * quantidade
+        if valor_unitario <= 0 and valor_total > 0:
+            valor_unitario = valor_total / quantidade
+
+        itens_normalizados.append(
+            {
+                "descricao": descricao,
+                "quantidade": round(quantidade, 6),
+                "valor_unitario": round(valor_unitario, 6),
+                "valor_total": round(valor_total, 6),
+                "cfop": _normalizar_cfop(item.cfop),
+                "ncm": str(item.ncm or "").strip() or None,
+            }
+        )
+    return itens_normalizados
+
+
+def _encode_itens_meta(itens_meta: list[dict[str, object]]) -> Optional[str]:
+    if not itens_meta:
+        return None
+    payload = json.dumps(itens_meta, ensure_ascii=False, separators=(",", ":"))
+    return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")
+
+
+def _decode_itens_meta(token: str) -> list[dict[str, object]]:
+    bruto = str(token or "").strip()
+    if not bruto:
+        return []
+
+    try:
+        decoded = base64.urlsafe_b64decode(bruto.encode("ascii")).decode("utf-8")
+        payload = json.loads(decoded)
+    except Exception:
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    itens: list[dict[str, object]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        try:
+            quantidade = float(item.get("quantidade") or 0)
+            valor_unitario = float(item.get("valor_unitario") or 0)
+            valor_total = float(item.get("valor_total") or 0)
+        except (TypeError, ValueError):
+            continue
+
+        if quantidade <= 0:
+            quantidade = 1.0
+        if valor_total <= 0 and valor_unitario > 0:
+            valor_total = valor_unitario * quantidade
+        if valor_unitario <= 0 and valor_total > 0:
+            valor_unitario = valor_total / quantidade
+
+        itens.append(
+            {
+                "descricao": str(item.get("descricao") or "Item").strip() or "Item",
+                "quantidade": round(quantidade, 6),
+                "valor_unitario": round(valor_unitario, 6),
+                "valor_total": round(valor_total, 6),
+                "cfop": _normalizar_cfop(str(item.get("cfop") or "")),
+                "ncm": str(item.get("ncm") or "").strip() or None,
+            }
+        )
+    return itens
+
+
+def _extract_itens_meta(text: str) -> list[dict[str, object]]:
+    match = re.search(
+        r"ItensMeta\s*[:=]?\s*([A-Za-z0-9_-]+={0,2})",
+        str(text or ""),
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return []
+    return _decode_itens_meta(match.group(1))
+
+
+def _itens_meta_to_response(itens_meta: list[dict[str, object]]) -> list[NfeItemAnalise]:
+    itens_resp: list[NfeItemAnalise] = []
+    for item in itens_meta:
+        try:
+            itens_resp.append(
+                NfeItemAnalise(
+                    descricao=str(item.get("descricao") or "Item").strip() or "Item",
+                    quantidade=float(item.get("quantidade") or 0),
+                    valor_unitario=float(item.get("valor_unitario") or 0),
+                    valor_total=float(item.get("valor_total") or 0),
+                    cfop=str(item.get("cfop") or "").strip() or None,
+                    ncm=str(item.get("ncm") or "").strip() or None,
+                )
+            )
+        except Exception:
+            continue
+    return itens_resp
+
+
+def _strip_situacao_from_observacao(value: Optional[str]) -> str:
+    texto = str(value or "").strip()
+    if not texto:
+        return ""
+
+    texto = re.sub(
+        r"\s*\|\s*Situac[aã]o\s*[:=]?\s*(AGUARDANDO[_ ]ENTREGA|ENTREGUE|CANCELADA)",
+        "",
+        texto,
+        flags=re.IGNORECASE,
+    )
+    texto = re.sub(r"\s*\|\s*CFOP\s*[:=]?\s*[0-9]{1,4}", "", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s*\|\s*EmitenteDoc\s*[:=]?\s*[0-9]{11,14}", "", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s*\|\s*ItensMeta\s*[:=]?\s*[A-Za-z0-9_-]+={0,2}", "", texto, flags=re.IGNORECASE)
+    return texto.strip()
+
+
+def _compor_observacao_com_situacao(
+    observacao_base: Optional[str],
+    situacao_nfe: str,
+    *,
+    cfop: Optional[str] = None,
+    emitente_documento: Optional[str] = None,
+    itens_meta: Optional[list[dict[str, object]]] = None,
+) -> str:
+    base = _strip_situacao_from_observacao(observacao_base)
+    partes: list[str] = []
+    if base:
+        partes.append(base)
+
+    emitente_doc = _only_digits(emitente_documento or "")
+    if emitente_doc:
+        partes.append(f"EmitenteDoc {emitente_doc}")
+
+    cfop_normalizado = _normalizar_cfop(cfop)
+    if cfop_normalizado:
+        partes.append(f"CFOP {cfop_normalizado}")
+
+    token_itens = _encode_itens_meta(itens_meta or [])
+    if token_itens:
+        partes.append(f"ItensMeta {token_itens}")
+
+    partes.append(f"Situacao {situacao_nfe}")
+    return " | ".join(partes)
 
 
 def _extract_nfe_number(text: str) -> str:
@@ -474,6 +710,38 @@ def _tipo_pessoa_por_documento(documento: str) -> str:
     return "PJ" if len(_only_digits(documento)) > 11 else "PF"
 
 
+def _atualizar_documento_entidade_se_vazio(
+    db: Session,
+    *,
+    empresa_id: int,
+    entidade: Entidade,
+    documento: str,
+    origem: str,
+) -> Entidade:
+    documento_limpo = _only_digits(documento)
+    if len(documento_limpo) not in (11, 14):
+        return entidade
+
+    documento_atual = _only_digits(str(entidade.cpf_cnpj or ""))
+    if documento_atual:
+        return entidade
+
+    entidade.cpf_cnpj = documento_limpo
+    entidade.tipo_pessoa = _tipo_pessoa_por_documento(documento_limpo)
+    db.add(entidade)
+    db.commit()
+    db.refresh(entidade)
+
+    logger.info(
+        "[NFE] Documento da entidade atualizado automaticamente empresa_id={} entidade_id={} origem={} documento={}",
+        empresa_id,
+        entidade.id,
+        origem,
+        documento_limpo,
+    )
+    return entidade
+
+
 def _buscar_ou_criar_entidade_nfe(
     db: Session,
     *,
@@ -482,6 +750,7 @@ def _buscar_ou_criar_entidade_nfe(
 ) -> Entidade:
     referencia_nome = _normalizar_nome_entidade(documento.entidade_referencia_nome)
     referencia_documento = _only_digits(documento.entidade_referencia_documento)
+    emitente_documento = _only_digits(documento.emitente_documento)
 
     candidatos = db.exec(
         select(Entidade).where(
@@ -509,7 +778,13 @@ def _buscar_ou_criar_entidade_nfe(
                 melhor_score = score
 
     if melhor and melhor_score >= 0.82:
-        return melhor
+        return _atualizar_documento_entidade_se_vazio(
+            db,
+            empresa_id=empresa_id,
+            entidade=melhor,
+            documento=emitente_documento or referencia_documento,
+            origem="analise_nfe_nome",
+        )
 
     tipo_lancamento = str(documento.tipo_lancamento or "").strip().upper()
     tipo_entidade = "FORNECEDOR" if tipo_lancamento == "DESPESA" else "CLIENTE"
@@ -519,9 +794,9 @@ def _buscar_ou_criar_entidade_nfe(
     nova_entidade = Entidade(
         nome=nome_base,
         tipo=tipo_entidade,
-        tipo_pessoa=_tipo_pessoa_por_documento(referencia_documento),
+        tipo_pessoa=_tipo_pessoa_por_documento(referencia_documento or emitente_documento),
         nome_fantasia=nome_fantasia or None,
-        cpf_cnpj=referencia_documento or None,
+        cpf_cnpj=referencia_documento or emitente_documento or None,
         telefone=documento.emitente_telefone or None if tipo_lancamento == "DESPESA" else None,
         cep=documento.emitente_cep or None if tipo_lancamento == "DESPESA" else None,
         logradouro=documento.emitente_logradouro or None if tipo_lancamento == "DESPESA" else None,
@@ -598,7 +873,14 @@ def _resolver_entidade_confirmacao_nfe(
     request: NfeConfirmarRequest,
 ) -> Entidade:
     if request.entidade_id:
-        return _assert_entidade_valida(db, empresa_id=empresa_id, entidade_id=int(request.entidade_id))
+        entidade_selecionada = _assert_entidade_valida(db, empresa_id=empresa_id, entidade_id=int(request.entidade_id))
+        return _atualizar_documento_entidade_se_vazio(
+            db,
+            empresa_id=empresa_id,
+            entidade=entidade_selecionada,
+            documento=str(request.emitente_documento or ""),
+            origem="confirmacao_nfe_entidade_selecionada",
+        )
 
     emitente_nome = _normalizar_nome_entidade(request.emitente_nome or request.emitente_nome_fantasia or "")
     emitente_documento = _only_digits(request.emitente_documento or "")
@@ -630,7 +912,13 @@ def _resolver_entidade_confirmacao_nfe(
                 melhor_score = score
 
         if melhor and melhor_score >= 0.82:
-            return melhor
+            return _atualizar_documento_entidade_se_vazio(
+                db,
+                empresa_id=empresa_id,
+                entidade=melhor,
+                documento=emitente_documento,
+                origem="confirmacao_nfe_nome",
+            )
 
     nova_entidade = Entidade(
         nome=emitente_nome or request.emitente_nome_fantasia or "Fornecedor NF-e",
@@ -663,7 +951,7 @@ def listar_nfes_importadas(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None),
-    status_filtro: str = Query("TODOS", alias="status", pattern="^(TODOS|PAGO|ATRASADO|EM_ABERTO)$"),
+    status_filtro: str = Query("TODOS", alias="status", pattern="^(TODOS|AGUARDANDO_ENTREGA|ENTREGUE|CANCELADA)$"),
     order_by: str = Query("data", pattern="^(data|valor|descricao|status)$"),
     order_dir: str = Query("desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
@@ -709,14 +997,21 @@ def listar_nfes_importadas(
             | Lancamento.id_parcelamento.ilike(like_term)
         )
 
-    grouped_stmt = grouped_stmt.group_by(group_key)
+    if status_filtro == "ENTREGUE":
+        grouped_stmt = grouped_stmt.where(Lancamento.observacao.ilike("%Situacao ENTREGUE%"))
+    elif status_filtro == "CANCELADA":
+        grouped_stmt = grouped_stmt.where(Lancamento.observacao.ilike("%Situacao CANCELADA%"))
+    elif status_filtro == "AGUARDANDO_ENTREGA":
+        grouped_stmt = grouped_stmt.where(
+            (Lancamento.observacao.is_(None))
+            | Lancamento.observacao.ilike("%Situacao AGUARDANDO_ENTREGA%")
+            | (
+                (~Lancamento.observacao.ilike("%Situacao ENTREGUE%"))
+                & (~Lancamento.observacao.ilike("%Situacao CANCELADA%"))
+            )
+        )
 
-    if status_filtro == "PAGO":
-        grouped_stmt = grouped_stmt.having(total_pagas_expr >= total_parcelas_expr)
-    elif status_filtro == "ATRASADO":
-        grouped_stmt = grouped_stmt.having(total_atrasadas_expr > 0)
-    elif status_filtro == "EM_ABERTO":
-        grouped_stmt = grouped_stmt.having((total_pagas_expr < total_parcelas_expr) & (total_atrasadas_expr == 0))
+    grouped_stmt = grouped_stmt.group_by(group_key)
 
     grouped_subquery = grouped_stmt.subquery()
     total_items = int(db.exec(select(func.count()).select_from(grouped_subquery)).first() or 0)
@@ -725,8 +1020,8 @@ def listar_nfes_importadas(
     offset = (current_page - 1) * page_size
 
     status_sort_rank = case(
-        (grouped_subquery.c.total_pagas >= grouped_subquery.c.total_parcelas, 0),
-        (grouped_subquery.c.total_atrasadas > 0, 2),
+        (grouped_subquery.c.observacao_ref.ilike("%Situacao ENTREGUE%"), 0),
+        (grouped_subquery.c.observacao_ref.ilike("%Situacao CANCELADA%"), 2),
         else_=1,
     )
     sort_map = {
@@ -810,14 +1105,10 @@ def listar_nfes_importadas(
                 chave_nfe = possivel_chave
 
         total_parcelas = int(total_parcelas_raw or 0)
+        status_resumo = _extrair_situacao_nfe(texto_referencia)
         total_pagas = int(total_pagas_raw or 0)
-        total_atrasadas = int(total_atrasadas_raw or 0)
-        if total_parcelas > 0 and total_pagas >= total_parcelas:
-            status_resumo = "PAGO"
-        elif total_atrasadas > 0:
-            status_resumo = "ATRASADO"
-        else:
-            status_resumo = "EM_ABERTO"
+        if status_resumo == "AGUARDANDO_ENTREGA" and total_parcelas > 0 and total_pagas >= total_parcelas:
+            status_resumo = "ENTREGUE"
 
         items.append(
             NfeListItem(
@@ -875,10 +1166,14 @@ def obter_detalhe_nfe_importada(
     ).strip()
     numero_nfe = _extract_nfe_number(texto_referencia)
     chave_nfe = _extract_nfe_key(texto_referencia)
+    cfop_nfe = _extract_cfop(texto_referencia)
+    emitente_documento_meta = _extract_emitente_documento(texto_referencia)
     if not chave_nfe and group_id.startswith("NFE-"):
         possivel_chave = _only_digits(group_id)
         if len(possivel_chave) == 44:
             chave_nfe = possivel_chave
+
+    emitente_documento_chave = _extract_cnpj_from_nfe_key(chave_nfe)
 
     primeiro = lancamentos[0]
     entidade: Optional[Entidade] = None
@@ -901,20 +1196,35 @@ def obter_detalhe_nfe_importada(
             )
         ).first()
 
+    emitente_documento = _only_digits(str((entidade.cpf_cnpj if entidade else "") or ""))
+    if not emitente_documento:
+        emitente_documento = emitente_documento_meta or emitente_documento_chave or ""
+
+    anexo_pdf_nome: Optional[str] = None
+    anexo_pdf_url: Optional[str] = None
+    lancamento_ids = [int(lancamento.id) for lancamento in lancamentos if lancamento.id is not None]
+    if lancamento_ids:
+        anexo_pdf_row = db.exec(
+            select(AnexoLancamento.nome_arquivo, AnexoLancamento.url)
+            .where(
+                AnexoLancamento.empresa_id == empresa_id,
+                AnexoLancamento.is_deleted == False,
+                AnexoLancamento.tipo == "NOTA_FISCAL",
+                AnexoLancamento.lancamento_id.in_(lancamento_ids),
+            )
+            .order_by(desc(AnexoLancamento.created_at), desc(AnexoLancamento.id))
+        ).first()
+        if anexo_pdf_row:
+            anexo_pdf_nome = str(anexo_pdf_row[0] or "").strip() or None
+            anexo_pdf_url = str(anexo_pdf_row[1] or "").strip() or None
+
     total_parcelas = len(lancamentos)
+    status_resumo = _extrair_situacao_nfe(texto_referencia)
     total_pagas = sum(1 for lancamento in lancamentos if str(lancamento.status or "").strip().upper() == "PAGO")
-    total_atrasadas = sum(
-        1
-        for lancamento in lancamentos
-        if str(lancamento.status or "").strip().upper() != "PAGO"
-        and bool(lancamento.data_vencimento and lancamento.data_vencimento < date.today())
-    )
-    if total_parcelas > 0 and total_pagas >= total_parcelas:
-        status_resumo = "PAGO"
-    elif total_atrasadas > 0:
-        status_resumo = "ATRASADO"
-    else:
-        status_resumo = "EM_ABERTO"
+    if status_resumo == "AGUARDANDO_ENTREGA" and total_parcelas > 0 and total_pagas >= total_parcelas:
+        status_resumo = "ENTREGUE"
+
+    itens_meta = _extract_itens_meta(texto_referencia)
 
     parcelas: list[NfeParcelaDetalhe] = []
     total_valor = Decimal("0")
@@ -936,16 +1246,33 @@ def obter_detalhe_nfe_importada(
             )
         )
 
+    itens_detalhe = _itens_meta_to_response(itens_meta)
+    if not itens_detalhe and total_valor > 0:
+        descricao_item = f"NF-e {numero_nfe}" if numero_nfe != "-" else "Item NF-e"
+        itens_detalhe = [
+            NfeItemAnalise(
+                descricao=descricao_item,
+                quantidade=1.0,
+                valor_unitario=float(total_valor),
+                valor_total=float(total_valor),
+                cfop=cfop_nfe,
+                ncm=None,
+            )
+        ]
+
     data_emissao = (primeiro.data_competencia or primeiro.data_vencimento or date.today()).isoformat()
 
     return NfeDetalheResponse(
         id_parcelamento=group_id,
         numero_nfe=numero_nfe,
         chave_nfe=chave_nfe,
+        cfop=cfop_nfe,
         tipo_lancamento=str(primeiro.tipo or "DESPESA").strip().upper() or "DESPESA",
         data_emissao=data_emissao,
         emitente_nome=str((entidade.nome if entidade else "") or ""),
-        emitente_documento=str((entidade.cpf_cnpj if entidade else "") or ""),
+        emitente_documento=emitente_documento,
+        anexo_pdf_nome=anexo_pdf_nome,
+        anexo_pdf_url=anexo_pdf_url,
         entidade_id=int(primeiro.entidade_id) if primeiro.entidade_id is not None else None,
         plano_contas_id=int(primeiro.plano_contas_id) if primeiro.plano_contas_id is not None else None,
         centro_custo_id=int(primeiro.centro_custo_id) if primeiro.centro_custo_id is not None else None,
@@ -953,6 +1280,7 @@ def obter_detalhe_nfe_importada(
         total_parcelas=total_parcelas,
         valor_total=float(total_valor),
         status=status_resumo,
+        itens=itens_detalhe,
         parcelas=parcelas,
     )
 
@@ -1001,6 +1329,7 @@ def atualizar_nfe_importada(
         f"{str(l.observacao or '').strip()} {str(l.descricao or '').strip()}".strip() for l in lancamentos
     ).strip()
     chave_nfe = _only_digits(request.chave_nfe or _extract_nfe_key(texto_referencia) or "")
+    cfop_nfe = _normalizar_cfop(request.cfop or _extract_cfop(texto_referencia))
     if not chave_nfe and group_id.startswith("NFE-"):
         possivel_chave = _only_digits(group_id)
         if len(possivel_chave) == 44:
@@ -1009,7 +1338,7 @@ def atualizar_nfe_importada(
     observacao_padrao = f"NF-e {numero_nfe}"
     if chave_nfe:
         observacao_padrao = f"{observacao_padrao} | Chave {chave_nfe}"
-    observacao_base = str(request.observacao or observacao_padrao).strip()
+    situacao_nfe = _normalizar_situacao_nfe(request.situacao)
 
     plano_contas_id_raw = request.plano_contas_id if request.plano_contas_id is not None else lancamentos[0].plano_contas_id
     if plano_contas_id_raw is None:
@@ -1026,7 +1355,26 @@ def atualizar_nfe_importada(
     if entidade_id_raw is None:
         raise HTTPException(status_code=400, detail="Fornecedor da NF-e nao definido")
     entidade_id = int(entidade_id_raw)
-    _assert_entidade_valida(db, empresa_id=empresa_id, entidade_id=entidade_id)
+    entidade = _assert_entidade_valida(db, empresa_id=empresa_id, entidade_id=entidade_id)
+
+    emitente_documento_nfe = (
+        _only_digits(request.emitente_documento or "")
+        or _extract_emitente_documento(texto_referencia)
+        or _only_digits(str(entidade.cpf_cnpj or ""))
+        or _extract_cnpj_from_nfe_key(chave_nfe)
+        or ""
+    )
+    itens_meta = _normalizar_itens_nfe(request.itens)
+    if not itens_meta:
+        itens_meta = _extract_itens_meta(texto_referencia)
+
+    observacao_base = _compor_observacao_com_situacao(
+        request.observacao or observacao_padrao,
+        situacao_nfe,
+        cfop=cfop_nfe,
+        emitente_documento=emitente_documento_nfe,
+        itens_meta=itens_meta,
+    )
 
     centro_custo_id_raw = (
         request.centro_custo_id if request.centro_custo_id is not None else lancamentos[0].centro_custo_id
@@ -1360,6 +1708,7 @@ def confirmar_importacao_nfe(
         raise HTTPException(status_code=400, detail="Numero da NF-e obrigatorio")
 
     parcela_group_id = _parcelamento_id(chave_nfe)
+    situacao_nfe = _normalizar_situacao_nfe(request.situacao)
 
     logger.info(
         "[NFE] Inicio confirmacao empresa_id={} chave_nfe={} parcelas={} conta_id={} centro_custo_id={}",
@@ -1392,6 +1741,14 @@ def confirmar_importacao_nfe(
         conta=conta,
     )
     entidade_padrao = _resolver_entidade_confirmacao_nfe(db, empresa_id=empresa_id, request=request)
+    cfop_nfe = _normalizar_cfop(request.cfop)
+    emitente_documento_nfe = (
+        _only_digits(request.emitente_documento or "")
+        or _only_digits(str(entidade_padrao.cpf_cnpj or ""))
+        or _extract_cnpj_from_nfe_key(chave_nfe)
+        or ""
+    )
+    itens_meta = _normalizar_itens_nfe(request.itens)
 
     hashes_lote = [_import_hash(empresa_id, chave_nfe, parcela.indice) for parcela in request.parcelas]
     if len(set(hashes_lote)) != len(hashes_lote):
@@ -1447,7 +1804,13 @@ def confirmar_importacao_nfe(
             competencia = data_competencia.strftime("%m/%Y")
             import_hash = _import_hash(empresa_id, chave_nfe, parcela.indice)
 
-            observacao_base = str(request.observacao or f"NF-e {numero_nfe} | Chave {chave_nfe}").strip()
+            observacao_base = _compor_observacao_com_situacao(
+                request.observacao or f"NF-e {numero_nfe} | Chave {chave_nfe}",
+                situacao_nfe,
+                cfop=cfop_nfe,
+                emitente_documento=emitente_documento_nfe,
+                itens_meta=itens_meta,
+            )
             lancamento = Lancamento(
                 descricao=descricao,
                 tipo=tipo_lancamento,

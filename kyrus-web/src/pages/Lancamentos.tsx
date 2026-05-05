@@ -487,9 +487,10 @@ const ToggleSimNao = ({
 interface LancamentosProps {
   forcedSearchParams?: URLSearchParams | null;
   onRequestCloseEmbed?: () => void;
+  drawerPanelClassName?: string;
 }
 
-export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: LancamentosProps = {}) {
+export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, drawerPanelClassName }: LancamentosProps = {}) {
   const [urlSearchParams, setUrlSearchParams] = useSearchParams();
   const [embeddedSearchParams, setEmbeddedSearchParams] = useState<URLSearchParams | null>(
     forcedSearchParams ? new URLSearchParams(forcedSearchParams.toString()) : null,
@@ -1124,14 +1125,18 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
     if (!auxLoadedRef.current || contas.length === 0) return;
 
     openDrawer();
+    const cartaoIdParam = Number(searchParams.get('cartao_id') || '');
     const contaIdParam = Number(searchParams.get('conta_id') || '');
-    if (Number.isFinite(contaIdParam) && contaIdParam > 0) {
+    if (Number.isFinite(cartaoIdParam) && cartaoIdParam > 0) {
+      setFormData((prev: any) => ({ ...prev, cartao_id: String(cartaoIdParam), conta_id: '' }));
+    } else if (Number.isFinite(contaIdParam) && contaIdParam > 0) {
       setFormData((prev: any) => ({ ...prev, conta_id: String(contaIdParam), cartao_id: '' }));
     }
 
     quickOpenNovoHandledRef.current = true;
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('novo');
+    nextParams.delete('cartao_id');
     nextParams.delete('conta_id');
     setSearchParams(nextParams, { replace: true });
   }, [searchParams, setSearchParams, contas.length]);
@@ -2958,7 +2963,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed }: 
               </aside>
             )}
 
-          <div className={`relative w-full bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700 ${embedFullscreenDrawer ? 'max-w-none' : 'max-w-xl'}`}>
+          <div className={`relative bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700 ${drawerPanelClassName || (embedFullscreenDrawer ? 'w-full max-w-none' : 'w-full max-w-xl')}`}>
             <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
               <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing?'Editar':'Novo'} Lançamento</h2>
               <div className="flex items-center gap-1">

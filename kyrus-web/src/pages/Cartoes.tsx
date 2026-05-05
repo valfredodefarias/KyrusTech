@@ -1,10 +1,11 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { api, fetchLancamentosPaged, normalizeListResponse } from '../services/api';
+import { api, normalizeListResponse } from '../services/api';
+import { Lancamentos } from './Lancamentos';
 import { BrandAvatar, CARD_BRAND_OPTIONS, inferCardBrand } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
 import { 
   Plus, RefreshCw, Edit2, X, Check, Loader2, 
-    ChevronLeft, ChevronRight, CheckCircle2, Building2, ChevronDown
+        ChevronLeft, ChevronRight, CheckCircle2, Building2
 } from 'lucide-react';
 
 // --- INTERFACES ---
@@ -27,17 +28,16 @@ interface Lancamento {
   valor_previsto: number;
   data_competencia: string;
   data_vencimento: string;
+    competencia?: string | null;
   numero_parcela?: string;
   status: 'PAGO' | 'PENDENTE';
   cartao_id?: number;
 }
 
-interface Categoria {
+interface CartaoResumo {
     id: number;
-    nome: string;
-    tipo?: string;
-    eh_cabecalho?: boolean;
-    permite_lancamentos?: boolean;
+    gastos_pendentes: number;
+    saldo_disponivel: number;
 }
 
 interface CentroCusto { id: number; nome?: string; descricao?: string; }
@@ -66,84 +66,6 @@ const CurrencyInputDark = ({ label, className = '', value, onValueChange, ...pro
     </div>
 );
 
-const SearchableSelect = ({ options, value, onChange, placeholder, label }: any) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const [search, setSearch] = useState('');
-    const wrapperRef = useRef<HTMLDivElement>(null);
-
-    const selectedOption = options.flatMap((g:any) => g.options).find((o:any) => String(o.id) === String(value));
-
-    useEffect(() => {
-        function handleClickOutside(event: any) {
-            if (wrapperRef.current && !wrapperRef.current.contains(event.target)) setIsOpen(false);
-        }
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [wrapperRef]);
-
-    const filteredGroups = options.map((group: any) => ({
-        ...group,
-        options: group.options.filter((opt: any) => opt.label.toLowerCase().includes(search.toLowerCase()))
-    })).filter((group: any) => group.options.length > 0);
-
-    return (
-        <div className="relative" ref={wrapperRef}>
-            {label && <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{label}</label>}
-            <div 
-                onClick={() => setIsOpen(!isOpen)}
-                className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 cursor-pointer flex justify-between items-center text-sm min-h-11.5 hover:border-blue-500 transition shadow-sm"
-            >
-                <span className={selectedOption ? 'text-slate-800 dark:text-white font-medium' : 'text-slate-500'}>
-                    {selectedOption ? selectedOption.label : placeholder}
-                </span>
-                <ChevronDown className="w-4 h-4 text-slate-400"/>
-            </div>
-
-            {isOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl shadow-2xl max-h-96 flex flex-col animate-in fade-in zoom-in-95 duration-100">
-                        <div className="p-2 border-b border-slate-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800 rounded-t-xl">
-                        <input 
-                            autoFocus
-                            type="text" 
-                            placeholder="Pesquisar..." 
-                                    className="w-full p-2 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg outline-none text-slate-700 dark:text-white focus:border-blue-500"
-                            value={search}
-                            onChange={e => setSearch(e.target.value)}
-                        />
-                    </div>
-                    <div className="overflow-y-auto custom-scrollbar p-1">
-                        {filteredGroups.map((group: any, idx: number) => (
-                            <div key={idx} className="mb-2">
-                                <div className="px-3 py-1.5 text-[10px] font-bold text-blue-300 uppercase tracking-wider bg-slate-700/30 rounded mb-1 pointer-events-none select-none">
-                                    {group.label}
-                                </div>
-                                {group.options.map((opt: any) => (
-                                    (() => {
-                                        const isDisabled = opt.disabled || opt.eh_cabecalho || opt.permite_lancamentos === false;
-                                        const tipo = String(opt.tipo || opt.grupo || opt.label || '').toUpperCase();
-                                        const colorClass = tipo.startsWith('D') ? 'text-red-400' : tipo.startsWith('R') ? 'text-emerald-400' : '';
-                                        return (
-                                            <div 
-                                                key={opt.id}
-                                                onClick={() => { if (!isDisabled) { onChange(opt.id); setIsOpen(false); setSearch(''); } }}
-                                                className={`px-3 py-2 text-sm rounded transition flex items-center justify-between ${String(value) === String(opt.id) ? 'bg-blue-600 text-white' : `text-slate-600 dark:text-slate-300 ${colorClass}`} ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                                            >
-                                                {opt.label}
-                                                {String(value) === String(opt.id) && <Check className="w-3 h-3"/>}
-                                            </div>
-                                        );
-                                    })()
-                                ))}
-                            </div>
-                        ))}
-                        {filteredGroups.length === 0 && <div className="p-4 text-center text-xs text-slate-500">Nada encontrado.</div>}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-
 export function Cartoes() {
   // --- TRAVA DE SEGURANÇA CONTRA DUPLA REQUISIÇÃO ---
   const dataFetchedRef = useRef(false);
@@ -152,9 +74,9 @@ export function Cartoes() {
   const [loading, setLoading] = useState(true);
   const [cartoes, setCartoes] = useState<Cartao[]>([]);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
+    const [cartoesResumo, setCartoesResumo] = useState<CartaoResumo[]>([]);
   const [centros, setCentros] = useState<CentroCusto[]>([]);
   const [contas, setContas] = useState<Conta[]>([]);
-    const [categorias, setCategorias] = useState<Categoria[]>([]);
 
   const [selectedCartaoId, setSelectedCartaoId] = useState<number | null>(null);
   const [mesFatura, setMesFatura] = useState(new Date());
@@ -163,9 +85,10 @@ export function Cartoes() {
 
   const [showDrawer, setShowDrawer] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
-    const [showAddLancamento, setShowAddLancamento] = useState(false);
+    const [showLaunchDrawer, setShowLaunchDrawer] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+    const [lancamentosLoading, setLancamentosLoading] = useState(false);
 
   const [formData, setFormData] = useState({
     id: null as number | null,
@@ -184,23 +107,38 @@ export function Cartoes() {
     conta_id: ''
   });
 
-    const [novoLancamento, setNovoLancamento] = useState({
-        descricao: '',
-        valor: '',
-        data_compra: new Date().toISOString().split('T')[0],
-        plano_contas_id: '',
-        is_parcelado: false,
-        qtd_parcelas: 2,
-        modo_calculo: 'TOTAL'
-    });
+    const lancamentosAbortRef = useRef<AbortController | null>(null);
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+    const resumoPorCartao = useMemo(() => {
+        return new Map(cartoesResumo.map((item) => [item.id, item]));
+    }, [cartoesResumo]);
+
+    const launchDrawerSearchParams = useMemo(() => {
+        if (!showLaunchDrawer || !selectedCartaoId) return null;
+        const params = new URLSearchParams();
+        params.set('embed_boletim', '1');
+        params.set('origem', 'contas_extrato');
+        params.set('novo', '1');
+        params.set('cartao_id', String(selectedCartaoId));
+        return params;
+    }, [showLaunchDrawer, selectedCartaoId]);
 
     const formatDateYMD = (date: Date) => {
         const y = date.getFullYear();
         const m = String(date.getMonth() + 1).padStart(2, '0');
         const d = String(date.getDate()).padStart(2, '0');
         return `${y}-${m}-${d}`;
+    };
+
+    const getMonthRange = (date: Date) => {
+        const start = new Date(date.getFullYear(), date.getMonth(), 1);
+        const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+        return {
+            data_inicio: formatDateYMD(start),
+            data_fim: formatDateYMD(end),
+        };
     };
 
     const getMonthKey = (date: Date) => {
@@ -215,6 +153,44 @@ export function Cartoes() {
         const [y, m, d] = datePart.split('-').map(Number);
         if (!y || !m || !d) return null;
         return new Date(y, m - 1, d);
+    };
+
+    const parseCompetenciaMonthKey = (value?: string | null) => {
+        const text = String(value || '').trim();
+        if (!text) return null;
+
+        const mesAnoMatch = text.match(/^(\d{2})-(\d{4})$/);
+        if (mesAnoMatch) {
+            const [, mes, ano] = mesAnoMatch;
+            return `${ano}-${mes}`;
+        }
+
+        const anoMesMatch = text.match(/^(\d{4})-(\d{2})$/);
+        if (anoMesMatch) {
+            const [, ano, mes] = anoMesMatch;
+            return `${ano}-${mes}`;
+        }
+
+        return null;
+    };
+
+    const getLancamentoFaturaMonthKey = (lancamento: Pick<Lancamento, 'competencia' | 'data_vencimento' | 'data_competencia'>, cartao?: Cartao | null) => {
+        const competenciaKey = parseCompetenciaMonthKey(lancamento.competencia);
+        if (competenciaKey) return competenciaKey;
+
+        const vencimento = parseDateOnly(lancamento.data_vencimento);
+        if (vencimento) return getMonthKey(vencimento);
+
+        const dataCompetencia = parseDateOnly(lancamento.data_competencia);
+        if (dataCompetencia) return getMonthKey(dataCompetencia);
+
+        if (cartao && lancamento.data_competencia) {
+            const competenciaVencimento = computeCartaoVencimento(lancamento.data_competencia, cartao);
+            const parsedCompetenciaVencimento = parseDateOnly(competenciaVencimento);
+            if (parsedCompetenciaVencimento) return getMonthKey(parsedCompetenciaVencimento);
+        }
+
+        return null;
     };
 
     const computeCartaoVencimento = (purchaseDate?: string, cartao?: Cartao | null) => {
@@ -264,24 +240,28 @@ export function Cartoes() {
         }
     }, [centros]);
 
-  async function carregarDados() {
+    async function carregarDados() {
     setLoading(true);
     try {
       console.log("⚡ Carregando dados de Cartões (Única Vez)...");
 
-                        const [resC, resL, resCC, resConta, resCat] = await Promise.all([
+                                                const [resC, resResumo, resCC, resConta] = await Promise.all([
                 api.get('/cartoes/'),
-                            fetchLancamentosPaged({ include_anexos: false }, { pageSize: 1500, maxPages: 2 }),
+                                api.get('/cartoes/resumo'),
                 api.get('/centro-custo/'),
-                api.get('/contas/', { params: { include_saldo: false } }),
-                api.get('/plano-contas/')
+                api.get('/contas/', { params: { include_saldo: false } })
             ]);
 
             setCartoes(normalizeListResponse<Cartao>(resC.data));
-    setLancamentos(resL || []);
+                setCartoesResumo(
+                        normalizeListResponse<any>(resResumo.data).map((item) => ({
+                                id: Number(item.id),
+                                gastos_pendentes: Number(item.gastos_pendentes || 0),
+                                saldo_disponivel: Number(item.saldo_disponivel || 0),
+                        }))
+                );
         setCentros(normalizeListResponse<any>(resCC.data));
         setContas(normalizeListResponse<any>(resConta.data));
-        setCategorias(normalizeListResponse<Categoria>(resCat.data));
     } catch (e: any) { 
         console.error("Erro ao carregar dados:", e);
     } finally { 
@@ -289,27 +269,94 @@ export function Cartoes() {
     }
   }
 
-  const filteredCartoes = cartoes.filter(c => !filtroCC || String(c.centro_custo_id) === filtroCC);
+    async function carregarLancamentosFatura(cartaoId: number, baseDate: Date, allowFallbackToPrevious = false) {
+        lancamentosAbortRef.current?.abort();
+        const controller = new AbortController();
+        lancamentosAbortRef.current = controller;
+        setLancamentosLoading(true);
+        setLancamentos([]);
 
-    const catOptions = [
-        { label: 'SAIDAS', options: categorias.filter(c=> (c.tipo||'').trim().toUpperCase().startsWith('D')).map(c=>({id:c.id, label:c.nome, tipo: c.tipo, grupo: 'SAIDAS', disabled: c.eh_cabecalho || c.permite_lancamentos === false, eh_cabecalho: c.eh_cabecalho, permite_lancamentos: c.permite_lancamentos})) }
-    ];
+        try {
+            const cartao = cartoes.find((item) => item.id === cartaoId);
+            if (!cartao) return;
 
-    useEffect(() => {
-        if (!selectedCartaoId) return;
-        if (autoFaturaRef.current === selectedCartaoId) return;
-        const cartao = cartoes.find(c => c.id === selectedCartaoId);
-        if (!cartao) return;
+            const fetchMonthItems = async (targetDate: Date) => {
+                const range = getMonthRange(targetDate);
+                const response = await api.get('/lancamentos/', {
+                    params: {
+                        include_anexos: false,
+                        sem_paginacao: true,
+                        cartao_id: cartaoId,
+                        data_inicio: range.data_inicio,
+                        data_fim: range.data_fim,
+                    },
+                    signal: controller.signal,
+                });
+                return normalizeListResponse<Lancamento>(response.data);
+            };
 
-        const currentDue = getCurrentInvoiceDueDate(cartao, new Date());
-        const prevDue = new Date(currentDue.getFullYear(), currentDue.getMonth() - 1, currentDue.getDate());
-        const prevKey = getMonthKey(prevDue);
+            const currentItems = await fetchMonthItems(baseDate);
+            let selectedDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
+            let selectedItems = currentItems;
 
-        const hasPrevPending = lancamentos.some(l => l.cartao_id === cartao.id && l.data_vencimento?.startsWith(prevKey) && l.status !== 'PAGO');
-        const target = hasPrevPending ? prevDue : currentDue;
-        setMesFatura(new Date(target.getFullYear(), target.getMonth(), 1));
-        autoFaturaRef.current = selectedCartaoId;
-    }, [selectedCartaoId, cartoes, lancamentos]);
+            const hasCurrentPending = currentItems.some((item) => String(item.status || '').toUpperCase() !== 'PAGO');
+            if (allowFallbackToPrevious && !hasCurrentPending) {
+                const previousDate = new Date(baseDate.getFullYear(), baseDate.getMonth() - 1, 1);
+                const previousItems = await fetchMonthItems(previousDate);
+                const hasPreviousPending = previousItems.some((item) => String(item.status || '').toUpperCase() !== 'PAGO');
+                if (hasPreviousPending) {
+                    selectedDate = previousDate;
+                    selectedItems = previousItems;
+                }
+            }
+
+            if (controller.signal.aborted) return;
+            setMesFatura(selectedDate);
+            setLancamentos(selectedItems);
+        } catch (error: any) {
+            if (controller.signal.aborted || error?.code === 'ERR_CANCELED') return;
+            console.error('Erro ao carregar lançamentos do cartão:', error);
+        } finally {
+            if (lancamentosAbortRef.current === controller) {
+                lancamentosAbortRef.current = null;
+                setLancamentosLoading(false);
+            }
+        }
+    }
+
+    const filteredCartoes = useMemo(() => cartoes.filter(c => !filtroCC || String(c.centro_custo_id) === filtroCC), [cartoes, filtroCC]);
+
+        useEffect(() => {
+                if (!filteredCartoes.length) {
+                        if (selectedCartaoId !== null) setSelectedCartaoId(null);
+                        return;
+                }
+
+                const selectedStillVisible = selectedCartaoId !== null && filteredCartoes.some((cartao) => cartao.id === selectedCartaoId);
+                if (!selectedStillVisible) {
+                        setSelectedCartaoId(filteredCartoes[0].id);
+                }
+        }, [filteredCartoes, selectedCartaoId]);
+
+        useEffect(() => {
+                if (!selectedCartaoId) return;
+                if (autoFaturaRef.current === selectedCartaoId) return;
+                const cartao = cartoes.find(c => c.id === selectedCartaoId);
+                if (!cartao) return;
+                autoFaturaRef.current = selectedCartaoId;
+                void carregarLancamentosFatura(selectedCartaoId, getCurrentInvoiceDueDate(cartao, new Date()), true);
+            }, [selectedCartaoId, cartoes]);
+
+            const handleChangeInvoiceMonth = (delta: number) => {
+                if (!selectedCartaoId) return;
+                const next = new Date(mesFatura.getFullYear(), mesFatura.getMonth() + delta, 1);
+                void carregarLancamentosFatura(selectedCartaoId, next, false);
+            };
+
+            const handleReloadCurrentInvoice = async () => {
+                if (!selectedCartaoId) return;
+                await carregarLancamentosFatura(selectedCartaoId, mesFatura, false);
+            };
 
   const faturaAtual = useMemo(() => {
     if (!selectedCartaoId) return { itens: [], total: 0, pendente: 0, vencimento: null };
@@ -320,9 +367,9 @@ export function Cartoes() {
     const mes = mesFatura.getMonth();
     const diaVenc = cartao.dia_vencimento > 28 ? 28 : (cartao.dia_vencimento || 10);
     const vencimento = new Date(ano, mes, diaVenc);
-    const strMes = vencimento.toISOString().slice(0, 7); 
+    const strMes = getMonthKey(vencimento); 
     
-    const itens = lancamentos.filter(l => l.cartao_id === cartao.id && l.data_vencimento.startsWith(strMes));
+    const itens = lancamentos.filter((l) => l.cartao_id === cartao.id && getLancamentoFaturaMonthKey(l, cartao) === strMes);
     const total = itens.reduce((acc, l) => acc + (Number(l.valor_previsto) || 0), 0);
     const pendente = itens.filter(l => l.status !== 'PAGO').reduce((acc, l) => acc + (Number(l.valor_previsto) || 0), 0);
 
@@ -387,8 +434,9 @@ export function Cartoes() {
 
         setShowDrawer(false);
         // Force reload bypass ref
+        autoFaturaRef.current = null;
         dataFetchedRef.current = false; 
-        carregarDados();
+        await carregarDados();
         dataFetchedRef.current = true;
     } catch(e: any) { 
         console.error("Erro no save:", e);
@@ -413,88 +461,11 @@ export function Cartoes() {
         
         setShowPayModal(false);
         dataFetchedRef.current = false;
-        carregarDados();
+                await carregarDados();
+                await handleReloadCurrentInvoice();
         dataFetchedRef.current = true;
     } catch(e) { alert("Erro ao pagar fatura"); } finally { setSaving(false); }
   }
-
-    async function handleCreateLancamentoCartao(e: React.FormEvent) {
-        e.preventDefault();
-        if (!selectedCartaoId) return;
-        const cartao = cartoes.find(c => c.id === selectedCartaoId);
-        if (!cartao) return;
-        if (!novoLancamento.descricao || !novoLancamento.valor || !novoLancamento.plano_contas_id) {
-            alert('Preencha descrição, categoria e valor.');
-            return;
-        }
-
-        setSaving(true);
-        try {
-            const dataCompra = novoLancamento.data_compra || new Date().toISOString().split('T')[0];
-            const valorBase = parseFloat(novoLancamento.valor);
-
-            if (novoLancamento.is_parcelado) {
-                const qtd = Math.max(2, Number(novoLancamento.qtd_parcelas) || 2);
-                const valorParcela = novoLancamento.modo_calculo === 'TOTAL' ? (valorBase / qtd) : valorBase;
-                const idParcelamento = crypto.randomUUID();
-
-                const [y, m, d] = dataCompra.split('-').map(Number);
-                const lista = Array.from({ length: qtd }).map((_, i) => {
-                    const dt = new Date(y, (m - 1) + i, d);
-                    const compra = formatDateYMD(dt);
-                    const venc = computeCartaoVencimento(compra, cartao) || compra;
-                    return {
-                        descricao: `${novoLancamento.descricao} (${i + 1}/${qtd})`,
-                        tipo: 'DESPESA',
-                        valor_previsto: valorParcela,
-                        data_vencimento: venc,
-                        data_competencia: compra,
-                        plano_contas_id: parseInt(novoLancamento.plano_contas_id),
-                        cartao_id: cartao.id,
-                        centro_custo_id: cartao.centro_custo_id ?? null,
-                        status: 'PENDENTE',
-                        id_parcelamento: idParcelamento,
-                        numero_parcela: i + 1
-                    };
-                });
-
-                await api.post('/lancamentos/bulk', lista);
-            } else {
-                const dataVenc = computeCartaoVencimento(dataCompra, cartao) || dataCompra;
-                const payload = {
-                    descricao: novoLancamento.descricao,
-                    tipo: 'DESPESA',
-                    valor_previsto: valorBase,
-                    data_vencimento: dataVenc,
-                    data_competencia: dataCompra,
-                    plano_contas_id: parseInt(novoLancamento.plano_contas_id),
-                    cartao_id: cartao.id,
-                    centro_custo_id: cartao.centro_custo_id ?? null,
-                    status: 'PENDENTE'
-                };
-
-                await api.post('/lancamentos/', payload);
-            }
-            setShowAddLancamento(false);
-            setNovoLancamento({
-                descricao: '',
-                valor: '',
-                data_compra: new Date().toISOString().split('T')[0],
-                plano_contas_id: '',
-                is_parcelado: false,
-                qtd_parcelas: 2,
-                modo_calculo: 'TOTAL'
-            });
-            dataFetchedRef.current = false;
-            carregarDados();
-            dataFetchedRef.current = true;
-        } catch (e) {
-            console.error('Erro ao criar lançamento no cartão', e);
-            alert('Erro ao criar lançamento no cartão.');
-        } finally {
-            setSaving(false);
-        }
-    }
 
   const CardVisual = ({ dados, previewMode = false }: any) => {
     const cc = centros.find(c => String(c.id) === String(dados.centro_custo_id));
@@ -506,10 +477,8 @@ export function Cartoes() {
     let percentual = 0;
     
     if (!previewMode && dados.id) {
-        const gastos = lancamentos
-            .filter(l => l.cartao_id === dados.id && l.status !== 'PAGO')
-            .reduce((acc, l) => acc + (Number(l.valor_previsto) || 0), 0);
-            
+        const resumo = resumoPorCartao.get(Number(dados.id));
+        const gastos = resumo ? Number(resumo.gastos_pendentes || 0) : 0;
         disponivel = limiteTotal - gastos;
         percentual = limiteTotal > 0 ? (gastos / limiteTotal) * 100 : 0;
     }
@@ -568,7 +537,7 @@ export function Cartoes() {
                     {centros.map(c => <option key={c.id} value={c.id}>{c.nome || c.descricao}</option>)}
                 </select>
             </div>
-            <button onClick={() => { dataFetchedRef.current = false; carregarDados(); }} className="p-2 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition"><RefreshCw className={`w-5 h-5 ${loading?'animate-spin':''}`}/></button>
+            <button onClick={() => { dataFetchedRef.current = false; void (async () => { await carregarDados(); await handleReloadCurrentInvoice(); })(); }} className="p-2 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition"><RefreshCw className={`w-5 h-5 ${loading || lancamentosLoading ? 'animate-spin' : ''}`}/></button>
             <button onClick={handleOpenCreate} className="px-4 py-2 rounded-lg text-white font-bold text-sm shadow hover:brightness-110 flex items-center gap-2 w-full sm:w-auto justify-center" style={{backgroundColor: primaryColor}}><Plus className="w-4 h-4"/> Novo</button>
         </div>
       </header>
@@ -592,19 +561,19 @@ export function Cartoes() {
             <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden animate-in slide-in-from-top-4 fade-in duration-300">
                 <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex flex-col md:flex-row justify-between items-center gap-4">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => setMesFatura(new Date(mesFatura.setMonth(mesFatura.getMonth() - 1)))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"><ChevronLeft className="w-6 h-6"/></button>
+                        <button onClick={() => handleChangeInvoiceMonth(-1)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"><ChevronLeft className="w-6 h-6"/></button>
                         <div className="text-center min-w-45">
                             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Fatura de</p>
                             <h3 className="text-2xl font-black text-slate-800 dark:text-white capitalize">{faturaAtual.vencimento?.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) || mesFatura.toLocaleDateString('pt-BR', { month: 'long' })}</h3>
                         </div>
-                        <button onClick={() => setMesFatura(new Date(mesFatura.setMonth(mesFatura.getMonth() + 1)))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"><ChevronRight className="w-6 h-6"/></button>
+                        <button onClick={() => handleChangeInvoiceMonth(1)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"><ChevronRight className="w-6 h-6"/></button>
                     </div>
                     
                     <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700/50 w-full">
                         <div className="text-right">
                             <p className="text-[10px] font-bold text-slate-400 uppercase">Total da Fatura</p>
-                            <p className="text-2xl font-black text-slate-800 dark:text-white">{BRL.format(faturaAtual.total)}</p>
-                            <p className="text-xs text-slate-500 mt-0.5">Vence dia {faturaAtual.vencimento?.toLocaleDateString('pt-BR', {day:'numeric', month:'short'}) || '--'}</p>
+                            <p className="text-2xl font-black text-slate-800 dark:text-white">{lancamentosLoading ? 'Carregando...' : BRL.format(faturaAtual.total)}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{lancamentosLoading ? 'Atualizando lançamentos do cartão...' : `Vence dia ${faturaAtual.vencimento?.toLocaleDateString('pt-BR', {day:'numeric', month:'short'}) || '--'}`}</p>
                         </div>
                         <button
                             onClick={() => {
@@ -617,15 +586,10 @@ export function Cartoes() {
                             Editar dados do cartão
                         </button>
                                                 <button
-                                                    onClick={() => {
-                                                        const defaultCat = categorias.find(c => (c.tipo || '').toUpperCase().startsWith('D'))?.id || categorias[0]?.id || '';
-                                                        setNovoLancamento(prev => ({
-                                                            ...prev,
-                                                            data_compra: new Date().toISOString().split('T')[0],
-                                                            plano_contas_id: prev.plano_contas_id || (defaultCat ? String(defaultCat) : '')
-                                                        }));
-                                                        setShowAddLancamento(true);
-                                                    }}
+                                                                            onClick={() => {
+                                                        if (!selectedCartaoId) return;
+                                                        setShowLaunchDrawer(true);
+                                                                            }}
                                                     className="bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-white px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 shadow flex items-center gap-2 transition"
                                                 >
                                                     <Plus className="w-4 h-4" /> Novo lançamento
@@ -661,7 +625,9 @@ export function Cartoes() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700 text-sm">
-                            {faturaAtual.itens.length === 0 ? (
+                            {lancamentosLoading ? (
+                                <tr><td colSpan={5} className="p-10 text-center text-slate-500">Carregando lançamentos do cartão selecionado...</td></tr>
+                            ) : faturaAtual.itens.length === 0 ? (
                                 <tr><td colSpan={5} className="p-10 text-center text-slate-500">Nenhuma despesa nesta fatura.</td></tr>
                             ) : (
                                 faturaAtual.itens.map(l => (
@@ -682,92 +648,6 @@ export function Cartoes() {
             </div>
         )}
       </div>
-
-            {showAddLancamento && (
-                <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowAddLancamento(false)}></div>
-                    <form onSubmit={handleCreateLancamentoCartao} className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95 border border-slate-200 dark:border-slate-700">
-                        <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white">Novo lançamento no cartão</h3>
-
-                        <div className="space-y-4">
-                            <InputDark label="Descrição" value={novoLancamento.descricao} onChange={(e:any)=>setNovoLancamento({...novoLancamento, descricao: e.target.value})} />
-                            <CurrencyInputDark label="Valor (R$)" value={novoLancamento.valor} onValueChange={(value:string)=>setNovoLancamento({...novoLancamento, valor: value})} />
-                            <InputDark label="Data da compra" type="date" value={novoLancamento.data_compra} onChange={(e:any)=>setNovoLancamento({...novoLancamento, data_compra: e.target.value})} />
-                            <div>
-                                <SearchableSelect
-                                  label="Categoria"
-                                  placeholder="Selecione..."
-                                  options={catOptions}
-                                  value={novoLancamento.plano_contas_id}
-                                  onChange={(id:any)=>setNovoLancamento({...novoLancamento, plano_contas_id: String(id)})}
-                                />
-                            </div>
-
-                            <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                                <label className="flex items-center gap-3 cursor-pointer select-none">
-                                    <input
-                                        type="checkbox"
-                                        className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 accent-blue-600"
-                                        checked={novoLancamento.is_parcelado}
-                                        onChange={e=>setNovoLancamento({...novoLancamento, is_parcelado: e.target.checked})}
-                                    />
-                                    <span className="text-sm font-bold text-slate-800 dark:text-white">Lançamento parcelado</span>
-                                </label>
-
-                                {novoLancamento.is_parcelado && (
-                                    <div className="mt-4 space-y-3">
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <InputDark
-                                                label="Qtd. de parcelas"
-                                                type="number"
-                                                min={2}
-                                                value={novoLancamento.qtd_parcelas}
-                                                onChange={(e:any)=>setNovoLancamento({...novoLancamento, qtd_parcelas: Math.max(2, Number(e.target.value) || 2)})}
-                                            />
-                                            <div>
-                                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Cálculo</label>
-                                                <div className="grid grid-cols-2 gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={()=>setNovoLancamento({...novoLancamento, modo_calculo: 'TOTAL'})}
-                                                        className={`py-2 rounded-lg text-xs font-bold border transition ${novoLancamento.modo_calculo==='TOTAL' ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                                                    >
-                                                        Total
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={()=>setNovoLancamento({...novoLancamento, modo_calculo: 'PARCELA'})}
-                                                        className={`py-2 rounded-lg text-xs font-bold border transition ${novoLancamento.modo_calculo==='PARCELA' ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                                                    >
-                                                        Por parcela
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {novoLancamento.valor && novoLancamento.qtd_parcelas && (
-                                            <div className="text-xs text-slate-400">
-                                                {novoLancamento.modo_calculo === 'TOTAL' ? (
-                                                    <>{novoLancamento.qtd_parcelas}x de <strong className="text-blue-300">{BRL.format(Number(novoLancamento.valor) / Number(novoLancamento.qtd_parcelas || 1))}</strong></>
-                                                ) : (
-                                                    <>{novoLancamento.qtd_parcelas}x de <strong className="text-blue-300">{BRL.format(Number(novoLancamento.valor))}</strong> • Total {BRL.format(Number(novoLancamento.valor) * Number(novoLancamento.qtd_parcelas || 1))}</>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="flex gap-2 mt-6">
-                            <button type="button" onClick={() => setShowAddLancamento(false)} className="flex-1 py-3 text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition">Cancelar</button>
-                            <button type="submit" disabled={saving} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 shadow-lg transition">
-                                {saving ? 'Salvando...' : 'Salvar'}
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            )}
 
       {showDrawer && (
         <div className="fixed inset-0 z-50 flex justify-end">
@@ -878,6 +758,23 @@ export function Cartoes() {
             </div>
         </div>
       )}
+
+            {showLaunchDrawer && launchDrawerSearchParams && (
+                <div className="fixed inset-0 z-70 overflow-hidden">
+                    <Lancamentos
+                        forcedSearchParams={launchDrawerSearchParams}
+                        drawerPanelClassName="w-[30vw] min-w-[360px] max-w-[30vw]"
+                        onRequestCloseEmbed={() => {
+                            dataFetchedRef.current = false;
+                            void (async () => {
+                                setShowLaunchDrawer(false);
+                                await carregarDados();
+                                await handleReloadCurrentInvoice();
+                            })();
+                        }}
+                    />
+                </div>
+            )}
     </div>
   );
 }

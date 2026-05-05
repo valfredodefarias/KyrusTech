@@ -33,3 +33,8 @@ class CartaoUpdate(SQLModel):
 # --- READ ---
 class CartaoRead(CartaoBase, AuditReadMixin):
     id: int
+
+
+class CartaoResumoRead(CartaoRead):
+    gastos_pendentes: Decimal = Decimal("0.00")
+    saldo_disponivel: Decimal = Decimal("0.00")

@@ -1549,6 +1549,7 @@ def listar_lancamentos(
     data_inicio: Optional[date] = Query(None),
     data_fim: Optional[date] = Query(None),
     conta_id: Optional[int] = Query(None),
+    cartao_id: Optional[int] = Query(None),
     include_anexos: bool = Query(True),
     sem_paginacao: bool = Query(False),
     somente_pagos: bool = Query(False),
@@ -1570,6 +1571,8 @@ def listar_lancamentos(
         query = query.where(Lancamento.data_vencimento <= data_fim)
     if conta_id:
         query = query.where(Lancamento.conta_id == conta_id)
+    if cartao_id:
+        query = query.where(Lancamento.cartao_id == cartao_id)
     if somente_pagos:
         query = query.where(
             (col(Lancamento.status) == "PAGO")

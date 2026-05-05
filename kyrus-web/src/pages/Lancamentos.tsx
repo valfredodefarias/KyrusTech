@@ -1798,6 +1798,11 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
 
     setSaving(true);
     try {
+      if (!formData.centro_custo_id) {
+        pushToast('info', 'Selecione um centro de custo antes de salvar.');
+        return;
+      }
+
       const computedCardDue = formData.cartao_id ? computeCartaoVencimento(formData.data_vencimento, formData.cartao_id) : null;
       const dataCompetencia = formData.cartao_id ? formData.data_vencimento : undefined;
       const dataVencimento = computedCardDue || formData.data_vencimento;
@@ -3159,8 +3164,8 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Centro de Custo</label>
                 <div className="mb-3">
-                    <select className="w-full p-2 text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 outline-none" value={formData.centro_custo_id} onChange={e=>setFormData({...formData, centro_custo_id:e.target.value, conta_id: '', cartao_id: ''})}>
-                        <option value="">Todos os Centros de Custo</option>
+                  <select className="w-full p-2 text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 outline-none" value={formData.centro_custo_id} onChange={e=>setFormData({...formData, centro_custo_id:e.target.value, conta_id: '', cartao_id: ''})}>
+                    <option value="">Selecione um centro de custo</option>
                         {centros.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
                     </select>
                 </div>

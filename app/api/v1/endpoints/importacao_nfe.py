@@ -114,6 +114,8 @@ class NfeConfirmarRequest(BaseModel):
     numero_nfe: str
     tipo_lancamento: str
     situacao: Optional[str] = "AGUARDANDO_ENTREGA"
+    destino_compra: Optional[str] = None
+    valor_frete: Optional[Decimal] = None
     cfop: Optional[str] = None
     data_emissao: date
     emitente_nome: Optional[str] = None
@@ -154,6 +156,7 @@ class NfeListItem(BaseModel):
     centro_custo_nome: Optional[str] = None
     total_parcelas: int
     valor_total: float
+    data_emissao: Optional[str] = None
     data_vencimento: Optional[str] = None
     status: str
 
@@ -185,10 +188,14 @@ class NfeDetalheResponse(BaseModel):
     cfop: Optional[str] = None
     tipo_lancamento: str
     data_emissao: str
+    destino_compra: Optional[str] = None
+    valor_frete: Optional[float] = None
     emitente_nome: str
     emitente_documento: str
     anexo_pdf_nome: Optional[str] = None
     anexo_pdf_url: Optional[str] = None
+    anexo_frete_nome: Optional[str] = None
+    anexo_frete_url: Optional[str] = None
     entidade_id: Optional[int] = None
     plano_contas_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
@@ -211,6 +218,8 @@ class NfeAtualizarRequest(BaseModel):
     numero_nfe: str
     chave_nfe: Optional[str] = None
     situacao: Optional[str] = "AGUARDANDO_ENTREGA"
+    destino_compra: Optional[str] = None
+    valor_frete: Optional[Decimal] = None
     cfop: Optional[str] = None
     data_emissao: date
     emitente_nome: Optional[str] = None
@@ -428,6 +437,8 @@ def _strip_situacao_from_observacao(value: Optional[str]) -> str:
     texto = re.sub(r"\s*\|\s*CFOP\s*[:=]?\s*[0-9]{1,4}", "", texto, flags=re.IGNORECASE)
     texto = re.sub(r"\s*\|\s*EmitenteDoc\s*[:=]?\s*[0-9]{11,14}", "", texto, flags=re.IGNORECASE)
     texto = re.sub(r"\s*\|\s*ItensMeta\s*[:=]?\s*[A-Za-z0-9_-]+={0,2}", "", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s*\|\s*DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE)", "", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s*\|\s*FreteValor\s*[:=]?\s*[0-9]+(?:[\.,][0-9]+)?", "", texto, flags=re.IGNORECASE)
     return texto.strip()
 
 
@@ -437,6 +448,8 @@ def _compor_observacao_com_situacao(
     *,
     cfop: Optional[str] = None,
     emitente_documento: Optional[str] = None,
+    destino_compra: Optional[str] = None,
+    valor_frete: Optional[Decimal | float | int] = None,
     itens_meta: Optional[list[dict[str, object]]] = None,
 ) -> str:
     base = _strip_situacao_from_observacao(observacao_base)
@@ -451,6 +464,18 @@ def _compor_observacao_com_situacao(
     cfop_normalizado = _normalizar_cfop(cfop)
     if cfop_normalizado:
         partes.append(f"CFOP {cfop_normalizado}")
+
+    destino_normalizado = str(destino_compra or "").strip().upper()
+    if destino_normalizado in {"ENCOMENDA", "ESTOQUE"}:
+        partes.append(f"DestinoCompra {destino_normalizado}")
+
+    if valor_frete is not None:
+        try:
+            frete_decimal = Decimal(str(valor_frete))
+        except Exception:
+            frete_decimal = Decimal("0")
+        if frete_decimal > 0:
+            partes.append(f"FreteValor {frete_decimal}")
 
     token_itens = _encode_itens_meta(itens_meta or [])
     if token_itens:
@@ -468,6 +493,23 @@ def _extract_nfe_number(text: str) -> str:
 def _extract_nfe_key(text: str) -> Optional[str]:
     match = re.search(r"Chave\s*([0-9]{44})", str(text or ""), flags=re.IGNORECASE)
     return match.group(1) if match else None
+
+
+def _extract_destino_compra(text: str) -> Optional[str]:
+    match = re.search(r"DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE)", str(text or ""), flags=re.IGNORECASE)
+    return match.group(1).upper() if match else None
+
+
+def _extract_valor_frete(text: str) -> Optional[Decimal]:
+    match = re.search(r"FreteValor\s*[:=]?\s*([0-9]+(?:[\.,][0-9]+)?)", str(text or ""), flags=re.IGNORECASE)
+    if not match:
+        return None
+    raw_value = match.group(1)
+    normalized = raw_value.replace('.', '').replace(',', '.') if ',' in raw_value and '.' in raw_value else raw_value.replace(',', '.')
+    try:
+        return Decimal(normalized)
+    except Exception:
+        return None
 
 
 def _tipo_letra(tipo_lancamento: str) -> str:
@@ -976,6 +1018,7 @@ def listar_nfes_importadas(
             total_parcelas_expr.label("total_parcelas"),
             total_pagas_expr.label("total_pagas"),
             total_atrasadas_expr.label("total_atrasadas"),
+            func.max(Lancamento.data_competencia).label("data_emissao"),
             func.min(Lancamento.data_vencimento).label("data_vencimento_min"),
             func.max(Lancamento.data_vencimento).label("data_vencimento_max"),
             func.max(Lancamento.descricao).label("descricao_ref"),
@@ -1025,12 +1068,12 @@ def listar_nfes_importadas(
         else_=1,
     )
     sort_map = {
-        "data": grouped_subquery.c.data_vencimento_max,
+        "data": grouped_subquery.c.data_emissao,
         "valor": grouped_subquery.c.valor_total,
         "descricao": grouped_subquery.c.descricao_ref,
         "status": status_sort_rank,
     }
-    sort_col = sort_map.get(order_by, grouped_subquery.c.data_vencimento_max)
+    sort_col = sort_map.get(order_by, grouped_subquery.c.data_emissao)
     sort_fn = asc if order_dir == "asc" else desc
 
     paged_rows = db.exec(
@@ -1041,6 +1084,7 @@ def listar_nfes_importadas(
             grouped_subquery.c.total_parcelas,
             grouped_subquery.c.total_pagas,
             grouped_subquery.c.total_atrasadas,
+            grouped_subquery.c.data_emissao,
             grouped_subquery.c.data_vencimento_max,
             grouped_subquery.c.descricao_ref,
             grouped_subquery.c.observacao_ref,
@@ -1060,6 +1104,7 @@ def listar_nfes_importadas(
             _total_parcelas,
             _total_pagas,
             _total_atrasadas,
+            _data_emissao,
             _data_vencimento,
             _descricao_ref,
             _observacao_ref,
@@ -1087,6 +1132,7 @@ def listar_nfes_importadas(
         total_parcelas_raw,
         total_pagas_raw,
         total_atrasadas_raw,
+        data_emissao,
         data_vencimento,
         descricao_ref_raw,
         observacao_ref_raw,
@@ -1119,6 +1165,7 @@ def listar_nfes_importadas(
                 centro_custo_nome=centro_custo_map.get(int(centro_custo_id)) if centro_custo_id is not None else None,
                 total_parcelas=total_parcelas,
                 valor_total=float(valor_total_raw or 0),
+                data_emissao=data_emissao.isoformat() if data_emissao else None,
                 data_vencimento=data_vencimento.isoformat() if data_vencimento else None,
                 status=status_resumo,
             )
@@ -1202,6 +1249,8 @@ def obter_detalhe_nfe_importada(
 
     anexo_pdf_nome: Optional[str] = None
     anexo_pdf_url: Optional[str] = None
+    anexo_frete_nome: Optional[str] = None
+    anexo_frete_url: Optional[str] = None
     lancamento_ids = [int(lancamento.id) for lancamento in lancamentos if lancamento.id is not None]
     if lancamento_ids:
         anexo_pdf_row = db.exec(
@@ -1217,6 +1266,20 @@ def obter_detalhe_nfe_importada(
         if anexo_pdf_row:
             anexo_pdf_nome = str(anexo_pdf_row[0] or "").strip() or None
             anexo_pdf_url = str(anexo_pdf_row[1] or "").strip() or None
+
+        anexo_frete_row = db.exec(
+            select(AnexoLancamento.nome_arquivo, AnexoLancamento.url)
+            .where(
+                AnexoLancamento.empresa_id == empresa_id,
+                AnexoLancamento.is_deleted == False,
+                AnexoLancamento.tipo == "FRETE",
+                AnexoLancamento.lancamento_id.in_(lancamento_ids),
+            )
+            .order_by(desc(AnexoLancamento.created_at), desc(AnexoLancamento.id))
+        ).first()
+        if anexo_frete_row:
+            anexo_frete_nome = str(anexo_frete_row[0] or "").strip() or None
+            anexo_frete_url = str(anexo_frete_row[1] or "").strip() or None
 
     total_parcelas = len(lancamentos)
     status_resumo = _extrair_situacao_nfe(texto_referencia)
@@ -1261,6 +1324,7 @@ def obter_detalhe_nfe_importada(
         ]
 
     data_emissao = (primeiro.data_competencia or primeiro.data_vencimento or date.today()).isoformat()
+    observacao_texto = str(primeiro.observacao or "")
 
     return NfeDetalheResponse(
         id_parcelamento=group_id,
@@ -1269,10 +1333,14 @@ def obter_detalhe_nfe_importada(
         cfop=cfop_nfe,
         tipo_lancamento=str(primeiro.tipo or "DESPESA").strip().upper() or "DESPESA",
         data_emissao=data_emissao,
+        destino_compra=_extract_destino_compra(observacao_texto),
+        valor_frete=float(_extract_valor_frete(observacao_texto) or Decimal("0")),
         emitente_nome=str((entidade.nome if entidade else "") or ""),
         emitente_documento=emitente_documento,
         anexo_pdf_nome=anexo_pdf_nome,
         anexo_pdf_url=anexo_pdf_url,
+        anexo_frete_nome=anexo_frete_nome,
+        anexo_frete_url=anexo_frete_url,
         entidade_id=int(primeiro.entidade_id) if primeiro.entidade_id is not None else None,
         plano_contas_id=int(primeiro.plano_contas_id) if primeiro.plano_contas_id is not None else None,
         centro_custo_id=int(primeiro.centro_custo_id) if primeiro.centro_custo_id is not None else None,
@@ -1513,6 +1581,104 @@ def anexar_pdf_nfe_importada(
 
     logger.info(
         "[NFE] PDF anexado empresa_id={} id_parcelamento={} anexos_criados={} arquivo={}",
+        empresa_id,
+        group_id,
+        anexos_criados,
+        nome_arquivo,
+    )
+
+    return NfeAnexoPdfResponse(
+        id_parcelamento=group_id,
+        nome_arquivo=nome_arquivo,
+        url=url_relativa,
+        anexos_criados=anexos_criados,
+        lancamento_ids=anexados_em,
+    )
+
+
+@router.post(
+    "/nfe/{id_parcelamento}/anexo-frete",
+    response_model=NfeAnexoPdfResponse,
+    dependencies=[Depends(require_permission("lancamentos:import_nfe"))],
+)
+def anexar_frete_nfe_importada(
+    id_parcelamento: str,
+    arquivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    current_user: Usuario = Depends(get_current_user),
+):
+    group_id = str(id_parcelamento or "").strip()
+    if not group_id:
+        raise HTTPException(status_code=400, detail="Identificador da NF-e invalido")
+
+    if not arquivo.filename:
+        raise HTTPException(status_code=400, detail="Informe o arquivo de frete da NF-e")
+
+    nome_arquivo = Path(arquivo.filename).name.strip()
+    if not nome_arquivo:
+        raise HTTPException(status_code=400, detail="Informe o arquivo de frete da NF-e")
+
+    lancamento_id_rows = db.exec(
+        select(Lancamento.id)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "NFE_XML",
+            Lancamento.id_parcelamento == group_id,
+        )
+        .order_by(Lancamento.id.asc())
+    ).all()
+
+    lancamento_ids = [int(lancamento_id) for lancamento_id in lancamento_id_rows if lancamento_id is not None]
+    if not lancamento_ids:
+        raise HTTPException(status_code=404, detail="NF-e importada nao encontrada")
+
+    group_safe = re.sub(r"[^A-Za-z0-9_-]+", "_", group_id).strip("_") or "nfe"
+    destino_dir = Path("static/uploads/lancamentos") / str(empresa_id) / "nfe" / group_safe
+    nome_storage = f"{uuid.uuid4().hex}{Path(nome_arquivo).suffix or '.pdf'}"
+    destino_arquivo = destino_dir / nome_storage
+
+    try:
+        _, tamanho_bytes, content_type = write_validated_upload_file(
+            upload=arquivo,
+            destination=destino_arquivo,
+            max_size=NFE_PDF_FILE_SIZE_LIMIT,
+            allowed_ext_to_mime=ANEXO_ALLOWED_EXT_TO_MIME,
+            max_filename_len=180,
+        )
+    except UploadValidationError as exc:
+        if exc.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Arquivo de frete muito grande. Maximo de 10 MB.",
+            )
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+    url_relativa = f"/static/uploads/lancamentos/{empresa_id}/nfe/{group_safe}/{nome_storage}"
+    user_id = int(getattr(current_user, "id", 0) or 0) or None
+
+    anexos_criados = 0
+    anexados_em: list[int] = []
+    for lancamento_id in lancamento_ids:
+        anexo = AnexoLancamento(
+            nome_arquivo=nome_arquivo,
+            url=url_relativa,
+            tipo="FRETE",
+            tamanho_bytes=tamanho_bytes,
+            content_type=content_type,
+            lancamento_id=lancamento_id,
+            empresa_id=empresa_id,
+            created_by_id=user_id,
+        )
+        db.add(anexo)
+        anexos_criados += 1
+        anexados_em.append(lancamento_id)
+
+    db.commit()
+
+    logger.info(
+        "[NFE] Frete anexado empresa_id={} id_parcelamento={} anexos_criados={} arquivo={}",
         empresa_id,
         group_id,
         anexos_criados,
@@ -1809,6 +1975,8 @@ def confirmar_importacao_nfe(
                 situacao_nfe,
                 cfop=cfop_nfe,
                 emitente_documento=emitente_documento_nfe,
+                destino_compra=request.destino_compra,
+                valor_frete=request.valor_frete,
                 itens_meta=itens_meta,
             )
             lancamento = Lancamento(

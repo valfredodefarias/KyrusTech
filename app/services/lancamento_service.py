@@ -57,6 +57,14 @@ class LancamentoService:
                 detail=f"Interessado é obrigatório para {operation} de lançamento.",
             )
 
+    def _validate_centro_custo_required(self, payload: dict, *, operation: str) -> None:
+        centro_custo_id = payload.get("centro_custo_id")
+        if centro_custo_id in (None, "", 0, "0"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Centro de custo é obrigatório para {operation} de lançamento.",
+            )
+
     def _ensure_id_parcelamento(self, payload: dict) -> None:
         if payload.get("numero_parcela") and not payload.get("id_parcelamento"):
             payload["id_parcelamento"] = str(uuid.uuid4())
@@ -399,6 +407,7 @@ class LancamentoService:
         self._ensure_id_parcelamento(payload)
 
         self._validate_entidade_required(payload, operation="criação")
+        self._validate_centro_custo_required(payload, operation="criação")
 
         db_lancamento = Lancamento(**payload)
         db_lancamento.empresa_id = empresa_id
@@ -462,6 +471,12 @@ class LancamentoService:
 
         if "entidade_id" in dados_dict and dados_dict.get("entidade_id") in (None, "", 0, "0"):
             raise HTTPException(status_code=400, detail="Interessado é obrigatório para atualização de lançamento.")
+
+        if "centro_custo_id" in dados_dict and dados_dict.get("centro_custo_id") in (None, "", 0, "0"):
+            raise HTTPException(status_code=400, detail="Centro de custo é obrigatório para atualização de lançamento.")
+
+        if "centro_custo_id" not in dados_dict and getattr(db_lancamento, "centro_custo_id", None) in (None, "", 0, "0"):
+            raise HTTPException(status_code=400, detail="Centro de custo é obrigatório para atualização de lançamento.")
 
         for key, value in dados_dict.items():
             setattr(db_lancamento, key, value)

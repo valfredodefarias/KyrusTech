@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   ChevronDown,
@@ -13,7 +13,7 @@ import {
   Search,
 } from 'lucide-react';
 
-import { api, normalizeListResponse } from '../services/api';
+import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 
 type NfeStatus = 'AGUARDANDO_ENTREGA' | 'ENTREGUE' | 'CANCELADA';
 type SortKey = 'descricao' | 'valor' | 'status' | 'data';
@@ -29,6 +29,7 @@ interface NfeListItem {
   centro_custo_nome?: string | null;
   total_parcelas: number;
   valor_total: number;
+  data_emissao?: string | null;
   data_vencimento?: string | null;
   status: NfeStatus;
 }
@@ -52,6 +53,8 @@ interface NfeNovoForm {
   naturezaOperacao: string;
   finalidade: string;
   situacao: string;
+  destinoCompra: string;
+  valorFrete: string;
   dataDocumento: string;
   dataEntrada: string;
   horaEntrada: string;
@@ -180,10 +183,14 @@ interface NfeDetalheResponse {
   cfop?: string | null;
   tipo_lancamento: string;
   data_emissao: string;
+  destino_compra?: string | null;
+  valor_frete?: number | null;
   emitente_nome: string;
   emitente_documento: string;
   anexo_pdf_nome?: string | null;
   anexo_pdf_url?: string | null;
+  anexo_frete_nome?: string | null;
+  anexo_frete_url?: string | null;
   entidade_id?: number | null;
   plano_contas_id?: number | null;
   centro_custo_id?: number | null;
@@ -379,6 +386,8 @@ function createDefaultNovoForm(): NfeNovoForm {
     naturezaOperacao: '',
     finalidade: 'NORMAL',
     situacao: 'AGUARDANDO_ENTREGA',
+    destinoCompra: '',
+    valorFrete: '',
     dataDocumento: hoje,
     dataEntrada: '',
     horaEntrada: '',
@@ -495,6 +504,9 @@ export function ImportacaoNfe() {
   const [pdfAnexo, setPdfAnexo] = useState<File | null>(null);
   const [pdfAnexoExistente, setPdfAnexoExistente] = useState<{ nome: string; url: string } | null>(null);
   const [erroPdf, setErroPdf] = useState<string | null>(null);
+  const [freteAnexo, setFreteAnexo] = useState<File | null>(null);
+  const [freteAnexoExistente, setFreteAnexoExistente] = useState<{ nome: string; url: string } | null>(null);
+  const [erroFrete, setErroFrete] = useState<string | null>(null);
   const [importandoXml, setImportandoXml] = useState(false);
   const [confirmandoImportacao, setConfirmandoImportacao] = useState(false);
   const [analiseNfe, setAnaliseNfe] = useState<NfeAnaliseResponse | null>(null);
@@ -636,6 +648,39 @@ export function ImportacaoNfe() {
     return { start, end };
   }, [page, pageSize, totalItems]);
 
+  const groupedItems = useMemo(() => {
+    const sorted = [...items].sort((a, b) => {
+      const dateA = String(a.data_emissao || a.data_vencimento || '');
+      const dateB = String(b.data_emissao || b.data_vencimento || '');
+      if (sortKey === 'data') {
+        const dateCompare = dateA.localeCompare(dateB);
+        if (dateCompare !== 0) return sortDirection === 'asc' ? dateCompare : -dateCompare;
+      } else {
+        const dateCompare = dateB.localeCompare(dateA);
+        if (dateCompare !== 0) return dateCompare;
+      }
+
+      let fieldCompare = 0;
+      if (sortKey === 'descricao') {
+        fieldCompare = String(a.descricao || '').localeCompare(String(b.descricao || ''), 'pt-BR');
+      } else if (sortKey === 'valor') {
+        fieldCompare = Number(a.valor_total || 0) - Number(b.valor_total || 0);
+      } else if (sortKey === 'status') {
+        fieldCompare = String(a.status || '').localeCompare(String(b.status || ''), 'pt-BR');
+      } else {
+        fieldCompare = dateA.localeCompare(dateB);
+      }
+
+      if (fieldCompare !== 0) {
+        return sortDirection === 'asc' ? fieldCompare : -fieldCompare;
+      }
+
+      return String(a.numero_nfe || '').localeCompare(String(b.numero_nfe || ''), 'pt-BR');
+    });
+
+    return sorted;
+  }, [items, sortDirection, sortKey]);
+
   const fornecedoresFiltrados = useMemo(() => {
     const termo = normalizeSearchText(novoForm.emitente);
     if (!termo) return fornecedores.slice(0, 20);
@@ -716,6 +761,9 @@ export function ImportacaoNfe() {
     setPdfAnexo(null);
     setPdfAnexoExistente(null);
     setErroPdf(null);
+    setFreteAnexo(null);
+    setFreteAnexoExistente(null);
+    setErroFrete(null);
     draftIdRef.current = 1;
   }
 
@@ -796,6 +844,8 @@ export function ImportacaoNfe() {
         : 'AGUARDANDO_ENTREGA';
       const anexoPdfNome = String(data.anexo_pdf_nome || '').trim();
       const anexoPdfUrl = String(data.anexo_pdf_url || '').trim();
+      const anexoFreteNome = String(data.anexo_frete_nome || '').trim();
+      const anexoFreteUrl = String(data.anexo_frete_url || '').trim();
 
       setNovoForm({
         ...createDefaultNovoForm(),
@@ -804,6 +854,8 @@ export function ImportacaoNfe() {
         emitente: String(data.emitente_nome || '').trim(),
         cpfCnpj: String(data.emitente_documento || '').trim(),
         cfop: String(data.cfop || '').trim(),
+        destinoCompra: String(data.destino_compra || '').trim(),
+        valorFrete: Number(data.valor_frete || 0) > 0 ? String(data.valor_frete) : '',
         dataDocumento: String(data.data_emissao || todayISODate()).slice(0, 10),
         situacao: situacaoNormalizada,
       });
@@ -820,9 +872,15 @@ export function ImportacaoNfe() {
       setPdfAnexo(null);
       setPdfAnexoExistente(anexoPdfUrl ? {
         nome: anexoPdfNome || 'PDF da NF-e',
-        url: anexoPdfUrl,
+        url: toPublicAssetUrl(anexoPdfUrl) || anexoPdfUrl,
       } : null);
       setErroPdf(null);
+      setFreteAnexo(null);
+      setFreteAnexoExistente(anexoFreteUrl ? {
+        nome: anexoFreteNome || 'Arquivo do frete',
+        url: toPublicAssetUrl(anexoFreteUrl) || anexoFreteUrl,
+      } : null);
+      setErroFrete(null);
       draftIdRef.current = Math.max(1, nextId);
       setMostrarNovoFormulario(true);
     } catch (err: any) {
@@ -841,6 +899,17 @@ export function ImportacaoNfe() {
     const formData = new FormData();
     formData.append('arquivo', pdfAnexo);
     await api.post(`/importacao/nfe/${encodeURIComponent(parcelamento)}/anexo-pdf`, formData);
+  }
+
+  async function anexarFreteAoParcelamento(idParcelamento: string) {
+    if (!freteAnexo) return;
+
+    const parcelamento = String(idParcelamento || '').trim();
+    if (!parcelamento) return;
+
+    const formData = new FormData();
+    formData.append('arquivo', freteAnexo);
+    await api.post(`/importacao/nfe/${encodeURIComponent(parcelamento)}/anexo-frete`, formData);
   }
 
   async function confirmarFormulario() {
@@ -873,6 +942,10 @@ export function ImportacaoNfe() {
           chave_nfe: onlyDigits(novoForm.chaveNfe || ''),
           situacao: String(novoForm.situacao || 'AGUARDANDO_ENTREGA').toUpperCase(),
           cfop: String(novoForm.cfop || '').trim() || undefined,
+          destino_compra: String(novoForm.destinoCompra || '').trim() || undefined,
+          valor_frete: Number(String(novoForm.valorFrete || '').replace(',', '.')) > 0
+            ? Number(String(novoForm.valorFrete || '').replace(',', '.'))
+            : undefined,
           data_emissao: String(novoForm.dataDocumento || todayISODate()),
           emitente_nome: String(novoForm.emitente || '').trim() || undefined,
           emitente_documento: onlyDigits(novoForm.cpfCnpj || ''),
@@ -901,6 +974,13 @@ export function ImportacaoNfe() {
             await anexarPdfAoParcelamento(idParcelamentoEditando);
           } catch (err: any) {
             avisoAnexo = err?.response?.data?.detail || 'NF-e salva, mas nao foi possivel referenciar o PDF nos anexos dos lancamentos.';
+          }
+        }
+        if (freteAnexo) {
+          try {
+            await anexarFreteAoParcelamento(idParcelamentoEditando);
+          } catch (err: any) {
+            avisoAnexo = avisoAnexo || err?.response?.data?.detail || 'NF-e salva, mas nao foi possivel referenciar o arquivo de frete nos anexos dos lancamentos.';
           }
         }
 
@@ -964,6 +1044,10 @@ export function ImportacaoNfe() {
         tipo_lancamento: tipoLancamento,
         situacao: String(novoForm.situacao || 'AGUARDANDO_ENTREGA').toUpperCase(),
         cfop: String(novoForm.cfop || '').trim() || undefined,
+        destino_compra: String(novoForm.destinoCompra || '').trim() || undefined,
+        valor_frete: Number(String(novoForm.valorFrete || '').replace(',', '.')) > 0
+          ? Number(String(novoForm.valorFrete || '').replace(',', '.'))
+          : undefined,
         data_emissao: String(novoForm.dataDocumento || analiseNfe.data_emissao || todayISODate()),
         emitente_nome: String(novoForm.emitente || analiseNfe.emitente_nome || '').trim() || undefined,
         emitente_documento: onlyDigits(novoForm.cpfCnpj || analiseNfe.emitente_documento || ''),
@@ -991,6 +1075,13 @@ export function ImportacaoNfe() {
           await anexarPdfAoParcelamento(idParcelamentoConfirmado);
         } catch (err: any) {
           avisoAnexo = err?.response?.data?.detail || 'NF-e confirmada, mas nao foi possivel referenciar o PDF nos anexos dos lancamentos.';
+        }
+      }
+      if (freteAnexo && idParcelamentoConfirmado) {
+        try {
+          await anexarFreteAoParcelamento(idParcelamentoConfirmado);
+        } catch (err: any) {
+          avisoAnexo = avisoAnexo || err?.response?.data?.detail || 'NF-e confirmada, mas nao foi possivel referenciar o arquivo de frete nos anexos dos lancamentos.';
         }
       }
 
@@ -1782,7 +1873,7 @@ export function ImportacaoNfe() {
               <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-300">
                 PDF atual:&nbsp;
                 <a
-                  href={pdfAnexoExistente.url}
+                  href={toPublicAssetUrl(pdfAnexoExistente.url) || pdfAnexoExistente.url}
                   target="_blank"
                   rel="noreferrer"
                   className="font-bold underline"
@@ -1821,6 +1912,87 @@ export function ImportacaoNfe() {
                 className="mt-3 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
               >
                 Remover PDF
+              </button>
+            ) : null}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="mb-2">
+              <h3 className="text-2xl font-black text-slate-900 dark:text-white">Frete</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Informe o destino da compra e o valor do frete, e anexe o arquivo do frete quando houver.</p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label>
+                <span className={labelClassName}>Destino da compra</span>
+                <select
+                  className={inputClassName}
+                  value={novoForm.destinoCompra}
+                  onChange={(event) => atualizarNovoForm('destinoCompra', event.target.value)}
+                >
+                  <option value="">Selecione</option>
+                  <option value="ENCOMENDA">Encomenda</option>
+                  <option value="ESTOQUE">Estoque</option>
+                </select>
+              </label>
+
+              <label>
+                <span className={labelClassName}>Valor do frete</span>
+                <input
+                  className={inputClassName}
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  value={novoForm.valorFrete}
+                  onChange={(event) => atualizarNovoForm('valorFrete', event.target.value)}
+                />
+              </label>
+            </div>
+
+            {freteAnexoExistente ? (
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
+                Arquivo atual:&nbsp;
+                <a
+                  href={toPublicAssetUrl(freteAnexoExistente.url) || freteAnexoExistente.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold underline"
+                >
+                  {freteAnexoExistente.nome}
+                </a>
+              </div>
+            ) : null}
+
+            <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 transition hover:border-blue-500 dark:border-slate-700 dark:bg-slate-900">
+              <Paperclip className="h-4 w-4 text-slate-500 dark:text-slate-300" />
+              <span className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
+                {freteAnexo ? freteAnexo.name : (freteAnexoExistente?.nome || 'Clique para selecionar o arquivo do frete')}
+              </span>
+              <input
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/*"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] || null;
+                  setFreteAnexo(file);
+                  setErroFrete(null);
+                  event.currentTarget.value = '';
+                }}
+              />
+            </label>
+
+            {erroFrete ? <p className="mt-2 text-sm text-rose-600 dark:text-rose-300">{erroFrete}</p> : null}
+            {freteAnexo && freteAnexoExistente ? (
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                Um novo arquivo de frete foi selecionado e sera referenciado no lugar do arquivo atual apos salvar/confirmar.
+              </p>
+            ) : null}
+            {freteAnexo ? (
+              <button
+                type="button"
+                onClick={() => setFreteAnexo(null)}
+                className="mt-3 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+              >
+                Remover arquivo de frete
               </button>
             ) : null}
           </div>
@@ -1891,43 +2063,56 @@ export function ImportacaoNfe() {
                     </tr>
                   ) : null}
 
-                  {!loading && items.map((item) => (
-                    <tr
-                      key={item.id_parcelamento}
-                      onClick={() => void abrirEdicaoDaLinha(item)}
-                      className={`cursor-pointer transition hover:bg-slate-50 dark:hover:bg-slate-700/50 ${rowClasses(item.status)} ${carregandoEdicaoId === item.id_parcelamento ? 'opacity-70' : ''}`}
-                      title="Clique para editar esta NF-e"
-                    >
-                      <td className="p-2.5 text-center align-middle font-bold text-slate-700 dark:text-slate-200">
-                        <span className="inline-flex items-center gap-1.5">
-                          {item.numero_nfe || '-'}
-                          {carregandoEdicaoId === item.id_parcelamento ? <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" /> : null}
-                        </span>
-                      </td>
+                  {!loading && groupedItems.map((item, index) => {
+                    const previous = groupedItems[index - 1];
+                    const showHeader = index === 0 || previous?.data_emissao !== item.data_emissao;
+                    return (
+                      <Fragment key={`${item.id_parcelamento}-${item.data_emissao || item.data_vencimento || index}`}>
+                        {showHeader ? (
+                          <tr key={`${item.id_parcelamento}-group`}>
+                            <td colSpan={5} className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
+                              Emissao {formatDate(item.data_emissao || item.data_vencimento)}
+                            </td>
+                          </tr>
+                        ) : null}
+                        <tr
+                          key={item.id_parcelamento}
+                          onClick={() => void abrirEdicaoDaLinha(item)}
+                          className={`cursor-pointer transition hover:bg-slate-50 dark:hover:bg-slate-700/50 ${rowClasses(item.status)} ${carregandoEdicaoId === item.id_parcelamento ? 'opacity-70' : ''}`}
+                          title="Clique para editar esta NF-e"
+                        >
+                          <td className="p-2.5 text-center align-middle font-bold text-slate-700 dark:text-slate-200">
+                            <span className="inline-flex items-center gap-1.5">
+                              {item.numero_nfe || '-'}
+                              {carregandoEdicaoId === item.id_parcelamento ? <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" /> : null}
+                            </span>
+                          </td>
 
-                      <td className="p-2.5 align-middle font-semibold text-slate-800 dark:text-white">
-                        <div className="min-w-0 truncate">{item.descricao}</div>
-                        <div className="mt-0.5 text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                          Chave: {item.chave_nfe || 'nao informada'} • Parcelas: {item.total_parcelas} • Venc.: {formatDate(item.data_vencimento)}
-                        </div>
-                        <div className="mt-0.5 text-[11px] font-normal text-blue-600 dark:text-blue-300">Clique para editar</div>
-                      </td>
+                          <td className="p-2.5 align-middle font-semibold text-slate-800 dark:text-white">
+                            <div className="min-w-0 truncate">{item.descricao}</div>
+                            <div className="mt-0.5 text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                              Chave: {item.chave_nfe || 'nao informada'} • Parcelas: {item.total_parcelas} • Venc.: {formatDate(item.data_vencimento)}
+                            </div>
+                            <div className="mt-0.5 text-[11px] font-normal text-blue-600 dark:text-blue-300">Clique para editar</div>
+                          </td>
 
-                      <td className="p-2.5 text-right align-middle font-bold tabular-nums text-red-500 dark:text-red-300">
-                        {formatCurrency(item.valor_total)}
-                      </td>
+                          <td className="p-2.5 text-right align-middle font-bold tabular-nums text-red-500 dark:text-red-300">
+                            {formatCurrency(item.valor_total)}
+                          </td>
 
-                      <td className="p-2.5 text-center align-middle">
-                        <span className={`rounded px-2.5 py-1 text-[11px] font-bold uppercase border ${statusClasses(item.status)}`}>
-                          {statusLabel(item.status)}
-                        </span>
-                      </td>
+                          <td className="p-2.5 text-center align-middle">
+                            <span className={`rounded px-2.5 py-1 text-[11px] font-bold uppercase border ${statusClasses(item.status)}`}>
+                              {statusLabel(item.status)}
+                            </span>
+                          </td>
 
-                      <td className="p-2.5 align-middle">
-                        <div className="truncate text-sm font-semibold text-slate-700 dark:text-slate-300">{item.centro_custo_nome || '-'}</div>
-                      </td>
-                    </tr>
-                  ))}
+                          <td className="p-2.5 align-middle">
+                            <div className="truncate text-sm font-semibold text-slate-700 dark:text-slate-300">{item.centro_custo_nome || '-'}</div>
+                          </td>
+                        </tr>
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

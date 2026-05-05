@@ -132,15 +132,6 @@ export function Cartoes() {
         return `${y}-${m}-${d}`;
     };
 
-    const getMonthRange = (date: Date) => {
-        const start = new Date(date.getFullYear(), date.getMonth(), 1);
-        const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-        return {
-            data_inicio: formatDateYMD(start),
-            data_fim: formatDateYMD(end),
-        };
-    };
-
     const getMonthKey = (date: Date) => {
         const y = date.getFullYear();
         const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -274,45 +265,48 @@ export function Cartoes() {
         const controller = new AbortController();
         lancamentosAbortRef.current = controller;
         setLancamentosLoading(true);
-        setLancamentos([]);
 
         try {
+            const response = await api.get('/lancamentos/', {
+                params: {
+                    include_anexos: false,
+                    sem_paginacao: true,
+                    cartao_id: cartaoId,
+                },
+                signal: controller.signal,
+            });
+
+            const itens = normalizeListResponse<Lancamento>(response.data);
+            if (controller.signal.aborted) return;
+
+            setLancamentos(itens);
+
             const cartao = cartoes.find((item) => item.id === cartaoId);
             if (!cartao) return;
 
-            const fetchMonthItems = async (targetDate: Date) => {
-                const range = getMonthRange(targetDate);
-                const response = await api.get('/lancamentos/', {
-                    params: {
-                        include_anexos: false,
-                        sem_paginacao: true,
-                        cartao_id: cartaoId,
-                        data_inicio: range.data_inicio,
-                        data_fim: range.data_fim,
-                    },
-                    signal: controller.signal,
-                });
-                return normalizeListResponse<Lancamento>(response.data);
-            };
+            const currentDue = getCurrentInvoiceDueDate(cartao, baseDate);
+            const currentKey = getMonthKey(currentDue);
+            const previousDate = new Date(currentDue.getFullYear(), currentDue.getMonth() - 1, 1);
+            const previousKey = getMonthKey(previousDate);
 
-            const currentItems = await fetchMonthItems(baseDate);
-            let selectedDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
-            let selectedItems = currentItems;
+            const hasCurrentPending = itens.some((item) => {
+                if (String(item.status || '').toUpperCase() === 'PAGO') return false;
+                return getLancamentoFaturaMonthKey(item, cartao) === currentKey;
+            });
 
-            const hasCurrentPending = currentItems.some((item) => String(item.status || '').toUpperCase() !== 'PAGO');
+            let targetMonth = currentDue;
             if (allowFallbackToPrevious && !hasCurrentPending) {
-                const previousDate = new Date(baseDate.getFullYear(), baseDate.getMonth() - 1, 1);
-                const previousItems = await fetchMonthItems(previousDate);
-                const hasPreviousPending = previousItems.some((item) => String(item.status || '').toUpperCase() !== 'PAGO');
+                const hasPreviousPending = itens.some((item) => {
+                    if (String(item.status || '').toUpperCase() === 'PAGO') return false;
+                    return getLancamentoFaturaMonthKey(item, cartao) === previousKey;
+                });
                 if (hasPreviousPending) {
-                    selectedDate = previousDate;
-                    selectedItems = previousItems;
+                    targetMonth = previousDate;
                 }
             }
 
             if (controller.signal.aborted) return;
-            setMesFatura(selectedDate);
-            setLancamentos(selectedItems);
+            setMesFatura(new Date(targetMonth.getFullYear(), targetMonth.getMonth(), 1));
         } catch (error: any) {
             if (controller.signal.aborted || error?.code === 'ERR_CANCELED') return;
             console.error('Erro ao carregar lançamentos do cartão:', error);
@@ -344,13 +338,12 @@ export function Cartoes() {
                 const cartao = cartoes.find(c => c.id === selectedCartaoId);
                 if (!cartao) return;
                 autoFaturaRef.current = selectedCartaoId;
-                void carregarLancamentosFatura(selectedCartaoId, getCurrentInvoiceDueDate(cartao, new Date()), true);
+                void carregarLancamentosFatura(selectedCartaoId, new Date(), true);
             }, [selectedCartaoId, cartoes]);
 
             const handleChangeInvoiceMonth = (delta: number) => {
                 if (!selectedCartaoId) return;
-                const next = new Date(mesFatura.getFullYear(), mesFatura.getMonth() + delta, 1);
-                void carregarLancamentosFatura(selectedCartaoId, next, false);
+                setMesFatura((prev) => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
             };
 
             const handleReloadCurrentInvoice = async () => {

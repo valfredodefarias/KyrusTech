@@ -112,6 +112,7 @@ type StatusFilter = 'TODOS' | 'PAGO' | 'EM_ABERTO' | 'ATRASADO' | 'HOJE' | 'AMAN
 type FlowFilter = 'ALL' | 'PAGAMENTO' | 'RECEBIMENTO';
 
 interface NormalizedRow {
+  rowKey: string;
   id: number;
   descricao: string;
   flowType: FlowFilter;
@@ -195,6 +196,34 @@ function extractIsoDate(value?: string | null) {
   return match?.[0] || null;
 }
 
+function buildLancamentoFingerprint(item: Partial<LancamentoResumo>) {
+  const idPart = Number(item.id);
+  if (Number.isFinite(idPart) && idPart > 0) {
+    return `id:${idPart}`;
+  }
+
+  const due = extractIsoDate(item.data_vencimento) || '';
+  const descricao = normalizeText(item.descricao || '');
+  const tipo = normalizeText(item.tipo || '');
+  const previsto = Number(item.valor_previsto || 0);
+  const pago = Number(item.valor_pago || 0);
+  return `fp:${due}|${descricao}|${tipo}|${previsto}|${pago}`;
+}
+
+function dedupeLancamentos(items: LancamentoResumo[]) {
+  const seen = new Set<string>();
+  const unique: LancamentoResumo[] = [];
+
+  items.forEach((item) => {
+    const key = buildLancamentoFingerprint(item);
+    if (seen.has(key)) return;
+    seen.add(key);
+    unique.push(item);
+  });
+
+  return unique;
+}
+
 function formatDate(value?: string | null) {
   const parsed = parseDateOnly(value);
   return parsed ? parsed.toLocaleDateString('pt-BR') : '-';
@@ -219,6 +248,25 @@ function formatCurrencyCompact(value: number) {
   if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} mi`;
   if (abs >= 1_000) return `${(value / 1_000).toFixed(0)}k`;
   return `${Math.round(value)}`;
+}
+
+function readChartDataPointIndex(config: any) {
+  const directIndex = Number(config?.dataPointIndex);
+  if (Number.isFinite(directIndex) && directIndex >= 0) return directIndex;
+
+  const globalsIndex = Number(config?.w?.globals?.dataPointIndex);
+  if (Number.isFinite(globalsIndex) && globalsIndex >= 0) return globalsIndex;
+
+  const selectedDataPoints = config?.w?.globals?.selectedDataPoints;
+  if (Array.isArray(selectedDataPoints)) {
+    for (const seriesPoints of selectedDataPoints) {
+      if (!Array.isArray(seriesPoints) || seriesPoints.length === 0) continue;
+      const idx = Number(seriesPoints[seriesPoints.length - 1]);
+      if (Number.isFinite(idx) && idx >= 0) return idx;
+    }
+  }
+
+  return -1;
 }
 
 function resolveContaDisplayName(conta?: Pick<ContaResumo, 'nome' | 'banco'> | null) {
@@ -278,12 +326,32 @@ function getStatusLabel(status: StatusFilter) {
   return labels[status];
 }
 
+function normalizeLancamentoTipo(tipo?: string | null) {
+  return normalizeText(tipo).replace(/\s+/g, '');
+}
+
 function isReceita(tipo?: string | null) {
-  return String(tipo || '').toUpperCase().startsWith('R');
+  const normalized = normalizeLancamentoTipo(tipo);
+  if (!normalized) return false;
+  return (
+    normalized.startsWith('r')
+    || normalized.startsWith('receita')
+    || normalized.startsWith('recebimento')
+    || normalized.startsWith('entrada')
+    || normalized.startsWith('credito')
+  );
 }
 
 function isDespesa(tipo?: string | null) {
-  return String(tipo || '').toUpperCase().startsWith('D');
+  const normalized = normalizeLancamentoTipo(tipo);
+  if (!normalized) return false;
+  return (
+    normalized.startsWith('d')
+    || normalized.startsWith('despesa')
+    || normalized.startsWith('pagamento')
+    || normalized.startsWith('saida')
+    || normalized.startsWith('debito')
+  );
 }
 
 function parseCompetenciaMonthIndex(competencia?: string | null) {
@@ -315,8 +383,21 @@ function resolveLancamentoValue(lancamento: LancamentoResumo, somentePagos = fal
   return Number(lancamento.valor_previsto || 0);
 }
 
-function isPago(status?: string | null) {
-  return String(status || '').toUpperCase() === 'PAGO';
+function isPago(itemOrStatus?: Pick<LancamentoResumo, 'status' | 'data_pagamento' | 'valor_pago'> | string | null) {
+  if (typeof itemOrStatus === 'string' || itemOrStatus == null) {
+    return normalizeText(itemOrStatus) === 'pago';
+  }
+
+  const normalizedStatus = normalizeText(itemOrStatus.status);
+  if (normalizedStatus === 'pago' || normalizedStatus === 'quitado' || normalizedStatus === 'liquidado') {
+    return true;
+  }
+
+  if (Boolean(itemOrStatus.data_pagamento)) {
+    return true;
+  }
+
+  return Number(itemOrStatus.valor_pago || 0) > 0;
 }
 
 function getFullLogoUrl(url?: string | null) {
@@ -424,7 +505,7 @@ function FilterPill({ active, label, onClick, isDark }: { active: boolean; label
 }
 
 function getStatusKey(item: LancamentoResumo, todayIso: string, tomorrowIso: string): StatusFilter {
-  if (isPago(item.status)) return 'PAGO';
+  if (isPago(item)) return 'PAGO';
   const due = item.data_vencimento?.slice(0, 10);
   if (due === todayIso) return 'HOJE';
   if (due === tomorrowIso) return 'AMANHA';
@@ -643,7 +724,7 @@ export function Boletim() {
 
         setEmpresa(empresaAtual);
         setContas(contasRes.status === 'fulfilled' ? normalizeListResponse<ContaResumo>(contasRes.value.data) : []);
-        setLancamentos(lancamentosRes.status === 'fulfilled' ? (Array.isArray(lancamentosRes.value) ? lancamentosRes.value : []) : []);
+        setLancamentos(lancamentosRes.status === 'fulfilled' ? dedupeLancamentos(Array.isArray(lancamentosRes.value) ? lancamentosRes.value : []) : []);
         setCategorias(categoriasRes.status === 'fulfilled' ? normalizeListResponse<PlanoContaResumo>(categoriasRes.value.data) : []);
         setEntidades(entidadesRes.status === 'fulfilled' ? normalizeListResponse<EntidadeResumo>(entidadesRes.value.data) : []);
         setCentrosCusto(centrosCustoRes.status === 'fulfilled' ? normalizeListResponse<CentroCustoResumo>(centrosCustoRes.value.data) : []);
@@ -712,8 +793,11 @@ export function Boletim() {
         const hasPaidValue = item.valor_pago !== null && item.valor_pago !== undefined && Number(item.valor_pago) > 0;
         const baseValue = Number(statusKey === 'PAGO' && hasPaidValue ? item.valor_pago : item.valor_previsto ?? item.valor_pago ?? 0);
         const signedValue = flowType === 'RECEBIMENTO' ? baseValue : baseValue * -1;
+        const rawId = Number(item.id);
+        const safeId = Number.isFinite(rawId) ? rawId : -1;
         return {
-          id: item.id,
+          rowKey: `${buildLancamentoFingerprint(item)}|cc:${Number(item.centro_custo_id || 0)}|conta:${Number(item.conta_id || 0)}`,
+          id: safeId,
           descricao: item.descricao,
           flowType,
           statusKey,
@@ -1210,12 +1294,7 @@ export function Boletim() {
           donut: {
             size: '62%',
             labels: {
-              show: true,
-              total: {
-                show: true,
-                label: 'Total',
-                formatter: () => formatCurrency(flowTotals.pagamento + flowTotals.recebimento),
-              },
+              show: false,
             },
           },
         },
@@ -1241,7 +1320,7 @@ export function Boletim() {
             setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
           },
           dataPointSelection: (_event: any, _ctx: any, config: any) => {
-            const monthIndex = Number(config?.dataPointIndex);
+            const monthIndex = readChartDataPointIndex(config);
             const nextFlow = resolveFlowBySeriesIndex(Number(config?.seriesIndex));
             if (!Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) return;
 
@@ -1317,7 +1396,7 @@ export function Boletim() {
             setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
           },
           dataPointSelection: (_event: any, _ctx: any, config: any) => {
-            const dayIndex = Number(config?.dataPointIndex);
+            const dayIndex = readChartDataPointIndex(config);
             const nextFlow = resolveFlowBySeriesIndex(Number(config?.seriesIndex));
             if (!Number.isFinite(dayIndex) || dayIndex < 0) return;
 
@@ -1392,6 +1471,82 @@ export function Boletim() {
       effectiveMonthLabel: dashboard.monthLabels[effectiveMonth],
     };
   }, [dashboard.baseRows, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, flowFilter, isDark, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
+
+  const consistencyChecks = useMemo(() => {
+    const currentMonth = selectedMonthIndex ?? dashboard.fallbackMonthIndex;
+
+    const rowMatchesCurrentScope = (row: NormalizedRow) => {
+      if (statusFilter !== 'TODOS' && row.statusKey !== statusFilter) return false;
+      if (selectedDayOfMonth !== null) {
+        return row.monthIndex === currentMonth && row.dayOfMonth === selectedDayOfMonth;
+      }
+      if (selectedMonthIndex !== null) {
+        return row.monthIndex === selectedMonthIndex;
+      }
+      return true;
+    };
+
+    const scopedRows = dashboard.baseRows.filter(rowMatchesCurrentScope);
+
+    const sumByFlow = (flow: FlowFilter) => scopedRows
+      .filter((row) => row.flowType === flow)
+      .reduce((acc, row) => acc + row.valorAbsoluto, 0);
+
+    const scopedPagamento = sumByFlow('PAGAMENTO');
+    const scopedRecebimento = sumByFlow('RECEBIMENTO');
+
+    const donutPagamento = Number(payReceiveCharts.donutSeries?.[0] || 0);
+    const donutRecebimento = Number(payReceiveCharts.donutSeries?.[1] || 0);
+
+    const monthlyPagamento = Number(
+      ((payReceiveCharts.monthlySeries?.[0]?.data || [])[currentMonth] as any)?.y
+      || 0
+    );
+    const monthlyRecebimento = Number(
+      ((payReceiveCharts.monthlySeries?.[1]?.data || [])[currentMonth] as any)?.y
+      || 0
+    );
+
+    const selectedDayIndex = selectedDayOfMonth !== null ? selectedDayOfMonth - 1 : -1;
+    const dailyPagamento = selectedDayIndex >= 0
+      ? Number(((payReceiveCharts.dailySeries?.[0]?.data || [])[selectedDayIndex] as any)?.y || 0)
+      : null;
+    const dailyRecebimento = selectedDayIndex >= 0
+      ? Number(((payReceiveCharts.dailySeries?.[1]?.data || [])[selectedDayIndex] as any)?.y || 0)
+      : null;
+
+    const tolerance = 0.01;
+    const approxEqual = (a: number, b: number) => Math.abs(a - b) <= tolerance;
+
+    return {
+      currentMonth,
+      scopedPagamento,
+      scopedRecebimento,
+      donutMatches: approxEqual(scopedPagamento, donutPagamento) && approxEqual(scopedRecebimento, donutRecebimento),
+      monthlyMatches: approxEqual(scopedPagamento, monthlyPagamento) && approxEqual(scopedRecebimento, monthlyRecebimento),
+      dailyMatches: selectedDayIndex >= 0
+        ? approxEqual(scopedPagamento, Number(dailyPagamento || 0)) && approxEqual(scopedRecebimento, Number(dailyRecebimento || 0))
+        : true,
+    };
+  }, [dashboard.baseRows, dashboard.fallbackMonthIndex, payReceiveCharts.dailySeries, payReceiveCharts.donutSeries, payReceiveCharts.monthlySeries, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    if (consistencyChecks.donutMatches && consistencyChecks.monthlyMatches && consistencyChecks.dailyMatches) return;
+
+    console.warn('[Boletim] Divergência de consistência detectada', {
+      monthIndex: consistencyChecks.currentMonth,
+      scopedPagamento: consistencyChecks.scopedPagamento,
+      scopedRecebimento: consistencyChecks.scopedRecebimento,
+      donutMatches: consistencyChecks.donutMatches,
+      monthlyMatches: consistencyChecks.monthlyMatches,
+      dailyMatches: consistencyChecks.dailyMatches,
+      selectedMonthIndex,
+      selectedDayOfMonth,
+      statusFilter,
+      flowFilter,
+    });
+  }, [consistencyChecks, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
 
   const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
   const companyName = empresa?.nome_fantasia || 'Sua Empresa';
@@ -1563,7 +1718,7 @@ export function Boletim() {
                               </tr>
                             ) : (auditPanel.rows || []).map((row) => (
                               <tr
-                                key={`audit-row-${row.id}`}
+                                key={`audit-row-${row.rowKey}`}
                                 onClick={(event) => openLancamentoEdicao(row.id, event)}
                                 className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
                                 title="Abrir edição do lançamento"
@@ -1852,7 +2007,7 @@ export function Boletim() {
                               <td colSpan={6} className={`px-4 py-12 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Nenhum lançamento para os filtros atuais.</td>
                             </tr>
                           ) : dashboard.tableRows.map((row) => (
-                            <tr key={row.id} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
+                            <tr key={row.rowKey} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
                               <td className="px-4 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
                               <td className="px-4 py-2.5 font-semibold">{row.interessado}</td>
                               <td className="max-w-85 truncate px-4 py-2.5" title={row.descricao}>{row.descricao}</td>

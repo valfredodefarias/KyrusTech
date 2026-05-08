@@ -1453,8 +1453,6 @@ def upload_ofx(
         )
         historico_por_tipo = _agrupar_historico_por_tipo(historico_empresa)
         cache_relacionamentos: Dict[str, tuple[Optional[tuple[Lancamento, int, str]], List[tuple[Lancamento, int, str]]]] = {}
-        previstos_sugeridos_no_lote: set[int] = set()
-        atrasados_sugeridos_no_lote: set[int] = set()
 
         for lanc_raw in lancamentos_raw:
 
@@ -1527,17 +1525,9 @@ def upload_ofx(
             if melhor_previsto:
                 lanc_previsto_candidato = melhor_previsto[0]
                 previsto_candidato_id = int(lanc_previsto_candidato.id or 0)
-                if previsto_candidato_id and previsto_candidato_id in previstos_sugeridos_no_lote:
-                    melhor_previsto = None
-                elif previsto_candidato_id:
-                    previstos_sugeridos_no_lote.add(previsto_candidato_id)
-
-            if melhores_atrasados:
-                melhores_atrasados = [
-                    item
-                    for item in melhores_atrasados
-                    if int(item[0].id or 0) not in atrasados_sugeridos_no_lote
-                ]
+                if previsto_candidato_id:
+                    previstos_sugeridos.setdefault(previsto_candidato_id, 0)
+                    previstos_sugeridos[previsto_candidato_id] += 1
 
             if melhor_previsto:
                 previstos += 1
@@ -1556,15 +1546,16 @@ def upload_ofx(
 
             if melhores_atrasados:
                 atrasados += 1
-                for lancamento_atrasado, _, _ in melhores_atrasados:
-                    atraso_id = int(lancamento_atrasado.id or 0)
-                    if atraso_id:
-                        atrasados_sugeridos_no_lote.add(atraso_id)
                 lanc_raw["lancamentos_atrasados_ids"] = [l.id for l, _, _ in melhores_atrasados]
                 lanc_raw["lancamentos_atrasados_resumo"] = [
                     _build_resumo(lancamento, score, motivo, entidades_por_id)
                     for lancamento, score, motivo in melhores_atrasados
                 ]
+                for lancamento_atrasado, _, _ in melhores_atrasados:
+                    atraso_id = int(lancamento_atrasado.id or 0)
+                    if atraso_id:
+                        atrasados_sugeridos.setdefault(atraso_id, 0)
+                        atrasados_sugeridos[atraso_id] += 1
                 if not melhor_previsto:
                     lanc_raw["sugestao_acao"] = "RELACIONAR_ATRASADOS"
                     lanc_raw["score_conciliacao"] = melhores_atrasados[0][1]

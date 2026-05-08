@@ -230,6 +230,34 @@ def verificar_duplicata_ofx_por_fallback(
     if not conta_resolvida:
         return None
 
+    movimento_uid = _normalizar_texto(lancamento.get("movimento_uid"))
+    referencia_externa = _normalizar_texto(lancamento.get("referencia_externa"))
+    if movimento_uid and not movimento_uid.startswith("fallback:"):
+        candidato = db.exec(
+            select(Lancamento).where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.conta_id == conta_resolvida,
+                Lancamento.origem == "OFX_EXTRATO",
+                Lancamento.movimento_uid == movimento_uid,
+            )
+        ).first()
+        if candidato:
+            return candidato
+
+    if referencia_externa:
+        candidato = db.exec(
+            select(Lancamento).where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.conta_id == conta_resolvida,
+                Lancamento.origem == "OFX_EXTRATO",
+                Lancamento.referencia_externa == referencia_externa,
+            )
+        ).first()
+        if candidato:
+            return candidato
+
     descricao = _normalizar_texto(lancamento.get("descricao"))
     if not descricao:
         return None

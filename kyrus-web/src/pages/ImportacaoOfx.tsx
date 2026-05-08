@@ -1192,8 +1192,13 @@ export function ImportacaoOfx() {
                         </div>
                       </div>
                       <div className="mt-3 space-y-3">
-                        {lanc.lancamentos_atrasados_resumo.map((atrasado, index) => {
-                          const atrasoId = lanc.lancamentos_atrasados_ids?.[index];
+                        {[...(lanc.lancamentos_atrasados_resumo || [])]
+                          .map((resumo, index) => ({
+                            resumo,
+                            atrasoId: lanc.lancamentos_atrasados_ids?.[index],
+                          }))
+                          .sort((a, b) => (b.resumo?.score || 0) - (a.resumo?.score || 0))
+                          .map(({ resumo: atrasado, atrasoId }, index) => {
                           const marcado = atrasoId ? lanc.lancamentos_atrasados_relacionados.includes(atrasoId) : false;
                           const linhasComMesmoAtraso = atrasoId ? atrasadosSelecionadosPorId.get(atrasoId) : undefined;
                           const selecionadoEmOutroLancamento = Boolean(
@@ -1227,7 +1232,17 @@ export function ImportacaoOfx() {
                                 <div className="flex flex-col gap-1">
                                   <p className="font-bold text-slate-900 dark:text-white">{atrasado.descricao}</p>
                                 </div>
-                                <p className="text-sm text-slate-600 dark:text-slate-300">Venceu em {formatDate(atrasado.data_vencimento)} • {formatCurrency(atrasado.valor_previsto)}</p>
+                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-300">
+                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 font-bold uppercase tracking-[0.14em] text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
+                                    Score {atrasado.score}
+                                  </span>
+                                  <span>Venceu em {formatDate(atrasado.data_vencimento)}</span>
+                                  <span>•</span>
+                                  <span>{formatCurrency(atrasado.valor_previsto)}</span>
+                                </div>
+                                {atrasado.motivo ? (
+                                  <p className="mt-1 text-xs italic text-slate-500 dark:text-slate-400">{atrasado.motivo}</p>
+                                ) : null}
                                 {bloqueadoPorOutroLancamento ? (
                                   <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">Esta sugestão já foi selecionada em outro lançamento.</p>
                                 ) : null}

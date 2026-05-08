@@ -190,29 +190,37 @@ def _extract_account_metadata(conta: object) -> Dict[str, Optional[str]]:
     }
 
 
-def _resolve_transaction_reference(txn: object, linha: int, data_lanc: date, valor_abs: Decimal, descricao: str) -> str:
-    raw_candidates = [
+def _resolve_transaction_identity(txn: object) -> str:
+    raw_identity = [
         getattr(txn, "id", None),
         getattr(txn, "fitid", None),
         getattr(txn, "reference", None),
     ]
-    for candidate in raw_candidates:
+    for candidate in raw_identity:
         normalized = _safe_text(candidate)
         if normalized:
             return normalized
+    return ""
+
+
+def _resolve_transaction_reference(txn: object, linha: int, data_lanc: date, valor_abs: Decimal, descricao: str) -> str:
+    identidade = _resolve_transaction_identity(txn)
+    if identidade:
+        return identidade
 
     descricao_base = re.sub(r"\s+", " ", descricao.lower()).strip()[:80]
     return f"fallback-{data_lanc.isoformat()}-{valor_abs}-{linha}-{descricao_base}"
 
 
-def _build_transaction_dedupe_key(conta_metadata: Dict[str, Optional[str]], txn: object, data_lanc: date, data_hora: str | None, valor: Decimal, descricao: str) -> str:
-    raw_identity = [
-        _safe_text(getattr(txn, "id", None)),
-        _safe_text(getattr(txn, "fitid", None)),
-        _safe_text(getattr(txn, "reference", None)),
-    ]
-    identidade = next((item for item in raw_identity if item), "")
-
+def _build_transaction_dedupe_key(
+    conta_metadata: Dict[str, Optional[str]],
+    txn: object,
+    data_lanc: date,
+    data_hora: str | None,
+    valor: Decimal,
+    descricao: str,
+    identidade: str,
+) -> str:
     base_parts = [
         conta_metadata.get("ofx_bank_id") or "",
         conta_metadata.get("ofx_agencia") or "",
@@ -289,12 +297,27 @@ def processar_ofx(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
             tipo_txn = (getattr(txn, "type", "") or "").strip()
             descricao = memo or payee or tipo_txn or "Transacao OFX"
             saldo_informativo = _eh_movimento_saldo_informativo(descricao)
-            dedupe_key = _build_transaction_dedupe_key(account_metadata, txn, data_lanc, data_hora, valor_abs, descricao)
-            if dedupe_key in movimentos_vistos:
-                logger.warning(f"Movimento OFX duplicado ignorado no parser: {descricao} | {data_lanc.isoformat()} | {valor_abs}")
-                linha += 1
-                continue
-            movimentos_vistos.add(dedupe_key)
+            identidade = _resolve_transaction_identity(txn)
+            dedupe_key = _build_transaction_dedupe_key(
+                account_metadata,
+                txn,
+                data_lanc,
+                data_hora,
+                valor_abs,
+                descricao,
+                identidade,
+            )
+            if identidade:
+                if dedupe_key in movimentos_vistos:
+                    logger.warning(
+                        "Movimento OFX duplicado ignorado no parser: {} | {} | {}",
+                        descricao,
+                        data_lanc.isoformat(),
+                        valor_abs,
+                    )
+                    linha += 1
+                    continue
+                movimentos_vistos.add(dedupe_key)
             referencia_txn = _resolve_transaction_reference(txn, linha, data_lanc, valor_abs, descricao)
 
             lancamentos.append({

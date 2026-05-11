@@ -59,6 +59,9 @@ class IntegracaoBancariaRead(SQLModel):
     conta_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
     token_configurado: bool = True
+    nfstock_username: Optional[str] = None
+    nfstock_select_company: Optional[bool] = None
+    nfstock_company_name: Optional[str] = None
     empresa_id: int
     created_at: datetime
     updated_at: datetime

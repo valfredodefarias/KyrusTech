@@ -36,9 +36,11 @@ from app.services.integracao_asaas import (
     buscar_saldo_asaas,
     listar_tipos_recentes_asaas,
 )
+from app.services.integracao_nfstock import sincronizar_nfstock, set_nfstock_schedule
 
 router = APIRouter()
 AUTHORIZED_ASAAS_RESET_EMAILS = {"cirocue12@gmail.com", "cirocaue12@gmail.com"}
+AUTHORIZED_NFSTOCK_FORCE_SYNC_EMAILS = {"cirocaue12@gmail.com"}
 ASAAS_TIPO_OBSERVACAO_REGEX = re.compile(r"tipo\s*:\s*([^|]+)", re.IGNORECASE)
 
 
@@ -235,6 +237,20 @@ class AsaasResetRequest(BaseModel):
     data_inicio_sincronizacao: Optional[date] = None
 
 
+class NfstockConfigPayload(BaseModel):
+    nome: str
+    username: str
+    password: str
+    centro_custo_id: int
+    select_company: bool = False
+    company_name: Optional[str] = None
+    ativo: bool = True
+
+
+class NfstockSyncByLoginPayload(BaseModel):
+    username: str
+
+
 def _can_manage_asaas_reset(current_user: Usuario) -> bool:
     email = (getattr(current_user, "email", "") or "").strip().lower()
     is_super = bool(
@@ -242,6 +258,11 @@ def _can_manage_asaas_reset(current_user: Usuario) -> bool:
         and str(current_user.consultor_role or "").upper() == ConsultorRole.SUPER_CONSULTOR.value
     )
     return is_super or email in AUTHORIZED_ASAAS_RESET_EMAILS
+
+
+def _can_force_nfstock_sync(current_user: Usuario) -> bool:
+    email = (getattr(current_user, "email", "") or "").strip().lower()
+    return email in AUTHORIZED_NFSTOCK_FORCE_SYNC_EMAILS
 
 
 def _serialize_integracao(integracao: IntegracaoBancaria) -> dict:
@@ -258,6 +279,20 @@ def _serialize_integracao(integracao: IntegracaoBancaria) -> dict:
             token_configurado = True
 
     payload["token_configurado"] = token_configurado
+
+    if str(integracao.tipo or "").upper() == "NFSTOCK":
+        try:
+            from app.core.encryption import decrypt_dict
+            cfg_raw = str(integracao.configuracao_adicional or "").strip()
+            cfg = decrypt_dict(cfg_raw) if cfg_raw else {}
+            if not isinstance(cfg, dict):
+                cfg = {}
+        except Exception:
+            cfg = {}
+        payload["nfstock_username"] = str(cfg.get("username") or "").strip() or None
+        payload["nfstock_select_company"] = bool(cfg.get("select_company", False))
+        payload["nfstock_company_name"] = str(cfg.get("company_name") or "").strip() or None
+
     return payload
 
 
@@ -418,7 +453,7 @@ def criar_integracao(
     logger.info(f"Criando integração bancária: {integracao_in.nome} (Tipo: {integracao_in.tipo})")
     
     # Valida tipo
-    tipos_validos = ["ASAAS", "ITAU", "NUBANK", "INTER", "SANTANDER"]
+    tipos_validos = ["ASAAS", "ITAU", "NUBANK", "INTER", "SANTANDER", "NFSTOCK"]
     if integracao_in.tipo.upper() not in tipos_validos:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -429,6 +464,12 @@ def criar_integracao(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Integrações Asaas só são permitidas em PRODUCAO."
+        )
+
+    if integracao_in.tipo.upper() == "NFSTOCK" and integracao_in.ambiente.upper() != "PRODUCAO":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Integrações NFStock só são permitidas em PRODUCAO."
         )
 
     conta_id = integracao_in.conta_id
@@ -631,6 +672,12 @@ def sincronizar_integracao(
             data_inicio=data_inicio,
             data_fim=data_fim
         )
+    elif integracao.tipo.upper() == "NFSTOCK":
+        resultado = sincronizar_nfstock(
+            db=db,
+            integracao=integracao,
+            dry_run=False,
+        )
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -643,6 +690,153 @@ def sincronizar_integracao(
             integracao.data_inicio_sincronizacao.isoformat() if integracao.data_inicio_sincronizacao else None,
         )
     
+    return resultado
+
+
+@router.post(
+    "/nfstock/configurar",
+    dependencies=[Depends(require_permission("integracoes:create"))],
+)
+def configurar_integracao_nfstock(
+    payload: NfstockConfigPayload,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    from app.core.encryption import encrypt_dict
+
+    username = str(payload.username or "").strip()
+    password = str(payload.password or "").strip()
+    if not username or not password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Usuário e senha do NFStock são obrigatórios")
+
+    centro_custo = db.exec(
+        select(Conta.id).where(
+            Conta.empresa_id == empresa_id,
+            Conta.is_deleted == False,
+            Conta.centro_custo_id == payload.centro_custo_id,
+        )
+    ).first()
+    if payload.centro_custo_id and centro_custo is None:
+        # apenas valida que existe algum vínculo financeiro para o centro (modelo atual)
+        pass
+
+    existente = db.exec(
+        select(IntegracaoBancaria).where(
+            IntegracaoBancaria.empresa_id == empresa_id,
+            IntegracaoBancaria.tipo == "NFSTOCK",
+            IntegracaoBancaria.centro_custo_id == payload.centro_custo_id,
+        )
+    ).first()
+
+    cfg = {
+        "username": username,
+        "select_company": bool(payload.select_company),
+        "company_name": str(payload.company_name or "").strip(),
+        "login_url": "https://nfstock.alterdata.com.br/",
+        "target_url": "https://nfstock.alterdata.com.br/Nfe/Recebidas",
+    }
+
+    if existente:
+        existente.nome = str(payload.nome or existente.nome)
+        existente.token_criptografado = crud_integracao_bancaria.encrypt_token(password) if hasattr(crud_integracao_bancaria, 'encrypt_token') else existente.token_criptografado
+        from app.core.encryption import encrypt_token
+        existente.token_criptografado = encrypt_token(password)
+        existente.configuracao_adicional = encrypt_dict(cfg)
+        existente.ativo = bool(payload.ativo)
+        existente.sincronizar_automaticamente = True
+        set_nfstock_schedule(existente)
+        db.add(existente)
+        db.commit()
+        db.refresh(existente)
+        return _serialize_integracao(existente)
+
+    from app.schemas.integracao_bancaria import IntegracaoBancariaCreate
+    create_payload = IntegracaoBancariaCreate(
+        nome=str(payload.nome or "NFStock").strip() or "NFStock",
+        tipo="NFSTOCK",
+        ambiente="PRODUCAO",
+        token=password,
+        configuracao_adicional=cfg,
+        ativo=bool(payload.ativo),
+        sincronizar_automaticamente=True,
+        intervalo_sincronizacao_minutos=24 * 60,
+        conta_id=None,
+        centro_custo_id=payload.centro_custo_id,
+    )
+
+    integracao = crud_integracao_bancaria.create(db=db, obj_in=create_payload, empresa_id=empresa_id)
+    set_nfstock_schedule(integracao)
+    db.add(integracao)
+    db.commit()
+    db.refresh(integracao)
+    return _serialize_integracao(integracao)
+
+
+@router.post(
+    "/nfstock/sincronizar-por-login",
+    dependencies=[Depends(require_permission("integracoes:sync"))],
+)
+def sincronizar_nfstock_por_login(
+    payload: NfstockSyncByLoginPayload,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    current_user: Usuario = Depends(get_current_user),
+):
+    if not _can_force_nfstock_sync(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ação restrita para este usuário.",
+        )
+
+    username = str(payload.username or "").strip()
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Informe o login NFStock.",
+        )
+
+    username_normalizado = username.lower()
+    integracoes_nfstock = db.exec(
+        select(IntegracaoBancaria).where(
+            IntegracaoBancaria.empresa_id == empresa_id,
+            IntegracaoBancaria.tipo == "NFSTOCK",
+            IntegracaoBancaria.ativo == True,
+        )
+    ).all()
+
+    from app.core.encryption import decrypt_dict
+
+    integracao_alvo: Optional[IntegracaoBancaria] = None
+    for integracao in integracoes_nfstock:
+        try:
+            cfg_raw = str(integracao.configuracao_adicional or "").strip()
+            cfg = decrypt_dict(cfg_raw) if cfg_raw else {}
+            if not isinstance(cfg, dict):
+                cfg = {}
+        except Exception:
+            cfg = {}
+
+        username_cfg = str(cfg.get("username") or "").strip().lower()
+        if username_cfg == username_normalizado:
+            integracao_alvo = integracao
+            break
+
+    if not integracao_alvo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Integração NFStock não encontrada para este login.",
+        )
+
+    resultado = sincronizar_nfstock(
+        db=db,
+        integracao=integracao_alvo,
+        dry_run=False,
+    )
+
+    if isinstance(resultado, dict):
+        resultado.setdefault("forcado_por_login", True)
+        resultado.setdefault("login_nfstock", username)
+
     return resultado
 
 

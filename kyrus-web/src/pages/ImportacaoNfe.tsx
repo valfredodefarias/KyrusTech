@@ -2224,19 +2224,19 @@ export function ImportacaoNfe() {
         <>
           <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div className="overflow-x-auto">
-              <table className="min-w-[1160px] w-full table-auto text-left">
+              <table className="min-w-[1020px] w-full table-auto text-left">
                 <thead className="bg-slate-50 text-[11px] font-bold uppercase text-slate-500 dark:bg-slate-900/40">
                   <tr>
                     <th className="w-28 p-2.5 text-center">
                       <span className="inline-flex items-center px-1 py-0.5">Numero</span>
                     </th>
-                    <th className="w-[36%] p-2.5" aria-sort={sortKey === 'descricao' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <th className="w-[34%] p-2.5" aria-sort={sortKey === 'descricao' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <button
                         type="button"
                         onClick={() => toggleSort('descricao')}
                         className="group inline-flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
                       >
-                        <span>Descricao</span>
+                        <span>Emitente</span>
                         <ChevronDown className={sortIconClass(sortKey === 'descricao', sortDirection)} />
                       </button>
                     </th>
@@ -2250,7 +2250,7 @@ export function ImportacaoNfe() {
                         <ChevronDown className={sortIconClass(sortKey === 'valor', sortDirection)} />
                       </button>
                     </th>
-                    <th className="w-40 p-2.5 text-center" aria-sort={sortKey === 'status' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <th className="w-44 p-2.5 text-center" aria-sort={sortKey === 'status' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <button
                         type="button"
                         onClick={() => toggleSort('status')}
@@ -2263,16 +2263,13 @@ export function ImportacaoNfe() {
                     <th className="w-56 p-2.5">
                       <span className="inline-flex items-center px-1 py-0.5">Centro de custo</span>
                     </th>
-                    <th className="w-52 p-2.5">
-                      <span className="inline-flex items-center px-1 py-0.5">Emitente</span>
-                    </th>
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-slate-200 text-[15px] dark:divide-slate-700">
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="px-3 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                      <td colSpan={5} className="px-3 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
                         <span className="inline-flex items-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           Carregando NF-e...
@@ -2283,7 +2280,7 @@ export function ImportacaoNfe() {
 
                   {!loading && items.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-3 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                      <td colSpan={5} className="px-3 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
                         Nenhuma NF-e encontrada para os filtros atuais.
                       </td>
                     </tr>
@@ -2296,7 +2293,7 @@ export function ImportacaoNfe() {
                       <Fragment key={`${item.id_parcelamento}-${item.data_emissao || item.data_vencimento || index}`}>
                         {showHeader ? (
                           <tr key={`${item.id_parcelamento}-group`}>
-                            <td colSpan={6} className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
+                            <td colSpan={5} className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
                               Data documento {formatDate(item.data_emissao || item.data_vencimento)}
                             </td>
                           </tr>
@@ -2315,9 +2312,9 @@ export function ImportacaoNfe() {
                           </td>
 
                           <td className="p-2.5 align-middle font-semibold text-slate-800 dark:text-white">
-                            <div className="min-w-0 truncate">{item.descricao}</div>
+                            <div className="min-w-0 truncate">{String(item.emitente_nome || '').trim() || '-'}</div>
                             <div className="mt-0.5 text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                              Chave: {item.chave_nfe || 'nao informada'} • Parcelas: {item.total_parcelas} • Venc.: {formatDate(item.data_vencimento)}
+                              {String(item.emitente_documento || '').trim() || '-'} • Chave: {item.chave_nfe || 'nao informada'} • Parcelas: {item.total_parcelas}
                             </div>
                             <div className="mt-0.5 text-[11px] font-normal text-blue-600 dark:text-blue-300">Clique para editar</div>
                           </td>
@@ -2327,7 +2324,7 @@ export function ImportacaoNfe() {
                           </td>
 
                           <td className="p-2.5 text-center align-middle">
-                            <span className={`rounded px-2.5 py-1 text-[11px] font-bold uppercase border ${statusClasses(item.status)}`}>
+                            <span className={`whitespace-nowrap rounded px-2.5 py-1 text-[11px] font-bold uppercase border ${statusClasses(item.status)}`}>
                               {statusLabel(item.status)}
                             </span>
                           </td>
@@ -2336,10 +2333,6 @@ export function ImportacaoNfe() {
                             <div className="truncate text-sm font-semibold text-slate-700 dark:text-slate-300">{item.centro_custo_nome || '-'}</div>
                           </td>
 
-                          <td className="p-2.5 align-middle">
-                            <div className="truncate text-sm font-semibold text-slate-700 dark:text-slate-300">{String(item.emitente_nome || '').trim() || '-'}</div>
-                            <div className="mt-0.5 truncate text-[11px] font-normal text-slate-500 dark:text-slate-400">{String(item.emitente_documento || '').trim() || '-'}</div>
-                          </td>
                         </tr>
                       </Fragment>
                     );

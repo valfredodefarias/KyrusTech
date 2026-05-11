@@ -114,6 +114,7 @@ class NfeConfirmarRequest(BaseModel):
     numero_nfe: str
     tipo_lancamento: str
     situacao: Optional[str] = "AGUARDANDO_ENTREGA"
+    natureza_operacao: Optional[str] = None
     destino_compra: Optional[str] = None
     valor_frete: Optional[Decimal] = None
     cfop: Optional[str] = None
@@ -153,6 +154,8 @@ class NfeListItem(BaseModel):
     numero_nfe: str
     chave_nfe: Optional[str] = None
     descricao: str
+    emitente_nome: Optional[str] = None
+    emitente_documento: Optional[str] = None
     centro_custo_nome: Optional[str] = None
     total_parcelas: int
     valor_total: float
@@ -188,6 +191,7 @@ class NfeDetalheResponse(BaseModel):
     cfop: Optional[str] = None
     tipo_lancamento: str
     data_emissao: str
+    natureza_operacao: Optional[str] = None
     destino_compra: Optional[str] = None
     valor_frete: Optional[float] = None
     emitente_nome: str
@@ -218,6 +222,7 @@ class NfeAtualizarRequest(BaseModel):
     numero_nfe: str
     chave_nfe: Optional[str] = None
     situacao: Optional[str] = "AGUARDANDO_ENTREGA"
+    natureza_operacao: Optional[str] = None
     destino_compra: Optional[str] = None
     valor_frete: Optional[Decimal] = None
     cfop: Optional[str] = None
@@ -438,6 +443,7 @@ def _strip_situacao_from_observacao(value: Optional[str]) -> str:
     texto = re.sub(r"\s*\|\s*EmitenteDoc\s*[:=]?\s*[0-9]{11,14}", "", texto, flags=re.IGNORECASE)
     texto = re.sub(r"\s*\|\s*ItensMeta\s*[:=]?\s*[A-Za-z0-9_-]+={0,2}", "", texto, flags=re.IGNORECASE)
     texto = re.sub(r"\s*\|\s*DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE)", "", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s*\|\s*NaturezaOperacao\s*[:=]?\s*[^|]+", "", texto, flags=re.IGNORECASE)
     texto = re.sub(r"\s*\|\s*FreteValor\s*[:=]?\s*[0-9]+(?:[\.,][0-9]+)?", "", texto, flags=re.IGNORECASE)
     return texto.strip()
 
@@ -449,6 +455,7 @@ def _compor_observacao_com_situacao(
     cfop: Optional[str] = None,
     emitente_documento: Optional[str] = None,
     destino_compra: Optional[str] = None,
+    natureza_operacao: Optional[str] = None,
     valor_frete: Optional[Decimal | float | int] = None,
     itens_meta: Optional[list[dict[str, object]]] = None,
 ) -> str:
@@ -468,6 +475,10 @@ def _compor_observacao_com_situacao(
     destino_normalizado = str(destino_compra or "").strip().upper()
     if destino_normalizado in {"ENCOMENDA", "ESTOQUE"}:
         partes.append(f"DestinoCompra {destino_normalizado}")
+
+    natureza_normalizada = re.sub(r"\s+", " ", str(natureza_operacao or "")).strip()
+    if natureza_normalizada:
+        partes.append(f"NaturezaOperacao {natureza_normalizada}")
 
     if valor_frete is not None:
         try:
@@ -510,6 +521,22 @@ def _extract_valor_frete(text: str) -> Optional[Decimal]:
         return Decimal(normalized)
     except Exception:
         return None
+
+
+def _extract_natureza_operacao(text: str) -> Optional[str]:
+    match = re.search(r"NaturezaOperacao\s*[:=]?\s*([^|]+)", str(text or ""), flags=re.IGNORECASE)
+    if not match:
+        return None
+    value = re.sub(r"\s+", " ", str(match.group(1) or "")).strip()
+    return value or None
+
+
+def _extract_natureza_operacao(text: str) -> Optional[str]:
+    match = re.search(r"NaturezaOperacao\s*[:=]?\s*([^|]+)", str(text or ""), flags=re.IGNORECASE)
+    if not match:
+        return None
+    value = re.sub(r"\s+", " ", str(match.group(1) or "")).strip()
+    return value or None
 
 
 def _tipo_letra(tipo_lancamento: str) -> str:
@@ -1156,12 +1183,25 @@ def listar_nfes_importadas(
         if status_resumo == "AGUARDANDO_ENTREGA" and total_parcelas > 0 and total_pagas >= total_parcelas:
             status_resumo = "ENTREGUE"
 
+        emitente_doc_extraido = _extract_emitente_documento(texto_referencia)
+        entidade_nome = ""
+        if emitente_doc_extraido:
+            entidade_match = _buscar_entidade_sugerida(
+                db,
+                empresa_id=empresa_id,
+                nome_referencia="",
+                documento_referencia=emitente_doc_extraido,
+            )
+            entidade_nome = str((entidade_match.nome if entidade_match else "") or "")
+
         items.append(
             NfeListItem(
                 id_parcelamento=id_parcelamento,
                 numero_nfe=numero_nfe,
                 chave_nfe=chave_nfe,
                 descricao=f"NF-e {numero_nfe}" if numero_nfe != "-" else (descricao_ref or "NF-e importada"),
+                emitente_nome=entidade_nome or None,
+                emitente_documento=emitente_doc_extraido or None,
                 centro_custo_nome=centro_custo_map.get(int(centro_custo_id)) if centro_custo_id is not None else None,
                 total_parcelas=total_parcelas,
                 valor_total=float(valor_total_raw or 0),
@@ -1333,6 +1373,7 @@ def obter_detalhe_nfe_importada(
         cfop=cfop_nfe,
         tipo_lancamento=str(primeiro.tipo or "DESPESA").strip().upper() or "DESPESA",
         data_emissao=data_emissao,
+        natureza_operacao=_extract_natureza_operacao(observacao_texto),
         destino_compra=_extract_destino_compra(observacao_texto),
         valor_frete=float(_extract_valor_frete(observacao_texto) or Decimal("0")),
         emitente_nome=str((entidade.nome if entidade else "") or ""),
@@ -1441,6 +1482,8 @@ def atualizar_nfe_importada(
         situacao_nfe,
         cfop=cfop_nfe,
         emitente_documento=emitente_documento_nfe,
+        destino_compra=request.destino_compra,
+        natureza_operacao=request.natureza_operacao,
         itens_meta=itens_meta,
     )
 
@@ -1976,6 +2019,7 @@ def confirmar_importacao_nfe(
                 cfop=cfop_nfe,
                 emitente_documento=emitente_documento_nfe,
                 destino_compra=request.destino_compra,
+                natureza_operacao=request.natureza_operacao,
                 valor_frete=request.valor_frete,
                 itens_meta=itens_meta,
             )

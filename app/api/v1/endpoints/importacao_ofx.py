@@ -2090,6 +2090,12 @@ def confirmar_lancamentos(
                             lanc_existente.centro_custo_id = centro_custo_resolvido
                         if import_hash and not lanc_existente.import_hash:
                             lanc_existente.import_hash = import_hash
+                        movimento_uid = str(lanc_data.get("movimento_uid") or "").strip()
+                        referencia_externa = str(lanc_data.get("referencia_externa") or "").strip()
+                        if movimento_uid and not lanc_existente.movimento_uid:
+                            lanc_existente.movimento_uid = movimento_uid
+                        if referencia_externa and not lanc_existente.referencia_externa:
+                            lanc_existente.referencia_externa = referencia_externa
                         db.add(lanc_existente)
                         previstos_compensados_no_lote.add(previsto_id)
                         lancamentos_atualizados += 1
@@ -2143,6 +2149,12 @@ def confirmar_lancamentos(
                         lanc_atrasado.centro_custo_id = centro_custo_resolvido
                     if import_hash and not lanc_atrasado.import_hash:
                         lanc_atrasado.import_hash = import_hash
+                    movimento_uid = str(lanc_data.get("movimento_uid") or "").strip()
+                    referencia_externa = str(lanc_data.get("referencia_externa") or "").strip()
+                    if movimento_uid and not lanc_atrasado.movimento_uid:
+                        lanc_atrasado.movimento_uid = movimento_uid
+                    if referencia_externa and not lanc_atrasado.referencia_externa:
+                        lanc_atrasado.referencia_externa = referencia_externa
                     db.add(lanc_atrasado)
                     atrasados_compensados_no_lote.add(atrasado_id)
                     lancamentos_atualizados += 1
@@ -2263,6 +2275,8 @@ def confirmar_lancamentos(
                 cartao_id=cartao_novo_id,
                 centro_custo_id=(centro_custo_resolvido or lanc_data.get("centro_custo_id") or request.centro_custo_id),
                 import_hash=import_hash or None,
+                movimento_uid=str(lanc_data.get("movimento_uid") or "").strip() or None,
+                referencia_externa=str(lanc_data.get("referencia_externa") or "").strip() or None,
                 conciliado=not modo_cartao,
                 ipp=False,
             )

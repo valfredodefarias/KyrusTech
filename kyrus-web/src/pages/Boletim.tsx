@@ -5,6 +5,7 @@ import {
   CalendarDays,
   Landmark,
   Rows3,
+  ShoppingCart,
   Sparkles,
 } from 'lucide-react';
 
@@ -32,6 +33,9 @@ interface LancamentoResumo {
   descricao: string;
   tipo: string;
   status: string;
+  origem?: string | null;
+  observacao?: string | null;
+  id_parcelamento?: string | null;
   data_vencimento: string;
   data_pagamento?: string | null;
   data_competencia?: string | null;
@@ -107,9 +111,11 @@ interface HealthResponse {
   server_datetime?: string;
 }
 
-type ViewMode = 'executivo' | 'pay-receive';
+type ViewMode = 'executivo' | 'pay-receive' | 'compras';
 type StatusFilter = 'TODOS' | 'PAGO' | 'EM_ABERTO' | 'ATRASADO' | 'HOJE' | 'AMANHA';
 type FlowFilter = 'ALL' | 'PAGAMENTO' | 'RECEBIMENTO';
+type CompraTipoFilter = 'ALL' | 'ENCOMENDA' | 'ESTOQUE';
+type CompraChartMode = 'LINHA_SEPARADA' | 'COLUNA_EMPILHADA' | 'COLUNA_SEPARADA';
 
 interface NormalizedRow {
   rowKey: string;
@@ -248,6 +254,33 @@ function formatCurrencyCompact(value: number) {
   if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} mi`;
   if (abs >= 1_000) return `${(value / 1_000).toFixed(0)}k`;
   return `${Math.round(value)}`;
+}
+
+function parseDestinoCompra(value?: string | null): 'ENCOMENDA' | 'ESTOQUE' | null {
+  const normalized = normalizeText(value);
+  if (!normalized) return null;
+  if (normalized.includes('encomenda')) return 'ENCOMENDA';
+  if (normalized.includes('estoque')) return 'ESTOQUE';
+  return null;
+}
+
+function extractDestinoCompraFromObservacao(observacao?: string | null): 'ENCOMENDA' | 'ESTOQUE' | null {
+  const match = String(observacao || '').match(/DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE)/i);
+  return parseDestinoCompra(match?.[1] || null);
+}
+
+function extractNfeNumeroFromText(text?: string | null) {
+  const match = String(text || '').match(/NF-?e\s*[:#]?\s*\(?\s*(\d+)\)?/i);
+  return String(match?.[1] || '').trim() || null;
+}
+
+function resolveNfeNumeroFromLancamento(item: LancamentoResumo) {
+  return (
+    extractNfeNumeroFromText(item.descricao)
+    || extractNfeNumeroFromText(item.observacao)
+    || String(item.id_parcelamento || '').trim().replace(/^NFE-/, '')
+    || null
+  );
 }
 
 function readChartDataPointIndex(config: any) {
@@ -420,6 +453,7 @@ function ViewToggle({ current, onChange, isDark }: { current: ViewMode; onChange
   const options: Array<{ id: ViewMode; label: string; icon: typeof Sparkles }> = [
     { id: 'executivo', label: 'Executivo', icon: Sparkles },
     { id: 'pay-receive', label: 'Indicadores', icon: Rows3 },
+    { id: 'compras', label: 'Compras', icon: ShoppingCart },
   ];
 
   return (
@@ -467,7 +501,7 @@ function SoftMetricGrid({
     : isDark ? 'text-emerald-300' : 'text-emerald-600';
 
   return (
-    <section className={`rounded-xl border bg-linear-to-br px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${toneClass}`}>
+    <section className={`rounded-xl border bg-linear-to-br px-4 py-4 ${toneClass}`}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className={`text-sm font-black uppercase tracking-[0.18em] ${titleClass}`}>{title}</h2>
         <div className={`h-2.5 w-2.5 rounded-full ${accent === 'rose' ? 'bg-rose-400' : 'bg-sky-400'}`} />
@@ -598,6 +632,9 @@ export function Boletim() {
   const [flowFilter, setFlowFilter] = useState<FlowFilter>('ALL');
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
   const [selectedDayOfMonth, setSelectedDayOfMonth] = useState<number | null>(null);
+  const [compraTipoFilter, setCompraTipoFilter] = useState<CompraTipoFilter>('ALL');
+  const [selectedCompraMonthIndex, setSelectedCompraMonthIndex] = useState<number | null>(null);
+  const [compraChartMode, setCompraChartMode] = useState<CompraChartMode>('LINHA_SEPARADA');
   const [referenceDate, setReferenceDate] = useState(() => getBusinessTodayIso());
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>('ALL');
   const [auditPanel, setAuditPanel] = useState<AuditPanelState | null>(null);
@@ -1472,6 +1509,239 @@ export function Boletim() {
     };
   }, [dashboard.baseRows, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, flowFilter, isDark, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
 
+  const comprasView = useMemo(() => {
+    const fallbackMonth = dashboard.fallbackMonthIndex;
+    const effectiveMonth = selectedCompraMonthIndex ?? fallbackMonth;
+    const monthLabels = dashboard.monthLabels;
+
+    const nfeRows = lancamentos
+      .filter((item) => selectedCentroCustoId === 'ALL' || Number(item.centro_custo_id) === selectedCentroCustoId)
+      .filter((item) => String(item.origem || '').trim().toUpperCase() === 'NFE_XML')
+      .map((item) => ({
+        item,
+        numeroNfe: resolveNfeNumeroFromLancamento(item),
+      }));
+
+    const parcelasPorNfe = new Map<string, number>();
+    nfeRows.forEach(({ item, numeroNfe }) => {
+      const key = String(item.id_parcelamento || numeroNfe || '').trim();
+      if (!key) return;
+      parcelasPorNfe.set(key, (parcelasPorNfe.get(key) || 0) + 1);
+    });
+
+    const purchaseRows = nfeRows
+      .map((item) => {
+        const tipoCompra = extractDestinoCompraFromObservacao(item.item.observacao);
+        const monthIndex = parseDateOnly(item.item.data_competencia || item.item.data_vencimento)?.getMonth() ?? -1;
+        const capMonthIndex = parseDateOnly(item.item.data_vencimento)?.getMonth() ?? -1;
+        const valor = Number(item.item.valor_previsto || item.item.valor_pago || 0);
+        const nfeGroupKey = String(item.item.id_parcelamento || item.numeroNfe || '').trim();
+        const parcelas = Math.max(1, Number(parcelasPorNfe.get(nfeGroupKey) || 0));
+        return {
+          monthIndex,
+          capMonthIndex,
+          tipoCompra,
+          valor,
+          numeroNfe: item.numeroNfe,
+          parcelas,
+          emitente: resolveLancamentoInteressado(item.item, new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]))),
+          vencimento: item.item.data_vencimento,
+          status: String(item.item.status || ''),
+        };
+      })
+      .filter((row) => row.monthIndex >= 0 && row.tipoCompra !== null && row.valor > 0);
+
+    const rowsByTipo = purchaseRows.filter((row) => compraTipoFilter === 'ALL' || row.tipoCompra === compraTipoFilter);
+
+    const monthlyPedidos = {
+      ENCOMENDA: Array.from({ length: 12 }, () => 0),
+      ESTOQUE: Array.from({ length: 12 }, () => 0),
+    };
+
+    rowsByTipo.forEach((row) => {
+      if (!row.tipoCompra) return;
+      monthlyPedidos[row.tipoCompra][row.monthIndex] += row.valor;
+    });
+
+    const monthlyCap = {
+      ENCOMENDA: Array.from({ length: 12 }, () => 0),
+      ESTOQUE: Array.from({ length: 12 }, () => 0),
+    };
+    rowsByTipo.forEach((row) => {
+      const idx = Number(row.capMonthIndex);
+      if (!Number.isFinite(idx) || idx < 0 || idx > 11) return;
+      if (!row.tipoCompra) return;
+      monthlyCap[row.tipoCompra][idx] += row.valor;
+    });
+
+    const totalsByTipo = {
+      ENCOMENDA: monthlyPedidos.ENCOMENDA.reduce((a, b) => a + b, 0),
+      ESTOQUE: monthlyPedidos.ESTOQUE.reduce((a, b) => a + b, 0),
+    };
+
+    const donutSeries = [totalsByTipo.ENCOMENDA, totalsByTipo.ESTOQUE];
+
+    const pedidosSeries = [
+      {
+        name: 'Encomenda',
+        data: monthlyPedidos.ENCOMENDA.map((value, monthIndex) => ({
+          x: monthLabels[monthIndex],
+          y: value,
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? (isDark ? '#315ea1' : '#9dbcf1') : '#3b82f6',
+        })),
+      },
+      {
+        name: 'Estoque',
+        data: monthlyPedidos.ESTOQUE.map((value, monthIndex) => ({
+          x: monthLabels[monthIndex],
+          y: value,
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? (isDark ? '#0f766e' : '#98e0d8') : '#14b8a6',
+        })),
+      },
+    ];
+
+    const capTotal = monthlyCap.ENCOMENDA.map((value, monthIndex) => value + (monthlyCap.ESTOQUE[monthIndex] || 0));
+
+    const isCapMixedStacked = compraChartMode === 'COLUNA_EMPILHADA';
+    const capSeries = [
+      {
+        name: 'CAP Encomenda',
+        ...(isCapMixedStacked ? { type: 'column' } : {}),
+        data: monthlyCap.ENCOMENDA.map((value, monthIndex) => ({
+          x: monthLabels[monthIndex],
+          y: value,
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? (isDark ? '#315ea1' : '#9dbcf1') : '#3b82f6',
+        })),
+      },
+      {
+        name: 'CAP Estoque',
+        ...(isCapMixedStacked ? { type: 'column' } : {}),
+        data: monthlyCap.ESTOQUE.map((value, monthIndex) => ({
+          x: monthLabels[monthIndex],
+          y: value,
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? (isDark ? '#0f766e' : '#98e0d8') : '#14b8a6',
+        })),
+      },
+      {
+        name: 'Total a pagar',
+        ...(isCapMixedStacked ? { type: 'line' } : {}),
+        data: capTotal.map((value, monthIndex) => ({
+          x: monthLabels[monthIndex],
+          y: value,
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? (isDark ? '#7a6a2f' : '#f0dea2') : '#f2c94c',
+        })),
+      },
+    ];
+
+    const tableRows = rowsByTipo
+      .filter((row) => selectedCompraMonthIndex === null || row.monthIndex === selectedCompraMonthIndex)
+      .sort((a, b) => String(a.vencimento).localeCompare(String(b.vencimento)) || b.valor - a.valor)
+      .slice(0, 80);
+
+    const chartTheme = isDark ? 'dark' : 'light';
+    const labelColor = isDark ? '#cbd5e1' : '#475569';
+    const gridColor = isDark ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.16)';
+
+    const onMonthSelect = (_event: any, _ctx: any, config: any) => {
+      const monthIndex = readChartDataPointIndex(config);
+      if (!Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) return;
+      setSelectedCompraMonthIndex((prev) => (prev === monthIndex ? null : monthIndex));
+    };
+
+    const isLineMode = compraChartMode === 'LINHA_SEPARADA';
+    const isStackedColumnMode = compraChartMode === 'COLUNA_EMPILHADA';
+
+    const mainChartType: 'line' | 'bar' = isLineMode ? 'line' : 'bar';
+
+    const sharedChartOptions: any = {
+      chart: {
+        type: mainChartType,
+        background: 'transparent',
+        toolbar: { show: false },
+        animations: { enabled: true, easing: 'easeinout', speed: 320 },
+        events: { dataPointSelection: onMonthSelect },
+        ...(isLineMode
+          ? {}
+          : {
+              stacked: isStackedColumnMode,
+              ...(isStackedColumnMode ? { stackType: 'normal' } : {}),
+            }),
+      },
+      theme: { mode: chartTheme },
+      stroke: isLineMode ? { show: true, width: 3, curve: 'smooth' } : { show: false },
+      markers: isLineMode ? { size: 4, hover: { size: 6 } } : { size: 0 },
+      ...(isLineMode ? {} : { plotOptions: { bar: { horizontal: false, borderRadius: 2, columnWidth: '56%' } } }),
+      dataLabels: { enabled: false },
+      grid: { borderColor: gridColor, strokeDashArray: 2 },
+      xaxis: { categories: monthLabels, labels: { style: { colors: labelColor, fontSize: '10px' } } },
+      yaxis: { labels: { style: { colors: labelColor, fontSize: '10px' }, formatter: (value: number) => formatCurrencyCompact(value) } },
+      tooltip: { theme: chartTheme, y: { formatter: (value: number) => formatCurrency(value) } },
+      legend: { position: 'top', horizontalAlign: 'left', labels: { colors: labelColor }, itemMargin: { horizontal: 8, vertical: 4 } },
+      ...(isLineMode ? { fill: { type: 'solid' } } : {}),
+    };
+
+    const donutOptions: any = {
+      chart: {
+        type: 'donut',
+        background: 'transparent',
+        toolbar: { show: false },
+        animations: { enabled: true, easing: 'easeinout', speed: 320 },
+        events: {
+          dataPointSelection: (_event: any, _ctx: any, config: any) => {
+            const idx = Number(config?.dataPointIndex);
+            if (!Number.isFinite(idx) || idx < 0) return;
+            const nextFilter: CompraTipoFilter = idx === 0 ? 'ENCOMENDA' : 'ESTOQUE';
+            setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
+          },
+          legendClick: (_ctx: any, seriesIndex: number) => {
+            const nextFilter: CompraTipoFilter = Number(seriesIndex) === 0 ? 'ENCOMENDA' : 'ESTOQUE';
+            setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
+          },
+        },
+      },
+      labels: ['Encomenda', 'Estoque'],
+      colors: [
+        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ENCOMENDA' ? (isDark ? '#315ea1' : '#9dbcf1') : '#3b82f6',
+        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ESTOQUE' ? (isDark ? '#0f766e' : '#98e0d8') : '#14b8a6',
+      ],
+      dataLabels: { enabled: true, formatter: (value: number) => `${value.toFixed(0)}%` },
+      legend: { show: true, position: 'bottom', labels: { colors: labelColor }, itemMargin: { horizontal: 8, vertical: 4 }, onItemClick: { toggleDataSeries: false } },
+      plotOptions: { pie: { donut: { size: '62%', labels: { show: false } } } },
+      stroke: { width: 2, colors: [isDark ? '#081124' : '#ffffff'] },
+      tooltip: { theme: chartTheme, y: { formatter: (value: number) => formatCurrency(value) } },
+    };
+
+    return {
+      effectiveMonth,
+      effectiveMonthLabel: monthLabels[effectiveMonth],
+      totalsByTipo,
+      donutSeries,
+      donutOptions,
+      mainChartType,
+      pedidosSeries,
+      pedidosOptions: { ...sharedChartOptions },
+      capSeries,
+      capChartType: isCapMixedStacked ? 'line' : mainChartType,
+      capOptions: {
+        ...sharedChartOptions,
+        ...(isCapMixedStacked
+          ? {
+              chart: {
+                ...sharedChartOptions.chart,
+                type: 'line',
+                stacked: true,
+                stackType: 'normal',
+              },
+              stroke: { width: [0, 0, 3], curve: 'smooth' },
+              markers: { size: [0, 0, 4], hover: { size: 6 } },
+            }
+          : {}),
+        legend: { ...sharedChartOptions.legend, show: true },
+      },
+      tableRows,
+    };
+  }, [compraChartMode, compraTipoFilter, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, entidades, isDark, lancamentos, selectedCentroCustoId, selectedCompraMonthIndex]);
+
   const consistencyChecks = useMemo(() => {
     const currentMonth = selectedMonthIndex ?? dashboard.fallbackMonthIndex;
 
@@ -1556,16 +1826,16 @@ export function Boletim() {
   }
 
   const pageClass = isDark
-    ? 'bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_28%),linear-gradient(180deg,#020617_0%,#081224_45%,#0b1324_100%)] text-white'
-    : 'bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.10),transparent_22%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-900';
-  const shellClass = isDark ? 'border-white/10 bg-white/[0.035]' : 'border-slate-200 bg-white/88';
-  const tableShellClass = isDark ? 'border-[#f2c94c]/20 bg-black/45' : 'border-amber-200 bg-white/95';
-  const auditPanelShellClass = isDark ? 'border-amber-300/35 bg-slate-950 text-white' : 'border-amber-300 bg-white text-slate-900';
+    ? 'bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.10),transparent_28%),linear-gradient(180deg,#030712_0%,#0b1220_100%)] text-white'
+    : 'bg-white text-slate-900';
+  const shellClass = isDark ? 'border-white/12 bg-slate-900/50' : 'border-slate-200 bg-white/94';
+  const tableShellClass = isDark ? 'border-white/12 bg-slate-900/50' : 'border-slate-200 bg-white/94';
+  const auditPanelShellClass = isDark ? 'border-white/12 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-900';
 
   return (
     <div className={`min-h-full ${pageClass}`}>
-      <div className="mx-auto w-full space-y-5">
-        <header className={`overflow-hidden rounded-none border px-4 py-4 shadow-[0_25px_70px_-60px_rgba(15,23,42,0.95)] ${shellClass}`}>
+      <div className="mx-auto w-full space-y-3">
+        <header className={`overflow-hidden rounded-none border px-4 py-4 ${shellClass}`}>
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center gap-4">
               <div className={`flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border ${isDark ? 'border-white/10 bg-white/95' : 'border-slate-200 bg-slate-100'}`}>
@@ -1672,7 +1942,7 @@ export function Boletim() {
         ) : null}
 
         {viewMode === 'executivo' ? (
-          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_420px] xl:items-start">
+          <section className="grid gap-3 xl:grid-cols-[minmax(0,1.65fr)_420px] xl:items-start">
             {auditPanel ? (
               <div className="fixed inset-0 z-50">
                 <button
@@ -1682,7 +1952,7 @@ export function Boletim() {
                   aria-label="Fechar auditoria"
                 />
                 <aside
-                  className={`absolute left-0 top-0 z-10 flex h-full flex-col rounded-r-[28px] border-r px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${auditPanelShellClass}`}
+                  className={`absolute left-0 top-0 z-10 flex h-full flex-col rounded-r-[28px] border-r px-4 py-4 ${auditPanelShellClass}`}
                   style={{ width: `${auditPanelWidth}px` }}
                 >
                   <div
@@ -1788,7 +2058,7 @@ export function Boletim() {
                   onClick={() => setInlineLancamentoParams(null)}
                   aria-label="Fechar editor"
                 />
-                <aside className="absolute right-0 top-0 h-full w-[clamp(420px,34vw,640px)] max-w-[100vw] border-l border-slate-200 bg-white shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] dark:border-slate-700 dark:bg-slate-950">
+                <aside className="absolute right-0 top-0 h-full w-[clamp(420px,34vw,640px)] max-w-[100vw] border-l border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950">
                   <div className="h-full w-full overflow-hidden">
                     <Lancamentos
                       key={inlineLancamentoParams.toString()}
@@ -1800,8 +2070,8 @@ export function Boletim() {
               </div>
             ) : null}
 
-            <div className="grid gap-4">
-              <div className="grid gap-4 xl:grid-cols-2">
+            <div className="grid gap-3">
+              <div className="grid gap-3 xl:grid-cols-2">
                 <SoftMetricGrid
                   title="Contas a pagar"
                   accent="rose"
@@ -1835,7 +2105,7 @@ export function Boletim() {
                 />
               </div>
 
-              <section className={`rounded-[28px] border px-5 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
+              <section className={`rounded-2xl border px-4 py-3 ${shellClass}`}>
                 <div className={`mb-3 border-b pb-2 text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'border-white/10 text-white/75' : 'border-slate-200 text-slate-700'}`}>
                   Resultado do mês
                 </div>
@@ -1862,35 +2132,37 @@ export function Boletim() {
 
             </div>
 
-            <section className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${shellClass}`}>
+            <section className={`rounded-2xl border px-4 py-4 ${shellClass}`}>
               <div className="mb-5 flex items-center justify-between gap-3">
                 <div>
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Bancos</div>
+                  <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{dashboard.banks.length} conta(s) exibidas</div>
                 </div>
                 <Landmark className={`h-5 w-5 ${isDark ? 'text-amber-200' : 'text-amber-700'}`} />
               </div>
 
-              <div className={`mb-4 rounded-2xl border px-4 py-4 ${isDark ? 'border-amber-300/30 bg-amber-400/10' : 'border-amber-200 bg-amber-50'}`}>
+              <div className={`mb-4 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${isDark ? 'border-amber-300/30 bg-amber-400/10' : 'border-amber-200 bg-amber-50'}`}>
                 <div className={`text-[11px] font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Saldo disponível</div>
-                <div className={`mt-2 whitespace-nowrap text-3xl font-black tracking-tight ${getValueTone(dashboard.saldoDisponivel, isDark)}`}>{formatCurrency(dashboard.saldoDisponivel)}</div>
+                <div className={`whitespace-nowrap text-2xl font-black tracking-tight ${getValueTone(dashboard.saldoDisponivel, isDark)}`}>{formatCurrency(dashboard.saldoDisponivel)}</div>
               </div>
 
               <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                <table className="w-full text-left text-sm">
-                  <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
-                    <tr>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.14em]">Banco</th>
-                      <th className="px-4 py-3 text-right text-[10px] font-black uppercase tracking-[0.14em]">Saldo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dashboard.banks.length === 0 ? (
+                <div className="max-h-[56vh] overflow-y-auto custom-scrollbar">
+                  <table className="w-full text-left text-sm">
+                    <thead className={isDark ? 'sticky top-0 z-10 bg-slate-900 text-white/60' : 'sticky top-0 z-10 bg-slate-50 text-slate-500'}>
                       <tr>
-                        <td colSpan={2} className={`px-4 py-10 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>
-                          Nenhum banco ativo para exibir.
-                        </td>
+                        <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.14em]">Banco</th>
+                        <th className="px-4 py-3 text-right text-[10px] font-black uppercase tracking-[0.14em]">Saldo</th>
                       </tr>
-                    ) : dashboard.banks.slice(0, 6).map((conta) => {
+                    </thead>
+                    <tbody>
+                      {dashboard.banks.length === 0 ? (
+                        <tr>
+                          <td colSpan={2} className={`px-4 py-10 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>
+                            Nenhum banco ativo para exibir.
+                          </td>
+                        </tr>
+                      ) : dashboard.banks.map((conta) => {
                       const logo = getFullLogoUrl(conta.logo_url || null);
                       const foraDoDisponivel = conta.conta_como_disponibilidade === false;
                       const activeBank = auditPanel?.mode === 'EXTRATO_BANCO' && auditPanel.conta?.id === conta.id;
@@ -1917,18 +2189,19 @@ export function Boletim() {
                           <td className={`px-4 py-3 text-right font-semibold ${getValueTone(Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0), isDark)} whitespace-nowrap`}>{formatCurrency(Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0))}</td>
                         </tr>
                       );
-                    })}
-                  </tbody>
-                </table>
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </section>
 
           </section>
-        ) : (
-          <section className="space-y-5">
+        ) : viewMode === 'pay-receive' ? (
+          <section className="space-y-3">
             <div className="overflow-x-auto pb-1 custom-scrollbar">
-              <div className="grid min-w-[1180px] gap-4 xl:grid-cols-[230px_minmax(0,1fr)_minmax(0,1fr)]">
-                <section className={`rounded-[24px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
+              <div className="grid min-w-[1040px] gap-3 xl:grid-cols-[250px_minmax(0,1fr)_minmax(0,1fr)]">
+                <section className={`rounded-2xl border px-3 py-3 ${tableShellClass}`}>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Filtro</div>
                     <button
@@ -1943,7 +2216,7 @@ export function Boletim() {
                   <div className={`mt-1 text-[10px] ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Clique na rosca para filtrar por pagamento ou recebimento.</div>
                 </section>
 
-                <section className={`rounded-[24px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
+                <section className={`rounded-2xl border px-3 py-3 ${tableShellClass}`}>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>A pagar vs receber por mês (vcto)</div>
                     <button
@@ -1960,7 +2233,7 @@ export function Boletim() {
                   <AsyncApexChart type="bar" height={235} series={payReceiveCharts.monthlySeries} options={payReceiveCharts.monthlyOptions} />
                 </section>
 
-                <section className={`rounded-[24px] border px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
+                <section className={`rounded-2xl border px-3 py-3 ${tableShellClass}`}>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>A pagar vs receber por dia (vcto)</div>
                     <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{payReceiveCharts.effectiveMonthLabel}</div>
@@ -1971,8 +2244,8 @@ export function Boletim() {
             </div>
 
             <div className="overflow-x-auto pb-1 custom-scrollbar">
-              <div className="grid min-w-[1180px] gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-                <section className={`rounded-[28px] border px-5 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
+              <div className="grid min-w-[1040px] gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
+                <section className={`rounded-2xl border px-4 py-4 ${tableShellClass}`}>
                   <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                     <div>
                       <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Indicadores</div>
@@ -2037,7 +2310,7 @@ export function Boletim() {
                   </div>
                 </section>
 
-                <section className={`rounded-[28px] border px-4 py-5 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${tableShellClass}`}>
+                <section className={`rounded-2xl border px-3 py-4 ${tableShellClass}`}>
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Situação</div>
                     <button
@@ -2067,6 +2340,137 @@ export function Boletim() {
                 </section>
               </div>
             </div>
+          </section>
+        ) : (
+          <section className="space-y-3">
+            <div className="grid gap-3 xl:grid-cols-3 xl:items-stretch">
+              <section className={`rounded-2xl border px-3 py-3 ${tableShellClass}`}>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Tipo de compra</div>
+                  <button
+                    type="button"
+                    onClick={() => setCompraTipoFilter('ALL')}
+                    className={`text-[10px] font-black uppercase tracking-[0.14em] ${compraTipoFilter === 'ALL' ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white/45 hover:text-white/75' : 'text-slate-400 hover:text-slate-700'}`}
+                  >
+                    Limpar
+                  </button>
+                </div>
+                <AsyncApexChart type="donut" height={220} series={comprasView.donutSeries} options={comprasView.donutOptions} />
+                <div className="mt-2 grid grid-cols-1 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCompraTipoFilter((prev) => (prev === 'ENCOMENDA' ? 'ALL' : 'ENCOMENDA'))}
+                    className={`rounded-xl border px-3 py-2 text-left transition ${compraTipoFilter === 'ENCOMENDA' ? isDark ? 'border-blue-300/55 bg-blue-300/12' : 'border-blue-300 bg-blue-50' : isDark ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50'}`}
+                  >
+                    <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Total encomenda</div>
+                    <div className={`mt-1 text-lg font-black ${isDark ? 'text-blue-300' : 'text-blue-600'}`}>{formatCurrency(comprasView.totalsByTipo.ENCOMENDA)}</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCompraTipoFilter((prev) => (prev === 'ESTOQUE' ? 'ALL' : 'ESTOQUE'))}
+                    className={`rounded-xl border px-3 py-2 text-left transition ${compraTipoFilter === 'ESTOQUE' ? isDark ? 'border-teal-300/55 bg-teal-300/12' : 'border-teal-300 bg-teal-50' : isDark ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50'}`}
+                  >
+                    <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Total estoque</div>
+                    <div className={`mt-1 text-lg font-black ${isDark ? 'text-teal-300' : 'text-teal-600'}`}>{formatCurrency(comprasView.totalsByTipo.ESTOQUE)}</div>
+                  </button>
+                </div>
+              </section>
+
+              <section className={`rounded-2xl border px-3 py-3 ${tableShellClass}`}>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>QTDE vs VALOR DE PEDIDOS POR MÊS</div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCompraMonthIndex(null)}
+                    className={`text-[10px] font-black uppercase tracking-[0.14em] ${selectedCompraMonthIndex === null ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white/45 hover:text-white/75' : 'text-slate-400 hover:text-slate-700'}`}
+                  >
+                    Limpar mês
+                  </button>
+                </div>
+                <AsyncApexChart type={comprasView.mainChartType} height={255} series={comprasView.pedidosSeries} options={comprasView.pedidosOptions} />
+              </section>
+              <section className={`rounded-2xl border px-3 py-3 ${tableShellClass}`}>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>CAP por mês do faturamento dos pedidos</div>
+                  <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{comprasView.effectiveMonthLabel}</div>
+                </div>
+                <AsyncApexChart type={comprasView.capChartType || comprasView.mainChartType} height={255} series={comprasView.capSeries} options={comprasView.capOptions} />
+              </section>
+            </div>
+
+            <div className={`rounded-2xl border px-3 py-2 ${tableShellClass}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Modo do gráfico</span>
+                <button
+                  type="button"
+                  onClick={() => setCompraChartMode('LINHA_SEPARADA')}
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] transition ${compraChartMode === 'LINHA_SEPARADA' ? isDark ? 'bg-amber-300 text-slate-950' : 'bg-slate-950 text-white' : isDark ? 'border border-white/12 bg-white/5 text-white/75 hover:bg-white/10' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                >
+                  Linha separada
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCompraChartMode('COLUNA_EMPILHADA')}
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] transition ${compraChartMode === 'COLUNA_EMPILHADA' ? isDark ? 'bg-amber-300 text-slate-950' : 'bg-slate-950 text-white' : isDark ? 'border border-white/12 bg-white/5 text-white/75 hover:bg-white/10' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                >
+                  Coluna empilhada
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCompraChartMode('COLUNA_SEPARADA')}
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] transition ${compraChartMode === 'COLUNA_SEPARADA' ? isDark ? 'bg-amber-300 text-slate-950' : 'bg-slate-950 text-white' : isDark ? 'border border-white/12 bg-white/5 text-white/75 hover:bg-white/10' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                >
+                  Coluna separada
+                </button>
+              </div>
+            </div>
+
+            <section className={`rounded-2xl border px-4 py-4 ${tableShellClass}`}>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Pedidos (visão compras)</div>
+                <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{comprasView.tableRows.length} item(ns)</div>
+              </div>
+              <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                <div className="max-h-[52vh] overflow-auto custom-scrollbar">
+                  <table className="w-full min-w-[940px] text-[13px]">
+                    <thead className={isDark ? 'sticky top-0 z-10 bg-[#f2c94c] text-slate-950' : 'sticky top-0 z-10 bg-amber-300 text-slate-950'}>
+                      <tr>
+                        <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Vencimento</th>
+                        <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Emitente</th>
+                        <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">NF-e</th>
+                        <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Tipo compra</th>
+                        <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Status</th>
+                        <th className="px-4 py-3 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor pedido</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comprasView.tableRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className={`px-4 py-12 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Nenhum pedido para os filtros atuais.</td>
+                        </tr>
+                      ) : comprasView.tableRows.map((row, index) => (
+                        <tr key={`compra-row-${index}-${row.numeroNfe || 'sem-nf'}`} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
+                          <td className="px-4 py-2.5 font-medium">{formatDate(row.vencimento)}</td>
+                          <td className="px-4 py-2.5 font-semibold">{row.emitente || '-'}</td>
+                          <td className="px-4 py-2.5">{row.numeroNfe || '-'}</td>
+                          <td className="px-4 py-2.5">
+                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${row.tipoCompra === 'ENCOMENDA' ? isDark ? 'border-blue-400/35 bg-blue-500/20 text-blue-300' : 'border-blue-200 bg-blue-100 text-blue-700' : isDark ? 'border-teal-400/35 bg-teal-500/20 text-teal-300' : 'border-teal-200 bg-teal-100 text-teal-700'}`}>
+                              {row.tipoCompra === 'ENCOMENDA' ? 'Encomenda' : 'Estoque'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${normalizeText(row.status).includes('pago') ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                              {String(row.status || '-').toUpperCase()}
+                            </span>
+                          </td>
+                          <td className={`px-4 py-2.5 text-right font-black whitespace-nowrap ${isDark ? 'text-rose-300' : 'text-rose-600'}`}>{formatCurrency(-Math.abs(row.valor))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
           </section>
         )}
       </div>

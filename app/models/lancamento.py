@@ -52,6 +52,8 @@ class Lancamento(AuditMixin, SQLModel, table=True):
     observacao: Optional[str] = None
     conciliado: bool = Field(default=False)
     import_hash: Optional[str] = Field(default=None, index=True)
+    movimento_uid: Optional[str] = Field(default=None, index=True)
+    referencia_externa: Optional[str] = Field(default=None, index=True)
     transferencia_grupo_id: Optional[str] = Field(default=None, index=True)
 
     # --- Chaves Estrangeiras ---

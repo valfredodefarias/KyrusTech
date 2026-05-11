@@ -26,6 +26,8 @@ interface NfeListItem {
   numero_nfe: string;
   chave_nfe?: string | null;
   descricao: string;
+  emitente_nome?: string | null;
+  emitente_documento?: string | null;
   centro_custo_nome?: string | null;
   total_parcelas: number;
   valor_total: number;
@@ -54,6 +56,7 @@ interface NfeNovoForm {
   finalidade: string;
   situacao: string;
   destinoCompra: string;
+  transportadora: string;
   valorFrete: string;
   dataDocumento: string;
   dataEntrada: string;
@@ -183,6 +186,7 @@ interface NfeDetalheResponse {
   cfop?: string | null;
   tipo_lancamento: string;
   data_emissao: string;
+  natureza_operacao?: string | null;
   destino_compra?: string | null;
   valor_frete?: number | null;
   emitente_nome: string;
@@ -387,6 +391,7 @@ function createDefaultNovoForm(): NfeNovoForm {
     finalidade: 'NORMAL',
     situacao: 'AGUARDANDO_ENTREGA',
     destinoCompra: '',
+    transportadora: '',
     valorFrete: '',
     dataDocumento: hoje,
     dataEntrada: '',
@@ -854,7 +859,9 @@ export function ImportacaoNfe() {
         emitente: String(data.emitente_nome || '').trim(),
         cpfCnpj: String(data.emitente_documento || '').trim(),
         cfop: String(data.cfop || '').trim(),
+        naturezaOperacao: String(data.natureza_operacao || '').trim(),
         destinoCompra: String(data.destino_compra || '').trim(),
+        transportadora: '',
         valorFrete: Number(data.valor_frete || 0) > 0 ? String(data.valor_frete) : '',
         dataDocumento: String(data.data_emissao || todayISODate()).slice(0, 10),
         situacao: situacaoNormalizada,
@@ -942,6 +949,7 @@ export function ImportacaoNfe() {
           chave_nfe: onlyDigits(novoForm.chaveNfe || ''),
           situacao: String(novoForm.situacao || 'AGUARDANDO_ENTREGA').toUpperCase(),
           cfop: String(novoForm.cfop || '').trim() || undefined,
+          natureza_operacao: String(novoForm.naturezaOperacao || '').trim() || undefined,
           destino_compra: String(novoForm.destinoCompra || '').trim() || undefined,
           valor_frete: Number(String(novoForm.valorFrete || '').replace(',', '.')) > 0
             ? Number(String(novoForm.valorFrete || '').replace(',', '.'))
@@ -1044,6 +1052,7 @@ export function ImportacaoNfe() {
         tipo_lancamento: tipoLancamento,
         situacao: String(novoForm.situacao || 'AGUARDANDO_ENTREGA').toUpperCase(),
         cfop: String(novoForm.cfop || '').trim() || undefined,
+        natureza_operacao: String(novoForm.naturezaOperacao || '').trim() || undefined,
         destino_compra: String(novoForm.destinoCompra || '').trim() || undefined,
         valor_frete: Number(String(novoForm.valorFrete || '').replace(',', '.')) > 0
           ? Number(String(novoForm.valorFrete || '').replace(',', '.'))
@@ -1573,7 +1582,7 @@ export function ImportacaoNfe() {
                 </select>
               </label>
 
-              <div className="md:col-span-6">
+              <div className="md:col-span-4">
                 <span className={labelClassName}>Centro de custo da NF-e</span>
                 {loadingCentrosCusto ? (
                   <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
@@ -1609,6 +1618,19 @@ export function ImportacaoNfe() {
                 {erroCentrosCusto ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{erroCentrosCusto}</p> : null}
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">O mesmo centro de custo selecionado aqui sera aplicado em todos os lancamentos financeiros da NF-e.</p>
               </div>
+
+              <label className="md:col-span-2">
+                <span className={labelClassName}>Tipo de compra</span>
+                <select
+                  className={inputClassName}
+                  value={novoForm.destinoCompra}
+                  onChange={(event) => atualizarNovoForm('destinoCompra', event.target.value)}
+                >
+                  <option value="">Selecione</option>
+                  <option value="ENCOMENDA">Encomenda</option>
+                  <option value="ESTOQUE">Estoque</option>
+                </select>
+              </label>
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-5">
@@ -1919,21 +1941,18 @@ export function ImportacaoNfe() {
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div className="mb-2">
               <h3 className="text-2xl font-black text-slate-900 dark:text-white">Frete</h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400">Informe o destino da compra e o valor do frete, e anexe o arquivo do frete quando houver.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Informe a transportadora e o valor do frete, e anexe o arquivo do frete quando houver.</p>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
               <label>
-                <span className={labelClassName}>Destino da compra</span>
-                <select
+                <span className={labelClassName}>Transportadora</span>
+                <input
                   className={inputClassName}
-                  value={novoForm.destinoCompra}
-                  onChange={(event) => atualizarNovoForm('destinoCompra', event.target.value)}
-                >
-                  <option value="">Selecione</option>
-                  <option value="ENCOMENDA">Encomenda</option>
-                  <option value="ESTOQUE">Estoque</option>
-                </select>
+                  placeholder="Nome da transportadora"
+                  value={novoForm.transportadora}
+                  onChange={(event) => atualizarNovoForm('transportadora', event.target.value)}
+                />
               </label>
 
               <label>
@@ -2001,13 +2020,13 @@ export function ImportacaoNfe() {
         <>
           <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div className="overflow-x-auto">
-              <table className="w-full table-fixed text-left">
+              <table className="min-w-[1160px] w-full table-auto text-left">
                 <thead className="bg-slate-50 text-[11px] font-bold uppercase text-slate-500 dark:bg-slate-900/40">
                   <tr>
                     <th className="w-28 p-2.5 text-center">
                       <span className="inline-flex items-center px-1 py-0.5">Numero</span>
                     </th>
-                    <th className="w-[42%] p-2.5" aria-sort={sortKey === 'descricao' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <th className="w-[36%] p-2.5" aria-sort={sortKey === 'descricao' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <button
                         type="button"
                         onClick={() => toggleSort('descricao')}
@@ -2027,7 +2046,7 @@ export function ImportacaoNfe() {
                         <ChevronDown className={sortIconClass(sortKey === 'valor', sortDirection)} />
                       </button>
                     </th>
-                    <th className="w-32 p-2.5 text-center" aria-sort={sortKey === 'status' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <th className="w-40 p-2.5 text-center" aria-sort={sortKey === 'status' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <button
                         type="button"
                         onClick={() => toggleSort('status')}
@@ -2040,13 +2059,16 @@ export function ImportacaoNfe() {
                     <th className="w-56 p-2.5">
                       <span className="inline-flex items-center px-1 py-0.5">Centro de custo</span>
                     </th>
+                    <th className="w-52 p-2.5">
+                      <span className="inline-flex items-center px-1 py-0.5">Emitente</span>
+                    </th>
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-slate-200 text-[15px] dark:divide-slate-700">
                   {loading ? (
                     <tr>
-                      <td colSpan={5} className="px-3 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                      <td colSpan={6} className="px-3 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
                         <span className="inline-flex items-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           Carregando NF-e...
@@ -2057,7 +2079,7 @@ export function ImportacaoNfe() {
 
                   {!loading && items.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-3 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                      <td colSpan={6} className="px-3 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
                         Nenhuma NF-e encontrada para os filtros atuais.
                       </td>
                     </tr>
@@ -2070,8 +2092,8 @@ export function ImportacaoNfe() {
                       <Fragment key={`${item.id_parcelamento}-${item.data_emissao || item.data_vencimento || index}`}>
                         {showHeader ? (
                           <tr key={`${item.id_parcelamento}-group`}>
-                            <td colSpan={5} className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
-                              Emissao {formatDate(item.data_emissao || item.data_vencimento)}
+                            <td colSpan={6} className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
+                              Data documento {formatDate(item.data_emissao || item.data_vencimento)}
                             </td>
                           </tr>
                         ) : null}
@@ -2108,6 +2130,11 @@ export function ImportacaoNfe() {
 
                           <td className="p-2.5 align-middle">
                             <div className="truncate text-sm font-semibold text-slate-700 dark:text-slate-300">{item.centro_custo_nome || '-'}</div>
+                          </td>
+
+                          <td className="p-2.5 align-middle">
+                            <div className="truncate text-sm font-semibold text-slate-700 dark:text-slate-300">{String(item.emitente_nome || '').trim() || '-'}</div>
+                            <div className="mt-0.5 truncate text-[11px] font-normal text-slate-500 dark:text-slate-400">{String(item.emitente_documento || '').trim() || '-'}</div>
                           </td>
                         </tr>
                       </Fragment>

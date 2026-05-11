@@ -9,9 +9,11 @@ import re
 import shutil
 import time
 import uuid
+from urllib.parse import urljoin
 from typing import Any, Optional
 
 from loguru import logger
+import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -179,17 +181,68 @@ def _extract_rows(driver: webdriver.Chrome, wait: WebDriverWait) -> list[Nfstock
     return result
 
 
-def _wait_new_download(download_dir: str, previous_files: set[str], timeout_seconds: int = 45) -> Optional[str]:
+def _wait_new_download(
+    download_dir: str,
+    previous_files: set[str],
+    timeout_seconds: int = 45,
+    expected_extensions: Optional[set[str]] = None,
+) -> Optional[str]:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         current = {f for f in os.listdir(download_dir)}
         new_files = [f for f in current - previous_files if not f.endswith(".crdownload")]
+        if expected_extensions:
+            exts = {str(ext).lower() for ext in expected_extensions}
+            new_files = [f for f in new_files if Path(f).suffix.lower() in exts]
         if new_files:
             # mais recente
             new_files.sort(key=lambda name: os.path.getctime(os.path.join(download_dir, name)), reverse=True)
             return os.path.join(download_dir, new_files[0])
         time.sleep(0.4)
     return None
+
+
+def _build_requests_session_from_driver(driver: webdriver.Chrome) -> requests.Session:
+    session = requests.Session()
+    try:
+        user_agent = driver.execute_script("return navigator.userAgent")
+        if user_agent:
+            session.headers.update({"User-Agent": str(user_agent)})
+    except Exception:
+        pass
+
+    for cookie in driver.get_cookies():
+        session.cookies.set(
+            cookie.get("name"),
+            cookie.get("value"),
+            domain=cookie.get("domain"),
+            path=cookie.get("path", "/"),
+        )
+    return session
+
+
+def _download_with_driver_session(
+    *,
+    driver: webdriver.Chrome,
+    href: str,
+    download_dir: str,
+    nf_number: str,
+    extension: str,
+) -> Optional[str]:
+    if not href or str(href).lower().startswith("javascript"):
+        return None
+
+    url = urljoin(driver.current_url, href)
+    session = _build_requests_session_from_driver(driver)
+    response = session.get(url, timeout=60, allow_redirects=True)
+    if response.status_code >= 400 or not response.content:
+        return None
+
+    ext = extension if extension.startswith(".") else f".{extension}"
+    out_name = f"nf_{str(nf_number or '').strip()}_{uuid.uuid4().hex}{ext}"
+    out_path = Path(download_dir) / out_name
+    out_path.write_bytes(response.content)
+    return str(out_path)
 
 
 def _download_note_files(driver: webdriver.Chrome, wait: WebDriverWait, download_dir: str, nf_number: str) -> tuple[Optional[str], Optional[str]]:
@@ -204,13 +257,21 @@ def _download_note_files(driver: webdriver.Chrome, wait: WebDriverWait, download
     pdf_path = None
 
     # XML
-    before = set(os.listdir(download_dir))
     xml_link = wait.until(EC.element_to_be_clickable((By.ID, "link-download-xml")))
-    driver.execute_script("arguments[0].click();", xml_link)
-    xml_path = _wait_new_download(download_dir, before, timeout_seconds=50)
+    xml_href = str(xml_link.get_attribute("href") or "").strip()
+    xml_path = _download_with_driver_session(
+        driver=driver,
+        href=xml_href,
+        download_dir=download_dir,
+        nf_number=nf_number,
+        extension=".xml",
+    )
+    if not xml_path:
+        before = set(os.listdir(download_dir))
+        driver.execute_script("arguments[0].click();", xml_link)
+        xml_path = _wait_new_download(download_dir, before, timeout_seconds=50, expected_extensions={".xml"})
 
     # PDF - tenta seletor por ID e CSS alternativo
-    before_pdf = set(os.listdir(download_dir))
     pdf_link = None
     for locator in [
         (By.ID, "link-download-pdf"),
@@ -224,8 +285,18 @@ def _download_note_files(driver: webdriver.Chrome, wait: WebDriverWait, download
             continue
 
     if pdf_link is not None:
-        driver.execute_script("arguments[0].click();", pdf_link)
-        pdf_path = _wait_new_download(download_dir, before_pdf, timeout_seconds=50)
+        pdf_href = str(pdf_link.get_attribute("href") or "").strip()
+        pdf_path = _download_with_driver_session(
+            driver=driver,
+            href=pdf_href,
+            download_dir=download_dir,
+            nf_number=nf_number,
+            extension=".pdf",
+        )
+        if not pdf_path:
+            before_pdf = set(os.listdir(download_dir))
+            driver.execute_script("arguments[0].click();", pdf_link)
+            pdf_path = _wait_new_download(download_dir, before_pdf, timeout_seconds=50, expected_extensions={".pdf"})
 
     return xml_path, pdf_path
 
@@ -431,7 +502,8 @@ def sincronizar_nfstock(
             try:
                 xml_path, pdf_path = _download_note_files(driver, wait, str(download_dir), row.numero)
                 if not xml_path or not os.path.exists(xml_path):
-                    logger.warning("[NFSTOCK] XML não encontrado para NF {}", row.numero)
+                    arquivos = sorted(os.listdir(download_dir))
+                    logger.warning("[NFSTOCK] XML não encontrado para NF {} | arquivos no diretório: {}", row.numero, arquivos)
                     continue
 
                 with open(xml_path, "rb") as f:

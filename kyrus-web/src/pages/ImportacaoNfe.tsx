@@ -189,6 +189,12 @@ interface NfeDetalheResponse {
   natureza_operacao?: string | null;
   destino_compra?: string | null;
   valor_frete?: number | null;
+  transportadora_nome?: string | null;
+  transportadora_documento?: string | null;
+  cte_numero?: string | null;
+  cte_chave?: string | null;
+  cte_data_emissao?: string | null;
+  frete_financeiro_importado?: boolean;
   emitente_nome: string;
   emitente_documento: string;
   anexo_pdf_nome?: string | null;
@@ -211,6 +217,28 @@ interface NfeEditarParcelaPayload {
   valor: number;
   data_vencimento?: string;
   descricao?: string;
+}
+
+interface NfeImportarFreteCteResponse {
+  id_parcelamento: string;
+  chave_nfe: string;
+  numero_nfe: string;
+  chave_cte: string;
+  numero_cte: string;
+  valor_frete: number;
+  transportadora_nome: string;
+  transportadora_documento?: string | null;
+  data_emissao_cte: string;
+  lancamentos_atualizados: number;
+  cte_ja_existia: boolean;
+}
+
+interface NfeImportarFreteFinanceiroResponse {
+  id_parcelamento: string;
+  cte_chave: string;
+  lancamento_id: number;
+  valor_frete: number;
+  atualizado: boolean;
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
@@ -390,7 +418,7 @@ function createDefaultNovoForm(): NfeNovoForm {
     naturezaOperacao: '',
     finalidade: 'NORMAL',
     situacao: 'AGUARDANDO_ENTREGA',
-    destinoCompra: '',
+    destinoCompra: 'ESTOQUE',
     transportadora: '',
     valorFrete: '',
     dataDocumento: hoje,
@@ -514,6 +542,8 @@ export function ImportacaoNfe() {
   const [erroFrete, setErroFrete] = useState<string | null>(null);
   const [importandoXml, setImportandoXml] = useState(false);
   const [confirmandoImportacao, setConfirmandoImportacao] = useState(false);
+  const [importandoFreteCte, setImportandoFreteCte] = useState(false);
+  const [importandoFreteFinanceiro, setImportandoFreteFinanceiro] = useState(false);
   const [analiseNfe, setAnaliseNfe] = useState<NfeAnaliseResponse | null>(null);
   const [formMode, setFormMode] = useState<FormMode>('NOVO');
   const [idParcelamentoEditando, setIdParcelamentoEditando] = useState<string | null>(null);
@@ -521,6 +551,12 @@ export function ImportacaoNfe() {
   const [carregandoEdicaoId, setCarregandoEdicaoId] = useState<string | null>(null);
   const draftIdRef = useRef(1);
   const importXmlInputRef = useRef<HTMLInputElement | null>(null);
+  const importFreteXmlInputRef = useRef<HTMLInputElement | null>(null);
+  const [cteNumero, setCteNumero] = useState('');
+  const [cteChave, setCteChave] = useState('');
+  const [cteDataEmissao, setCteDataEmissao] = useState('');
+  const [freteFinanceiroImportado, setFreteFinanceiroImportado] = useState(false);
+  const [freteVencimento, setFreteVencimento] = useState('');
 
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -769,6 +805,11 @@ export function ImportacaoNfe() {
     setFreteAnexo(null);
     setFreteAnexoExistente(null);
     setErroFrete(null);
+    setCteNumero('');
+    setCteChave('');
+    setCteDataEmissao('');
+    setFreteFinanceiroImportado(false);
+    setFreteVencimento('');
     draftIdRef.current = 1;
   }
 
@@ -860,12 +901,18 @@ export function ImportacaoNfe() {
         cpfCnpj: String(data.emitente_documento || '').trim(),
         cfop: String(data.cfop || '').trim(),
         naturezaOperacao: String(data.natureza_operacao || '').trim(),
-        destinoCompra: String(data.destino_compra || '').trim(),
-        transportadora: '',
+        destinoCompra: String(data.destino_compra || 'ESTOQUE').trim().toUpperCase() || 'ESTOQUE',
+        transportadora: String(data.transportadora_nome || '').trim(),
         valorFrete: Number(data.valor_frete || 0) > 0 ? String(data.valor_frete) : '',
         dataDocumento: String(data.data_emissao || todayISODate()).slice(0, 10),
         situacao: situacaoNormalizada,
       });
+
+      setCteNumero(String(data.cte_numero || '').trim());
+      setCteChave(String(data.cte_chave || '').trim());
+      setCteDataEmissao(String(data.cte_data_emissao || '').trim());
+      setFreteFinanceiroImportado(Boolean(data.frete_financeiro_importado));
+      setFreteVencimento('');
 
       setFormMode('EDITAR');
       setIdParcelamentoEditando(String(data.id_parcelamento || idParcelamento));
@@ -1278,6 +1325,7 @@ export function ImportacaoNfe() {
         emitente: String(analise.emitente_nome || parsed.form.emitente || '').trim(),
         cpfCnpj: String(analise.emitente_documento || parsed.form.cpfCnpj || '').trim(),
         dataDocumento: String(analise.data_emissao || parsed.form.dataDocumento || todayISODate()).slice(0, 10),
+        destinoCompra: String(parsed.form.destinoCompra || 'ESTOQUE').trim().toUpperCase() || 'ESTOQUE',
       });
 
       setAnaliseNfe(analise);
@@ -1289,7 +1337,14 @@ export function ImportacaoNfe() {
       setPagamentosNota(pagamentosImportados);
       setPdfAnexo(null);
       setPdfAnexoExistente(null);
+      setFreteAnexo(null);
+      setFreteAnexoExistente(null);
       setErroPdf(null);
+      setCteNumero('');
+      setCteChave('');
+      setCteDataEmissao('');
+      setFreteFinanceiroImportado(false);
+      setFreteVencimento('');
       draftIdRef.current = nextId;
       setMostrarNovoFormulario(true);
     } catch (err) {
@@ -1297,6 +1352,91 @@ export function ImportacaoNfe() {
       setError(message);
     } finally {
       setImportandoXml(false);
+    }
+  }
+
+  async function importarXmlFreteCte(file: File | null) {
+    if (!file) return;
+
+    const nome = String(file.name || '').toLowerCase();
+    const isXml = file.type.includes('xml') || nome.endsWith('.xml');
+    if (!isXml) {
+      setError('Selecione um arquivo XML valido para o frete (CTe).');
+      return;
+    }
+
+    setImportandoFreteCte(true);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('arquivo', file);
+
+      const { data } = await api.post<NfeImportarFreteCteResponse>('/importacao/nfe/importar-frete-cte', formData);
+
+      setCteNumero(String(data.numero_cte || '').trim());
+      setCteChave(String(data.chave_cte || '').trim());
+      setCteDataEmissao(String(data.data_emissao_cte || '').trim());
+      setNovoForm((prev) => ({
+        ...prev,
+        transportadora: String(data.transportadora_nome || prev.transportadora || '').trim(),
+        valorFrete: Number(data.valor_frete || 0) > 0 ? String(data.valor_frete) : prev.valorFrete,
+      }));
+      setFreteFinanceiroImportado(false);
+
+      if (formMode !== 'EDITAR' || String(idParcelamentoEditando || '').trim() !== String(data.id_parcelamento || '').trim()) {
+        const itemRef = items.find((item) => String(item.id_parcelamento || '').trim() === String(data.id_parcelamento || '').trim());
+        if (itemRef) {
+          await abrirEdicaoDaLinha(itemRef);
+        }
+      }
+
+      if (data.cte_ja_existia) {
+        setError('CTe ja estava vinculado. Os dados de frete foram atualizados.');
+      }
+      setRefreshToken((prev) => prev + 1);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Nao foi possivel importar o XML de frete (CTe).');
+    } finally {
+      setImportandoFreteCte(false);
+    }
+  }
+
+  async function importarFreteNoFinanceiro() {
+    const parcelamentoId = String(idParcelamentoEditando || '').trim();
+    if (!parcelamentoId) {
+      setError('Abra uma NF-e para importar o frete no financeiro.');
+      return;
+    }
+
+    if (!freteVencimento) {
+      setError('Informe a data de vencimento do frete para importar no financeiro.');
+      return;
+    }
+
+    setImportandoFreteFinanceiro(true);
+    setError(null);
+    try {
+      const payload = {
+        data_vencimento: freteVencimento,
+        plano_contas_id: planoContasSelecionadoId || undefined,
+        centro_custo_id: centroCustoSelecionadoId || undefined,
+      };
+      await api.post<NfeImportarFreteFinanceiroResponse>(
+        `/importacao/nfe/${encodeURIComponent(parcelamentoId)}/importar-frete-financeiro`,
+        payload,
+      );
+
+      setFreteFinanceiroImportado(true);
+      setRefreshToken((prev) => prev + 1);
+      const itemRef = items.find((item) => String(item.id_parcelamento || '').trim() === parcelamentoId);
+      if (itemRef) {
+        await abrirEdicaoDaLinha(itemRef);
+      }
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Nao foi possivel importar o frete no financeiro.');
+    } finally {
+      setImportandoFreteFinanceiro(false);
     }
   }
 
@@ -1410,6 +1550,16 @@ export function ImportacaoNfe() {
                 {importandoXml ? 'Importando XML...' : 'Importar XML'}
               </button>
 
+              <button
+                type="button"
+                onClick={() => importFreteXmlInputRef.current?.click()}
+                disabled={importandoFreteCte}
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                <Plus className="h-4 w-4" />
+                {importandoFreteCte ? 'Importando CTe...' : 'Importar Frete'}
+              </button>
+
               <input
                 ref={importXmlInputRef}
                 type="file"
@@ -1417,6 +1567,17 @@ export function ImportacaoNfe() {
                 className="hidden"
                 onChange={(event) => {
                   void importarXmlParaFormulario(event.target.files?.[0] || null);
+                  event.currentTarget.value = '';
+                }}
+              />
+
+              <input
+                ref={importFreteXmlInputRef}
+                type="file"
+                accept=".xml,text/xml,application/xml"
+                className="hidden"
+                onChange={(event) => {
+                  void importarXmlFreteCte(event.target.files?.[0] || null);
                   event.currentTarget.value = '';
                 }}
               />
@@ -1621,15 +1782,24 @@ export function ImportacaoNfe() {
 
               <label className="md:col-span-2">
                 <span className={labelClassName}>Tipo de compra</span>
-                <select
-                  className={inputClassName}
-                  value={novoForm.destinoCompra}
-                  onChange={(event) => atualizarNovoForm('destinoCompra', event.target.value)}
-                >
-                  <option value="">Selecione</option>
-                  <option value="ENCOMENDA">Encomenda</option>
-                  <option value="ESTOQUE">Estoque</option>
-                </select>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { value: 'ESTOQUE', label: 'Estoque' },
+                    { value: 'ENCOMENDA', label: 'Encomenda' },
+                  ].map((opcao) => {
+                    const ativo = String(novoForm.destinoCompra || '').toUpperCase() === opcao.value;
+                    return (
+                      <button
+                        key={opcao.value}
+                        type="button"
+                        onClick={() => atualizarNovoForm('destinoCompra', opcao.value)}
+                        className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${ativo ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'}`}
+                      >
+                        {opcao.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </label>
             </div>
 
@@ -1965,6 +2135,40 @@ export function ImportacaoNfe() {
                   onChange={(event) => atualizarNovoForm('valorFrete', event.target.value)}
                 />
               </label>
+            </div>
+
+            {cteNumero || cteChave ? (
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
+                <div><strong>CTE:</strong> N° {cteNumero || '-'} {cteDataEmissao ? `• Emissao ${formatDate(cteDataEmissao)}` : ''}</div>
+                <div className="truncate"><strong>Chave:</strong> {cteChave || '-'}</div>
+              </div>
+            ) : null}
+
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/60">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Financeiro do frete (CTe)</p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                O frete do CTe so entra no financeiro apos informar vencimento.
+              </p>
+              <div className="mt-3 flex flex-wrap items-end gap-2">
+                <label className="min-w-[190px]">
+                  <span className={labelClassName}>Vencimento do frete</span>
+                  <input
+                    type="date"
+                    className={inputClassName}
+                    value={freteVencimento}
+                    onChange={(event) => setFreteVencimento(event.target.value)}
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={importarFreteNoFinanceiro}
+                  disabled={!cteChave || freteFinanceiroImportado || importandoFreteFinanceiro}
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {importandoFreteFinanceiro ? 'Importando...' : (freteFinanceiroImportado ? 'Frete ja importado' : 'Importar para o financeiro')}
+                </button>
+              </div>
             </div>
 
             {freteAnexoExistente ? (

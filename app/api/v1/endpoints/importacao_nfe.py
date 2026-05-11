@@ -30,11 +30,13 @@ from app.models.entidade import Entidade
 from app.models.lancamento import Lancamento
 from app.models.plano_contas import PlanoContas
 from app.models.usuario import Usuario
+from app.services.importacao_cte_service import parse_cte_xml
 from app.services.importacao_nfe_service import NFeDocumento, parse_nfe_xml
 
 router = APIRouter()
 NFE_FILE_SIZE_LIMIT = 5 * 1024 * 1024
 NFE_PDF_FILE_SIZE_LIMIT = 10 * 1024 * 1024
+CTE_FILE_SIZE_LIMIT = 5 * 1024 * 1024
 
 
 class NfeParcelaAnalise(BaseModel):
@@ -149,6 +151,20 @@ class NfeAnexoPdfResponse(BaseModel):
     lancamento_ids: list[int]
 
 
+class NfeImportarFreteCteResponse(BaseModel):
+    id_parcelamento: str
+    chave_nfe: str
+    numero_nfe: str
+    chave_cte: str
+    numero_cte: str
+    valor_frete: float
+    transportadora_nome: str
+    transportadora_documento: Optional[str] = None
+    data_emissao_cte: str
+    lancamentos_atualizados: int
+    cte_ja_existia: bool
+
+
 class NfeListItem(BaseModel):
     id_parcelamento: str
     numero_nfe: str
@@ -194,6 +210,12 @@ class NfeDetalheResponse(BaseModel):
     natureza_operacao: Optional[str] = None
     destino_compra: Optional[str] = None
     valor_frete: Optional[float] = None
+    transportadora_nome: Optional[str] = None
+    transportadora_documento: Optional[str] = None
+    cte_numero: Optional[str] = None
+    cte_chave: Optional[str] = None
+    cte_data_emissao: Optional[str] = None
+    frete_financeiro_importado: bool = False
     emitente_nome: str
     emitente_documento: str
     anexo_pdf_nome: Optional[str] = None
@@ -236,6 +258,20 @@ class NfeAtualizarRequest(BaseModel):
     observacao: Optional[str] = None
     itens: list[NfeItemPersistencia] = Field(default_factory=list)
     parcelas: list[NfeParcelaAtualizar] = Field(default_factory=list)
+
+
+class NfeImportarFreteFinanceiroRequest(BaseModel):
+    data_vencimento: date
+    plano_contas_id: Optional[int] = None
+    centro_custo_id: Optional[int] = None
+
+
+class NfeImportarFreteFinanceiroResponse(BaseModel):
+    id_parcelamento: str
+    cte_chave: str
+    lancamento_id: int
+    valor_frete: float
+    atualizado: bool
 
 
 class NfeAtualizarResponse(BaseModel):
@@ -445,6 +481,12 @@ def _strip_situacao_from_observacao(value: Optional[str]) -> str:
     texto = re.sub(r"\s*\|\s*DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE)", "", texto, flags=re.IGNORECASE)
     texto = re.sub(r"\s*\|\s*NaturezaOperacao\s*[:=]?\s*[^|]+", "", texto, flags=re.IGNORECASE)
     texto = re.sub(r"\s*\|\s*FreteValor\s*[:=]?\s*[0-9]+(?:[\.,][0-9]+)?", "", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s*\|\s*TransportadoraNome\s*[:=]?\s*[^|]+", "", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s*\|\s*TransportadoraDoc\s*[:=]?\s*[0-9]{11,14}", "", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s*\|\s*CTE\s+Numero\s*[:=]?\s*[^|]+", "", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s*\|\s*CTE\s+Chave\s*[:=]?\s*[0-9]{44}", "", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s*\|\s*CTE\s+DataEmissao\s*[:=]?\s*[0-9]{4}-[0-9]{2}-[0-9]{2}", "", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s*\|\s*CTE\s+REF\s*:\s*N°\s*[^|]+\|\|\s*N°\s*[^|]+", "", texto, flags=re.IGNORECASE)
     return texto.strip()
 
 
@@ -458,6 +500,12 @@ def _compor_observacao_com_situacao(
     natureza_operacao: Optional[str] = None,
     valor_frete: Optional[Decimal | float | int] = None,
     itens_meta: Optional[list[dict[str, object]]] = None,
+    transportadora_nome: Optional[str] = None,
+    transportadora_documento: Optional[str] = None,
+    cte_numero: Optional[str] = None,
+    cte_chave: Optional[str] = None,
+    cte_data_emissao: Optional[date | str] = None,
+    numero_nfe_ref: Optional[str] = None,
 ) -> str:
     base = _strip_situacao_from_observacao(observacao_base)
     partes: list[str] = []
@@ -487,6 +535,34 @@ def _compor_observacao_com_situacao(
             frete_decimal = Decimal("0")
         if frete_decimal > 0:
             partes.append(f"FreteValor {frete_decimal}")
+
+    transportadora_nome_limpo = re.sub(r"\s+", " ", str(transportadora_nome or "")).strip().replace("|", " ")
+    if transportadora_nome_limpo:
+        partes.append(f"TransportadoraNome {transportadora_nome_limpo}")
+
+    transportadora_doc = _only_digits(transportadora_documento or "")
+    if transportadora_doc:
+        partes.append(f"TransportadoraDoc {transportadora_doc}")
+
+    cte_numero_limpo = re.sub(r"\s+", " ", str(cte_numero or "")).strip().replace("|", " ")
+    if cte_numero_limpo:
+        partes.append(f"CTE Numero {cte_numero_limpo}")
+
+    cte_chave_limpa = _only_digits(cte_chave or "")
+    if len(cte_chave_limpa) == 44:
+        partes.append(f"CTE Chave {cte_chave_limpa}")
+
+    if cte_data_emissao is not None:
+        data_cte_texto = str(cte_data_emissao)
+        if isinstance(cte_data_emissao, date):
+            data_cte_texto = cte_data_emissao.isoformat()
+        data_cte_texto = str(data_cte_texto).strip()
+        if re.match(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$", data_cte_texto):
+            partes.append(f"CTE DataEmissao {data_cte_texto}")
+
+    if cte_numero_limpo:
+        numero_ref_limpo = re.sub(r"\s+", " ", str(numero_nfe_ref or "")).strip() or "-"
+        partes.append(f"CTE REF: N° {numero_ref_limpo} || N° {cte_numero_limpo}")
 
     token_itens = _encode_itens_meta(itens_meta or [])
     if token_itens:
@@ -521,6 +597,43 @@ def _extract_valor_frete(text: str) -> Optional[Decimal]:
         return Decimal(normalized)
     except Exception:
         return None
+
+
+def _extract_transportadora_nome(text: str) -> Optional[str]:
+    match = re.search(r"TransportadoraNome\s*[:=]?\s*([^|]+)", str(text or ""), flags=re.IGNORECASE)
+    if not match:
+        return None
+    value = re.sub(r"\s+", " ", str(match.group(1) or "")).strip()
+    return value or None
+
+
+def _extract_transportadora_documento(text: str) -> Optional[str]:
+    match = re.search(r"TransportadoraDoc\s*[:=]?\s*([0-9]{11,14})", str(text or ""), flags=re.IGNORECASE)
+    if not match:
+        return None
+    return _only_digits(match.group(1))
+
+
+def _extract_cte_numero(text: str) -> Optional[str]:
+    match = re.search(r"CTE\s+Numero\s*[:=]?\s*([^|]+)", str(text or ""), flags=re.IGNORECASE)
+    if not match:
+        return None
+    value = re.sub(r"\s+", " ", str(match.group(1) or "")).strip()
+    return value or None
+
+
+def _extract_cte_chave(text: str) -> Optional[str]:
+    match = re.search(r"CTE\s+Chave\s*[:=]?\s*([0-9]{44})", str(text or ""), flags=re.IGNORECASE)
+    if not match:
+        return None
+    return _only_digits(match.group(1))
+
+
+def _extract_cte_data_emissao(text: str) -> Optional[str]:
+    match = re.search(r"CTE\s+DataEmissao\s*[:=]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2})", str(text or ""), flags=re.IGNORECASE)
+    if not match:
+        return None
+    return str(match.group(1))
 
 
 def _extract_natureza_operacao(text: str) -> Optional[str]:
@@ -565,6 +678,11 @@ def _parcelamento_id(chave_nfe: str) -> str:
 
 def _import_hash(empresa_id: int, chave_nfe: str, indice: int) -> str:
     payload = f"NFE|{empresa_id}|{_only_digits(chave_nfe)}|{indice}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _frete_import_hash(empresa_id: int, chave_cte: str) -> str:
+    payload = f"NFE-CTE|{empresa_id}|{_only_digits(chave_cte)}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -1328,6 +1446,22 @@ def obter_detalhe_nfe_importada(
         status_resumo = "ENTREGUE"
 
     itens_meta = _extract_itens_meta(texto_referencia)
+    transportadora_nome = _extract_transportadora_nome(texto_referencia)
+    transportadora_documento = _extract_transportadora_documento(texto_referencia)
+    cte_numero = _extract_cte_numero(texto_referencia)
+    cte_chave = _extract_cte_chave(texto_referencia)
+    cte_data_emissao = _extract_cte_data_emissao(texto_referencia)
+
+    frete_financeiro_importado = False
+    if cte_chave:
+        frete_financeiro_importado = db.exec(
+            select(Lancamento.id).where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.origem == "NFE_CTE_XML",
+                Lancamento.referencia_externa == cte_chave,
+            )
+        ).first() is not None
 
     parcelas: list[NfeParcelaDetalhe] = []
     total_valor = Decimal("0")
@@ -1376,6 +1510,12 @@ def obter_detalhe_nfe_importada(
         natureza_operacao=_extract_natureza_operacao(observacao_texto),
         destino_compra=_extract_destino_compra(observacao_texto),
         valor_frete=float(_extract_valor_frete(observacao_texto) or Decimal("0")),
+        transportadora_nome=transportadora_nome,
+        transportadora_documento=transportadora_documento,
+        cte_numero=cte_numero,
+        cte_chave=cte_chave,
+        cte_data_emissao=cte_data_emissao,
+        frete_financeiro_importado=frete_financeiro_importado,
         emitente_nome=str((entidade.nome if entidade else "") or ""),
         emitente_documento=emitente_documento,
         anexo_pdf_nome=anexo_pdf_nome,
@@ -1477,6 +1617,12 @@ def atualizar_nfe_importada(
     if not itens_meta:
         itens_meta = _extract_itens_meta(texto_referencia)
 
+    transportadora_nome = _extract_transportadora_nome(texto_referencia)
+    transportadora_documento = _extract_transportadora_documento(texto_referencia)
+    cte_numero = _extract_cte_numero(texto_referencia)
+    cte_chave = _extract_cte_chave(texto_referencia)
+    cte_data_emissao = _extract_cte_data_emissao(texto_referencia)
+
     observacao_base = _compor_observacao_com_situacao(
         request.observacao or observacao_padrao,
         situacao_nfe,
@@ -1484,7 +1630,14 @@ def atualizar_nfe_importada(
         emitente_documento=emitente_documento_nfe,
         destino_compra=request.destino_compra,
         natureza_operacao=request.natureza_operacao,
+        valor_frete=request.valor_frete,
         itens_meta=itens_meta,
+        transportadora_nome=transportadora_nome,
+        transportadora_documento=transportadora_documento,
+        cte_numero=cte_numero,
+        cte_chave=cte_chave,
+        cte_data_emissao=cte_data_emissao,
+        numero_nfe_ref=numero_nfe,
     )
 
     centro_custo_id_raw = (
@@ -1734,6 +1887,283 @@ def anexar_frete_nfe_importada(
         url=url_relativa,
         anexos_criados=anexos_criados,
         lancamento_ids=anexados_em,
+    )
+
+
+@router.post(
+    "/nfe/importar-frete-cte",
+    response_model=NfeImportarFreteCteResponse,
+    dependencies=[Depends(require_permission("lancamentos:import_nfe"))],
+)
+def importar_frete_cte_xml(
+    arquivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    if not arquivo.filename or not arquivo.filename.lower().endswith(".xml"):
+        raise HTTPException(status_code=400, detail="Selecione um arquivo XML de CTe")
+
+    conteudo = arquivo.file.read()
+    if len(conteudo) > CTE_FILE_SIZE_LIMIT:
+        raise HTTPException(status_code=400, detail="Arquivo XML excede o limite de 5 MB")
+
+    try:
+        documento_cte = parse_cte_xml(conteudo)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    chave_nfe_ref = _only_digits(documento_cte.nfe_referenciada_chave)
+    if len(chave_nfe_ref) != 44:
+        raise HTTPException(status_code=400, detail="CTe sem chave de NF-e referenciada valida")
+
+    grupo_nfe = _parcelamento_id(chave_nfe_ref)
+    lancamentos_nfe = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "NFE_XML",
+            Lancamento.id_parcelamento == grupo_nfe,
+        )
+        .order_by(Lancamento.numero_parcela.asc(), Lancamento.id.asc())
+    ).all()
+
+    if not lancamentos_nfe:
+        raise HTTPException(status_code=404, detail="O CTE da nota referente nao foi importado ainda")
+
+    texto_nfe = " ".join(
+        f"{str(l.observacao or '').strip()} {str(l.descricao or '').strip()}".strip() for l in lancamentos_nfe
+    ).strip()
+    numero_nfe = _extract_nfe_number(texto_nfe)
+    if numero_nfe == "-":
+        numero_nfe = ""
+
+    cte_ja_existia = False
+    cte_chave = _only_digits(documento_cte.chave_cte)
+    if cte_chave:
+        existe_cte = db.exec(
+            select(Lancamento.id).where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.origem == "NFE_XML",
+                Lancamento.id_parcelamento == grupo_nfe,
+                Lancamento.observacao.ilike(f"%CTE Chave {cte_chave}%"),
+            )
+        ).first()
+        cte_ja_existia = existe_cte is not None
+
+    emitente_doc_nfe = _extract_emitente_documento(texto_nfe)
+    cfop_nfe = _extract_cfop(texto_nfe)
+    natureza_nfe = _extract_natureza_operacao(texto_nfe)
+    destino_nfe = _extract_destino_compra(texto_nfe)
+    itens_meta = _extract_itens_meta(texto_nfe)
+    situacao_nfe = _extrair_situacao_nfe(texto_nfe)
+
+    atualizado = 0
+    for lancamento in lancamentos_nfe:
+        observacao_atual = _compor_observacao_com_situacao(
+            lancamento.observacao,
+            situacao_nfe,
+            cfop=cfop_nfe,
+            emitente_documento=emitente_doc_nfe,
+            destino_compra=destino_nfe,
+            natureza_operacao=natureza_nfe,
+            valor_frete=documento_cte.valor_total,
+            itens_meta=itens_meta,
+            transportadora_nome=documento_cte.transportadora_nome,
+            transportadora_documento=documento_cte.transportadora_documento,
+            cte_numero=documento_cte.numero_cte,
+            cte_chave=documento_cte.chave_cte,
+            cte_data_emissao=documento_cte.data_emissao,
+            numero_nfe_ref=numero_nfe,
+        )
+        lancamento.observacao = observacao_atual
+        db.add(lancamento)
+        atualizado += 1
+
+    db.commit()
+
+    return NfeImportarFreteCteResponse(
+        id_parcelamento=grupo_nfe,
+        chave_nfe=chave_nfe_ref,
+        numero_nfe=numero_nfe or "-",
+        chave_cte=cte_chave,
+        numero_cte=documento_cte.numero_cte,
+        valor_frete=float(documento_cte.valor_total),
+        transportadora_nome=documento_cte.transportadora_nome,
+        transportadora_documento=documento_cte.transportadora_documento or None,
+        data_emissao_cte=documento_cte.data_emissao.isoformat(),
+        lancamentos_atualizados=atualizado,
+        cte_ja_existia=cte_ja_existia,
+    )
+
+
+@router.post(
+    "/nfe/{id_parcelamento}/importar-frete-financeiro",
+    response_model=NfeImportarFreteFinanceiroResponse,
+    dependencies=[Depends(require_permission("lancamentos:import_nfe"))],
+)
+def importar_frete_para_financeiro(
+    id_parcelamento: str,
+    request: NfeImportarFreteFinanceiroRequest,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    group_id = str(id_parcelamento or "").strip()
+    if not group_id:
+        raise HTTPException(status_code=400, detail="Identificador da NF-e invalido")
+
+    lancamentos_nfe = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "NFE_XML",
+            Lancamento.id_parcelamento == group_id,
+        )
+        .order_by(Lancamento.numero_parcela.asc(), Lancamento.id.asc())
+    ).all()
+
+    if not lancamentos_nfe:
+        raise HTTPException(status_code=404, detail="NF-e importada nao encontrada")
+
+    primeiro = lancamentos_nfe[0]
+    texto_nfe = " ".join(
+        f"{str(l.observacao or '').strip()} {str(l.descricao or '').strip()}".strip() for l in lancamentos_nfe
+    ).strip()
+
+    valor_frete = _extract_valor_frete(texto_nfe)
+    cte_numero = _extract_cte_numero(texto_nfe)
+    cte_chave = _extract_cte_chave(texto_nfe)
+    numero_nfe = _extract_nfe_number(texto_nfe)
+    transportadora_nome = _extract_transportadora_nome(texto_nfe)
+    transportadora_doc = _extract_transportadora_documento(texto_nfe)
+
+    if valor_frete is None or valor_frete <= 0:
+        raise HTTPException(status_code=400, detail="Nao ha frete de CTe importado para esta NF-e")
+    if not cte_chave:
+        raise HTTPException(status_code=400, detail="Nao ha CTe vinculado a esta NF-e")
+
+    categoria_base_id = request.plano_contas_id or primeiro.plano_contas_id
+    if not categoria_base_id:
+        raise HTTPException(status_code=400, detail="Categoria financeira nao definida para importar o frete")
+    categoria = _assert_categoria_valida(
+        db,
+        empresa_id=empresa_id,
+        categoria_id=int(categoria_base_id),
+        tipo_lancamento="DESPESA",
+    )
+
+    centro_custo_id = _resolver_centro_custo(
+        db,
+        empresa_id=empresa_id,
+        centro_custo_id=request.centro_custo_id if request.centro_custo_id is not None else (int(primeiro.centro_custo_id) if primeiro.centro_custo_id is not None else None),
+        conta=None,
+    )
+
+    entidade_id: Optional[int] = None
+    if transportadora_doc:
+        entidade_transportadora = _buscar_entidade_sugerida(
+            db,
+            empresa_id=empresa_id,
+            nome_referencia=transportadora_nome or "",
+            documento_referencia=transportadora_doc,
+        )
+        if entidade_transportadora and entidade_transportadora.id is not None:
+            entidade_id = int(entidade_transportadora.id)
+
+    if not entidade_id and primeiro.entidade_id is not None:
+        entidade_id = int(primeiro.entidade_id)
+
+    if entidade_id is not None:
+        _assert_entidade_valida(db, empresa_id=empresa_id, entidade_id=entidade_id)
+
+    data_competencia = request.data_vencimento
+    competencia = data_competencia.strftime("%m/%Y")
+    import_hash = _frete_import_hash(empresa_id, cte_chave)
+    descricao = f"CTE REF: N° {numero_nfe if numero_nfe != '-' else ''} || N° {cte_numero or ''}".strip()
+    if not descricao:
+        descricao = "CTE FRETE"
+
+    observacao = _compor_observacao_com_situacao(
+        f"CTE REF: N° {numero_nfe if numero_nfe != '-' else ''} || N° {cte_numero or ''}",
+        "AGUARDANDO_ENTREGA",
+        valor_frete=valor_frete,
+        transportadora_nome=transportadora_nome,
+        transportadora_documento=transportadora_doc,
+        cte_numero=cte_numero,
+        cte_chave=cte_chave,
+        numero_nfe_ref=numero_nfe if numero_nfe != "-" else "",
+    )
+
+    existente = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "NFE_CTE_XML",
+            Lancamento.referencia_externa == cte_chave,
+        )
+        .order_by(desc(Lancamento.id))
+    ).first()
+
+    atualizado = False
+    if existente:
+        existente.descricao = descricao
+        existente.valor_previsto = valor_frete
+        existente.data_vencimento = request.data_vencimento
+        existente.data_competencia = data_competencia
+        existente.competencia = competencia
+        existente.observacao = observacao
+        existente.plano_contas_id = int(categoria.id)
+        existente.centro_custo_id = centro_custo_id
+        existente.entidade_id = entidade_id
+        existente.import_hash = import_hash
+        existente.referencia_externa = cte_chave
+        db.add(existente)
+        lancamento_frete = existente
+        atualizado = True
+    else:
+        lancamento_frete = Lancamento(
+            descricao=descricao,
+            tipo="DESPESA",
+            origem="NFE_CTE_XML",
+            ipp=False,
+            previsto=True,
+            valor_previsto=valor_frete,
+            valor_pago=Decimal("0.00"),
+            valor_juros=Decimal("0.00"),
+            valor_desconto=Decimal("0.00"),
+            valor_multa=Decimal("0.00"),
+            data_vencimento=request.data_vencimento,
+            data_pagamento=None,
+            data_competencia=data_competencia,
+            competencia=competencia,
+            numero_parcela=1,
+            id_parcelamento=f"NFE-FRETE-CTE-{cte_chave}",
+            observacao=observacao,
+            conciliado=False,
+            import_hash=import_hash,
+            referencia_externa=cte_chave,
+            transferencia_grupo_id=None,
+            empresa_id=empresa_id,
+            plano_contas_id=int(categoria.id),
+            conta_id=None,
+            entidade_id=entidade_id,
+            cartao_id=None,
+            centro_custo_id=centro_custo_id,
+        )
+        db.add(lancamento_frete)
+
+    db.commit()
+    db.refresh(lancamento_frete)
+
+    return NfeImportarFreteFinanceiroResponse(
+        id_parcelamento=group_id,
+        cte_chave=cte_chave,
+        lancamento_id=int(lancamento_frete.id or 0),
+        valor_frete=float(valor_frete),
+        atualizado=atualizado,
     )
 
 

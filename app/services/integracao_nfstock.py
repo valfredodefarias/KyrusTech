@@ -17,7 +17,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, WebDriverException
 from sqlmodel import Session, select
 
 from app.models.anexo_lancamento import AnexoLancamento
@@ -101,10 +101,14 @@ def set_nfstock_schedule(integracao: IntegracaoBancaria) -> None:
 
 def _build_driver(download_path: str) -> webdriver.Chrome:
     options = webdriver.ChromeOptions()
+    options.binary_location = os.getenv("CHROME_BIN", "/usr/bin/chromium")
     options.add_argument("--headless=new")
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-setuid-sandbox")
+    options.add_argument("--no-zygote")
+    options.add_argument("--single-process")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-extensions")
     options.add_experimental_option("excludeSwitches", ["enable-logging"])
@@ -115,14 +119,30 @@ def _build_driver(download_path: str) -> webdriver.Chrome:
         "safebrowsing.enabled": True,
     })
 
+    # 1) Prioriza binário do sistema no container (mais estável em produção)
+    local_driver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+    if os.path.exists(local_driver_path):
+        try:
+            return webdriver.Chrome(service=ChromeService(local_driver_path), options=options)
+        except Exception as exc:
+            logger.warning("Falha ao iniciar chromedriver local ({}): {}", local_driver_path, exc)
+
+    # 2) Tenta webdriver-manager (ambiente dev)
     try:
         from webdriver_manager.chrome import ChromeDriverManager
-        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
+        return webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
     except Exception as exc:
-        logger.warning("Falha ao usar ChromeDriverManager no NFStock: {}. Usando PATH.", exc)
-        driver = webdriver.Chrome(options=options)
+        logger.warning("Falha ao usar ChromeDriverManager no NFStock: {}. Tentando PATH.", exc)
 
-    return driver
+    # 3) Fallback final: PATH
+    try:
+        return webdriver.Chrome(options=options)
+    except Exception as exc:
+        raise RuntimeError(
+            "Não foi possível iniciar o navegador para sincronização NFStock. "
+            "Verifique se Chromium/Chrome e chromedriver estão instalados no container "
+            "e com versões compatíveis."
+        ) from exc
 
 
 def _extract_digits_document(text: str) -> str:
@@ -367,7 +387,14 @@ def sincronizar_nfstock(
     download_dir = Path("/tmp") / f"kyrus_nfstock_{empresa_id}_{integracao.id}_{int(time.time())}"
     download_dir.mkdir(parents=True, exist_ok=True)
 
-    driver = _build_driver(str(download_dir))
+    try:
+        driver = _build_driver(str(download_dir))
+    except (WebDriverException, RuntimeError) as exc:
+        logger.error("[NFSTOCK] Falha ao iniciar WebDriver para integração {}: {}", integracao.id, exc)
+        raise RuntimeError(
+            "Falha ao iniciar navegador da integração NFStock no servidor. "
+            "Confirme a instalação de Chromium/Chrome e chromedriver no ambiente."
+        ) from exc
     wait = WebDriverWait(driver, 30)
 
     baixadas = 0

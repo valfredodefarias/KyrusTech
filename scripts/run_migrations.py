@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT_DIR))
 
 def apply_legacy_schema_compatibility() -> None:
     from app.core.config import settings
+    from app.models.consultor_empresa import ConsultorEmpresa
     from app.models.plano_contas_template_config import PlanoContasTemplateConfig
 
     engine = create_engine(settings.DATABASE_URL)
@@ -84,6 +85,7 @@ def apply_legacy_schema_compatibility() -> None:
         for statement in statements:
             connection.execute(text(statement))
 
+    ConsultorEmpresa.__table__.create(bind=engine, checkfirst=True)
     PlanoContasTemplateConfig.__table__.create(bind=engine, checkfirst=True)
 
 
@@ -158,6 +160,8 @@ def run_migrations():
         if result.returncode == 0:
             print("Migrations executadas com sucesso!")
             print(result.stdout)
+            print("Aplicando patch de compatibilidade de schema...")
+            apply_legacy_schema_compatibility()
             ensure_integracoes_scheduler_schema()
             stats = ensure_rbac_defaults()
             print(

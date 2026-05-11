@@ -27,7 +27,7 @@ from app.models.lancamento import Lancamento
 from app.models.plano_contas import PlanoContas
 from app.services.importacao_nfe_service import parse_nfe_xml
 from app.api.v1.endpoints.importacao_nfe import (
-    NfeConfirmarParcela,
+    NfeParcelaConfirmar,
     NfeConfirmarRequest,
     NfeItemPersistencia,
     confirmar_importacao_nfe,
@@ -322,7 +322,7 @@ def _build_confirm_request(db: Session, *, empresa_id: int, centro_custo_id: Opt
     ]
 
     parcelas = [
-        NfeConfirmarParcela(
+        NfeParcelaConfirmar(
             indice=parcela.index,
             numero_parcela=parcela.numero_label,
             data_vencimento=parcela.data_vencimento,

@@ -145,7 +145,7 @@ def run_migrations():
         print("Executando migrations do Alembic...")
         
         result = run(
-            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            [sys.executable, "-m", "alembic", "upgrade", "heads"],
             cwd=str(ROOT_DIR),
             capture_output=True,
             text=True

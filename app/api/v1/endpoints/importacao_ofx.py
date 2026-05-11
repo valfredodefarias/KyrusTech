@@ -1468,6 +1468,8 @@ def upload_ofx(
                 lanc_raw["sugestao_acao"] = "DESCARTAR"
                 lanc_raw["motivo_conciliacao"] = "Movimento repetido dentro do mesmo arquivo OFX."
                 lanc_raw["duplicata_resumo"] = DuplicataResumo(
+                previstos_sugeridos: Dict[int, int] = {}
+                atrasados_sugeridos: Dict[int, int] = {}
                     descricao=lanc_raw["descricao"],
                     data_pagamento=lanc_raw.get("data_pagamento"),
                     valor_pago=float(lanc_raw["valor"]),

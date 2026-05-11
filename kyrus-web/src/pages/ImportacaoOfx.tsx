@@ -81,10 +81,13 @@ interface LancamentoSugestao {
 }
 
 interface RelacionamentoResumo {
+  id?: number | null;
   descricao: string;
   interessado?: string | null;
   data_vencimento: string;
   valor_previsto: number;
+  centro_custo_id?: number | null;
+  centro_custo_nome?: string | null;
   score: number;
   motivo: string;
 }
@@ -1195,7 +1198,7 @@ export function ImportacaoOfx() {
                         {[...(lanc.lancamentos_atrasados_resumo || [])]
                           .map((resumo, index) => ({
                             resumo,
-                            atrasoId: lanc.lancamentos_atrasados_ids?.[index],
+                            atrasoId: resumo?.id ?? lanc.lancamentos_atrasados_ids?.[index],
                           }))
                           .sort((a, b) => (b.resumo?.score || 0) - (a.resumo?.score || 0))
                           .map(({ resumo: atrasado, atrasoId }, index) => {
@@ -1239,6 +1242,12 @@ export function ImportacaoOfx() {
                                   <span>Venceu em {formatDate(atrasado.data_vencimento)}</span>
                                   <span>•</span>
                                   <span>{formatCurrency(atrasado.valor_previsto)}</span>
+                                  {atrasado.centro_custo_nome ? (
+                                    <>
+                                      <span>•</span>
+                                      <span>CC: {atrasado.centro_custo_nome}</span>
+                                    </>
+                                  ) : null}
                                 </div>
                                 {atrasado.motivo ? (
                                   <p className="mt-1 text-xs italic text-slate-500 dark:text-slate-400">{atrasado.motivo}</p>

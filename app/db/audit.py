@@ -34,9 +34,18 @@ def _get_table_name(obj: Any) -> str:
 def _get_record_id(obj: Any) -> Optional[int]:
     insp = inspect(obj)
     if insp.identity and len(insp.identity) > 0:
-        return int(insp.identity[0])
+        try:
+            return int(insp.identity[0])
+        except (TypeError, ValueError):
+            # Ignore non-integer primary keys to avoid audit failures.
+            return None
     record_id = getattr(obj, "id", None)
-    return int(record_id) if record_id is not None else None
+    if record_id is None:
+        return None
+    try:
+        return int(record_id)
+    except (TypeError, ValueError):
+        return None
 
 
 def _is_audit_log(obj: Any) -> bool:

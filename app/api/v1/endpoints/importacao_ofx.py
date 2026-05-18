@@ -799,7 +799,7 @@ def _coerce_date(valor: Any) -> Optional[date]:
 def _montar_chave_conferencia_quantidade(
     lancamento_ofx: Dict[str, Any],
     conta_id: int,
-) -> Optional[tuple[int, str, str, str, str]]:
+) -> Optional[tuple[int, str, str, str]]:
     if conta_id <= 0:
         return None
 
@@ -816,25 +816,20 @@ def _montar_chave_conferencia_quantidade(
     except Exception:
         return None
 
-    descricao_norm = _normalizar_texto(lancamento_ofx.get("descricao"))
-    if not descricao_norm:
-        return None
-
     return (
         int(conta_id),
         tipo,
         data_base.isoformat(),
         format(valor, "f"),
-        descricao_norm,
     )
 
 
 def _contar_existentes_por_chave_conferencia(
     db: Session,
     empresa_id: int,
-    chave: tuple[int, str, str, str, str],
+    chave: tuple[int, str, str, str],
 ) -> int:
-    conta_id, tipo, data_iso, valor_str, descricao_norm = chave
+    conta_id, tipo, data_iso, valor_str = chave
 
     try:
         data_base = date.fromisoformat(data_iso)
@@ -864,8 +859,6 @@ def _contar_existentes_por_chave_conferencia(
 
     total = 0
     for candidato in candidatos:
-        if _normalizar_texto(candidato.descricao) != descricao_norm:
-            continue
         if not _valor_dentro_tolerancia(_valor_lancamento_existente(candidato), valor):
             continue
         total += 1
@@ -1411,6 +1404,107 @@ class ProcessarArquivoResponse(BaseModel):
     lancamentos_atrasados_encontrados: int
 
 
+class LancamentoDisponivelResumo(BaseModel):
+    id: int
+    descricao: str
+    interessado: Optional[str] = None
+    data_vencimento: str
+    valor_previsto: float
+    centro_custo_id: Optional[int] = None
+    centro_custo_nome: Optional[str] = None
+    status: Optional[str] = None
+    tipo: Optional[str] = None
+
+
+@router.get(
+    "/ofx/lancamentos-disponiveis",
+    response_model=List[LancamentoDisponivelResumo],
+    dependencies=[Depends(require_permission("lancamentos:import"))],
+)
+def listar_lancamentos_disponiveis(
+    tipo: str = Query(...),
+    conta_id: Optional[int] = Query(None),
+    centro_custo_id: Optional[int] = Query(None),
+    data_base: Optional[date] = Query(None),
+    incluir_futuros: bool = Query(False),
+    limite: int = Query(200, ge=1, le=500),
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    tipo_normalizado = str(tipo or "").strip().upper()
+    if not tipo_normalizado:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo obrigatorio")
+
+    data_ref = data_base or date.today()
+    filtros = [
+        Lancamento.empresa_id == empresa_id,
+        Lancamento.is_deleted == False,
+        Lancamento.tipo == tipo_normalizado,
+        Lancamento.status.in_(STATUS_ABERTOS),
+        Lancamento.data_pagamento.is_(None),
+        or_(Lancamento.conciliado == False, Lancamento.conciliado.is_(None)),
+    ]
+    if conta_id:
+        filtros.append(or_(Lancamento.conta_id == conta_id, Lancamento.conta_id.is_(None)))
+    if centro_custo_id:
+        filtros.append(Lancamento.centro_custo_id == centro_custo_id)
+    if not incluir_futuros:
+        filtros.append(Lancamento.data_vencimento <= data_ref)
+
+    candidatos = list(db.exec(
+        select(Lancamento)
+        .where(*filtros)
+        .order_by(Lancamento.data_vencimento.asc())
+        .limit(limite)
+    ).all())
+
+    entidade_ids = {int(item.entidade_id) for item in candidatos if item.entidade_id}
+    centro_ids = {int(item.centro_custo_id) for item in candidatos if item.centro_custo_id}
+
+    entidades_por_id: Dict[int, Entidade] = {}
+    centros_por_id: Dict[int, CentroCusto] = {}
+    if entidade_ids:
+        entidades_por_id = {
+            int(ent.id): ent
+            for ent in db.exec(select(Entidade).where(Entidade.id.in_(entidade_ids))).all()
+            if ent.id is not None
+        }
+    if centro_ids:
+        centros_por_id = {
+            int(cc.id): cc
+            for cc in db.exec(select(CentroCusto).where(CentroCusto.id.in_(centro_ids))).all()
+            if cc.id is not None
+        }
+
+    response: List[LancamentoDisponivelResumo] = []
+    for item in candidatos:
+        interessado = None
+        if item.entidade_id:
+            entidade = entidades_por_id.get(int(item.entidade_id))
+            if entidade and entidade.nome:
+                interessado = entidade.nome
+        centro_nome = None
+        if item.centro_custo_id:
+            centro = centros_por_id.get(int(item.centro_custo_id))
+            if centro and centro.nome:
+                centro_nome = centro.nome
+
+        data_vencimento = item.data_vencimento.isoformat() if item.data_vencimento else ""
+        response.append(LancamentoDisponivelResumo(
+            id=int(item.id),
+            descricao=item.descricao,
+            interessado=interessado,
+            data_vencimento=data_vencimento,
+            valor_previsto=float(item.valor_previsto or 0),
+            centro_custo_id=int(item.centro_custo_id) if item.centro_custo_id is not None else None,
+            centro_custo_nome=centro_nome,
+            status=item.status,
+            tipo=item.tipo,
+        ))
+
+    return response
+
+
 @router.post(
     "/ofx/upload",
     response_model=ProcessarArquivoResponse,
@@ -1585,8 +1679,8 @@ def upload_ofx(
                 continue
             duplicatas_in_file_por_hash[hash_item] = duplicatas_in_file_por_hash.get(hash_item, 0) + 1
 
-        ocorrencias_por_chave_conferencia: Dict[tuple[int, str, str, str, str], int] = {}
-        existentes_por_chave_conferencia: Dict[tuple[int, str, str, str, str], int] = {}
+        ocorrencias_por_chave_conferencia: Dict[tuple[int, str, str, str], int] = {}
+        existentes_por_chave_conferencia: Dict[tuple[int, str, str, str], int] = {}
 
         atrasados_reservados: set[int] = set()
         historico_por_tipo = _agrupar_historico_por_tipo(historico_empresa)

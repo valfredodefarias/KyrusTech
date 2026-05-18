@@ -9,17 +9,15 @@ import re
 import shutil
 import time
 import uuid
-from urllib.parse import urljoin
 from typing import Any, Optional
 
 from loguru import logger
-import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, WebDriverException
+from selenium.common.exceptions import TimeoutException
 from sqlmodel import Session, select
 
 from app.models.anexo_lancamento import AnexoLancamento
@@ -29,7 +27,7 @@ from app.models.lancamento import Lancamento
 from app.models.plano_contas import PlanoContas
 from app.services.importacao_nfe_service import parse_nfe_xml
 from app.api.v1.endpoints.importacao_nfe import (
-    NfeParcelaConfirmar,
+    NfeConfirmarParcela,
     NfeConfirmarRequest,
     NfeItemPersistencia,
     confirmar_importacao_nfe,
@@ -103,14 +101,10 @@ def set_nfstock_schedule(integracao: IntegracaoBancaria) -> None:
 
 def _build_driver(download_path: str) -> webdriver.Chrome:
     options = webdriver.ChromeOptions()
-    options.binary_location = os.getenv("CHROME_BIN", "/usr/bin/chromium")
     options.add_argument("--headless=new")
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-setuid-sandbox")
-    options.add_argument("--no-zygote")
-    options.add_argument("--single-process")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-extensions")
     options.add_experimental_option("excludeSwitches", ["enable-logging"])
@@ -121,30 +115,14 @@ def _build_driver(download_path: str) -> webdriver.Chrome:
         "safebrowsing.enabled": True,
     })
 
-    # 1) Prioriza binário do sistema no container (mais estável em produção)
-    local_driver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-    if os.path.exists(local_driver_path):
-        try:
-            return webdriver.Chrome(service=ChromeService(local_driver_path), options=options)
-        except Exception as exc:
-            logger.warning("Falha ao iniciar chromedriver local ({}): {}", local_driver_path, exc)
-
-    # 2) Tenta webdriver-manager (ambiente dev)
     try:
         from webdriver_manager.chrome import ChromeDriverManager
-        return webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
+        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
     except Exception as exc:
-        logger.warning("Falha ao usar ChromeDriverManager no NFStock: {}. Tentando PATH.", exc)
+        logger.warning("Falha ao usar ChromeDriverManager no NFStock: {}. Usando PATH.", exc)
+        driver = webdriver.Chrome(options=options)
 
-    # 3) Fallback final: PATH
-    try:
-        return webdriver.Chrome(options=options)
-    except Exception as exc:
-        raise RuntimeError(
-            "Não foi possível iniciar o navegador para sincronização NFStock. "
-            "Verifique se Chromium/Chrome e chromedriver estão instalados no container "
-            "e com versões compatíveis."
-        ) from exc
+    return driver
 
 
 def _extract_digits_document(text: str) -> str:
@@ -181,68 +159,17 @@ def _extract_rows(driver: webdriver.Chrome, wait: WebDriverWait) -> list[Nfstock
     return result
 
 
-def _wait_new_download(
-    download_dir: str,
-    previous_files: set[str],
-    timeout_seconds: int = 45,
-    expected_extensions: Optional[set[str]] = None,
-) -> Optional[str]:
+def _wait_new_download(download_dir: str, previous_files: set[str], timeout_seconds: int = 45) -> Optional[str]:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         current = {f for f in os.listdir(download_dir)}
         new_files = [f for f in current - previous_files if not f.endswith(".crdownload")]
-        if expected_extensions:
-            exts = {str(ext).lower() for ext in expected_extensions}
-            new_files = [f for f in new_files if Path(f).suffix.lower() in exts]
         if new_files:
             # mais recente
             new_files.sort(key=lambda name: os.path.getctime(os.path.join(download_dir, name)), reverse=True)
             return os.path.join(download_dir, new_files[0])
         time.sleep(0.4)
     return None
-
-
-def _build_requests_session_from_driver(driver: webdriver.Chrome) -> requests.Session:
-    session = requests.Session()
-    try:
-        user_agent = driver.execute_script("return navigator.userAgent")
-        if user_agent:
-            session.headers.update({"User-Agent": str(user_agent)})
-    except Exception:
-        pass
-
-    for cookie in driver.get_cookies():
-        session.cookies.set(
-            cookie.get("name"),
-            cookie.get("value"),
-            domain=cookie.get("domain"),
-            path=cookie.get("path", "/"),
-        )
-    return session
-
-
-def _download_with_driver_session(
-    *,
-    driver: webdriver.Chrome,
-    href: str,
-    download_dir: str,
-    nf_number: str,
-    extension: str,
-) -> Optional[str]:
-    if not href or str(href).lower().startswith("javascript"):
-        return None
-
-    url = urljoin(driver.current_url, href)
-    session = _build_requests_session_from_driver(driver)
-    response = session.get(url, timeout=60, allow_redirects=True)
-    if response.status_code >= 400 or not response.content:
-        return None
-
-    ext = extension if extension.startswith(".") else f".{extension}"
-    out_name = f"nf_{str(nf_number or '').strip()}_{uuid.uuid4().hex}{ext}"
-    out_path = Path(download_dir) / out_name
-    out_path.write_bytes(response.content)
-    return str(out_path)
 
 
 def _download_note_files(driver: webdriver.Chrome, wait: WebDriverWait, download_dir: str, nf_number: str) -> tuple[Optional[str], Optional[str]]:
@@ -257,21 +184,13 @@ def _download_note_files(driver: webdriver.Chrome, wait: WebDriverWait, download
     pdf_path = None
 
     # XML
+    before = set(os.listdir(download_dir))
     xml_link = wait.until(EC.element_to_be_clickable((By.ID, "link-download-xml")))
-    xml_href = str(xml_link.get_attribute("href") or "").strip()
-    xml_path = _download_with_driver_session(
-        driver=driver,
-        href=xml_href,
-        download_dir=download_dir,
-        nf_number=nf_number,
-        extension=".xml",
-    )
-    if not xml_path:
-        before = set(os.listdir(download_dir))
-        driver.execute_script("arguments[0].click();", xml_link)
-        xml_path = _wait_new_download(download_dir, before, timeout_seconds=50, expected_extensions={".xml"})
+    driver.execute_script("arguments[0].click();", xml_link)
+    xml_path = _wait_new_download(download_dir, before, timeout_seconds=50)
 
     # PDF - tenta seletor por ID e CSS alternativo
+    before_pdf = set(os.listdir(download_dir))
     pdf_link = None
     for locator in [
         (By.ID, "link-download-pdf"),
@@ -285,18 +204,8 @@ def _download_note_files(driver: webdriver.Chrome, wait: WebDriverWait, download
             continue
 
     if pdf_link is not None:
-        pdf_href = str(pdf_link.get_attribute("href") or "").strip()
-        pdf_path = _download_with_driver_session(
-            driver=driver,
-            href=pdf_href,
-            download_dir=download_dir,
-            nf_number=nf_number,
-            extension=".pdf",
-        )
-        if not pdf_path:
-            before_pdf = set(os.listdir(download_dir))
-            driver.execute_script("arguments[0].click();", pdf_link)
-            pdf_path = _wait_new_download(download_dir, before_pdf, timeout_seconds=50, expected_extensions={".pdf"})
+        driver.execute_script("arguments[0].click();", pdf_link)
+        pdf_path = _wait_new_download(download_dir, before_pdf, timeout_seconds=50)
 
     return xml_path, pdf_path
 
@@ -413,7 +322,7 @@ def _build_confirm_request(db: Session, *, empresa_id: int, centro_custo_id: Opt
     ]
 
     parcelas = [
-        NfeParcelaConfirmar(
+        NfeConfirmarParcela(
             indice=parcela.index,
             numero_parcela=parcela.numero_label,
             data_vencimento=parcela.data_vencimento,
@@ -458,14 +367,7 @@ def sincronizar_nfstock(
     download_dir = Path("/tmp") / f"kyrus_nfstock_{empresa_id}_{integracao.id}_{int(time.time())}"
     download_dir.mkdir(parents=True, exist_ok=True)
 
-    try:
-        driver = _build_driver(str(download_dir))
-    except (WebDriverException, RuntimeError) as exc:
-        logger.error("[NFSTOCK] Falha ao iniciar WebDriver para integração {}: {}", integracao.id, exc)
-        raise RuntimeError(
-            "Falha ao iniciar navegador da integração NFStock no servidor. "
-            "Confirme a instalação de Chromium/Chrome e chromedriver no ambiente."
-        ) from exc
+    driver = _build_driver(str(download_dir))
     wait = WebDriverWait(driver, 30)
 
     baixadas = 0
@@ -502,8 +404,7 @@ def sincronizar_nfstock(
             try:
                 xml_path, pdf_path = _download_note_files(driver, wait, str(download_dir), row.numero)
                 if not xml_path or not os.path.exists(xml_path):
-                    arquivos = sorted(os.listdir(download_dir))
-                    logger.warning("[NFSTOCK] XML não encontrado para NF {} | arquivos no diretório: {}", row.numero, arquivos)
+                    logger.warning("[NFSTOCK] XML não encontrado para NF {}", row.numero)
                     continue
 
                 with open(xml_path, "rb") as f:

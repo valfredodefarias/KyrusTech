@@ -3,7 +3,6 @@ import io
 import json
 import os
 import re
-import threading
 import uuid
 import zipfile
 import unicodedata
@@ -11,7 +10,6 @@ from pathlib import Path
 from typing import List, Optional, Any, cast, Tuple, Callable, Iterator
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from difflib import SequenceMatcher
@@ -33,6 +31,7 @@ from app.models.conta import Conta
 from app.models.centro_custo import CentroCusto
 from app.models.entidade import Entidade
 from app.models.anexo_lancamento import AnexoLancamento
+from app.models.import_job import ImportJob
 
 # Dependências de Usuário e Empresa
 from app.api.deps import get_current_user, get_empresa_id_from_user, require_permission
@@ -67,42 +66,33 @@ IMPORT_PREPARE_CHUNK_SIZE = 2000
 IMPORT_MAX_WORKERS = max(2, min(4, os.cpu_count() or 2))
 
 
-@dataclass
-class ImportJobState:
-    job_id: str
-    kind: str
-    empresa_id: int
-    user_id: int
-    filename: str
-    status: str = "PENDING"
-    progress: int = 0
-    message: str = "Aguardando processamento"
-    error: Optional[str] = None
-    result: Optional[dict[str, Any]] = None
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
-IMPORT_JOBS: dict[str, ImportJobState] = {}
-IMPORT_JOBS_LOCK = threading.Lock()
-
-
-def _create_import_job(kind: str, empresa_id: int, user_id: int, filename: str) -> ImportJobState:
-    job = ImportJobState(
+def _create_import_job(db: Session, kind: str, empresa_id: int, user_id: int, filename: str) -> ImportJob:
+    job = ImportJob(
         job_id=str(uuid.uuid4()),
         kind=kind,
         empresa_id=empresa_id,
         user_id=user_id,
         filename=filename,
     )
-    with IMPORT_JOBS_LOCK:
-        IMPORT_JOBS[job.job_id] = job
+    db.add(job)
+    db.commit()
+    db.refresh(job)
     return job
 
 
-def _update_import_job(job_id: str, *, status: Optional[str] = None, progress: Optional[int] = None, message: Optional[str] = None, error: Optional[str] = None, result: Optional[dict[str, Any]] = None) -> None:
-    with IMPORT_JOBS_LOCK:
-        job = IMPORT_JOBS.get(job_id)
+def _update_import_job(
+    job_id: str,
+    *,
+    status: Optional[str] = None,
+    progress: Optional[int] = None,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+    result: Optional[dict[str, Any]] = None,
+) -> None:
+    def _apply_update(session: Session) -> None:
+        job = session.get(ImportJob, job_id)
         if not job:
             return
         if status is not None:
@@ -115,11 +105,19 @@ def _update_import_job(job_id: str, *, status: Optional[str] = None, progress: O
             job.error = error
         if result is not None:
             job.result = result
-        job.updated_at = datetime.utcnow().isoformat()
+        job.updated_at = datetime.utcnow()
+        session.add(job)
+        session.commit()
+
+    with Session(engine) as session:
+        _apply_update(session)
 
 
-def _serialize_import_job(job: ImportJobState) -> dict[str, Any]:
-    return asdict(job)
+def _serialize_import_job(job: ImportJob) -> dict[str, Any]:
+    payload = job.dict()
+    payload["created_at"] = job.created_at.isoformat() if job.created_at else None
+    payload["updated_at"] = job.updated_at.isoformat() if job.updated_at else None
+    return payload
 
 
 def _load_import_system_rows(session: Session, empresa_id: int) -> dict[str, list[dict[str, Any]]]:
@@ -1924,13 +1922,14 @@ def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session =
 def analisar_arquivo_importacao_async(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     empresa_id, user_id = require_empresa_user(current_user)
     if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser XLSX ou XLS")
     file_bytes = file.file.read()
-    job = _create_import_job("ANALYZE", empresa_id, user_id, file.filename)
+    job = _create_import_job(db, "ANALYZE", empresa_id, user_id, file.filename)
     background_tasks.add_task(_run_import_analysis_job, job.job_id, empresa_id, user_id, file_bytes)
     return {"job_id": job.job_id, "status": job.status}
 
@@ -1939,10 +1938,13 @@ def analisar_arquivo_importacao_async(
     "/importar/jobs/{job_id}",
     dependencies=[Depends(require_permission("lancamentos:import"))],
 )
-def obter_status_job_importacao(job_id: str, current_user: Usuario = Depends(get_current_user)):
+def obter_status_job_importacao(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
     empresa_id, user_id = require_empresa_user(current_user)
-    with IMPORT_JOBS_LOCK:
-        job = IMPORT_JOBS.get(job_id)
+    job = db.get(ImportJob, job_id)
     if not job or job.empresa_id != empresa_id or job.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job de importação não encontrado")
     return _serialize_import_job(job)
@@ -2002,6 +2004,7 @@ def importar_executar_async(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     mapeamento_json: str = Form(...),
+    db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
@@ -2013,6 +2016,6 @@ def importar_executar_async(
 
     empresa_id, user_id = require_empresa_user(current_user)
     file_bytes = file.file.read()
-    job = _create_import_job("EXECUTE", empresa_id, user_id, file.filename)
+    job = _create_import_job(db, "EXECUTE", empresa_id, user_id, file.filename)
     background_tasks.add_task(_run_import_execute_job, job.job_id, empresa_id, user_id, file_bytes, mapeamento)
     return {"job_id": job.job_id, "status": job.status}

@@ -37,6 +37,7 @@ from app.models.centro_custo import CentroCusto
 from app.models.cartao import Cartao
 from app.models.lancamento import Lancamento
 from app.models.anexo_lancamento import AnexoLancamento
+from app.models.import_job import ImportJob
 from app.models.integracao_bancaria import IntegracaoBancaria
 from app.models.mapeamento_categoria import MapeamentoCategoria
 from app.models.dashboard_view_config import DashboardViewConfig

@@ -870,12 +870,13 @@ export function ImportacaoOfx() {
     return lancamentosEditados.find((item) => item.linha_arquivo === buscaDisponiveis.linhaArquivo) || null;
   }, [buscaDisponiveis.linhaArquivo, lancamentosEditados]);
 
+  const termoBuscaDisponiveis = useMemo(() => normalizarDescricao(buscaDisponiveis.termo), [buscaDisponiveis.termo]);
+
   const itensDisponiveisFiltrados = useMemo(() => {
     if (!lancamentoBuscaAberto) {
       return [] as LancamentoDisponivel[];
     }
 
-    const termoBuscaDisponiveis = normalizarDescricao(buscaDisponiveis.termo);
     return buscaDisponiveis.itens.filter((item) => {
       if (!termoBuscaDisponiveis) return true;
       const haystack = normalizarDescricao(`${item.descricao} ${item.interessado || ''}`);

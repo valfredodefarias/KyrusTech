@@ -2333,7 +2333,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
 
       <div className="flex min-h-0 flex-1 flex-col" style={{ paddingTop: headerHeightPx > 0 ? `${headerHeightPx}px` : undefined }}>
 
-      <div className="px-4 sm:px-6 pt-3 pb-2 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 lg:hidden">
+      <div className="px-4 sm:px-6 pt-3 pb-2 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
         <div className="flex gap-2 overflow-x-auto custom-scrollbar">
           {quickFilterOptions.map(f => (
             <button key={String(f.id)} onClick={()=>setFiltroRapido(f.id as any)}
@@ -2354,7 +2354,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
         </div>
       </div>
 
-      <div className="lg:hidden">
+      <div>
         <div className="px-4 sm:px-6 pt-2 pb-1">
           <button
             type="button"

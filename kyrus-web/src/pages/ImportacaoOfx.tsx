@@ -902,7 +902,7 @@ export function ImportacaoOfx() {
     });
   }, [buscaDisponiveis.itens, buscaDisponiveis.termo, lancamentoBuscaAberto]);
 
-  const buscaDisponiveisAberta = buscaAberta && !!lancamentoBuscaAberto;
+  const buscaDisponiveisAberta = !!lancamentoBuscaAberto;
 
   const updateLancamento = (linhaArquivo: number, patch: Partial<LancamentoEditado>) => {
     setLancamentosEditados((prev) => prev.map((item) => (
@@ -1269,7 +1269,6 @@ export function ImportacaoOfx() {
               const sugestaoPendente = !descartado && !duplicadoAnterior && conciliacaoAutomatica && !lanc.sugestao_confirmada;
               const conciliadoVisual = !descartado && !duplicadoAnterior && Boolean(lanc.sugestao_confirmada);
               const criarNovoVisual = !descartado && !duplicadoAnterior && !conciliadoVisual && !sugestaoPendente && lanc.sugestao_acao === 'CRIAR_NOVO';
-              const buscaAberta = buscaDisponiveis.linhaArquivo === lanc.linha_arquivo;
               const acao = duplicadoAnterior
                 ? {
                   label: 'Ja importado anteriormente',

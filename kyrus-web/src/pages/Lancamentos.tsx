@@ -2278,7 +2278,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
       
       {/* 1. TOP HEADER */}
       <header ref={lancamentosHeaderRef} className="fixed top-[66px] left-0 right-0 md:left-[76px] bg-white/95 dark:bg-slate-800/95 backdrop-blur border-b border-slate-200 dark:border-slate-700 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-20 shadow-md">
-        <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
+        <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1 shadow-inner border border-slate-200 dark:border-transparent">
             <button onClick={()=>setMesAtual(new Date(mesAtual.setMonth(mesAtual.getMonth()-1)))} className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md text-slate-600 dark:text-slate-300 transition-colors"><ChevronLeft className="w-4 h-4"/></button>
@@ -2288,7 +2288,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
           <button onClick={()=>loadLancamentos(undefined, undefined, { force: true })} className="p-2 text-slate-500 hover:text-blue-500 border border-slate-300 dark:border-slate-600 rounded-lg hover:border-blue-500 transition-colors" title="Sincronizar lançamentos"><RefreshCw className={`w-4 h-4 ${loading?'animate-spin':''}`}/></button>
           <button onClick={syncCadastros} className="p-2 text-slate-500 hover:text-emerald-500 border border-slate-300 dark:border-slate-600 rounded-lg hover:border-emerald-500 transition-colors" title="Sincronizar cadastros"><Layers className="w-4 h-4"/></button>
           </div>
-          <div className="relative hidden min-w-0 flex-1 xl:block xl:max-w-xl">
+          <div className="relative hidden min-w-0 flex-1 lg:block lg:max-w-xl">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
@@ -2300,7 +2300,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
           </div>
         </div>
 
-        <div className="flex-1 w-full flex flex-col sm:flex-row gap-2 sm:items-center xl:hidden">
+        <div className="flex-1 w-full flex flex-col sm:flex-row gap-2 sm:items-center lg:hidden">
             <div className="relative flex-1">
                 <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500"/>
                 <input type="text" placeholder="Pesquisar descrição, data, categoria, interessado ou valor" className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition" value={filtroTexto} onChange={e=>setFiltroTexto(e.target.value)}/>
@@ -2325,15 +2325,15 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
             </select>
           </div>
           <button onClick={()=>setShowTransfer(true)} className="shrink-0 inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"><ArrowRightLeft className="w-4 h-4"/> <span className="hidden lg:inline">Transf.</span></button>
-          <button onClick={() => setShowFiltrosSidebar((prev) => !prev)} className={`hidden shrink-0 xl:inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold transition-all dark:border-slate-700 ${showFiltrosSidebar ? 'border-blue-600 bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}><Filter className="w-4 h-4"/> Filtros</button>
-          <button onClick={()=>setShowFiltrosSidebar(true)} className={`xl:hidden shrink-0 inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold transition-all dark:border-slate-600 ${showFiltrosSidebar ? 'border-blue-600 bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'}`}><Filter className="w-4 h-4"/> Filtros</button>
+          <button onClick={() => setShowFiltrosSidebar((prev) => !prev)} className={`hidden shrink-0 lg:inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold transition-all dark:border-slate-700 ${showFiltrosSidebar ? 'border-blue-600 bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}><Filter className="w-4 h-4"/> Filtros</button>
+          <button onClick={()=>setShowFiltrosSidebar(true)} className={`lg:hidden shrink-0 inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold transition-all dark:border-slate-600 ${showFiltrosSidebar ? 'border-blue-600 bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'}`}><Filter className="w-4 h-4"/> Filtros</button>
           <button onClick={()=>openDrawer()} className="shrink-0 inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 hover:brightness-110"><Plus className="w-4 h-4"/> Novo</button>
         </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col" style={{ paddingTop: headerHeightPx > 0 ? `${headerHeightPx}px` : undefined }}>
 
-      <div className="px-4 sm:px-6 pt-3 pb-2 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 xl:hidden">
+      <div className="px-4 sm:px-6 pt-3 pb-2 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 lg:hidden">
         <div className="flex gap-2 overflow-x-auto custom-scrollbar">
           {quickFilterOptions.map(f => (
             <button key={String(f.id)} onClick={()=>setFiltroRapido(f.id as any)}
@@ -2354,7 +2354,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
         </div>
       </div>
 
-      <div className="xl:hidden">
+      <div className="lg:hidden">
         <div className="px-4 sm:px-6 pt-2 pb-1">
           <button
             type="button"

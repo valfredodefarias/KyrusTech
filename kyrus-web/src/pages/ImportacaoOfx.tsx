@@ -902,6 +902,8 @@ export function ImportacaoOfx() {
     });
   }, [buscaDisponiveis.itens, buscaDisponiveis.termo, lancamentoBuscaAberto]);
 
+  const buscaDisponiveisAberta = buscaAberta && !!lancamentoBuscaAberto;
+
   const updateLancamento = (linhaArquivo: number, patch: Partial<LancamentoEditado>) => {
     setLancamentosEditados((prev) => prev.map((item) => (
       item.linha_arquivo === linhaArquivo
@@ -1408,8 +1410,26 @@ export function ImportacaoOfx() {
                       </div>
                     </div>
 
-                    {buscaAberta && lancamentoBuscaAberto ? (
-                      <div className="mt-4 rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 xl:col-span-2">
+                    <div className="min-w-60 rounded-[22px] border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                        <Landmark className="h-4 w-4" />
+                        Movimento bancário
+                      </div>
+                      <p className={`mt-3 text-2xl font-black ${valorClass}`}>{formatCurrency(Number(lanc.valor || 0))}</p>
+                    </div>
+                  </div>
+
+                  {lanc.duplicata_resumo && (
+                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
+                      <p className="font-bold text-slate-800 dark:text-white">Já existe um lançamento equivalente para esta conta.</p>
+                      <p className="mt-1">{lanc.duplicata_resumo.descricao}</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{lanc.duplicata_resumo.motivo || 'Movimento repetido.'}</p>
+                    </div>
+                  )}
+
+                  <div className="mt-4">
+                    {buscaDisponiveisAberta && lancamentoBuscaAberto ? (
+                      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
                         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-4 py-4 dark:border-slate-800">
                           <div>
                             <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-600 dark:text-emerald-300">
@@ -1563,39 +1583,21 @@ export function ImportacaoOfx() {
                           </div>
                         </div>
                       </div>
-                    ) : null}
-
-                    <div className="min-w-60 rounded-[22px] border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
-                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
-                        <Landmark className="h-4 w-4" />
-                        Movimento bancário
-                      </div>
-                      <p className={`mt-3 text-2xl font-black ${valorClass}`}>{formatCurrency(Number(lanc.valor || 0))}</p>
-                    </div>
-                  </div>
-
-                  {lanc.duplicata_resumo && (
-                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
-                      <p className="font-bold text-slate-800 dark:text-white">Já existe um lançamento equivalente para esta conta.</p>
-                      <p className="mt-1">{lanc.duplicata_resumo.descricao}</p>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{lanc.duplicata_resumo.motivo || 'Movimento repetido.'}</p>
-                    </div>
-                  )}
-
-                  {lanc.sugestao_acao === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_resumo && (
-                    <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
-                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">Melhor previsto encontrado</p>
-                      <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                        <div>
-                          {lanc.lancamento_previsto_resumo.interessado ? (
-                            <p className="text-xs font-bold text-slate-900 dark:text-white">Interessado: {lanc.lancamento_previsto_resumo.interessado}</p>
-                          ) : null}
-                          <p className="font-bold text-slate-900 dark:text-white">{lanc.lancamento_previsto_resumo.descricao}</p>
-                          <p className="text-sm text-slate-600 dark:text-slate-300">Vence em {formatDate(lanc.lancamento_previsto_resumo.data_vencimento)} • {formatCurrency(lanc.lancamento_previsto_resumo.valor_previsto)}</p>
+                    ) : lanc.sugestao_acao === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_resumo ? (
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">Melhor previsto encontrado</p>
+                        <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            {lanc.lancamento_previsto_resumo.interessado ? (
+                              <p className="text-xs font-bold text-slate-900 dark:text-white">Interessado: {lanc.lancamento_previsto_resumo.interessado}</p>
+                            ) : null}
+                            <p className="font-bold text-slate-900 dark:text-white">{lanc.lancamento_previsto_resumo.descricao}</p>
+                            <p className="text-sm text-slate-600 dark:text-slate-300">Vence em {formatDate(lanc.lancamento_previsto_resumo.data_vencimento)} • {formatCurrency(lanc.lancamento_previsto_resumo.valor_previsto)}</p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    ) : null}
+                  </div>
 
                   {lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' && !!lanc.lancamentos_atrasados_resumo?.length && (
                     <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">

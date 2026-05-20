@@ -972,11 +972,6 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
 
   const getFullLogoUrl = (url?: string | null) => toPublicAssetUrl(url);
 
-  const getContaSaldo = (conta: any) => {
-    const saldo = Number(conta?.saldo_atual ?? conta?.saldo ?? conta?.saldo_disponivel ?? conta?.saldo_inicial ?? 0);
-    return Number.isFinite(saldo) ? saldo : 0;
-  };
-
   const getTransferContaLabel = (conta: any) => conta?.banco || conta?.nome || 'Conta bancária';
 
   const renderTransferContaButton = (conta: any, role: 'origem' | 'destino') => {

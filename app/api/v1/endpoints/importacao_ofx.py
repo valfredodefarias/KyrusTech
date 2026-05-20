@@ -315,7 +315,11 @@ def _normalizar_interessado_final(texto: Optional[str]) -> str:
         return normalizado
 
     interessado = _title_case_inteligente(tokens)
-    return interessado or normalizado
+    if _interessado_tem_confianca(interessado):
+        return interessado
+    if _interessado_tem_confianca(normalizado):
+        return normalizado
+    return ""
 
 
 def _extrair_nome_empresa(tokens: List[str]) -> str:
@@ -463,7 +467,11 @@ def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
         ):
             return interessado_descricao
 
-        return interessado_candidato
+        if _interessado_tem_confianca(interessado_candidato):
+            return interessado_candidato
+        if _interessado_tem_confianca(interessado_descricao):
+            return interessado_descricao
+        return ""
 
     return interessado_descricao
 
@@ -504,15 +512,20 @@ def _interessado_tem_confianca(nome: Optional[str]) -> bool:
     if not tokens:
         return False
 
-    alpha_tokens = [token for token in tokens if re.search(r"[A-Z]", token)]
-    if len(alpha_tokens) < 2:
-        return False
+    alpha_tokens = [
+        token
+        for token in tokens
+        if re.search(r"[A-Z]", token)
+        and token not in TOKENS_RUIDO_INTERESSADO
+        and token not in TOKENS_GENERICOS_INTERESSADO
+    ]
+    if len(alpha_tokens) >= 2:
+        return True
 
-    ruido = sum(1 for token in alpha_tokens if token in TOKENS_RUIDO_INTERESSADO or token in TOKENS_GENERICOS_INTERESSADO)
-    if ruido >= max(2, len(alpha_tokens) // 2):
-        return False
+    if len(alpha_tokens) == 1 and len(alpha_tokens[0]) >= 5 and not re.search(r"\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b", texto):
+        return True
 
-    return True
+    return False
 
 
 def _texto_contem_todos(texto_normalizado: str, termos: tuple[str, ...]) -> bool:
@@ -704,7 +717,11 @@ def _buscar_duplicata_historica(
                 Lancamento.data_vencimento.between(data_inicio, data_fim),
             ),
             or_(
-                Lancamento.valor_pago.between(valor_min, valor_max),
+            if _interessado_tem_confianca(interessado_candidato):
+                return interessado_candidato
+            if _interessado_tem_confianca(interessado_descricao):
+                return interessado_descricao
+            return ""
                 Lancamento.valor_previsto.between(valor_min, valor_max),
             ),
         )

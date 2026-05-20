@@ -1139,12 +1139,29 @@ def listar_nfes_importadas(
     page_size: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None),
     status_filtro: str = Query("TODOS", alias="status", pattern="^(TODOS|AGUARDANDO_ENTREGA|ENTREGUE|CANCELADA)$"),
+    centro_custo_id: Optional[int] = Query(None, ge=1),
+    data_emissao_inicio: Optional[str] = Query(None),
+    data_emissao_fim: Optional[str] = Query(None),
     order_by: str = Query("data", pattern="^(data|valor|descricao|status)$"),
     order_dir: str = Query("desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     termo_busca = str(search or "").strip()
+
+    def _parse_query_date(value: Optional[str], label: str) -> Optional[date]:
+        if not value:
+            return None
+        try:
+            return date.fromisoformat(str(value).strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"{label} invalida. Use o formato AAAA-MM-DD.") from exc
+
+    inicio_emissao = _parse_query_date(data_emissao_inicio, "Data de emissao inicial")
+    fim_emissao = _parse_query_date(data_emissao_fim, "Data de emissao final")
+    if inicio_emissao and fim_emissao and inicio_emissao > fim_emissao:
+        raise HTTPException(status_code=400, detail="Data de emissao inicial nao pode ser maior que a final.")
+
     group_key = func.coalesce(Lancamento.id_parcelamento, func.concat("NFE-ID-", cast(Lancamento.id, String)))
     total_parcelas_expr = func.count(Lancamento.id)
     total_pagas_expr = func.sum(case((Lancamento.status == "PAGO", 1), else_=0))
@@ -1198,6 +1215,15 @@ def listar_nfes_importadas(
                 & (~Lancamento.observacao.ilike("%Situacao CANCELADA%"))
             )
         )
+
+    if centro_custo_id is not None:
+        grouped_stmt = grouped_stmt.where(Lancamento.centro_custo_id == centro_custo_id)
+
+    if inicio_emissao is not None:
+        grouped_stmt = grouped_stmt.where(Lancamento.data_competencia >= inicio_emissao)
+
+    if fim_emissao is not None:
+        grouped_stmt = grouped_stmt.where(Lancamento.data_competencia <= fim_emissao)
 
     grouped_stmt = grouped_stmt.group_by(group_key)
 

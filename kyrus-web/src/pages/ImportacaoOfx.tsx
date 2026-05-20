@@ -48,6 +48,7 @@ interface ContaItem {
   banco?: string | null;
   logo_url?: string | null;
   tipo_integracao?: string | null;
+  centro_custo_id?: number | null;
   status?: 'ATIVO' | 'INATIVO' | string;
 }
 
@@ -57,7 +58,13 @@ interface CartaoItem {
   bandeira?: string | null;
   dia_fechamento: number;
   dia_vencimento: number;
+  centro_custo_id?: number | null;
   status?: 'ATIVO' | 'INATIVO' | string;
+}
+
+interface CentroCustoItem {
+  id: number;
+  nome: string;
 }
 
 interface CategoriaItem {
@@ -366,6 +373,7 @@ export function ImportacaoOfx() {
   const [searchParams] = useSearchParams();
   const [contas, setContas] = useState<ContaItem[]>([]);
   const [cartoes, setCartoes] = useState<CartaoItem[]>([]);
+  const [centrosCusto, setCentrosCusto] = useState<CentroCustoItem[]>([]);
   const [modoImportacao, setModoImportacao] = useState<'CONTA' | 'CARTAO'>('CONTA');
   const [contaId, setContaId] = useState<number | ''>('');
   const [cartaoId, setCartaoId] = useState<number | ''>('');
@@ -417,12 +425,14 @@ export function ImportacaoOfx() {
   useEffect(() => {
     async function loadContas() {
       try {
-        const [contasRes, cartoesRes] = await Promise.all([
+        const [contasRes, cartoesRes, centrosRes] = await Promise.all([
           api.get<ContaItem[]>('/contas/?include_saldo=false'),
           api.get<CartaoItem[]>('/cartoes/'),
+          api.get<CentroCustoItem[]>('/centro-custo/'),
         ]);
         setContas(normalizeListResponse<ContaItem>(contasRes.data));
         setCartoes(normalizeListResponse<CartaoItem>(cartoesRes.data));
+        setCentrosCusto(normalizeListResponse<CentroCustoItem>(centrosRes.data));
       } catch (error) {
         console.error('Erro ao carregar contas/cartoes', error);
       }
@@ -478,6 +488,13 @@ export function ImportacaoOfx() {
     () => cartoes.find((c) => c.id === cartaoId),
     [cartaoId, cartoes]
   );
+
+  const centroCustoPadraoBusca = useMemo(() => {
+    if (modoImportacao === 'CONTA') {
+      return contaSelecionada?.centro_custo_id ?? null;
+    }
+    return cartaoSelecionado?.centro_custo_id ?? null;
+  }, [modoImportacao, contaSelecionada, cartaoSelecionado]);
 
   const contasAtivas = useMemo(
     () => contas.filter((conta) => String(conta.status || 'ATIVO').toUpperCase() !== 'INATIVO'),
@@ -583,6 +600,7 @@ export function ImportacaoOfx() {
   const carregarLancamentosDisponiveis = async (
     lanc: LancamentoEditado,
     incluirFuturos: boolean,
+    centroCustoId: number | null,
   ) => {
     const tipo = String(lanc.tipo || '').toUpperCase();
     const dataBase = lanc.data;
@@ -603,7 +621,7 @@ export function ImportacaoOfx() {
       tipo,
       dataBase,
       incluirFuturos,
-      centroCustoId: lanc.centro_custo_id ?? null,
+      centroCustoId,
     }));
 
     try {
@@ -615,8 +633,8 @@ export function ImportacaoOfx() {
       if (modoImportacao === 'CONTA' && contaId) {
         params.conta_id = Number(contaId);
       }
-      if (lanc.centro_custo_id) {
-        params.centro_custo_id = Number(lanc.centro_custo_id);
+      if (centroCustoId) {
+        params.centro_custo_id = Number(centroCustoId);
       }
 
       const { data } = await api.get<LancamentoDisponivel[]>('/importacao/ofx/lancamentos-disponiveis', { params });
@@ -636,6 +654,7 @@ export function ImportacaoOfx() {
   };
 
   const abrirBuscaDisponiveis = (lanc: LancamentoEditado) => {
+    const centroCustoInicial = lanc.centro_custo_id ?? centroCustoPadraoBusca;
     const selecionadosIniciais = (() => {
       if (lanc.sugestao_acao === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_id) {
         return [Number(lanc.lancamento_previsto_id)];
@@ -655,11 +674,11 @@ export function ImportacaoOfx() {
       incluirFuturos: prev.linhaArquivo === lanc.linha_arquivo ? prev.incluirFuturos : false,
       tipo: String(lanc.tipo || '').toUpperCase(),
       dataBase: lanc.data,
-      centroCustoId: lanc.centro_custo_id ?? null,
+      centroCustoId: centroCustoInicial,
       error: null,
     }));
 
-    carregarLancamentosDisponiveis(lanc, false);
+    carregarLancamentosDisponiveis(lanc, false, centroCustoInicial);
   };
 
   const handleUpload = async () => {
@@ -844,6 +863,26 @@ export function ImportacaoOfx() {
     });
   }, [busca, filtroStatus, lancamentosEditados]);
 
+  const lancamentoBuscaAberto = useMemo(() => {
+    if (buscaDisponiveis.linhaArquivo == null) {
+      return null;
+    }
+    return lancamentosEditados.find((item) => item.linha_arquivo === buscaDisponiveis.linhaArquivo) || null;
+  }, [buscaDisponiveis.linhaArquivo, lancamentosEditados]);
+
+  const itensDisponiveisFiltrados = useMemo(() => {
+    if (!lancamentoBuscaAberto) {
+      return [] as LancamentoDisponivel[];
+    }
+
+    const termoBuscaDisponiveis = normalizarDescricao(buscaDisponiveis.termo);
+    return buscaDisponiveis.itens.filter((item) => {
+      if (!termoBuscaDisponiveis) return true;
+      const haystack = normalizarDescricao(`${item.descricao} ${item.interessado || ''}`);
+      return haystack.includes(termoBuscaDisponiveis);
+    });
+  }, [buscaDisponiveis.itens, buscaDisponiveis.termo, lancamentoBuscaAberto]);
+
   const updateLancamento = (linhaArquivo: number, patch: Partial<LancamentoEditado>) => {
     setLancamentosEditados((prev) => prev.map((item) => (
       item.linha_arquivo === linhaArquivo
@@ -906,6 +945,7 @@ export function ImportacaoOfx() {
       error: null,
       loading: false,
     }));
+    setBuscaSelecionados([]);
   };
 
   const aplicarSelecaoDisponiveis = (lanc: LancamentoEditado) => {
@@ -1209,14 +1249,6 @@ export function ImportacaoOfx() {
               const conciliadoVisual = !descartado && !duplicadoAnterior && Boolean(lanc.sugestao_confirmada);
               const criarNovoVisual = !descartado && !duplicadoAnterior && !conciliadoVisual && !sugestaoPendente && lanc.sugestao_acao === 'CRIAR_NOVO';
               const buscaAberta = buscaDisponiveis.linhaArquivo === lanc.linha_arquivo;
-              const termoBuscaDisponiveis = buscaAberta ? buscaDisponiveis.termo : '';
-              const itensDisponiveisFiltrados = buscaAberta
-                ? buscaDisponiveis.itens.filter((item) => {
-                  if (!termoBuscaDisponiveis) return true;
-                  const haystack = normalizarDescricao(`${item.descricao} ${item.interessado || ''}`);
-                  return haystack.includes(normalizarDescricao(termoBuscaDisponiveis));
-                })
-                : [];
               const acao = duplicadoAnterior
                 ? {
                   label: 'Ja importado anteriormente',
@@ -1358,11 +1390,11 @@ export function ImportacaoOfx() {
                     </div>
 
                     {buscaAberta ? (
-                      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
-                            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Lancamentos disponiveis</p>
-                            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Selecione pagamentos/recebimentos atrasados ou vencendo hoje.</p>
+                            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Busca aberta abaixo</p>
+                            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">O painel completo ficou na largura da página para filtrar com rolagem interna e evitar bagunça no card.</p>
                           </div>
                           <button
                             type="button"
@@ -1371,112 +1403,6 @@ export function ImportacaoOfx() {
                           >
                             Fechar
                           </button>
-                        </div>
-
-                        <div className="mt-4 flex flex-wrap items-center gap-3">
-                          <div className="flex min-w-[220px] flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-950">
-                            <Search className="h-4 w-4 text-slate-400" />
-                            <input
-                              value={termoBuscaDisponiveis}
-                              onChange={(event) => setBuscaDisponiveis((prev) => ({ ...prev, termo: event.target.value }))}
-                              placeholder="Filtrar por descricao ou interessado"
-                              className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
-                            />
-                          </div>
-
-                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                            <input
-                              type="checkbox"
-                              checked={buscaDisponiveis.incluirFuturos}
-                              onChange={(event) => {
-                                const incluir = event.target.checked;
-                                setBuscaDisponiveis((prev) => ({ ...prev, incluirFuturos: incluir }));
-                                carregarLancamentosDisponiveis(lanc, incluir);
-                              }}
-                            />
-                            Incluir futuros (opcional)
-                          </label>
-                        </div>
-
-                        {buscaDisponiveis.loading ? (
-                          <div className="mt-4 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Buscando lancamentos...
-                          </div>
-                        ) : buscaDisponiveis.error ? (
-                          <p className="mt-4 text-sm text-rose-600 dark:text-rose-300">{buscaDisponiveis.error}</p>
-                        ) : (
-                          <div className="mt-4 space-y-2">
-                            {itensDisponiveisFiltrados.length === 0 ? (
-                              <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum lancamento disponivel para este filtro.</p>
-                            ) : (
-                              itensDisponiveisFiltrados.map((item) => {
-                                const jaSelecionado = buscaSelecionados.includes(item.id);
-                                const linhasComMesmoId = selecionadosConfirmadosPorId.get(item.id);
-                                const selecionadoEmOutro = Boolean(
-                                  linhasComMesmoId && Array.from(linhasComMesmoId).some((linha) => linha !== lanc.linha_arquivo),
-                                );
-                                const bloqueado = !jaSelecionado && selecionadoEmOutro;
-                                return (
-                                  <label
-                                    key={`disponivel-${lanc.linha_arquivo}-${item.id}`}
-                                    className={`flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950 ${bloqueado ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={jaSelecionado}
-                                      disabled={bloqueado}
-                                      onChange={(event) => {
-                                        if (bloqueado) return;
-                                        setBuscaSelecionados((prev) => {
-                                          if (event.target.checked) {
-                                            return [...new Set([...prev, item.id])];
-                                          }
-                                          return prev.filter((id) => id !== item.id);
-                                        });
-                                      }}
-                                    />
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <p className="font-semibold text-slate-900 dark:text-white">{item.descricao}</p>
-                                        <span className="text-xs text-slate-500 dark:text-slate-400">{formatCurrency(item.valor_previsto)}</span>
-                                      </div>
-                                      <p className="text-xs text-slate-500 dark:text-slate-400">Vence em {formatDate(item.data_vencimento)}</p>
-                                      {item.interessado ? (
-                                        <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Interessado: {item.interessado}</p>
-                                      ) : null}
-                                      {item.centro_custo_nome ? (
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">CC: {item.centro_custo_nome}</p>
-                                      ) : null}
-                                      {bloqueado ? (
-                                        <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">Confirmado em outro lançamento.</p>
-                                      ) : null}
-                                    </div>
-                                  </label>
-                                );
-                              })
-                            )}
-                          </div>
-                        )}
-
-                        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                          <p className="text-xs text-slate-500 dark:text-slate-400">{buscaSelecionados.length} item(ns) selecionados.</p>
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setBuscaSelecionados([])}
-                              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-600 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
-                            >
-                              Limpar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => aplicarSelecaoDisponiveis(lanc)}
-                              className="rounded-full border border-emerald-300 bg-emerald-500 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-white transition hover:bg-emerald-600"
-                            >
-                              Aplicar selecao
-                            </button>
-                          </div>
                         </div>
                       </div>
                     ) : null}
@@ -1623,6 +1549,163 @@ export function ImportacaoOfx() {
               </div>
             )}
           </div>
+
+          {lancamentoBuscaAberto ? (
+            <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-600 dark:text-emerald-300">
+                    {lancamentoBuscaAberto.tipo === 'DESPESA' ? 'Buscar pagamento' : 'Buscar recebimento'}
+                  </p>
+                  <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-900 dark:text-white">Lançamentos disponíveis</h2>
+                  <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
+                    Selecione pagamentos ou recebimentos atrasados, vencendo hoje, ou futuros se necessário. O painel rola por dentro e mantém a revisão no padrão da página.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={fecharBuscaDisponiveis}
+                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-600 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+                >
+                  Fechar
+                </button>
+              </div>
+
+              <div className="flex max-h-[72vh] min-h-0 flex-col gap-4 p-5">
+                <div className="grid gap-3 xl:grid-cols-[minmax(0,1.3fr)_minmax(240px,0.7fr)] xl:items-end">
+                  <div className="flex min-w-[220px] flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-950">
+                    <Search className="h-4 w-4 text-slate-400" />
+                    <input
+                      value={termoBuscaDisponiveis}
+                      onChange={(event) => setBuscaDisponiveis((prev) => ({ ...prev, termo: event.target.value }))}
+                      placeholder="Filtrar por descricao ou interessado"
+                      className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
+                    />
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                      Centro de custo
+                      <select
+                        value={buscaDisponiveis.centroCustoId ?? ''}
+                        onChange={(event) => {
+                          const centroId = event.target.value ? Number(event.target.value) : null;
+                          setBuscaDisponiveis((prev) => ({ ...prev, centroCustoId: centroId }));
+                          carregarLancamentosDisponiveis(lancamentoBuscaAberto, buscaDisponiveis.incluirFuturos, centroId);
+                        }}
+                        className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                      >
+                        <option value="">Sem centro de custo</option>
+                        {centrosCusto.map((centro) => (
+                          <option key={centro.id} value={centro.id}>
+                            {centro.nome}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={buscaDisponiveis.incluirFuturos}
+                        onChange={(event) => {
+                          const incluir = event.target.checked;
+                          setBuscaDisponiveis((prev) => ({ ...prev, incluirFuturos: incluir }));
+                          carregarLancamentosDisponiveis(lancamentoBuscaAberto, incluir, buscaDisponiveis.centroCustoId ?? centroCustoPadraoBusca);
+                        }}
+                      />
+                      Incluir futuros (opcional)
+                    </label>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Centro de custo padrão aplicado: {centrosCusto.find((centro) => centro.id === (buscaDisponiveis.centroCustoId ?? centroCustoPadraoBusca))?.nome || 'Sem centro de custo'}.
+                </p>
+
+                <div className="min-h-0 flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/50">
+                  <div className="max-h-[48vh] space-y-2 overflow-y-auto p-3 pr-2">
+                    {buscaDisponiveis.loading ? (
+                      <div className="flex items-center gap-2 px-2 py-6 text-sm text-slate-500 dark:text-slate-400">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Buscando lancamentos...
+                      </div>
+                    ) : buscaDisponiveis.error ? (
+                      <p className="px-2 py-6 text-sm text-rose-600 dark:text-rose-300">{buscaDisponiveis.error}</p>
+                    ) : itensDisponiveisFiltrados.length === 0 ? (
+                      <p className="px-2 py-6 text-sm text-slate-500 dark:text-slate-400">Nenhum lancamento disponivel para este filtro.</p>
+                    ) : (
+                      itensDisponiveisFiltrados.map((item) => {
+                        const jaSelecionado = buscaSelecionados.includes(item.id);
+                        const linhasComMesmoId = selecionadosConfirmadosPorId.get(item.id);
+                        const selecionadoEmOutro = Boolean(
+                          linhasComMesmoId && Array.from(linhasComMesmoId).some((linha) => linha !== lancamentoBuscaAberto.linha_arquivo),
+                        );
+                        const bloqueado = !jaSelecionado && selecionadoEmOutro;
+                        return (
+                          <label
+                            key={`disponivel-${lancamentoBuscaAberto.linha_arquivo}-${item.id}`}
+                            className={`flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 ${bloqueado ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={jaSelecionado}
+                              disabled={bloqueado}
+                              onChange={(event) => {
+                                if (bloqueado) return;
+                                setBuscaSelecionados((prev) => {
+                                  if (event.target.checked) {
+                                    return [...new Set([...prev, item.id])];
+                                  }
+                                  return prev.filter((id) => id !== item.id);
+                                });
+                              }}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-semibold text-slate-900 dark:text-white">{item.descricao}</p>
+                                <span className="text-xs text-slate-500 dark:text-slate-400">{formatCurrency(item.valor_previsto)}</span>
+                              </div>
+                              <p className="text-xs text-slate-500 dark:text-slate-400">Vence em {formatDate(item.data_vencimento)}</p>
+                              {item.interessado ? (
+                                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Interessado: {item.interessado}</p>
+                              ) : null}
+                              {item.centro_custo_nome ? (
+                                <p className="text-xs text-slate-500 dark:text-slate-400">CC: {item.centro_custo_nome}</p>
+                              ) : null}
+                              {bloqueado ? (
+                                <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">Confirmado em outro lançamento.</p>
+                              ) : null}
+                            </div>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{buscaSelecionados.length} item(ns) selecionados.</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBuscaSelecionados([])}
+                      className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-600 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+                    >
+                      Limpar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => aplicarSelecaoDisponiveis(lancamentoBuscaAberto)}
+                      className="rounded-full border border-emerald-300 bg-emerald-500 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-white transition hover:bg-emerald-600"
+                    >
+                      Aplicar selecao
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           <div className="sticky bottom-4 z-10 rounded-3xl border border-slate-200 bg-white/92 p-4 shadow-xl backdrop-blur dark:border-slate-800 dark:bg-slate-900/92">
             {confirming && confirmProgress ? (

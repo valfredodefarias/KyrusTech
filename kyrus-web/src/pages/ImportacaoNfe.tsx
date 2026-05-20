@@ -519,6 +519,10 @@ export function ImportacaoNfe() {
   const [totalPages, setTotalPages] = useState(1);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
+  const [showFiltrosDetalhados, setShowFiltrosDetalhados] = useState(false);
+  const [centroCustoFiltroId, setCentroCustoFiltroId] = useState('');
+  const [dataEmissaoInicioFiltro, setDataEmissaoInicioFiltro] = useState('');
+  const [dataEmissaoFimFiltro, setDataEmissaoFimFiltro] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('data');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [mostrarNovoFormulario, setMostrarNovoFormulario] = useState(false);
@@ -560,6 +564,31 @@ export function ImportacaoNfe() {
 
   const [refreshToken, setRefreshToken] = useState(0);
 
+  const carregarCentrosCusto = useCallback(async () => {
+    setLoadingCentrosCusto(true);
+    setErroCentrosCusto(null);
+    try {
+      const { data } = await api.get<CentroCustoOption[]>('/centro-custo/');
+
+      const centrosAtivos = normalizeListResponse<CentroCustoOption>(data)
+        .filter((item) => String(item.status || 'ATIVO').trim().toUpperCase() === 'ATIVO')
+        .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+
+      setCentrosCusto(centrosAtivos);
+      setCentroCustoSelecionadoId((atual) => {
+        if (atual && centrosAtivos.some((item) => item.id === atual)) return atual;
+        const principal = centrosAtivos.find((item) => normalizeSearchText(item.nome) === 'principal');
+        if (principal) return principal.id;
+        return centrosAtivos.length === 1 ? centrosAtivos[0].id : null;
+      });
+    } catch {
+      setCentrosCusto([]);
+      setErroCentrosCusto('Nao foi possivel carregar os centros de custo.');
+    } finally {
+      setLoadingCentrosCusto(false);
+    }
+  }, []);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setPage(1);
@@ -580,6 +609,9 @@ export function ImportacaoNfe() {
           page_size: pageSize,
           search: searchTerm || undefined,
           status: statusFilter,
+          centro_custo_id: centroCustoFiltroId ? Number(centroCustoFiltroId) : undefined,
+          data_emissao_inicio: dataEmissaoInicioFiltro || undefined,
+          data_emissao_fim: dataEmissaoFimFiltro || undefined,
           order_by: sortKey,
           order_dir: sortDirection,
         },
@@ -599,11 +631,15 @@ export function ImportacaoNfe() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, searchTerm, sortDirection, sortKey, statusFilter]);
+  }, [page, pageSize, searchTerm, sortDirection, sortKey, statusFilter, centroCustoFiltroId, dataEmissaoInicioFiltro, dataEmissaoFimFiltro]);
 
   useEffect(() => {
     void carregarLista();
   }, [carregarLista, refreshToken]);
+
+  useEffect(() => {
+    void carregarCentrosCusto();
+  }, [carregarCentrosCusto]);
 
   useEffect(() => {
     if (!mostrarNovoFormulario) {
@@ -635,45 +671,6 @@ export function ImportacaoNfe() {
     }
 
     void carregarFornecedores();
-
-    return () => {
-      ativo = false;
-    };
-  }, [mostrarNovoFormulario]);
-
-  useEffect(() => {
-    if (!mostrarNovoFormulario) return;
-
-    let ativo = true;
-
-    async function carregarCentrosCusto() {
-      setLoadingCentrosCusto(true);
-      setErroCentrosCusto(null);
-      try {
-        const { data } = await api.get<CentroCustoOption[]>('/centro-custo/');
-        if (!ativo) return;
-
-        const centrosAtivos = normalizeListResponse<CentroCustoOption>(data)
-          .filter((item) => String(item.status || 'ATIVO').trim().toUpperCase() === 'ATIVO')
-          .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
-
-        setCentrosCusto(centrosAtivos);
-        setCentroCustoSelecionadoId((atual) => {
-          if (atual && centrosAtivos.some((item) => item.id === atual)) return atual;
-          const principal = centrosAtivos.find((item) => normalizeSearchText(item.nome) === 'principal');
-          if (principal) return principal.id;
-          return centrosAtivos.length === 1 ? centrosAtivos[0].id : null;
-        });
-      } catch {
-        if (!ativo) return;
-        setCentrosCusto([]);
-        setErroCentrosCusto('Nao foi possivel carregar os centros de custo.');
-      } finally {
-        if (ativo) setLoadingCentrosCusto(false);
-      }
-    }
-
-    void carregarCentrosCusto();
 
     return () => {
       ativo = false;
@@ -721,6 +718,15 @@ export function ImportacaoNfe() {
 
     return sorted;
   }, [items, sortDirection, sortKey]);
+
+  const filtrosAtivos = useMemo(() => {
+    let total = 0;
+    if (statusFilter !== 'TODOS') total += 1;
+    if (centroCustoFiltroId) total += 1;
+    if (dataEmissaoInicioFiltro) total += 1;
+    if (dataEmissaoFimFiltro) total += 1;
+    return total;
+  }, [centroCustoFiltroId, dataEmissaoFimFiltro, dataEmissaoInicioFiltro, statusFilter]);
 
   const fornecedoresFiltrados = useMemo(() => {
     const termo = normalizeSearchText(novoForm.emitente);
@@ -778,6 +784,9 @@ export function ImportacaoNfe() {
     setSearchInput('');
     setSearchTerm('');
     setStatusFilter('TODOS');
+    setCentroCustoFiltroId('');
+    setDataEmissaoInicioFiltro('');
+    setDataEmissaoFimFiltro('');
     setSortKey('data');
     setSortDirection('desc');
     setPage(1);
@@ -1496,20 +1505,6 @@ export function ImportacaoNfe() {
 
               <div className="flex w-full items-center gap-2 overflow-x-auto xl:ml-auto xl:w-auto xl:justify-end">
                 <select
-                  value={statusFilter}
-                  onChange={(event) => {
-                    setStatusFilter(event.target.value as StatusFilter);
-                    setPage(1);
-                  }}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                >
-                  <option value="TODOS">Todos os status</option>
-                  <option value="AGUARDANDO_ENTREGA">Aguardando entrega</option>
-                  <option value="ENTREGUE">Entregue</option>
-                  <option value="CANCELADA">Cancelada</option>
-                </select>
-
-                <select
                   value={pageSize}
                   onChange={(event) => {
                     setPageSize(Number(event.target.value));
@@ -1521,6 +1516,21 @@ export function ImportacaoNfe() {
                     <option key={size} value={size}>{size} por pagina</option>
                   ))}
                 </select>
+
+                <button
+                  type="button"
+                  onClick={() => setShowFiltrosDetalhados((prev) => !prev)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                >
+                  <Filter className="h-4 w-4" />
+                  Filtros
+                  <ChevronDown className={`h-4 w-4 transition ${showFiltrosDetalhados ? 'rotate-180' : ''}`} />
+                  {filtrosAtivos > 0 ? (
+                    <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[11px] font-black text-white">
+                      {filtrosAtivos}
+                    </span>
+                  ) : null}
+                </button>
 
                 <button
                   type="button"
@@ -1623,6 +1633,93 @@ export function ImportacaoNfe() {
         <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
           {error}
         </div>
+      ) : null}
+
+      {!mostrarNovoFormulario && showFiltrosDetalhados ? (
+        <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-xl font-black text-slate-900 dark:text-white">Filtros da lista</h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use estes campos para refinar a listagem sem perder a paginação.</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={resetFiltros}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            >
+              <Filter className="h-4 w-4" />
+              Limpar filtros
+            </button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-4">
+            <label>
+              <span className={labelClassName}>Status</span>
+              <select
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value as StatusFilter);
+                  setPage(1);
+                }}
+                className={inputClassName}
+              >
+                <option value="TODOS">Todos os status</option>
+                <option value="AGUARDANDO_ENTREGA">Aguardando entrega</option>
+                <option value="ENTREGUE">Entregue</option>
+                <option value="CANCELADA">Cancelada</option>
+              </select>
+            </label>
+
+            <label>
+              <span className={labelClassName}>Centro de custo</span>
+              <select
+                value={centroCustoFiltroId}
+                onChange={(event) => {
+                  setCentroCustoFiltroId(event.target.value);
+                  setPage(1);
+                }}
+                className={inputClassName}
+                disabled={loadingCentrosCusto}
+              >
+                <option value="">Todos os centros</option>
+                {loadingCentrosCusto ? <option value="">Carregando centros de custo...</option> : null}
+                {centrosCusto.map((centro) => (
+                  <option key={centro.id} value={centro.id}>
+                    {centro.codigo ? `${centro.codigo} - ${centro.nome}` : centro.nome}
+                  </option>
+                ))}
+              </select>
+              {erroCentrosCusto ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{erroCentrosCusto}</p> : null}
+            </label>
+
+            <label>
+              <span className={labelClassName}>Emissao de</span>
+              <input
+                type="date"
+                className={inputClassName}
+                value={dataEmissaoInicioFiltro}
+                onChange={(event) => {
+                  setDataEmissaoInicioFiltro(event.target.value);
+                  setPage(1);
+                }}
+              />
+            </label>
+
+            <label>
+              <span className={labelClassName}>Emissao ate</span>
+              <input
+                type="date"
+                className={inputClassName}
+                value={dataEmissaoFimFiltro}
+                onChange={(event) => {
+                  setDataEmissaoFimFiltro(event.target.value);
+                  setPage(1);
+                }}
+              />
+            </label>
+          </div>
+        </section>
       ) : null}
 
       {mostrarNovoFormulario ? (

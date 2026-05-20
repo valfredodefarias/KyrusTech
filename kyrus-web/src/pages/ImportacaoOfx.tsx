@@ -1434,7 +1434,7 @@ export function ImportacaoOfx() {
                             <div className="flex min-w-[220px] flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-950">
                               <Search className="h-4 w-4 text-slate-400" />
                               <input
-                                value={termoBuscaDisponiveis}
+                                value={buscaDisponiveis.termo}
                                 onChange={(event) => setBuscaDisponiveis((prev) => ({ ...prev, termo: event.target.value }))}
                                 placeholder="Filtrar por descricao ou interessado"
                                 className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"

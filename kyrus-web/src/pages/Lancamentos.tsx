@@ -13,7 +13,7 @@ import {
   Trash2, Check, X, UploadCloud, FileText, Loader2, 
   CalendarClock, User, ChevronDown, Save, Paperclip, Download,
   Image as ImageIcon, FileSpreadsheet, Presentation, LayoutGrid, CheckSquare, Square,
-  Landmark, Info, Copy
+  Info, Copy
 } from 'lucide-react';
 
 // --- INTERFACES ---
@@ -1399,10 +1399,6 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
       return { ...prev, contaIds: filteredContaIds };
     });
   }, [contasAtivas]);
-
-  const saldoContasTotal = useMemo(() => {
-    return contasFiltradas.reduce((acc, conta) => acc + getContaSaldo(conta), 0);
-  }, [contasFiltradas]);
 
   useEffect(() => {
     if (bulkPayData.conta_id && !contasFiltradas.some(c => String(c.id) === String(bulkPayData.conta_id))) {

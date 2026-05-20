@@ -717,6 +717,11 @@ def _buscar_duplicata_historica(
                 Lancamento.data_vencimento.between(data_inicio, data_fim),
             ),
             or_(
+            if _interessado_tem_confianca(interessado_candidato):
+                return interessado_candidato
+            if _interessado_tem_confianca(interessado_descricao):
+                return interessado_descricao
+            return ""
                 Lancamento.valor_previsto.between(valor_min, valor_max),
             ),
         )

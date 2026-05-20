@@ -11,6 +11,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  X,
 } from 'lucide-react';
 
 import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
@@ -1635,91 +1636,117 @@ export function ImportacaoNfe() {
         </div>
       ) : null}
 
-      {!mostrarNovoFormulario && showFiltrosDetalhados ? (
-        <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-xl font-black text-slate-900 dark:text-white">Filtros da lista</h2>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use estes campos para refinar a listagem sem perder a paginação.</p>
+      {!mostrarNovoFormulario ? (
+        <>
+          <button
+            type="button"
+            aria-label="Fechar painel de filtros"
+            onClick={() => setShowFiltrosDetalhados(false)}
+            className={`fixed inset-0 z-20 bg-slate-900/20 backdrop-blur-[1px] transition-opacity duration-200 ${showFiltrosDetalhados ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}
+          />
+
+          <aside className={`fixed inset-y-0 right-0 z-[22] w-80 border-l border-slate-200 bg-white shadow-2xl transition-transform duration-300 dark:border-slate-700 dark:bg-slate-900 xl:w-[min(34vw,560px)] xl:min-w-[380px] xl:max-w-[620px] ${showFiltrosDetalhados ? 'translate-x-0' : 'translate-x-full'}`}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 dark:border-slate-700">
+              <h3 className="flex items-center gap-2 font-bold text-slate-800 dark:text-white">
+                <Filter className="h-4 w-4 text-blue-500" />
+                Filtros da lista
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowFiltrosDetalhados(false)}
+                className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white"
+                aria-label="Fechar filtros"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
 
-            <button
-              type="button"
-              onClick={resetFiltros}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-            >
-              <Filter className="h-4 w-4" />
-              Limpar filtros
-            </button>
-          </div>
+            <div className="h-[calc(100vh-69px)] overflow-y-auto px-4 py-4">
+              <div className="space-y-6">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Filtros avançados</p>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use estes campos para refinar a listagem sem perder a paginação.</p>
+                </div>
 
-          <div className="grid gap-3 md:grid-cols-4">
-            <label>
-              <span className={labelClassName}>Status</span>
-              <select
-                value={statusFilter}
-                onChange={(event) => {
-                  setStatusFilter(event.target.value as StatusFilter);
-                  setPage(1);
-                }}
-                className={inputClassName}
-              >
-                <option value="TODOS">Todos os status</option>
-                <option value="AGUARDANDO_ENTREGA">Aguardando entrega</option>
-                <option value="ENTREGUE">Entregue</option>
-                <option value="CANCELADA">Cancelada</option>
-              </select>
-            </label>
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Status</label>
+                  <select
+                    value={statusFilter}
+                    onChange={(event) => {
+                      setStatusFilter(event.target.value as StatusFilter);
+                      setPage(1);
+                    }}
+                    className={inputClassName}
+                  >
+                    <option value="TODOS">Todos os status</option>
+                    <option value="AGUARDANDO_ENTREGA">Aguardando entrega</option>
+                    <option value="ENTREGUE">Entregue</option>
+                    <option value="CANCELADA">Cancelada</option>
+                  </select>
+                </div>
 
-            <label>
-              <span className={labelClassName}>Centro de custo</span>
-              <select
-                value={centroCustoFiltroId}
-                onChange={(event) => {
-                  setCentroCustoFiltroId(event.target.value);
-                  setPage(1);
-                }}
-                className={inputClassName}
-                disabled={loadingCentrosCusto}
-              >
-                <option value="">Todos os centros</option>
-                {loadingCentrosCusto ? <option value="">Carregando centros de custo...</option> : null}
-                {centrosCusto.map((centro) => (
-                  <option key={centro.id} value={centro.id}>
-                    {centro.codigo ? `${centro.codigo} - ${centro.nome}` : centro.nome}
-                  </option>
-                ))}
-              </select>
-              {erroCentrosCusto ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{erroCentrosCusto}</p> : null}
-            </label>
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Centro de custo</label>
+                  <select
+                    value={centroCustoFiltroId}
+                    onChange={(event) => {
+                      setCentroCustoFiltroId(event.target.value);
+                      setPage(1);
+                    }}
+                    className={inputClassName}
+                    disabled={loadingCentrosCusto}
+                  >
+                    <option value="">Todos os centros</option>
+                    {loadingCentrosCusto ? <option value="">Carregando centros de custo...</option> : null}
+                    {centrosCusto.map((centro) => (
+                      <option key={centro.id} value={centro.id}>
+                        {centro.codigo ? `${centro.codigo} - ${centro.nome}` : centro.nome}
+                      </option>
+                    ))}
+                  </select>
+                  {erroCentrosCusto ? <p className="text-xs text-rose-600 dark:text-rose-300">{erroCentrosCusto}</p> : null}
+                </div>
 
-            <label>
-              <span className={labelClassName}>Emissao de</span>
-              <input
-                type="date"
-                className={inputClassName}
-                value={dataEmissaoInicioFiltro}
-                onChange={(event) => {
-                  setDataEmissaoInicioFiltro(event.target.value);
-                  setPage(1);
-                }}
-              />
-            </label>
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Emissão de</label>
+                  <input
+                    type="date"
+                    className={inputClassName}
+                    value={dataEmissaoInicioFiltro}
+                    onChange={(event) => {
+                      setDataEmissaoInicioFiltro(event.target.value);
+                      setPage(1);
+                    }}
+                  />
+                </div>
 
-            <label>
-              <span className={labelClassName}>Emissao ate</span>
-              <input
-                type="date"
-                className={inputClassName}
-                value={dataEmissaoFimFiltro}
-                onChange={(event) => {
-                  setDataEmissaoFimFiltro(event.target.value);
-                  setPage(1);
-                }}
-              />
-            </label>
-          </div>
-        </section>
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Emissão até</label>
+                  <input
+                    type="date"
+                    className={inputClassName}
+                    value={dataEmissaoFimFiltro}
+                    onChange={(event) => {
+                      setDataEmissaoFimFiltro(event.target.value);
+                      setPage(1);
+                    }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 border-t border-slate-200 pt-4 dark:border-slate-700">
+                  <button
+                    type="button"
+                    onClick={resetFiltros}
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                  >
+                    <Filter className="h-4 w-4" />
+                    Limpar filtros
+                  </button>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </>
       ) : null}
 
       {mostrarNovoFormulario ? (

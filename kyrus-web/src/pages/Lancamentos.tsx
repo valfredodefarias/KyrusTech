@@ -548,12 +548,8 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
   // Barra/ações em lote
   const [showBulkPay, setShowBulkPay] = useState(false);
   const [showBulkDelete, setShowBulkDelete] = useState(false);
-  const [resumoTopoModo, setResumoTopoModo] = useState<'KPIS' | 'BANCOS'>(() => {
-    const saved = localStorage.getItem('lancamentos.resumoTopoModo');
-    return saved === 'BANCOS' ? 'BANCOS' : 'KPIS';
-  });
+  const [showResumoKpis, setShowResumoKpis] = useState(false);
   const [contaExtratoAtivaId, setContaExtratoAtivaId] = useState<number | null>(null);
-  const [bancosRetratilFechado, setBancosRetratilFechado] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [deleteStep, setDeleteStep] = useState(1);
   const [deletePhrase, setDeletePhrase] = useState('');
@@ -1092,10 +1088,6 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
     if(cor) setPrimaryColor(cor);
     loadAuxData();
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem('lancamentos.resumoTopoModo', resumoTopoModo);
-  }, [resumoTopoModo]);
 
   useEffect(() => { 
     if (filtrosAvancados.dataModo === 'PAGAMENTO' && (filtrosAvancados.dataInicio || filtrosAvancados.dataFim)) {
@@ -2069,7 +2061,6 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
   const kpiCards = [
     { label: 'Receitas', value: BRL.format(kpis.r), tone: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10 dark:bg-emerald-900/20', icon: TrendingUp },
     { label: 'Despesas', value: BRL.format(kpis.d), tone: 'text-red-600 dark:text-red-400', bg: 'bg-red-500/10 dark:bg-red-900/20', icon: TrendingDown },
-    { label: 'Saldo', value: BRL.format(kpis.s), tone: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-500/10 dark:bg-blue-900/20', icon: Wallet },
   ];
 
   const toggleListaSort = (key: ListaSortKey) => {
@@ -2370,98 +2361,35 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
             </button>
           )}
         </div>
-
-        <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 shadow-sm self-end lg:self-auto">
-          <button
-            onClick={() => setResumoTopoModo('KPIS')}
-            className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${resumoTopoModo === 'KPIS' ? 'bg-blue-600 text-white' : 'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-          >
-            KPIs
-          </button>
-          <button
-            onClick={() => setResumoTopoModo('BANCOS')}
-            className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${resumoTopoModo === 'BANCOS' ? 'bg-emerald-600 text-white' : 'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-          >
-            Bancos e Saldos
-          </button>
-        </div>
       </div>
 
-      {/* 2. KPI SECTION */}
       <div className="xl:hidden">
-      {resumoTopoModo === 'KPIS' ? (
-        <div className="px-4 sm:px-6 pt-2 pb-1 grid grid-cols-1 md:grid-cols-3 gap-3">
-          {kpiCards.map((card) => (
-            <div key={card.label} className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center transition hover:border-slate-300 dark:hover:border-slate-600"><div className={card.tone}><p className="text-[10px] font-bold uppercase mb-0.5 opacity-70">{card.label}</p><p className="text-xl font-black">{card.value}</p></div><div className={`p-1.5 rounded-lg ${card.bg}`}><card.icon className={`w-5 h-5 ${card.tone}`}/></div></div>
-          ))}
-        </div>
-      ) : (
         <div className="px-4 sm:px-6 pt-2 pb-1">
-          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-            <div className="p-3 flex items-center justify-between border-b border-slate-200 dark:border-slate-700">
-              <div>
-                <p className="text-[10px] font-bold uppercase opacity-70 text-slate-500 dark:text-slate-400">Bancos</p>
-                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Saldos por conta (atualizados)</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className={`px-2.5 py-1 rounded-full text-xs font-bold border ${saldoContasTotal >= 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800' : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800'}`}>
-                  Total: {BRL.format(saldoContasTotal)}
-                </div>
-                <button
-                  onClick={() => setBancosRetratilFechado(prev => !prev)}
-                  className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
-                  title={bancosRetratilFechado ? 'Expandir' : 'Recolher'}
-                >
-                  <ChevronDown className={`w-4 h-4 transition-transform ${bancosRetratilFechado ? '-rotate-90' : 'rotate-0'}`} />
-                </button>
-              </div>
-            </div>
+          <button
+            type="button"
+            onClick={() => setShowResumoKpis((prev) => !prev)}
+            className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-bold transition ${showResumoKpis ? 'border-blue-600 bg-blue-600 text-white shadow-md' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'}`}
+          >
+            <ChevronDown className={`h-4 w-4 transition-transform ${showResumoKpis ? 'rotate-180' : ''}`} />
+            KPI de receitas e despesas
+          </button>
 
-            {!bancosRetratilFechado && (
-              <div className="p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
-                {contasFiltradas.length === 0 ? (
-                  <div className="col-span-full p-4 rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-sm text-slate-500 dark:text-slate-400 flex items-center gap-2">
-                    <Landmark className="w-4 h-4" />
-                    Nenhuma conta bancária encontrada para os filtros atuais.
+          {showResumoKpis ? (
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+              {kpiCards.map((card) => (
+                <div key={card.label} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600">
+                  <div className={card.tone}>
+                    <p className="mb-0.5 text-[10px] font-bold uppercase opacity-70">{card.label}</p>
+                    <p className="text-xl font-black">{card.value}</p>
                   </div>
-                ) : (
-                  contasFiltradas.map((conta) => {
-                    const saldo = getContaSaldo(conta);
-                    const logo = getFullLogoUrl(conta.logo_url);
-                    const ativo = Number(conta.id) === contaExtratoAtivaId;
-                    return (
-                      <button
-                        type="button"
-                        key={conta.id}
-                        onClick={() => {
-                          setContaExtratoAtivaId((prev) => {
-                            if (prev === Number(conta.id)) return null;
-                            setFiltroRapido(null);
-                            return Number(conta.id);
-                          });
-                        }}
-                        className={`p-3 rounded-xl border text-left transition flex items-center gap-3 ${ativo ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-900/25' : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 hover:border-slate-300 dark:hover:border-slate-600'}`}
-                        title={ativo ? 'Clique para remover filtro de extrato deste banco' : 'Clique para ver somente lançamentos pagos/recebidos deste banco'}
-                      >
-                        <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex items-center justify-center shrink-0">
-                          <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={conta.nome} integrationType={conta.tipo_integracao} size="sm" className="w-9 h-9" imageClassName="rounded-full" fallbackClassName="rounded-full border-0 shadow-none" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className={`text-sm font-bold truncate ${ativo ? 'text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-100'}`}>{conta.nome}</p>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{conta.banco || conta.tipo || 'Conta bancária'}</p>
-                        </div>
-                        <div className={`text-sm font-black ${saldo >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                          {BRL.format(saldo)}
-                        </div>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            )}
-          </div>
+                  <div className={`rounded-lg p-1.5 ${card.bg}`}>
+                    <card.icon className={`h-5 w-5 ${card.tone}`} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
-      )}
       </div>
 
       {/* 4. LISTA AGRUPADA (COM DATA FIXA) */}

@@ -115,15 +115,19 @@ def _build_driver(download_path: str) -> webdriver.Chrome:
         "safebrowsing.enabled": True,
     })
 
+    # Força o Selenium a usar o Chromium do Linux
+    options.binary_location = "/usr/bin/chromium"
+
+    # Aponta direto para o driver instalado no container
+    service = ChromeService(executable_path="/usr/bin/chromedriver")
+
     try:
-        from webdriver_manager.chrome import ChromeDriverManager
-        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
+        driver = webdriver.Chrome(service=service, options=options)
     except Exception as exc:
-        logger.warning("Falha ao usar ChromeDriverManager no NFStock: {}. Usando PATH.", exc)
-        driver = webdriver.Chrome(options=options)
+        logger.error("Falha ao iniciar o ChromeDriver local: {}", exc)
+        raise exc
 
     return driver
-
 
 def _extract_digits_document(text: str) -> str:
     # Busca CNPJ (14) primeiro, depois CPF (11)
@@ -277,7 +281,8 @@ def _build_confirm_request(db: Session, *, empresa_id: int, centro_custo_id: Opt
     ).first()
 
     categoria_id: Optional[int] = None
-    if empresa and getattr(empresa, "categoria_nfe_fornecedores_id", None):
+    # Verifica com segurança se a empresa existe e se o ID não é nulo ANTES de converter
+    if empresa and empresa.categoria_nfe_fornecedores_id is not None:
         categoria_id = int(empresa.categoria_nfe_fornecedores_id)
     else:
         sugestao = _buscar_categoria_sugerida(

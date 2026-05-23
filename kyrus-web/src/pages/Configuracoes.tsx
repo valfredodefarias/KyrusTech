@@ -6,7 +6,7 @@ import { RbacManager } from '../components/RbacManager';
 import { 
   Building2, UploadCloud, Layers, Save, Loader2, 
   Palette, Check, AlertCircle, Camera, RefreshCw,
-  Download, CalendarRange, Landmark, Trash2, Users,
+  Download, CalendarRange, Trash2, Users,
   PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import { Entidades } from './Entidades';
@@ -882,7 +882,6 @@ const ExportacaoFinanceira = () => {
   const [lancamentos, setLancamentos] = useState<LancamentoExportacao[]>([]);
   const [loading, setLoading] = useState(true);
   const [exportando, setExportando] = useState<'csv' | 'xlsx' | null>(null);
-  const [contaId, setContaId] = useState('');
   const [periodoIni, setPeriodoIni] = useState(() => {
     const hoje = new Date();
     return new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().split('T')[0];
@@ -895,7 +894,7 @@ const ExportacaoFinanceira = () => {
 
   useEffect(() => {
     loadLancamentos();
-  }, [periodoIni, periodoFim, contaId]);
+  }, [periodoIni, periodoFim]);
 
   const categoriaPorId = new Map(categorias.map((categoria) => [Number(categoria.id), categoria.nome]));
   const contaPorId = new Map(contas.map((conta) => [Number(conta.id), conta]));
@@ -923,7 +922,6 @@ const ExportacaoFinanceira = () => {
         data_fim: periodoFim,
         include_anexos: false,
       };
-      if (contaId) params.conta_id = Number(contaId);
       const rows = await fetchLancamentosPaged(params, { pageSize: 1500 });
       setLancamentos(rows || []);
     } catch (error) {
@@ -960,8 +958,7 @@ const ExportacaoFinanceira = () => {
     if (exportRows.length === 0) return;
     setExportando(formato);
     try {
-      const sufixoConta = contaId ? `conta_${contaId}` : 'todas_contas';
-      const fileName = `financeiro_${periodoIni}_${periodoFim}_${sufixoConta}`;
+      const fileName = `financeiro_${periodoIni}_${periodoFim}`;
 
       if (formato === 'csv') {
         const header = 'data_vencimento,data_pagamento,descricao,interessado,tipo,categoria,conta,banco,competencia,previsto,valor_previsto,valor_pago,status\n';
@@ -1018,7 +1015,7 @@ const ExportacaoFinanceira = () => {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Exportação financeira</p>
-            <h2 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">Baixe o financeiro por período ou banco</h2>
+            <h2 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">Baixe o financeiro por período</h2>
             <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-300">Essa área produz um recorte limpo do financeiro para contabilidade, auditoria, fechamento ou compartilhamento com o cliente.</p>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -1037,7 +1034,7 @@ const ExportacaoFinanceira = () => {
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr_1fr_auto]">
+        <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[1fr_auto]">
           <label className="rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-700">
             <span className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-400"><CalendarRange className="h-4 w-4" /> Período</span>
             <div className="flex flex-wrap items-center gap-2">
@@ -1045,16 +1042,6 @@ const ExportacaoFinanceira = () => {
               <span className="text-xs text-slate-400">até</span>
               <input type="date" value={periodoFim} onChange={(e) => setPeriodoFim(e.target.value)} className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm outline-none dark:border-slate-700" />
             </div>
-          </label>
-
-          <label className="rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-700">
-            <span className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-400"><Landmark className="h-4 w-4" /> Banco / conta</span>
-            <select value={contaId} onChange={(e) => setContaId(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm outline-none dark:border-slate-700">
-              <option value="">Todas as contas</option>
-              {contas.map((conta) => (
-                <option key={conta.id} value={conta.id}>{conta.nome}{conta.banco ? ` • ${conta.banco}` : ''}</option>
-              ))}
-            </select>
           </label>
 
           <div className="grid grid-cols-1 gap-2">

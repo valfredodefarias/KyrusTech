@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, Query, UploadFile, File, status, Form, H
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select, col
 from sqlalchemy.orm import noload, selectinload
+from sqlalchemy import or_
 from loguru import logger
 
 # --- Imports do Projeto ---
@@ -1565,10 +1566,30 @@ def listar_lancamentos(
         Lancamento.empresa_id == empresa_id,
         Lancamento.is_deleted == False
     )
-    if data_inicio:
-        query = query.where(Lancamento.data_vencimento >= data_inicio)
-    if data_fim:
-        query = query.where(Lancamento.data_vencimento <= data_fim)
+    if data_inicio and data_fim:
+        query = query.where(
+            or_(
+                (Lancamento.data_vencimento >= data_inicio) & (Lancamento.data_vencimento <= data_fim),
+                (Lancamento.data_pagamento.is_not(None))
+                & (Lancamento.data_pagamento >= data_inicio)
+                & (Lancamento.data_pagamento <= data_fim),
+            )
+        )
+    else:
+        if data_inicio:
+            query = query.where(
+                or_(
+                    Lancamento.data_vencimento >= data_inicio,
+                    (Lancamento.data_pagamento.is_not(None)) & (Lancamento.data_pagamento >= data_inicio),
+                )
+            )
+        if data_fim:
+            query = query.where(
+                or_(
+                    Lancamento.data_vencimento <= data_fim,
+                    (Lancamento.data_pagamento.is_not(None)) & (Lancamento.data_pagamento <= data_fim),
+                )
+            )
     if conta_id:
         query = query.where(Lancamento.conta_id == conta_id)
     if cartao_id:

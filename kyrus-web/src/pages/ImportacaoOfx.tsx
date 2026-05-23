@@ -428,6 +428,7 @@ export function ImportacaoOfx() {
     centroCustoId: null,
   });
   const [buscaSelecionados, setBuscaSelecionados] = useState<number[]>([]);
+  const [buscaSelecaoInicial, setBuscaSelecaoInicial] = useState<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -542,40 +543,6 @@ export function ImportacaoOfx() {
     return { conciliaveis, novos, receitas, despesas, semCategoria };
   }, [lancamentosEditados]);
 
-  const selecionadosConfirmadosPorId = useMemo(() => {
-    const mapa = new Map<number, Set<number>>();
-    for (const item of lancamentosEditados) {
-      if (!item.sugestao_confirmada) continue;
-      if (item.sugestao_acao === 'BAIXAR_PREVISTO' && item.lancamento_previsto_id) {
-        const previstoId = Number(item.lancamento_previsto_id);
-        if (previstoId > 0) {
-          const set = mapa.get(previstoId) || new Set<number>();
-          set.add(Number(item.linha_arquivo || 0));
-          mapa.set(previstoId, set);
-        }
-      }
-
-      if (item.sugestao_acao === 'RELACIONAR_ATRASADOS') {
-        const selecionados = Array.isArray(item.lancamentos_atrasados_relacionados)
-          ? item.lancamentos_atrasados_relacionados
-          : [];
-        const unicos = new Set<number>();
-        for (const atrasoIdRaw of selecionados) {
-          const atrasoId = Number(atrasoIdRaw || 0);
-          if (atrasoId > 0) {
-            unicos.add(atrasoId);
-          }
-        }
-        for (const atrasoId of unicos) {
-          const set = mapa.get(atrasoId) || new Set<number>();
-          set.add(Number(item.linha_arquivo || 0));
-          mapa.set(atrasoId, set);
-        }
-      }
-    }
-    return mapa;
-  }, [lancamentosEditados]);
-
   const assistenteConfig = useMemo(() => ({
     tela: 'geral' as const,
     titulo: 'Assistente KyrusTECH',
@@ -644,6 +611,7 @@ export function ImportacaoOfx() {
         tipo,
         incluir_futuros: incluirFuturos,
         data_base: dataBase,
+        limite: 2000,
       };
       if (modoImportacao === 'CONTA' && contaId) {
         params.conta_id = Number(contaId);
@@ -680,6 +648,7 @@ export function ImportacaoOfx() {
       return [];
     })();
 
+    setBuscaSelecaoInicial(selecionadosIniciais);
     setBuscaSelecionados(selecionadosIniciais);
     setBuscaDisponiveis((prev) => ({
       ...prev,
@@ -694,6 +663,16 @@ export function ImportacaoOfx() {
     }));
 
     carregarLancamentosDisponiveis(lanc, false, centroCustoInicial);
+  };
+
+  const normalizarBuscaSelecionados = (selecionados: number[]) => {
+    const idsValidos = selecionados.filter((id) => Number.isFinite(id));
+    const idsIniciais = new Set(buscaSelecaoInicial);
+    const contemManual = idsValidos.some((id) => !idsIniciais.has(id));
+    if (contemManual) {
+      return Array.from(new Set(idsValidos.filter((id) => !idsIniciais.has(id))));
+    }
+    return Array.from(new Set(idsValidos));
   };
 
   const handleUpload = async () => {
@@ -967,35 +946,84 @@ export function ImportacaoOfx() {
       loading: false,
     }));
     setBuscaSelecionados([]);
+    setBuscaSelecaoInicial([]);
   };
 
   const aplicarSelecaoDisponiveis = (lanc: LancamentoEditado) => {
-    const selecionados = buscaSelecionados.filter((id) => Number.isFinite(id));
+    const selecionados = normalizarBuscaSelecionados(buscaSelecionados);
     if (selecionados.length === 0) {
       fecharBuscaDisponiveis();
       return;
     }
 
     const itensSelecionados = buscaDisponiveis.itens.filter((item) => selecionados.includes(item.id));
-    if (itensSelecionados.length === 1) {
-      const resumo = mapDisponivelToResumo(itensSelecionados[0], 'Selecionado manualmente');
-      updateLancamento(lanc.linha_arquivo, {
-        sugestao_acao: 'BAIXAR_PREVISTO',
-        lancamento_previsto_id: resumo.id ?? null,
-        lancamento_previsto_resumo: resumo,
-        lancamentos_atrasados_relacionados: [],
-        lancamentos_atrasados_resumo: [],
-      });
-    } else {
-      const resumos = itensSelecionados.map((item) => mapDisponivelToResumo(item, 'Selecionado manualmente'));
-      updateLancamento(lanc.linha_arquivo, {
-        sugestao_acao: 'RELACIONAR_ATRASADOS',
-        lancamento_previsto_id: null,
-        lancamento_previsto_resumo: null,
-        lancamentos_atrasados_relacionados: itensSelecionados.map((item) => item.id),
-        lancamentos_atrasados_resumo: resumos,
-      });
+    if (itensSelecionados.length === 0) {
+      fecharBuscaDisponiveis();
+      return;
     }
+
+    const idsSelecionados = new Set(itensSelecionados.map((item) => item.id));
+
+    setLancamentosEditados((prev) => prev.map((item) => {
+      if (item.linha_arquivo === lanc.linha_arquivo) {
+        if (itensSelecionados.length === 1) {
+          const resumo = mapDisponivelToResumo(itensSelecionados[0], 'Selecionado manualmente');
+          return {
+            ...item,
+            sugestao_acao: 'BAIXAR_PREVISTO',
+            lancamento_previsto_id: resumo.id ?? null,
+            lancamento_previsto_resumo: resumo,
+            lancamentos_atrasados_relacionados: [],
+            lancamentos_atrasados_resumo: [],
+            sugestao_confirmada: false,
+          };
+        }
+
+        const resumos = itensSelecionados.map((selected) => mapDisponivelToResumo(selected, 'Selecionado manualmente'));
+        return {
+          ...item,
+          sugestao_acao: 'RELACIONAR_ATRASADOS',
+          lancamento_previsto_id: null,
+          lancamento_previsto_resumo: null,
+          lancamentos_atrasados_relacionados: itensSelecionados.map((selected) => selected.id),
+          lancamentos_atrasados_resumo: resumos,
+          sugestao_confirmada: false,
+        };
+      }
+
+      const previstoAtual = item.lancamento_previsto_id != null ? Number(item.lancamento_previsto_id) : null;
+      const previstoRemovido = previstoAtual != null && idsSelecionados.has(previstoAtual);
+      const atrasadosAtuais = Array.isArray(item.lancamentos_atrasados_relacionados)
+        ? item.lancamentos_atrasados_relacionados.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+        : [];
+      const atrasadosRestantes = atrasadosAtuais.filter((id) => !idsSelecionados.has(id));
+      const atrasadosRemovidos = atrasadosRestantes.length !== atrasadosAtuais.length;
+
+      if (!previstoRemovido && !atrasadosRemovidos) {
+        return item;
+      }
+
+      const nextItem: LancamentoEditado = {
+        ...item,
+        sugestao_confirmada: false,
+      };
+
+      if (previstoRemovido) {
+        nextItem.lancamento_previsto_id = null;
+        nextItem.lancamento_previsto_resumo = null;
+      }
+
+      if (atrasadosRemovidos) {
+        nextItem.lancamentos_atrasados_relacionados = atrasadosRestantes;
+        nextItem.lancamentos_atrasados_resumo = (nextItem.lancamentos_atrasados_resumo || []).filter((resumo) => !resumo.id || !idsSelecionados.has(Number(resumo.id)));
+      }
+
+      if ((previstoRemovido && item.sugestao_acao === 'BAIXAR_PREVISTO') || (atrasadosRemovidos && item.sugestao_acao === 'RELACIONAR_ATRASADOS' && atrasadosRestantes.length === 0)) {
+        nextItem.sugestao_acao = 'CRIAR_NOVO';
+      }
+
+      return nextItem;
+    }));
 
     fecharBuscaDisponiveis();
   };
@@ -1427,7 +1455,7 @@ export function ImportacaoOfx() {
                   )}
 
                   <div className="mt-4">
-                    {buscaDisponiveisAberta && lancamentoBuscaAberto ? (
+                    {buscaDisponiveisAberta && lancamentoBuscaAberto && lancamentoBuscaAberto.linha_arquivo === lanc.linha_arquivo ? (
                       <div className="rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
                         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-4 py-4 dark:border-slate-800">
                           <div>
@@ -1514,27 +1542,35 @@ export function ImportacaoOfx() {
                               ) : (
                                 itensDisponiveisFiltrados.map((item) => {
                                   const jaSelecionado = buscaSelecionados.includes(item.id);
-                                  const linhasComMesmoId = selecionadosConfirmadosPorId.get(item.id);
-                                  const selecionadoEmOutro = Boolean(
-                                    linhasComMesmoId && Array.from(linhasComMesmoId).some((linha) => linha !== lancamentoBuscaAberto.linha_arquivo),
-                                  );
-                                  const bloqueado = !jaSelecionado && selecionadoEmOutro;
                                   return (
                                     <label
                                       key={`disponivel-${lancamentoBuscaAberto.linha_arquivo}-${item.id}`}
-                                      className={`flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 ${bloqueado ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                                      className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900"
                                     >
                                       <input
                                         type="checkbox"
                                         checked={jaSelecionado}
-                                        disabled={bloqueado}
                                         onChange={(event) => {
-                                          if (bloqueado) return;
                                           setBuscaSelecionados((prev) => {
-                                            if (event.target.checked) {
-                                              return [...new Set([...prev, item.id])];
+                                            const idsValidos = prev.filter((id) => Number.isFinite(id));
+                                            if (!event.target.checked) {
+                                              return idsValidos.filter((id) => id !== item.id);
                                             }
-                                            return prev.filter((id) => id !== item.id);
+
+                                            const idsIniciais = new Set(buscaSelecaoInicial);
+                                            const temSelecaoInicial = idsValidos.some((id) => idsIniciais.has(id));
+                                            const temSelecaoManual = idsValidos.some((id) => !idsIniciais.has(id));
+                                            const itemEhInicial = idsIniciais.has(item.id);
+
+                                            if (itemEhInicial && temSelecaoManual) {
+                                              return [item.id];
+                                            }
+
+                                            if (!itemEhInicial && temSelecaoInicial) {
+                                              return [item.id];
+                                            }
+
+                                            return [...new Set([...idsValidos, item.id])];
                                           });
                                         }}
                                       />
@@ -1549,9 +1585,6 @@ export function ImportacaoOfx() {
                                         ) : null}
                                         {item.centro_custo_nome ? (
                                           <p className="text-xs text-slate-500 dark:text-slate-400">CC: {item.centro_custo_nome}</p>
-                                        ) : null}
-                                        {bloqueado ? (
-                                          <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">Confirmado em outro lançamento.</p>
                                         ) : null}
                                       </div>
                                     </label>
@@ -1615,29 +1648,71 @@ export function ImportacaoOfx() {
                           .sort((a, b) => (b.resumo?.score || 0) - (a.resumo?.score || 0))
                           .map(({ resumo: atrasado, atrasoId }, index) => {
                           const marcado = atrasoId ? lanc.lancamentos_atrasados_relacionados.includes(atrasoId) : false;
-                          const linhasComMesmoAtraso = atrasoId ? selecionadosConfirmadosPorId.get(atrasoId) : undefined;
-                          const selecionadoEmOutroLancamento = Boolean(
-                            atrasoId
-                              && linhasComMesmoAtraso
-                              && Array.from(linhasComMesmoAtraso).some((linha) => linha !== lanc.linha_arquivo),
-                          );
-                          const bloqueadoPorOutroLancamento = !marcado && selecionadoEmOutroLancamento;
                           return (
                             <label
                               key={`${lanc.linha_arquivo}-${index}`}
-                              className={`flex items-start gap-3 rounded-2xl border border-amber-200/70 bg-white/80 p-3 dark:border-amber-900/40 dark:bg-slate-900/60 ${bloqueadoPorOutroLancamento ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                              className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200/70 bg-white/80 p-3 dark:border-amber-900/40 dark:bg-slate-900/60"
                             >
                               <input
                                 type="checkbox"
                                 checked={marcado}
-                                disabled={bloqueadoPorOutroLancamento}
                                 onChange={(e) => {
                                   if (!atrasoId) return;
-                                  if (bloqueadoPorOutroLancamento) return;
-                                  const proximo = e.target.checked
-                                    ? [...lanc.lancamentos_atrasados_relacionados, atrasoId]
-                                    : lanc.lancamentos_atrasados_relacionados.filter((item) => item !== atrasoId);
-                                  updateLancamento(lanc.linha_arquivo, { lancamentos_atrasados_relacionados: proximo });
+                                  const marcando = e.target.checked;
+                                  setLancamentosEditados((prev) => prev.map((item) => {
+                                    if (item.linha_arquivo === lanc.linha_arquivo) {
+                                      const atuais = Array.isArray(item.lancamentos_atrasados_relacionados)
+                                        ? item.lancamentos_atrasados_relacionados.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+                                        : [];
+                                      const proximo = marcando
+                                        ? [...new Set([...atuais, atrasoId])]
+                                        : atuais.filter((id) => id !== atrasoId);
+                                      return {
+                                        ...item,
+                                        sugestao_acao: proximo.length > 0 ? 'RELACIONAR_ATRASADOS' : 'CRIAR_NOVO',
+                                        lancamentos_atrasados_relacionados: proximo,
+                                        lancamentos_atrasados_resumo: (item.lancamentos_atrasados_resumo || []).filter((resumo) => !resumo.id || Number(resumo.id) !== atrasoId),
+                                        sugestao_confirmada: false,
+                                      };
+                                    }
+
+                                    if (!marcando) {
+                                      return item;
+                                    }
+
+                                    const previstoAtual = item.lancamento_previsto_id != null ? Number(item.lancamento_previsto_id) : null;
+                                    const previstoRemovido = previstoAtual === atrasoId;
+                                    const atrasadosAtuais = Array.isArray(item.lancamentos_atrasados_relacionados)
+                                      ? item.lancamentos_atrasados_relacionados.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+                                      : [];
+                                    const atrasadosRestantes = atrasadosAtuais.filter((itemId) => itemId !== atrasoId);
+                                    const atrasadosRemovidos = atrasadosRestantes.length !== atrasadosAtuais.length;
+
+                                    if (!previstoRemovido && !atrasadosRemovidos) {
+                                      return item;
+                                    }
+
+                                    const nextItem: LancamentoEditado = {
+                                      ...item,
+                                      sugestao_confirmada: false,
+                                    };
+
+                                    if (previstoRemovido) {
+                                      nextItem.lancamento_previsto_id = null;
+                                      nextItem.lancamento_previsto_resumo = null;
+                                    }
+
+                                    if (atrasadosRemovidos) {
+                                      nextItem.lancamentos_atrasados_relacionados = atrasadosRestantes;
+                                      nextItem.lancamentos_atrasados_resumo = (nextItem.lancamentos_atrasados_resumo || []).filter((resumo) => !resumo.id || Number(resumo.id) !== atrasoId);
+                                    }
+
+                                    if ((previstoRemovido && item.sugestao_acao === 'BAIXAR_PREVISTO') || (atrasadosRemovidos && item.sugestao_acao === 'RELACIONAR_ATRASADOS' && atrasadosRestantes.length === 0)) {
+                                      nextItem.sugestao_acao = 'CRIAR_NOVO';
+                                    }
+
+                                    return nextItem;
+                                  }));
                                 }}
                               />
                               <div className="min-w-0 flex-1">
@@ -1663,9 +1738,6 @@ export function ImportacaoOfx() {
                                 </div>
                                 {atrasado.motivo ? (
                                   <p className="mt-1 text-xs italic text-slate-500 dark:text-slate-400">{atrasado.motivo}</p>
-                                ) : null}
-                                {bloqueadoPorOutroLancamento ? (
-                                  <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">Esta sugestão já foi confirmada em outro lançamento.</p>
                                 ) : null}
                               </div>
                             </label>

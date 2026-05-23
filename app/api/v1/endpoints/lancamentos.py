@@ -1558,8 +1558,10 @@ def listar_lancamentos(
     safe_limit = max(1, min(limit, 10000))
     safe_skip = max(skip, 0)
 
-    relation_loader = selectinload(cast(Any, Lancamento.anexos)) if include_anexos else noload(cast(Any, Lancamento.anexos))
-    query = select(Lancamento).options(relation_loader).where(
+    # Always load the related `entidade` for export/usage; load anexos only when requested.
+    load_options = [selectinload(cast(Any, Lancamento.entidade))]
+    load_options.append(selectinload(cast(Any, Lancamento.anexos)) if include_anexos else noload(cast(Any, Lancamento.anexos)))
+    query = select(Lancamento).options(*load_options).where(
         Lancamento.empresa_id == empresa_id,
         Lancamento.is_deleted == False
     )

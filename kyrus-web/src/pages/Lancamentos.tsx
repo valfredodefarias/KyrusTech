@@ -1189,7 +1189,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
     } catch(e) { console.error(e); }
   }
 
-  async function syncCadastros() {
+  async function syncCadastros(options?: { silent?: boolean }) {
     try {
       const [rE, rCat, rC] = await Promise.all([
         fetchEntidadesLookup(true),
@@ -1199,12 +1199,22 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
       setEntidades(normalizeListResponse<any>(rE));
       setCategorias(normalizeListResponse<any>(rCat));
       setContas(normalizeListResponse<any>(rC.data));
-      pushToast('success', 'Cadastros e saldos sincronizados.');
+      if (!options?.silent) {
+        pushToast('success', 'Cadastros e saldos sincronizados.');
+      }
     } catch (e) {
       console.error(e);
-      pushToast('error', 'Erro ao sincronizar cadastros.');
+      if (!options?.silent) {
+        pushToast('error', 'Erro ao sincronizar cadastros.');
+      }
     }
   }
+
+  const recoverLancamentoState = async () => {
+    await syncCadastros({ silent: true });
+    await refreshLancamentosVisiveis();
+    await refreshContasComSaldo();
+  };
 
   async function loadLancamentos(ini?: string, fim?: string, opts?: { force?: boolean; skipFallback?: boolean }) {
     const key = `${ini || ''}|${fim || ''}`;
@@ -1892,11 +1902,16 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
                 ? (ajustarParaDiaUtil ? toNextBusinessDay(rowVencimento) : rowVencimento)
                 : item.data_vencimento;
 
+              const fallbackContaId = item.conta_id || payload.conta_id || null;
+              const fallbackCartaoId = item.cartao_id || payload.cartao_id || null;
+              const fallbackCentroCustoId = item.centro_custo_id || payload.centro_custo_id || null;
+              const fallbackEntidadeId = item.entidade_id || payload.entidade_id || null;
+
               const rowPayload: any = {
-                conta_id: item.conta_id || null,
-                centro_custo_id: item.centro_custo_id || null,
-                entidade_id: item.entidade_id || null,
-                cartao_id: item.cartao_id || null,
+                      conta_id: fallbackContaId,
+                      centro_custo_id: fallbackCentroCustoId,
+                      entidade_id: fallbackEntidadeId,
+                      cartao_id: fallbackCartaoId,
                 tipo: item.tipo,
                 previsto: item.previsto ?? false,
                 status: item.status,
@@ -1949,8 +1964,18 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
       else { const ano = mesAtual.getFullYear(); const mes = mesAtual.getMonth() + 1; loadLancamentos(new Date(ano, mes-1, 1).toISOString().split('T')[0], new Date(ano, mes, 0).toISOString().split('T')[0], { force: true }); }
       await refreshContasComSaldo();
       pushToast('success', isEditing ? 'Lançamento atualizado com sucesso.' : 'Lançamento salvo com sucesso.');
-    } catch(e) {
-      pushToast('error', 'Erro ao salvar lançamento.');
+    } catch(e: any) {
+      const isDbValidationError = Number(e?.response?.status) === 400;
+      if (isDbValidationError) {
+        try {
+          await recoverLancamentoState();
+        } catch (refreshError) {
+          console.error(refreshError);
+        }
+        pushToast('info', 'Alguns dados foram recarregados. Revise o lançamento e tente salvar novamente.');
+      } else {
+        pushToast('error', 'Erro ao salvar lançamento.');
+      }
     } finally { setSaving(false); }
   }
 

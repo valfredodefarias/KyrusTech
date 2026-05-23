@@ -6,6 +6,7 @@ from decimal import Decimal
 from datetime import date
 from sqlmodel import SQLModel
 from .base_audit import AuditReadMixin
+from .entidade import EntidadeLookup
 from .anexo import AnexoRead 
 
 # --- BASE (Campos que o Frontend ENVIA) ---
@@ -83,6 +84,7 @@ class LancamentoRead(LancamentoBase, AuditReadMixin):
     empresa_id: int 
     status: str 
     anexos: List[AnexoRead] = []
+    entidade: Optional[EntidadeLookup] = None
 
 # --- SCHEMAS ESPECIAIS ---
 

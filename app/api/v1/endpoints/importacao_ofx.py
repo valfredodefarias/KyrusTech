@@ -686,6 +686,7 @@ def _buscar_duplicata_historica(
     lancamento_ofx: Dict,
     empresa_id: int,
     conta_id: int,
+    ofx_bank_id: Optional[str] = None,
 ) -> tuple[Optional[Lancamento], Optional[str]]:
     data_base = lancamento_ofx.get("data")
     if not isinstance(data_base, date):
@@ -701,28 +702,54 @@ def _buscar_duplicata_historica(
     valor_max = valor + margem
     data_inicio = data_base - timedelta(days=3)
     data_fim = data_base + timedelta(days=3)
+    banco_normalizado = _normalizar_texto(ofx_bank_id or lancamento_ofx.get("ofx_bank_id"))
 
-    candidatos = db.exec(
-        select(Lancamento)
-        .where(
-            Lancamento.empresa_id == empresa_id,
-            Lancamento.is_deleted == False,
-            Lancamento.tipo == lancamento_ofx.get("tipo"),
-            or_(
-                Lancamento.conta_id == conta_id,
-                Lancamento.conta_id.is_(None),
-            ),
-            or_(
-                Lancamento.data_pagamento.between(data_inicio, data_fim),
-                Lancamento.data_vencimento.between(data_inicio, data_fim),
-            ),
-            or_(
-                Lancamento.valor_previsto.between(valor_min, valor_max),
-            ),
-        )
-        .order_by(Lancamento.data_pagamento.desc(), Lancamento.id.desc())
-        .limit(300)
-    ).all()
+    def _buscar_por_conta() -> List[Lancamento]:
+        return db.exec(
+            select(Lancamento)
+            .where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.tipo == lancamento_ofx.get("tipo"),
+                or_(
+                    Lancamento.conta_id == conta_id,
+                    Lancamento.conta_id.is_(None),
+                ),
+                or_(
+                    Lancamento.data_pagamento.between(data_inicio, data_fim),
+                    Lancamento.data_vencimento.between(data_inicio, data_fim),
+                ),
+                or_(
+                    Lancamento.valor_previsto.between(valor_min, valor_max),
+                ),
+            )
+            .order_by(Lancamento.data_pagamento.desc(), Lancamento.id.desc())
+            .limit(300)
+        ).all()
+
+    if banco_normalizado:
+        candidatos = db.exec(
+            select(Lancamento)
+            .where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.tipo == lancamento_ofx.get("tipo"),
+                Lancamento.ofx_bank_id == banco_normalizado,
+                or_(
+                    Lancamento.data_pagamento.between(data_inicio, data_fim),
+                    Lancamento.data_vencimento.between(data_inicio, data_fim),
+                ),
+                or_(
+                    Lancamento.valor_previsto.between(valor_min, valor_max),
+                ),
+            )
+            .order_by(Lancamento.data_pagamento.desc(), Lancamento.id.desc())
+            .limit(300)
+        ).all()
+        if not candidatos:
+            candidatos = _buscar_por_conta()
+    else:
+        candidatos = _buscar_por_conta()
 
     interessado_norm = _normalizar_texto(lancamento_ofx.get("razao_social") or lancamento_ofx.get("interessado_sugerido"))
     for candidato in candidatos:
@@ -1439,7 +1466,7 @@ def listar_lancamentos_disponiveis(
     centro_custo_id: Optional[int] = Query(None),
     data_base: Optional[date] = Query(None),
     incluir_futuros: bool = Query(False),
-    limite: int = Query(200, ge=1, le=500),
+    limite: int = Query(200, ge=1, le=2000),
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
@@ -1743,15 +1770,27 @@ def upload_ofx(
                 import_hash_atual = str(lanc_raw.get("import_hash") or "")
                 duplicata = duplicatas_por_hash.get(import_hash_atual)
                 if not duplicata:
-                    duplicata = verificar_duplicata_ofx_por_fallback(db, lanc_raw, empresa_id, conta_id=conta_db_id)
+                    duplicata = verificar_duplicata_ofx_por_fallback(
+                        db,
+                        lanc_raw,
+                        empresa_id,
+                        conta_id=conta_db_id,
+                        ofx_bank_id=lanc_raw.get("ofx_bank_id"),
+                    )
                 duplicata_historica_motivo = None
                 if not duplicata and not modo_cartao:
-                    duplicata, duplicata_historica_motivo = _buscar_duplicata_historica(db, lanc_raw, empresa_id, conta_db_id)
+                    duplicata, duplicata_historica_motivo = _buscar_duplicata_historica(
+                        db,
+                        lanc_raw,
+                        empresa_id,
+                        conta_db_id,
+                        lanc_raw.get("ofx_bank_id"),
+                    )
                 if duplicata:
                     duplicatas += 1
                     lanc_raw["duplicata_id"] = duplicata.id
                     lanc_raw["sugestao_acao"] = "DESCARTAR"
-                    lanc_raw["motivo_conciliacao"] = duplicata_historica_motivo or "Movimento ja importado anteriormente para esta conta."
+                    lanc_raw["motivo_conciliacao"] = duplicata_historica_motivo or "Movimento ja importado anteriormente para este banco."
                     data_duplicata = duplicata.data_pagamento or duplicata.data_vencimento
                     valor_duplicata = _valor_lancamento_existente(duplicata)
                     lanc_raw["duplicata_resumo"] = DuplicataResumo(
@@ -2357,6 +2396,8 @@ def confirmar_lancamentos(
                             lanc_existente.centro_custo_id = centro_custo_resolvido
                         if import_hash and not lanc_existente.import_hash:
                             lanc_existente.import_hash = import_hash
+                        if lanc_data.get("ofx_bank_id") and not lanc_existente.ofx_bank_id:
+                            lanc_existente.ofx_bank_id = str(lanc_data.get("ofx_bank_id") or "").strip() or None
                         movimento_uid = str(lanc_data.get("movimento_uid") or "").strip()
                         referencia_externa = str(lanc_data.get("referencia_externa") or "").strip()
                         if movimento_uid and not lanc_existente.movimento_uid:
@@ -2416,6 +2457,8 @@ def confirmar_lancamentos(
                         lanc_atrasado.centro_custo_id = centro_custo_resolvido
                     if import_hash and not lanc_atrasado.import_hash:
                         lanc_atrasado.import_hash = import_hash
+                    if lanc_data.get("ofx_bank_id") and not lanc_atrasado.ofx_bank_id:
+                        lanc_atrasado.ofx_bank_id = str(lanc_data.get("ofx_bank_id") or "").strip() or None
                     movimento_uid = str(lanc_data.get("movimento_uid") or "").strip()
                     referencia_externa = str(lanc_data.get("referencia_externa") or "").strip()
                     if movimento_uid and not lanc_atrasado.movimento_uid:
@@ -2493,6 +2536,7 @@ def confirmar_lancamentos(
                     lancamento_probe,
                     empresa_id,
                     conta_resolvida_id,
+                    lanc_data.get("ofx_bank_id"),
                 )
                 if duplicata_confirmacao:
                     ignorados_duplicata_payload += 1
@@ -2544,6 +2588,7 @@ def confirmar_lancamentos(
                 import_hash=import_hash or None,
                 movimento_uid=str(lanc_data.get("movimento_uid") or "").strip() or None,
                 referencia_externa=str(lanc_data.get("referencia_externa") or "").strip() or None,
+                ofx_bank_id=str(lanc_data.get("ofx_bank_id") or "").strip() or None,
                 conciliado=not modo_cartao,
                 ipp=False,
             )

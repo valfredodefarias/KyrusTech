@@ -222,39 +222,47 @@ def verificar_duplicata_ofx_por_fallback(
     lancamento: Dict,
     empresa_id: int,
     conta_id: Optional[int] = None,
+    ofx_bank_id: Optional[str] = None,
 ) -> Optional[Lancamento]:
     if str(lancamento.get("origem") or "").upper() != "OFX_EXTRATO":
         return None
 
     conta_resolvida = conta_id or lancamento.get("conta_id")
-    if not conta_resolvida:
+    banco_resolvido = _normalizar_texto(ofx_bank_id or lancamento.get("ofx_bank_id"))
+    if not conta_resolvida and not banco_resolvido:
         return None
 
     movimento_uid = _normalizar_texto(lancamento.get("movimento_uid"))
     referencia_externa = _normalizar_texto(lancamento.get("referencia_externa"))
+    escopo_clauses = []
+    if banco_resolvido:
+        escopo_clauses.append(Lancamento.ofx_bank_id == banco_resolvido)
+    if conta_resolvida:
+        escopo_clauses.append(Lancamento.conta_id == conta_resolvida)
+
     if movimento_uid and not movimento_uid.startswith("fallback:"):
-        candidato = db.exec(
-            select(Lancamento).where(
-                Lancamento.empresa_id == empresa_id,
-                Lancamento.is_deleted == False,
-                Lancamento.conta_id == conta_resolvida,
-                Lancamento.origem == "OFX_EXTRATO",
-                Lancamento.movimento_uid == movimento_uid,
-            )
-        ).first()
+        query = select(Lancamento).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "OFX_EXTRATO",
+            Lancamento.movimento_uid == movimento_uid,
+        )
+        if escopo_clauses:
+            query = query.where(or_(*escopo_clauses))
+        candidato = db.exec(query).first()
         if candidato:
             return candidato
 
     if referencia_externa:
-        candidato = db.exec(
-            select(Lancamento).where(
-                Lancamento.empresa_id == empresa_id,
-                Lancamento.is_deleted == False,
-                Lancamento.conta_id == conta_resolvida,
-                Lancamento.origem == "OFX_EXTRATO",
-                Lancamento.referencia_externa == referencia_externa,
-            )
-        ).first()
+        query = select(Lancamento).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "OFX_EXTRATO",
+            Lancamento.referencia_externa == referencia_externa,
+        )
+        if escopo_clauses:
+            query = query.where(or_(*escopo_clauses))
+        candidato = db.exec(query).first()
         if candidato:
             return candidato
 

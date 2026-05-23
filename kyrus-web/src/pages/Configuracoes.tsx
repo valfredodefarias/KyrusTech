@@ -944,6 +944,7 @@ const ExportacaoFinanceira = () => {
     data_vencimento: lancamento.data_vencimento,
     data_pagamento: lancamento.data_pagamento || '',
     descricao: lancamento.descricao,
+    interessado: (lancamento as any).entidade?.nome || '',
     tipo: lancamento.tipo,
     categoria: categoriaPorId.get(Number(lancamento.plano_contas_id)) || '',
     conta: contaPorId.get(Number(lancamento.conta_id))?.nome || '',
@@ -963,8 +964,8 @@ const ExportacaoFinanceira = () => {
       const fileName = `financeiro_${periodoIni}_${periodoFim}_${sufixoConta}`;
 
       if (formato === 'csv') {
-        const header = 'data_vencimento,data_pagamento,descricao,tipo,categoria,conta,banco,competencia,previsto,valor_previsto,valor_pago,status\n';
-        const csv = header + exportRows.map((row) => `${row.data_vencimento},${row.data_pagamento},"${String(row.descricao).replace(/"/g, '""')}",${row.tipo},"${String(row.categoria).replace(/"/g, '""')}","${String(row.conta).replace(/"/g, '""')}","${String(row.banco).replace(/"/g, '""')}",${row.competencia},${row.previsto},${row.valor_previsto},${row.valor_pago},${row.status}`).join('\n');
+        const header = 'data_vencimento,data_pagamento,descricao,interessado,tipo,categoria,conta,banco,competencia,previsto,valor_previsto,valor_pago,status\n';
+          const csv = header + exportRows.map((row) => `${row.data_vencimento},${row.data_pagamento},"${String(row.descricao).replace(/"/g, '""')}","${String(row.interessado).replace(/"/g, '""')}",${row.tipo},"${String(row.categoria).replace(/"/g, '""')}","${String(row.conta).replace(/"/g, '""')}","${String(row.banco).replace(/"/g, '""')}",${row.competencia},${row.previsto},${row.valor_previsto},${row.valor_pago},${row.status}`).join('\n');
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
@@ -982,6 +983,7 @@ const ExportacaoFinanceira = () => {
         { header: 'Data Vencimento', key: 'data_vencimento', width: 16 },
         { header: 'Data Pagamento', key: 'data_pagamento', width: 16 },
         { header: 'Descrição', key: 'descricao', width: 42 },
+        { header: 'Interessado', key: 'interessado', width: 24 },
         { header: 'Tipo', key: 'tipo', width: 14 },
         { header: 'Categoria', key: 'categoria', width: 24 },
         { header: 'Conta', key: 'conta', width: 24 },

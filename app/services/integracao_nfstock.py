@@ -187,39 +187,45 @@ def _download_note_files(driver: webdriver.Chrome, wait: WebDriverWait, download
     xpath_row = f"//tr[td[3][normalize-space()='{nf_number}']]"
     table_row = wait.until(EC.presence_of_element_located((By.XPATH, xpath_row)))
 
+    # Rolagem da tela para garantir que a linha está visível (evita bugs de clique)
+    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", table_row)
+    time.sleep(0.5)
+
+    # Abre o menu da nota atual
     download_button = table_row.find_element(By.CSS_SELECTOR, "button.download-nota")
     driver.execute_script("arguments[0].click();", download_button)
-    time.sleep(0.8)
+    time.sleep(1)
 
     xml_path = None
     pdf_path = None
 
-    # XML
+    # XML - Pega todos os links e clica apenas no VISÍVEL (foge do clique fantasma)
     before = set(os.listdir(download_dir))
-    xml_link = wait.until(EC.element_to_be_clickable((By.ID, "link-download-xml")))
-    driver.execute_script("arguments[0].click();", xml_link)
-    xml_path = _wait_new_download(download_dir, before, timeout_seconds=50)
-
-    # PDF - tenta seletor por ID e CSS alternativo
-    before_pdf = set(os.listdir(download_dir))
-    pdf_link = None
-    for locator in [
-        (By.ID, "link-download-pdf"),
-        (By.CSS_SELECTOR, "#link-download-pdf"),
-        (By.CSS_SELECTOR, "a#link-download-pdf"),
-    ]:
-        try:
-            pdf_link = WebDriverWait(driver, 8).until(EC.element_to_be_clickable(locator))
+    xml_links = driver.find_elements(By.CSS_SELECTOR, "a[id='link-download-xml'], #link-download-xml")
+    for link in xml_links:
+        if link.is_displayed():
+            driver.execute_script("arguments[0].click();", link)
             break
-        except TimeoutException:
-            continue
+    
+    # Aguarda o arquivo aparecer na pasta (75s de limite para portais lentos)
+    xml_path = _wait_new_download(download_dir, before, timeout_seconds=75)
 
-    if pdf_link is not None:
-        driver.execute_script("arguments[0].click();", pdf_link)
+    # PDF - Mesma lógica anti-fantasma
+    before_pdf = set(os.listdir(download_dir))
+    pdf_links = driver.find_elements(By.CSS_SELECTOR, "a[id='link-download-pdf'], #link-download-pdf")
+    for link in pdf_links:
+        if link.is_displayed():
+            driver.execute_script("arguments[0].click();", link)
+            break
+            
+    if any(link.is_displayed() for link in pdf_links):
         pdf_path = _wait_new_download(download_dir, before_pdf, timeout_seconds=50)
 
-    return xml_path, pdf_path
+    # Clica no "vazio" da tela para fechar qualquer menu aberto antes de ir pra próxima nota
+    driver.execute_script("document.body.click();")
+    time.sleep(0.5)
 
+    return xml_path, pdf_path
 
 def _nfe_exists_by_number_document(db: Session, *, empresa_id: int, numero: str, documento: str) -> bool:
     numero_nf = str(int(str(numero or "0"))) if str(numero or "").strip() else ""
@@ -484,6 +490,16 @@ def sincronizar_nfstock(
                             pdf_path=pdf_path,
                         )
                         db.commit()
+                        # Checagem extra por número + documento após parse
+                    if _nfe_exists_by_number_document(
+                        db,
+                        empresa_id=empresa_id,
+                        numero=req.numero_nfe,
+                        documento=req.emitente_documento or "",
+                    ):
+                        logger.info("[NFSTOCK] A NF {} já está cadastrada no Kyrus. Ignorando duplicata.", req.numero_nfe) # <- ADICIONE ESTA LINHA
+                        puladas += 1
+                        continue
 
             except Exception as exc:
                 logger.error("[NFSTOCK] Falha ao importar NF {} integração {}: {}", row.numero, integracao.id, exc)

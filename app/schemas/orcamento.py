@@ -44,6 +44,8 @@ class OrcamentoMatrizNodeRead(SQLModel):
     nome: str
     codigo: Optional[str] = None
     tipo: str
+    dre_grupo: Optional[str] = None
+    oculta: bool = False
     meses: list[OrcamentoMatrizMesRead] = Field(default_factory=list)
     total_realizado: Decimal = Decimal("0.00")
     total_orcado: Decimal = Decimal("0.00")

@@ -120,6 +120,8 @@ def get_matriz(
             nome=plano.nome,
             codigo=plano.codigo,
             tipo=plano.tipo,
+            dre_grupo=plano.dre_grupo,
+            oculta=bool(plano.oculta),
             meses=_build_month_items(),
         )
 

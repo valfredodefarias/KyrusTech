@@ -230,7 +230,15 @@ function getGroupToneClasses(tone: BudgetGroupSection['tone'], isDark: boolean) 
     tone === 'teal' ? (isDark ? 'bg-teal-800/60 text-white' : 'bg-teal-200 text-teal-950') :
     (isDark ? 'bg-fuchsia-800/60 text-white' : 'bg-fuchsia-200 text-fuchsia-950');
 
-  return { rowTone, parentRowClass };
+  const childRowClass =
+    tone === 'emerald' ? (isDark ? 'bg-emerald-950/10 text-slate-100' : 'bg-emerald-50/40 text-emerald-900') :
+    tone === 'amber' ? (isDark ? 'bg-yellow-950/10 text-slate-100' : 'bg-yellow-50/40 text-yellow-900') :
+    tone === 'orange' ? (isDark ? 'bg-orange-950/10 text-slate-100' : 'bg-orange-50/40 text-orange-900') :
+    tone === 'rose' ? (isDark ? 'bg-rose-950/10 text-slate-100' : 'bg-rose-50/40 text-rose-900') :
+    tone === 'teal' ? (isDark ? 'bg-teal-950/10 text-slate-100' : 'bg-teal-50/40 text-teal-900') :
+    (isDark ? 'bg-fuchsia-950/10 text-slate-100' : 'bg-fuchsia-50/40 text-fuchsia-900');
+
+  return { rowTone, parentRowClass, childRowClass };
 }
 
 function recalculateNode(node: BudgetNode): BudgetNode {
@@ -663,7 +671,7 @@ export function Budget() {
                     return !groupName.includes('fora') && !groupName.includes('opcional') && !groupName.includes('não op') && !groupName.includes('nao op');
                   })
                   .map((section) => {
-                  const { rowTone, parentRowClass } = getGroupToneClasses(section.tone, false);
+                  const { rowTone, parentRowClass, childRowClass } = getGroupToneClasses(section.tone, false);
 
                   return (
                     <Fragment key={section.key}>
@@ -681,13 +689,13 @@ export function Budget() {
                         ))}
                       </tr>
 
-                      {section.rows.map(({ node, level, hasChildren }, rowIndex) => {
-                        const rowTone = rowIndex % 2 === 0 ? 'bg-white dark:bg-slate-950/20' : 'bg-slate-50/70 dark:bg-slate-900/30';
+                      {section.rows.map(({ node, level, hasChildren }) => {
                         const isLeaf = !hasChildren;
+                        const rowClass = hasChildren ? parentRowClass : childRowClass;
 
                         return (
-                          <tr key={`${section.key}-${node.plano_contas_id}`} className={rowTone}>
-                            <td className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.45)] dark:border-slate-800 ${hasChildren ? `border-slate-700 font-black ${parentRowClass}` : rowTone}`}>
+                          <tr key={`${section.key}-${node.plano_contas_id}`} className={rowClass}>
+                            <td className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.45)] dark:border-slate-800 ${hasChildren ? `border-slate-700 font-black ${parentRowClass}` : childRowClass}`}>
                               <div className="flex items-start gap-2" style={{ paddingLeft: `${level * 18}px` }}>
                                 <button
                                   type="button"
@@ -711,7 +719,7 @@ export function Budget() {
                               </div>
                             </td>
 
-                            <td className={`border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200 ${hasChildren ? parentRowClass : rowTone}`}>
+                            <td className={`border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200 ${hasChildren ? parentRowClass : childRowClass}`}>
                               {formatMoney(node.total_orcado)}
                             </td>
 
@@ -719,6 +727,7 @@ export function Budget() {
                               const cellKey = getCellKey(node.plano_contas_id, mes.mes);
                               const isCellEditing = editingCell !== null && getCellKey(editingCell.planoContaId, editingCell.mes) === cellKey;
                               const deviationClasses = mes.desvio_percentual < 0 ? 'bg-red-50 text-red-700 font-bold dark:bg-red-950/35 dark:text-red-200' : '';
+                              const deviationTextClass = mes.desvio_percentual < 0 ? 'text-red-600 dark:text-red-300' : 'text-slate-600 dark:text-slate-300';
 
                               return (
                                 <td
@@ -728,9 +737,9 @@ export function Budget() {
                                       beginCellEdit(node.plano_contas_id, mes.mes, mes.valor_orcado);
                                     }
                                   }}
-                                  className={`min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 ${isLeaf ? 'cursor-text' : 'cursor-default'} last:border-r-0 ${deviationClasses}`}
+                                  className={`min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 ${isLeaf ? 'cursor-text' : 'cursor-default'} last:border-r-0 ${hasChildren ? parentRowClass : childRowClass} ${deviationClasses}`}
                                 >
-                                  <div className="flex items-center justify-end leading-tight">
+                                  <div className="flex flex-col items-end leading-tight">
                                     {isCellEditing ? (
                                       <input
                                         type="number"
@@ -752,9 +761,14 @@ export function Budget() {
                                         className="w-full appearance-none bg-transparent px-0 py-0 text-right outline-none border-b-2 border-blue-500 text-slate-900 dark:text-slate-100 [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                                       />
                                     ) : (
-                                      <div className="w-full text-right text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                                        {formatMoney(mes.valor_orcado)}
-                                      </div>
+                                      <>
+                                        <div className="w-full text-right text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                                          {formatMoney(mes.valor_realizado)}
+                                        </div>
+                                        <div className={`mt-1 text-[9px] opacity-80 ${deviationTextClass}`}>
+                                          {formatMoney(mes.desvio_absoluto)} {mes.desvio_percentual >= 0 ? '(' : '('}{mes.desvio_percentual >= 0 ? '+' : ''}{mes.desvio_percentual.toFixed(2)}%)
+                                        </div>
+                                      </>
                                     )}
                                   </div>
                                 </td>

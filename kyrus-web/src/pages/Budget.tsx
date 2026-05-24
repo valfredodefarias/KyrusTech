@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Calculator, ChevronRight, RotateCcw } from 'lucide-react';
+import Chart from 'react-apexcharts';
+import type { ApexOptions } from 'apexcharts';
 
 import { api, normalizeListResponse } from '../services/api';
 
@@ -17,6 +19,7 @@ interface BudgetNode {
   nome: string;
   codigo?: string | null;
   tipo: string;
+  dre_grupo?: string | null;
   meses: BudgetMonth[];
   total_realizado: number;
   total_orcado: number;
@@ -32,7 +35,7 @@ interface VisibleNode {
 }
 
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-const EXCLUDED_BUDGET_GROUP_NAME = 'Não operacional / fora da DRE';
+const EXCLUDED_BUDGET_GROUPS = new Set(['NÃO OPERACIONAL / FORA DA DRE', 'NAO OPERACIONAL / FORA DA DRE', 'NÃO OP.', 'NAO OP.']);
 
 const moneyFormatter = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -43,6 +46,12 @@ const moneyFormatter = new Intl.NumberFormat('pt-BR', {
 
 const percentFormatter = new Intl.NumberFormat('pt-BR', {
   minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+});
+
+const compactMoneyFormatter = new Intl.NumberFormat('pt-BR', {
+  notation: 'compact',
+  compactDisplay: 'short',
   maximumFractionDigits: 1,
 });
 
@@ -57,6 +66,10 @@ function formatMoney(value: number) {
 
 function formatPercent(value: number) {
   return `${percentFormatter.format(Number.isFinite(value) ? value : 0)}%`;
+}
+
+function formatCompactMoney(value: number) {
+  return `R$ ${compactMoneyFormatter.format(Number.isFinite(value) ? value : 0)}`;
 }
 
 function isReceita(tipo?: string | null) {
@@ -79,6 +92,7 @@ function normalizeNode(node: BudgetNode): BudgetNode {
     ...node,
     plano_contas_id: toNumber(node.plano_contas_id),
     conta_pai_id: node.conta_pai_id === null || node.conta_pai_id === undefined ? null : toNumber(node.conta_pai_id),
+    dre_grupo: node.dre_grupo ?? null,
     total_realizado: toNumber(node.total_realizado),
     total_orcado: toNumber(node.total_orcado),
     total_desvio_absoluto: toNumber(node.total_desvio_absoluto),
@@ -88,13 +102,72 @@ function normalizeNode(node: BudgetNode): BudgetNode {
   };
 }
 
+function normalizeDreGroup(value?: string | null): string {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 function filterBudgetTree(nodes: BudgetNode[]): BudgetNode[] {
   return nodes
-    .filter((node) => node.nome !== EXCLUDED_BUDGET_GROUP_NAME)
+    .filter((node) => !EXCLUDED_BUDGET_GROUPS.has(normalizeDreGroup(node.dre_grupo)))
     .map((node) => ({
       ...node,
       children: filterBudgetTree(node.children),
     }));
+}
+
+function collectLeafMonthlyValues(
+  nodes: BudgetNode[],
+  predicate: (node: BudgetNode) => boolean,
+  field: keyof Pick<BudgetMonth, 'valor_realizado' | 'valor_orcado'>,
+) {
+  const totals = MONTH_LABELS.map(() => 0);
+
+  const visit = (current: BudgetNode) => {
+    if (current.children.length > 0) {
+      current.children.forEach(visit);
+      return;
+    }
+
+    if (!predicate(current)) {
+      return;
+    }
+
+    current.meses.forEach((mes, index) => {
+      totals[index] += toNumber(mes[field]);
+    });
+  };
+
+  nodes.forEach(visit);
+  return totals;
+}
+
+function buildCumulativeSeries(values: number[]) {
+  return values.reduce<number[]>((accumulator, value) => {
+    const previous = accumulator.length > 0 ? accumulator[accumulator.length - 1] : 0;
+    accumulator.push(previous + value);
+    return accumulator;
+  }, []);
+}
+
+function buildTreeMetrics(nodes: BudgetNode[]) {
+  const receitaOrcadaMensal = collectLeafMonthlyValues(nodes, (node) => isReceita(node.tipo), 'valor_orcado');
+  const receitaRealMensal = collectLeafMonthlyValues(nodes, (node) => isReceita(node.tipo), 'valor_realizado');
+  const custoOrcadoMensal = collectLeafMonthlyValues(nodes, (node) => !isReceita(node.tipo), 'valor_orcado');
+  const custoRealMensal = collectLeafMonthlyValues(nodes, (node) => !isReceita(node.tipo), 'valor_realizado');
+
+  return {
+    receitaOrcadaMensal,
+    receitaRealMensal,
+    custoOrcadoMensal,
+    custoRealMensal,
+    receitaOrcadaAcumulada: buildCumulativeSeries(receitaOrcadaMensal),
+    receitaRealAcumulada: buildCumulativeSeries(receitaRealMensal),
+    variacaoCustosMensal: custoRealMensal.map((valor, index) => valor - custoOrcadoMensal[index]),
+  };
 }
 
 function recalculateNode(node: BudgetNode): BudgetNode {
@@ -199,6 +272,149 @@ export function Budget() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const analytics = useMemo(() => buildTreeMetrics(matrix), [matrix]);
+
+  const revenueChartSeries = useMemo(
+    () => [
+      { name: 'Orçado Acumulado', data: analytics.receitaOrcadaAcumulada },
+      { name: 'Realizado Acumulado', data: analytics.receitaRealAcumulada },
+    ],
+    [analytics.receitaOrcadaAcumulada, analytics.receitaRealAcumulada],
+  );
+
+  const variationChartSeries = useMemo(
+    () => [
+      {
+        name: 'Real - Orçado',
+        data: analytics.variacaoCustosMensal,
+      },
+    ],
+    [analytics.variacaoCustosMensal],
+  );
+
+  const revenueChartOptions = useMemo<ApexOptions>(
+    () => ({
+      chart: {
+        type: 'area',
+        toolbar: { show: false },
+        zoom: { enabled: false },
+        animations: { enabled: true, easing: 'easeinout', speed: 450 },
+        background: 'transparent',
+      },
+      colors: ['#16a34a', '#dc2626'],
+      dataLabels: { enabled: false },
+      stroke: {
+        curve: 'smooth',
+        width: [3, 3],
+      },
+      fill: {
+        type: 'gradient',
+        gradient: {
+          shadeIntensity: 0.18,
+          opacityFrom: 0.24,
+          opacityTo: 0.04,
+          stops: [0, 90, 100],
+        },
+      },
+      grid: {
+        borderColor: '#e2e8f0',
+        strokeDashArray: 4,
+      },
+      legend: {
+        position: 'top',
+        horizontalAlign: 'right',
+        markers: {
+          width: 10,
+          height: 10,
+          radius: 999,
+        },
+      },
+      markers: {
+        size: 4,
+        strokeWidth: 0,
+        hover: { size: 6 },
+      },
+      xaxis: {
+        categories: MONTH_LABELS,
+        axisBorder: { color: '#cbd5e1' },
+        axisTicks: { color: '#cbd5e1' },
+        labels: {
+          style: { colors: '#64748b', fontSize: '12px' },
+        },
+      },
+      yaxis: {
+        labels: {
+          formatter: (value) => formatCompactMoney(value),
+          style: { colors: '#64748b', fontSize: '12px' },
+        },
+      },
+      tooltip: {
+        shared: true,
+        intersect: false,
+        y: {
+          formatter: (value) => formatMoney(value),
+        },
+      },
+      theme: {
+        mode: 'light',
+      },
+    }),
+    [],
+  );
+
+  const variationChartOptions = useMemo<ApexOptions>(
+    () => ({
+      chart: {
+        type: 'bar',
+        toolbar: { show: false },
+        zoom: { enabled: false },
+        background: 'transparent',
+      },
+      colors: ['#0f172a'],
+      dataLabels: { enabled: false },
+      plotOptions: {
+        bar: {
+          borderRadius: 6,
+          columnWidth: '52%',
+          colors: {
+            ranges: [
+              { from: -999999999999, to: 0, color: '#16a34a' },
+              { from: 0.0000001, to: 999999999999, color: '#dc2626' },
+            ],
+          },
+        },
+      },
+      grid: {
+        borderColor: '#e2e8f0',
+        strokeDashArray: 4,
+      },
+      xaxis: {
+        categories: MONTH_LABELS,
+        axisBorder: { color: '#cbd5e1' },
+        axisTicks: { color: '#cbd5e1' },
+        labels: {
+          style: { colors: '#64748b', fontSize: '12px' },
+        },
+      },
+      yaxis: {
+        labels: {
+          formatter: (value) => formatCompactMoney(value),
+          style: { colors: '#64748b', fontSize: '12px' },
+        },
+      },
+      tooltip: {
+        y: {
+          formatter: (value) => formatMoney(value),
+        },
+      },
+      legend: { show: false },
+      theme: {
+        mode: 'light',
+      },
+    }),
+    [],
+  );
+
   const loadMatrix = async (selectedYear: number) => {
     setLoading(true);
     setError(null);
@@ -291,19 +507,52 @@ export function Budget() {
         </div>
       ) : null}
 
-      <section className="overflow-hidden rounded-none border border-slate-200 bg-white shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-slate-950/75">
-        <div className="overflow-x-auto">
+      <section className="grid gap-4 xl:grid-cols-2">
+        <article className="rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_24px_80px_-60px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-slate-950/75">
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Painel A</p>
+              <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">Tendência Receita Bruta (Orçado vs Real vs Curva)</h2>
+              <p className="max-w-xl text-sm text-slate-500 dark:text-slate-400">
+                Leitura acumulada da receita para identificar aceleração, desaceleração e distância entre o plano e a execução.
+              </p>
+            </div>
+          </div>
+
+          <Chart options={revenueChartOptions} series={revenueChartSeries} type="area" height={340} />
+        </article>
+
+        <article className="rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_24px_80px_-60px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-slate-950/75">
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Painel B</p>
+              <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">Variação Mensal de Custos (R$)</h2>
+              <p className="max-w-xl text-sm text-slate-500 dark:text-slate-400">
+                Barras acima de zero indicam estouro de custo; abaixo de zero indicam economia frente ao orçamento.
+              </p>
+            </div>
+          </div>
+
+          <Chart options={variationChartOptions} series={variationChartSeries} type="bar" height={340} />
+        </article>
+      </section>
+
+      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-slate-950/75">
+        <div className="max-h-[72vh] overflow-auto">
           <table className="w-full min-w-[1400px] border-separate border-spacing-0 text-sm">
             <thead>
               <tr>
-                <th className="sticky left-0 z-20 border-b border-r border-slate-800 bg-slate-950 px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white">
+                <th className="sticky left-0 top-0 z-40 border-b border-r border-slate-800 bg-slate-950/95 px-4 py-2 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
                   Conta
                 </th>
-                <th className="border-b border-r border-slate-800 bg-slate-950 px-3 py-3 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">
+                <th className="sticky top-0 z-30 border-b border-r border-slate-800 bg-slate-950/95 px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
                   Orçado total
                 </th>
                 {MONTH_LABELS.map((label) => (
-                  <th key={label} className="min-w-[100px] w-[100px] border-b border-r border-slate-800 bg-slate-950 px-2 py-3 text-right text-[10px] font-black uppercase tracking-[0.18em] text-white last:border-r-0">
+                  <th
+                    key={label}
+                    className="sticky top-0 z-30 min-w-[100px] w-[100px] border-b border-r border-slate-800 bg-slate-950/95 px-2 py-2 text-right text-[10px] font-black uppercase tracking-[0.18em] text-white backdrop-blur last:border-r-0"
+                  >
                     {label}
                   </th>
                 ))}
@@ -325,9 +574,11 @@ export function Budget() {
                 </tr>
               ) : (
                 visibleRows.map(({ node, level, hasChildren }, rowIndex) => {
+                  const rowTone = rowIndex % 2 === 0 ? 'bg-white dark:bg-slate-950/20' : 'bg-slate-50/70 dark:bg-slate-900/30';
+
                   return (
-                    <tr key={node.plano_contas_id} className={rowIndex % 2 === 0 ? 'bg-white dark:bg-slate-950/20' : 'bg-slate-50/70 dark:bg-slate-900/30'}>
-                      <td className="sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.45)] dark:border-slate-800">
+                    <tr key={node.plano_contas_id} className={rowTone}>
+                      <td className={`sticky left-0 z-20 border-b border-r border-slate-200 px-3 py-1.5 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.45)] dark:border-slate-800 ${rowTone}`}>
                         <div className="flex items-start gap-2" style={{ paddingLeft: `${level * 18}px` }}>
                           <button
                             type="button"
@@ -355,14 +606,12 @@ export function Budget() {
                               {node.codigo ? `${node.codigo} - ` : ''}
                               {node.nome}
                             </p>
-                            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">
-                              {hasChildren ? 'Conta agregadora' : 'Nível folha'}
-                            </p>
+                            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">{hasChildren ? 'Conta agregadora' : 'Nível folha'}</p>
                           </div>
                         </div>
                       </td>
 
-                      <td className="border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200">
+                      <td className={`border-b border-r border-slate-200 px-3 py-1.5 text-right text-sm tabular-nums dark:border-slate-800 ${rowTone} font-semibold text-slate-700 dark:text-slate-200`}>
                         {formatMoney(node.total_orcado)}
                       </td>
 
@@ -370,15 +619,16 @@ export function Budget() {
                         const deviationBadgeClass = getDeviationBadgeClass(node.tipo, mes.desvio_absoluto);
                         const deviationLabel = mes.valor_orcado !== 0 ? formatPercent(mes.desvio_percentual) : '—';
                         const tooltip = `Orçado: ${formatMoney(mes.valor_orcado)} | Desvio absoluto: ${formatMoney(mes.desvio_absoluto)}`;
+                        const isNegativeDeviation = mes.desvio_percentual < 0;
 
                         return (
                           <td
                             key={`${node.plano_contas_id}-${mes.mes}`}
                             title={tooltip}
-                            className="min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 last:border-r-0"
+                            className={`min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-1.5 text-right dark:border-slate-800 last:border-r-0 ${rowTone} ${isNegativeDeviation ? 'bg-red-50 font-bold text-red-700 dark:bg-red-950/35 dark:text-red-200' : 'text-slate-800 dark:text-slate-100'}`}
                           >
                             <div className="flex items-center justify-end gap-1.5 leading-tight">
-                              <span className="text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                              <span className="text-sm font-semibold tabular-nums">
                                 {formatMoney(mes.valor_realizado)}
                               </span>
                               <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${deviationBadgeClass}`}>

@@ -17,6 +17,7 @@ interface OrcamentoNode {
   nome: string;
   codigo?: string | null;
   tipo: string;
+  dre_grupo?: string | null;
   meses: OrcamentoMes[];
   total_realizado: number;
   total_orcado: number;
@@ -44,7 +45,7 @@ interface EditingCell {
 }
 
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-const EXCLUDED_BUDGET_GROUP_NAME = 'Não operacional / fora da DRE';
+const EXCLUDED_DRE_GROUPS = new Set(['NÃO OPERACIONAL / FORA DA DRE', 'NAO OPERACIONAL / FORA DA DRE', 'NÃO OP.', 'NAO OP.']);
 
 const moneyFormatter = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -96,6 +97,7 @@ function normalizeNode(node: OrcamentoNode): OrcamentoNode {
     ...node,
     plano_contas_id: toNumber(node.plano_contas_id),
     conta_pai_id: node.conta_pai_id === null || node.conta_pai_id === undefined ? null : toNumber(node.conta_pai_id),
+    dre_grupo: node.dre_grupo ?? null,
     total_realizado: toNumber(node.total_realizado),
     total_orcado: toNumber(node.total_orcado),
     total_desvio_absoluto: toNumber(node.total_desvio_absoluto),
@@ -105,12 +107,23 @@ function normalizeNode(node: OrcamentoNode): OrcamentoNode {
   };
 }
 
-function filterBudgetTree(nodes: OrcamentoNode[]): OrcamentoNode[] {
+function normalizeDreGroup(value?: string | null): string {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function filterDRETree(nodes: OrcamentoNode[]): OrcamentoNode[] {
   return nodes
-    .filter((node) => node.nome !== EXCLUDED_BUDGET_GROUP_NAME)
+    .filter((node) => {
+      const dreGroup = normalizeDreGroup(node.dre_grupo);
+      return !EXCLUDED_DRE_GROUPS.has(dreGroup);
+    })
     .map((node) => ({
       ...node,
-      children: filterBudgetTree(node.children),
+      children: filterDRETree(node.children),
     }));
 }
 
@@ -267,7 +280,7 @@ export function Orcamentos() {
     setError(null);
     try {
       const response = await api.get<OrcamentoNode[]>(`/orcamentos/matriz/${selectedYear}`);
-      const nodes = recalculateTree(filterBudgetTree(normalizeListResponse<OrcamentoNode>(response.data).map(normalizeNode)));
+      const nodes = recalculateTree(filterDRETree(normalizeListResponse<OrcamentoNode>(response.data).map(normalizeNode)));
       originalLeafValuesRef.current = buildOriginalLeafMap(nodes);
       startTransition(() => {
         setMatrix(nodes);

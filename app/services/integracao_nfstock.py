@@ -309,7 +309,7 @@ def _build_confirm_request(db: Session, *, empresa_id: int, centro_custo_id: Opt
         sugestao = _buscar_categoria_sugerida(
             db,
             empresa_id=empresa_id,
-            type_lancamento=doc.tipo_lancamento,
+            tipo_lancamento=doc.tipo_lancamento,
             natureza_operacao=doc.natureza_operacao,
             cfops=doc.cfops,
             ncms=doc.ncms,
@@ -415,9 +415,12 @@ def sincronizar_nfstock(
             opcao.click()
 
         time.sleep(2)
-        notas = _extract_rows(driver, wait)
-        logger.info("[NFSTOCK] {} notas listadas para integração {}", len(notas), integracao.id)
-
+        try:
+            notas = _extract_rows(driver, wait)
+            logger.info("[NFSTOCK] {} notas listadas para integração {}", len(notas), integracao.id)
+        except TimeoutException:
+            logger.warning("[NFSTOCK] O portal demorou para carregar ou não há notas na tabela (Integração {}).", integracao.id)
+            notas = []
         for row in notas:
             if _nfe_exists_by_number_document(db, empresa_id=empresa_id, numero=row.numero, documento=row.documento):
                 logger.info("[NFSTOCK] A NF {} já está cadastrada no Kyrus. Ignorando duplicata.", row.numero)

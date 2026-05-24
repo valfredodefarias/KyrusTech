@@ -247,12 +247,12 @@ function getGroupToneClasses(tone: OrcamentoGroupSection['tone'], isDark: boolea
     (isDark ? 'border-fuchsia-300/60 bg-fuchsia-700' : 'border-fuchsia-300 bg-fuchsia-700');
 
   const parentRowClass =
-    tone === 'emerald' ? (isDark ? 'bg-slate-800/70 text-slate-100' : 'bg-slate-100 text-slate-700') :
-    tone === 'amber' ? (isDark ? 'bg-slate-800/70 text-slate-100' : 'bg-slate-100 text-slate-700') :
-    tone === 'orange' ? (isDark ? 'bg-slate-800/70 text-slate-100' : 'bg-slate-100 text-slate-700') :
-    tone === 'rose' ? (isDark ? 'bg-slate-800/70 text-slate-100' : 'bg-slate-100 text-slate-700') :
-    tone === 'teal' ? (isDark ? 'bg-slate-800/70 text-slate-100' : 'bg-slate-100 text-slate-700') :
-    (isDark ? 'bg-slate-800/70 text-slate-100' : 'bg-slate-100 text-slate-700');
+    tone === 'emerald' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
+    tone === 'amber' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
+    tone === 'orange' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
+    tone === 'rose' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
+    tone === 'teal' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
+    (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300');
 
   return { rowTone, parentRowClass };
 }
@@ -650,11 +650,12 @@ export function Orcamentos() {
 
                       {section.rows.map(({ node, level, hasChildren }, rowIndex) => {
                         const rowTone = rowIndex % 2 === 0 ? 'bg-white dark:bg-slate-950/20' : 'bg-slate-50/70 dark:bg-slate-900/30';
+                        const rowClass = hasChildren ? parentRowClass : rowTone;
                         const isLeaf = !hasChildren;
 
                         return (
-                          <tr key={`${section.key}-${node.plano_contas_id}`} className={rowTone}>
-                            <td className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.45)] dark:border-slate-800 ${hasChildren ? `border-slate-700 font-black ${parentRowClass}` : rowTone}`}>
+                          <tr key={`${section.key}-${node.plano_contas_id}`} className={rowClass}>
+                            <td className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.45)] dark:border-slate-800 ${rowClass} ${hasChildren ? 'font-black' : ''}`}>
                               <div className="flex items-start gap-2" style={{ paddingLeft: `${level * 18}px` }}>
                                 <button
                                   type="button"
@@ -678,7 +679,7 @@ export function Orcamentos() {
                               </div>
                             </td>
 
-                            <td className={`border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200 ${hasChildren ? parentRowClass : rowTone}`}>
+                            <td className={`border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200 ${rowClass}`}>
                               {formatMoney(node.total_orcado)}
                             </td>
 
@@ -695,7 +696,7 @@ export function Orcamentos() {
                                       beginCellEdit(node.plano_contas_id, mes.mes, mes.valor_orcado);
                                     }
                                   }}
-                                  className={`min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 ${isLeaf ? 'cursor-text' : 'cursor-default'} last:border-r-0 ${deviationClasses}`}
+                                  className={`min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 cursor-default last:border-r-0 ${rowClass} ${deviationClasses}`}
                                 >
                                   <div className="flex items-center justify-end leading-tight">
                                     {isCellEditing ? (

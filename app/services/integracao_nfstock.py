@@ -11,6 +11,7 @@ import time
 import uuid
 from typing import Any, Optional
 
+import zipfile
 from loguru import logger
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -375,7 +376,7 @@ def sincronizar_nfstock(
     centro_custo_id = int(integracao.centro_custo_id) if integracao.centro_custo_id is not None else None
     cfg = get_nfstock_config(integracao)
 
-    download_dir = Path("/tmp") / f"kyrus_nfstock_{empresa_id}_{integracao.id}_{uuid.uuid4().hex}"    
+    download_dir = Path("/tmp") / f"kyrus_nfstock_{empresa_id}_{integracao.id}_{uuid.uuid4().hex}"
     download_dir.mkdir(parents=True, exist_ok=True)
 
     driver = _build_driver(str(download_dir))
@@ -418,34 +419,65 @@ def sincronizar_nfstock(
                     logger.warning("[NFSTOCK] XML não encontrado para NF {}", row.numero)
                     continue
 
-                with open(xml_path, "rb") as f:
-                    xml_bytes = f.read()
+                xmls_para_processar = []
 
-                req = _build_confirm_request(db, empresa_id=empresa_id, centro_custo_id=centro_custo_id, xml_bytes=xml_bytes)
+                # Verifica se o Alterdata mandou um ZIP em vez de XML
+                if xml_path.lower().endswith(".zip"):
+                    try:
+                        with zipfile.ZipFile(xml_path, 'r') as zip_ref:
+                            # Procura todos os arquivos .xml dentro do ZIP
+                            for nome_arquivo in zip_ref.namelist():
+                                if nome_arquivo.lower().endswith(".xml"):
+                                    with zip_ref.open(nome_arquivo) as xml_file:
+                                        xmls_para_processar.append(xml_file.read())
+                        logger.info("[NFSTOCK] Descompactados {} XML(s) do arquivo ZIP da NF {}", len(xmls_para_processar), row.numero)
+                    except zipfile.BadZipFile:
+                        logger.error("[NFSTOCK] Arquivo ZIP corrompido para a NF {}", row.numero)
+                        continue
+                else:
+                    # Se veio o XML normal direto
+                    with open(xml_path, "rb") as f:
+                        xmls_para_processar.append(f.read())
 
-                # Checagem extra por número + documento após parse
-                if _nfe_exists_by_number_document(
-                    db,
-                    empresa_id=empresa_id,
-                    numero=req.numero_nfe,
-                    documento=req.emitente_documento or "",
-                ):
-                    puladas += 1
-                    continue
+                # Agora processamos cada XML encontrado (seja o único ou os vários do ZIP)
+                for xml_bytes in xmls_para_processar:
+                    # Proteção contra páginas de erro HTML disfarçadas
+                    if b"<html" in xml_bytes.lower() or b"<!doctype" in xml_bytes.lower():
+                        logger.warning("[NFSTOCK] Conteúdo HTML recebido em vez de XML. Pulando.")
+                        puladas += 1
+                        continue
+                    
+                    if len(xml_bytes) < 100:
+                        logger.warning("[NFSTOCK] Arquivo XML da NF {} pequeno demais. Pulando.", row.numero)
+                        puladas += 1
+                        continue
 
-                resp = confirmar_importacao_nfe(request=req, db=db, empresa_id=empresa_id)
-                baixadas += 1
-                importadas += 1
+                    req = _build_confirm_request(db, empresa_id=empresa_id, centro_custo_id=centro_custo_id, xml_bytes=xml_bytes)
 
-                if pdf_path and os.path.exists(pdf_path):
-                    _save_pdf_anexos(
+                    # Checagem extra por número + documento após parse
+                    if _nfe_exists_by_number_document(
                         db,
                         empresa_id=empresa_id,
-                        id_parcelamento=resp.id_parcelamento,
-                        lancamento_ids=resp.lancamento_ids,
-                        pdf_path=pdf_path,
-                    )
-                    db.commit()
+                        numero=req.numero_nfe,
+                        documento=req.emitente_documento or "",
+                    ):
+                        puladas += 1
+                        continue
+
+                    resp = confirmar_importacao_nfe(request=req, db=db, empresa_id=empresa_id)
+                    baixadas += 1
+                    importadas += 1
+
+                    # Só tenta anexar o PDF se ele existir e não for um ZIP
+                    if pdf_path and os.path.exists(pdf_path) and not pdf_path.lower().endswith(".zip"):
+                        _save_pdf_anexos(
+                            db,
+                            empresa_id=empresa_id,
+                            id_parcelamento=resp.id_parcelamento,
+                            lancamento_ids=resp.lancamento_ids,
+                            pdf_path=pdf_path,
+                        )
+                        db.commit()
 
             except Exception as exc:
                 logger.error("[NFSTOCK] Falha ao importar NF {} integração {}: {}", row.numero, integracao.id, exc)

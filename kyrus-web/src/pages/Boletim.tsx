@@ -111,6 +111,31 @@ interface HealthResponse {
   server_datetime?: string;
 }
 
+const BOLETIM_CENTRO_CUSTO_CACHE_KEY = 'boletim.selectedCentroCustoId';
+
+function readCachedCentroCustoId(): number | null {
+  if (typeof window === 'undefined') return null;
+
+  const rawValue = window.localStorage.getItem(BOLETIM_CENTRO_CUSTO_CACHE_KEY);
+  if (!rawValue) return null;
+
+  const parsedValue = Number(rawValue);
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
+}
+
+function resolveCentroCustoId(currentValue: number | null, centros: CentroCustoResumo[]): number | null {
+  if (currentValue !== null && centros.some((centro) => centro.id === currentValue)) {
+    return currentValue;
+  }
+
+  const cachedValue = readCachedCentroCustoId();
+  if (cachedValue !== null && centros.some((centro) => centro.id === cachedValue)) {
+    return cachedValue;
+  }
+
+  return centros[0]?.id ?? null;
+}
+
 type ViewMode = 'executivo' | 'pay-receive' | 'compras';
 type StatusFilter = 'TODOS' | 'PAGO' | 'EM_ABERTO' | 'ATRASADO' | 'HOJE' | 'AMANHA';
 type FlowFilter = 'ALL' | 'PAGAMENTO' | 'RECEBIMENTO';
@@ -636,7 +661,7 @@ export function Boletim() {
   const [selectedCompraMonthIndex, setSelectedCompraMonthIndex] = useState<number | null>(null);
   const [compraChartMode, setCompraChartMode] = useState<CompraChartMode>('LINHA_SEPARADA');
   const [referenceDate, setReferenceDate] = useState(() => getBusinessTodayIso());
-  const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>('ALL');
+  const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | null>(() => readCachedCentroCustoId());
   const [auditPanel, setAuditPanel] = useState<AuditPanelState | null>(null);
   const [activeAuditMetricKey, setActiveAuditMetricKey] = useState<string | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
@@ -649,6 +674,11 @@ export function Boletim() {
     return (parsedReference || fallbackDate).getFullYear();
   }, [referenceDate]);
   const isDark = useIsDarkMode();
+
+  useEffect(() => {
+    if (selectedCentroCustoId === null) return;
+    window.localStorage.setItem(BOLETIM_CENTRO_CUSTO_CACHE_KEY, String(selectedCentroCustoId));
+  }, [selectedCentroCustoId]);
 
   useEffect(() => {
     let active = true;
@@ -764,7 +794,9 @@ export function Boletim() {
         setLancamentos(lancamentosRes.status === 'fulfilled' ? dedupeLancamentos(Array.isArray(lancamentosRes.value) ? lancamentosRes.value : []) : []);
         setCategorias(categoriasRes.status === 'fulfilled' ? normalizeListResponse<PlanoContaResumo>(categoriasRes.value.data) : []);
         setEntidades(entidadesRes.status === 'fulfilled' ? normalizeListResponse<EntidadeResumo>(entidadesRes.value.data) : []);
-        setCentrosCusto(centrosCustoRes.status === 'fulfilled' ? normalizeListResponse<CentroCustoResumo>(centrosCustoRes.value.data) : []);
+        const centrosCustoNormalizados = centrosCustoRes.status === 'fulfilled' ? normalizeListResponse<CentroCustoResumo>(centrosCustoRes.value.data) : [];
+        setCentrosCusto(centrosCustoNormalizados);
+        setSelectedCentroCustoId((currentValue) => resolveCentroCustoId(currentValue, centrosCustoNormalizados));
 
         const failures = [contasRes, lancamentosRes, categoriasRes, entidadesRes, centrosCustoRes].filter((result) => result.status === 'rejected');
         if (failures.length > 0) {
@@ -812,7 +844,7 @@ export function Boletim() {
     const effectiveMonthIndex = selectedMonthIndex ?? fallbackMonthIndex;
     const entityMap = new Map(entidades.map((item) => [item.id, item.nome_fantasia || item.nome]));
     const contaMap = new Map(contas.map((item) => [item.id, item]));
-    const contasFiltradasPorCentro = contas.filter((conta) => selectedCentroCustoId === 'ALL' || Number(conta.centro_custo_id) === selectedCentroCustoId);
+    const contasFiltradasPorCentro = contas.filter((conta) => selectedCentroCustoId === null || Number(conta.centro_custo_id) === selectedCentroCustoId);
     const bankBalances = contasFiltradasPorCentro
       .filter((conta) => String(conta.status || 'ATIVO').toUpperCase() !== 'INATIVO')
       .map((conta) => ({ ...conta, saldo: Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0) }))
@@ -822,7 +854,7 @@ export function Boletim() {
       .reduce((acc, conta) => acc + conta.saldo, 0);
 
     const baseRows = lancamentos
-      .filter((item) => selectedCentroCustoId === 'ALL' || Number(item.centro_custo_id) === selectedCentroCustoId)
+      .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
       .map((item) => {
         const due = parseDateOnly(item.data_vencimento);
         const flowType: FlowFilter = isReceita(item.tipo) ? 'RECEBIMENTO' : 'PAGAMENTO';
@@ -920,7 +952,7 @@ export function Boletim() {
     const outrasDespesasMonthly = Array.from({ length: 12 }, () => 0);
 
     lancamentos
-      .filter((item) => selectedCentroCustoId === 'ALL' || Number(item.centro_custo_id) === selectedCentroCustoId)
+      .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
       .forEach((lancamento) => {
         const contaId = Number(lancamento.plano_contas_id);
         if (!contaPorId.has(contaId)) return;
@@ -1111,10 +1143,6 @@ export function Boletim() {
 
   const activeFilterTags = useMemo(() => {
     const tags: Array<{ key: string; label: string; onClear: () => void }> = [];
-    if (selectedCentroCustoId !== 'ALL') {
-      const centro = centrosCusto.find((item) => item.id === selectedCentroCustoId);
-      tags.push({ key: 'cc', label: `Centro: ${centro?.nome || 'Selecionado'}`, onClear: () => setSelectedCentroCustoId('ALL') });
-    }
     if (flowFilter !== 'ALL') {
       tags.push({ key: 'flow', label: flowFilter === 'PAGAMENTO' ? 'Tipo: Pagamento' : 'Tipo: Recebimento', onClear: () => setFlowFilter('ALL') });
     }
@@ -1136,7 +1164,7 @@ export function Boletim() {
       tags.push({ key: 'status', label: `Situação: ${labels[statusFilter]}`, onClear: () => setStatusFilter('TODOS') });
     }
     return tags;
-  }, [centrosCusto, dashboard.effectiveMonthIndex, dashboard.monthLabels, flowFilter, selectedCentroCustoId, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
+  }, [dashboard.effectiveMonthIndex, dashboard.monthLabels, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
 
   const situacaoCards: Array<{ label: string; key: StatusFilter; value: number }> = [
     { label: 'Pago', key: 'PAGO', value: dashboard.situacao.PAGO },
@@ -1515,7 +1543,7 @@ export function Boletim() {
     const monthLabels = dashboard.monthLabels;
 
     const nfeRows = lancamentos
-      .filter((item) => selectedCentroCustoId === 'ALL' || Number(item.centro_custo_id) === selectedCentroCustoId)
+      .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
       .filter((item) => String(item.origem || '').trim().toUpperCase() === 'NFE_XML')
       .map((item) => ({
         item,
@@ -1892,11 +1920,14 @@ export function Boletim() {
                 ) : null}
               </div>
               <select
-                value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
-                onChange={(event) => setSelectedCentroCustoId(event.target.value === 'ALL' ? 'ALL' : Number(event.target.value))}
+                value={selectedCentroCustoId === null ? '' : String(selectedCentroCustoId)}
+                onChange={(event) => {
+                  if (!event.target.value) return;
+                  setSelectedCentroCustoId(Number(event.target.value));
+                }}
                 className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white md:w-72"
               >
-                <option value="ALL">Todos os centros de custo</option>
+                <option value="" disabled>Selecione um centro de custo</option>
                 {centrosCusto.map((centro) => (
                   <option key={centro.id} value={centro.id}>
                     {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
@@ -1925,7 +1956,6 @@ export function Boletim() {
                   setStatusFilter('TODOS');
                   setSelectedMonthIndex(null);
                   setSelectedDayOfMonth(null);
-                  setSelectedCentroCustoId('ALL');
                 }}
                 className={`rounded-full px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-amber-200 hover:text-amber-100' : 'text-amber-700 hover:text-amber-800'}`}
               >

@@ -779,11 +779,12 @@ def _buscar_duplicata_historica(
         mesmo_dia = data_candidata == data_base
         mesmo_dia_pagamento = candidato.data_pagamento == data_base
         dia_muito_proximo = diferenca_dias <= 1
+        lancamento_baixado = candidato.conciliado or str(candidato.status or "").upper() == "PAGO"
 
         # Mesmo dia+valor pode ocorrer em movimentos distintos;
         # exige evidencias adicionais para evitar falso positivo de "ja importado".
         if mesmo_dia_pagamento and valor_exato:
-            if entidade_bate or tokens_em_comum >= 4 or (similaridade >= 0.82 and tokens_em_comum >= 2):
+            if lancamento_baixado or entidade_bate or tokens_em_comum >= 4 or (similaridade >= 0.82 and tokens_em_comum >= 2):
                 motivo = "Mesmo valor e mesma data de pagamento de um lancamento ja baixado"
                 if similaridade >= 0.82 and tokens_em_comum >= 2:
                     motivo += " com descricao muito parecida"
@@ -791,6 +792,8 @@ def _buscar_duplicata_historica(
                     motivo += " com favorecido/interessado compativel"
                 elif tokens_em_comum >= 4:
                     motivo += " com termos relevantes em comum na descricao"
+                elif lancamento_baixado:
+                    motivo += " e lancamento ja conciliado"
                 if candidato.conta_id is None:
                     motivo += " (lancamento sem conta vinculada)"
                 return candidato, motivo

@@ -347,17 +347,31 @@ def _build_confirm_request(db: Session, *, empresa_id: int, centro_custo_id: Opt
         for item in doc.itens
     ]
 
-    parcelas = [
-        NfeParcelaConfirmar(
-            indice=parcela.index,
-            numero_parcela=parcela.numero_label,
-            data_vencimento=parcela.data_vencimento,
-            valor=Decimal(parcela.valor),
-            descricao=f"NFE: ({doc.numero_nfe})",
-            plano_contas_id=categoria_id,
-        )
-        for parcela in doc.parcelas
+# Filtro inteligente para notas sem faturamento
+    natureza = str(doc.natureza_operacao or "").upper()
+    palavras_sem_faturamento = [
+        "AJUSTE", "CORRECAO", "CORREÇÃO", "REMESSA", 
+        "BONIFICACAO", "BONIFICAÇÃO", "DEVOLUCAO", "DEVOLUÇÃO", 
+        "RETORNO", "BRINDE", "DEMONSTRACAO", "DEMONSTRAÇÃO", "DOACAO", "DOAÇÃO"
     ]
+    
+    is_sem_faturamento = any(palavra in natureza for palavra in palavras_sem_faturamento)
+
+    if is_sem_faturamento:
+        logger.info("[NFSTOCK] Nota {} identificada como sem faturamento ({}). Ignorando parcelas.", doc.numero_nfe, doc.natureza_operacao)
+        parcelas = []
+    else:
+        parcelas = [
+            NfeParcelaConfirmar(
+                indice=parcela.index,
+                numero_parcela=parcela.numero_label,
+                data_vencimento=parcela.data_vencimento,
+                valor=Decimal(parcela.valor),
+                descricao=f"NFE: ({doc.numero_nfe})",
+                plano_contas_id=categoria_id,
+            )
+            for parcela in doc.parcelas
+        ]
 
     return NfeConfirmarRequest(
         chave_nfe=doc.chave_nfe,

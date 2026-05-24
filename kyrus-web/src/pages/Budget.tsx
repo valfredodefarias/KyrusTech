@@ -1,5 +1,5 @@
-import React, { Fragment, useEffect, useMemo, useState } from 'react';
-import { Calculator, ChevronRight, RotateCcw, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { ChevronRight, RotateCcw, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import Chart from 'react-apexcharts';
 
 import { api, normalizeListResponse } from '../services/api';
@@ -298,8 +298,6 @@ export function Budget() {
   const [matrix, setMatrix] = useState<BudgetNode[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const loadMatrix = async (selectedYear: number) => {
     setLoading(true);
     setError(null);
@@ -347,8 +345,6 @@ export function Budget() {
     matrix.forEach((node) => {
       orcado += node.total_orcado;
       realizado += node.total_realizado;
-      
-      const isNodeDespesa = isDespesa(node.tipo) || node.dre_grupo === 'CUSTOS_VARIAVEIS';
 
       node.meses.forEach((mes, idx) => {
         monthlyTotals[idx].orcado += mes.valor_orcado;

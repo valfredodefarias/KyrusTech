@@ -439,23 +439,23 @@ export function Orcamentos() {
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
         <div className="overflow-x-auto">
-          <table className="min-w-[1400px] w-full border-separate border-spacing-0">
+          <table className="w-full min-w-[1400px] border-collapse text-[13px]">
             <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-900/95">
               <tr>
-                <th className="sticky left-0 z-20 border-b border-slate-200 bg-slate-50 px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.24em] text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                <th className="sticky left-0 z-20 border-b border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
                   Conta
                 </th>
-                <th className="border-b border-slate-200 px-4 py-3 text-right text-[11px] font-black uppercase tracking-[0.24em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                <th className="border-b border-slate-200 px-2 py-2 text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
                   Orçado total
                 </th>
-                <th className="border-b border-slate-200 px-4 py-3 text-right text-[11px] font-black uppercase tracking-[0.24em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                <th className="border-b border-slate-200 px-2 py-2 text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
                   Realizado total
                 </th>
-                <th className="border-b border-slate-200 px-4 py-3 text-right text-[11px] font-black uppercase tracking-[0.24em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                <th className="border-b border-slate-200 px-2 py-2 text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
                   Desvio
                 </th>
                 {MONTH_LABELS.map((label) => (
-                  <th key={label} className="border-b border-slate-200 px-3 py-3 text-left text-[11px] font-black uppercase tracking-[0.24em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                  <th key={label} className="border-b border-slate-200 px-2 py-2 text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
                     {label}
                   </th>
                 ))}
@@ -480,28 +480,28 @@ export function Orcamentos() {
                   const isLeaf = !hasChildren;
                   return (
                     <tr key={node.plano_contas_id} className="align-top hover:bg-slate-50/70 dark:hover:bg-slate-900/40">
-                      <td className="sticky left-0 z-10 border-b border-slate-100 bg-white px-4 py-3 dark:border-slate-900 dark:bg-slate-950">
-                        <div className="flex items-start gap-3" style={{ paddingLeft: `${level * 18}px` }}>
+                      <td className="sticky left-0 z-10 border-b border-slate-100 bg-white px-2 py-1.5 dark:border-slate-900 dark:bg-slate-950">
+                        <div className="flex items-start gap-2" style={{ paddingLeft: `${level * 18}px` }}>
                           <button
                             type="button"
                             onClick={() => hasChildren && handleToggleExpanded(node.plano_contas_id)}
                             disabled={!hasChildren}
-                            className={`mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-lg border text-slate-500 transition ${
+                            className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded text-slate-500 transition ${
                               hasChildren
-                                ? 'border-slate-200 bg-slate-50 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800'
-                                : 'border-transparent bg-transparent opacity-30'
+                                ? 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                                : 'opacity-30'
                             }`}
                             aria-label={hasChildren ? 'Expandir ou recolher conta' : 'Conta folha'}
                           >
-                            <ChevronRight className={`h-4 w-4 transition-transform ${expandedIds.has(node.plano_contas_id) ? 'rotate-90' : ''}`} />
+                            <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expandedIds.has(node.plano_contas_id) ? 'rotate-90' : ''}`} />
                           </button>
 
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">
+                            <p className="truncate text-[13px] font-semibold text-slate-900 dark:text-slate-100">
                               {node.codigo ? `${node.codigo} - ` : ''}
                               {node.nome}
                             </p>
-                            <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.2em] text-slate-400">
+                            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">
                               {node.tipo === 'R' ? 'Receita' : 'Despesa'}
                               {isLeaf ? ' · Nível folha' : ' · Conta agregadora'}
                             </p>
@@ -509,50 +509,43 @@ export function Orcamentos() {
                         </div>
                       </td>
 
-                      <td className="border-b border-slate-100 px-4 py-3 text-right text-sm font-semibold text-slate-700 dark:border-slate-900 dark:text-slate-200">
+                      <td className="border-b border-slate-100 px-2 py-1.5 text-right text-[13px] font-semibold tabular-nums text-slate-700 dark:border-slate-900 dark:text-slate-200">
                         {formatMoney(node.total_orcado)}
                       </td>
-                      <td className="border-b border-slate-100 px-4 py-3 text-right text-sm font-semibold text-slate-700 dark:border-slate-900 dark:text-slate-200">
+                      <td className="border-b border-slate-100 px-2 py-1.5 text-right text-[13px] font-semibold tabular-nums text-slate-700 dark:border-slate-900 dark:text-slate-200">
                         {formatMoney(node.total_realizado)}
                       </td>
-                      <td className={`border-b border-slate-100 px-4 py-3 text-right text-sm font-black dark:border-slate-900 ${getDesvioToneClass(node.tipo, node.total_desvio_absoluto)}`}>
-                        <div className="flex flex-col items-end gap-0.5">
+                      <td className="border-b border-slate-100 px-2 py-1.5 text-right text-[13px] font-semibold tabular-nums text-slate-700 dark:border-slate-900 dark:text-slate-200">
+                        <div className="flex flex-col items-end leading-tight">
                           <span>{formatMoney(node.total_desvio_absoluto)}</span>
-                          <span className="text-[11px] font-semibold opacity-80">{formatPercent(node.total_desvio_percentual)}</span>
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400">{formatPercent(node.total_desvio_percentual)}</span>
                         </div>
                       </td>
 
                       {node.meses.map((mes) => {
                         const desvioClass = getDesvioToneClass(node.tipo, mes.desvio_absoluto);
                         return (
-                          <td key={`${node.plano_contas_id}-${mes.mes}`} className="border-b border-slate-100 px-2 py-2 dark:border-slate-900">
-                            <div className={`rounded-xl border px-2.5 py-2 ${isLeaf && isEditing ? 'border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/70' : 'border-slate-100 bg-white dark:border-slate-900 dark:bg-slate-950'}`}>
-                              <div className="flex items-center justify-between gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
-                                <span>{MONTH_LABELS[mes.mes - 1]}</span>
-                                <span>{formatMoney(mes.valor_realizado)}</span>
-                              </div>
+                          <td key={`${node.plano_contas_id}-${mes.mes}`} className="border-b border-slate-100 px-2 py-1.5 text-right dark:border-slate-900">
+                            <div className="leading-tight">
+                              {isLeaf && isEditing ? (
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={Number.isFinite(mes.valor_orcado) ? mes.valor_orcado : 0}
+                                  onChange={(event) => handleBudgetChange(node.plano_contas_id, mes.mes, event.target.value)}
+                                  className="w-full border-0 border-b border-transparent bg-transparent px-0 py-0 text-right text-[13px] font-semibold tabular-nums text-slate-900 outline-none focus:border-slate-400 focus:ring-0 dark:text-slate-100 dark:focus:border-slate-500"
+                                />
+                              ) : (
+                                <div className="text-[13px] font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                                  {formatMoney(mes.valor_orcado)}
+                                </div>
+                              )}
 
-                              <div className="mt-2 space-y-1">
-                                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Valor orçado</p>
-                                {isLeaf && isEditing ? (
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    value={Number.isFinite(mes.valor_orcado) ? mes.valor_orcado : 0}
-                                    onChange={(event) => handleBudgetChange(node.plano_contas_id, mes.mes, event.target.value)}
-                                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-slate-500 dark:focus:ring-slate-800"
-                                  />
-                                ) : (
-                                  <div className="rounded-lg bg-slate-100 px-2 py-1 text-sm font-bold text-slate-900 dark:bg-slate-800 dark:text-slate-100">
-                                    {formatMoney(mes.valor_orcado)}
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className={`mt-2 flex items-center justify-between text-[11px] font-semibold ${desvioClass}`}>
-                                <span>Desvio</span>
+                              <div className="mt-0.5 text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
+                                <span>Real: {formatMoney(mes.valor_realizado)}</span>
+                                <span className="px-1 text-slate-300 dark:text-slate-600">|</span>
                                 <span>
-                                  {formatMoney(mes.desvio_absoluto)} · {formatPercent(mes.desvio_percentual)}
+                                  Desv: <span className={desvioClass}>{formatPercent(mes.desvio_percentual)}</span>
                                 </span>
                               </div>
                             </div>

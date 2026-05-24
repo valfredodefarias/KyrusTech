@@ -1,40 +1,40 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-from decimal import Decimal
-from pathlib import Path
 import os
 import re
 import shutil
 import time
 import uuid
+import zipfile
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from decimal import Decimal
+from pathlib import Path
 from typing import Any, Optional
 
-import zipfile
 from loguru import logger
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
-from sqlmodel import Session, select
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+from sqlmodel import Session, col, select
 
+from app.api.v1.endpoints.importacao_nfe import (
+    NfeConfirmarRequest,
+    NfeItemPersistencia,
+    NfeParcelaConfirmar,
+    _buscar_categoria_sugerida,
+    _only_digits,
+    confirmar_importacao_nfe,
+)
 from app.models.anexo_lancamento import AnexoLancamento
 from app.models.empresa import Empresa
 from app.models.integracao_bancaria import IntegracaoBancaria
 from app.models.lancamento import Lancamento
 from app.models.plano_contas import PlanoContas
 from app.services.importacao_nfe_service import parse_nfe_xml
-from app.api.v1.endpoints.importacao_nfe import (
-    NfeParcelaConfirmar,
-    NfeConfirmarRequest,
-    NfeItemPersistencia,
-    confirmar_importacao_nfe,
-    _buscar_categoria_sugerida,
-    _only_digits,
-)
 
 
 @dataclass
@@ -114,12 +114,11 @@ def _build_driver(download_path: str) -> webdriver.Chrome:
         "download.prompt_for_download": False,
         "download.directory_upgrade": True,
         "safebrowsing.enabled": True,
+        "profile.default_content_settings.popups": 0,
+        "profile.default_content_setting_values.automatic_downloads": 1
     })
 
-    # Força o Selenium a usar o Chromium do Linux
     options.binary_location = "/usr/bin/chromium"
-
-    # Aponta direto para o driver instalado no container
     service = ChromeService(executable_path="/usr/bin/chromedriver")
 
     try:
@@ -134,8 +133,8 @@ def _build_driver(download_path: str) -> webdriver.Chrome:
 
     return driver
 
+
 def _extract_digits_document(text: str) -> str:
-    # Busca CNPJ (14) primeiro, depois CPF (11)
     cleaned = re.sub(r"\D", "", str(text or ""))
     cnpj_match = re.search(r"\d{14}", cleaned)
     if cnpj_match:
@@ -168,16 +167,14 @@ def _extract_rows(driver: webdriver.Chrome, wait: WebDriverWait) -> list[Nfstock
     return result
 
 
-def _wait_new_download(download_dir: str, previous_files: set[str], timeout_seconds: int = 45) -> Optional[str]:
+def _wait_new_download(download_dir: str, previous_files: set[str], timeout_seconds: int = 75) -> Optional[str]:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         current = {f for f in os.listdir(download_dir)}
         new_files = [f for f in current - previous_files if not f.endswith(".crdownload")]
         if new_files:
-            # mais recente
             new_files.sort(key=lambda name: os.path.getctime(os.path.join(download_dir, name)), reverse=True)
-            # Dá 1 segundo pro sistema operacional gravar os bytes no disco antes do Python ler
-            time.sleep(1.5) 
+            time.sleep(1.5)  
             return os.path.join(download_dir, new_files[0])
         time.sleep(0.4)
     return None
@@ -187,11 +184,9 @@ def _download_note_files(driver: webdriver.Chrome, wait: WebDriverWait, download
     xpath_row = f"//tr[td[3][normalize-space()='{nf_number}']]"
     table_row = wait.until(EC.presence_of_element_located((By.XPATH, xpath_row)))
 
-    # Rolagem da tela para garantir que a linha está visível (evita bugs de clique)
     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", table_row)
     time.sleep(0.5)
 
-    # Abre o menu da nota atual
     download_button = table_row.find_element(By.CSS_SELECTOR, "button.download-nota")
     driver.execute_script("arguments[0].click();", download_button)
     time.sleep(1)
@@ -199,33 +194,47 @@ def _download_note_files(driver: webdriver.Chrome, wait: WebDriverWait, download
     xml_path = None
     pdf_path = None
 
-    # XML - Pega todos os links e clica apenas no VISÍVEL (foge do clique fantasma)
-    before = set(os.listdir(download_dir))
-    xml_links = driver.find_elements(By.CSS_SELECTOR, "a[id='link-download-xml'], #link-download-xml")
+    # --- DOWNLOAD DO XML ---
+    before_xml = set(os.listdir(download_dir))
+    xml_links = driver.find_elements(By.CSS_SELECTOR, "a[id*='link-download-xml'], a.btn-download-xml, #link-download-xml")
+    
+    clicou_xml = False
     for link in xml_links:
         if link.is_displayed():
             driver.execute_script("arguments[0].click();", link)
+            clicou_xml = True
             break
-    
-    # Aguarda o arquivo aparecer na pasta (75s de limite para portais lentos)
-    xml_path = _wait_new_download(download_dir, before, timeout_seconds=75)
+            
+    if clicou_xml:
+        xml_path_temp = _wait_new_download(download_dir, before_xml, timeout_seconds=75)
+        if xml_path_temp and os.path.exists(xml_path_temp):
+            ext = os.path.splitext(xml_path_temp)[1]  
+            xml_path = os.path.join(download_dir, f"NF_{nf_number}_xml{ext}")
+            os.rename(xml_path_temp, xml_path)
 
-    # PDF - Mesma lógica anti-fantasma
+    # --- DOWNLOAD DO PDF ---
     before_pdf = set(os.listdir(download_dir))
-    pdf_links = driver.find_elements(By.CSS_SELECTOR, "a[id='link-download-pdf'], #link-download-pdf")
+    pdf_links = driver.find_elements(By.CSS_SELECTOR, "a[id*='link-download-pdf'], a.btn-download-pdf, #link-download-pdf")
+    
+    clicou_pdf = False
     for link in pdf_links:
         if link.is_displayed():
             driver.execute_script("arguments[0].click();", link)
+            clicou_pdf = True
             break
             
-    if any(link.is_displayed() for link in pdf_links):
-        pdf_path = _wait_new_download(download_dir, before_pdf, timeout_seconds=50)
+    if clicou_pdf:
+        pdf_path_temp = _wait_new_download(download_dir, before_pdf, timeout_seconds=50)
+        if pdf_path_temp and os.path.exists(pdf_path_temp):
+            ext = os.path.splitext(pdf_path_temp)[1]
+            pdf_path = os.path.join(download_dir, f"NF_{nf_number}_pdf{ext}")
+            os.rename(pdf_path_temp, pdf_path)
 
-    # Clica no "vazio" da tela para fechar qualquer menu aberto antes de ir pra próxima nota
     driver.execute_script("document.body.click();")
     time.sleep(0.5)
 
     return xml_path, pdf_path
+
 
 def _nfe_exists_by_number_document(db: Session, *, empresa_id: int, numero: str, documento: str) -> bool:
     numero_nf = str(int(str(numero or "0"))) if str(numero or "").strip() else ""
@@ -237,11 +246,11 @@ def _nfe_exists_by_number_document(db: Session, *, empresa_id: int, numero: str,
         Lancamento.empresa_id == empresa_id,
         Lancamento.is_deleted == False,
         Lancamento.origem == "NFE_XML",
-        Lancamento.observacao.ilike(f"%NF-e {numero_nf}%"),
+        col(Lancamento.observacao).ilike(f"%NF-e {numero_nf}%"),
     )
 
     if doc:
-        query = query.where(Lancamento.observacao.ilike(f"%EmitenteDoc {doc}%"))
+        query = query.where(col(Lancamento.observacao).ilike(f"%EmitenteDoc {doc}%"))
 
     return db.exec(query).first() is not None
 
@@ -294,14 +303,13 @@ def _build_confirm_request(db: Session, *, empresa_id: int, centro_custo_id: Opt
     ).first()
 
     categoria_id: Optional[int] = None
-    # Verifica com segurança se a empresa existe e se o ID não é nulo ANTES de converter
     if empresa and empresa.categoria_nfe_fornecedores_id is not None:
         categoria_id = int(empresa.categoria_nfe_fornecedores_id)
     else:
         sugestao = _buscar_categoria_sugerida(
             db,
             empresa_id=empresa_id,
-            tipo_lancamento=doc.tipo_lancamento,
+            type_lancamento=doc.tipo_lancamento,
             natureza_operacao=doc.natureza_operacao,
             cfops=doc.cfops,
             ncms=doc.ncms,
@@ -317,8 +325,8 @@ def _build_confirm_request(db: Session, *, empresa_id: int, centro_custo_id: Opt
                 PlanoContas.permite_lancamentos == True,
                 PlanoContas.eh_cabecalho == False,
                 PlanoContas.oculta == False,
-                PlanoContas.tipo.ilike("D%"),
-                PlanoContas.nome.ilike("%fornecedor%"),
+                col(PlanoContas.tipo).ilike("D%"),
+                col(PlanoContas.nome).ilike("%fornecedor%"),
             )
         ).first()
         if categoria and categoria.id:
@@ -412,6 +420,7 @@ def sincronizar_nfstock(
 
         for row in notas:
             if _nfe_exists_by_number_document(db, empresa_id=empresa_id, numero=row.numero, documento=row.documento):
+                logger.info("[NFSTOCK] A NF {} já está cadastrada no Kyrus. Ignorando duplicata.", row.numero)
                 puladas += 1
                 continue
 
@@ -427,11 +436,9 @@ def sincronizar_nfstock(
 
                 xmls_para_processar = []
 
-                # Verifica se o Alterdata mandou um ZIP em vez de XML
                 if xml_path.lower().endswith(".zip"):
                     try:
                         with zipfile.ZipFile(xml_path, 'r') as zip_ref:
-                            # Procura todos os arquivos .xml dentro do ZIP
                             for nome_arquivo in zip_ref.namelist():
                                 if nome_arquivo.lower().endswith(".xml"):
                                     with zip_ref.open(nome_arquivo) as xml_file:
@@ -441,13 +448,10 @@ def sincronizar_nfstock(
                         logger.error("[NFSTOCK] Arquivo ZIP corrompido para a NF {}", row.numero)
                         continue
                 else:
-                    # Se veio o XML normal direto
                     with open(xml_path, "rb") as f:
                         xmls_para_processar.append(f.read())
 
-                # Agora processamos cada XML encontrado (seja o único ou os vários do ZIP)
                 for xml_bytes in xmls_para_processar:
-                    # Proteção contra páginas de erro HTML disfarçadas
                     if b"<html" in xml_bytes.lower() or b"<!doctype" in xml_bytes.lower():
                         logger.warning("[NFSTOCK] Conteúdo HTML recebido em vez de XML. Pulando.")
                         continue
@@ -456,23 +460,21 @@ def sincronizar_nfstock(
                         logger.warning("[NFSTOCK] Arquivo XML da NF {} pequeno demais. Pulando.", row.numero)
                         continue
 
-                    # Tenta converter o XML. Se for CCe/Evento, ignora e vai para o próximo.
                     try:
                         req = _build_confirm_request(db, empresa_id=empresa_id, centro_custo_id=centro_custo_id, xml_bytes=xml_bytes)
                     except Exception as exc_parse:
                         if "infNFe" in str(exc_parse) or "Estrutura" in str(exc_parse):
                             logger.info("[NFSTOCK] Arquivo auxiliar ignorado no ZIP da NF {} (Carta de Correção/Evento).", row.numero)
                             continue
-                        # Se for um erro real desconhecido, passa a bola pra frente
                         raise exc_parse
 
-                    # Checagem extra por número + documento após parse
                     if _nfe_exists_by_number_document(
                         db,
                         empresa_id=empresa_id,
                         numero=req.numero_nfe,
                         documento=req.emitente_documento or "",
                     ):
+                        logger.info("[NFSTOCK] A NF {} já está cadastrada no Kyrus. Ignorando duplicata.", req.numero_nfe)
                         puladas += 1
                         continue
 
@@ -480,7 +482,6 @@ def sincronizar_nfstock(
                     baixadas += 1
                     importadas += 1
 
-                    # Só tenta anexar o PDF se ele existir e não for um ZIP
                     if pdf_path and os.path.exists(pdf_path) and not pdf_path.lower().endswith(".zip"):
                         _save_pdf_anexos(
                             db,
@@ -490,16 +491,11 @@ def sincronizar_nfstock(
                             pdf_path=pdf_path,
                         )
                         db.commit()
-                        # Checagem extra por número + documento após parse
-                    if _nfe_exists_by_number_document(
-                        db,
-                        empresa_id=empresa_id,
-                        numero=req.numero_nfe,
-                        documento=req.emitente_documento or "",
-                    ):
-                        logger.info("[NFSTOCK] A NF {} já está cadastrada no Kyrus. Ignorando duplicata.", req.numero_nfe) # <- ADICIONE ESTA LINHA
-                        puladas += 1
-                        continue
+
+                if xml_path and os.path.exists(xml_path):
+                    os.remove(xml_path)
+                if pdf_path and os.path.exists(pdf_path):
+                    os.remove(pdf_path)
 
             except Exception as exc:
                 logger.error("[NFSTOCK] Falha ao importar NF {} integração {}: {}", row.numero, integracao.id, exc)

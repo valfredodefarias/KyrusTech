@@ -4,7 +4,7 @@ import {
   Home, BarChart2, PlusCircle,
   Landmark, CreditCard, Settings,
   Briefcase, X, LineChart, FileText,
-  Calculator,
+  Calculator, Table2,
 } from 'lucide-react';
 import { useAuthStore, type AuthUser } from '../store/authStore';
 import { api } from '../services/api';
@@ -69,6 +69,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
     { icon: BarChart2, label: 'Boletim', path: '/boletim' },
     { icon: CreditCard, label: 'Cartões', path: '/cartoes' },
     { icon: Calculator, label: 'Orçamentos', path: '/orcamentos' },
+    { icon: Table2, label: 'Budget', path: '/budget' },
     {
       icon: FileText,
       label: 'Importação NF-e',

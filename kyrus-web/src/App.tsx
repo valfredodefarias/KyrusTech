@@ -15,6 +15,7 @@ const Consultor = lazy(() => import('./pages/Consultor').then((module) => ({ def
 const CentroCusto = lazy(() => import('./pages/CentroCusto').then((module) => ({ default: module.CentroCusto })));
 const Contas = lazy(() => import('./pages/Contas').then((module) => ({ default: module.Contas })));
 const Orcamentos = lazy(() => import('./pages/Orcamentos').then((module) => ({ default: module.Orcamentos })));
+const Budget = lazy(() => import('./pages/Budget').then((module) => ({ default: module.Budget })));
 const Importacao = lazy(() => import('./pages/Importacao').then((module) => ({ default: module.Importacao })));
 const ImportacaoEntidades = lazy(() => import('./pages/ImportacaoEntidades').then((module) => ({ default: module.ImportacaoEntidades })));
 const Lancamentos = lazy(() => import('./pages/Lancamentos').then((module) => ({ default: module.Lancamentos })));
@@ -99,6 +100,7 @@ function App() {
             <Route path="/entidades" element={<Navigate to="/config?tab=INTERESSADOS" replace />} />
             <Route path="/contas" element={<Contas />} />
             <Route path="/orcamentos" element={<Orcamentos />} />
+            <Route path="/budget" element={<Budget />} />
             <Route path="/cartoes" element={<Cartoes />} />
             <Route path="/centro-custo" element={<CentroCusto />} />
             <Route path="/config" element={<Configuracoes />} />

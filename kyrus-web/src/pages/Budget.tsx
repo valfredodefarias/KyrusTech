@@ -324,9 +324,10 @@ export function Budget() {
         position: 'top',
         horizontalAlign: 'right',
         markers: {
-          width: 10,
-          height: 10,
-          radius: 999,
+          size: 10,
+          strokeWidth: 0,
+          fillColors: ['#16a34a', '#dc2626'],
+          shape: 'circle',
         },
       },
       markers: {

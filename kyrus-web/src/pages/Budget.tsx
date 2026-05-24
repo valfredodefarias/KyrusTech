@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Calculator, ChevronRight, RotateCcw } from 'lucide-react';
+import { AsyncApexChart } from '../components/AsyncApexChart';
 
 import { api, normalizeListResponse } from '../services/api';
 
@@ -471,18 +472,45 @@ export function Budget() {
 
   const groupedSections = useMemo(() => buildGroupedBudgetSections(matrix, expandedIds), [matrix, expandedIds]);
 
-  const summary = useMemo(() => {
-    return matrix.reduce(
-      (acc, node) => {
-        acc.orcado += node.total_orcado;
-        acc.realizado += node.total_realizado;
-        return acc;
-      },
-      { orcado: 0, realizado: 0 },
-    );
+  // summary removed — KPIs use monthly aggregates instead
+
+  // Monthly totals (visible/filtered matrix)
+  const monthlyTotals = useMemo(() => {
+    const orcado = Array.from({ length: 12 }, () => 0);
+    const realizado = Array.from({ length: 12 }, () => 0);
+
+    matrix.forEach((node) => {
+      node.meses.forEach((m) => {
+        const idx = Math.max(0, Math.min(11, m.mes - 1));
+        orcado[idx] += toNumber(m.valor_orcado);
+        realizado[idx] += toNumber(m.valor_realizado);
+      });
+    });
+
+    return { orcado, realizado };
   }, [matrix]);
 
-  const topLevelVariation = summary.realizado - summary.orcado;
+  const cumulative = useMemo(() => {
+    const cumOrcado: number[] = [];
+    const cumRealizado: number[] = [];
+    let so = 0;
+    let sr = 0;
+    for (let i = 0; i < 12; i++) {
+      so += monthlyTotals.orcado[i] || 0;
+      sr += monthlyTotals.realizado[i] || 0;
+      cumOrcado.push(so);
+      cumRealizado.push(sr);
+    }
+    return { cumOrcado, cumRealizado };
+  }, [monthlyTotals]);
+
+  const currentMonthIndex = new Date().getMonth();
+  const orcadoAcumulado = cumulative.cumOrcado[currentMonthIndex] || 0;
+  const realizadoAcumulado = cumulative.cumRealizado[currentMonthIndex] || 0;
+  const eficienciaPercentual = orcadoAcumulado !== 0 ? ((realizadoAcumulado - orcadoAcumulado) / orcadoAcumulado) * 100 : 0;
+  const eficienciaIsGood = realizadoAcumulado <= orcadoAcumulado; // economizou
+
+  // topLevelVariation removed — handled by KPIs
 
   return (
     <div className="space-y-6 pb-8">
@@ -521,17 +549,69 @@ export function Budget() {
         </div>
       </header>
 
-      <section className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Orçado total</p>
-          <p className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{formatMoney(summary.orcado)}</p>
+      <section className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Orçado Acumulado (até mês atual)</p>
+            <p className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{formatMoney(orcadoAcumulado)}</p>
+            <p className="mt-1 text-xs text-slate-500">Total orçado acumulado até {MONTH_LABELS[currentMonthIndex]}</p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Realizado Acumulado (até mês atual)</p>
+            <p className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{formatMoney(realizadoAcumulado)}</p>
+            <p className={`mt-1 text-xs font-semibold ${eficienciaIsGood ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}`}>
+              {eficienciaIsGood ? 'Economizado' : 'Estourado'}: {eficienciaPercentual.toFixed(2)}%
+            </p>
+          </div>
+
+          <div className={`rounded-2xl border p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70 ${eficienciaIsGood ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}>
+            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Eficiência Orçamentária</p>
+            <p className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{eficienciaPercentual.toFixed(2)}%</p>
+            <p className="mt-1 text-xs text-slate-500">Comparação entre realizado e orçado (acumulado)</p>
+          </div>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Realizado total</p>
-          <p className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{formatMoney(summary.realizado)}</p>
-          <p className={`mt-1 text-xs font-semibold ${topLevelVariation >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}`}>
-            Variação: {formatMoney(topLevelVariation)}
-          </p>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="sm:col-span-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+            <p className="mb-2 text-sm font-black uppercase text-slate-400">Curva de Tendência (Acumulado)</p>
+            <AsyncApexChart
+              type="area"
+              height={320}
+              series={[
+                { name: 'Orçado Acumulado', data: cumulative.cumOrcado.map((v) => Number(v.toFixed(2))) },
+                { name: 'Realizado Acumulado', data: cumulative.cumRealizado.map((v) => Number(v.toFixed(2))) },
+              ]}
+              options={{
+                chart: { toolbar: { show: false }, zoom: { enabled: false } },
+                stroke: { curve: 'smooth' },
+                xaxis: { categories: MONTH_LABELS },
+                yaxis: { labels: { formatter: (val: number) => formatMoney(val) } },
+                tooltip: { y: { formatter: (val: number) => formatMoney(val) } },
+                colors: ['#2563EB', eficienciaIsGood ? '#16A34A' : '#DC2626'],
+                legend: { position: 'top' },
+                fill: { opacity: [0.25, 0.1] },
+              }}
+            />
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+            <p className="mb-2 text-sm font-black uppercase text-slate-400">Variação Mensal (Orçado - Realizado)</p>
+            <AsyncApexChart
+              type="bar"
+              height={320}
+              series={[{ name: 'Variação', data: monthlyTotals.orcado.map((o, i) => Number((o - monthlyTotals.realizado[i]).toFixed(2))) }]}
+              options={{
+                chart: { toolbar: { show: false }, zoom: { enabled: false } },
+                plotOptions: { bar: { columnWidth: '60%' } },
+                xaxis: { categories: MONTH_LABELS },
+                yaxis: { labels: { formatter: (val: number) => formatMoney(val) } },
+                tooltip: { y: { formatter: (val: number) => formatMoney(val) } },
+                colors: monthlyTotals.orcado.map((_, i) => (monthlyTotals.orcado[i] - monthlyTotals.realizado[i] >= 0 ? '#16A34A' : '#DC2626')),
+                dataLabels: { enabled: false },
+              }}
+            />
+          </div>
         </div>
       </section>
 

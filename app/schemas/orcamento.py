@@ -30,6 +30,11 @@ class OrcamentoRead(OrcamentoBase, AuditReadMixin):
     empresa_id: int
 
 
+class OrcamentoBatchRead(OrcamentoBase):
+    id: int
+    empresa_id: int
+
+
 class OrcamentoMatrizMesRead(SQLModel):
     mes: int
     valor_realizado: Decimal = Decimal("0.00")

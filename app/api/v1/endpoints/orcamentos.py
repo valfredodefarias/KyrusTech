@@ -10,15 +10,15 @@ from app.crud import crud_orcamento
 from app.db.session import get_db
 from app.schemas.orcamento import (
     OrcamentoCreate,
+    OrcamentoBatchRead,
     OrcamentoMatrizNodeRead,
-    OrcamentoRead,
 )
 
 
 router = APIRouter()
 
 
-@router.post("/batch", response_model=List[OrcamentoRead], status_code=201)
+@router.post("/batch", response_model=List[OrcamentoBatchRead], status_code=201)
 def create_orcamentos_batch(
     *,
     db: Session = Depends(get_db),

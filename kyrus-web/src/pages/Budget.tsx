@@ -218,12 +218,12 @@ function getGroupToneClasses(tone: BudgetGroupSection['tone'], isDark: boolean) 
     (isDark ? 'border-fuchsia-300/60 bg-fuchsia-700' : 'border-fuchsia-300 bg-fuchsia-700');
 
   const parentRowClass =
-    tone === 'emerald' ? (isDark ? 'bg-emerald-800/60 text-white' : 'bg-emerald-200 text-emerald-950') :
-    tone === 'amber' ? (isDark ? 'bg-yellow-800/60 text-white' : 'bg-yellow-200 text-yellow-950') :
-    tone === 'orange' ? (isDark ? 'bg-orange-800/60 text-white' : 'bg-orange-200 text-orange-950') :
-    tone === 'rose' ? (isDark ? 'bg-rose-800/60 text-white' : 'bg-rose-200 text-rose-950') :
-    tone === 'teal' ? (isDark ? 'bg-teal-800/60 text-white' : 'bg-teal-200 text-teal-950') :
-    (isDark ? 'bg-fuchsia-800/60 text-white' : 'bg-fuchsia-200 text-fuchsia-950');
+    tone === 'emerald' ? (isDark ? 'bg-slate-800/70 text-slate-100' : 'bg-slate-100 text-slate-700') :
+    tone === 'amber' ? (isDark ? 'bg-slate-800/70 text-slate-100' : 'bg-slate-100 text-slate-700') :
+    tone === 'orange' ? (isDark ? 'bg-slate-800/70 text-slate-100' : 'bg-slate-100 text-slate-700') :
+    tone === 'rose' ? (isDark ? 'bg-slate-800/70 text-slate-100' : 'bg-slate-100 text-slate-700') :
+    tone === 'teal' ? (isDark ? 'bg-slate-800/70 text-slate-100' : 'bg-slate-100 text-slate-700') :
+    (isDark ? 'bg-slate-800/70 text-slate-100' : 'bg-slate-100 text-slate-700');
 
   const childRowClass =
     tone === 'emerald' ? (isDark ? 'bg-emerald-950/10 text-slate-100' : 'bg-emerald-50/40 text-emerald-900') :

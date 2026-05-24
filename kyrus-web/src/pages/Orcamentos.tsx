@@ -52,34 +52,13 @@ const moneyFormatter = new Intl.NumberFormat('pt-BR', {
   maximumFractionDigits: 2,
 });
 
-const percentFormatter = new Intl.NumberFormat('pt-BR', {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
-
 function toNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function isReceita(tipo?: string | null) {
-  return String(tipo || '').trim().toUpperCase().startsWith('R');
-}
-
 function formatMoney(value: number) {
   return moneyFormatter.format(Number.isFinite(value) ? value : 0);
-}
-
-function formatPercent(value: number) {
-  return `${percentFormatter.format(Number.isFinite(value) ? value : 0)}%`;
-}
-
-function getDesvioToneClass(tipo: string, desvioAbsoluto: number) {
-  const positiveIsGood = isReceita(tipo);
-  const isFavorable = positiveIsGood ? desvioAbsoluto >= 0 : desvioAbsoluto < 0;
-  return isFavorable
-    ? 'text-emerald-600 dark:text-emerald-400'
-    : 'text-rose-600 dark:text-rose-400';
 }
 
 function buildOriginalLeafMap(nodes: OrcamentoNode[]): Map<string, number> {
@@ -381,14 +360,11 @@ export function Orcamentos() {
     return matrix.reduce(
       (acc, node) => {
         acc.totalOrcado += node.total_orcado;
-        acc.totalRealizado += node.total_realizado;
         return acc;
       },
-      { totalOrcado: 0, totalRealizado: 0 },
+      { totalOrcado: 0 },
     );
   }, [matrix]);
-
-  const totalDesvio = summary.totalRealizado - summary.totalOrcado;
 
   return (
     <div className="space-y-6 pb-8">
@@ -399,7 +375,7 @@ export function Orcamentos() {
           </div>
           <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Matriz de Orçamento</h1>
           <p className="max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Estrutura em árvore com edição local nas contas folha, recalculo instantâneo e salvamento em lote.
+            Definição de metas orçamentárias por conta e por mês, com preenchimento rápido em grade.
           </p>
         </div>
 
@@ -437,18 +413,10 @@ export function Orcamentos() {
         </div>
       </header>
 
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid gap-3 sm:grid-cols-1">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
           <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Orçado total</p>
           <p className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{formatMoney(summary.totalOrcado)}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Realizado total</p>
-          <p className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{formatMoney(summary.totalRealizado)}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Desvio total</p>
-          <p className={`mt-2 text-2xl font-black tracking-tight ${getDesvioToneClass('D', totalDesvio)}`}>{formatMoney(totalDesvio)}</p>
         </div>
       </section>
 
@@ -469,12 +437,6 @@ export function Orcamentos() {
                 <th className="border-b border-r border-slate-800 bg-slate-950 px-3 py-3 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">
                   Orçado total
                 </th>
-                <th className="border-b border-r border-slate-800 bg-slate-950 px-3 py-3 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">
-                  Realizado total
-                </th>
-                <th className="border-b border-r border-slate-800 bg-slate-950 px-3 py-3 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">
-                  Desvio
-                </th>
                 {MONTH_LABELS.map((label) => (
                   <th key={label} className="border-b border-r border-slate-800 bg-slate-950 px-2 py-3 text-right text-[10px] font-black uppercase tracking-[0.18em] text-white last:border-r-0">
                     {label}
@@ -486,13 +448,13 @@ export function Orcamentos() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={4 + MONTH_LABELS.length} className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                  <td colSpan={2 + MONTH_LABELS.length} className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
                     Carregando matriz de orçamento...
                   </td>
                 </tr>
               ) : visibleRows.length === 0 ? (
                 <tr>
-                  <td colSpan={4 + MONTH_LABELS.length} className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                  <td colSpan={2 + MONTH_LABELS.length} className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
                     Nenhum orçamento encontrado para este ano.
                   </td>
                 </tr>
@@ -523,7 +485,6 @@ export function Orcamentos() {
                               {node.nome}
                             </p>
                             <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">
-                              {node.tipo === 'R' ? 'Receita' : 'Despesa'}
                               {isLeaf ? ' · Nível folha' : ' · Conta agregadora'}
                             </p>
                           </div>
@@ -533,18 +494,7 @@ export function Orcamentos() {
                       <td className="border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200">
                         {formatMoney(node.total_orcado)}
                       </td>
-                      <td className="border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200">
-                        {formatMoney(node.total_realizado)}
-                      </td>
-                      <td className="border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200">
-                        <div className="flex flex-col items-end leading-tight">
-                          <span>{formatMoney(node.total_desvio_absoluto)}</span>
-                          <span className="text-[11px] text-slate-500 dark:text-slate-400">{formatPercent(node.total_desvio_percentual)}</span>
-                        </div>
-                      </td>
-
                       {node.meses.map((mes) => {
-                        const desvioClass = getDesvioToneClass(node.tipo, mes.desvio_absoluto);
                         const cellKey = getCellKey(node.plano_contas_id, mes.mes);
                         const isCellEditing = editingCell !== null && getCellKey(editingCell.planoContaId, editingCell.mes) === cellKey;
                         return (
@@ -557,7 +507,7 @@ export function Orcamentos() {
                             }}
                             className={`border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 ${isLeaf ? 'cursor-text' : 'cursor-default'} last:border-r-0`}
                           >
-                            <div className="flex items-center justify-end gap-2 leading-tight">
+                            <div className="flex items-center justify-end leading-tight">
                               {isCellEditing ? (
                                 <input
                                   type="number"
@@ -583,7 +533,6 @@ export function Orcamentos() {
                                   {formatMoney(mes.valor_orcado)}
                                 </div>
                               )}
-                              <span className={`text-[11px] font-semibold tabular-nums ${desvioClass}`}>{formatPercent(mes.desvio_percentual)}</span>
                             </div>
                           </td>
                         );

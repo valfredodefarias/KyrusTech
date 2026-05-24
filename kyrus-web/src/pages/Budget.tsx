@@ -561,13 +561,103 @@ export function Budget() {
       },
       { orcado: 0, realizado: 0 },
     );
-              ) : groupedSections.length === 0 ? (
+  }, [matrix]);
 
   const topLevelVariation = summary.realizado - summary.orcado;
 
   return (
     <div className="space-y-6 pb-8">
       <header className="flex flex-col gap-4 rounded-none border border-slate-200/80 bg-white/90 p-5 shadow-[0_25px_70px_-60px_rgba(15,23,42,0.45)] backdrop-blur dark:border-slate-800 dark:bg-slate-950/70 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-1">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+            <Calculator className="h-3.5 w-3.5" /> Relatório Gerencial
+          </div>
+          <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Budget</h1>
+          <p className="max-w-2xl text-sm text-slate-500 dark:text-slate-400">
+            Visão consolidada do orçado versus realizado, organizada em árvore e pronta para leitura rápida.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+            <span className="font-semibold">Ano</span>
+            <input
+              type="number"
+              min={2000}
+              max={2100}
+              value={ano}
+              onChange={(event) => setAno(Number(event.target.value) || currentYear)}
+              className="w-24 border-0 bg-transparent p-0 text-right text-sm font-semibold outline-none focus:ring-0"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={() => void loadMatrix(ano)}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
+          >
+            <RotateCcw className="h-4 w-4" />
+            Recarregar
+          </button>
+        </div>
+      </header>
+
+      <section className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Orçado total</p>
+          <p className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{formatMoney(summary.orcado)}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Realizado total</p>
+          <p className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{formatMoney(summary.realizado)}</p>
+          <p className={`mt-1 text-xs font-semibold ${topLevelVariation >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}`}>
+            Variação: {formatMoney(topLevelVariation)}
+          </p>
+        </div>
+      </section>
+
+      {error ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">
+          {error}
+        </div>
+      ) : null}
+
+      <section className="overflow-hidden rounded-none border border-slate-200 bg-white shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-slate-950/75">
+        <div className="max-h-[72vh] overflow-auto">
+          <table className="w-full min-w-[1400px] border-separate border-spacing-0 text-sm">
+            <thead>
+              <tr>
+                <th className="sticky left-0 top-0 z-40 border-b border-r border-slate-800 bg-slate-950/95 px-4 py-2 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
+                  Conta
+                </th>
+                <th className="sticky top-0 z-30 border-b border-r border-slate-800 bg-slate-950/95 px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
+                  Orçado total
+                </th>
+                {MONTH_LABELS.map((label) => (
+                  <th
+                    key={label}
+                    className="sticky top-0 z-30 min-w-[100px] w-[100px] border-b border-r border-slate-800 bg-slate-950/95 px-2 py-2 text-right text-[10px] font-black uppercase tracking-[0.18em] text-white backdrop-blur last:border-r-0"
+                  >
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={2 + MONTH_LABELS.length} className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                    Carregando relatório gerencial...
+                  </td>
+                </tr>
+              ) : groupedSections.length === 0 ? (
+                <tr>
+                  <td colSpan={2 + MONTH_LABELS.length} className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                    Nenhum dado encontrado para este ano.
+                  </td>
+                </tr>
+              ) : (
                 groupedSections.map((section) => {
                   const { rowTone, parentRowClass } = getGroupToneClasses(section.tone, false);
 
@@ -593,7 +683,7 @@ export function Budget() {
 
                         return (
                           <tr key={`${section.key}-${node.plano_contas_id}`} className={rowTone}>
-                            <td className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.45)] dark:border-slate-800 ${hasChildren ? `border-slate-700 font-black ${parentRowClass}` : rowTone}` }>
+                            <td className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.45)] dark:border-slate-800 ${hasChildren ? `border-slate-700 font-black ${parentRowClass}` : rowTone}`}>
                               <div className="flex items-start gap-2" style={{ paddingLeft: `${level * 18}px` }}>
                                 <button
                                   type="button"
@@ -672,118 +762,16 @@ export function Budget() {
                     </Fragment>
                   );
                 })
-        </article>
-      </section>
-
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-slate-950/75">
-        <div className="max-h-[72vh] overflow-auto">
-          <table className="w-full min-w-[1400px] border-separate border-spacing-0 text-sm">
-            <thead>
-              <tr>
-                <th className="sticky left-0 top-0 z-40 border-b border-r border-slate-800 bg-slate-950/95 px-4 py-2 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
-                  Conta
-                </th>
-                <th className="sticky top-0 z-30 border-b border-r border-slate-800 bg-slate-950/95 px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
-                  Orçado total
-                </th>
-                {MONTH_LABELS.map((label) => (
-                  <th
-                    key={label}
-                    className="sticky top-0 z-30 min-w-[100px] w-[100px] border-b border-r border-slate-800 bg-slate-950/95 px-2 py-2 text-right text-[10px] font-black uppercase tracking-[0.18em] text-white backdrop-blur last:border-r-0"
-                  >
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={2 + MONTH_LABELS.length} className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
-                    Carregando relatório gerencial...
-                  </td>
-                </tr>
-              ) : visibleRows.length === 0 ? (
-                <tr>
-                  <td colSpan={2 + MONTH_LABELS.length} className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
-                    Nenhum dado encontrado para este ano.
-                  </td>
-                </tr>
-              ) : (
-                visibleRows.map(({ node, level, hasChildren }, rowIndex) => {
-                  const rowTone = rowIndex % 2 === 0 ? 'bg-white dark:bg-slate-950/20' : 'bg-slate-50/70 dark:bg-slate-900/30';
-
-                  return (
-                    <tr key={node.plano_contas_id} className={rowTone}>
-                      <td className={`sticky left-0 z-20 border-b border-r border-slate-200 px-3 py-1.5 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.45)] dark:border-slate-800 ${rowTone}`}>
-                        <div className="flex items-start gap-2" style={{ paddingLeft: `${level * 18}px` }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!hasChildren) return;
-                              setExpandedIds((current) => {
-                                const next = new Set(current);
-                                if (next.has(node.plano_contas_id)) {
-                                  next.delete(node.plano_contas_id);
-                                } else {
-                                  next.add(node.plano_contas_id);
-                                }
-                                return next;
-                              });
-                            }}
-                            disabled={!hasChildren}
-                            className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded text-slate-500 transition ${hasChildren ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : 'opacity-30'}`}
-                            aria-label={hasChildren ? 'Expandir ou recolher conta' : 'Conta folha'}
-                          >
-                            <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expandedIds.has(node.plano_contas_id) ? 'rotate-90' : ''}`} />
-                          </button>
-
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-                              {node.codigo ? `${node.codigo} - ` : ''}
-                              {node.nome}
-                            </p>
-                            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">{hasChildren ? 'Conta agregadora' : 'Nível folha'}</p>
-                          </div>
-                        </div>
-                      </td>
-
-                      <td className={`border-b border-r border-slate-200 px-3 py-1.5 text-right text-sm tabular-nums dark:border-slate-800 ${rowTone} font-semibold text-slate-700 dark:text-slate-200`}>
-                        {formatMoney(node.total_orcado)}
-                      </td>
-
-                      {node.meses.map((mes) => {
-                        const deviationBadgeClass = getDeviationBadgeClass(node.tipo, mes.desvio_absoluto);
-                        const deviationLabel = mes.valor_orcado !== 0 ? formatPercent(mes.desvio_percentual) : '—';
-                        const tooltip = `Orçado: ${formatMoney(mes.valor_orcado)} | Desvio absoluto: ${formatMoney(mes.desvio_absoluto)}`;
-                        const isNegativeDeviation = mes.desvio_percentual < 0;
-
-                        return (
-                          <td
-                            key={`${node.plano_contas_id}-${mes.mes}`}
-                            title={tooltip}
-                            className={`min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-1.5 text-right dark:border-slate-800 last:border-r-0 ${rowTone} ${isNegativeDeviation ? 'bg-red-50 font-bold text-red-700 dark:bg-red-950/35 dark:text-red-200' : 'text-slate-800 dark:text-slate-100'}`}
-                          >
-                            <div className="flex items-center justify-end gap-1.5 leading-tight">
-                              <span className="text-sm font-semibold tabular-nums">
-                                {formatMoney(mes.valor_realizado)}
-                              </span>
-                              <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${deviationBadgeClass}`}>
-                                {deviationLabel}
-                              </span>
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })
               )}
             </tbody>
           </table>
         </div>
       </section>
+
+      <footer className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+        <p>Duplo clique em uma célula de mês (conta folha) para editar inline.</p>
+        <p>{hasPendingChanges ? `${dirtyPayloads.length} alteração(ões) pendente(s)` : 'Nenhuma alteração pendente'}</p>
+      </footer>
     </div>
   );
 }

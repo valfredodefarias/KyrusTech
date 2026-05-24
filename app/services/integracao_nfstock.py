@@ -375,7 +375,8 @@ def sincronizar_nfstock(
     centro_custo_id = int(integracao.centro_custo_id) if integracao.centro_custo_id is not None else None
     cfg = get_nfstock_config(integracao)
 
-    download_dir = Path("/tmp") / f"kyrus_nfstock_{empresa_id}_{integracao.id}_{uuid.uuid4().hex}"    download_dir.mkdir(parents=True, exist_ok=True)
+    download_dir = Path("/tmp") / f"kyrus_nfstock_{empresa_id}_{integracao.id}_{uuid.uuid4().hex}"    
+    download_dir.mkdir(parents=True, exist_ok=True)
 
     driver = _build_driver(str(download_dir))
     wait = WebDriverWait(driver, 30)

@@ -1,7 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Calculator, ChevronRight, RotateCcw } from 'lucide-react';
-import Chart from 'react-apexcharts';
-import type { ApexOptions } from 'apexcharts';
 
 import { api, normalizeListResponse } from '../services/api';
 
@@ -32,6 +30,11 @@ interface VisibleNode {
   node: BudgetNode;
   level: number;
   hasChildren: boolean;
+}
+
+interface EditingCell {
+  planoContaId: number;
+  mes: number;
 }
 
 type BudgetDreGroupKey =
@@ -70,17 +73,6 @@ const moneyFormatter = new Intl.NumberFormat('pt-BR', {
   maximumFractionDigits: 2,
 });
 
-const percentFormatter = new Intl.NumberFormat('pt-BR', {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
-
-const compactMoneyFormatter = new Intl.NumberFormat('pt-BR', {
-  notation: 'compact',
-  compactDisplay: 'short',
-  maximumFractionDigits: 1,
-});
-
 function toNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -88,14 +80,6 @@ function toNumber(value: unknown): number {
 
 function formatMoney(value: number) {
   return moneyFormatter.format(Number.isFinite(value) ? value : 0);
-}
-
-function formatPercent(value: number) {
-  return `${percentFormatter.format(Number.isFinite(value) ? value : 0)}%`;
-}
-
-function formatCompactMoney(value: number) {
-  return `R$ ${compactMoneyFormatter.format(Number.isFinite(value) ? value : 0)}`;
 }
 
 function isReceita(tipo?: string | null) {
@@ -233,57 +217,6 @@ function getGroupToneClasses(tone: BudgetGroupSection['tone'], isDark: boolean) 
   return { rowTone, parentRowClass };
 }
 
-function collectLeafMonthlyValues(
-  nodes: BudgetNode[],
-  predicate: (node: BudgetNode) => boolean,
-  field: keyof Pick<BudgetMonth, 'valor_realizado' | 'valor_orcado'>,
-) {
-  const totals = MONTH_LABELS.map(() => 0);
-
-  const visit = (current: BudgetNode) => {
-    if (current.children.length > 0) {
-      current.children.forEach(visit);
-      return;
-    }
-
-    if (!predicate(current)) {
-      return;
-    }
-
-    current.meses.forEach((mes, index) => {
-      totals[index] += toNumber(mes[field]);
-    });
-  };
-
-  nodes.forEach(visit);
-  return totals;
-}
-
-function buildCumulativeSeries(values: number[]) {
-  return values.reduce<number[]>((accumulator, value) => {
-    const previous = accumulator.length > 0 ? accumulator[accumulator.length - 1] : 0;
-    accumulator.push(previous + value);
-    return accumulator;
-  }, []);
-}
-
-function buildTreeMetrics(nodes: BudgetNode[]) {
-  const receitaOrcadaMensal = collectLeafMonthlyValues(nodes, (node) => isReceita(node.tipo), 'valor_orcado');
-  const receitaRealMensal = collectLeafMonthlyValues(nodes, (node) => isReceita(node.tipo), 'valor_realizado');
-  const custoOrcadoMensal = collectLeafMonthlyValues(nodes, (node) => !isReceita(node.tipo), 'valor_orcado');
-  const custoRealMensal = collectLeafMonthlyValues(nodes, (node) => !isReceita(node.tipo), 'valor_realizado');
-
-  return {
-    receitaOrcadaMensal,
-    receitaRealMensal,
-    custoOrcadoMensal,
-    custoRealMensal,
-    receitaOrcadaAcumulada: buildCumulativeSeries(receitaOrcadaMensal),
-    receitaRealAcumulada: buildCumulativeSeries(receitaRealMensal),
-    variacaoCustosMensal: custoRealMensal.map((valor, index) => valor - custoOrcadoMensal[index]),
-  };
-}
-
 function recalculateNode(node: BudgetNode): BudgetNode {
   const children = node.children.map(recalculateNode);
 
@@ -368,14 +301,77 @@ function flattenVisibleNodes(nodes: BudgetNode[], expandedIds: Set<number>, leve
   return rows;
 }
 
-function getDeviationBadgeClass(tipo: string, desvioAbsoluto: number) {
-  const favorable = isReceita(tipo) ? desvioAbsoluto >= 0 : desvioAbsoluto <= 0;
-  if (desvioAbsoluto === 0) {
-    return 'bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-200';
-  }
-  return favorable
-    ? 'bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
-    : 'bg-rose-500/10 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300';
+
+function buildOriginalLeafMap(nodes: BudgetNode[]): Map<string, number> {
+  const map = new Map<string, number>();
+
+  const walk = (node: BudgetNode) => {
+    if (!node.children.length) {
+      node.meses.forEach((mes) => {
+        map.set(`${node.plano_contas_id}:${mes.mes}`, toNumber(mes.valor_orcado));
+      });
+      return;
+    }
+
+    node.children.forEach(walk);
+  };
+
+  nodes.forEach(walk);
+  return map;
+}
+
+function patchLeafBudget(nodes: BudgetNode[], planoContaId: number, mes: number, valorOrcado: number): BudgetNode[] {
+  return nodes.map((node) => {
+    if (node.plano_contas_id === planoContaId && !node.children.length) {
+      const meses = node.meses.map((item) => {
+        if (item.mes !== mes) return item;
+        const desvioAbsoluto = item.valor_realizado - valorOrcado;
+        return {
+          ...item,
+          valor_orcado: valorOrcado,
+          desvio_absoluto: desvioAbsoluto,
+          desvio_percentual: valorOrcado !== 0 ? (desvioAbsoluto / valorOrcado) * 100 : 0,
+        };
+      });
+
+      return { ...node, meses };
+    }
+
+    if (node.children.length) {
+      return { ...node, children: patchLeafBudget(node.children, planoContaId, mes, valorOrcado) };
+    }
+
+    return node;
+  });
+}
+
+function collectDirtyBudgets(nodes: BudgetNode[], originalMap: Map<string, number>, ano: number) {
+  const payloads: Array<{ plano_conta_id: number; ano: number; mes: number; valor_orcado: number }> = [];
+
+  const walk = (node: BudgetNode) => {
+    if (!node.children.length) {
+      node.meses.forEach((mes) => {
+        const key = `${node.plano_contas_id}:${mes.mes}`;
+        const originalValue = originalMap.get(key) ?? 0;
+        const currentValue = toNumber(mes.valor_orcado);
+
+        if (Math.abs(currentValue - originalValue) > 0.0001) {
+          payloads.push({
+            plano_conta_id: node.plano_contas_id,
+            ano,
+            mes: mes.mes,
+            valor_orcado: currentValue,
+          });
+        }
+      });
+      return;
+    }
+
+    node.children.forEach(walk);
+  };
+
+  nodes.forEach(walk);
+  return payloads;
 }
 
 export function Budget() {
@@ -383,152 +379,12 @@ export function Budget() {
   const [ano, setAno] = useState<number>(currentYear);
   const [matrix, setMatrix] = useState<BudgetNode[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
+  const [editingValue, setEditingValue] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const originalLeafValuesRef = useRef<Map<string, number>>(new Map());
 
-  const analytics = useMemo(() => buildTreeMetrics(matrix), [matrix]);
-
-  const revenueChartSeries = useMemo(
-    () => [
-      { name: 'Orçado Acumulado', data: analytics.receitaOrcadaAcumulada },
-      { name: 'Realizado Acumulado', data: analytics.receitaRealAcumulada },
-    ],
-    [analytics.receitaOrcadaAcumulada, analytics.receitaRealAcumulada],
-  );
-
-  const variationChartSeries = useMemo(
-    () => [
-      {
-        name: 'Real - Orçado',
-        data: analytics.variacaoCustosMensal,
-      },
-    ],
-    [analytics.variacaoCustosMensal],
-  );
-
-  const revenueChartOptions = useMemo<ApexOptions>(
-    () => ({
-      chart: {
-        type: 'area',
-        toolbar: { show: false },
-        zoom: { enabled: false },
-        animations: { enabled: true, easing: 'easeinout', speed: 450 },
-        background: 'transparent',
-      },
-      colors: ['#16a34a', '#dc2626'],
-      dataLabels: { enabled: false },
-      stroke: {
-        curve: 'smooth',
-        width: [3, 3],
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shadeIntensity: 0.18,
-          opacityFrom: 0.24,
-          opacityTo: 0.04,
-          stops: [0, 90, 100],
-        },
-      },
-      grid: {
-        borderColor: '#e2e8f0',
-        strokeDashArray: 4,
-      },
-      legend: {
-        position: 'top',
-        horizontalAlign: 'right',
-        markers: {
-          size: 10,
-          strokeWidth: 0,
-          fillColors: ['#16a34a', '#dc2626'],
-          shape: 'circle',
-        },
-      },
-      markers: {
-        size: 4,
-        strokeWidth: 0,
-        hover: { size: 6 },
-      },
-      xaxis: {
-        categories: MONTH_LABELS,
-        axisBorder: { color: '#cbd5e1' },
-        axisTicks: { color: '#cbd5e1' },
-        labels: {
-          style: { colors: '#64748b', fontSize: '12px' },
-        },
-      },
-      yaxis: {
-        labels: {
-          formatter: (value) => formatCompactMoney(value),
-          style: { colors: '#64748b', fontSize: '12px' },
-        },
-      },
-      tooltip: {
-        shared: true,
-        intersect: false,
-        y: {
-          formatter: (value) => formatMoney(value),
-        },
-      },
-      theme: {
-        mode: 'light',
-      },
-    }),
-    [],
-  );
-
-  const variationChartOptions = useMemo<ApexOptions>(
-    () => ({
-      chart: {
-        type: 'bar',
-        toolbar: { show: false },
-        zoom: { enabled: false },
-        background: 'transparent',
-      },
-      colors: ['#0f172a'],
-      dataLabels: { enabled: false },
-      plotOptions: {
-        bar: {
-          borderRadius: 6,
-          columnWidth: '52%',
-          colors: {
-            ranges: [
-              { from: -999999999999, to: 0, color: '#16a34a' },
-              { from: 0.0000001, to: 999999999999, color: '#dc2626' },
-            ],
-          },
-        },
-      },
-      grid: {
-        borderColor: '#e2e8f0',
-        strokeDashArray: 4,
-      },
-      xaxis: {
-        categories: MONTH_LABELS,
-        axisBorder: { color: '#cbd5e1' },
-        axisTicks: { color: '#cbd5e1' },
-        labels: {
-          style: { colors: '#64748b', fontSize: '12px' },
-        },
-      },
-      yaxis: {
-        labels: {
-          formatter: (value) => formatCompactMoney(value),
-          style: { colors: '#64748b', fontSize: '12px' },
-        },
-      },
-      tooltip: {
-        y: {
-          formatter: (value) => formatMoney(value),
-        },
-      },
-      legend: { show: false },
-      theme: {
-        mode: 'light',
-      },
-    }),
-    [],
-  );
 
   const loadMatrix = async (selectedYear: number) => {
     setLoading(true);
@@ -536,8 +392,11 @@ export function Budget() {
     try {
       const response = await api.get<BudgetNode[]>(`/orcamentos/matriz/${selectedYear}`);
       const nodes = recalculateTree(filterBudgetTree(normalizeListResponse<BudgetNode>(response.data).map(normalizeNode)));
+      originalLeafValuesRef.current = buildOriginalLeafMap(nodes);
       setMatrix(nodes);
       setExpandedIds(new Set(nodes.filter((node) => node.children.length).map((node) => node.plano_contas_id)));
+      setEditingCell(null);
+      setEditingValue('');
     } catch (loadError) {
       console.error('Erro ao carregar matriz orçamentária:', loadError);
       setError('Não foi possível carregar a matriz orçamentária.');
@@ -549,6 +408,51 @@ export function Budget() {
   useEffect(() => {
     void loadMatrix(ano);
   }, [ano]);
+
+  const dirtyPayloads = useMemo(() => collectDirtyBudgets(matrix, originalLeafValuesRef.current, ano), [matrix, ano]);
+  const hasPendingChanges = dirtyPayloads.length > 0;
+
+  function handleToggleExpanded(nodeId: number) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
+  }
+
+  function getCellKey(planoContaId: number, mes: number) {
+    return `${planoContaId}-${mes}`;
+  }
+
+  function beginCellEdit(planoContaId: number, mes: number, currentValue: number) {
+    setEditingCell({ planoContaId, mes });
+    setEditingValue(String(Number.isFinite(currentValue) ? currentValue : 0));
+  }
+
+  function applyInlineEdit(baseMatrix: BudgetNode[], cell: EditingCell, valueRaw: string) {
+    const nextValue = Number(valueRaw);
+    const safeValue = Number.isFinite(nextValue) ? nextValue : 0;
+    return recalculateTree(patchLeafBudget(baseMatrix, cell.planoContaId, cell.mes, safeValue));
+  }
+
+  function commitEditingCell() {
+    if (!editingCell) return null;
+
+    const updatedMatrix = applyInlineEdit(matrix, editingCell, editingValue);
+    setMatrix(updatedMatrix);
+    setEditingCell(null);
+    setEditingValue('');
+    return updatedMatrix;
+  }
+
+  function cancelEditingCell() {
+    setEditingCell(null);
+    setEditingValue('');
+  }
 
   const groupedSections = useMemo(() => buildGroupedBudgetSections(matrix, expandedIds), [matrix, expandedIds]);
 

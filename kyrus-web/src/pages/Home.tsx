@@ -21,10 +21,17 @@ interface ContaResumo {
   tipo: string;
   logo_url?: string | null;
   banco?: string | null;
+  centro_custo_id?: number | null;
   saldo_inicial: number;
   saldo_atual?: number;
   status?: 'ATIVO' | 'INATIVO' | string;
   conta_como_disponibilidade?: boolean;
+}
+
+interface CentroCustoResumo {
+  id: number;
+  nome: string;
+  codigo?: string | null;
 }
 
 interface UserInfo {
@@ -53,11 +60,28 @@ interface AtalhoCardProps {
   bgClass: string;
 }
 
+const HOME_CENTRO_CUSTO_CACHE_KEY = 'home.selectedCentroCustoId';
+
+function readCachedCentroCustoId(): number | 'ALL' {
+  if (typeof window === 'undefined') return 'ALL';
+  const rawValue = window.localStorage.getItem(HOME_CENTRO_CUSTO_CACHE_KEY);
+  if (!rawValue || rawValue === 'ALL') return 'ALL';
+
+  const parsedValue = Number(rawValue);
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 'ALL';
+}
+
 export function Home() {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
   const [contas, setContas] = useState<ContaResumo[]>([]);
+  const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
+  const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>(() => readCachedCentroCustoId());
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    window.localStorage.setItem(HOME_CENTRO_CUSTO_CACHE_KEY, String(selectedCentroCustoId));
+  }, [selectedCentroCustoId]);
 
   useEffect(() => {
     async function loadData() {
@@ -82,8 +106,12 @@ export function Home() {
 
         setEmpresa(empresaAtual);
 
-        const resContas = await api.get<unknown>('/contas/');
+        const [resContas, resCentrosCusto] = await Promise.all([
+          api.get<unknown>('/contas/'),
+          api.get<unknown>('/centro-custo/'),
+        ]);
         setContas(normalizeContasResponse(resContas.data));
+        setCentrosCusto(normalizeCentrosCustoResponse(resCentrosCusto.data));
       } catch (error) {
         console.error('Erro ao carregar home:', error);
       } finally {
@@ -103,9 +131,11 @@ export function Home() {
   const contasVisaoGeral = useMemo(() => {
     const listaContas = Array.isArray(contas) ? contas : [];
     return listaContas.filter(
-      (conta) => String(conta.status || 'ATIVO').toUpperCase() === 'ATIVO' && conta.conta_como_disponibilidade !== false,
+      (conta) => String(conta.status || 'ATIVO').toUpperCase() === 'ATIVO'
+        && conta.conta_como_disponibilidade !== false
+        && (selectedCentroCustoId === 'ALL' || Number(conta.centro_custo_id) === selectedCentroCustoId),
     );
-  }, [contas]);
+  }, [contas, selectedCentroCustoId]);
 
   const saldoTotal = useMemo(() => contasVisaoGeral.reduce((acc, conta) => acc + getSaldo(conta), 0), [contasVisaoGeral]);
   const contasPositivas = useMemo(() => contasVisaoGeral.filter((conta) => getSaldo(conta) >= 0).length, [contasVisaoGeral]);
@@ -199,13 +229,29 @@ export function Home() {
             <HeroMetric label="Em atenção" value={String(contasNegativas)} />
           </div>
 
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
             <Link to="/lancamentos" className="bg-white text-slate-800 px-5 py-2.5 rounded-lg font-bold hover:bg-slate-50 transition shadow-sm flex items-center gap-2 w-full sm:w-auto justify-center">
               <PlusCircle size={18} style={{ color: primaryColor }} /> Novo Lançamento
             </Link>
             <Link to="/boletim" className="bg-black/20 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-black/30 transition flex items-center gap-2 border border-white/20 w-full sm:w-auto justify-center">
               <Activity size={18} /> Abrir Boletim
             </Link>
+            <label className="bg-black/20 text-white px-3 py-2.5 rounded-lg font-semibold border border-white/20 flex items-center gap-2 w-full sm:w-auto">
+              <Building2 size={16} className="shrink-0" />
+              <span className="text-xs uppercase tracking-[0.12em] text-white/80">Centro</span>
+              <select
+                value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
+                onChange={(event) => setSelectedCentroCustoId(event.target.value === 'ALL' ? 'ALL' : Number(event.target.value))}
+                className="min-w-[190px] bg-transparent text-white text-sm font-bold outline-none"
+              >
+                <option value="ALL" className="text-slate-900">Todos os centros</option>
+                {centrosCusto.map((centro) => (
+                  <option key={centro.id} value={centro.id} className="text-slate-900">
+                    {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
       </section>
@@ -215,7 +261,8 @@ export function Home() {
           <Wallet className="w-5 h-5 text-slate-400" /> Contas e saldos
         </h3>
 
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+        <div className="max-h-[32rem] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
           {contasVisaoGeral.length === 0 ? (
             <div className="col-span-3 text-sm text-slate-400 p-8 border border-dashed rounded-lg text-center bg-slate-50 dark:bg-slate-800/50">
               Nenhuma conta ativa que componha saldo disponível. <Link to="/contas" className="text-blue-500 hover:underline">Ajustar contas</Link>
@@ -254,6 +301,7 @@ export function Home() {
               </Link>
             ))
           )}
+          </div>
         </div>
       </section>
 
@@ -299,6 +347,28 @@ function normalizeContasResponse(data: unknown): ContaResumo[] {
     const candidate = payload.data ?? payload.items ?? payload.results ?? payload.contas;
     if (Array.isArray(candidate)) {
       return candidate as ContaResumo[];
+    }
+  }
+
+  return [];
+}
+
+function normalizeCentrosCustoResponse(data: unknown): CentroCustoResumo[] {
+  if (Array.isArray(data)) {
+    return data as CentroCustoResumo[];
+  }
+
+  if (data && typeof data === 'object') {
+    const payload = data as {
+      data?: unknown;
+      items?: unknown;
+      results?: unknown;
+      centros_custo?: unknown;
+    };
+
+    const candidate = payload.data ?? payload.items ?? payload.results ?? payload.centros_custo;
+    if (Array.isArray(candidate)) {
+      return candidate as CentroCustoResumo[];
     }
   }
 

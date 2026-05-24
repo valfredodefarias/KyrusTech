@@ -87,6 +87,18 @@ function formatMoney(value: number) {
   return moneyFormatter.format(Number.isFinite(value) ? value : 0);
 }
 
+function getVariationBadgeClasses(tipo: string, desvioPercentual: number) {
+  if (Math.abs(desvioPercentual) < 0.0001) {
+    return 'inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300';
+  }
+
+  const isBad = isReceita(tipo) ? desvioPercentual < 0 : isDespesa(tipo) ? desvioPercentual > 0 : desvioPercentual < 0;
+
+  return isBad
+    ? 'inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+    : 'inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
+}
+
 function isReceita(tipo?: string | null) {
   return String(tipo || '').trim().toUpperCase().startsWith('R');
 }
@@ -603,18 +615,21 @@ export function Budget() {
 
                             {node.meses.map((mes) => {
                               const deviationClasses = mes.desvio_percentual < 0 ? 'bg-red-50 text-red-700 font-bold dark:bg-red-950/35 dark:text-red-200' : '';
+                              const badgeClasses = getVariationBadgeClasses(node.tipo, mes.desvio_percentual);
+                              const badgeLabel = Math.abs(mes.desvio_percentual) < 0.0001 ? '0.0%' : `${mes.desvio_percentual > 0 ? '+' : ''}${mes.desvio_percentual.toFixed(1)}%`;
 
                               return (
                                 <td
                                   key={`${node.plano_contas_id}-${mes.mes}`}
+                                  title={formatMoney(mes.valor_orcado)}
                                   className={`min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 cursor-default last:border-r-0 ${hasChildren ? parentRowClass : childRowClass} ${deviationClasses}`}
                                 >
-                                  <div className="flex flex-col items-end leading-tight">
-                                    <div className="w-full text-right text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                                  <div className="flex flex-col items-end gap-1 leading-tight">
+                                    <div className="w-full text-right text-[13px] font-semibold tabular-nums text-slate-900 dark:text-slate-100">
                                       {formatMoney(mes.valor_realizado)}
                                     </div>
-                                    <div className="mt-1 text-[9px] opacity-80 text-slate-600 dark:text-slate-300">
-                                      {formatMoney(mes.desvio_absoluto)} ({mes.desvio_percentual >= 0 ? '+' : ''}{mes.desvio_percentual.toFixed(2)}%)
+                                    <div className={badgeClasses}>
+                                      {badgeLabel}
                                     </div>
                                   </div>
                                 </td>

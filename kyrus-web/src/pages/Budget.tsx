@@ -56,7 +56,15 @@ interface BudgetGroupSection {
 }
 
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-const EXCLUDED_BUDGET_GROUPS = new Set(['NÃO OPERACIONAL / FORA DA DRE', 'NAO OPERACIONAL / FORA DA DRE', 'NÃO OP.', 'NAO OP.']);
+const EXCLUDED_BUDGET_GROUPS = new Set([
+  'NAO_OPERACIONAL',
+  'NAO OPERACIONAL',
+  'NAO OPERACIONAL / FORA DA DRE',
+  'NAO OP.',
+  'FORA_DRE',
+  'FORA DRE',
+  'FORA DA DRE',
+]);
 
 const BUDGET_GROUPS: Array<{ key: BudgetDreGroupKey; label: string; tone: BudgetGroupSection['tone'] }> = [
   { key: 'RECEITAS_OPERACIONAIS', label: 'Receitas Operacionais', tone: 'emerald' },
@@ -126,10 +134,14 @@ function normalizeDreGroup(value?: string | null): string {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+function isExcludedDreGroup(value?: string | null): boolean {
+  return EXCLUDED_BUDGET_GROUPS.has(normalizeDreGroup(value));
+}
+
 function filterBudgetTree(nodes: BudgetNode[]): BudgetNode[] {
   return nodes
     .filter((node) => node.oculta !== true)
-    .filter((node) => !EXCLUDED_BUDGET_GROUPS.has(normalizeDreGroup(node.dre_grupo)))
+    .filter((node) => !isExcludedDreGroup(node.dre_grupo))
     .map((node) => ({
       ...node,
       children: filterBudgetTree(node.children),
@@ -139,7 +151,7 @@ function filterBudgetTree(nodes: BudgetNode[]): BudgetNode[] {
 function resolveBudgetGroupKey(node: BudgetNode): BudgetDreGroupKey | null {
   const group = normalizeDreGroup(node.dre_grupo);
 
-  if (EXCLUDED_BUDGET_GROUPS.has(group) || group === 'NAO_OPERACIONAL') {
+  if (isExcludedDreGroup(group)) {
     return null;
   }
 

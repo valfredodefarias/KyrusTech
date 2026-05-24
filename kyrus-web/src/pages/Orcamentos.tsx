@@ -63,7 +63,15 @@ interface OrcamentoGroupSection {
 }
 
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-const EXCLUDED_DRE_GROUPS = new Set(['NÃO OPERACIONAL / FORA DA DRE', 'NAO OPERACIONAL / FORA DA DRE', 'NÃO OP.', 'NAO OP.']);
+const EXCLUDED_DRE_GROUPS = new Set([
+  'NAO_OPERACIONAL',
+  'NAO OPERACIONAL',
+  'NAO OPERACIONAL / FORA DA DRE',
+  'NAO OP.',
+  'FORA_DRE',
+  'FORA DRE',
+  'FORA DA DRE',
+]);
 
 const ORCAMENTO_GROUPS: Array<{ key: OrcamentoDreGroupKey; label: string; tone: OrcamentoGroupSection['tone'] }> = [
   { key: 'RECEITAS_OPERACIONAIS', label: 'Receitas Operacionais', tone: 'emerald' },
@@ -151,13 +159,14 @@ function normalizeDreGroup(value?: string | null): string {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+function isExcludedDreGroup(value?: string | null): boolean {
+  return EXCLUDED_DRE_GROUPS.has(normalizeDreGroup(value));
+}
+
 function filterDRETree(nodes: OrcamentoNode[]): OrcamentoNode[] {
   return nodes
     .filter((node) => node.oculta !== true)
-    .filter((node) => {
-      const dreGroup = normalizeDreGroup(node.dre_grupo);
-      return !EXCLUDED_DRE_GROUPS.has(dreGroup);
-    })
+    .filter((node) => !isExcludedDreGroup(node.dre_grupo))
     .map((node) => ({
       ...node,
       children: filterDRETree(node.children),
@@ -167,7 +176,7 @@ function filterDRETree(nodes: OrcamentoNode[]): OrcamentoNode[] {
 function resolveOrcamentoGroupKey(node: OrcamentoNode): OrcamentoDreGroupKey | null {
   const group = normalizeDreGroup(node.dre_grupo);
 
-  if (EXCLUDED_DRE_GROUPS.has(group) || group === 'NAO_OPERACIONAL') {
+  if (isExcludedDreGroup(group)) {
     return null;
   }
 

@@ -1,4 +1,4 @@
-import { Fragment, startTransition, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import { Calculator, ChevronRight, PencilLine, RotateCcw, Save } from 'lucide-react';
 
 import { api, normalizeListResponse } from '../services/api';

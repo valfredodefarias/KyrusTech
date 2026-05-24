@@ -600,7 +600,12 @@ export function Orcamentos() {
                   </td>
                 </tr>
               ) : (
-                groupedSections.map((section) => {
+                groupedSections
+                  .filter((section) => {
+                    const groupName = section.label.toLowerCase();
+                    return !groupName.includes('fora') && !groupName.includes('opcional') && !groupName.includes('não op') && !groupName.includes('nao op');
+                  })
+                  .map((section) => {
                   const { rowTone, parentRowClass } = getGroupToneClasses(section.tone, false);
 
                   return (
@@ -703,7 +708,7 @@ export function Orcamentos() {
                       })}
                     </Fragment>
                   );
-                })
+                  })
               )}
             </tbody>
           </table>

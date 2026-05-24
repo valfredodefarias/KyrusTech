@@ -60,15 +60,43 @@ interface AtalhoCardProps {
   bgClass: string;
 }
 
-const HOME_CENTRO_CUSTO_CACHE_KEY = 'home.selectedCentroCustoId';
+const HOME_CENTRO_CUSTO_CACHE_PREFIX = 'home.selectedCentroCustoId';
 
-function readCachedCentroCustoId(): number | 'ALL' {
-  if (typeof window === 'undefined') return 'ALL';
-  const rawValue = window.localStorage.getItem(HOME_CENTRO_CUSTO_CACHE_KEY);
-  if (!rawValue || rawValue === 'ALL') return 'ALL';
+function buildCentroCustoCacheKey(scope: string): string {
+  return `${HOME_CENTRO_CUSTO_CACHE_PREFIX}.${scope}`;
+}
+
+function readCachedCentroCustoId(scope: string): number | null {
+  if (typeof window === 'undefined') return null;
+  const rawValue = window.localStorage.getItem(buildCentroCustoCacheKey(scope));
+  if (!rawValue) return null;
 
   const parsedValue = Number(rawValue);
-  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 'ALL';
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
+}
+
+function resolveCentroCustoInicial(
+  centros: CentroCustoResumo[],
+  contas: ContaResumo[],
+  cachedId: number | null,
+): number | null {
+  if (!centros.length) return null;
+
+  const centroIds = new Set(centros.map((centro) => Number(centro.id)));
+  if (cachedId !== null && centroIds.has(cachedId)) {
+    return cachedId;
+  }
+
+  const contaAtivaComCentro = contas
+    .filter((conta) => String(conta.status || 'ATIVO').toUpperCase() === 'ATIVO' && conta.conta_como_disponibilidade !== false)
+    .map((conta) => Number(conta.centro_custo_id))
+    .find((centroId) => Number.isFinite(centroId) && centroIds.has(centroId));
+
+  if (Number.isFinite(contaAtivaComCentro)) {
+    return Number(contaAtivaComCentro);
+  }
+
+  return Number(centros[0].id);
 }
 
 export function Home() {
@@ -76,12 +104,14 @@ export function Home() {
   const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
   const [contas, setContas] = useState<ContaResumo[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
-  const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>(() => readCachedCentroCustoId());
+  const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | null>(null);
+  const [centroCustoCacheScope, setCentroCustoCacheScope] = useState<string>('default');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    window.localStorage.setItem(HOME_CENTRO_CUSTO_CACHE_KEY, String(selectedCentroCustoId));
-  }, [selectedCentroCustoId]);
+    if (selectedCentroCustoId === null) return;
+    window.localStorage.setItem(buildCentroCustoCacheKey(centroCustoCacheScope), String(selectedCentroCustoId));
+  }, [centroCustoCacheScope, selectedCentroCustoId]);
 
   useEffect(() => {
     async function loadData() {
@@ -105,13 +135,21 @@ export function Home() {
         }
 
         setEmpresa(empresaAtual);
+        const cacheScope = String(empresaAtual?.id || resUser.data.empresa_id || 'default');
+        setCentroCustoCacheScope(cacheScope);
 
         const [resContas, resCentrosCusto] = await Promise.all([
           api.get<unknown>('/contas/'),
           api.get<unknown>('/centro-custo/'),
         ]);
-        setContas(normalizeContasResponse(resContas.data));
-        setCentrosCusto(normalizeCentrosCustoResponse(resCentrosCusto.data));
+
+        const contasNormalizadas = normalizeContasResponse(resContas.data);
+        const centrosNormalizados = normalizeCentrosCustoResponse(resCentrosCusto.data);
+        const cachedCentroId = readCachedCentroCustoId(cacheScope);
+
+        setContas(contasNormalizadas);
+        setCentrosCusto(centrosNormalizados);
+        setSelectedCentroCustoId(resolveCentroCustoInicial(centrosNormalizados, contasNormalizadas, cachedCentroId));
       } catch (error) {
         console.error('Erro ao carregar home:', error);
       } finally {
@@ -133,7 +171,7 @@ export function Home() {
     return listaContas.filter(
       (conta) => String(conta.status || 'ATIVO').toUpperCase() === 'ATIVO'
         && conta.conta_como_disponibilidade !== false
-        && (selectedCentroCustoId === 'ALL' || Number(conta.centro_custo_id) === selectedCentroCustoId),
+        && (selectedCentroCustoId === null || Number(conta.centro_custo_id) === selectedCentroCustoId),
     );
   }, [contas, selectedCentroCustoId]);
 
@@ -240,11 +278,15 @@ export function Home() {
               <Building2 size={16} className="shrink-0" />
               <span className="text-xs uppercase tracking-[0.12em] text-white/80">Centro</span>
               <select
-                value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
-                onChange={(event) => setSelectedCentroCustoId(event.target.value === 'ALL' ? 'ALL' : Number(event.target.value))}
+                value={selectedCentroCustoId === null ? '' : String(selectedCentroCustoId)}
+                onChange={(event) => {
+                  const nextId = Number(event.target.value);
+                  if (!Number.isFinite(nextId) || nextId <= 0) return;
+                  setSelectedCentroCustoId(nextId);
+                }}
                 className="min-w-[190px] bg-transparent text-white text-sm font-bold outline-none"
               >
-                <option value="ALL" className="text-slate-900">Todos os centros</option>
+                <option value="" disabled className="text-slate-900">Selecione um centro</option>
                 {centrosCusto.map((centro) => (
                   <option key={centro.id} value={centro.id} className="text-slate-900">
                     {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}

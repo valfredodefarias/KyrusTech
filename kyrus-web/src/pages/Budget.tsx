@@ -18,6 +18,7 @@ interface BudgetNode {
   codigo?: string | null;
   tipo: string;
   dre_grupo?: string | null;
+  oculta?: boolean | null;
   meses: BudgetMonth[];
   total_realizado: number;
   total_orcado: number;
@@ -107,6 +108,7 @@ function normalizeNode(node: BudgetNode): BudgetNode {
     plano_contas_id: toNumber(node.plano_contas_id),
     conta_pai_id: node.conta_pai_id === null || node.conta_pai_id === undefined ? null : toNumber(node.conta_pai_id),
     dre_grupo: node.dre_grupo ?? null,
+    oculta: node.oculta ?? null,
     total_realizado: toNumber(node.total_realizado),
     total_orcado: toNumber(node.total_orcado),
     total_desvio_absoluto: toNumber(node.total_desvio_absoluto),
@@ -126,6 +128,7 @@ function normalizeDreGroup(value?: string | null): string {
 
 function filterBudgetTree(nodes: BudgetNode[]): BudgetNode[] {
   return nodes
+    .filter((node) => node.oculta !== true)
     .filter((node) => !EXCLUDED_BUDGET_GROUPS.has(normalizeDreGroup(node.dre_grupo)))
     .map((node) => ({
       ...node,

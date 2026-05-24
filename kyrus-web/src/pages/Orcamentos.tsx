@@ -1,5 +1,5 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
-import { Calculator, ChevronRight, PencilLine, RotateCcw, Save } from 'lucide-react';
+import { Calculator, ChevronRight, RotateCcw, Save } from 'lucide-react';
 
 import { api, normalizeListResponse } from '../services/api';
 
@@ -36,6 +36,11 @@ interface VisibleNode {
   node: OrcamentoNode;
   level: number;
   hasChildren: boolean;
+}
+
+interface EditingCell {
+  planoContaId: number;
+  mes: number;
 }
 
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -261,7 +266,8 @@ export function Orcamentos() {
   const [ano, setAno] = useState<number>(currentYear);
   const [matrix, setMatrix] = useState<OrcamentoNode[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const [isEditing, setIsEditing] = useState(false);
+  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
+  const [editingValue, setEditingValue] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -278,6 +284,8 @@ export function Orcamentos() {
         setMatrix(nodes);
         setExpandedIds(new Set(nodes.filter((node) => node.children.length).map((node) => node.plano_contas_id)));
       });
+      setEditingCell(null);
+      setEditingValue('');
     } catch (loadError) {
       console.error('Erro ao carregar matriz de orçamento:', loadError);
       setError('Não foi possível carregar a matriz de orçamento.');
@@ -308,28 +316,53 @@ export function Orcamentos() {
     });
   }
 
-  function handleEditToggle() {
-    setIsEditing((current) => !current);
+  function getCellKey(planoContaId: number, mes: number) {
+    return `${planoContaId}-${mes}`;
   }
 
-  function handleBudgetChange(planoContaId: number, mes: number, rawValue: string) {
-    const nextValue = Number(rawValue);
-    const safeValue = Number.isFinite(nextValue) ? nextValue : 0;
+  function beginCellEdit(planoContaId: number, mes: number, currentValue: number) {
+    setEditingCell({ planoContaId, mes });
+    setEditingValue(String(Number.isFinite(currentValue) ? currentValue : 0));
+  }
 
-    startTransition(() => {
-      setMatrix((current) => recalculateTree(patchLeafBudget(current, planoContaId, mes, safeValue)));
-    });
+  function applyInlineEdit(baseMatrix: OrcamentoNode[], cell: EditingCell, valueRaw: string) {
+    const nextValue = Number(valueRaw);
+    const safeValue = Number.isFinite(nextValue) ? nextValue : 0;
+    return recalculateTree(patchLeafBudget(baseMatrix, cell.planoContaId, cell.mes, safeValue));
+  }
+
+  function commitEditingCell() {
+    if (!editingCell) return null;
+
+    const updatedMatrix = applyInlineEdit(matrix, editingCell, editingValue);
+    setMatrix(updatedMatrix);
+    setEditingCell(null);
+    setEditingValue('');
+    return updatedMatrix;
+  }
+
+  function cancelEditingCell() {
+    setEditingCell(null);
+    setEditingValue('');
   }
 
   async function handleSaveChanges() {
-    if (!hasPendingChanges) return;
+    let currentMatrix = matrix;
+    if (editingCell) {
+      const maybeUpdated = commitEditingCell();
+      if (maybeUpdated) {
+        currentMatrix = maybeUpdated;
+      }
+    }
+
+    const payloads = collectDirtyBudgets(currentMatrix, originalLeafValuesRef.current, ano);
+    if (!payloads.length) return;
 
     setSaving(true);
     setError(null);
     try {
-      await api.post('/orcamentos/batch', dirtyPayloads);
+      await api.post('/orcamentos/batch', payloads);
       await loadMatrix(ano);
-      setIsEditing(false);
     } catch (saveError) {
       console.error('Erro ao salvar orçamento:', saveError);
       setError('Não foi possível salvar as alterações.');
@@ -340,7 +373,8 @@ export function Orcamentos() {
 
   async function handleResetChanges() {
     await loadMatrix(ano);
-    setIsEditing(false);
+    setEditingCell(null);
+    setEditingValue('');
   }
 
   const summary = useMemo(() => {
@@ -384,21 +418,8 @@ export function Orcamentos() {
 
           <button
             type="button"
-            onClick={handleEditToggle}
-            className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition ${
-              isEditing
-                ? 'bg-slate-900 text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700'
-            }`}
-          >
-            <PencilLine className="h-4 w-4" />
-            {isEditing ? 'Modo de edição ativo' : 'Editar Orçamento'}
-          </button>
-
-          <button
-            type="button"
             onClick={handleSaveChanges}
-            disabled={!isEditing || !hasPendingChanges || saving}
+            disabled={!hasPendingChanges || saving}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="h-4 w-4" />
@@ -437,25 +458,25 @@ export function Orcamentos() {
         </div>
       ) : null}
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+      <section className="overflow-hidden rounded-none border border-slate-200 bg-white shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-slate-950/75">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1400px] border-collapse text-[13px]">
-            <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-900/95">
+          <table className="w-full min-w-[1400px] border-separate border-spacing-0 text-sm">
+            <thead>
               <tr>
-                <th className="sticky left-0 z-20 border-b border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                <th className="sticky left-0 z-20 border-b border-r border-slate-800 bg-slate-950 px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white">
                   Conta
                 </th>
-                <th className="border-b border-slate-200 px-2 py-2 text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                <th className="border-b border-r border-slate-800 bg-slate-950 px-3 py-3 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">
                   Orçado total
                 </th>
-                <th className="border-b border-slate-200 px-2 py-2 text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                <th className="border-b border-r border-slate-800 bg-slate-950 px-3 py-3 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">
                   Realizado total
                 </th>
-                <th className="border-b border-slate-200 px-2 py-2 text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                <th className="border-b border-r border-slate-800 bg-slate-950 px-3 py-3 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">
                   Desvio
                 </th>
                 {MONTH_LABELS.map((label) => (
-                  <th key={label} className="border-b border-slate-200 px-2 py-2 text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                  <th key={label} className="border-b border-r border-slate-800 bg-slate-950 px-2 py-3 text-right text-[10px] font-black uppercase tracking-[0.18em] text-white last:border-r-0">
                     {label}
                   </th>
                 ))}
@@ -476,11 +497,11 @@ export function Orcamentos() {
                   </td>
                 </tr>
               ) : (
-                visibleRows.map(({ node, level, hasChildren }) => {
+                visibleRows.map(({ node, level, hasChildren }, rowIndex) => {
                   const isLeaf = !hasChildren;
                   return (
-                    <tr key={node.plano_contas_id} className="align-top hover:bg-slate-50/70 dark:hover:bg-slate-900/40">
-                      <td className="sticky left-0 z-10 border-b border-slate-100 bg-white px-2 py-1.5 dark:border-slate-900 dark:bg-slate-950">
+                    <tr key={node.plano_contas_id} className={rowIndex % 2 === 0 ? 'bg-white dark:bg-slate-950/20' : 'bg-slate-50/70 dark:bg-slate-900/30'}>
+                      <td className="sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.45)] dark:border-slate-800">
                         <div className="flex items-start gap-2" style={{ paddingLeft: `${level * 18}px` }}>
                           <button
                             type="button"
@@ -497,7 +518,7 @@ export function Orcamentos() {
                           </button>
 
                           <div className="min-w-0">
-                            <p className="truncate text-[13px] font-semibold text-slate-900 dark:text-slate-100">
+                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
                               {node.codigo ? `${node.codigo} - ` : ''}
                               {node.nome}
                             </p>
@@ -509,13 +530,13 @@ export function Orcamentos() {
                         </div>
                       </td>
 
-                      <td className="border-b border-slate-100 px-2 py-1.5 text-right text-[13px] font-semibold tabular-nums text-slate-700 dark:border-slate-900 dark:text-slate-200">
+                      <td className="border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200">
                         {formatMoney(node.total_orcado)}
                       </td>
-                      <td className="border-b border-slate-100 px-2 py-1.5 text-right text-[13px] font-semibold tabular-nums text-slate-700 dark:border-slate-900 dark:text-slate-200">
+                      <td className="border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200">
                         {formatMoney(node.total_realizado)}
                       </td>
-                      <td className="border-b border-slate-100 px-2 py-1.5 text-right text-[13px] font-semibold tabular-nums text-slate-700 dark:border-slate-900 dark:text-slate-200">
+                      <td className="border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200">
                         <div className="flex flex-col items-end leading-tight">
                           <span>{formatMoney(node.total_desvio_absoluto)}</span>
                           <span className="text-[11px] text-slate-500 dark:text-slate-400">{formatPercent(node.total_desvio_percentual)}</span>
@@ -524,30 +545,45 @@ export function Orcamentos() {
 
                       {node.meses.map((mes) => {
                         const desvioClass = getDesvioToneClass(node.tipo, mes.desvio_absoluto);
+                        const cellKey = getCellKey(node.plano_contas_id, mes.mes);
+                        const isCellEditing = editingCell !== null && getCellKey(editingCell.planoContaId, editingCell.mes) === cellKey;
                         return (
-                          <td key={`${node.plano_contas_id}-${mes.mes}`} className="border-b border-slate-100 px-2 py-1.5 text-right dark:border-slate-900">
-                            <div className="leading-tight">
-                              {isLeaf && isEditing ? (
+                          <td
+                            key={`${node.plano_contas_id}-${mes.mes}`}
+                            onDoubleClick={() => {
+                              if (isLeaf) {
+                                beginCellEdit(node.plano_contas_id, mes.mes, mes.valor_orcado);
+                              }
+                            }}
+                            className={`border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 ${isLeaf ? 'cursor-text' : 'cursor-default'} last:border-r-0`}
+                          >
+                            <div className="flex items-center justify-end gap-2 leading-tight">
+                              {isCellEditing ? (
                                 <input
                                   type="number"
                                   step="0.01"
-                                  value={Number.isFinite(mes.valor_orcado) ? mes.valor_orcado : 0}
-                                  onChange={(event) => handleBudgetChange(node.plano_contas_id, mes.mes, event.target.value)}
-                                  className="w-full border-0 border-b border-transparent bg-transparent px-0 py-0 text-right text-[13px] font-semibold tabular-nums text-slate-900 outline-none focus:border-slate-400 focus:ring-0 dark:text-slate-100 dark:focus:border-slate-500"
+                                  autoFocus
+                                  value={editingValue}
+                                  onChange={(event) => setEditingValue(event.target.value)}
+                                  onBlur={commitEditingCell}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      event.preventDefault();
+                                      commitEditingCell();
+                                    }
+                                    if (event.key === 'Escape') {
+                                      event.preventDefault();
+                                      cancelEditingCell();
+                                    }
+                                  }}
+                                  className="w-full max-w-[140px] border-0 bg-transparent px-0 py-0 text-right text-sm font-semibold tabular-nums text-slate-900 outline-none ring-0 focus:ring-0 dark:text-slate-100"
                                 />
                               ) : (
-                                <div className="text-[13px] font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                                <div className="text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
                                   {formatMoney(mes.valor_orcado)}
                                 </div>
                               )}
-
-                              <div className="mt-0.5 text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
-                                <span>Real: {formatMoney(mes.valor_realizado)}</span>
-                                <span className="px-1 text-slate-300 dark:text-slate-600">|</span>
-                                <span>
-                                  Desv: <span className={desvioClass}>{formatPercent(mes.desvio_percentual)}</span>
-                                </span>
-                              </div>
+                              <span className={`text-[11px] font-semibold tabular-nums ${desvioClass}`}>{formatPercent(mes.desvio_percentual)}</span>
                             </div>
                           </td>
                         );
@@ -562,11 +598,7 @@ export function Orcamentos() {
       </section>
 
       <footer className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-        <p>
-          {isEditing
-            ? 'Modo de edição ativo: apenas contas folha ficam editáveis.'
-            : 'A tabela começa bloqueada para leitura. Clique em Editar Orçamento para alterar apenas contas folha.'}
-        </p>
+        <p>Duplo clique em uma célula de mês (conta folha) para editar inline.</p>
         <p>{hasPendingChanges ? `${dirtyPayloads.length} alteração(ões) pendente(s)` : 'Nenhuma alteração pendente'}</p>
       </footer>
     </div>

@@ -444,15 +444,21 @@ def sincronizar_nfstock(
                     # Proteção contra páginas de erro HTML disfarçadas
                     if b"<html" in xml_bytes.lower() or b"<!doctype" in xml_bytes.lower():
                         logger.warning("[NFSTOCK] Conteúdo HTML recebido em vez de XML. Pulando.")
-                        puladas += 1
                         continue
                     
                     if len(xml_bytes) < 100:
                         logger.warning("[NFSTOCK] Arquivo XML da NF {} pequeno demais. Pulando.", row.numero)
-                        puladas += 1
                         continue
 
-                    req = _build_confirm_request(db, empresa_id=empresa_id, centro_custo_id=centro_custo_id, xml_bytes=xml_bytes)
+                    # Tenta converter o XML. Se for CCe/Evento, ignora e vai para o próximo.
+                    try:
+                        req = _build_confirm_request(db, empresa_id=empresa_id, centro_custo_id=centro_custo_id, xml_bytes=xml_bytes)
+                    except Exception as exc_parse:
+                        if "infNFe" in str(exc_parse) or "Estrutura" in str(exc_parse):
+                            logger.info("[NFSTOCK] Arquivo auxiliar ignorado no ZIP da NF {} (Carta de Correção/Evento).", row.numero)
+                            continue
+                        # Se for um erro real desconhecido, passa a bola pra frente
+                        raise exc_parse
 
                     # Checagem extra por número + documento após parse
                     if _nfe_exists_by_number_document(

@@ -434,6 +434,18 @@ export function Orcamentos() {
   const dirtyPayloads = useMemo(() => collectDirtyBudgets(matrix, originalLeafValuesRef.current, ano), [matrix, ano]);
   const hasPendingChanges = dirtyPayloads.length > 0;
 
+  useEffect(() => {
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      if (!hasPendingChanges) return;
+
+      event.preventDefault();
+      event.returnValue = '';
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasPendingChanges]);
+
   function handleToggleExpanded(nodeId: number) {
     startTransition(() => {
       setExpandedIds((current) => {

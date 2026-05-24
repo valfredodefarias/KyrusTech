@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Calculator, ChevronRight, RotateCcw } from 'lucide-react';
 import { AsyncApexChart } from '../components/AsyncApexChart';
 
@@ -32,11 +32,6 @@ interface VisibleNode {
   node: BudgetNode;
   level: number;
   hasChildren: boolean;
-}
-
-interface EditingCell {
-  planoContaId: number;
-  mes: number;
 }
 
 type BudgetDreGroupKey =
@@ -326,88 +321,13 @@ function flattenVisibleNodes(nodes: BudgetNode[], expandedIds: Set<number>, leve
 }
 
 
-function buildOriginalLeafMap(nodes: BudgetNode[]): Map<string, number> {
-  const map = new Map<string, number>();
-
-  const walk = (node: BudgetNode) => {
-    if (!node.children.length) {
-      node.meses.forEach((mes) => {
-        map.set(`${node.plano_contas_id}:${mes.mes}`, toNumber(mes.valor_orcado));
-      });
-      return;
-    }
-
-    node.children.forEach(walk);
-  };
-
-  nodes.forEach(walk);
-  return map;
-}
-
-function patchLeafBudget(nodes: BudgetNode[], planoContaId: number, mes: number, valorOrcado: number): BudgetNode[] {
-  return nodes.map((node) => {
-    if (node.plano_contas_id === planoContaId && !node.children.length) {
-      const meses = node.meses.map((item) => {
-        if (item.mes !== mes) return item;
-        const desvioAbsoluto = item.valor_realizado - valorOrcado;
-        return {
-          ...item,
-          valor_orcado: valorOrcado,
-          desvio_absoluto: desvioAbsoluto,
-          desvio_percentual: valorOrcado !== 0 ? (desvioAbsoluto / valorOrcado) * 100 : 0,
-        };
-      });
-
-      return { ...node, meses };
-    }
-
-    if (node.children.length) {
-      return { ...node, children: patchLeafBudget(node.children, planoContaId, mes, valorOrcado) };
-    }
-
-    return node;
-  });
-}
-
-function collectDirtyBudgets(nodes: BudgetNode[], originalMap: Map<string, number>, ano: number) {
-  const payloads: Array<{ plano_conta_id: number; ano: number; mes: number; valor_orcado: number }> = [];
-
-  const walk = (node: BudgetNode) => {
-    if (!node.children.length) {
-      node.meses.forEach((mes) => {
-        const key = `${node.plano_contas_id}:${mes.mes}`;
-        const originalValue = originalMap.get(key) ?? 0;
-        const currentValue = toNumber(mes.valor_orcado);
-
-        if (Math.abs(currentValue - originalValue) > 0.0001) {
-          payloads.push({
-            plano_conta_id: node.plano_contas_id,
-            ano,
-            mes: mes.mes,
-            valor_orcado: currentValue,
-          });
-        }
-      });
-      return;
-    }
-
-    node.children.forEach(walk);
-  };
-
-  nodes.forEach(walk);
-  return payloads;
-}
-
 export function Budget() {
   const currentYear = new Date().getFullYear();
-  const [ano, setAno] = useState<number>(currentYear);
+  const ano = currentYear;
   const [matrix, setMatrix] = useState<BudgetNode[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
-  const [editingValue, setEditingValue] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const originalLeafValuesRef = useRef<Map<string, number>>(new Map());
 
 
   const loadMatrix = async (selectedYear: number) => {
@@ -416,11 +336,8 @@ export function Budget() {
     try {
       const response = await api.get<BudgetNode[]>(`/orcamentos/matriz/${selectedYear}`);
       const nodes = recalculateTree(filterBudgetTree(normalizeListResponse<BudgetNode>(response.data).map(normalizeNode)));
-      originalLeafValuesRef.current = buildOriginalLeafMap(nodes);
       setMatrix(nodes);
       setExpandedIds(new Set(nodes.filter((node) => node.children.length).map((node) => node.plano_contas_id)));
-      setEditingCell(null);
-      setEditingValue('');
     } catch (loadError) {
       console.error('Erro ao carregar matriz orçamentária:', loadError);
       setError('Não foi possível carregar a matriz orçamentária.');
@@ -432,9 +349,6 @@ export function Budget() {
   useEffect(() => {
     void loadMatrix(ano);
   }, [ano]);
-
-  const dirtyPayloads = useMemo(() => collectDirtyBudgets(matrix, originalLeafValuesRef.current, ano), [matrix, ano]);
-  const hasPendingChanges = dirtyPayloads.length > 0;
 
   function handleToggleExpanded(nodeId: number) {
     setExpandedIds((current) => {
@@ -448,35 +362,6 @@ export function Budget() {
     });
   }
 
-  function getCellKey(planoContaId: number, mes: number) {
-    return `${planoContaId}-${mes}`;
-  }
-
-  function beginCellEdit(planoContaId: number, mes: number, currentValue: number) {
-    setEditingCell({ planoContaId, mes });
-    setEditingValue(String(Number.isFinite(currentValue) ? currentValue : 0));
-  }
-
-  function applyInlineEdit(baseMatrix: BudgetNode[], cell: EditingCell, valueRaw: string) {
-    const nextValue = Number(valueRaw);
-    const safeValue = Number.isFinite(nextValue) ? nextValue : 0;
-    return recalculateTree(patchLeafBudget(baseMatrix, cell.planoContaId, cell.mes, safeValue));
-  }
-
-  function commitEditingCell() {
-    if (!editingCell) return null;
-
-    const updatedMatrix = applyInlineEdit(matrix, editingCell, editingValue);
-    setMatrix(updatedMatrix);
-    setEditingCell(null);
-    setEditingValue('');
-    return updatedMatrix;
-  }
-
-  function cancelEditingCell() {
-    setEditingCell(null);
-    setEditingValue('');
-  }
 
   const groupedSections = useMemo(() => buildGroupedBudgetSections(matrix, expandedIds), [matrix, expandedIds]);
 
@@ -534,17 +419,10 @@ export function Budget() {
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
             <span className="font-semibold">Ano</span>
-            <input
-              type="number"
-              min={2000}
-              max={2100}
-              value={ano}
-              onChange={(event) => setAno(Number(event.target.value) || currentYear)}
-              className="w-24 border-0 bg-transparent p-0 text-right text-sm font-semibold outline-none focus:ring-0"
-            />
-          </label>
+            <span className="w-24 text-right text-sm font-semibold">{ano}</span>
+          </div>
 
           <button
             type="button"
@@ -724,52 +602,20 @@ export function Budget() {
                             </td>
 
                             {node.meses.map((mes) => {
-                              const cellKey = getCellKey(node.plano_contas_id, mes.mes);
-                              const isCellEditing = editingCell !== null && getCellKey(editingCell.planoContaId, editingCell.mes) === cellKey;
                               const deviationClasses = mes.desvio_percentual < 0 ? 'bg-red-50 text-red-700 font-bold dark:bg-red-950/35 dark:text-red-200' : '';
-                              const deviationTextClass = mes.desvio_percentual < 0 ? 'text-red-600 dark:text-red-300' : 'text-slate-600 dark:text-slate-300';
 
                               return (
                                 <td
                                   key={`${node.plano_contas_id}-${mes.mes}`}
-                                  onDoubleClick={() => {
-                                    if (isLeaf) {
-                                      beginCellEdit(node.plano_contas_id, mes.mes, mes.valor_orcado);
-                                    }
-                                  }}
-                                  className={`min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 ${isLeaf ? 'cursor-text' : 'cursor-default'} last:border-r-0 ${hasChildren ? parentRowClass : childRowClass} ${deviationClasses}`}
+                                  className={`min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 cursor-default last:border-r-0 ${hasChildren ? parentRowClass : childRowClass} ${deviationClasses}`}
                                 >
                                   <div className="flex flex-col items-end leading-tight">
-                                    {isCellEditing ? (
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        autoFocus
-                                        value={editingValue}
-                                        onChange={(event) => setEditingValue(event.target.value)}
-                                        onBlur={commitEditingCell}
-                                        onKeyDown={(event) => {
-                                          if (event.key === 'Enter') {
-                                            event.preventDefault();
-                                            commitEditingCell();
-                                          }
-                                          if (event.key === 'Escape') {
-                                            event.preventDefault();
-                                            cancelEditingCell();
-                                          }
-                                        }}
-                                        className="w-full appearance-none bg-transparent px-0 py-0 text-right outline-none border-b-2 border-blue-500 text-slate-900 dark:text-slate-100 [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                                      />
-                                    ) : (
-                                      <>
-                                        <div className="w-full text-right text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                                          {formatMoney(mes.valor_realizado)}
-                                        </div>
-                                        <div className={`mt-1 text-[9px] opacity-80 ${deviationTextClass}`}>
-                                          {formatMoney(mes.desvio_absoluto)} {mes.desvio_percentual >= 0 ? '(' : '('}{mes.desvio_percentual >= 0 ? '+' : ''}{mes.desvio_percentual.toFixed(2)}%)
-                                        </div>
-                                      </>
-                                    )}
+                                    <div className="w-full text-right text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                                      {formatMoney(mes.valor_realizado)}
+                                    </div>
+                                    <div className="mt-1 text-[9px] opacity-80 text-slate-600 dark:text-slate-300">
+                                      {formatMoney(mes.desvio_absoluto)} ({mes.desvio_percentual >= 0 ? '+' : ''}{mes.desvio_percentual.toFixed(2)}%)
+                                    </div>
                                   </div>
                                 </td>
                               );
@@ -787,8 +633,8 @@ export function Budget() {
       </section>
 
       <footer className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-        <p>Duplo clique em uma célula de mês (conta folha) para editar inline.</p>
-        <p>{hasPendingChanges ? `${dirtyPayloads.length} alteração(ões) pendente(s)` : 'Nenhuma alteração pendente'}</p>
+        <p>Leitura consolidada do orçamento, sem edição inline nesta tela.</p>
+        <p>Use a tela de digitação para ajustes.</p>
       </footer>
     </div>
   );

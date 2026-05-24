@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Calculator, ChevronRight, RotateCcw } from 'lucide-react';
+import React, { Fragment, useEffect, useMemo, useState } from 'react';
+import { Calculator, ChevronRight, RotateCcw, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import Chart from 'react-apexcharts';
 
 import { api, normalizeListResponse } from '../services/api';
 
@@ -33,11 +34,6 @@ interface VisibleNode {
   hasChildren: boolean;
 }
 
-interface EditingCell {
-  planoContaId: number;
-  mes: number;
-}
-
 type BudgetDreGroupKey =
   | 'RECEITAS_OPERACIONAIS'
   | 'ABATIMENTO_VENDAS'
@@ -50,9 +46,11 @@ interface BudgetGroupSection {
   key: BudgetDreGroupKey;
   label: string;
   tone: 'emerald' | 'amber' | 'orange' | 'rose' | 'teal' | 'fuchsia';
+  isExpense: boolean;
   rows: VisibleNode[];
   monthly: BudgetMonth[];
   totalOrcado: number;
+  totalRealizado: number;
 }
 
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -66,13 +64,13 @@ const EXCLUDED_BUDGET_GROUPS = new Set([
   'FORA DA DRE',
 ]);
 
-const BUDGET_GROUPS: Array<{ key: BudgetDreGroupKey; label: string; tone: BudgetGroupSection['tone'] }> = [
-  { key: 'RECEITAS_OPERACIONAIS', label: 'Receitas Operacionais', tone: 'emerald' },
-  { key: 'ABATIMENTO_VENDAS', label: 'Abatimento de vendas', tone: 'amber' },
-  { key: 'CUSTOS', label: 'Custos', tone: 'orange' },
-  { key: 'DESPESAS_OPERACIONAIS', label: 'Despesas Operacionais', tone: 'rose' },
-  { key: 'RECEITAS_NAO_OPERACIONAIS', label: 'Receitas não operacionais', tone: 'teal' },
-  { key: 'DESPESAS_NAO_OPERACIONAIS', label: 'Despesas não operacionais', tone: 'fuchsia' },
+const BUDGET_GROUPS: Array<{ key: BudgetDreGroupKey; label: string; tone: BudgetGroupSection['tone']; isExpense: boolean }> = [
+  { key: 'RECEITAS_OPERACIONAIS', label: 'Receitas Operacionais', tone: 'emerald', isExpense: false },
+  { key: 'ABATIMENTO_VENDAS', label: 'Abatimento de vendas', tone: 'amber', isExpense: true },
+  { key: 'CUSTOS', label: 'Custos Variáveis', tone: 'orange', isExpense: true },
+  { key: 'DESPESAS_OPERACIONAIS', label: 'Despesas Operacionais', tone: 'rose', isExpense: true },
+  { key: 'RECEITAS_NAO_OPERACIONAIS', label: 'Receitas não operacionais', tone: 'teal', isExpense: false },
+  { key: 'DESPESAS_NAO_OPERACIONAIS', label: 'Despesas não operacionais', tone: 'fuchsia', isExpense: true },
 ];
 
 const moneyFormatter = new Intl.NumberFormat('pt-BR', {
@@ -151,9 +149,7 @@ function filterBudgetTree(nodes: BudgetNode[]): BudgetNode[] {
 function resolveBudgetGroupKey(node: BudgetNode): BudgetDreGroupKey | null {
   const group = normalizeDreGroup(node.dre_grupo);
 
-  if (isExcludedDreGroup(group)) {
-    return null;
-  }
+  if (isExcludedDreGroup(group)) return null;
 
   if (group === 'DEDUCOES_RECEITA') return 'ABATIMENTO_VENDAS';
   if (group === 'CUSTOS_VARIAVEIS') return 'CUSTOS';
@@ -174,6 +170,7 @@ function buildGroupedBudgetSections(nodes: BudgetNode[], expandedIds: Set<number
       key: group.key,
       label: group.label,
       tone: group.tone,
+      isExpense: group.isExpense,
       rows: [],
       monthly: MONTH_LABELS.map((_, index) => ({
         mes: index + 1,
@@ -183,6 +180,7 @@ function buildGroupedBudgetSections(nodes: BudgetNode[], expandedIds: Set<number
         desvio_percentual: 0,
       })),
       totalOrcado: 0,
+      totalRealizado: 0,
     });
   });
 
@@ -194,6 +192,8 @@ function buildGroupedBudgetSections(nodes: BudgetNode[], expandedIds: Set<number
     if (!section) return;
 
     section.totalOrcado += node.total_orcado;
+    section.totalRealizado += node.total_realizado;
+
     node.meses.forEach((mes, index) => {
       section.monthly[index].valor_realizado += mes.valor_realizado;
       section.monthly[index].valor_orcado += mes.valor_orcado;
@@ -222,12 +222,12 @@ function getGroupToneClasses(tone: BudgetGroupSection['tone'], isDark: boolean) 
     (isDark ? 'border-fuchsia-300/60 bg-fuchsia-700' : 'border-fuchsia-300 bg-fuchsia-700');
 
   const parentRowClass =
-    tone === 'emerald' ? (isDark ? 'bg-emerald-800/60 text-white' : 'bg-emerald-200 text-emerald-950') :
-    tone === 'amber' ? (isDark ? 'bg-yellow-800/60 text-white' : 'bg-yellow-200 text-yellow-950') :
-    tone === 'orange' ? (isDark ? 'bg-orange-800/60 text-white' : 'bg-orange-200 text-orange-950') :
-    tone === 'rose' ? (isDark ? 'bg-rose-800/60 text-white' : 'bg-rose-200 text-rose-950') :
-    tone === 'teal' ? (isDark ? 'bg-teal-800/60 text-white' : 'bg-teal-200 text-teal-950') :
-    (isDark ? 'bg-fuchsia-800/60 text-white' : 'bg-fuchsia-200 text-fuchsia-950');
+    tone === 'emerald' ? (isDark ? 'bg-emerald-800/60 text-white' : 'bg-emerald-100 text-emerald-950') :
+    tone === 'amber' ? (isDark ? 'bg-yellow-800/60 text-white' : 'bg-yellow-100 text-yellow-950') :
+    tone === 'orange' ? (isDark ? 'bg-orange-800/60 text-white' : 'bg-orange-100 text-orange-950') :
+    tone === 'rose' ? (isDark ? 'bg-rose-800/60 text-white' : 'bg-rose-100 text-rose-950') :
+    tone === 'teal' ? (isDark ? 'bg-teal-800/60 text-white' : 'bg-teal-100 text-teal-950') :
+    (isDark ? 'bg-fuchsia-800/60 text-white' : 'bg-fuchsia-100 text-fuchsia-950');
 
   return { rowTone, parentRowClass };
 }
@@ -236,28 +236,7 @@ function recalculateNode(node: BudgetNode): BudgetNode {
   const children = node.children.map(recalculateNode);
 
   if (!children.length) {
-    const meses = node.meses.map((mes) => {
-      const desvioAbsoluto = mes.valor_realizado - mes.valor_orcado;
-      return {
-        ...mes,
-        desvio_absoluto: desvioAbsoluto,
-        desvio_percentual: mes.valor_orcado !== 0 ? (desvioAbsoluto / mes.valor_orcado) * 100 : 0,
-      };
-    });
-
-    const totalRealizado = meses.reduce((acc, mes) => acc + mes.valor_realizado, 0);
-    const totalOrcado = meses.reduce((acc, mes) => acc + mes.valor_orcado, 0);
-    const totalDesvioAbsoluto = totalRealizado - totalOrcado;
-
-    return {
-      ...node,
-      children,
-      meses,
-      total_realizado: totalRealizado,
-      total_orcado: totalOrcado,
-      total_desvio_absoluto: totalDesvioAbsoluto,
-      total_desvio_percentual: totalOrcado !== 0 ? (totalDesvioAbsoluto / totalOrcado) * 100 : 0,
-    };
+    return node;
   }
 
   const meses = node.meses.map((mes, index) => {
@@ -272,7 +251,6 @@ function recalculateNode(node: BudgetNode): BudgetNode {
     );
 
     const desvioAbsoluto = valores.realizado - valores.orcado;
-
     return {
       ...mes,
       valor_realizado: valores.realizado,
@@ -303,7 +281,6 @@ function recalculateTree(nodes: BudgetNode[]) {
 
 function flattenVisibleNodes(nodes: BudgetNode[], expandedIds: Set<number>, level = 0): VisibleNode[] {
   const rows: VisibleNode[] = [];
-
   nodes.forEach((node) => {
     const hasChildren = node.children.length > 0;
     rows.push({ node, level, hasChildren });
@@ -312,81 +289,7 @@ function flattenVisibleNodes(nodes: BudgetNode[], expandedIds: Set<number>, leve
       rows.push(...flattenVisibleNodes(node.children, expandedIds, level + 1));
     }
   });
-
   return rows;
-}
-
-
-function buildOriginalLeafMap(nodes: BudgetNode[]): Map<string, number> {
-  const map = new Map<string, number>();
-
-  const walk = (node: BudgetNode) => {
-    if (!node.children.length) {
-      node.meses.forEach((mes) => {
-        map.set(`${node.plano_contas_id}:${mes.mes}`, toNumber(mes.valor_orcado));
-      });
-      return;
-    }
-
-    node.children.forEach(walk);
-  };
-
-  nodes.forEach(walk);
-  return map;
-}
-
-function patchLeafBudget(nodes: BudgetNode[], planoContaId: number, mes: number, valorOrcado: number): BudgetNode[] {
-  return nodes.map((node) => {
-    if (node.plano_contas_id === planoContaId && !node.children.length) {
-      const meses = node.meses.map((item) => {
-        if (item.mes !== mes) return item;
-        const desvioAbsoluto = item.valor_realizado - valorOrcado;
-        return {
-          ...item,
-          valor_orcado: valorOrcado,
-          desvio_absoluto: desvioAbsoluto,
-          desvio_percentual: valorOrcado !== 0 ? (desvioAbsoluto / valorOrcado) * 100 : 0,
-        };
-      });
-
-      return { ...node, meses };
-    }
-
-    if (node.children.length) {
-      return { ...node, children: patchLeafBudget(node.children, planoContaId, mes, valorOrcado) };
-    }
-
-    return node;
-  });
-}
-
-function collectDirtyBudgets(nodes: BudgetNode[], originalMap: Map<string, number>, ano: number) {
-  const payloads: Array<{ plano_conta_id: number; ano: number; mes: number; valor_orcado: number }> = [];
-
-  const walk = (node: BudgetNode) => {
-    if (!node.children.length) {
-      node.meses.forEach((mes) => {
-        const key = `${node.plano_contas_id}:${mes.mes}`;
-        const originalValue = originalMap.get(key) ?? 0;
-        const currentValue = toNumber(mes.valor_orcado);
-
-        if (Math.abs(currentValue - originalValue) > 0.0001) {
-          payloads.push({
-            plano_conta_id: node.plano_contas_id,
-            ano,
-            mes: mes.mes,
-            valor_orcado: currentValue,
-          });
-        }
-      });
-      return;
-    }
-
-    node.children.forEach(walk);
-  };
-
-  nodes.forEach(walk);
-  return payloads;
 }
 
 export function Budget() {
@@ -394,12 +297,8 @@ export function Budget() {
   const [ano, setAno] = useState<number>(currentYear);
   const [matrix, setMatrix] = useState<BudgetNode[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
-  const [editingValue, setEditingValue] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const originalLeafValuesRef = useRef<Map<string, number>>(new Map());
-
 
   const loadMatrix = async (selectedYear: number) => {
     setLoading(true);
@@ -407,14 +306,11 @@ export function Budget() {
     try {
       const response = await api.get<BudgetNode[]>(`/orcamentos/matriz/${selectedYear}`);
       const nodes = recalculateTree(filterBudgetTree(normalizeListResponse<BudgetNode>(response.data).map(normalizeNode)));
-      originalLeafValuesRef.current = buildOriginalLeafMap(nodes);
       setMatrix(nodes);
       setExpandedIds(new Set(nodes.filter((node) => node.children.length).map((node) => node.plano_contas_id)));
-      setEditingCell(null);
-      setEditingValue('');
     } catch (loadError) {
       console.error('Erro ao carregar matriz orçamentária:', loadError);
-      setError('Não foi possível carregar a matriz orçamentária.');
+      setError('Não foi possível carregar o relatório de budget.');
     } finally {
       setLoading(false);
     }
@@ -424,76 +320,97 @@ export function Budget() {
     void loadMatrix(ano);
   }, [ano]);
 
-  const dirtyPayloads = useMemo(() => collectDirtyBudgets(matrix, originalLeafValuesRef.current, ano), [matrix, ano]);
-  const hasPendingChanges = dirtyPayloads.length > 0;
-
   function handleToggleExpanded(nodeId: number) {
     setExpandedIds((current) => {
       const next = new Set(current);
-      if (next.has(nodeId)) {
-        next.delete(nodeId);
-      } else {
-        next.add(nodeId);
-      }
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
       return next;
     });
   }
 
-  function getCellKey(planoContaId: number, mes: number) {
-    return `${planoContaId}-${mes}`;
-  }
-
-  function beginCellEdit(planoContaId: number, mes: number, currentValue: number) {
-    setEditingCell({ planoContaId, mes });
-    setEditingValue(String(Number.isFinite(currentValue) ? currentValue : 0));
-  }
-
-  function applyInlineEdit(baseMatrix: BudgetNode[], cell: EditingCell, valueRaw: string) {
-    const nextValue = Number(valueRaw);
-    const safeValue = Number.isFinite(nextValue) ? nextValue : 0;
-    return recalculateTree(patchLeafBudget(baseMatrix, cell.planoContaId, cell.mes, safeValue));
-  }
-
-  function commitEditingCell() {
-    if (!editingCell) return null;
-
-    const updatedMatrix = applyInlineEdit(matrix, editingCell, editingValue);
-    setMatrix(updatedMatrix);
-    setEditingCell(null);
-    setEditingValue('');
-    return updatedMatrix;
-  }
-
-  function cancelEditingCell() {
-    setEditingCell(null);
-    setEditingValue('');
-  }
-
   const groupedSections = useMemo(() => buildGroupedBudgetSections(matrix, expandedIds), [matrix, expandedIds]);
 
-  const summary = useMemo(() => {
-    return matrix.reduce(
-      (acc, node) => {
-        acc.orcado += node.total_orcado;
-        acc.realizado += node.total_realizado;
-        return acc;
-      },
-      { orcado: 0, realizado: 0 },
-    );
+  // Lógica de Gráficos e KPIs
+  const { summary, chartData } = useMemo(() => {
+    let orcado = 0;
+    let realizado = 0;
+    
+    // Arrays para o Chart
+    const accOrcadoList: number[] = [];
+    const accRealizadoList: number[] = [];
+    const varianceList: number[] = [];
+
+    const monthlyTotals = Array.from({ length: 12 }, () => ({ orcado: 0, realizado: 0 }));
+
+    // Calcular apenas despesas (para a variação) e totais consolidados
+    matrix.forEach((node) => {
+      orcado += node.total_orcado;
+      realizado += node.total_realizado;
+      
+      const isNodeDespesa = isDespesa(node.tipo) || node.dre_grupo === 'CUSTOS_VARIAVEIS';
+
+      node.meses.forEach((mes, idx) => {
+        monthlyTotals[idx].orcado += mes.valor_orcado;
+        monthlyTotals[idx].realizado += mes.valor_realizado;
+      });
+    });
+
+    let currentAccOrcado = 0;
+    let currentAccRealizado = 0;
+
+    monthlyTotals.forEach((m) => {
+      currentAccOrcado += m.orcado;
+      currentAccRealizado += m.realizado;
+      
+      accOrcadoList.push(currentAccOrcado);
+      accRealizadoList.push(currentAccRealizado);
+      // Variação Absoluta do Mês (Para gráficos de barras)
+      varianceList.push(m.realizado - m.orcado);
+    });
+
+    return {
+      summary: { orcado, realizado },
+      chartData: { accOrcadoList, accRealizadoList, varianceList }
+    };
   }, [matrix]);
 
   const topLevelVariation = summary.realizado - summary.orcado;
+  const topLevelPercentage = summary.orcado > 0 ? (topLevelVariation / summary.orcado) * 100 : 0;
+
+  // Configurações do ApexCharts
+  const areaChartOptions: ApexCharts.ApexOptions = {
+    chart: { type: 'area', toolbar: { show: false }, fontFamily: 'inherit' },
+    colors: ['#3b82f6', '#10b981'],
+    dataLabels: { enabled: false },
+    stroke: { curve: 'smooth', width: 3 },
+    fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.05, stops: [0, 90, 100] } },
+    xaxis: { categories: MONTH_LABELS, axisBorder: { show: false }, axisTicks: { show: false } },
+    yaxis: { labels: { formatter: (val) => `R$ ${(val / 1000).toFixed(0)}k` } },
+    legend: { position: 'top', horizontalAlign: 'right' },
+    tooltip: { y: { formatter: (val) => formatMoney(val) } }
+  };
+
+  const barChartOptions: ApexCharts.ApexOptions = {
+    chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'inherit' },
+    colors: [({ value }: { value: number }) => value > 0 ? '#ef4444' : '#10b981'], // Positivo = Vermelho (Estouro), Negativo = Verde (Economia)
+    plotOptions: { bar: { borderRadius: 4, columnWidth: '60%' } },
+    dataLabels: { enabled: false },
+    xaxis: { categories: MONTH_LABELS, axisBorder: { show: false }, axisTicks: { show: false } },
+    yaxis: { labels: { formatter: (val) => `R$ ${(val / 1000).toFixed(0)}k` } },
+    tooltip: { y: { formatter: (val) => formatMoney(val) } }
+  };
 
   return (
     <div className="space-y-6 pb-8">
       <header className="flex flex-col gap-4 rounded-none border border-slate-200/80 bg-white/90 p-5 shadow-[0_25px_70px_-60px_rgba(15,23,42,0.45)] backdrop-blur dark:border-slate-800 dark:bg-slate-950/70 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-1">
           <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-            <Calculator className="h-3.5 w-3.5" /> Relatório Gerencial
+            <TrendingUp className="h-3.5 w-3.5" /> Budget Intelligence
           </div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Budget</h1>
+          <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Matriz de Acompanhamento</h1>
           <p className="max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Visão consolidada do orçado versus realizado, organizada em árvore e pronta para leitura rápida.
+            Relatório gerencial de análise de desvios, curvas de tendência e performance financeira orçada vs realizada.
           </p>
         </div>
 
@@ -509,54 +426,88 @@ export function Budget() {
               className="w-24 border-0 bg-transparent p-0 text-right text-sm font-semibold outline-none focus:ring-0"
             />
           </label>
-
           <button
             type="button"
             onClick={() => void loadMatrix(ano)}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
           >
-            <RotateCcw className="h-4 w-4" />
-            Recarregar
+            <RotateCcw className="h-4 w-4" /> Recarregar
           </button>
         </div>
       </header>
 
-      <section className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Orçado total</p>
-          <p className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{formatMoney(summary.orcado)}</p>
+      {/* DASHBOARD TOP: KPIs */}
+      <section className="grid gap-4 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Orçamento Total Aprovado (YTD)</p>
+          <p className="mt-2 text-3xl font-black tracking-tight text-slate-900 dark:text-white">{formatMoney(summary.orcado)}</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Realizado total</p>
-          <p className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{formatMoney(summary.realizado)}</p>
-          <p className={`mt-1 text-xs font-semibold ${topLevelVariation >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}`}>
-            Variação: {formatMoney(topLevelVariation)}
-          </p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Total Realizado (YTD)</p>
+          <p className="mt-2 text-3xl font-black tracking-tight text-slate-900 dark:text-white">{formatMoney(summary.realizado)}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950/70 flex flex-col justify-center">
+          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400 mb-2">Desvio Global do Período</p>
+          <div className="flex items-center gap-3">
+            <p className={`text-3xl font-black tracking-tight ${topLevelVariation > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+              {topLevelPercentage > 0 ? '+' : ''}{topLevelPercentage.toFixed(1)}%
+            </p>
+            <div className={`flex items-center gap-1 text-sm font-semibold ${topLevelVariation > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+              {topLevelVariation > 0 ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+              {formatMoney(Math.abs(topLevelVariation))}
+            </div>
+          </div>
         </div>
       </section>
 
-      {error ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">
-          {error}
-        </div>
-      ) : null}
+      {/* DASHBOARD MIDDLE: GRÁFICOS */}
+      {!loading && matrix.length > 0 && (
+        <section className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+            <h3 className="mb-4 text-sm font-bold text-slate-700 dark:text-slate-300">Curva de Tendência Acumulada (S-Curve)</h3>
+            <div className="h-[280px]">
+              <Chart 
+                options={areaChartOptions} 
+                series={[
+                  { name: 'Orçado Acumulado', data: chartData.accOrcadoList },
+                  { name: 'Realizado Acumulado', data: chartData.accRealizadoList }
+                ]} 
+                type="area" 
+                height="100%" 
+              />
+            </div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+            <h3 className="mb-4 text-sm font-bold text-slate-700 dark:text-slate-300">Variação Mensal de Caixa (Real vs Orçado)</h3>
+            <div className="h-[280px]">
+              <Chart 
+                options={barChartOptions} 
+                series={[{ name: 'Variação (R$)', data: chartData.varianceList }]} 
+                type="bar" 
+                height="100%" 
+              />
+            </div>
+          </div>
+        </section>
+      )}
 
-      <section className="overflow-hidden rounded-none border border-slate-200 bg-white shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-slate-950/75">
-        <div className="max-h-[72vh] overflow-auto">
+      {/* DATA GRID: TABELA DE LEITURA (READ-ONLY) */}
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md dark:border-slate-800 dark:bg-slate-950/75">
+        <div className="max-h-[65vh] overflow-auto">
           <table className="w-full min-w-[1400px] border-separate border-spacing-0 text-sm">
             <thead>
               <tr>
-                <th className="sticky left-0 top-0 z-40 border-b border-r border-slate-800 bg-slate-950/95 px-4 py-2 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
-                  Conta
+                <th className="sticky left-0 top-0 z-40 border-b border-r border-slate-800 bg-slate-950/95 px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
+                  Classificação / Conta
                 </th>
-                <th className="sticky top-0 z-30 border-b border-r border-slate-800 bg-slate-950/95 px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
-                  Orçado total
+                <th className="sticky top-0 z-30 border-b border-r border-slate-800 bg-slate-950/95 px-3 py-3 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
+                  Orçado Total
+                </th>
+                <th className="sticky top-0 z-30 border-b border-r border-slate-800 bg-slate-950/95 px-3 py-3 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
+                  Realizado Total
                 </th>
                 {MONTH_LABELS.map((label) => (
-                  <th
-                    key={label}
-                    className="sticky top-0 z-30 min-w-[100px] w-[100px] border-b border-r border-slate-800 bg-slate-950/95 px-2 py-2 text-right text-[10px] font-black uppercase tracking-[0.18em] text-white backdrop-blur last:border-r-0"
-                  >
+                  <th key={label} className="sticky top-0 z-30 min-w-[110px] w-[110px] border-b border-r border-slate-800 bg-slate-950/95 px-2 py-3 text-right text-[10px] font-black uppercase tracking-[0.18em] text-white backdrop-blur last:border-r-0">
                     {label}
                   </th>
                 ))}
@@ -566,14 +517,14 @@ export function Budget() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={2 + MONTH_LABELS.length} className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
-                    Carregando relatório gerencial...
+                  <td colSpan={3 + MONTH_LABELS.length} className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                    Calculando S-Curve e montando árvore gerencial...
                   </td>
                 </tr>
               ) : groupedSections.length === 0 ? (
                 <tr>
-                  <td colSpan={2 + MONTH_LABELS.length} className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
-                    Nenhum dado encontrado para este ano.
+                  <td colSpan={3 + MONTH_LABELS.length} className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                    Nenhum dado financeiro encontrado para {ano}.
                   </td>
                 </tr>
               ) : (
@@ -584,6 +535,7 @@ export function Budget() {
                   })
                   .map((section) => {
                   const { rowTone, parentRowClass } = getGroupToneClasses(section.tone, false);
+                  const isExpense = section.isExpense;
 
                   return (
                     <Fragment key={section.key}>
@@ -594,87 +546,75 @@ export function Budget() {
                         <td className={`border-b border-r px-4 py-3 text-right font-black text-white ${rowTone}`}>
                           {formatMoney(section.totalOrcado)}
                         </td>
+                        <td className={`border-b border-r px-4 py-3 text-right font-black text-white ${rowTone}`}>
+                          {formatMoney(section.totalRealizado)}
+                        </td>
                         {section.monthly.map((mes, index) => (
                           <td key={`${section.key}-total-${index}`} className={`border-b border-r px-4 py-3 text-right font-bold text-white last:border-r-0 ${rowTone}`}>
-                            {formatMoney(mes.valor_orcado)}
+                            {formatMoney(mes.valor_realizado)}
                           </td>
                         ))}
                       </tr>
 
                       {section.rows.map(({ node, level, hasChildren }, rowIndex) => {
-                        const rowTone = rowIndex % 2 === 0 ? 'bg-white dark:bg-slate-950/20' : 'bg-slate-50/70 dark:bg-slate-900/30';
+                        const bgTone = rowIndex % 2 === 0 ? 'bg-white dark:bg-slate-950/20' : 'bg-slate-50/70 dark:bg-slate-900/30';
                         const isLeaf = !hasChildren;
 
                         return (
-                          <tr key={`${section.key}-${node.plano_contas_id}`} className={rowTone}>
-                            <td className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.45)] dark:border-slate-800 ${hasChildren ? `border-slate-700 font-black ${parentRowClass}` : rowTone}`}>
-                              <div className="flex items-start gap-2" style={{ paddingLeft: `${level * 18}px` }}>
+                          <tr key={`${section.key}-${node.plano_contas_id}`} className={`hover:bg-blue-50/50 transition-colors ${bgTone}`}>
+                            <td className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-1.5 shadow-[4px_0_10px_-8px_rgba(0,0,0,0.3)] dark:border-slate-800 ${hasChildren ? `border-slate-700 font-black ${parentRowClass}` : bgTone}`}>
+                              <div className="flex items-center gap-2" style={{ paddingLeft: `${level * 18}px` }}>
                                 <button
                                   type="button"
                                   onClick={() => hasChildren && handleToggleExpanded(node.plano_contas_id)}
                                   disabled={!hasChildren}
-                                  className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded text-slate-500 transition ${hasChildren ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : 'opacity-30'}`}
-                                  aria-label={hasChildren ? 'Expandir ou recolher conta' : 'Conta folha'}
+                                  className={`inline-flex h-5 w-5 items-center justify-center rounded text-slate-500 transition ${hasChildren ? 'hover:bg-slate-200 dark:hover:bg-slate-800' : 'opacity-0'}`}
                                 >
                                   <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expandedIds.has(node.plano_contas_id) ? 'rotate-90' : ''}`} />
                                 </button>
-
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-                                    {node.codigo ? `${node.codigo} - ` : ''}
-                                    {node.nome}
-                                  </p>
-                                  <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">
-                                    {isLeaf ? ' · Nível folha' : ' · Conta agregadora'}
+                                <div className="min-w-0 flex-1">
+                                  <p className={`truncate ${isLeaf ? 'text-xs text-slate-600' : 'text-sm text-slate-900'} font-semibold dark:text-slate-100`}>
+                                    {node.codigo ? `${node.codigo} - ` : ''}{node.nome}
                                   </p>
                                 </div>
                               </div>
                             </td>
 
-                            <td className={`border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200 ${hasChildren ? parentRowClass : rowTone}`}>
+                            <td className={`border-b border-r border-slate-200 px-3 py-1.5 text-right text-xs font-semibold tabular-nums text-slate-500 dark:border-slate-800 dark:text-slate-400 ${hasChildren ? parentRowClass : bgTone}`}>
                               {formatMoney(node.total_orcado)}
+                            </td>
+                            <td className={`border-b border-r border-slate-200 px-3 py-1.5 text-right text-xs font-bold tabular-nums text-slate-800 dark:border-slate-800 dark:text-slate-200 ${hasChildren ? parentRowClass : bgTone}`}>
+                              {formatMoney(node.total_realizado)}
                             </td>
 
                             {node.meses.map((mes) => {
-                              const cellKey = getCellKey(node.plano_contas_id, mes.mes);
-                              const isCellEditing = editingCell !== null && getCellKey(editingCell.planoContaId, editingCell.mes) === cellKey;
-                              const deviationClasses = mes.desvio_percentual < 0 ? 'bg-red-50 text-red-700 font-bold dark:bg-red-950/35 dark:text-red-200' : '';
+                              // Lógica de Cores da Célula:
+                              // Se for Despesa e gastou mais que o orçado = Ruim (Vermelho)
+                              // Se for Receita e ganhou menos que o orçado = Ruim (Vermelho)
+                              const isOverBudget = mes.valor_realizado > mes.valor_orcado;
+                              const isUnderBudget = mes.valor_realizado < mes.valor_orcado;
+                              
+                              let statusClass = '';
+                              if (mes.valor_orcado > 0 || mes.valor_realizado > 0) {
+                                if (isExpense && isOverBudget) statusClass = 'bg-red-50 text-red-700 font-bold dark:bg-red-900/20 dark:text-red-300';
+                                else if (!isExpense && isUnderBudget) statusClass = 'bg-red-50 text-red-700 font-bold dark:bg-red-900/20 dark:text-red-300';
+                                else statusClass = 'text-slate-700 dark:text-slate-300';
+                              } else {
+                                statusClass = 'text-slate-400 dark:text-slate-600'; // Meses zerados
+                              }
 
                               return (
                                 <td
                                   key={`${node.plano_contas_id}-${mes.mes}`}
-                                  onDoubleClick={() => {
-                                    if (isLeaf) {
-                                      beginCellEdit(node.plano_contas_id, mes.mes, mes.valor_orcado);
-                                    }
-                                  }}
-                                  className={`min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 ${isLeaf ? 'cursor-text' : 'cursor-default'} last:border-r-0 ${deviationClasses}`}
+                                  title={`Orçado: ${formatMoney(mes.valor_orcado)}\nDesvio Absoluto: ${formatMoney(mes.desvio_absoluto)}`}
+                                  className={`border-b border-r border-slate-200 px-2 py-1.5 text-right tabular-nums dark:border-slate-800 last:border-r-0 ${statusClass} ${hasChildren && !statusClass.includes('bg-') ? parentRowClass : ''}`}
                                 >
-                                  <div className="flex items-center justify-end leading-tight">
-                                    {isCellEditing ? (
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        autoFocus
-                                        value={editingValue}
-                                        onChange={(event) => setEditingValue(event.target.value)}
-                                        onBlur={commitEditingCell}
-                                        onKeyDown={(event) => {
-                                          if (event.key === 'Enter') {
-                                            event.preventDefault();
-                                            commitEditingCell();
-                                          }
-                                          if (event.key === 'Escape') {
-                                            event.preventDefault();
-                                            cancelEditingCell();
-                                          }
-                                        }}
-                                        className="w-full appearance-none bg-transparent px-0 py-0 text-right outline-none border-b-2 border-blue-500 text-slate-900 dark:text-slate-100 [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                                      />
-                                    ) : (
-                                      <div className="w-full text-right text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                                        {formatMoney(mes.valor_orcado)}
-                                      </div>
+                                  <div className="flex flex-col items-end leading-tight">
+                                    <span className="text-xs font-semibold">{formatMoney(mes.valor_realizado)}</span>
+                                    {mes.valor_orcado > 0 && (
+                                      <span className="text-[9px] font-bold opacity-75">
+                                        {mes.desvio_percentual > 0 ? '+' : ''}{mes.desvio_percentual.toFixed(1)}%
+                                      </span>
                                     )}
                                   </div>
                                 </td>
@@ -685,17 +625,12 @@ export function Budget() {
                       })}
                     </Fragment>
                   );
-                  })
+                })
               )}
             </tbody>
           </table>
         </div>
       </section>
-
-      <footer className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-        <p>Duplo clique em uma célula de mês (conta folha) para editar inline.</p>
-        <p>{hasPendingChanges ? `${dirtyPayloads.length} alteração(ões) pendente(s)` : 'Nenhuma alteração pendente'}</p>
-      </footer>
     </div>
   );
 }

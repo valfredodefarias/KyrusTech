@@ -123,6 +123,10 @@ def _build_driver(download_path: str) -> webdriver.Chrome:
 
     try:
         driver = webdriver.Chrome(service=service, options=options)
+        driver.execute_cdp_cmd("Page.setDownloadBehavior", {
+            "behavior": "allow",
+            "downloadPath": download_path
+        })
     except Exception as exc:
         logger.error("Falha ao iniciar o ChromeDriver local: {}", exc)
         raise exc
@@ -171,6 +175,8 @@ def _wait_new_download(download_dir: str, previous_files: set[str], timeout_seco
         if new_files:
             # mais recente
             new_files.sort(key=lambda name: os.path.getctime(os.path.join(download_dir, name)), reverse=True)
+            # Dá 1 segundo pro sistema operacional gravar os bytes no disco antes do Python ler
+            time.sleep(1.5) 
             return os.path.join(download_dir, new_files[0])
         time.sleep(0.4)
     return None
@@ -369,8 +375,7 @@ def sincronizar_nfstock(
     centro_custo_id = int(integracao.centro_custo_id) if integracao.centro_custo_id is not None else None
     cfg = get_nfstock_config(integracao)
 
-    download_dir = Path("/tmp") / f"kyrus_nfstock_{empresa_id}_{integracao.id}_{int(time.time())}"
-    download_dir.mkdir(parents=True, exist_ok=True)
+    download_dir = Path("/tmp") / f"kyrus_nfstock_{empresa_id}_{integracao.id}_{uuid.uuid4().hex}"    download_dir.mkdir(parents=True, exist_ok=True)
 
     driver = _build_driver(str(download_dir))
     wait = WebDriverWait(driver, 30)

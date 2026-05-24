@@ -8,6 +8,7 @@ from app.models.access_profile import AccessProfile
 from app.models.access_profile_permission import AccessProfilePermission
 from app.models.user_company_profile import UserCompanyProfile
 from app.models.plano_contas import PlanoContas
+from app.models.orcamento import Orcamento
 from app.models.conta import Conta
 from app.models.entidade import Entidade
 from app.models.cartao import Cartao

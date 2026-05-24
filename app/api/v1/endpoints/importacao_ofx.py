@@ -1,6 +1,7 @@
 """
 Endpoints para importacao de arquivos OFX (multibancos).
 """
+# pyright: reportGeneralTypeIssues=false
 import re
 import unicodedata
 from datetime import date, datetime, timedelta
@@ -713,19 +714,19 @@ def _buscar_duplicata_historica(
                 Lancamento.tipo == lancamento_ofx.get("tipo"),
                 or_(
                     Lancamento.conta_id == conta_id,
-                    Lancamento.conta_id.is_(None),
+                    Lancamento.conta_id.is_(None),  # type: ignore[attr-defined]
                 ),
                 or_(
-                    Lancamento.data_pagamento.between(data_inicio, data_fim),
-                    Lancamento.data_vencimento.between(data_inicio, data_fim),
+                    Lancamento.data_pagamento.between(data_inicio, data_fim),  # type: ignore[attr-defined]
+                    Lancamento.data_vencimento.between(data_inicio, data_fim),  # type: ignore[attr-defined]
                 ),
                 or_(
-                    Lancamento.valor_previsto.between(valor_min, valor_max),
+                    Lancamento.valor_previsto.between(valor_min, valor_max),  # type: ignore[attr-defined]
                 ),
             )
-            .order_by(Lancamento.data_pagamento.desc(), Lancamento.id.desc())
+            .order_by(Lancamento.data_pagamento.desc(), Lancamento.id.desc())  # type: ignore[attr-defined]
             .limit(300)
-        ).all()
+        ).all()  # type: ignore
 
     if banco_normalizado:
         candidatos = db.exec(
@@ -736,16 +737,16 @@ def _buscar_duplicata_historica(
                 Lancamento.tipo == lancamento_ofx.get("tipo"),
                 Lancamento.ofx_bank_id == banco_normalizado,
                 or_(
-                    Lancamento.data_pagamento.between(data_inicio, data_fim),
-                    Lancamento.data_vencimento.between(data_inicio, data_fim),
+                    Lancamento.data_pagamento.between(data_inicio, data_fim),  # type: ignore[attr-defined]
+                    Lancamento.data_vencimento.between(data_inicio, data_fim),  # type: ignore[attr-defined]
                 ),
                 or_(
-                    Lancamento.valor_previsto.between(valor_min, valor_max),
+                    Lancamento.valor_previsto.between(valor_min, valor_max),  # type: ignore[attr-defined]
                 ),
             )
-            .order_by(Lancamento.data_pagamento.desc(), Lancamento.id.desc())
+            .order_by(Lancamento.data_pagamento.desc(), Lancamento.id.desc())  # type: ignore[attr-defined]
             .limit(300)
-        ).all()
+        ).all()  # type: ignore
         if not candidatos:
             candidatos = _buscar_por_conta()
     else:
@@ -893,8 +894,8 @@ def _contar_existentes_por_chave_conferencia(
                 Lancamento.data_vencimento == data_base,
             ),
             or_(
-                Lancamento.valor_pago.between(valor_min, valor_max),
-                Lancamento.valor_previsto.between(valor_min, valor_max),
+                Lancamento.valor_pago.between(valor_min, valor_max),  # type: ignore[attr-defined]
+                Lancamento.valor_previsto.between(valor_min, valor_max),  # type: ignore[attr-defined]
             ),
         )
     ).all()
@@ -1390,13 +1391,13 @@ def _buscar_previsto_data_proxima_valor_exato(
         Lancamento.empresa_id == empresa_id,
         Lancamento.is_deleted == False,
         Lancamento.tipo == lancamento_ofx.get("tipo"),
-        Lancamento.status.in_(STATUS_ABERTOS),
-        Lancamento.data_vencimento.between(data_inicio, data_fim),
-        Lancamento.valor_previsto.between(valor_min, valor_max),
+        Lancamento.status.in_(STATUS_ABERTOS),  # type: ignore[attr-defined]
+        Lancamento.data_vencimento.between(data_inicio, data_fim),  # type: ignore[attr-defined]
+        Lancamento.valor_previsto.between(valor_min, valor_max),  # type: ignore[attr-defined]
     )
 
     if conta_id > 0:
-        query = query.where(or_(Lancamento.conta_id == conta_id, Lancamento.conta_id.is_(None)))
+        query = query.where(or_(Lancamento.conta_id == conta_id, Lancamento.conta_id.is_(None)))  # type: ignore[attr-defined]
 
     if centro_custo_id:
         query = query.where(Lancamento.centro_custo_id == centro_custo_id)
@@ -1482,12 +1483,12 @@ def listar_lancamentos_disponiveis(
         Lancamento.empresa_id == empresa_id,
         Lancamento.is_deleted == False,
         Lancamento.tipo == tipo_normalizado,
-        Lancamento.status.in_(STATUS_ABERTOS),
-        Lancamento.data_pagamento.is_(None),
-        or_(Lancamento.conciliado == False, Lancamento.conciliado.is_(None)),
+        Lancamento.status.in_(STATUS_ABERTOS),  # type: ignore[attr-defined]
+        Lancamento.data_pagamento.is_(None),  # type: ignore[attr-defined]
+        or_(Lancamento.conciliado == False, Lancamento.conciliado.is_(None)),  # type: ignore[attr-defined]
     ]
     if conta_id:
-        filtros.append(or_(Lancamento.conta_id == conta_id, Lancamento.conta_id.is_(None)))
+        filtros.append(or_(Lancamento.conta_id == conta_id, Lancamento.conta_id.is_(None)))  # type: ignore[attr-defined]
     if centro_custo_id:
         filtros.append(Lancamento.centro_custo_id == centro_custo_id)
     if not incluir_futuros:
@@ -1496,7 +1497,7 @@ def listar_lancamentos_disponiveis(
     candidatos = list(db.exec(
         select(Lancamento)
         .where(*filtros)
-        .order_by(Lancamento.data_vencimento.asc())
+        .order_by(Lancamento.data_vencimento.asc())  # type: ignore[attr-defined]
         .limit(limite)
     ).all())
 
@@ -1508,13 +1509,13 @@ def listar_lancamentos_disponiveis(
     if entidade_ids:
         entidades_por_id = {
             int(ent.id): ent
-            for ent in db.exec(select(Entidade).where(Entidade.id.in_(entidade_ids))).all()
+            for ent in db.exec(select(Entidade).where(Entidade.id.in_(entidade_ids))).all()  # type: ignore
             if ent.id is not None
         }
     if centro_ids:
         centros_por_id = {
             int(cc.id): cc
-            for cc in db.exec(select(CentroCusto).where(CentroCusto.id.in_(centro_ids))).all()
+            for cc in db.exec(select(CentroCusto).where(CentroCusto.id.in_(centro_ids))).all()  # type: ignore
             if cc.id is not None
         }
 
@@ -1533,7 +1534,7 @@ def listar_lancamentos_disponiveis(
 
         data_vencimento = item.data_vencimento.isoformat() if item.data_vencimento else ""
         response.append(LancamentoDisponivelResumo(
-            id=int(item.id),
+            id=int(item.id or 0),
             descricao=item.descricao,
             interessado=interessado,
             data_vencimento=data_vencimento,
@@ -2064,7 +2065,7 @@ def _calcular_saldo_atual_conta(
 ) -> Decimal:
     tipo_receita = func.upper(Lancamento.tipo).like("R%")
     tipo_despesa = func.upper(Lancamento.tipo).like("D%")
-    movimento_pago = or_(Lancamento.status == "PAGO", Lancamento.data_pagamento.is_not(None))
+    movimento_pago = or_(Lancamento.status == "PAGO", Lancamento.data_pagamento.is_not(None))  # type: ignore[attr-defined]
 
     conta = db.exec(
         select(Conta).where(
@@ -2255,7 +2256,7 @@ def confirmar_lancamentos(
 
         if not modo_cartao and acao == "BAIXAR_PREVISTO" and lanc_data.get("lancamento_previsto_id"):
             try:
-                previsto_id = int(lanc_data.get("lancamento_previsto_id"))
+                previsto_id = int(lanc_data.get("lancamento_previsto_id") or 0)
             except Exception:
                 previsto_id = 0
             if previsto_id > 0:

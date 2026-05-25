@@ -740,6 +740,24 @@ export function Orcamentos() {
         </div>
       </section>
 
+      {hasPendingChanges ? (
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-2xl border border-amber-200 bg-white/95 px-4 py-3 shadow-[0_20px_60px_-24px_rgba(15,23,42,0.45)] backdrop-blur animate-[pulse_2.5s_ease-in-out_infinite] dark:border-amber-500/30 dark:bg-slate-950/95">
+          <div className="hidden sm:block">
+            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-600 dark:text-amber-300">Alterações pendentes</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Não deixe para depois.</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveChanges}
+            disabled={saving}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Save className="h-4 w-4" />
+            {saving ? 'Salvando...' : 'Salvar alterações'}
+          </button>
+        </div>
+      ) : null}
+
       <footer className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
         <p>Duplo clique em uma célula de mês (conta folha) para editar inline.</p>
         <p>{hasPendingChanges ? `${dirtyPayloads.length} alteração(ões) pendente(s)` : 'Nenhuma alteração pendente'}</p>

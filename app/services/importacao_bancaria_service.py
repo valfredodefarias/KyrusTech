@@ -179,6 +179,8 @@ def _status_aberto_clause() -> tuple[str, ...]:
 def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None, cartao_id: Optional[int] = None) -> str:
     movimento_uid = _normalizar_texto(lancamento.get("movimento_uid"))
     referencia_externa = _normalizar_texto(lancamento.get("referencia_externa"))
+    linha_arquivo = lancamento.get("linha_arquivo")
+    ofx_bank_id = _normalizar_texto(lancamento.get("ofx_bank_id"))
 
     payload = {
         "origem": lancamento.get("origem"),
@@ -191,9 +193,12 @@ def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None, cartao_i
         "cpf_cnpj": _limpar_cpf_cnpj(lancamento.get("cpf_cnpj")),
         "referencia_externa": referencia_externa,
         "movimento_uid": movimento_uid if movimento_uid and not movimento_uid.startswith("fallback:") else None,
+        "ofx_bank_id": ofx_bank_id,
         "conta_id": conta_id or lancamento.get("conta_id"),
         "cartao_id": cartao_id or lancamento.get("cartao_id"),
     }
+    if linha_arquivo not in (None, ""):
+        payload["linha_arquivo"] = str(linha_arquivo)
     payload_str = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload_str.encode("utf-8")).hexdigest()
 

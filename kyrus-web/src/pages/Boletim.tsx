@@ -111,26 +111,9 @@ interface HealthResponse {
   server_datetime?: string;
 }
 
-const BOLETIM_CENTRO_CUSTO_CACHE_KEY = 'boletim.selectedCentroCustoId';
-
-function readCachedCentroCustoId(): number | null {
-  if (typeof window === 'undefined') return null;
-
-  const rawValue = window.localStorage.getItem(BOLETIM_CENTRO_CUSTO_CACHE_KEY);
-  if (!rawValue) return null;
-
-  const parsedValue = Number(rawValue);
-  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
-}
-
 function resolveCentroCustoId(currentValue: number | null, centros: CentroCustoResumo[]): number | null {
   if (currentValue !== null && centros.some((centro) => centro.id === currentValue)) {
     return currentValue;
-  }
-
-  const cachedValue = readCachedCentroCustoId();
-  if (cachedValue !== null && centros.some((centro) => centro.id === cachedValue)) {
-    return cachedValue;
   }
 
   return centros[0]?.id ?? null;
@@ -661,7 +644,7 @@ export function Boletim() {
   const [selectedCompraMonthIndex, setSelectedCompraMonthIndex] = useState<number | null>(null);
   const [compraChartMode, setCompraChartMode] = useState<CompraChartMode>('LINHA_SEPARADA');
   const [referenceDate, setReferenceDate] = useState(() => getBusinessTodayIso());
-  const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | null>(() => readCachedCentroCustoId());
+  const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | null>(null);
   const [auditPanel, setAuditPanel] = useState<AuditPanelState | null>(null);
   const [activeAuditMetricKey, setActiveAuditMetricKey] = useState<string | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
@@ -674,11 +657,6 @@ export function Boletim() {
     return (parsedReference || fallbackDate).getFullYear();
   }, [referenceDate]);
   const isDark = useIsDarkMode();
-
-  useEffect(() => {
-    if (selectedCentroCustoId === null) return;
-    window.localStorage.setItem(BOLETIM_CENTRO_CUSTO_CACHE_KEY, String(selectedCentroCustoId));
-  }, [selectedCentroCustoId]);
 
   useEffect(() => {
     let active = true;

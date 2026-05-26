@@ -60,32 +60,13 @@ interface AtalhoCardProps {
   bgClass: string;
 }
 
-const HOME_CENTRO_CUSTO_CACHE_PREFIX = 'home.selectedCentroCustoId';
-
-function buildCentroCustoCacheKey(scope: string): string {
-  return `${HOME_CENTRO_CUSTO_CACHE_PREFIX}.${scope}`;
-}
-
-function readCachedCentroCustoId(scope: string): number | null {
-  if (typeof window === 'undefined') return null;
-  const rawValue = window.localStorage.getItem(buildCentroCustoCacheKey(scope));
-  if (!rawValue) return null;
-
-  const parsedValue = Number(rawValue);
-  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
-}
-
 function resolveCentroCustoInicial(
   centros: CentroCustoResumo[],
   contas: ContaResumo[],
-  cachedId: number | null,
 ): number | null {
   if (!centros.length) return null;
 
   const centroIds = new Set(centros.map((centro) => Number(centro.id)));
-  if (cachedId !== null && centroIds.has(cachedId)) {
-    return cachedId;
-  }
 
   const contaAtivaComCentro = contas
     .filter((conta) => String(conta.status || 'ATIVO').toUpperCase() === 'ATIVO' && conta.conta_como_disponibilidade !== false)
@@ -105,13 +86,7 @@ export function Home() {
   const [contas, setContas] = useState<ContaResumo[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | null>(null);
-  const [centroCustoCacheScope, setCentroCustoCacheScope] = useState<string>('default');
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (selectedCentroCustoId === null) return;
-    window.localStorage.setItem(buildCentroCustoCacheKey(centroCustoCacheScope), String(selectedCentroCustoId));
-  }, [centroCustoCacheScope, selectedCentroCustoId]);
 
   useEffect(() => {
     async function loadData() {
@@ -135,9 +110,6 @@ export function Home() {
         }
 
         setEmpresa(empresaAtual);
-        const cacheScope = String(empresaAtual?.id || resUser.data.empresa_id || 'default');
-        setCentroCustoCacheScope(cacheScope);
-
         const [resContas, resCentrosCusto] = await Promise.all([
           api.get<unknown>('/contas/'),
           api.get<unknown>('/centro-custo/'),
@@ -145,11 +117,10 @@ export function Home() {
 
         const contasNormalizadas = normalizeContasResponse(resContas.data);
         const centrosNormalizados = normalizeCentrosCustoResponse(resCentrosCusto.data);
-        const cachedCentroId = readCachedCentroCustoId(cacheScope);
 
         setContas(contasNormalizadas);
         setCentrosCusto(centrosNormalizados);
-        setSelectedCentroCustoId(resolveCentroCustoInicial(centrosNormalizados, contasNormalizadas, cachedCentroId));
+        setSelectedCentroCustoId(resolveCentroCustoInicial(centrosNormalizados, contasNormalizadas));
       } catch (error) {
         console.error('Erro ao carregar home:', error);
       } finally {

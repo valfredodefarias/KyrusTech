@@ -1427,7 +1427,7 @@ export function ImportacaoOfx() {
                   )}
 
                   <div className="mt-4">
-                    {buscaDisponiveisAberta && lancamentoBuscaAberto ? (
+                    {buscaDisponiveisAberta && lancamentoBuscaAberto && lancamentoBuscaAberto.linha_arquivo === lanc.linha_arquivo ? (
                       <div className="rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
                         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-4 py-4 dark:border-slate-800">
                           <div>

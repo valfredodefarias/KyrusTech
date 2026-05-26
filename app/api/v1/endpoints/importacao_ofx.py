@@ -1285,6 +1285,7 @@ def _buscar_melhores_relacionamentos(
     empresa_id: int,
     centro_custo_id: Optional[int],
     atrasados_indisponiveis_ids: Optional[set[int]] = None,
+    previstos_indisponiveis_ids: Optional[set[int]] = None,
 ) -> tuple[Optional[tuple[Lancamento, int, str]], List[tuple[Lancamento, int, str]]]:
     previsto = buscar_lancamento_previsto_mesmo_dia_valor(
         db,
@@ -1292,6 +1293,7 @@ def _buscar_melhores_relacionamentos(
         empresa_id,
         centro_custo_id=centro_custo_id,
         tolerancia_percentual=MATCH_TOLERANCIA_PERCENTUAL,
+        previstos_indisponiveis_ids=previstos_indisponiveis_ids,
     )
 
     melhor_previsto = None
@@ -1306,6 +1308,7 @@ def _buscar_melhores_relacionamentos(
             empresa_id,
             centro_custo_id=None,
             tolerancia_percentual=MATCH_TOLERANCIA_PERCENTUAL,
+            previstos_indisponiveis_ids=previstos_indisponiveis_ids,
         )
         if previsto_sem_cc:
             score, motivo = _score_candidate(lancamento_ofx, previsto_sem_cc, "previsto")
@@ -1354,6 +1357,7 @@ def _buscar_melhores_relacionamentos(
             lancamento_ofx,
             empresa_id,
             centro_custo_id=centro_custo_id,
+            previstos_indisponiveis_ids=previstos_indisponiveis_ids,
         )
         if not melhor_previsto and centro_custo_id:
             melhor_previsto = _buscar_previsto_data_proxima_valor_exato(
@@ -1361,6 +1365,7 @@ def _buscar_melhores_relacionamentos(
                 lancamento_ofx,
                 empresa_id,
                 centro_custo_id=None,
+                previstos_indisponiveis_ids=previstos_indisponiveis_ids,
             )
 
     return melhor_previsto, ranked_atrasados
@@ -1371,6 +1376,7 @@ def _buscar_previsto_data_proxima_valor_exato(
     lancamento_ofx: Dict,
     empresa_id: int,
     centro_custo_id: Optional[int],
+    previstos_indisponiveis_ids: Optional[set[int]] = None,
 ) -> Optional[tuple[Lancamento, int, str]]:
     data_base = lancamento_ofx.get("data")
     if not isinstance(data_base, date):
@@ -1401,6 +1407,10 @@ def _buscar_previsto_data_proxima_valor_exato(
 
     if centro_custo_id:
         query = query.where(Lancamento.centro_custo_id == centro_custo_id)
+    if previstos_indisponiveis_ids:
+        ids_validos = [int(item) for item in previstos_indisponiveis_ids if int(item or 0) > 0]
+        if ids_validos:
+            query = query.where(~Lancamento.id.in_(ids_validos))
 
     candidatos = db.exec(query.limit(200)).all()
     if not candidatos:
@@ -1726,6 +1736,7 @@ def upload_ofx(
         existentes_por_chave_conferencia: Dict[tuple[int, str, str, str], int] = {}
 
         atrasados_reservados: set[int] = set()
+        previstos_reservados: set[int] = set()
         historico_por_tipo = _agrupar_historico_por_tipo(historico_empresa)
         cache_relacionamentos: Dict[str, tuple[Optional[tuple[Lancamento, int, str]], List[tuple[Lancamento, int, str]]]] = {}
 
@@ -1820,6 +1831,17 @@ def upload_ofx(
             ])
             if chave_relacionamento in cache_relacionamentos:
                 melhor_previsto, melhores_atrasados = cache_relacionamentos[chave_relacionamento]
+                previsto_cache_id = int(melhor_previsto[0].id or 0) if melhor_previsto else 0
+                if previsto_cache_id and previsto_cache_id in previstos_reservados:
+                    melhor_previsto, melhores_atrasados = _buscar_melhores_relacionamentos(
+                        db,
+                        lanc_raw,
+                        empresa_id,
+                        centro_custo_id_resolvido,
+                        atrasados_indisponiveis_ids=atrasados_reservados,
+                        previstos_indisponiveis_ids=previstos_reservados,
+                    )
+                    cache_relacionamentos[chave_relacionamento] = (melhor_previsto, melhores_atrasados)
             else:
                 melhor_previsto, melhores_atrasados = _buscar_melhores_relacionamentos(
                     db,
@@ -1827,6 +1849,7 @@ def upload_ofx(
                     empresa_id,
                     centro_custo_id_resolvido,
                     atrasados_indisponiveis_ids=atrasados_reservados,
+                    previstos_indisponiveis_ids=previstos_reservados,
                 )
                 cache_relacionamentos[chave_relacionamento] = (melhor_previsto, melhores_atrasados)
 
@@ -1840,6 +1863,7 @@ def upload_ofx(
             if melhor_previsto:
                 previstos += 1
                 lanc_previsto, score_previsto, motivo_previsto = melhor_previsto
+                previsto_id = int(lanc_previsto.id or 0)
                 lanc_raw["lancamento_previsto_id"] = lanc_previsto.id
                 lanc_raw["era_previsto"] = True
                 lanc_raw["sugestao_acao"] = "BAIXAR_PREVISTO"
@@ -1852,6 +1876,10 @@ def upload_ofx(
                     entidades_por_id,
                     centros_custo_por_id,
                 )
+                if previsto_id:
+                    previstos_sugeridos.setdefault(previsto_id, 0)
+                    previstos_sugeridos[previsto_id] += 1
+                    previstos_reservados.add(previsto_id)
 
             if melhores_atrasados:
                 atrasados += 1

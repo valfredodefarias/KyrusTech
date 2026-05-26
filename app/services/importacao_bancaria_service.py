@@ -324,6 +324,7 @@ def buscar_lancamento_previsto_mesmo_dia_valor(
     centro_custo_id: Optional[int] = None,
     tolerancia_valor: Optional[Decimal] = None,
     tolerancia_percentual: Optional[Decimal] = None,
+    previstos_indisponiveis_ids: Optional[set[int]] = None,
 ) -> Optional[Lancamento]:
     data_lancamento = lancamento["data"]
     valor = Decimal(str(lancamento["valor"]))
@@ -343,6 +344,10 @@ def buscar_lancamento_previsto_mesmo_dia_valor(
     )
     if centro_custo_id:
         query = query.where(lancamento_table.c.centro_custo_id == centro_custo_id)
+    if previstos_indisponiveis_ids:
+        ids_validos = [int(item) for item in previstos_indisponiveis_ids if int(item or 0) > 0]
+        if ids_validos:
+            query = query.where(~lancamento_table.c.id.in_(ids_validos))
 
     return db.exec(query).first()
 

@@ -1244,57 +1244,65 @@ export function Boletim() {
       shouldDimFlow('RECEBIMENTO') ? mutedColor : recebimentoColor,
     ];
 
-    const monthlySeries = [
-      {
-        name: 'Pagamento',
-        data: monthlyPagamento.map((value, monthIndex) => {
-          const shouldDim = shouldDimFlow('PAGAMENTO') || (selectedMonthIndex !== null && selectedMonthIndex !== monthIndex);
-          return {
-            x: dashboard.monthLabels[monthIndex],
-            y: value,
-            fillColor: shouldDim ? mutedColor : resolveFlowColor('PAGAMENTO'),
-          };
-        }),
-      },
-      {
-        name: 'Recebimento',
-        data: monthlyRecebimento.map((value, monthIndex) => {
-          const shouldDim = shouldDimFlow('RECEBIMENTO') || (selectedMonthIndex !== null && selectedMonthIndex !== monthIndex);
-          return {
-            x: dashboard.monthLabels[monthIndex],
-            y: value,
-            fillColor: shouldDim ? mutedColor : resolveFlowColor('RECEBIMENTO'),
-          };
-        }),
-      },
-    ];
+    const monthlySeries = flowFilter === 'ALL'
+      ? [
+          {
+            name: 'Pagamento',
+            data: monthlyPagamento.map((value, monthIndex) => ({
+              x: dashboard.monthLabels[monthIndex],
+              y: value,
+              fillColor: resolveFlowColor('PAGAMENTO'),
+            })),
+          },
+          {
+            name: 'Recebimento',
+            data: monthlyRecebimento.map((value, monthIndex) => ({
+              x: dashboard.monthLabels[monthIndex],
+              y: value,
+              fillColor: resolveFlowColor('RECEBIMENTO'),
+            })),
+          },
+        ]
+      : [
+          {
+            name: flowFilter === 'PAGAMENTO' ? 'Pagamento' : 'Recebimento',
+            data: (flowFilter === 'PAGAMENTO' ? monthlyPagamento : monthlyRecebimento).map((value, monthIndex) => ({
+              x: dashboard.monthLabels[monthIndex],
+              y: value,
+              fillColor: flowFilter === 'PAGAMENTO' ? resolveFlowColor('PAGAMENTO') : resolveFlowColor('RECEBIMENTO'),
+            })),
+          },
+        ];
 
-    const dailySeries = [
-      {
-        name: 'Pagamento',
-        data: dailyPagamento.map((value, dayIndex) => {
-          const day = dayIndex + 1;
-          const shouldDim = shouldDimFlow('PAGAMENTO') || (selectedDayOfMonth !== null && selectedDayOfMonth !== day);
-          return {
-            x: String(day),
-            y: value,
-            fillColor: shouldDim ? mutedColor : resolveFlowColor('PAGAMENTO'),
-          };
-        }),
-      },
-      {
-        name: 'Recebimento',
-        data: dailyRecebimento.map((value, dayIndex) => {
-          const day = dayIndex + 1;
-          const shouldDim = shouldDimFlow('RECEBIMENTO') || (selectedDayOfMonth !== null && selectedDayOfMonth !== day);
-          return {
-            x: String(day),
-            y: value,
-            fillColor: shouldDim ? mutedColor : resolveFlowColor('RECEBIMENTO'),
-          };
-        }),
-      },
-    ];
+    const dailySeries = flowFilter === 'ALL'
+      ? [
+          {
+            name: 'Pagamento',
+            data: dailyPagamento.map((value, dayIndex) => ({
+              x: String(dayIndex + 1),
+              y: value,
+              fillColor: resolveFlowColor('PAGAMENTO'),
+            })),
+          },
+          {
+            name: 'Recebimento',
+            data: dailyRecebimento.map((value, dayIndex) => ({
+              x: String(dayIndex + 1),
+              y: value,
+              fillColor: resolveFlowColor('RECEBIMENTO'),
+            })),
+          },
+        ]
+      : [
+          {
+            name: flowFilter === 'PAGAMENTO' ? 'Pagamento' : 'Recebimento',
+            data: (flowFilter === 'PAGAMENTO' ? dailyPagamento : dailyRecebimento).map((value, dayIndex) => ({
+              x: String(dayIndex + 1),
+              y: value,
+              fillColor: flowFilter === 'PAGAMENTO' ? resolveFlowColor('PAGAMENTO') : resolveFlowColor('RECEBIMENTO'),
+            })),
+          },
+        ];
 
     const resolveFlowBySeriesIndex = (seriesIndex: number): FlowFilter | null => {
       if (seriesIndex === 0) return 'PAGAMENTO';

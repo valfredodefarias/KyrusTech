@@ -475,9 +475,6 @@ class LancamentoService:
         if "centro_custo_id" in dados_dict and dados_dict.get("centro_custo_id") in (None, "", 0, "0"):
             raise HTTPException(status_code=400, detail="Centro de custo é obrigatório para atualização de lançamento.")
 
-        if "centro_custo_id" not in dados_dict and getattr(db_lancamento, "centro_custo_id", None) in (None, "", 0, "0"):
-            raise HTTPException(status_code=400, detail="Centro de custo é obrigatório para atualização de lançamento.")
-
         for key, value in dados_dict.items():
             setattr(db_lancamento, key, value)
 

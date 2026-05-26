@@ -1178,24 +1178,12 @@ export function Boletim() {
     const pagamentoColor = '#ff4d4f';
     const recebimentoColor = '#4d8cf3';
     const destaqueColor = '#f2c94c';
-    const dimStrength = isDark ? 0.45 : 0.4;
+    const mutedColor = isDark ? '#cbd5e1' : '#d1d5db';
     const labelColor = isDark ? '#cbd5e1' : '#475569';
     const gridColor = isDark ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.16)';
     const cardStrokeColor = isDark ? '#081124' : '#ffffff';
     const chartTheme = isDark ? 'dark' : 'light';
     const effectiveMonth = selectedMonthIndex ?? dashboard.fallbackMonthIndex;
-
-    const darkenHexColor = (hexColor: string, intensity: number) => {
-      const clean = String(hexColor || '').trim().replace('#', '');
-      if (!/^[0-9a-fA-F]{6}$/.test(clean)) return hexColor;
-
-      const factor = Math.max(0, Math.min(1, 1 - intensity));
-      const toChannel = (start: number) => Math.max(0, Math.min(255, Math.round(parseInt(clean.slice(start, start + 2), 16) * factor)));
-      const r = toChannel(0).toString(16).padStart(2, '0');
-      const g = toChannel(2).toString(16).padStart(2, '0');
-      const b = toChannel(4).toString(16).padStart(2, '0');
-      return `#${r}${g}${b}`;
-    };
 
     const resolveFlowColor = (flow: FlowFilter) => flow === 'PAGAMENTO' ? pagamentoColor : recebimentoColor;
     const shouldDimFlow = (flow: FlowFilter) => flowFilter !== 'ALL' && flowFilter !== flow;
@@ -1252,8 +1240,8 @@ export function Boletim() {
 
     const donutSeries = [flowTotals.pagamento, flowTotals.recebimento];
     const donutColors = [
-      shouldDimFlow('PAGAMENTO') ? darkenHexColor(pagamentoColor, dimStrength) : pagamentoColor,
-      shouldDimFlow('RECEBIMENTO') ? darkenHexColor(recebimentoColor, dimStrength) : recebimentoColor,
+      shouldDimFlow('PAGAMENTO') ? mutedColor : pagamentoColor,
+      shouldDimFlow('RECEBIMENTO') ? mutedColor : recebimentoColor,
     ];
 
     const monthlySeries = [
@@ -1264,7 +1252,7 @@ export function Boletim() {
           return {
             x: dashboard.monthLabels[monthIndex],
             y: value,
-            fillColor: shouldDim ? darkenHexColor(resolveFlowColor('PAGAMENTO'), dimStrength) : resolveFlowColor('PAGAMENTO'),
+            fillColor: shouldDim ? mutedColor : resolveFlowColor('PAGAMENTO'),
           };
         }),
       },
@@ -1275,7 +1263,7 @@ export function Boletim() {
           return {
             x: dashboard.monthLabels[monthIndex],
             y: value,
-            fillColor: shouldDim ? darkenHexColor(resolveFlowColor('RECEBIMENTO'), dimStrength) : resolveFlowColor('RECEBIMENTO'),
+            fillColor: shouldDim ? mutedColor : resolveFlowColor('RECEBIMENTO'),
           };
         }),
       },
@@ -1290,7 +1278,7 @@ export function Boletim() {
           return {
             x: String(day),
             y: value,
-            fillColor: shouldDim ? darkenHexColor(resolveFlowColor('PAGAMENTO'), dimStrength) : resolveFlowColor('PAGAMENTO'),
+            fillColor: shouldDim ? mutedColor : resolveFlowColor('PAGAMENTO'),
           };
         }),
       },
@@ -1302,7 +1290,7 @@ export function Boletim() {
           return {
             x: String(day),
             y: value,
-            fillColor: shouldDim ? darkenHexColor(resolveFlowColor('RECEBIMENTO'), dimStrength) : resolveFlowColor('RECEBIMENTO'),
+            fillColor: shouldDim ? mutedColor : resolveFlowColor('RECEBIMENTO'),
           };
         }),
       },
@@ -1580,6 +1568,7 @@ export function Boletim() {
       .filter((row) => row.monthIndex >= 0 && row.tipoCompra !== null && row.valor > 0);
 
     const rowsByTipo = purchaseRows.filter((row) => compraTipoFilter === 'ALL' || row.tipoCompra === compraTipoFilter);
+    const mutedColor = isDark ? '#cbd5e1' : '#d1d5db';
 
     const monthlyPedidos = {
       ENCOMENDA: Array.from({ length: 12 }, () => 0),
@@ -1615,7 +1604,7 @@ export function Boletim() {
         data: monthlyPedidos.ENCOMENDA.map((value, monthIndex) => ({
           x: monthLabels[monthIndex],
           y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? (isDark ? '#315ea1' : '#9dbcf1') : '#3b82f6',
+            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#3b82f6',
         })),
       },
       {
@@ -1623,7 +1612,7 @@ export function Boletim() {
         data: monthlyPedidos.ESTOQUE.map((value, monthIndex) => ({
           x: monthLabels[monthIndex],
           y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? (isDark ? '#0f766e' : '#98e0d8') : '#14b8a6',
+            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
         })),
       },
     ];
@@ -1638,7 +1627,7 @@ export function Boletim() {
         data: monthlyCap.ENCOMENDA.map((value, monthIndex) => ({
           x: monthLabels[monthIndex],
           y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? (isDark ? '#315ea1' : '#9dbcf1') : '#3b82f6',
+            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#3b82f6',
         })),
       },
       {
@@ -1647,7 +1636,7 @@ export function Boletim() {
         data: monthlyCap.ESTOQUE.map((value, monthIndex) => ({
           x: monthLabels[monthIndex],
           y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? (isDark ? '#0f766e' : '#98e0d8') : '#14b8a6',
+            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
         })),
       },
       {
@@ -1656,7 +1645,7 @@ export function Boletim() {
         data: capTotal.map((value, monthIndex) => ({
           x: monthLabels[monthIndex],
           y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? (isDark ? '#7a6a2f' : '#f0dea2') : '#f2c94c',
+            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#f2c94c',
         })),
       },
     ];

@@ -33,6 +33,17 @@ def create_access_token(
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+
+def decode_access_token_expiration(access_token: str) -> datetime:
+    """Retorna a data de expiração embutida no JWT de acesso."""
+    payload = jwt.decode(access_token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+    expires_at = payload.get("exp")
+    if expires_at is None:
+        raise ValueError("Token sem expiração")
+    if isinstance(expires_at, datetime):
+        return expires_at.astimezone(timezone.utc)
+    return datetime.fromtimestamp(float(expires_at), tz=timezone.utc)
+
 # Funções de Senha
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica se uma senha em texto puro corresponde a um hash."""

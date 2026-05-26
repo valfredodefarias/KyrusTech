@@ -148,12 +148,32 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error?.response?.status;
-    if (status === 401 || status === 403) {
+    const detail = String(error?.response?.data?.detail || error?.message || '').toLowerCase();
+    const authErrorMarkers = [
+      'nao autenticado',
+      'não autenticado',
+      'credenciais invalidas',
+      'credenciais inválidas',
+      'token invalido',
+      'token inválido',
+      'token sem expiração',
+      'token sem expiracao',
+      'usuario nao encontrado',
+      'usuário não encontrado',
+      'usuario inativo',
+      'usuário inativo',
+    ];
+
+    const shouldClearSession = status === 401 || (status === 403 && authErrorMarkers.some((marker) => detail.includes(marker)));
+
+    if (shouldClearSession) {
       const requestUrl = String(error?.config?.url || '');
       const isAuthFlowRequest =
         requestUrl.includes('/usuarios/me') ||
         requestUrl.includes('/auth/login') ||
-        requestUrl.includes('/auth/logout');
+        requestUrl.includes('/auth/logout') ||
+        requestUrl.includes('/auth/session') ||
+        requestUrl.includes('/auth/refresh');
 
       if (!isAuthFlowRequest) {
         useAuthStore.getState().logout();

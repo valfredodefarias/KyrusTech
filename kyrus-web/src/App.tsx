@@ -49,33 +49,49 @@ function App() {
   const setAuthenticated = useAuthStore((state) => state.setAuthenticated);
   const setInitialized = useAuthStore((state) => state.setInitialized);
   const setUser = useAuthStore((state) => state.setUser);
+  const setSessionExpiresAt = useAuthStore((state) => state.setSessionExpiresAt);
+
+  type SessionInfo = {
+    expires_in_minutes: number;
+    expires_at: string;
+  };
 
   useEffect(() => {
     let active = true;
 
-    api.get('/usuarios/me')
-      .then(({ data }) => {
-        if (active) {
-          setAuthenticated(true);
-          setUser(data);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setAuthenticated(false);
-          setUser(null);
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setInitialized(true);
-        }
-      });
+    async function initializeSession() {
+      const [userResult, sessionResult] = await Promise.allSettled([
+        api.get('/usuarios/me'),
+        api.get<SessionInfo>('/auth/session'),
+      ]);
+
+      if (!active) {
+        return;
+      }
+
+      if (userResult.status === 'fulfilled') {
+        setAuthenticated(true);
+        setUser(userResult.value.data);
+      } else {
+        setAuthenticated(false);
+        setUser(null);
+      }
+
+      if (sessionResult.status === 'fulfilled') {
+        setSessionExpiresAt(sessionResult.value.data.expires_at);
+      } else {
+        setSessionExpiresAt(null);
+      }
+
+      setInitialized(true);
+    }
+
+    void initializeSession();
 
     return () => {
       active = false;
     };
-  }, [setAuthenticated, setInitialized]);
+  }, [setAuthenticated, setInitialized, setSessionExpiresAt, setUser]);
 
   return (
     <BrowserRouter>

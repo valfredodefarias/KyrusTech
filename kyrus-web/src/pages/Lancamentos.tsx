@@ -1768,11 +1768,6 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
       pushToast('info', 'Interessado é obrigatório.');
       return;
     }
-    if (formData.status === 'PAGO' && !formData.conta_id) {
-      pushToast('info', 'Selecione o banco antes de salvar um lançamento já pago/recebido.');
-      return;
-    }
-
     const isNovoLancamento = !formData.id;
     const dataLimiteRetroativa = getLocalYmdDaysAgo(2);
 
@@ -1791,8 +1786,13 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
 
     setSaving(true);
     try {
-      if (!formData.centro_custo_id) {
+      if (!formData.id && !formData.centro_custo_id) {
         pushToast('info', 'Selecione um centro de custo antes de salvar.');
+        return;
+      }
+
+      if (formData.status === 'PAGO' && !formData.conta_id) {
+        pushToast('info', 'Selecione o banco antes de salvar um lançamento já pago/recebido.');
         return;
       }
 
@@ -1967,14 +1967,19 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
     } catch(e: any) {
       const isDbValidationError = Number(e?.response?.status) === 400;
       if (isDbValidationError) {
+        const backendDetail = typeof e?.response?.data?.detail === 'string' ? e.response.data.detail.trim() : '';
         try {
           await recoverLancamentoState();
         } catch (refreshError) {
           console.error(refreshError);
         }
+        if (backendDetail) {
+          pushToast('error', backendDetail);
+        }
         pushToast('info', 'Alguns dados foram recarregados. Revise o lançamento e tente salvar novamente.');
       } else {
-        pushToast('error', 'Erro ao salvar lançamento.');
+        const backendDetail = typeof e?.response?.data?.detail === 'string' ? e.response.data.detail.trim() : '';
+        pushToast('error', backendDetail || 'Erro ao salvar lançamento.');
       }
     } finally { setSaving(false); }
   }

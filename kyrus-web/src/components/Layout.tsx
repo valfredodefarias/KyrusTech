@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import { LogOut, Menu, Moon, Sun } from 'lucide-react';
+import { AlertTriangle, Clock3, LogOut, Menu, Moon, RefreshCw, Sun } from 'lucide-react';
 import { AiAssistente } from './AiAssistente';
 import { AssistentePageProvider, useAssistentePageContext } from './AssistentePageContext';
 import { Sidebar, MobileSidebar } from './Sidebar';
@@ -102,12 +102,16 @@ function LayoutShell() {
   const { config: pageAssistenteConfig } = useAssistentePageContext();
   const logout = useAuthStore((state) => state.logout);
   const storedUser = useAuthStore((state) => state.user);
+  const sessionExpiresAt = useAuthStore((state) => state.sessionExpiresAt);
+  const setSessionExpiresAt = useAuthStore((state) => state.setSessionExpiresAt);
   const setUser = useAuthStore((state) => state.setUser);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('theme') as 'dark' | 'light') || 'light');
   const [headerUser, setHeaderUser] = useState<AuthUser | null>(storedUser);
   const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [renewingSession, setRenewingSession] = useState(false);
   const isBoletimEmbedMode = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return params.get('embed_boletim') === '1';
@@ -127,9 +131,49 @@ function LayoutShell() {
   }), [assistenteDefaults, location.pathname, pageAssistenteConfig]);
   const showAssistente = false;
 
+  const sessionExpiresAtMs = useMemo(() => {
+    if (!sessionExpiresAt) return null;
+    const parsed = Date.parse(sessionExpiresAt);
+    return Number.isNaN(parsed) ? null : parsed;
+  }, [sessionExpiresAt]);
+
+  const sessionRemainingMs = sessionExpiresAtMs ? sessionExpiresAtMs - now : null;
+  const sessionWarningThresholdMs = 15 * 60 * 1000;
+  const sessionStatus = sessionRemainingMs === null
+    ? null
+    : sessionRemainingMs <= 0
+      ? 'expired'
+      : sessionRemainingMs <= sessionWarningThresholdMs
+        ? 'warning'
+        : null;
+
+  function formatRemainingTime(milliseconds: number) {
+    const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    if (minutes >= 60) {
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = minutes % 60;
+      return `${hours}h ${remainingMinutes.toString().padStart(2, '0')}m`;
+    }
+
+    return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+  }
+
   useEffect(() => {
     setHeaderUser(storedUser);
   }, [storedUser]);
+
+  useEffect(() => {
+    if (!sessionExpiresAt) {
+      return;
+    }
+
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [sessionExpiresAt]);
 
   useEffect(() => {
     let active = true;
@@ -231,6 +275,21 @@ function LayoutShell() {
     });
   };
 
+  const handleRenewSession = async () => {
+    setRenewingSession(true);
+    try {
+      const { data } = await api.post<{ expires_in_minutes: number; expires_at: string }>('/auth/refresh');
+      setSessionExpiresAt(data.expires_at);
+      setNow(Date.now());
+    } catch (error) {
+      console.error(error);
+      logout();
+      window.location.href = '/login';
+    } finally {
+      setRenewingSession(false);
+    }
+  };
+
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
@@ -314,6 +373,39 @@ function LayoutShell() {
             </div>
           </div>
         </header>
+        {sessionStatus && (
+          <div className={`mx-3 mt-3 rounded-2xl border px-4 py-3 shadow-sm sm:mx-4 md:mx-6 ${sessionStatus === 'expired' ? 'border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900/70 dark:bg-rose-950/40 dark:text-rose-100' : 'border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100'}`}>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${sessionStatus === 'expired' ? 'bg-rose-100 dark:bg-rose-900/50' : 'bg-amber-100 dark:bg-amber-900/50'}`}>
+                  {sessionStatus === 'expired' ? <AlertTriangle className="h-5 w-5" /> : <Clock3 className="h-5 w-5" />}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">
+                    {sessionStatus === 'expired'
+                      ? 'Sua sessão expirou.'
+                      : `Sua sessão expira em ${formatRemainingTime(sessionRemainingMs ?? 0)}.`}
+                  </p>
+                  <p className="text-xs leading-5 opacity-90">
+                    {sessionStatus === 'expired'
+                      ? 'Entre novamente para continuar sem perder o contexto.'
+                      : 'Renove agora para continuar trabalhando sem interrupção.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void handleRenewSession()}
+                disabled={renewingSession}
+                className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-70 ${sessionStatus === 'expired' ? 'bg-rose-700 text-white hover:bg-rose-800 dark:bg-rose-600 dark:hover:bg-rose-500' : 'bg-amber-600 text-white hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-400'}`}
+              >
+                {renewingSession ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                {sessionStatus === 'expired' ? 'Entrar novamente' : 'Renovar sessão'}
+              </button>
+            </div>
+          </div>
+        )}
         <div className="flex h-[calc(100vh-66px)] min-h-0 overflow-hidden">
           <Sidebar
             collapsed={sidebarCollapsed}

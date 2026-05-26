@@ -14,9 +14,15 @@ export function Login() {
   const setAuthenticated = useAuthStore((state) => state.setAuthenticated);
   const setInitialized = useAuthStore((state) => state.setInitialized);
   const setUser = useAuthStore((state) => state.setUser);
+  const setSessionExpiresAt = useAuthStore((state) => state.setSessionExpiresAt);
   const authenticated = useAuthStore((state) => state.authenticated);
   const initialized = useAuthStore((state) => state.initialized);
   const navigate = useNavigate();
+
+  type LoginSessionResponse = {
+    expires_in_minutes: number;
+    expires_at: string;
+  };
 
   useEffect(() => {
     if (initialized && authenticated) {
@@ -34,7 +40,7 @@ export function Login() {
       formData.append('username', email);
       formData.append('password', password);
 
-      await api.post('/auth/login', formData, {
+      const { data: session } = await api.post<LoginSessionResponse>('/auth/login', formData, {
          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       });
 
@@ -42,6 +48,7 @@ export function Login() {
 
       setAuthenticated(true);
       setUser(user);
+      setSessionExpiresAt(session.expires_at);
       setInitialized(true);
       navigate('/home');
 
@@ -49,6 +56,7 @@ export function Login() {
       console.error(err);
       setAuthenticated(false);
       setUser(null);
+      setSessionExpiresAt(null);
       setError('E-mail ou senha incorretos.');
     } finally {
       setLoading(false);

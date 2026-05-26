@@ -28,7 +28,7 @@ services:
       - PROJECT_NAME=${PROJECT_NAME:-KyrusTech}
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production-env}
-      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
       - ALGORITHM=${ALGORITHM:-HS256}
       - BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL:-https://api.seu-dominio.com}
       - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-https://seu-dominio.com,https://www.seu-dominio.com}

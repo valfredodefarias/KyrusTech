@@ -60,328 +60,366 @@ function formatDate(valor?: string | null) {
 interface ContaItem {
   id: number;
   nome: string;
-                  <div className="mt-4">
-                    {buscaDisponiveisAberta && lancamentoBuscaAberto && lancamentoBuscaAberto.linha_arquivo === lanc.linha_arquivo ? (
-                      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-4 py-4 dark:border-slate-800">
-                          <div>
-                            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-600 dark:text-emerald-300">Relacionar atrasados / buscar mais</p>
-                            <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-900 dark:text-white">Lançamentos disponíveis</h2>
-                            <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
-                              Veja primeiro as 3 melhores sugestões. Se nenhuma servir, use a busca para localizar por nome, valor ou data e depois aplique a seleção.
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={fecharBuscaDisponiveis}
-                            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-600 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
-                          >
-                            Fechar
-                          </button>
-                        </div>
+  banco?: string | null;
+  logo_url?: string | null;
+  tipo_integracao?: string | null;
+  centro_custo_id?: number | null;
+  status?: 'ATIVO' | 'INATIVO' | string;
+}
 
-                        <div className="flex max-h-[72vh] min-h-0 flex-col gap-4 p-4">
-                          <div className="grid gap-3 xl:grid-cols-[minmax(0,1.3fr)_minmax(240px,0.7fr)] xl:items-end">
-                            <div className="flex min-w-[220px] flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-950">
-                              <Search className="h-4 w-4 text-slate-400" />
-                              <input
-                                value={buscaDisponiveis.termo}
-                                onChange={(event) => setBuscaDisponiveis((prev) => ({ ...prev, termo: event.target.value }))}
-                                placeholder="Filtrar por nome, valor ou data"
-                                className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
-                              />
-                            </div>
+interface CartaoItem {
+  id: number;
+  nome_cartao: string;
+  bandeira?: string | null;
+  dia_fechamento: number;
+  dia_vencimento: number;
+  centro_custo_id?: number | null;
+  status?: 'ATIVO' | 'INATIVO' | string;
+}
 
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              <label className="block text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                                Centro de custo
-                                <select
-                                  value={buscaDisponiveis.centroCustoId ?? ''}
-                                  onChange={(event) => {
-                                    const centroId = event.target.value ? Number(event.target.value) : null;
-                                    setBuscaDisponiveis((prev) => ({ ...prev, centroCustoId: centroId }));
-                                    carregarLancamentosDisponiveis(lancamentoBuscaAberto, buscaDisponiveis.incluirFuturos, centroId);
-                                  }}
-                                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
-                                >
-                                  <option value="">Sem centro de custo</option>
-                                  {centrosCusto.map((centro) => (
-                                    <option key={centro.id} value={centro.id}>
-                                      {centro.nome}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
+interface CentroCustoItem {
+  id: number;
+  nome: string;
+}
 
-                              <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
-                                <input
-                                  type="checkbox"
-                                  checked={buscaDisponiveis.incluirFuturos}
-                                  onChange={(event) => {
-                                    const incluir = event.target.checked;
-                                    setBuscaDisponiveis((prev) => ({ ...prev, incluirFuturos: incluir }));
-                                    carregarLancamentosDisponiveis(lancamentoBuscaAberto, incluir, buscaDisponiveis.centroCustoId ?? centroCustoPadraoBusca);
-                                  }}
-                                />
-                                Incluir futuros (opcional)
-                              </label>
-                            </div>
-                          </div>
+interface CategoriaItem {
+  id: number;
+  nome: string;
+  tipo?: string;
+  codigo?: string | null;
+  eh_cabecalho?: boolean;
+  permite_lancamentos?: boolean;
+}
 
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Centro de custo padrão aplicado: {centrosCusto.find((centro) => centro.id === (buscaDisponiveis.centroCustoId ?? centroCustoPadraoBusca))?.nome || 'Sem centro de custo'}.
-                          </p>
+interface EntidadeItem {
+  id: number;
+  nome: string;
+}
 
-                          <div className="min-h-0 flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/50">
-                            <div className="max-h-[48vh] space-y-2 overflow-y-auto p-3 pr-2">
-                              {buscaDisponiveis.loading ? (
-                                <div className="flex items-center gap-2 px-2 py-6 text-sm text-slate-500 dark:text-slate-400">
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                  Buscando lancamentos...
-                                </div>
-                              ) : buscaDisponiveis.error ? (
-                                <p className="px-2 py-6 text-sm text-rose-600 dark:text-rose-300">{buscaDisponiveis.error}</p>
-                              ) : itensDisponiveisFiltrados.length === 0 ? (
-                                <p className="px-2 py-6 text-sm text-slate-500 dark:text-slate-400">Nenhum lancamento disponivel para este filtro.</p>
-                              ) : (
-                                itensDisponiveisFiltrados.map((item) => {
-                                  const jaSelecionado = buscaSelecionados.includes(item.id);
-                                  return (
-                                    <label
-                                      key={`disponivel-${lancamentoBuscaAberto.linha_arquivo}-${item.id}`}
-                                      className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900"
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={jaSelecionado}
-                                        onChange={(event) => {
-                                          setBuscaSelecionados((prev) => {
-                                            const idsValidos = prev.filter((id) => Number.isFinite(id));
-                                            if (!event.target.checked) {
-                                              return idsValidos.filter((id) => id !== item.id);
-                                            }
+interface LancamentoSugestao {
+  plano_contas_id?: number | null;
+  entidade_id?: number | null;
+  entidade_nome?: string | null;
+}
 
-                                            const idsIniciais = new Set(buscaSelecaoInicial);
-                                            const temSelecaoInicial = idsValidos.some((id) => idsIniciais.has(id));
-                                            const temSelecaoManual = idsValidos.some((id) => !idsIniciais.has(id));
-                                            const itemEhInicial = idsIniciais.has(item.id);
+interface RelacionamentoResumo {
+  id?: number | null;
+  descricao: string;
+  interessado?: string | null;
+  data_vencimento: string;
+  valor_previsto: number;
+  centro_custo_id?: number | null;
+  centro_custo_nome?: string | null;
+  score: number;
+  motivo: string;
+}
 
-                                            if (itemEhInicial && temSelecaoManual) {
-                                              return [item.id];
-                                            }
+interface DuplicataResumo {
+  descricao: string;
+  data_pagamento?: string | null;
+  valor_pago?: number | null;
+  origem?: string | null;
+  motivo?: string | null;
+}
 
-                                            if (!itemEhInicial && temSelecaoInicial) {
-                                              return [item.id];
-                                            }
+interface LancamentoDisponivel {
+  id: number;
+  descricao: string;
+  interessado?: string | null;
+  data_vencimento: string;
+  valor_previsto: number;
+  centro_custo_id?: number | null;
+  centro_custo_nome?: string | null;
+  status?: string | null;
+  tipo?: string | null;
+}
 
-                                            return [...new Set([...idsValidos, item.id])];
-                                          });
-                                        }}
-                                      />
-                                      <div className="min-w-0 flex-1">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          <p className="font-semibold text-slate-900 dark:text-white">{item.descricao}</p>
-                                          <span className="text-xs text-slate-500 dark:text-slate-400">{formatCurrency(item.valor_previsto)}</span>
-                                        </div>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">Vence em {formatDate(item.data_vencimento)}</p>
-                                        {item.interessado ? (
-                                          <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Interessado: {item.interessado}</p>
-                                        ) : null}
-                                        {item.centro_custo_nome ? (
-                                          <p className="text-xs text-slate-500 dark:text-slate-400">CC: {item.centro_custo_nome}</p>
-                                        ) : null}
-                                      </div>
-                                    </label>
-                                  );
-                                })
-                              )}
-                            </div>
-                          </div>
+interface LancamentoImportado {
+  data: string;
+  data_hora?: string | null;
+  descricao: string;
+  razao_social: string;
+  cpf_cnpj: string;
+  referencia?: string | null;
+  referencia_externa?: string | null;
+  movimento_uid?: string | null;
+  ofx_bank_id?: string | null;
+  ofx_agencia?: string | null;
+  ofx_conta_numero?: string | null;
+  valor: number;
+  tipo: 'RECEITA' | 'DESPESA' | string;
+  origem: string;
+  linha_arquivo: number;
+  import_hash?: string | null;
+  lancamento_previsto_id?: number | null;
+  lancamentos_atrasados_ids?: number[];
+  duplicata_id?: number | null;
+  plano_contas_id?: number | null;
+  entidade_id?: number | null;
+  centro_custo_id?: number | null;
+  era_previsto?: boolean;
+  sugestao_acao?: 'BAIXAR_PREVISTO' | 'RELACIONAR_ATRASADOS' | 'CRIAR_NOVO' | 'IGNORAR_DUPLICATA' | 'DESCARTAR';
+  score_conciliacao?: number;
+  motivo_conciliacao?: string | null;
+  motivo_classificacao?: string | null;
+  interessado_sugerido?: string | null;
+  lancamento_previsto_resumo?: RelacionamentoResumo | null;
+  lancamentos_atrasados_resumo?: RelacionamentoResumo[];
+  duplicata_resumo?: DuplicataResumo | null;
+}
 
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <p className="text-xs text-slate-500 dark:text-slate-400">{buscaSelecionados.length} item(ns) selecionados.</p>
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setBuscaSelecionados([])}
-                                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-600 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
-                              >
-                                Limpar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => aplicarSelecaoDisponiveis(lancamentoBuscaAberto)}
-                                className="rounded-full border border-emerald-300 bg-emerald-500 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-white transition hover:bg-emerald-600"
-                              >
-                                Aplicar selecao
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (() => {
-                      const idsBloqueadosCard = obterIdsBloqueadosParaLinha(lanc.linha_arquivo);
-                      const idsSelecionadosCard = new Set<number>();
-                      if (lanc.lancamento_previsto_id != null) {
-                        const previstoId = Number(lanc.lancamento_previsto_id);
-                        if (Number.isFinite(previstoId)) {
-                          idsSelecionadosCard.add(previstoId);
-                        }
-                      }
-                      (lanc.lancamentos_atrasados_relacionados || []).forEach((id) => {
-                        const atrasoId = Number(id);
-                        if (Number.isFinite(atrasoId)) {
-                          idsSelecionadosCard.add(atrasoId);
-                        }
-                      });
+interface LancamentoEditado extends LancamentoImportado {
+  lancamentos_atrasados_relacionados: number[];
+  auto_preenchido: boolean;
+  sugestao_acao_original: NonNullable<LancamentoImportado['sugestao_acao']>;
+  sugestao_confirmada: boolean;
+}
 
-                      const atrasadosOrdenados = [...(lanc.lancamentos_atrasados_resumo || [])]
-                        .map((resumo, index) => ({
-                          resumo,
-                          atrasoId: resumo?.id ?? lanc.lancamentos_atrasados_ids?.[index],
-                        }))
-                        .filter(({ atrasoId }) => {
-                          if (!atrasoId) return false;
-                          return !idsBloqueadosCard.has(atrasoId) || idsSelecionadosCard.has(atrasoId);
-                        })
-                        .sort((a, b) => (b.resumo?.score || 0) - (a.resumo?.score || 0));
+type FeedbackState = {
+  type: 'success' | 'error' | 'warning';
+  message: string;
+};
 
-                      const atrasadosTop = atrasadosOrdenados.slice(0, 3);
-                      const temMaisSugestoes = atrasadosOrdenados.length > atrasadosTop.length;
+interface ProcessarArquivoResponse {
+  lancamentos: LancamentoImportado[];
+  total_processado: number;
+  duplicatas_encontradas: number;
+  lancamentos_previstos_encontrados: number;
+  lancamentos_atrasados_encontrados: number;
+}
 
-                      if (atrasadosTop.length === 0) {
-                        return (
-                          <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200">
-                            Nenhuma das melhores sugestões ficou livre para este card. Use <span className="font-bold">Buscar por mais</span>.
-                          </div>
-                        );
-                      }
+interface ConfirmacaoProgressState {
+  currentBatch: number;
+  totalBatches: number;
+  processedItems: number;
+  totalItems: number;
+  criados: number;
+  atualizados: number;
+}
 
-                      return (
-                        <>
-                          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
-                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                              <div>
-                                <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">Top 3 sugestões</p>
-                                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Selecione os atrasados que este movimento deve quitar. Se não encontrar aqui, use a busca.</p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => abrirBuscaDisponiveis(lanc)}
-                                className="rounded-full border border-amber-300 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700 transition hover:border-amber-400 dark:border-amber-800 dark:bg-slate-950 dark:text-amber-200"
-                              >
-                                Buscar por mais
-                              </button>
-                            </div>
+interface DivergenciaSaldoOfx {
+  conta_id: number;
+  saldo_ofx: number;
+  saldo_sistema: number;
+  diferenca: number;
+  data_referencia?: string | null;
+}
 
-                            <div className="mt-3 space-y-3">
-                              {atrasadosTop.map(({ resumo: atrasado, atrasoId }, index) => {
-                                const marcado = atrasoId ? lanc.lancamentos_atrasados_relacionados.includes(atrasoId) : false;
-                                return (
-                                  <label
-                                    key={`${lanc.linha_arquivo}-${index}`}
-                                    className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200/70 bg-white/80 p-3 dark:border-amber-900/40 dark:bg-slate-900/60"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={marcado}
-                                      onChange={(e) => {
-                                        if (!atrasoId) return;
-                                        const marcando = e.target.checked;
-                                        setLancamentosEditados((prev) => prev.map((item) => {
-                                          if (item.linha_arquivo === lanc.linha_arquivo) {
-                                            const atuais = Array.isArray(item.lancamentos_atrasados_relacionados)
-                                              ? item.lancamentos_atrasados_relacionados.map((id) => Number(id)).filter((id) => Number.isFinite(id))
-                                              : [];
-                                            const proximo = marcando
-                                              ? [...new Set([...atuais, atrasoId])]
-                                              : atuais.filter((id) => id !== atrasoId);
-                                            return {
-                                              ...item,
-                                              sugestao_acao: proximo.length > 0 ? 'RELACIONAR_ATRASADOS' : 'CRIAR_NOVO',
-                                              lancamentos_atrasados_relacionados: proximo,
-                                              lancamentos_atrasados_resumo: (item.lancamentos_atrasados_resumo || []).filter((resumo) => !resumo.id || Number(resumo.id) !== atrasoId),
-                                              sugestao_confirmada: false,
-                                            };
-                                          }
+interface ConfirmarLancamentosResponse {
+  sucesso: boolean;
+  lancamentos_criados: number;
+  lancamentos_atualizados: number;
+  erros?: string[];
+  divergencia_saldo_ofx?: DivergenciaSaldoOfx | null;
+}
 
-                                          if (!marcando) {
-                                            return item;
-                                          }
+type FiltroStatus = 'todos' | 'conciliar' | 'novo' | 'duplicado' | 'descartado';
 
-                                          const previstoAtual = item.lancamento_previsto_id != null ? Number(item.lancamento_previsto_id) : null;
-                                          const previstoRemovido = previstoAtual === atrasoId;
-                                          const atrasadosAtuais = Array.isArray(item.lancamentos_atrasados_relacionados)
-                                            ? item.lancamentos_atrasados_relacionados.map((id) => Number(id)).filter((id) => Number.isFinite(id))
-                                            : [];
-                                          const atrasadosRestantes = atrasadosAtuais.filter((itemId) => itemId !== atrasoId);
-                                          const atrasadosRemovidos = atrasadosRestantes.length !== atrasadosAtuais.length;
+const ACAO_META = {
+  BAIXAR_PREVISTO: {
+    label: 'Baixar previsto',
+    tone: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-900/60',
+  },
+  RELACIONAR_ATRASADOS: {
+    label: 'Relacionar atrasados',
+    tone: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-900/60',
+  },
+  CRIAR_NOVO: {
+    label: 'Criar novo lançamento',
+    tone: 'bg-lime-100 text-lime-800 border-lime-300 dark:bg-lime-950/35 dark:text-lime-300 dark:border-lime-800/70',
+  },
+  IGNORAR_DUPLICATA: {
+    label: 'Ignorar duplicata',
+    tone: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+  },
+  DESCARTAR: {
+    label: 'Descartado',
+    tone: 'bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-700',
+  },
+} as const;
 
-                                          if (!previstoRemovido && !atrasadosRemovidos) {
-                                            return item;
-                                          }
+const OFX_CONFIRM_CHUNK_SIZE = 300;
 
-                                          const nextItem: LancamentoEditado = {
-                                            ...item,
-                                            sugestao_confirmada: false,
-                                          };
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (size <= 0) return [items];
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
 
-                                          if (previstoRemovido) {
-                                            nextItem.lancamento_previsto_id = null;
-                                            nextItem.lancamento_previsto_resumo = null;
-                                          }
+function categoriaCompativel(cat: CategoriaItem, tipo: string) {
+  if (!cat.tipo) return true;
+  const categoriaTipo = String(cat.tipo).trim().toUpperCase();
+  if (tipo === 'RECEITA') return categoriaTipo.startsWith('R');
+  if (tipo === 'DESPESA') return categoriaTipo.startsWith('D');
+  return true;
+}
 
-                                          if (atrasadosRemovidos) {
-                                            nextItem.lancamentos_atrasados_relacionados = atrasadosRestantes;
-                                            nextItem.lancamentos_atrasados_resumo = (nextItem.lancamentos_atrasados_resumo || []).filter((resumo) => !resumo.id || Number(resumo.id) !== atrasoId);
-                                          }
+function isConciliacaoAutomatica(acao?: LancamentoImportado['sugestao_acao']) {
+  return acao === 'BAIXAR_PREVISTO' || acao === 'RELACIONAR_ATRASADOS';
+}
 
-                                          if ((previstoRemovido && item.sugestao_acao === 'BAIXAR_PREVISTO') || (atrasadosRemovidos && item.sugestao_acao === 'RELACIONAR_ATRASADOS' && atrasadosRestantes.length === 0)) {
-                                            nextItem.sugestao_acao = 'CRIAR_NOVO';
-                                          }
+function mapDisponivelToResumo(item: LancamentoDisponivel, motivo: string): RelacionamentoResumo {
+  return {
+    id: item.id,
+    descricao: item.descricao,
+    interessado: item.interessado ?? null,
+    data_vencimento: item.data_vencimento,
+    valor_previsto: item.valor_previsto,
+    centro_custo_id: item.centro_custo_id ?? null,
+    centro_custo_nome: item.centro_custo_nome ?? null,
+    score: 0,
+    motivo,
+  };
+}
 
-                                          return nextItem;
-                                        }));
-                                      }}
-                                    />
-                                    <div className="min-w-0 flex-1">
-                                      {atrasado.interessado ? (
-                                        <p className="text-xs font-bold text-slate-900 dark:text-white">Interessado: {atrasado.interessado}</p>
-                                      ) : null}
-                                      <div className="flex flex-col gap-1">
-                                        <p className="font-bold text-slate-900 dark:text-white">{atrasado.descricao}</p>
-                                      </div>
-                                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-300">
-                                        <span className="rounded-full bg-amber-100 px-2 py-0.5 font-bold uppercase tracking-[0.14em] text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
-                                          Score {atrasado.score}
-                                        </span>
-                                        <span>Venceu em {formatDate(atrasado.data_vencimento)}</span>
-                                        <span>•</span>
-                                        <span>{formatCurrency(atrasado.valor_previsto)}</span>
-                                        {atrasado.centro_custo_nome ? (
-                                          <>
-                                            <span>•</span>
-                                            <span>CC: {atrasado.centro_custo_nome}</span>
-                                          </>
-                                        ) : null}
-                                      </div>
-                                    </div>
-                                  </label>
-                                );
-                              })}
-                            </div>
+function getSugestaoInicial(lanc: LancamentoImportado): NonNullable<LancamentoImportado['sugestao_acao']> {
+  if (lanc.sugestao_acao && lanc.sugestao_acao !== 'DESCARTAR') return lanc.sugestao_acao;
+  if (lanc.lancamento_previsto_id) return 'BAIXAR_PREVISTO';
+  if ((lanc.lancamentos_atrasados_ids || []).length > 0) return 'RELACIONAR_ATRASADOS';
+  if (lanc.duplicata_id) return 'IGNORAR_DUPLICATA';
+  return 'CRIAR_NOVO';
+}
 
-                            {temMaisSugestoes ? (
-                              <div className="mt-4 rounded-2xl border border-dashed border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200">
-                                As 3 melhores sugestões aparecem acima. Use <span className="font-bold">Buscar por mais</span> para ver todos os lançamentos disponíveis.
-                              </div>
-                            ) : null}
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                ) : lanc.sugestao_acao === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_resumo ? (
+type SearchableOption = {
+  id: number;
+  label: string;
+  disabled?: boolean;
+  searchText?: string;
+};
+
+function SearchableDropdown({
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  value: number | null | undefined;
+  options: SearchableOption[];
+  placeholder: string;
+  onChange: (value: number | null) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  const selected = options.find((option) => Number(option.id) === Number(value));
+  const normalizedQuery = query.trim().toLowerCase();
+  const filtered = options.filter((option) => {
+    if (!normalizedQuery) return true;
+    const haystack = `${String(option.label || '').toLowerCase()} ${String(option.searchText || '').toLowerCase()}`;
+    return haystack.includes(normalizedQuery);
+  });
+
+  return (
+    <div className="relative" ref={wrapperRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate text-slate-700 dark:text-slate-200">{selected?.label || placeholder}</span>
+          <ChevronDown className={`h-4 w-4 text-slate-400 transition ${isOpen ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+
+      {isOpen ? (
+        <div className="absolute z-40 mt-2 w-full rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-950">
+          <div className="relative mb-2">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Pesquisar..."
+              className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-700 outline-none focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+            />
+          </div>
+
+          <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => {
+                onChange(null);
+                setIsOpen(false);
+              }}
+              className="w-full border-b border-slate-100 px-3 py-2 text-left text-sm text-slate-500 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900"
+            >
+              {placeholder}
+            </button>
+            {filtered.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                disabled={!!option.disabled}
+                onClick={() => {
+                  if (option.disabled) return;
+                  onChange(option.id);
+                  setIsOpen(false);
+                }}
+                className={`w-full border-b border-slate-100 px-3 py-2 text-left text-sm transition last:border-b-0 dark:border-slate-800 ${option.disabled ? 'cursor-not-allowed bg-slate-50 text-slate-400 dark:bg-slate-900 dark:text-slate-500' : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900'}`}
+              >
+                <span className="truncate">{option.label}</span>
+              </button>
+            ))}
+            {filtered.length === 0 ? <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">Nenhum resultado.</div> : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function ImportacaoOfx() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [contas, setContas] = useState<ContaItem[]>([]);
+  const [cartoes, setCartoes] = useState<CartaoItem[]>([]);
+  const [centrosCusto, setCentrosCusto] = useState<CentroCustoItem[]>([]);
+  const [modoImportacao, setModoImportacao] = useState<'CONTA' | 'CARTAO'>('CONTA');
+  const [contaId, setContaId] = useState<number | ''>('');
+  const [cartaoId, setCartaoId] = useState<number | ''>('');
+  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmProgress, setConfirmProgress] = useState<ConfirmacaoProgressState | null>(null);
+  const [resultado, setResultado] = useState<ProcessarArquivoResponse | null>(null);
+  const [lancamentosEditados, setLancamentosEditados] = useState<LancamentoEditado[]>([]);
+  const [feedback, setFeedback] = useState<FeedbackState | null>(null);
+  const [categorias, setCategorias] = useState<CategoriaItem[]>([]);
+  const [entidades, setEntidades] = useState<EntidadeItem[]>([]);
+  const [sugestoes, setSugestoes] = useState<Record<string, LancamentoSugestao>>({});
+  const [busca, setBusca] = useState('');
+  const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>('todos');
+  const [categoriaAutofillAplicada, setCategoriaAutofillAplicada] = useState<Record<string, boolean>>({});
+  const [buscaDisponiveis, setBuscaDisponiveis] = useState<{
+    linhaArquivo: number | null;
+    itens: LancamentoDisponivel[];
+    incluirFuturos: boolean;
+    loading: boolean;
+    error: string | null;
+    termo: string;
+    tipo: string | null;
+    dataBase: string | null;
+    centroCustoId: number | null;
+  }>({
+    linhaArquivo: null,
+    itens: [],
+    incluirFuturos: false,
     loading: false,
     error: null,
     termo: '',
@@ -390,7 +428,6 @@ interface ContaItem {
     centroCustoId: null,
   });
   const [buscaSelecionados, setBuscaSelecionados] = useState<number[]>([]);
-  const [buscaSelecaoInicial, setBuscaSelecaoInicial] = useState<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -505,6 +542,40 @@ interface ContaItem {
     return { conciliaveis, novos, receitas, despesas, semCategoria };
   }, [lancamentosEditados]);
 
+  const selecionadosConfirmadosPorId = useMemo(() => {
+    const mapa = new Map<number, Set<number>>();
+    for (const item of lancamentosEditados) {
+      if (!item.sugestao_confirmada) continue;
+      if (item.sugestao_acao === 'BAIXAR_PREVISTO' && item.lancamento_previsto_id) {
+        const previstoId = Number(item.lancamento_previsto_id);
+        if (previstoId > 0) {
+          const set = mapa.get(previstoId) || new Set<number>();
+          set.add(Number(item.linha_arquivo || 0));
+          mapa.set(previstoId, set);
+        }
+      }
+
+      if (item.sugestao_acao === 'RELACIONAR_ATRASADOS') {
+        const selecionados = Array.isArray(item.lancamentos_atrasados_relacionados)
+          ? item.lancamentos_atrasados_relacionados
+          : [];
+        const unicos = new Set<number>();
+        for (const atrasoIdRaw of selecionados) {
+          const atrasoId = Number(atrasoIdRaw || 0);
+          if (atrasoId > 0) {
+            unicos.add(atrasoId);
+          }
+        }
+        for (const atrasoId of unicos) {
+          const set = mapa.get(atrasoId) || new Set<number>();
+          set.add(Number(item.linha_arquivo || 0));
+          mapa.set(atrasoId, set);
+        }
+      }
+    }
+    return mapa;
+  }, [lancamentosEditados]);
+
   const assistenteConfig = useMemo(() => ({
     tela: 'geral' as const,
     titulo: 'Assistente KyrusTECH',
@@ -573,7 +644,6 @@ interface ContaItem {
         tipo,
         incluir_futuros: incluirFuturos,
         data_base: dataBase,
-        limite: 2000,
       };
       if (modoImportacao === 'CONTA' && contaId) {
         params.conta_id = Number(contaId);
@@ -610,7 +680,6 @@ interface ContaItem {
       return [];
     })();
 
-    setBuscaSelecaoInicial(selecionadosIniciais);
     setBuscaSelecionados(selecionadosIniciais);
     setBuscaDisponiveis((prev) => ({
       ...prev,
@@ -625,16 +694,6 @@ interface ContaItem {
     }));
 
     carregarLancamentosDisponiveis(lanc, false, centroCustoInicial);
-  };
-
-  const normalizarBuscaSelecionados = (selecionados: number[]) => {
-    const idsValidos = selecionados.filter((id) => Number.isFinite(id));
-    const idsIniciais = new Set(buscaSelecaoInicial);
-    const contemManual = idsValidos.some((id) => !idsIniciais.has(id));
-    if (contemManual) {
-      return Array.from(new Set(idsValidos.filter((id) => !idsIniciais.has(id))));
-    }
-    return Array.from(new Set(idsValidos));
   };
 
   const handleUpload = async () => {
@@ -830,74 +889,6 @@ interface ContaItem {
     return lancamentosEditados.find((item) => item.linha_arquivo === buscaDisponiveis.linhaArquivo) || null;
   }, [buscaDisponiveis.linhaArquivo, lancamentosEditados]);
 
-  const idsSelecionadosPorLinha = useMemo(() => {
-    const mapa = new Map<number, Set<number>>();
-
-    lancamentosEditados.forEach((item) => {
-      const ids = new Set<number>();
-      if (item.lancamento_previsto_id != null) {
-        const previstoId = Number(item.lancamento_previsto_id);
-        if (Number.isFinite(previstoId)) {
-          ids.add(previstoId);
-        }
-      }
-      (item.lancamentos_atrasados_relacionados || []).forEach((id) => {
-        const atrasoId = Number(id);
-        if (Number.isFinite(atrasoId)) {
-          ids.add(atrasoId);
-        }
-      });
-
-      if (ids.size > 0) {
-        mapa.set(item.linha_arquivo, ids);
-      }
-    });
-
-    return mapa;
-  }, [lancamentosEditados]);
-
-  const idsSelecionadosNaBuscaAtual = useMemo(() => {
-    const ids = new Set<number>();
-    buscaSelecaoInicial.forEach((id) => {
-      if (Number.isFinite(id)) {
-        ids.add(Number(id));
-      }
-    });
-    buscaSelecionados.forEach((id) => {
-      if (Number.isFinite(id)) {
-        ids.add(Number(id));
-      }
-    });
-    return ids;
-  }, [buscaSelecaoInicial, buscaSelecionados]);
-
-  const idsBloqueadosNaBuscaAtual = useMemo(() => {
-    if (!lancamentoBuscaAberto) {
-      return new Set<number>();
-    }
-
-    const bloqueados = new Set<number>();
-    idsSelecionadosPorLinha.forEach((ids, linhaArquivo) => {
-      if (linhaArquivo === lancamentoBuscaAberto.linha_arquivo) {
-        return;
-      }
-      ids.forEach((id) => bloqueados.add(id));
-    });
-
-    return bloqueados;
-  }, [idsSelecionadosPorLinha, lancamentoBuscaAberto]);
-
-  const obterIdsBloqueadosParaLinha = (linhaArquivo: number) => {
-    const bloqueados = new Set<number>();
-    idsSelecionadosPorLinha.forEach((ids, linhaAtual) => {
-      if (linhaAtual === linhaArquivo) {
-        return;
-      }
-      ids.forEach((id) => bloqueados.add(id));
-    });
-    return bloqueados;
-  };
-
   const itensDisponiveisFiltrados = useMemo(() => {
     if (!lancamentoBuscaAberto) {
       return [] as LancamentoDisponivel[];
@@ -905,14 +896,11 @@ interface ContaItem {
 
     const termoBuscaDisponiveis = normalizarDescricao(buscaDisponiveis.termo);
     return buscaDisponiveis.itens.filter((item) => {
-      if (idsBloqueadosNaBuscaAtual.has(item.id) && !idsSelecionadosNaBuscaAtual.has(item.id)) {
-        return false;
-      }
       if (!termoBuscaDisponiveis) return true;
-      const haystack = normalizarDescricao(`${item.descricao} ${item.interessado || ''} ${item.valor_previsto || ''} ${item.data_vencimento || ''}`);
+      const haystack = normalizarDescricao(`${item.descricao} ${item.interessado || ''}`);
       return haystack.includes(termoBuscaDisponiveis);
     });
-  }, [buscaDisponiveis.itens, buscaDisponiveis.termo, idsBloqueadosNaBuscaAtual, idsSelecionadosNaBuscaAtual, lancamentoBuscaAberto]);
+  }, [buscaDisponiveis.itens, buscaDisponiveis.termo, lancamentoBuscaAberto]);
 
   const buscaDisponiveisAberta = !!lancamentoBuscaAberto;
 
@@ -979,84 +967,35 @@ interface ContaItem {
       loading: false,
     }));
     setBuscaSelecionados([]);
-    setBuscaSelecaoInicial([]);
   };
 
   const aplicarSelecaoDisponiveis = (lanc: LancamentoEditado) => {
-    const selecionados = normalizarBuscaSelecionados(buscaSelecionados);
+    const selecionados = buscaSelecionados.filter((id) => Number.isFinite(id));
     if (selecionados.length === 0) {
       fecharBuscaDisponiveis();
       return;
     }
 
     const itensSelecionados = buscaDisponiveis.itens.filter((item) => selecionados.includes(item.id));
-    if (itensSelecionados.length === 0) {
-      fecharBuscaDisponiveis();
-      return;
+    if (itensSelecionados.length === 1) {
+      const resumo = mapDisponivelToResumo(itensSelecionados[0], 'Selecionado manualmente');
+      updateLancamento(lanc.linha_arquivo, {
+        sugestao_acao: 'BAIXAR_PREVISTO',
+        lancamento_previsto_id: resumo.id ?? null,
+        lancamento_previsto_resumo: resumo,
+        lancamentos_atrasados_relacionados: [],
+        lancamentos_atrasados_resumo: [],
+      });
+    } else {
+      const resumos = itensSelecionados.map((item) => mapDisponivelToResumo(item, 'Selecionado manualmente'));
+      updateLancamento(lanc.linha_arquivo, {
+        sugestao_acao: 'RELACIONAR_ATRASADOS',
+        lancamento_previsto_id: null,
+        lancamento_previsto_resumo: null,
+        lancamentos_atrasados_relacionados: itensSelecionados.map((item) => item.id),
+        lancamentos_atrasados_resumo: resumos,
+      });
     }
-
-    const idsSelecionados = new Set(itensSelecionados.map((item) => item.id));
-
-    setLancamentosEditados((prev) => prev.map((item) => {
-      if (item.linha_arquivo === lanc.linha_arquivo) {
-        if (itensSelecionados.length === 1) {
-          const resumo = mapDisponivelToResumo(itensSelecionados[0], 'Selecionado manualmente');
-          return {
-            ...item,
-            sugestao_acao: 'BAIXAR_PREVISTO',
-            lancamento_previsto_id: resumo.id ?? null,
-            lancamento_previsto_resumo: resumo,
-            lancamentos_atrasados_relacionados: [],
-            lancamentos_atrasados_resumo: [],
-            sugestao_confirmada: false,
-          };
-        }
-
-        const resumos = itensSelecionados.map((selected) => mapDisponivelToResumo(selected, 'Selecionado manualmente'));
-        return {
-          ...item,
-          sugestao_acao: 'RELACIONAR_ATRASADOS',
-          lancamento_previsto_id: null,
-          lancamento_previsto_resumo: null,
-          lancamentos_atrasados_relacionados: itensSelecionados.map((selected) => selected.id),
-          lancamentos_atrasados_resumo: resumos,
-          sugestao_confirmada: false,
-        };
-      }
-
-      const previstoAtual = item.lancamento_previsto_id != null ? Number(item.lancamento_previsto_id) : null;
-      const previstoRemovido = previstoAtual != null && idsSelecionados.has(previstoAtual);
-      const atrasadosAtuais = Array.isArray(item.lancamentos_atrasados_relacionados)
-        ? item.lancamentos_atrasados_relacionados.map((id) => Number(id)).filter((id) => Number.isFinite(id))
-        : [];
-      const atrasadosRestantes = atrasadosAtuais.filter((id) => !idsSelecionados.has(id));
-      const atrasadosRemovidos = atrasadosRestantes.length !== atrasadosAtuais.length;
-
-      if (!previstoRemovido && !atrasadosRemovidos) {
-        return item;
-      }
-
-      const nextItem: LancamentoEditado = {
-        ...item,
-        sugestao_confirmada: false,
-      };
-
-      if (previstoRemovido) {
-        nextItem.lancamento_previsto_id = null;
-        nextItem.lancamento_previsto_resumo = null;
-      }
-
-      if (atrasadosRemovidos) {
-        nextItem.lancamentos_atrasados_relacionados = atrasadosRestantes;
-        nextItem.lancamentos_atrasados_resumo = (nextItem.lancamentos_atrasados_resumo || []).filter((resumo) => !resumo.id || !idsSelecionados.has(Number(resumo.id)));
-      }
-
-      if ((previstoRemovido && item.sugestao_acao === 'BAIXAR_PREVISTO') || (atrasadosRemovidos && item.sugestao_acao === 'RELACIONAR_ATRASADOS' && atrasadosRestantes.length === 0)) {
-        nextItem.sugestao_acao = 'CRIAR_NOVO';
-      }
-
-      return nextItem;
-    }));
 
     fecharBuscaDisponiveis();
   };
@@ -1455,7 +1394,7 @@ interface ContaItem {
                             className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-700 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
                           >
                             <Search className="h-3.5 w-3.5" />
-                            Buscar por mais
+                            {lanc.tipo === 'DESPESA' ? 'Buscar pagamento' : 'Buscar recebimento'}
                           </button>
                         ) : null}
                         {sugestaoPendente ? (
@@ -1488,7 +1427,7 @@ interface ContaItem {
                   )}
 
                   <div className="mt-4">
-                    {buscaDisponiveisAberta && lancamentoBuscaAberto && lancamentoBuscaAberto.linha_arquivo === lanc.linha_arquivo ? (
+                    {buscaDisponiveisAberta && lancamentoBuscaAberto ? (
                       <div className="rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
                         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-4 py-4 dark:border-slate-800">
                           <div>
@@ -1496,8 +1435,8 @@ interface ContaItem {
                               {lancamentoBuscaAberto.tipo === 'DESPESA' ? 'Buscar pagamento' : 'Buscar recebimento'}
                             </p>
                             <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-900 dark:text-white">Lançamentos disponíveis</h2>
-                              <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
-                              Veja primeiro as 3 melhores sugestões. Se nenhuma servir, use a busca para localizar por nome, valor ou data e depois aplique a seleção.
+                            <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
+                              Selecione pagamentos ou recebimentos atrasados, vencendo hoje, ou futuros se necessário. O painel rola por dentro e mantém a revisão no padrão da página.
                             </p>
                           </div>
                           <button
@@ -1516,7 +1455,7 @@ interface ContaItem {
                               <input
                                 value={buscaDisponiveis.termo}
                                 onChange={(event) => setBuscaDisponiveis((prev) => ({ ...prev, termo: event.target.value }))}
-                                placeholder="Filtrar por nome, valor ou data"
+                                placeholder="Filtrar por descricao ou interessado"
                                 className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
                               />
                             </div>
@@ -1575,35 +1514,27 @@ interface ContaItem {
                               ) : (
                                 itensDisponiveisFiltrados.map((item) => {
                                   const jaSelecionado = buscaSelecionados.includes(item.id);
+                                  const linhasComMesmoId = selecionadosConfirmadosPorId.get(item.id);
+                                  const selecionadoEmOutro = Boolean(
+                                    linhasComMesmoId && Array.from(linhasComMesmoId).some((linha) => linha !== lancamentoBuscaAberto.linha_arquivo),
+                                  );
+                                  const bloqueado = !jaSelecionado && selecionadoEmOutro;
                                   return (
                                     <label
                                       key={`disponivel-${lancamentoBuscaAberto.linha_arquivo}-${item.id}`}
-                                      className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900"
+                                      className={`flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 ${bloqueado ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
                                     >
                                       <input
                                         type="checkbox"
                                         checked={jaSelecionado}
+                                        disabled={bloqueado}
                                         onChange={(event) => {
+                                          if (bloqueado) return;
                                           setBuscaSelecionados((prev) => {
-                                            const idsValidos = prev.filter((id) => Number.isFinite(id));
-                                            if (!event.target.checked) {
-                                              return idsValidos.filter((id) => id !== item.id);
+                                            if (event.target.checked) {
+                                              return [...new Set([...prev, item.id])];
                                             }
-
-                                            const idsIniciais = new Set(buscaSelecaoInicial);
-                                            const temSelecaoInicial = idsValidos.some((id) => idsIniciais.has(id));
-                                            const temSelecaoManual = idsValidos.some((id) => !idsIniciais.has(id));
-                                            const itemEhInicial = idsIniciais.has(item.id);
-
-                                            if (itemEhInicial && temSelecaoManual) {
-                                              return [item.id];
-                                            }
-
-                                            if (!itemEhInicial && temSelecaoInicial) {
-                                              return [item.id];
-                                            }
-
-                                            return [...new Set([...idsValidos, item.id])];
+                                            return prev.filter((id) => id !== item.id);
                                           });
                                         }}
                                       />
@@ -1616,189 +1547,97 @@ interface ContaItem {
                                         {item.interessado ? (
                                           <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Interessado: {item.interessado}</p>
                                         ) : null}
-                                        {(() => {
-                                          const idsBloqueadosCard = obterIdsBloqueadosParaLinha(lanc.linha_arquivo);
-                                          const idsSelecionadosCard = new Set<number>();
-                                          if (lanc.lancamento_previsto_id != null) {
-                                            const previstoId = Number(lanc.lancamento_previsto_id);
-                                            if (Number.isFinite(previstoId)) {
-                                              idsSelecionadosCard.add(previstoId);
-                                            }
-                                          }
-                                          (lanc.lancamentos_atrasados_relacionados || []).forEach((id) => {
-                                            const atrasoId = Number(id);
-                                            if (Number.isFinite(atrasoId)) {
-                                              idsSelecionadosCard.add(atrasoId);
-                                            }
-                                          });
+                                        {item.centro_custo_nome ? (
+                                          <p className="text-xs text-slate-500 dark:text-slate-400">CC: {item.centro_custo_nome}</p>
+                                        ) : null}
+                                        {bloqueado ? (
+                                          <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">Confirmado em outro lançamento.</p>
+                                        ) : null}
+                                      </div>
+                                    </label>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
 
-                                          const atrasadosOrdenados = [...(lanc.lancamentos_atrasados_resumo || [])]
-                                            .map((resumo, index) => ({
-                                              resumo,
-                                              atrasoId: resumo?.id ?? lanc.lancamentos_atrasados_ids?.[index],
-                                            }))
-                                            .filter(({ atrasoId }) => {
-                                              if (!atrasoId) return false;
-                                              return !idsBloqueadosCard.has(atrasoId) || idsSelecionadosCard.has(atrasoId);
-                                            })
-                                            .sort((a, b) => (b.resumo?.score || 0) - (a.resumo?.score || 0));
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{buscaSelecionados.length} item(ns) selecionados.</p>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setBuscaSelecionados([])}
+                                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-600 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+                              >
+                                Limpar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => aplicarSelecaoDisponiveis(lancamentoBuscaAberto)}
+                                className="rounded-full border border-emerald-300 bg-emerald-500 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-white transition hover:bg-emerald-600"
+                              >
+                                Aplicar selecao
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : lanc.sugestao_acao === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_resumo ? (
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">Melhor previsto encontrado</p>
+                        <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            {lanc.lancamento_previsto_resumo.interessado ? (
+                              <p className="text-xs font-bold text-slate-900 dark:text-white">Interessado: {lanc.lancamento_previsto_resumo.interessado}</p>
+                            ) : null}
+                            <p className="font-bold text-slate-900 dark:text-white">{lanc.lancamento_previsto_resumo.descricao}</p>
+                            <p className="text-sm text-slate-600 dark:text-slate-300">Vence em {formatDate(lanc.lancamento_previsto_resumo.data_vencimento)} • {formatCurrency(lanc.lancamento_previsto_resumo.valor_previsto)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
 
-                                          const atrasadosTop = atrasadosOrdenados.slice(0, 3);
-                                          const temMaisSugestoes = atrasadosOrdenados.length > atrasadosTop.length;
-
-                                          return (
-                                            <>
-                                              {atrasadosTop.map(({ resumo: atrasado, atrasoId }, index) => {
-                                                const marcado = atrasoId ? lanc.lancamentos_atrasados_relacionados.includes(atrasoId) : false;
-                                                return (
-                                                  <label
-                                                    key={`${lanc.linha_arquivo}-${index}`}
-                                                    className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200/70 bg-white/80 p-3 dark:border-amber-900/40 dark:bg-slate-900/60"
-                                                  >
-                                                    <input
-                                                      type="checkbox"
-                                                      checked={marcado}
-                                                      onChange={(e) => {
-                                                        if (!atrasoId) return;
-                                                        const marcando = e.target.checked;
-                                                        setLancamentosEditados((prev) => prev.map((item) => {
-                                                          if (item.linha_arquivo === lanc.linha_arquivo) {
-                                                            const atuais = Array.isArray(item.lancamentos_atrasados_relacionados)
-                                                              ? item.lancamentos_atrasados_relacionados.map((id) => Number(id)).filter((id) => Number.isFinite(id))
-                                                              : [];
-                                                            const proximo = marcando
-                                                              ? [...new Set([...atuais, atrasoId])]
-                                                              : atuais.filter((id) => id !== atrasoId);
-                                                            return {
-                                                              ...item,
-                                                              sugestao_acao: proximo.length > 0 ? 'RELACIONAR_ATRASADOS' : 'CRIAR_NOVO',
-                                                              lancamentos_atrasados_relacionados: proximo,
-                                                              lancamentos_atrasados_resumo: (item.lancamentos_atrasados_resumo || []).filter((resumo) => !resumo.id || Number(resumo.id) !== atrasoId),
-                                                              sugestao_confirmada: false,
-                                                            };
-                                                          }
-
-                                                          if (!marcando) {
-                                                            return item;
-                                                          }
-
-                                                          const previstoAtual = item.lancamento_previsto_id != null ? Number(item.lancamento_previsto_id) : null;
-                                                          const previstoRemovido = previstoAtual === atrasoId;
-                                                          const atrasadosAtuais = Array.isArray(item.lancamentos_atrasados_relacionados)
-                                                            ? item.lancamentos_atrasados_relacionados.map((id) => Number(id)).filter((id) => Number.isFinite(id))
-                                                            : [];
-                                                          const atrasadosRestantes = atrasadosAtuais.filter((itemId) => itemId !== atrasoId);
-                                                          const atrasadosRemovidos = atrasadosRestantes.length !== atrasadosAtuais.length;
-
-                                                          if (!previstoRemovido && !atrasadosRemovidos) {
-                                                            return item;
-                                                          }
-
-                                                          const nextItem: LancamentoEditado = {
-                                                            ...item,
-                                                            sugestao_confirmada: false,
-                                                          };
-
-                                                          if (previstoRemovido) {
-                                                            nextItem.lancamento_previsto_id = null;
-                                                            nextItem.lancamento_previsto_resumo = null;
-                                                          }
-
-                                                          if (atrasadosRemovidos) {
-                                                            nextItem.lancamentos_atrasados_relacionados = atrasadosRestantes;
-                                                            nextItem.lancamentos_atrasados_resumo = (nextItem.lancamentos_atrasados_resumo || []).filter((resumo) => !resumo.id || Number(resumo.id) !== atrasoId);
-                                                          }
-
-                                                          if ((previstoRemovido && item.sugestao_acao === 'BAIXAR_PREVISTO') || (atrasadosRemovidos && item.sugestao_acao === 'RELACIONAR_ATRASADOS' && atrasadosRestantes.length === 0)) {
-                                                            nextItem.sugestao_acao = 'CRIAR_NOVO';
-                                                          }
-
-                                                          return nextItem;
-                                                        }));
-                                                      }}
-                                                    />
-                                                    <div className="min-w-0 flex-1">
-                                                      {atrasado.interessado ? (
-                                                        <p className="text-xs font-bold text-slate-900 dark:text-white">Interessado: {atrasado.interessado}</p>
-                                                      ) : null}
-                                                      <div className="flex flex-col gap-1">
-                                                        <p className="font-bold text-slate-900 dark:text-white">{atrasado.descricao}</p>
-                                                      </div>
-                                                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-300">
-                                                        <span className="rounded-full bg-amber-100 px-2 py-0.5 font-bold uppercase tracking-[0.14em] text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
-                                                          Score {atrasado.score}
-                                                        </span>
-                                                        <span>Venceu em {formatDate(atrasado.data_vencimento)}</span>
-                                                        <span>•</span>
-                                                        <span>{formatCurrency(atrasado.valor_previsto)}</span>
-                                                        {atrasado.centro_custo_nome ? (
-                                                          <>
-                                                            <span>•</span>
-                                                            <span>CC: {atrasado.centro_custo_nome}</span>
-                                                          </>
-                                                        ) : null}
-                                                      </div>
-                                                    </div>
-                                                  </label>
-                                                );
-                                              })}
-                                              {temMaisSugestoes ? (
-                                                <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200">
-                                                  As 3 melhores sugestões aparecem acima. Use <span className="font-bold">Buscar por mais</span> para ver todos os lançamentos disponíveis.
-                                                </div>
-                                              ) : null}
-                                            </>
-                                          );
-                                        })()}
-                                        </div>
-                                        {atrasadosTop.length > 0 ? (
-                                          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                                            <p className="text-xs text-slate-500 dark:text-slate-400">Exibindo até 3 sugestões por card.</p>
-                                            {temMaisSugestoes ? (
-                                              <button
-                                                type="button"
-                                                onClick={() => abrirBuscaDisponiveis(lanc)}
-                                                className="rounded-full border border-amber-300 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700 transition hover:border-amber-400 dark:border-amber-800 dark:bg-slate-950 dark:text-amber-200"
-                                              >
-                                                Buscar por mais
-                                              </button>
-                                            ) : null}
-                                          </div>
-                                        ) : (
-                                          <div className="mt-4 rounded-2xl border border-dashed border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200">
-                                            Nenhuma das melhores sugestões ficou livre para este card. Use <span className="font-bold">Buscar por mais</span>.
-                                          </div>
-                                        )}
-                                      ? item.lancamentos_atrasados_relacionados.map((id) => Number(id)).filter((id) => Number.isFinite(id))
-                                      : [];
-                                    const atrasadosRestantes = atrasadosAtuais.filter((itemId) => itemId !== atrasoId);
-                                    const atrasadosRemovidos = atrasadosRestantes.length !== atrasadosAtuais.length;
-
-                                    if (!previstoRemovido && !atrasadosRemovidos) {
-                                      return item;
-                                    }
-
-                                    const nextItem: LancamentoEditado = {
-                                      ...item,
-                                      sugestao_confirmada: false,
-                                    };
-
-                                    if (previstoRemovido) {
-                                      nextItem.lancamento_previsto_id = null;
-                                      nextItem.lancamento_previsto_resumo = null;
-                                    }
-
-                                    if (atrasadosRemovidos) {
-                                      nextItem.lancamentos_atrasados_relacionados = atrasadosRestantes;
-                                      nextItem.lancamentos_atrasados_resumo = (nextItem.lancamentos_atrasados_resumo || []).filter((resumo) => !resumo.id || Number(resumo.id) !== atrasoId);
-                                    }
-
-                                    if ((previstoRemovido && item.sugestao_acao === 'BAIXAR_PREVISTO') || (atrasadosRemovidos && item.sugestao_acao === 'RELACIONAR_ATRASADOS' && atrasadosRestantes.length === 0)) {
-                                      nextItem.sugestao_acao = 'CRIAR_NOVO';
-                                    }
-
-                                    return nextItem;
-                                  }));
+                  {lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' && !!lanc.lancamentos_atrasados_resumo?.length && (
+                    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">Atrasados compatíveis</p>
+                          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Selecione os atrasados que este movimento deve quitar.</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-3">
+                        {[...(lanc.lancamentos_atrasados_resumo || [])]
+                          .map((resumo, index) => ({
+                            resumo,
+                            atrasoId: resumo?.id ?? lanc.lancamentos_atrasados_ids?.[index],
+                          }))
+                          .sort((a, b) => (b.resumo?.score || 0) - (a.resumo?.score || 0))
+                          .map(({ resumo: atrasado, atrasoId }, index) => {
+                          const marcado = atrasoId ? lanc.lancamentos_atrasados_relacionados.includes(atrasoId) : false;
+                          const linhasComMesmoAtraso = atrasoId ? selecionadosConfirmadosPorId.get(atrasoId) : undefined;
+                          const selecionadoEmOutroLancamento = Boolean(
+                            atrasoId
+                              && linhasComMesmoAtraso
+                              && Array.from(linhasComMesmoAtraso).some((linha) => linha !== lanc.linha_arquivo),
+                          );
+                          const bloqueadoPorOutroLancamento = !marcado && selecionadoEmOutroLancamento;
+                          return (
+                            <label
+                              key={`${lanc.linha_arquivo}-${index}`}
+                              className={`flex items-start gap-3 rounded-2xl border border-amber-200/70 bg-white/80 p-3 dark:border-amber-900/40 dark:bg-slate-900/60 ${bloqueadoPorOutroLancamento ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={marcado}
+                                disabled={bloqueadoPorOutroLancamento}
+                                onChange={(e) => {
+                                  if (!atrasoId) return;
+                                  if (bloqueadoPorOutroLancamento) return;
+                                  const proximo = e.target.checked
+                                    ? [...lanc.lancamentos_atrasados_relacionados, atrasoId]
+                                    : lanc.lancamentos_atrasados_relacionados.filter((item) => item !== atrasoId);
+                                  updateLancamento(lanc.linha_arquivo, { lancamentos_atrasados_relacionados: proximo });
                                 }}
                               />
                               <div className="min-w-0 flex-1">
@@ -1824,6 +1663,9 @@ interface ContaItem {
                                 </div>
                                 {atrasado.motivo ? (
                                   <p className="mt-1 text-xs italic text-slate-500 dark:text-slate-400">{atrasado.motivo}</p>
+                                ) : null}
+                                {bloqueadoPorOutroLancamento ? (
+                                  <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">Esta sugestão já foi confirmada em outro lançamento.</p>
                                 ) : null}
                               </div>
                             </label>

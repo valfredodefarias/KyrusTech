@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api, fetchLancamentosPaged, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { useLookupStore } from '../store/lookupStore';
+import { useAuthStore } from '../store/authStore';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
 import { BankAvatar } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
@@ -506,6 +507,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
   const isBoletimEmbed = searchParams.get('embed_boletim') === '1';
   const isContasExtratoEmbed = isBoletimEmbed && searchParams.get('origem') === 'contas_extrato';
   const embedFullscreenDrawer = isBoletimEmbed && !isContasExtratoEmbed;
+  const currentEmpresaId = useAuthStore((state) => state.user?.empresa_id ?? null);
   // --- DADOS ---
   const [loading, setLoading] = useState(true);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
@@ -605,6 +607,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
   const auxLoadedRef = useRef(false);
   const lancamentosAbortRef = useRef<AbortController | null>(null);
   const lastLancamentosKeyRef = useRef<string>('');
+  const lastEmpresaIdRef = useRef<number | null>(null);
   const lastEntityCepLookupRef = useRef('');
   const autoPagamentoRef = useRef(true);
   const autoCompetenciaRef = useRef(true);
@@ -634,6 +637,9 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
 
   const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
+  const invalidateEntidades = useLookupStore((state) => state.invalidateEntidades);
+  const invalidateEntidadesLookup = useLookupStore((state) => state.invalidateEntidadesLookup);
+  const invalidatePlanoContas = useLookupStore((state) => state.invalidatePlanoContas);
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -1081,8 +1087,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
   useEffect(() => {
     const cor = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim();
     if(cor) setPrimaryColor(cor);
-    loadAuxData();
-  }, []);
+  }, [currentEmpresaId]);
 
   useEffect(() => { 
     if (filtrosAvancados.dataModo === 'PAGAMENTO' && (filtrosAvancados.dataInicio || filtrosAvancados.dataFim)) {
@@ -1095,7 +1100,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
     } else {
         loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
     }
-    }, [mesAtual, filtrosAvancados.dataInicio, filtrosAvancados.dataFim, filtrosAvancados.dataModo]);
+    }, [currentEmpresaId, mesAtual, filtrosAvancados.dataInicio, filtrosAvancados.dataFim, filtrosAvancados.dataModo]);
 
   useEffect(() => {
     if (centros.length === 1) {
@@ -1189,6 +1194,22 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
     } catch(e) { console.error(e); }
   }
 
+  useEffect(() => {
+    if (lastEmpresaIdRef.current === currentEmpresaId) return;
+
+    lastEmpresaIdRef.current = currentEmpresaId;
+    auxLoadedRef.current = false;
+    lastLancamentosKeyRef.current = '';
+    setLancamentos([]);
+    setSelectedIds(new Set());
+    setBoletimIdsFiltro(null);
+    invalidateEntidades();
+    invalidateEntidadesLookup();
+    invalidatePlanoContas();
+
+    void loadAuxData();
+  }, [currentEmpresaId, invalidateEntidades, invalidateEntidadesLookup, invalidatePlanoContas]);
+
   async function syncCadastros(options?: { silent?: boolean }) {
     try {
       const [rE, rCat, rC] = await Promise.all([
@@ -1217,7 +1238,7 @@ export function Lancamentos({ forcedSearchParams = null, onRequestCloseEmbed, dr
   };
 
   async function loadLancamentos(ini?: string, fim?: string, opts?: { force?: boolean; skipFallback?: boolean }) {
-    const key = `${ini || ''}|${fim || ''}`;
+    const key = `${currentEmpresaId ?? ''}|${ini || ''}|${fim || ''}`;
     if (!opts?.force && key === lastLancamentosKeyRef.current && lancamentos.length > 0) return;
     lastLancamentosKeyRef.current = key;
 

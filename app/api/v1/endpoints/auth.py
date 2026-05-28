@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session
 from app.db.session import get_db
 from app.crud import crud_usuario
 from app.core import security
 from app.core.config import settings
+from app.core.login_throttle import clear_login_failures, is_login_rate_limited, register_login_failure
 from app.schemas.token import Token
 from app.api.deps import get_current_active_user
 from app.models.usuario import Usuario
@@ -35,14 +36,20 @@ def _issue_access_token(response: Response, *, subject: str) -> Token:
 
 @router.post("/login", response_model=Token)
 def login(
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
     form_data: OAuth2PasswordRequestForm = Depends(),
 ):
+    if is_login_rate_limited(request=request, email=form_data.username):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Muitas tentativas. Tente novamente em alguns minutos.")
+
     user = crud_usuario.authenticate_user(db, email=form_data.username, password=form_data.password)
     if not user:
+        register_login_failure(request=request, email=form_data.username)
         raise HTTPException(status_code=400, detail="Login falhou")
 
+    clear_login_failures(request=request, email=form_data.username)
     return _issue_access_token(response, subject=user.email)
 
 

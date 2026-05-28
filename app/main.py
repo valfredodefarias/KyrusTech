@@ -4,8 +4,10 @@ import os
 import re
 import sys
 import asyncio
+import time
+from collections import defaultdict, deque
 from datetime import datetime
-from threading import Event
+from threading import Event, Lock
 from pathlib import Path
 from subprocess import run
 from zoneinfo import ZoneInfo
@@ -13,7 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 from sqlalchemy import text
 from sqlmodel import Session
@@ -31,6 +33,17 @@ MIGRATION_LOCK_ID = 24030901
 SCHEDULER_STOP_EVENT = Event()
 SCHEDULER_TASK: asyncio.Task | None = None
 BUSINESS_TZ = ZoneInfo("America/Sao_Paulo")
+RATE_LIMIT_WINDOW_SECONDS = 60
+RATE_LIMIT_API_MAX_REQUESTS = 180
+RATE_LIMIT_UPLOAD_MAX_REQUESTS = 12
+RATE_LIMIT_UPLOAD_PATH_MARKERS = (
+    "/upload",
+    "/anexos",
+    "/foto",
+    "/importacao",
+)
+_RATE_LIMIT_LOCK = Lock()
+_RATE_LIMIT_EVENTS: dict[str, deque[float]] = defaultdict(deque)
 
 
 def _should_auto_run_migrations() -> bool:
@@ -230,6 +243,85 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if response.headers.get("content-type", "").startswith("text/html"):
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; object-src 'none'; "
+            "img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
+            "script-src 'self'; connect-src 'self' ws: wss: http: https:; font-src 'self' data:; worker-src 'self' blob:"
+        )
+    return response
+
+
+def _client_identifier(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        first_ip = forwarded_for.split(",", 1)[0].strip()
+        if first_ip:
+            return first_ip
+
+    forwarded_host = request.headers.get("x-real-ip", "").strip()
+    if forwarded_host:
+        return forwarded_host
+
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_limit_for_path(path: str) -> tuple[int, int] | None:
+    if not path.startswith("/api/"):
+        return None
+
+    if any(marker in path for marker in RATE_LIMIT_UPLOAD_PATH_MARKERS):
+        return RATE_LIMIT_UPLOAD_MAX_REQUESTS, RATE_LIMIT_WINDOW_SECONDS
+
+    return RATE_LIMIT_API_MAX_REQUESTS, RATE_LIMIT_WINDOW_SECONDS
+
+
+def _register_rate_limit_event(*, key: str, now: float, window_seconds: int) -> int:
+    bucket = _RATE_LIMIT_EVENTS[key]
+    bucket.append(now)
+    cutoff = now - window_seconds
+    while bucket and bucket[0] < cutoff:
+        bucket.popleft()
+    return len(bucket)
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    rule = _rate_limit_for_path(request.url.path)
+    if rule is None:
+        return await call_next(request)
+
+    max_requests, window_seconds = rule
+    client_id = _client_identifier(request)
+    bucket_name = "upload" if any(marker in request.url.path for marker in RATE_LIMIT_UPLOAD_PATH_MARKERS) else "api"
+    key = f"{client_id}|{bucket_name}"
+
+    now = time.time()
+    with _RATE_LIMIT_LOCK:
+        total = _register_rate_limit_event(key=key, now=now, window_seconds=window_seconds)
+
+    if total > max_requests:
+        logger.warning(
+            "[RATE_LIMIT] bloqueado path=%s client=%s total=%s window_s=%s max=%s",
+            request.url.path,
+            client_id,
+            total,
+            window_seconds,
+            max_requests,
+        )
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Muitas requisições. Tente novamente em instantes."},
+        )
+
+    response = await call_next(request)
+    response.headers.setdefault("X-RateLimit-Limit", str(max_requests))
+    response.headers.setdefault("X-RateLimit-Window", str(window_seconds))
+    response.headers.setdefault("X-RateLimit-Remaining", str(max(0, max_requests - total)))
     return response
 
 

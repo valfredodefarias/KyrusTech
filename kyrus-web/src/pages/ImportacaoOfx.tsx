@@ -30,6 +30,10 @@ function normalizarDescricao(texto?: string | null) {
     .trim();
 }
 
+function onlyDigits(value: string) {
+  return String(value || '').replace(/\D/g, '');
+}
+
 function encontrarEntidadeIdPorNome(nome?: string | null, entidades: EntidadeItem[] = []) {
   const chave = normalizarDescricao(nome);
   if (!chave) return null;
@@ -1698,6 +1702,50 @@ export function ImportacaoOfx() {
                           <p className="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-300">
                             Sugestão detectada: {lanc.interessado_sugerido}
                           </p>
+                        ) : null}
+
+                        {!lanc.entidade_id ? (
+                          <div className="mt-2 flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={lanc.interessado_digitado || ''}
+                              onChange={(e) => updateLancamento(lanc.linha_arquivo, { interessado_digitado: e.target.value })}
+                              placeholder="Digite interessado..."
+                              className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-white outline-none focus:border-blue-500 transition"
+                            />
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const nomeBruto = (lanc.interessado_digitado || lanc.interessado_sugerido || lanc.razao_social || '').trim();
+                                if (!nomeBruto) {
+                                  setFeedback({ type: 'error', message: 'Digite o nome do interessado.' });
+                                  return;
+                                }
+                                try {
+                                  setLoading(true);
+                                  // try extract cpf/cnpj if present
+                                  const cpfMatch = nomeBruto.match(/(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})|(\b\d{11,14}\b)/);
+                                  const cpf_cnpj = cpfMatch ? onlyDigits(cpfMatch[0]) : undefined;
+                                  const payload: any = { nome: nomeBruto.replace(/(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})|(\b\d{11,14}\b)/g, '').trim(), status: 'ATIVO' };
+                                  if (cpf_cnpj) payload.cpf_cnpj = cpf_cnpj;
+                                  const res = await api.post('/entidades/', payload);
+                                  const newItem = res.data;
+                                  // update local cache
+                                  setEntidades((prev) => [...prev, { id: newItem.id, nome: newItem.nome }]);
+                                  // associate with lancamento
+                                  updateLancamento(lanc.linha_arquivo, { entidade_id: Number(newItem.id) });
+                                  setFeedback({ type: 'success', message: 'Interessado criado com sucesso.' });
+                                } catch (error: any) {
+                                  setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao criar interessado.' });
+                                } finally {
+                                  setLoading(false);
+                                }
+                              }}
+                              className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold"
+                            >
+                              Aplicar
+                            </button>
+                          </div>
                         ) : null}
                       </div>
                     </div>

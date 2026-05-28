@@ -403,6 +403,26 @@ def _classificar_movimento_descricao(lancamento_ofx: Dict) -> str:
 
 
 def _extrair_interessado_sugerido(lancamento_ofx: Dict) -> str:
+    # Special-case: many banks emit PIX QR descriptions like
+    # "PIX QR CODE RECEBIDO ... 27/05 NOME COMPLETO 000.000.000-00" where
+    # the payee name appears *after* a date and is followed by CPF/CNPJ.
+    # Detect this pattern and extract the name, removing CPF/CNPJ noise.
+    descricao_bruta_full = str(lancamento_ofx.get("descricao") or "")
+    if re.search(r"^\s*PIX\s+QR\s+CODE\s+RECEBIDO", descricao_bruta_full, flags=re.I):
+        m = re.search(r"(\d{1,2}[\-/]\d{1,2}(?:[\-/]\d{2,4})?)", descricao_bruta_full)
+        if m:
+            after = descricao_bruta_full[m.end():].strip()
+            # remove common CPF/CNPJ formats and long digit sequences
+            after = re.sub(r"\d{3}\.\d{3}\.\d{3}-\d{2}", " ", after)
+            after = re.sub(r"\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}", " ", after)
+            after = re.sub(r"\b\d{11,14}\b", " ", after)
+            # remove stray punctuation, keep letters and spaces
+            after = re.sub(r"[^A-Za-zÀ-ÖØ-öø-ÿ \-]", " ", after)
+            after = " ".join(after.split())
+            candidato_pix = _normalizar_interessado_final(after)
+            if candidato_pix:
+                return candidato_pix
+
     def _extrair_da_descricao(descricao_bruta: str) -> str:
         tokens_descricao = _tokenizar_texto(descricao_bruta)
         empresa_extraida = _extrair_nome_empresa(tokens_descricao)

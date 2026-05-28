@@ -177,6 +177,7 @@ interface LancamentoEditado extends LancamentoImportado {
   auto_preenchido: boolean;
   sugestao_acao_original: NonNullable<LancamentoImportado['sugestao_acao']>;
   sugestao_confirmada: boolean;
+  interessado_digitado?: string;
 }
 
 type FeedbackState = {
@@ -852,6 +853,7 @@ export function ImportacaoOfx() {
         ...lanc,
         plano_contas_id,
         entidade_id,
+        interessado_digitado: '',
         auto_preenchido,
         interessado_sugerido: entidadeSugestaoTexto,
         sugestao_acao_original: sugestaoOriginal,

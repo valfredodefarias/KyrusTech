@@ -1,0 +1,39 @@
+# Kyrus ERP - Regras de Workspace para Agentes de IA
+
+Este arquivo dita o comportamento de todos os agentes de IA no desenvolvimento do projeto Kyrus ERP. Siga estas diretrizes estritamente para garantir economia de tokens, segurança e padronização.
+
+## 0. Contrato de Inicialização e Segurança (Pilar do Desenvolvimento)
+* **Leitura Arquitetural**: No início de cada sessão ou tarefa complexa, o agente **deve** ler o arquivo `ARCHITECTURE.md` para compreender a estrutura atual e os padrões do projeto.
+* **Micro-Tarefas (Baby Steps)**: Divida tarefas grandes em passos mínimos e focados (ex: 1º criar tabela SQL/Model, 2º criar CRUD/rotas FastAPI, 3º criar formulário no Frontend). Peça a aprovação do usuário e execute testes após cada micro-tarefa.
+* **Workflow do Git (Salva-Vidas)**: Quando terminar um passo com sucesso e os testes passarem, instrua explicitamente o usuário a fazer um commit local (ex: `git commit -m "Agente criou tela X"`).
+* **Parada e Descarte (Rollback)**: Se você gerar um erro e tentar consertá-lo 3 vezes consecutivas sem sucesso, **pare o trabalho imediatamente**. Admita que o fluxo se perdeu e instrua o usuário a executar `git restore .` e `git clean -df` no terminal para voltar ao último commit funcional, mudando a abordagem em seguida.
+
+## 1. Economia de Tokens e Eficiência (Token Economy)
+* **Código Direto**: Responda focando no código modificado. Evite explicações extensas, resumos de alterações óbvias ou introduções amigáveis (ex: "Claro, posso ajudar com isso...").
+* **Substituições Cirúrgicas**: Use ferramentas de edição de arquivos (`replace_file_content` ou `multi_replace_file_content`) para alterar apenas as linhas necessárias. **Nunca reescreva o arquivo inteiro** se apenas algumas linhas mudaram.
+* **Contexto Minimizado**: Leia apenas os arquivos diretamente relacionados à alteração. Não faça varreduras de diretórios inteiros sem necessidade.
+
+## 2. Padrões Arquiteturais e Código Limpo
+
+### Backend (FastAPI + SQLModel + Alembic)
+* **Arquitetura Limpa**: Respeite a divisão de camadas em `app/`:
+  - `models/`: Definições de entidades SQLModel (representação do banco).
+  - `schemas/`: Schemas Pydantic para entrada/saída de dados (validação rígida).
+  - `crud/`: Operações diretas de persistência e busca (queries SQLModel).
+  - `api/v1/endpoints/`: Rotas HTTP e orquestração de lógica de negócios.
+* **Tipagem Estrita**: Sempre defina tipos para todos os parâmetros de função e retornos.
+
+### Frontend (React + Vite + TypeScript)
+* **Design e UI Reutilizável**: Utilize os componentes de UI padronizados localizados em `src/components` (ex: `CurrencyInput`, `MultiSelectDropdown`, `SearchableSelect`).
+* **Estilização**: Siga o padrão visual moderno com Tailwind CSS. Priorize layouts responsivos, modais deslizantes laterais (Drawers) e animações suaves (conforme o padrão da tela `Lancamentos.tsx` e `FRONTEND_UI_GUIDELINES.md`).
+* **Gerenciamento de Estado**: Utilize as stores `zustand` existentes (`useAuthStore`, `useLookupStore`) em `src/store`.
+
+## 3. Diretrizes de Segurança (Obrigatório)
+* **Validação no Backend**: Nunca confie na validação do frontend. Toda entrada de dados pesada e regras de negócio devem ser validadas no backend usando schemas Pydantic e middlewares apropriados.
+* **Segurança de Uploads**: Upload de arquivos deve validar: extensão, tipo MIME, magic bytes (assinatura do binário), tamanho máximo e path traversal na deleção.
+* **Segredos e Logs**: **Nunca** registre senhas, tokens, secrets ou chaves de API nos logs. Mantenha os logs em pontos críticos (início/fim de operações de conciliação e importação).
+
+## 4. Garantia de Qualidade e Testes (Critério de Conclusão)
+* **Garantia de Qualidade (Test-Driven)**: Uma tarefa só é considerada concluída se os testes correspondentes (ex: pytest no backend) forem criados/atualizados e passarem 100%.
+* **Comando de Teste**: Sempre apresente o comando de execução de testes para o usuário ao finalizar a tarefa para que ele possa auditar o funcionamento.
+* **Idempotência**: Garanta que operações de importação de arquivos (como OFX) ou jobs de integração (Asaas) sejam idempotentes (possam ser rodados repetidamente sem duplicar registros).

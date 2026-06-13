@@ -1,11 +1,13 @@
 # Python
-__pycache__/
-*.py[cod]
-*$py.class
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
 *.so
 .Python
 .venv/
+.venv-1/
 .venv311/
+.venv*/
 env/
 venv/
 ENV/

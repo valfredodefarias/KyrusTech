@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Check,
   Loader2,
   Plus,
   RefreshCw,
@@ -9,6 +8,16 @@ import {
   Shield,
   X,
   UserRoundCheck,
+  ChevronDown,
+  ChevronUp,
+  Settings,
+  TrendingUp,
+  Wallet,
+  CreditCard,
+  Users,
+  FileText,
+  Layers,
+  ShoppingBag,
 } from 'lucide-react';
 
 import { api, toPublicAssetUrl } from '../services/api';
@@ -84,13 +93,35 @@ function groupPermissions(items: PermissionItem[]) {
   return Array.from(grouped.entries());
 }
 
+function getModuleIcon(module: string) {
+  const mod = module.toLowerCase();
+  if (mod.includes('home')) return <Layers className="h-4 w-4 text-cyan-500" />;
+  if (mod.includes('boletim')) return <TrendingUp className="h-4 w-4 text-emerald-500" />;
+  if (mod.includes('dre')) return <TrendingUp className="h-4 w-4 text-indigo-500" />;
+  if (mod.includes('lancamentos')) return <Wallet className="h-4 w-4 text-rose-500" />;
+  if (mod.includes('contas')) return <Wallet className="h-4 w-4 text-amber-500" />;
+  if (mod.includes('cartoes')) return <CreditCard className="h-4 w-4 text-purple-500" />;
+  if (mod.includes('entidades')) return <Users className="h-4 w-4 text-blue-500" />;
+  if (mod.includes('centro_custo')) return <FileText className="h-4 w-4 text-slate-500" />;
+  if (mod.includes('importacao')) return <Layers className="h-4 w-4 text-teal-500" />;
+  if (mod.includes('integracoes')) return <Settings className="h-4 w-4 text-indigo-500" />;
+  if (mod.includes('configuracoes') || mod.includes('empresa')) return <Settings className="h-4 w-4 text-pink-500" />;
+  if (mod.includes('usuarios') || mod.includes('profiles')) return <Shield className="h-4 w-4 text-violet-500" />;
+  if (mod.includes('pdv')) return <ShoppingBag className="h-4 w-4 text-orange-500" />;
+  return <Shield className="h-4 w-4 text-slate-400" />;
+}
+
 function formatLabel(value: string) {
+  if (value.toLowerCase() === 'pdv') return 'PDV';
   return value
     .replace(/_/g, ' ')
     .trim()
     .split(/\s+/)
     .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .map((part) => {
+      if (part.toLowerCase() === 'pdv') return 'PDV';
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    })
     .join(' ');
 }
 
@@ -138,7 +169,6 @@ export function RbacManager() {
   const [showUserEditor, setShowUserEditor] = useState(false);
   const [showCreateProfile, setShowCreateProfile] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
-  const [savingPermissions, setSavingPermissions] = useState(false);
   const [creatingProfile, setCreatingProfile] = useState(false);
   const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
   const [permissions, setPermissions] = useState<PermissionItem[]>([]);
@@ -148,6 +178,7 @@ export function RbacManager() {
   const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
   const [profileSearch, setProfileSearch] = useState('');
   const [userSearch, setUserSearch] = useState('');
+  const [selectedUserProfileId, setSelectedUserProfileId] = useState<number | ''>('');
   const [profileName, setProfileName] = useState('');
   const [profileCode, setProfileCode] = useState('');
   const [profileDescription, setProfileDescription] = useState('');
@@ -158,6 +189,14 @@ export function RbacManager() {
   const [draftIsActive, setDraftIsActive] = useState(true);
   const [draftPermissionIds, setDraftPermissionIds] = useState<number[]>([]);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserProfileId, setNewUserProfileId] = useState<number | ''>('');
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [permissionSearch, setPermissionSearch] = useState('');
+  const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
 
   const selectedProfile = useMemo(() => {
     return profiles.find((profile) => profile.id === selectedProfileId) || null;
@@ -186,6 +225,21 @@ export function RbacManager() {
   }, [users, userSearch]);
 
   const groupedPermissions = useMemo(() => groupPermissions(permissions), [permissions]);
+
+  const filteredGroupedPermissions = useMemo(() => {
+    const query = permissionSearch.trim().toLowerCase();
+    if (!query) return groupedPermissions;
+    return groupedPermissions
+      .map(([module, modulePermissions]) => {
+        const filtered = modulePermissions.filter((perm) => {
+          const title = getPermissionTitle(perm).toLowerCase();
+          const subtitle = getPermissionSubtitle(perm).toLowerCase();
+          return title.includes(query) || subtitle.includes(query) || perm.code.toLowerCase().includes(query);
+        });
+        return [module, filtered] as [string, PermissionItem[]];
+      })
+      .filter(([_, perms]) => perms.length > 0);
+  }, [groupedPermissions, permissionSearch]);
 
   function openProfileEditor(profileId: number) {
     setSelectedProfileId(profileId);
@@ -221,6 +275,40 @@ export function RbacManager() {
     setProfileCode('');
     setProfileDescription('');
     setProfileIsActive(true);
+  }
+
+  function openCreateUser() {
+    setNewUserName('');
+    setNewUserEmail('');
+    setNewUserPassword('');
+    setNewUserProfileId('');
+    setShowCreateUser(true);
+  }
+
+  function closeCreateUser() {
+    setShowCreateUser(false);
+    setNewUserName('');
+    setNewUserEmail('');
+    setNewUserPassword('');
+    setNewUserProfileId('');
+  }
+
+  function toggleModuleExpanded(module: string) {
+    setExpandedModules((current) => ({
+      ...current,
+      [module]: !current[module],
+    }));
+  }
+
+  function toggleAllModulePermissions(modulePermissions: PermissionItem[], allowed: boolean) {
+    const ids = modulePermissions.map((p) => p.id);
+    setDraftPermissionIds((current) => {
+      if (allowed) {
+        return [...current, ...ids.filter((id) => !current.includes(id))];
+      } else {
+        return current.filter((id) => !ids.includes(id));
+      }
+    });
   }
 
   useEffect(() => {
@@ -267,6 +355,14 @@ export function RbacManager() {
     setDraftIsActive(selectedProfile.is_active);
     setDraftPermissionIds(selectedProfile.permissions.map((permission) => permission.id));
   }, [selectedProfile]);
+
+  useEffect(() => {
+    if (selectedUser) {
+      setSelectedUserProfileId(selectedUser.profile_id ?? '');
+    } else {
+      setSelectedUserProfileId('');
+    }
+  }, [selectedUser]);
 
   async function loadData() {
     try {
@@ -342,51 +438,78 @@ export function RbacManager() {
     }
   }
 
-  async function handleSaveProfile() {
+  async function handleCreateUser() {
+    if (!newUserEmail.trim() || !newUserPassword.trim()) {
+      setFeedback({ type: 'warning', message: 'Preencha o e-mail e a senha do novo usuário.' });
+      return;
+    }
+
+    setCreatingUser(true);
+    setFeedback(null);
+    try {
+      const payload = {
+        nome: newUserName.trim() || null,
+        email: newUserEmail.trim(),
+        password: newUserPassword,
+        is_active: true,
+        is_consultor: false,
+        consultor_role: 'USUARIO_NORMAL',
+      };
+      
+      const { data: createdUser } = await api.post<RbacUser>('/usuarios/', payload);
+      
+      if (newUserProfileId) {
+        await api.put(`/rbac/users/${createdUser.id}/profile`, { profile_id: newUserProfileId });
+      }
+      
+      await loadData();
+      setSelectedUserId(createdUser.id);
+      closeCreateUser();
+      setFeedback({ type: 'success', message: 'Usuário criado com sucesso.' });
+    } catch (error: any) {
+      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao criar usuário.' });
+    } finally {
+      setCreatingUser(false);
+    }
+  }
+
+  async function handleSaveProfileAndPermissions() {
     if (!selectedProfile) return;
-    if (!selectedProfile.editable) {
+    if (!selectedProfile.editable && selectedProfile.code !== 'FULL_ACCESS') {
       setFeedback({ type: 'warning', message: 'Esse perfil é de sistema e não pode ser alterado.' });
+      return;
+    }
+    if (!draftName.trim()) {
+      setFeedback({ type: 'warning', message: 'O nome do perfil não pode ficar vazio.' });
       return;
     }
 
     setSavingProfile(true);
     setFeedback(null);
     try {
-      const payload = {
+      const profilePayload = {
         name: draftName.trim(),
         code: draftCode.trim() || null,
         description: draftDescription.trim() || null,
         is_active: draftIsActive,
       };
-      const { data } = await api.patch<RbacProfile>(`/rbac/profiles/${selectedProfile.id}`, payload);
-      setProfiles((current) => current.map((profile) => (profile.id === data.id ? data : profile)));
-      setFeedback({ type: 'success', message: 'Perfil atualizado com sucesso.' });
+
+      const promises = [];
+      if (selectedProfile.editable) {
+        promises.push(api.patch<RbacProfile>(`/rbac/profiles/${selectedProfile.id}`, profilePayload));
+      }
+      promises.push(api.put<RbacProfile>(`/rbac/profiles/${selectedProfile.id}/permissions`, {
+        permission_ids: draftPermissionIds,
+      }));
+
+      await Promise.all(promises);
+
+      await loadData();
+      setFeedback({ type: 'success', message: 'Perfil e permissões salvos com sucesso.' });
     } catch (error: any) {
-      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao atualizar perfil.' });
+      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao salvar perfil.' });
     } finally {
       setSavingProfile(false);
-    }
-  }
-
-  async function handleSavePermissions() {
-    if (!selectedProfile) return;
-    if (!selectedProfile.editable) {
-      setFeedback({ type: 'warning', message: 'Esse perfil é de sistema e não pode ter permissões alteradas.' });
-      return;
-    }
-
-    setSavingPermissions(true);
-    setFeedback(null);
-    try {
-      const { data } = await api.put<RbacProfile>(`/rbac/profiles/${selectedProfile.id}/permissions`, {
-        permission_ids: draftPermissionIds,
-      });
-      setProfiles((current) => current.map((profile) => (profile.id === data.id ? data : profile)));
-      setFeedback({ type: 'success', message: 'Permissões atualizadas com sucesso.' });
-    } catch (error: any) {
-      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao atualizar permissões.' });
-    } finally {
-      setSavingPermissions(false);
     }
   }
 
@@ -399,6 +522,9 @@ export function RbacManager() {
       setFeedback({ type: 'success', message: 'Perfil do usuário atualizado com sucesso.' });
     } catch (error: any) {
       setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao atualizar perfil do usuário.' });
+      if (selectedUser) {
+        setSelectedUserProfileId(selectedUser.profile_id ?? '');
+      }
     } finally {
       setUpdatingUserId(null);
     }
@@ -491,30 +617,32 @@ export function RbacManager() {
             />
           </label>
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {filteredProfiles.map((profile) => (
               <button
                 key={profile.id}
                 type="button"
                 onClick={() => openProfileEditor(profile.id)}
-                className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-cyan-400 hover:bg-cyan-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-cyan-700 dark:hover:bg-cyan-950/30"
+                className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white/70 backdrop-blur-md p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:border-cyan-400 hover:shadow-lg hover:shadow-cyan-500/10 dark:border-slate-800 dark:bg-slate-900/70 dark:hover:border-cyan-700"
               >
+                <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-cyan-500/5 blur-xl transition-all duration-300 group-hover:scale-150 group-hover:bg-cyan-500/10" />
+                
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate text-lg font-black text-slate-900 dark:text-white">{profile.name}</p>
+                    <p className="truncate text-lg font-black text-slate-900 transition-colors group-hover:text-cyan-600 dark:text-white dark:group-hover:text-cyan-400">{profile.name}</p>
                     <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 line-clamp-2">{profile.description || 'Sem descrição.'}</p>
                   </div>
                   {profile.is_system ? (
-                    <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">Sistema</span>
+                    <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-200/50">Sistema</span>
                   ) : profile.is_active ? (
-                    <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">Ativo</span>
+                    <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200 border border-emerald-200/50">Ativo</span>
                   ) : (
-                    <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">Inativo</span>
+                    <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-300/50">Inativo</span>
                   )}
                 </div>
-                <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                  <span className="rounded-full bg-white px-2 py-1 shadow-sm dark:bg-slate-900">{profile.permission_count} permissões</span>
-                  <span className="rounded-full bg-white px-2 py-1 shadow-sm dark:bg-slate-900">{profile.user_count} usuários</span>
+                <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                  <span className="rounded-full bg-white px-2.5 py-1 shadow-sm dark:bg-slate-900">{profile.permission_count} permissões</span>
+                  <span className="rounded-full bg-white px-2.5 py-1 shadow-sm dark:bg-slate-900">{profile.user_count} usuários</span>
                 </div>
               </button>
             ))}
@@ -534,18 +662,28 @@ export function RbacManager() {
               <h3 className="text-2xl font-black text-slate-900 dark:text-white">Usuários</h3>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Clique em um cartão para abrir o editor de acesso do usuário.</p>
             </div>
-            <label className="flex items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-950">
-              <Search className="h-4 w-4 text-slate-400" />
-              <input
-                value={userSearch}
-                onChange={(event) => setUserSearch(event.target.value)}
-                placeholder="Buscar usuário"
-                className="w-56 bg-transparent text-sm outline-none"
-              />
-            </label>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-950">
+                <Search className="h-4 w-4 text-slate-400" />
+                <input
+                  value={userSearch}
+                  onChange={(event) => setUserSearch(event.target.value)}
+                  placeholder="Buscar usuário"
+                  className="w-56 bg-transparent text-sm outline-none"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={openCreateUser}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-500"
+              >
+                <Plus className="h-4 w-4" />
+                Novo usuário
+              </button>
+            </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {filteredUsers.map((user) => {
               const avatarUrl = toPublicAssetUrl(user.foto_url);
               return (
@@ -553,10 +691,12 @@ export function RbacManager() {
                   key={user.id}
                   type="button"
                   onClick={() => openUserEditor(user.id)}
-                  className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-cyan-400 hover:bg-cyan-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-cyan-700 dark:hover:bg-cyan-950/30"
+                  className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white/70 backdrop-blur-md p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:border-cyan-400 hover:shadow-lg hover:shadow-cyan-500/10 dark:border-slate-800 dark:bg-slate-900/70 dark:hover:border-cyan-700"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-200 text-sm font-black text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                  <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-cyan-500/5 blur-xl transition-all duration-300 group-hover:scale-150 group-hover:bg-cyan-500/10" />
+
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 text-sm font-black text-slate-600 dark:bg-slate-800 dark:text-slate-200 border border-slate-200/50 dark:border-slate-700">
                       {avatarUrl ? (
                         <img src={avatarUrl} alt={getUserDisplayName(user)} className="h-full w-full object-cover" />
                       ) : (
@@ -564,14 +704,16 @@ export function RbacManager() {
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-black text-slate-900 dark:text-white">{getUserDisplayName(user)}</p>
+                      <p className="truncate font-black text-slate-900 transition-colors group-hover:text-cyan-600 dark:text-white dark:group-hover:text-cyan-400">{getUserDisplayName(user)}</p>
                       <p className="truncate text-xs text-slate-500 dark:text-slate-400">{user.email}</p>
-                      <p className="mt-1 truncate text-sm text-slate-600 dark:text-slate-300">{user.profile_name || 'Sem perfil'}</p>
+                      <p className="mt-1 truncate text-sm font-bold text-slate-600 dark:text-slate-300">{user.profile_name || 'Sem perfil'}</p>
                     </div>
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                  <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-bold text-slate-500 dark:text-slate-400">
                     <span className="rounded-full bg-white px-2 py-1 shadow-sm dark:bg-slate-900">{user.is_active ? 'Ativo' : 'Inativo'}</span>
-                    {user.is_consultor ? <span className="rounded-full bg-cyan-100 px-2 py-1 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200">Consultor</span> : null}
+                    {user.is_consultor ? (
+                      <span className="rounded-full bg-cyan-100 px-2 py-1 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200 border border-cyan-200/50">Consultor</span>
+                    ) : null}
                   </div>
                 </button>
               );
@@ -662,140 +804,280 @@ export function RbacManager() {
         </div>
       ) : null}
 
-      {showProfileEditor && selectedProfile ? (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm">
-          <div className="absolute inset-0 flex flex-col bg-slate-50 dark:bg-slate-950">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-              <div className="min-w-0">
-                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Editar perfil</p>
-                <h3 className="truncate text-lg font-black text-slate-900 dark:text-white">{selectedProfile.name}</h3>
+      {showCreateUser ? (
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/60 backdrop-blur-sm">
+          <div className="relative flex h-full w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl animate-slide-in-right dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Novo usuário</p>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Criar novo usuário</h3>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={loadData}
-                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  Atualizar
-                </button>
-                <button type="button" onClick={closeProfileEditor} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-white">
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
+              <button type="button" onClick={closeCreateUser} className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-              <div className="grid gap-6 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
-                <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Detalhes</p>
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Edite o nome, código e descrição do perfil.</p>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleCreateUser();
+              }}
+              className="flex-1 overflow-y-auto p-6 custom-scrollbar"
+            >
+              <div className="space-y-5">
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-950">
+                  <div className="space-y-3">
+                    <input
+                      value={newUserName}
+                      onChange={(event) => setNewUserName(event.target.value)}
+                      placeholder="Nome completo"
+                      required
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    />
+                    <input
+                      type="email"
+                      value={newUserEmail}
+                      onChange={(event) => setNewUserEmail(event.target.value)}
+                      placeholder="E-mail / Login"
+                      required
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    />
+                    <input
+                      type="password"
+                      value={newUserPassword}
+                      onChange={(event) => setNewUserPassword(event.target.value)}
+                      placeholder="Senha de acesso"
+                      required
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    />
+                    <select
+                      value={newUserProfileId}
+                      onChange={(event) => {
+                        const val = event.target.value;
+                        setNewUserProfileId(val ? Number(val) : '');
+                      }}
+                      required
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    >
+                      <option value="">Selecione o perfil de acesso</option>
+                      {profiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name} {profile.is_system ? '(sistema)' : ''}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+                </div>
 
-                  <input
-                    value={draftName}
-                    onChange={(event) => setDraftName(event.target.value)}
-                    disabled={!selectedProfile.editable}
-                    className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-800"
-                  />
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={closeCreateUser}
+                    className="flex-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={creatingUser || !newUserEmail.trim() || !newUserPassword.trim() || !newUserProfileId}
+                    className="flex-1 rounded-2xl bg-cyan-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {creatingUser ? 'Criando...' : 'Criar usuário'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {showProfileEditor && selectedProfile ? (
+        <div 
+          className="fixed inset-0 z-50 flex justify-end bg-slate-950/50 backdrop-blur-sm transition-all duration-300"
+          onClick={closeProfileEditor}
+        >
+          <div 
+            className="relative flex h-full w-full max-w-5xl flex-col border-l border-slate-200 bg-slate-50 shadow-2xl animate-slide-in-right dark:border-slate-800 dark:bg-slate-950"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-slate-200 bg-white px-6 py-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Editar perfil</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-4">
+                    <input
+                      value={draftName}
+                      onChange={(event) => setDraftName(event.target.value)}
+                      disabled={!selectedProfile.editable}
+                      placeholder="Nome do perfil"
+                      className="bg-transparent text-xl font-black text-slate-900 outline-none transition focus:border-b focus:border-cyan-400 dark:text-white border-b border-transparent pb-0.5 w-64 max-w-full"
+                    />
+                    <label className="flex items-center gap-2.5 text-sm font-bold text-slate-600 dark:text-slate-300 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={draftIsActive}
+                        onChange={(event) => setDraftIsActive(event.target.checked)}
+                        disabled={!selectedProfile.editable}
+                        className="h-4.5 w-4.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 disabled:cursor-not-allowed"
+                      />
+                      Perfil ativo
+                    </label>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={loadData}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Atualizar
+                  </button>
+                  <button type="button" onClick={closeProfileEditor} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-white">
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Sub-header row for Code, Description and Count Stats */}
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider text-[10px]">Código:</span>
                   <input
                     value={draftCode}
                     onChange={(event) => setDraftCode(event.target.value)}
                     disabled={!selectedProfile.editable}
-                    className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm uppercase outline-none transition focus:border-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-800"
+                    placeholder="CÓDIGO"
+                    className="bg-transparent text-xs font-bold uppercase text-slate-700 dark:text-slate-200 outline-none transition focus:border-b focus:border-cyan-400 border-b border-transparent w-28"
                   />
-                  <textarea
+                </div>
+                <span className="hidden sm:inline text-slate-300 dark:text-slate-700">|</span>
+                <div className="flex items-center gap-1.5 flex-1 min-w-[240px]">
+                  <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider text-[10px]">Descrição:</span>
+                  <input
                     value={draftDescription}
                     onChange={(event) => setDraftDescription(event.target.value)}
                     disabled={!selectedProfile.editable}
-                    rows={5}
-                    className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-800"
+                    placeholder="Descrição do perfil..."
+                    className="bg-transparent text-xs text-slate-700 dark:text-slate-200 outline-none transition focus:border-b focus:border-cyan-400 border-b border-transparent flex-1"
                   />
-                  <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-950">
-                    <input
-                      type="checkbox"
-                      checked={draftIsActive}
-                      onChange={(event) => setDraftIsActive(event.target.checked)}
-                      disabled={!selectedProfile.editable}
-                      className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 disabled:cursor-not-allowed"
-                    />
-                    Perfil ativo
-                  </label>
-
-                  <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">{selectedProfile.permission_count} permissões</span>
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">{selectedProfile.user_count} usuários</span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleSaveProfile}
-                    disabled={savingProfile || !selectedProfile.editable}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    {savingProfile ? 'Salvando...' : 'Salvar perfil'}
-                  </button>
                 </div>
+                <span className="hidden md:inline text-slate-300 dark:text-slate-700">|</span>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-slate-100 px-2.5 py-0.5 dark:bg-slate-800 border border-slate-200/50 dark:border-slate-750">{selectedProfile.permission_count} permissões</span>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-0.5 dark:bg-slate-800 border border-slate-200/50 dark:border-slate-750">{selectedProfile.user_count} usuários</span>
+                </div>
+              </div>
+            </div>
 
-                <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+              <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-150 pb-4 dark:border-slate-800">
                   <div>
                     <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Permissões</p>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Marque apenas o que este perfil pode acessar.</p>
                   </div>
+                  <label className="flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-50 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-950">
+                    <Search className="h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      value={permissionSearch}
+                      onChange={(event) => setPermissionSearch(event.target.value)}
+                      placeholder="Buscar permissão..."
+                      className="w-40 bg-transparent text-xs outline-none"
+                    />
+                  </label>
+                </div>
 
-                  <div className="max-h-[calc(100vh-330px)] space-y-5 overflow-y-auto pr-1 custom-scrollbar">
-                    {groupedPermissions.map(([module, modulePermissions]) => (
-                      <div key={module} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
-                        <div className="mb-3 flex items-center justify-between gap-3">
-                          <div>
-                            <h4 className="text-sm font-black uppercase tracking-[0.14em] text-slate-900 dark:text-white">{formatLabel(module)}</h4>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">{modulePermissions.length} permissão(ões)</p>
+                <div className="max-h-[calc(100vh-330px)] space-y-4 overflow-y-auto pr-1 custom-scrollbar">
+                  {filteredGroupedPermissions.map(([module, modulePermissions]) => {
+                    const isExpanded = expandedModules[module] !== false;
+                    const allSelected = modulePermissions.every(p => draftPermissionIds.includes(p.id));
+                    
+                    return (
+                      <div key={module} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/30">
+                        <button
+                          type="button"
+                          onClick={() => toggleModuleExpanded(module)}
+                          className="flex w-full items-center justify-between gap-3 bg-slate-100/70 px-4 py-3 hover:bg-slate-100 dark:bg-slate-900/60 dark:hover:bg-slate-900"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            {getModuleIcon(module)}
+                            <div className="text-left">
+                              <h4 className="text-xs font-black uppercase tracking-[0.12em] text-slate-900 dark:text-white">{formatLabel(module)}</h4>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400">{modulePermissions.length} permissões</p>
+                            </div>
                           </div>
-                        </div>
+                          
+                          <div className="flex items-center gap-3">
+                            {selectedProfile.editable && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleAllModulePermissions(modulePermissions, !allSelected);
+                                }}
+                                className={`rounded-lg px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.05em] transition-all duration-200 ${allSelected ? 'bg-cyan-150 text-cyan-800 hover:bg-cyan-200 dark:bg-cyan-950/50 dark:text-cyan-200 dark:hover:bg-cyan-900/50' : 'bg-slate-200 text-slate-700 hover:bg-slate-250 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'}`}
+                              >
+                                {allSelected ? 'Desmarcar' : 'Marcar tudo'}
+                              </button>
+                            )}
+                            {isExpanded ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
+                          </div>
+                        </button>
 
-                        <div className="grid gap-2 md:grid-cols-2">
-                          {modulePermissions.map((permission) => (
-                            <label
-                              key={permission.id}
-                              className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-3 text-sm transition ${draftPermissionIds.includes(permission.id) ? 'border-cyan-400 bg-cyan-50 dark:border-cyan-700 dark:bg-cyan-950/30' : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900'}`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={draftPermissionIds.includes(permission.id)}
-                                onChange={() => togglePermission(permission.id)}
-                                disabled={!selectedProfile.editable}
-                                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 disabled:cursor-not-allowed"
-                              />
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-semibold text-slate-900 dark:text-white">{getPermissionTitle(permission)}</span>
-                                  {permission.is_page_level ? (
-                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500 dark:bg-slate-800 dark:text-slate-300">Página</span>
-                                  ) : null}
-                                </div>
-                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{getPermissionSubtitle(permission)}</p>
-                              </div>
-                            </label>
-                          ))}
-                        </div>
+                        {isExpanded && (
+                          <div className="grid gap-3 p-4 md:grid-cols-2 lg:grid-cols-3 bg-white dark:bg-slate-950/40 animate-slide-down">
+                            {modulePermissions.map((permission) => {
+                              const isPermChecked = selectedProfile.code === 'FULL_ACCESS'
+                                ? (permission.code === 'PDV_SER_VENDEDOR' ? draftPermissionIds.includes(permission.id) : true)
+                                : draftPermissionIds.includes(permission.id);
+                              const isPermDisabled = selectedProfile.code === 'FULL_ACCESS'
+                                ? (permission.code !== 'PDV_SER_VENDEDOR')
+                                : !selectedProfile.editable;
+                              return (
+                                <label
+                                  key={permission.id}
+                                  className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-3.5 text-sm transition-all duration-200 ${isPermChecked ? 'border-cyan-400/70 bg-cyan-500/5 dark:border-cyan-700/70' : 'border-slate-150 bg-slate-50/30 hover:border-slate-300 dark:border-slate-850 dark:bg-slate-900/10 dark:hover:border-slate-800'}`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isPermChecked}
+                                    onChange={() => togglePermission(permission.id)}
+                                    disabled={isPermDisabled}
+                                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 disabled:cursor-not-allowed"
+                                  />
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-bold text-slate-900 dark:text-white leading-tight">{getPermissionTitle(permission)}</span>
+                                      {permission.is_page_level ? (
+                                        <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200/50">Página</span>
+                                      ) : null}
+                                    </div>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-normal">{getPermissionSubtitle(permission)}</p>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })}
+                </div>
 
-                  <div className="flex justify-end">
+                {(selectedProfile.editable || selectedProfile.code === 'FULL_ACCESS') && (
+                  <div className="flex justify-end pt-2 border-t border-slate-150 dark:border-slate-800">
                     <button
                       type="button"
-                      onClick={handleSavePermissions}
-                      disabled={savingPermissions || !selectedProfile.editable}
-                      className="inline-flex items-center gap-2 rounded-2xl bg-cyan-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={handleSaveProfileAndPermissions}
+                      disabled={savingProfile}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 shadow-sm shadow-emerald-500/10 hover:shadow-emerald-500/20"
                     >
-                      {savingPermissions ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                      {savingPermissions ? 'Atualizando...' : 'Salvar permissões'}
+                      {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      {savingProfile ? 'Salvando...' : 'Salvar perfil'}
                     </button>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -803,8 +1085,14 @@ export function RbacManager() {
       ) : null}
 
       {showUserEditor && selectedUser ? (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm">
-          <div className="absolute inset-0 flex flex-col bg-slate-50 dark:bg-slate-950">
+        <div 
+          className="fixed inset-0 z-50 flex justify-end bg-slate-950/50 backdrop-blur-sm transition-all duration-300"
+          onClick={closeUserEditor}
+        >
+          <div 
+            className="relative flex h-full w-full max-w-2xl flex-col border-l border-slate-200 bg-slate-50 shadow-2xl animate-slide-in-right dark:border-slate-800 dark:bg-slate-950"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
               <div className="min-w-0">
                 <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Editar usuário</p>
@@ -826,10 +1114,10 @@ export function RbacManager() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-              <div className="grid gap-6 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+              <div className="grid gap-6">
                 <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                   <div className="flex items-center gap-4">
-                    <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-[26px] bg-slate-200 text-xl font-black text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                    <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-[26px] bg-slate-100 text-xl font-black text-slate-600 dark:bg-slate-800 dark:text-slate-200 border border-slate-200/50">
                       {toPublicAssetUrl(selectedUser.foto_url) ? (
                         <img src={toPublicAssetUrl(selectedUser.foto_url) || ''} alt={getUserDisplayName(selectedUser)} className="h-full w-full object-cover" />
                       ) : (
@@ -844,13 +1132,9 @@ export function RbacManager() {
                   </div>
 
                   <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">{selectedUser.is_active ? 'Ativo' : 'Inativo'}</span>
-                    {selectedUser.is_consultor ? <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200">Consultor</span> : null}
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">{selectedUser.profile_name || 'Sem perfil'}</span>
-                  </div>
-
-                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-400">
-                    Use o seletor ao lado para trocar o perfil de acesso.
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800 border border-slate-200/50">{selectedUser.is_active ? 'Ativo' : 'Inativo'}</span>
+                    {selectedUser.is_consultor ? <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200 border border-cyan-200/50">Consultor</span> : null}
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800 border border-slate-200/50">{selectedUser.profile_name || 'Sem perfil'}</span>
                   </div>
                 </div>
 
@@ -861,12 +1145,14 @@ export function RbacManager() {
                   </div>
 
                   <select
-                    value={selectedUser.profile_id ?? ''}
+                    value={selectedUserProfileId}
                     onChange={(event) => {
                       if (!event.target.value) return;
-                      void handleAssignProfile(selectedUser.id, Number(event.target.value));
+                      const profileId = Number(event.target.value);
+                      setSelectedUserProfileId(profileId);
+                      void handleAssignProfile(selectedUser.id, profileId);
                     }}
-                    className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    className="w-full rounded-2xl border border-slate-350 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                   >
                     <option value="">Selecione um perfil</option>
                     {profiles.map((profile) => (

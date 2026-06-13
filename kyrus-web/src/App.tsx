@@ -20,6 +20,9 @@ const Importacao = lazy(() => import('./pages/Importacao').then((module) => ({ d
 const ImportacaoEntidades = lazy(() => import('./pages/ImportacaoEntidades').then((module) => ({ default: module.ImportacaoEntidades })));
 const Lancamentos = lazy(() => import('./pages/Lancamentos').then((module) => ({ default: module.Lancamentos })));
 const Cartoes = lazy(() => import('./pages/Cartoes').then((module) => ({ default: module.Cartoes })));
+const Pdv = lazy(() => import('./pages/PDV').then((module) => ({ default: module.PDV })));
+const PdvFechamento = lazy(() => import('./pages/PDVFechamento').then((module) => ({ default: module.PDVFechamento })));
+const Caixa = lazy(() => import('./pages/Caixa').then((module) => ({ default: module.Caixa })));
 const Configuracoes = lazy(() => import('./pages/Configuracoes').then((module) => ({ default: module.Configuracoes })));
 const Auditoria = lazy(() => import('./pages/Auditoria').then((module) => ({ default: module.Auditoria })));
 const IntegracaoAsaas = lazy(() => import('./pages/IntegracaoAsaas').then((module) => ({ default: module.IntegracaoAsaas })));
@@ -118,6 +121,9 @@ function App() {
             <Route path="/orcamentos" element={<Orcamentos />} />
             <Route path="/budget" element={<Budget />} />
             <Route path="/cartoes" element={<Cartoes />} />
+            <Route path="/pdv" element={<Pdv />} />
+            <Route path="/pdv/fechamento" element={<PdvFechamento />} />
+            <Route path="/caixa" element={<Caixa />} />
             <Route path="/centro-custo" element={<CentroCusto />} />
             <Route path="/config" element={<Configuracoes />} />
             <Route path="/importacao" element={<Importacao />} />

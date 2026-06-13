@@ -4,7 +4,8 @@ import {
   Home, BarChart2, PlusCircle,
   Landmark, CreditCard, Settings,
   Briefcase, X, LineChart, FileText,
-  Calculator, Table2,
+  Calculator, Table2, ShoppingBag,
+  Banknote,
 } from 'lucide-react';
 import { useAuthStore, type AuthUser } from '../store/authStore';
 import { api } from '../services/api';
@@ -27,6 +28,10 @@ function hasAnyPermission(permissions: string[] | null | undefined, requiredPerm
     return true;
   }
   return requiredPermissions.some((permission) => permissions.includes(permission));
+}
+
+function isSuperConsultor(user: AuthUser | null) {
+  return Boolean(user?.is_consultor && user.consultor_role === 'SUPER_CONSULTOR');
 }
 
 interface SidebarPanelProps {
@@ -60,14 +65,28 @@ function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
   }, []);
 
   const isConsultor = Boolean(user?.is_consultor);
+  const superConsultor = isSuperConsultor(user);
   const permissions = user?.permissions || [];
 
   const baseMenuItems: MenuItem[] = [
     { icon: Home, label: 'Visão Geral', path: '/home' },
     { icon: Landmark, label: 'Contas Bancárias', path: '/contas' },
     { icon: PlusCircle, label: 'Lançamentos', path: '/lancamentos' },
+    { icon: Banknote, label: 'Caixa', path: '/caixa', requiredPermissions: ['page:caixa:view'] },
     { icon: BarChart2, label: 'Boletim', path: '/boletim' },
     { icon: CreditCard, label: 'Cartões', path: '/cartoes' },
+    {
+      icon: ShoppingBag,
+      label: 'PDV',
+      path: '/pdv',
+      requiredPermissions: [
+        'PDV_VER_TODAS_VENDAS',
+        'PDV_SER_VENDEDOR',
+        'PDV_REALIZAR_SANGRIA',
+        'PDV_CANCELAR_VENDA',
+        'PDV_CONCEDER_DESCONTO',
+      ],
+    },
     { icon: Calculator, label: 'Orçamentos', path: '/orcamentos' },
     { icon: Table2, label: 'Budget', path: '/budget' },
     {
@@ -85,7 +104,13 @@ function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
     menuItems.unshift({ icon: Briefcase, label: 'Área do Consultor', path: '/consultor' });
   }
 
-  const menuItemsFiltered = menuItems.filter((item) => hasAnyPermission(permissions, item.requiredPermissions));
+  const menuItemsFiltered = menuItems.filter((item) => {
+    if (item.path === '/pdv' && superConsultor) {
+      return true;
+    }
+
+    return hasAnyPermission(permissions, item.requiredPermissions);
+  });
 
   return (
     <div className="flex h-full min-h-0 flex-col">

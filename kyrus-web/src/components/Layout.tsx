@@ -271,7 +271,7 @@ function LayoutShell() {
   const handleLogout = () => {
     api.post('/auth/logout').catch(() => undefined).finally(() => {
       logout();
-      window.location.href = '/';
+      window.location.href = '/login';
     });
   };
 

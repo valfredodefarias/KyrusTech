@@ -145,6 +145,7 @@ interface FormConta {
   conta_como_disponibilidade: boolean;
   logo_url?: string | null;
   tipo_integracao?: string | null;
+  allowed_user_ids?: number[];
 }
 
 interface UserData {
@@ -287,6 +288,7 @@ export function Contas() {
   const [lancamentosEmbedParams, setLancamentosEmbedParams] = useState<URLSearchParams | null>(null);
 
   // Formulário
+  const [usuarios, setUsuarios] = useState<any[]>([]);
   const [form, setForm] = useState<FormConta>({
     nome: '',
     banco: '',
@@ -298,8 +300,28 @@ export function Contas() {
     centro_custo_id: '',
     status: 'ATIVO',
     conta_como_disponibilidade: true,
-    tipo_integracao: 'MANUAL'
+    tipo_integracao: 'MANUAL',
+    allowed_user_ids: []
   });
+
+  async function carregarUsuarios() {
+    try {
+      const { data } = await api.get('/rbac/users');
+      setUsuarios(normalizeListResponse<any>(data));
+    } catch (error) {
+      console.error("Erro ao carregar usuários para controle de acesso", error);
+    }
+  }
+
+  function toggleUserAccess(userId: number) {
+    setForm((prev) => {
+      const current = prev.allowed_user_ids || [];
+      const next = current.includes(userId)
+        ? current.filter((id) => id !== userId)
+        : [...current, userId];
+      return { ...prev, allowed_user_ids: next };
+    });
+  }
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -387,6 +409,7 @@ export function Contas() {
   useEffect(() => {
     carregarDados();
     carregarTema();
+    carregarUsuarios();
   }, []);
 
   useEffect(() => {
@@ -491,7 +514,21 @@ export function Contas() {
   function handleOpenCreate() {
     setIsEditing(false);
     setEditingId(null);
-    setForm({ nome: '', banco: '', agencia: '', conta_numero: '', conta_digito: '', tipo: 'CORRENTE', saldo_inicial: '', centro_custo_id: getSingleCentroId(centros), status: 'ATIVO', conta_como_disponibilidade: true, logo_url: null, tipo_integracao: 'MANUAL' });
+    setForm({
+      nome: '',
+      banco: '',
+      agencia: '',
+      conta_numero: '',
+      conta_digito: '',
+      tipo: 'CORRENTE',
+      saldo_inicial: '',
+      centro_custo_id: getSingleCentroId(centros),
+      status: 'ATIVO',
+      conta_como_disponibilidade: true,
+      logo_url: null,
+      tipo_integracao: 'MANUAL',
+      allowed_user_ids: []
+    });
     setLogoFile(null);
     setLogoPreview('');
     setLogoRemoved(false);
@@ -516,7 +553,8 @@ export function Contas() {
       status: conta.status,
       conta_como_disponibilidade: conta.conta_como_disponibilidade !== false,
       logo_url: conta.logo_url || null,
-      tipo_integracao: conta.tipo_integracao || 'MANUAL'
+      tipo_integracao: conta.tipo_integracao || 'MANUAL',
+      allowed_user_ids: (conta as any).allowed_user_ids || []
     });
     setLogoPreview(conta.logo_url || '');
     setLogoFile(null);
@@ -1760,6 +1798,45 @@ export function Contas() {
                   </div>
                   <p className="mt-2 text-xs text-slate-500">Quando marcada como não, a conta continua disponível em extratos e lançamentos, mas sai do saldo geral disponível.</p>
               </div>
+
+              {form.tipo === 'CAIXA' && (
+                <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-500">Operadores autorizados a acessar este Caixa</label>
+                    <p className="mt-1 text-[11px] text-slate-400 leading-normal">Marque os operadores de caixa que terão acesso a esta conta na página de Caixa e PDV. Se nenhum for selecionado, apenas administradores poderão acessar.</p>
+                  </div>
+                  {usuarios.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic">Nenhum operador/usuário encontrado para vincular.</p>
+                  ) : (
+                    <div className="grid gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-1 pt-1">
+                      {usuarios.map((u) => {
+                        const isChecked = (form.allowed_user_ids || []).includes(u.id);
+                        return (
+                          <button
+                            key={u.id}
+                            type="button"
+                            onClick={() => toggleUserAccess(u.id)}
+                            className={`flex items-center justify-between rounded-xl border p-3 text-left transition ${isChecked ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/20' : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800'}`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-500 uppercase shrink-0">
+                                {u.nome?.slice(0, 2).toUpperCase() || 'OP'}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate leading-tight">{u.nome}</p>
+                                <p className="text-xs text-slate-400 truncate mt-0.5">{u.email}</p>
+                              </div>
+                            </div>
+                            <div className={`h-5 w-5 rounded border flex items-center justify-center transition ${isChecked ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
+                              {isChecked && <Check className="h-3 w-3 stroke-[3]" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div>
                   <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Status</label>

@@ -7,7 +7,7 @@ import {
   Building2, UploadCloud, Layers, Save, Loader2, 
   Palette, Check, AlertCircle, Camera, RefreshCw,
   Download, CalendarRange, Trash2, Users,
-  PanelLeftClose, PanelLeftOpen
+  PanelLeftClose, PanelLeftOpen, ShoppingBag, Plus
 } from 'lucide-react';
 import { Entidades } from './Entidades';
 
@@ -33,6 +33,7 @@ interface UserInfo {
   foto_url?: string | null;
   is_consultor?: boolean;
   consultor_role?: string;
+  permissions?: string[] | null;
 }
 
 interface ContaExportacao {
@@ -86,8 +87,14 @@ interface IntegracaoNfstock {
   nfstock_select_company?: boolean;
   nfstock_company_name?: string | null;
 }
-const AUTHORIZED_COMPANY_RESET_EMAILS = ['cirocue12@gmail.com', 'cirocaue12@gmail.com'];
-const AUTHORIZED_NFSTOCK_FORCE_SYNC_EMAILS = ['cirocaue12@gmail.com'];
+
+const COMPANY_RESET_PERMISSION = 'empresa:reset_base';
+const NFSTOCK_FORCE_SYNC_PERMISSION = 'integracoes:sync';
+
+function hasPermission(user: UserInfo | null, permission: string) {
+  const permissions = user?.permissions || [];
+  return permissions.includes('*') || permissions.includes(permission);
+}
 
 const IntegracaoNfstockCentroCusto = () => {
   const [centros, setCentros] = useState<CentroCustoOption[]>([]);
@@ -105,7 +112,7 @@ const IntegracaoNfstockCentroCusto = () => {
   const [companyName, setCompanyName] = useState('');
   const [ativo, setAtivo] = useState(true);
   const [forceSyncLogin, setForceSyncLogin] = useState('');
-  const canForceSyncByLogin = AUTHORIZED_NFSTOCK_FORCE_SYNC_EMAILS.includes((user?.email || '').trim().toLowerCase());
+  const canForceSyncByLogin = hasPermission(user, NFSTOCK_FORCE_SYNC_PERMISSION);
 
   async function loadData() {
     setLoading(true);
@@ -140,7 +147,7 @@ const IntegracaoNfstockCentroCusto = () => {
 
   async function handleSyncByLogin() {
     if (!canForceSyncByLogin) {
-      alert('Ação restrita para este usuário.');
+      alert('Você não tem permissão para sincronizar por login.');
       return;
     }
 
@@ -343,7 +350,7 @@ const DadosEmpresa = () => {
   const [categoriaNfeFornecedoresId, setCategoriaNfeFornecedoresId] = useState('');
   const [loadingCategoriasNfe, setLoadingCategoriasNfe] = useState(false);
   const invalidatePlanoContas = useLookupStore((state) => state.invalidatePlanoContas);
-  const canResetEmpresa = AUTHORIZED_COMPANY_RESET_EMAILS.includes((user?.email || '').trim().toLowerCase());
+  const canResetEmpresa = hasPermission(user, COMPANY_RESET_PERMISSION) && user?.email === 'cirocaue12@gmail.com';
 
   useEffect(() => { loadEmpresa(); }, []);
 
@@ -374,7 +381,9 @@ const DadosEmpresa = () => {
         setLoadingCategoriasNfe(true);
         try {
           const { data: planoContasData } = await api.get('/plano-contas/');
-          const categoriasDespesa = normalizeListResponse<CategoriaNfeConfig>(planoContasData)
+          const normalized = normalizeListResponse<CategoriaNfeConfig>(planoContasData);
+          
+          const categoriasDespesa = normalized
             .filter((item) => String(item.tipo || '').toUpperCase().startsWith('D'))
             .filter((item) => item.permite_lancamentos !== false)
             .filter((item) => item.eh_cabecalho !== true)
@@ -540,6 +549,8 @@ const DadosEmpresa = () => {
           </div>
         </div>
 
+
+
         {/* PERSONALIZAÇÃO VISUAL */}
         <div>
           <label className="text-xs font-bold text-slate-700 dark:text-white uppercase mb-4 flex items-center gap-2">
@@ -601,6 +612,412 @@ const DadosEmpresa = () => {
             </div>
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+};
+
+const ConfiguracoesPDV = () => {
+  const [empresa, setEmpresa] = useState<Empresa | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [categoriasReceita, setCategoriasReceita] = useState<CategoriaNfeConfig[]>([]);
+  interface ContaConfig {
+    id: number;
+    nome: string;
+    tipo: string;
+  }
+  const [contas, setContas] = useState<ContaConfig[]>([]);
+
+  const defaultFormas = [
+    { key: 'dinheiro', label: 'Dinheiro', parcelada: false, ativa: true },
+    { key: 'pix_chave', label: 'PIX (Chave)', parcelada: false, ativa: true },
+    { key: 'pix_qr', label: 'PIX (QR Code)', parcelada: false, ativa: true },
+    { key: 'cartao_credito_vista', label: 'Cartão de Crédito (À Vista)', parcelada: false, ativa: true },
+    { key: 'cartao_credito_parcelado', label: 'Cartão de Crédito (Parcelado)', parcelada: true, ativa: true },
+    { key: 'boleto', label: 'Boleto', parcelada: true, ativa: true }
+  ];
+  const defaults = ['dinheiro', 'pix_chave', 'pix_qr', 'cartao_credito_vista', 'cartao_credito_parcelado', 'boleto'];
+
+  const [formasPagamento, setFormasPagamento] = useState<any[]>(defaultFormas);
+
+  const [pdvConfigCategorias, setPdvConfigCategorias] = useState<Record<string, string>>({
+    dinheiro: '',
+    pix_chave: '',
+    pix_qr: '',
+    cartao_credito_vista: '',
+    cartao_credito_parcelado: '',
+    boleto: ''
+  });
+  const [pdvConfigContas, setPdvConfigContas] = useState<Record<string, string>>({
+    dinheiro: '',
+    pix_chave: '',
+    pix_qr: '',
+    cartao_credito_vista: '',
+    cartao_credito_parcelado: '',
+    boleto: ''
+  });
+  const [pdvConfigMarcarPago, setPdvConfigMarcarPago] = useState<Record<string, boolean>>({
+    dinheiro: true,
+    pix_chave: true,
+    pix_qr: true,
+    cartao_credito_vista: true,
+    cartao_credito_parcelado: false,
+    boleto: false
+  });
+
+  // Novos estados para criação de forma de pagamento
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newParcelada, setNewParcelada] = useState(false);
+  const [newAtiva, setNewAtiva] = useState(true);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function loadData() {
+    setLoading(true);
+    try {
+      const { data: userData } = await api.get<UserInfo & { empresa_id?: number }>('/usuarios/me');
+      if (userData.empresa_id) {
+        const { data: emp } = await api.get(`/empresas/${userData.empresa_id}`);
+        setEmpresa(emp);
+
+        let loadedFormas = [...defaultFormas];
+        if (emp.pdv_config) {
+          try {
+            const parsed = JSON.parse(emp.pdv_config);
+            if (parsed.formas_pagamento && Array.isArray(parsed.formas_pagamento)) {
+              loadedFormas = parsed.formas_pagamento;
+            }
+            if (parsed.categorias) {
+              setPdvConfigCategorias((prev) => ({ ...prev, ...parsed.categorias }));
+            }
+            if (parsed.contas) {
+              setPdvConfigContas((prev) => ({ ...prev, ...parsed.contas }));
+            }
+            if (parsed.marcar_como_pago) {
+              setPdvConfigMarcarPago((prev) => ({ ...prev, ...parsed.marcar_como_pago }));
+            }
+          } catch (e) {
+            console.error('Erro ao fazer parse de pdv_config', e);
+          }
+        }
+        setFormasPagamento(loadedFormas);
+
+        const [{ data: planoContasData }, { data: contasData }] = await Promise.all([
+          api.get('/plano-contas/'),
+          api.get('/contas/', { params: { include_saldo: false } })
+        ]);
+
+        const normalized = normalizeListResponse<CategoriaNfeConfig>(planoContasData);
+        const categoriasRec = normalized
+          .filter((item) => String(item.tipo || '').toUpperCase().startsWith('R'))
+          .filter((item) => item.permite_lancamentos !== false)
+          .filter((item) => item.eh_cabecalho !== true)
+          .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+        setCategoriasReceita(categoriasRec);
+
+        setContas(normalizeListResponse<ContaConfig>(contasData));
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSave() {
+    if (!empresa) return;
+    setSaving(true);
+    try {
+      await api.patch(`/empresas/${empresa.id}`, {
+        pdv_config: JSON.stringify({
+          formas_pagamento: formasPagamento,
+          categorias: pdvConfigCategorias,
+          marcar_como_pago: pdvConfigMarcarPago,
+          contas: pdvConfigContas
+        })
+      });
+      alert("Configurações do PDV salvas com sucesso!");
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao salvar configurações do PDV.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleAddPaymentMethod() {
+    if (!newName.trim()) {
+      alert('Por favor, informe o nome da forma de pagamento.');
+      return;
+    }
+    
+    // Normalize key
+    const key = newName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '').trim();
+    if (!key) {
+      alert('Nome inválido.');
+      return;
+    }
+
+    let uniqueKey = key;
+    let suffix = 1;
+    while (formasPagamento.some((item) => item.key === uniqueKey)) {
+      uniqueKey = `${key}_${suffix}`;
+      suffix++;
+    }
+
+    const newMethod = {
+      key: uniqueKey,
+      label: newName.trim(),
+      parcelada: newParcelada,
+      ativa: newAtiva
+    };
+
+    setFormasPagamento([...formasPagamento, newMethod]);
+    setPdvConfigCategorias((prev) => ({ ...prev, [uniqueKey]: '' }));
+    setPdvConfigContas((prev) => ({ ...prev, [uniqueKey]: '' }));
+    setPdvConfigMarcarPago((prev) => ({ ...prev, [uniqueKey]: !newParcelada }));
+
+    setNewName('');
+    setNewParcelada(false);
+    setNewAtiva(true);
+    setShowAddForm(false);
+  }
+
+  function handleRemovePaymentMethod(key: string) {
+    const matched = formasPagamento.find((f) => f.key === key);
+    if (!matched) return;
+    if (window.confirm(`Deseja realmente remover a forma de pagamento "${matched.label}"?`)) {
+      setFormasPagamento(formasPagamento.filter((f) => f.key !== key));
+      
+      const newCats = { ...pdvConfigCategorias };
+      delete newCats[key];
+      setPdvConfigCategorias(newCats);
+
+      const newContas = { ...pdvConfigContas };
+      delete newContas[key];
+      setPdvConfigContas(newContas);
+
+      const newMarcar = { ...pdvConfigMarcarPago };
+      delete newMarcar[key];
+      setPdvConfigMarcarPago(newMarcar);
+    }
+  }
+
+  if (loading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>;
+  if (!empresa) return <div className="p-10 text-center text-slate-500">Empresa não encontrada.</div>;
+
+  return (
+    <div className="w-full animate-in fade-in slide-in-from-bottom-4">
+      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-none p-4 sm:p-6 shadow-sm">
+        <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-2">Configurações do PDV (Ponto de Venda)</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 mb-6">Defina o mapeamento contábil, a conta financeira padrão e a liquidação automática das transações por forma de pagamento.</p>
+
+        <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-900 dark:text-white">Mapeamento Contábil e Liquidação Automática</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                Escolha a categoria de receitas do Plano de Contas e decida se o lançamento correspondente deve ser marcado como liquidado (PAGO) na hora da venda, ou se nascerá em aberto.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAddForm(true)}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2 text-xs font-bold text-white shadow-md transition-colors cursor-pointer shrink-0"
+              style={empresa.cor_primaria ? { backgroundColor: empresa.cor_primaria } : undefined}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Nova Forma
+            </button>
+          </div>
+          
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {formasPagamento.map((item) => (
+              <div key={item.key} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3 shadow-sm relative">
+                <div className="flex items-center justify-between font-bold text-xs uppercase tracking-wider">
+                  <span className="text-slate-900 dark:text-white">{item.label}</span>
+                  {!defaults.includes(item.key) && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePaymentMethod(item.key)}
+                      className="text-red-500 hover:text-red-600 p-1 hover:bg-red-50 dark:hover:bg-red-950/20 rounded transition cursor-pointer animate-in fade-in"
+                      title="Excluir Forma de Pagamento"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                
+                <label className="block">
+                  <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Categoria de Receita</span>
+                  <select
+                    value={pdvConfigCategorias[item.key] || ''}
+                    onChange={(e) => {
+                      setPdvConfigCategorias({
+                        ...pdvConfigCategorias,
+                        [item.key]: e.target.value
+                      });
+                    }}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                  >
+                    <option value="">Automático (Padrão de Receitas)</option>
+                    {categoriasReceita.map((categoria) => (
+                      <option key={categoria.id} value={categoria.id}>{categoria.nome}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Conta Financeira</span>
+                  <select
+                    value={pdvConfigContas[item.key] || ''}
+                    onChange={(e) => {
+                      setPdvConfigContas({
+                        ...pdvConfigContas,
+                        [item.key]: e.target.value
+                      });
+                    }}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                  >
+                    <option value="">Não Associada</option>
+                    {contas.map((c) => (
+                      <option key={c.id} value={c.id}>{c.nome}</option>
+                    ))}
+                  </select>
+                </label>
+                
+                <div className="flex flex-col gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pdvConfigMarcarPago[item.key] || false}
+                      onChange={(e) => {
+                        setPdvConfigMarcarPago({
+                          ...pdvConfigMarcarPago,
+                          [item.key]: e.target.checked
+                        });
+                      }}
+                      className="rounded text-blue-500 focus:ring-blue-500"
+                    />
+                    Marcar como Pago na hora
+                  </label>
+
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={item.ativa !== false}
+                      onChange={(e) => {
+                        setFormasPagamento(formasPagamento.map((f) => f.key === item.key ? { ...f, ativa: e.target.checked } : f));
+                      }}
+                      className="rounded text-blue-500 focus:ring-blue-500"
+                    />
+                    Ativa no PDV
+                  </label>
+
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={item.parcelada || false}
+                      onChange={(e) => {
+                        setFormasPagamento(formasPagamento.map((f) => f.key === item.key ? { ...f, parcelada: e.target.checked } : f));
+                      }}
+                      className="rounded text-blue-500 focus:ring-blue-500"
+                    />
+                    Permite Parcelamento
+                  </label>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* MODAL DE CRIAÇÃO */}
+        {showAddForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 text-slate-900 dark:text-white">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Nova Forma de Pagamento</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(false)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl font-bold cursor-pointer"
+                >
+                  &times;
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Nome da Forma</span>
+                  <input
+                    type="text"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="Ex: Vale Refeição, Pix Parcelado"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                  />
+                </label>
+
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newParcelada}
+                      onChange={(e) => setNewParcelada(e.target.checked)}
+                      className="rounded text-blue-500 focus:ring-blue-500"
+                    />
+                    Permite Parcelamento
+                  </label>
+
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newAtiva}
+                      onChange={(e) => setNewAtiva(e.target.checked)}
+                      className="rounded text-blue-500 focus:ring-blue-500"
+                    />
+                    Ativa (Disponível no PDV)
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(false)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddPaymentMethod}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-bold shadow-md transition cursor-pointer"
+                  style={empresa.cor_primaria ? { backgroundColor: empresa.cor_primaria } : undefined}
+                >
+                  Adicionar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* BOTÃO SALVAR */}
+        <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+          <button 
+            onClick={handleSave} 
+            disabled={saving} 
+            className="px-7 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold shadow-sm flex items-center gap-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" 
+            style={empresa.cor_primaria ? { backgroundColor: empresa.cor_primaria } : undefined}
+          >
+            {saving ? <Loader2 className="animate-spin w-5 h-5"/> : <Save className="w-5 h-5"/>} 
+            {saving ? 'Salvando...' : 'Salvar Alterações'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1096,12 +1513,12 @@ const ExportacaoFinanceira = () => {
 
 // --- PÁGINA PRINCIPAL ---
 export function Configuracoes() {
-  type ConfigTab = 'EMPRESA' | 'USUARIO' | 'INTERESSADOS' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO' | 'RBAC' | 'NFSTOCK';
+  type ConfigTab = 'EMPRESA' | 'USUARIO' | 'INTERESSADOS' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO' | 'RBAC' | 'NFSTOCK' | 'PDV';
   const [searchParams, setSearchParams] = useSearchParams();
   const [menuCollapsed, setMenuCollapsed] = useState(false);
 
   const isConfigTab = (value: string | null): value is ConfigTab => {
-    return value === 'EMPRESA' || value === 'USUARIO' || value === 'INTERESSADOS' || value === 'PLANO' || value === 'IMPORTACAO' || value === 'FINANCEIRO' || value === 'RBAC' || value === 'NFSTOCK';
+    return value === 'EMPRESA' || value === 'USUARIO' || value === 'INTERESSADOS' || value === 'PLANO' || value === 'IMPORTACAO' || value === 'FINANCEIRO' || value === 'RBAC' || value === 'NFSTOCK' || value === 'PDV';
   };
 
   const [activeTab, setActiveTab] = useState<ConfigTab>(() => {
@@ -1131,13 +1548,14 @@ export function Configuracoes() {
     setSearchParams(next, { replace: true });
   }, [activeTab, searchParams, setSearchParams]);
 
-  const tabs: Array<{ key: ConfigTab; label: string; description: string; icon: typeof Building2 }> = [
+  const tabs: Array<{ key: ConfigTab; label: string; description: string; icon: any }> = [
     { key: 'EMPRESA', label: 'Minha Empresa', description: 'Identidade visual e dados da conta', icon: Building2 },
     { key: 'USUARIO', label: 'Meu Usuário', description: 'Foto e dados da conta', icon: Camera },
     { key: 'INTERESSADOS', label: 'Interessados', description: 'Clientes, fornecedores e contatos', icon: Users },
     { key: 'PLANO', label: 'Plano de Contas', description: 'Estrutura e organização contábil', icon: Layers },
     { key: 'IMPORTACAO', label: 'Importação de Dados', description: 'Entradas em lote e conciliações', icon: UploadCloud },
     { key: 'FINANCEIRO', label: 'Exportação Financeira', description: 'Extração por conta e período', icon: Download },
+    { key: 'PDV', label: 'Configurações do PDV', description: 'Mapeamento e liquidação de vendas', icon: ShoppingBag },
     { key: 'NFSTOCK', label: 'NFStock', description: 'Credenciais por centro de custo', icon: UploadCloud },
     { key: 'RBAC', label: 'Perfis de Acesso', description: 'Permissões e governança', icon: Layers },
   ];
@@ -1204,6 +1622,7 @@ export function Configuracoes() {
               </div>
             )}
             {activeTab === 'FINANCEIRO' && <ExportacaoFinanceira />}
+            {activeTab === 'PDV' && <ConfiguracoesPDV />}
             {activeTab === 'NFSTOCK' && <IntegracaoNfstockCentroCusto />}
             {activeTab === 'RBAC' && <RbacManager />}
           </section>

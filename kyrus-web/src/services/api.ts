@@ -8,7 +8,7 @@ function resolveConfiguredApiUrl() {
     if (typeof window !== 'undefined') {
       const host = window.location.hostname;
       if (host === 'localhost' || host === '127.0.0.1') {
-        return 'http://localhost:8000/api/v1';
+        return '/api/v1';
       }
       if (host.startsWith('api.')) {
         return `${window.location.origin}/api/v1`;

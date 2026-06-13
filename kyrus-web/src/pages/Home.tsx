@@ -12,6 +12,7 @@ import {
   Building2,
   CreditCard,
   Settings,
+  ShoppingBag,
   ArrowRight,
 } from 'lucide-react';
 
@@ -200,6 +201,14 @@ export function Home() {
       description: 'Faturas e limites',
       colorClass: 'text-amber-600',
       bgClass: 'bg-amber-100 dark:bg-amber-500/10',
+    },
+    {
+      to: '/pdv',
+      icon: ShoppingBag,
+      label: 'PDV',
+      description: 'Caixa, vendas e operação',
+      colorClass: 'text-fuchsia-600',
+      bgClass: 'bg-fuchsia-100 dark:bg-fuchsia-500/10',
     },
     {
       to: '/config',

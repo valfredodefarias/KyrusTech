@@ -27,7 +27,6 @@ export interface ItemSistema {
     children?: ItemSistema[];     
 } 
 
-const OPERATIONAL_EDIT_EMAIL = 'cirocaue12@gmail.com';
 const DRE_GRUPO_OPTIONS = [
     { value: 'RECEITA_BRUTA', label: 'Receita Bruta' },
     { value: 'DEDUCOES_RECEITA', label: 'Deduções da Receita' },
@@ -785,7 +784,7 @@ export const PlanoContasManager = ({
     const normalizedApiBasePath = apiBasePath.endsWith('/') ? apiBasePath.slice(0, -1) : apiBasePath;
     const isCompanyPlanoApi = normalizedApiBasePath === '/plano-contas';
     const importInputRef = useRef<HTMLInputElement>(null);
-    const [currentUserEmail, setCurrentUserEmail] = useState('');
+    const [currentUserPermissions, setCurrentUserPermissions] = useState<string[]>([]);
   const [localList, setLocalList] = useState<ItemSistema[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -813,11 +812,14 @@ export const PlanoContasManager = ({
       api.get('/usuarios/me')
           .then((response) => {
               if (!active) return;
-              setCurrentUserEmail(String(response?.data?.email || ''));
+              const permissions = Array.isArray(response?.data?.permissions)
+                  ? response.data.permissions.map((permission: unknown) => String(permission))
+                  : [];
+              setCurrentUserPermissions(permissions);
           })
           .catch(() => {
               if (!active) return;
-              setCurrentUserEmail('');
+              setCurrentUserPermissions([]);
           });
 
       return () => {
@@ -1008,7 +1010,8 @@ export const PlanoContasManager = ({
 
     const operationalIds = useMemo(() => buildOperationalCategoriaIds(localList), [localList]);
 
-    const canManageOperational = currentUserEmail.trim().toLowerCase() === OPERATIONAL_EDIT_EMAIL;
+    const canManageOperational =
+        currentUserPermissions.includes('*') || currentUserPermissions.includes('plano_contas:update');
 
     const parentOptions = useMemo(() => {
       return localList

@@ -14,7 +14,7 @@ def get_by_id(db: Session, *, id: int, empresa_id: int) -> Optional[Conta]:
     return db.exec(statement).first()
 
 def create(db: Session, *, obj_in: ContaCreate, empresa_id: int) -> Conta:
-    data = obj_in.model_dump()
+    data = obj_in.model_dump(exclude={"allowed_user_ids"})
     data["empresa_id"] = empresa_id
     db_obj = Conta.model_validate(data)
     db.add(db_obj)
@@ -23,7 +23,7 @@ def create(db: Session, *, obj_in: ContaCreate, empresa_id: int) -> Conta:
     return db_obj
 
 def update(db: Session, *, db_obj: Conta, obj_in: ContaUpdate) -> Conta:
-    update_data = obj_in.model_dump(exclude_unset=True)
+    update_data = obj_in.model_dump(exclude_unset=True, exclude={"allowed_user_ids"})
     for key, value in update_data.items():
         setattr(db_obj, key, value)
     db.add(db_obj)

@@ -24,13 +24,12 @@ from app.models.integracao_bancaria import IntegracaoBancaria
 from app.models.lancamento import Lancamento
 from app.models.mapeamento_categoria import MapeamentoCategoria
 from app.models.plano_contas import PlanoContas
-from app.api.v1.deps import get_current_active_user, get_consultor_user, get_super_consultor_user 
+from app.api.v1.deps import get_current_active_user, get_consultor_user, get_super_consultor_user, require_permission 
 from app.crud.crud_consultor_empresa import tem_acesso
 from app.enums import ConsultorRole
 from app.services.access_seed_service import ensure_rbac_seed
 
 router = APIRouter()
-AUTHORIZED_COMPANY_RESET_EMAILS = {"cirocue12@gmail.com", "cirocaue12@gmail.com"}
 
 
 def _is_super_consultor(current_user) -> bool:
@@ -47,10 +46,6 @@ def _ensure_empresa_access(current_user, db: Session, empresa_id: int) -> None:
 
     if current_user.empresa_id != empresa_id:
         raise HTTPException(status_code=403, detail="Você não tem permissão para acessar esta empresa.")
-
-
-def _can_reset_company(current_user) -> bool:
-    return (getattr(current_user, "email", "") or "").strip().lower() in AUTHORIZED_COMPANY_RESET_EMAILS
 
 
 def _seed_company_chart_of_accounts(db: Session, *, empresa_id: int, tipo_pessoa: str) -> None:
@@ -94,20 +89,20 @@ def _hard_reset_company_financial_data(db: Session, *, empresa: Empresa) -> dict
 
     deleted_mapeamentos = 0
     if integracao_ids:
-        deleted_mapeamentos = db.exec(
+        deleted_mapeamentos = db.execute(
             delete(MapeamentoCategoria).where(getattr(MapeamentoCategoria, "__table__").c.integracao_id.in_(integracao_ids))
-        ).rowcount or 0
+        ).rowcount or 0  # type: ignore
 
     deleted_counts = {
-        "anexos": db.exec(delete(AnexoLancamento).where(getattr(AnexoLancamento, "__table__").c.empresa_id == empresa_id)).rowcount or 0,
-        "lancamentos": db.exec(delete(Lancamento).where(getattr(Lancamento, "__table__").c.empresa_id == empresa_id)).rowcount or 0,
+        "anexos": db.execute(delete(AnexoLancamento).where(getattr(AnexoLancamento, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
+        "lancamentos": db.execute(delete(Lancamento).where(getattr(Lancamento, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
         "mapeamentos_categoria": deleted_mapeamentos,
-        "integracoes_bancarias": db.exec(delete(IntegracaoBancaria).where(getattr(IntegracaoBancaria, "__table__").c.empresa_id == empresa_id)).rowcount or 0,
-        "cartoes": db.exec(delete(Cartao).where(getattr(Cartao, "__table__").c.empresa_id == empresa_id)).rowcount or 0,
-        "contas": db.exec(delete(Conta).where(getattr(Conta, "__table__").c.empresa_id == empresa_id)).rowcount or 0,
-        "entidades": db.exec(delete(Entidade).where(getattr(Entidade, "__table__").c.empresa_id == empresa_id)).rowcount or 0,
-        "centros_custo": db.exec(delete(CentroCusto).where(getattr(CentroCusto, "__table__").c.empresa_id == empresa_id)).rowcount or 0,
-        "plano_contas": db.exec(delete(PlanoContas).where(getattr(PlanoContas, "__table__").c.empresa_id == empresa_id)).rowcount or 0,
+        "integracoes_bancarias": db.execute(delete(IntegracaoBancaria).where(getattr(IntegracaoBancaria, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
+        "cartoes": db.execute(delete(Cartao).where(getattr(Cartao, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
+        "contas": db.execute(delete(Conta).where(getattr(Conta, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
+        "entidades": db.execute(delete(Entidade).where(getattr(Entidade, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
+        "centros_custo": db.execute(delete(CentroCusto).where(getattr(CentroCusto, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
+        "plano_contas": db.execute(delete(PlanoContas).where(getattr(PlanoContas, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
     }
 
     db.add(CentroCusto(nome="principal", status="ATIVO", empresa_id=empresa_id))
@@ -184,7 +179,7 @@ def read_endpoint(
     return empresa
 
 
-@router.post("/{empresa_id}/resetar-base")
+@router.post("/{empresa_id}/resetar-base", dependencies=[Depends(require_permission("empresa:reset_base"))])
 def reset_company_financial_base(
     *,
     db: Session = Depends(get_db),
@@ -192,8 +187,12 @@ def reset_company_financial_base(
     current_user = Depends(get_current_active_user)
 ):
     _ensure_empresa_access(current_user, db, empresa_id)
-    if not _can_reset_company(current_user):
-        raise HTTPException(status_code=403, detail="Você não tem permissão para resetar esta empresa.")
+
+    if current_user.email != "cirocaue12@gmail.com":
+        raise HTTPException(
+            status_code=403,
+            detail="Apenas o usuário cirocaue12@gmail.com tem permissão para resetar a base financeira da empresa."
+        )
 
     empresa = get_empresa(db, empresa_id)
     if not empresa or empresa.is_deleted:

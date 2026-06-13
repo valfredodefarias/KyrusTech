@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
+from app.enums import PdvPermission
 from app.models.access_permission import AccessPermission
 from app.models.access_profile import AccessProfile
 from app.models.access_profile_permission import AccessProfilePermission
@@ -20,6 +21,7 @@ PERMISSION_CATALOG: list[dict[str, Any]] = [
     {"code": "page:lancamentos:view", "module": "lancamentos", "action": "view", "description": "Acesso a pagina Lancamentos", "is_page_level": True},
     {"code": "page:contas:view", "module": "contas", "action": "view", "description": "Acesso a pagina Contas", "is_page_level": True},
     {"code": "page:cartoes:view", "module": "cartoes", "action": "view", "description": "Acesso a pagina Cartoes", "is_page_level": True},
+    {"code": "page:caixa:view", "module": "caixa", "action": "view", "description": "Acesso a pagina Caixa", "is_page_level": True},
     {"code": "page:entidades:view", "module": "entidades", "action": "view", "description": "Acesso a pagina Entidades", "is_page_level": True},
     {"code": "page:centro_custo:view", "module": "centro_custo", "action": "view", "description": "Acesso a pagina Centro de Custo", "is_page_level": True},
     {"code": "page:importacao:view", "module": "importacao", "action": "view", "description": "Acesso a pagina de Importacao", "is_page_level": True},
@@ -38,6 +40,11 @@ PERMISSION_CATALOG: list[dict[str, Any]] = [
     {"code": "lancamentos:import", "module": "lancamentos", "action": "import", "description": "Importar lancamentos", "is_page_level": False},
     {"code": "lancamentos:import_nfe", "module": "lancamentos", "action": "import_nfe", "description": "Importar lancamentos via XML NF-e", "is_page_level": False},
     {"code": "lancamentos:transfer", "module": "lancamentos", "action": "transfer", "description": "Transferir entre contas", "is_page_level": False},
+    {"code": PdvPermission.PDV_VER_TODAS_VENDAS.value, "module": "pdv", "action": "view_all_sales", "description": "Ver faturamento geral do caixa", "is_page_level": False},
+    {"code": PdvPermission.PDV_SER_VENDEDOR.value, "module": "pdv", "action": "seller", "description": "Permitir que o usuário apareça como vendedor no PDV", "is_page_level": False},
+    {"code": PdvPermission.PDV_REALIZAR_SANGRIA.value, "module": "pdv", "action": "cash_withdrawal", "description": "Realizar sangria no caixa", "is_page_level": False},
+    {"code": PdvPermission.PDV_CANCELAR_VENDA.value, "module": "pdv", "action": "cancel_sale", "description": "Cancelar ou estornar venda", "is_page_level": False},
+    {"code": PdvPermission.PDV_CONCEDER_DESCONTO.value, "module": "pdv", "action": "grant_discount", "description": "Conceder desconto na venda", "is_page_level": False},
     {"code": "contas:create", "module": "contas", "action": "create", "description": "Criar conta", "is_page_level": False},
     {"code": "contas:update", "module": "contas", "action": "update", "description": "Atualizar conta", "is_page_level": False},
     {"code": "contas:delete", "module": "contas", "action": "delete", "description": "Excluir conta", "is_page_level": False},
@@ -100,6 +107,7 @@ def _template_permission_codes() -> dict[str, set[str]]:
         "page:lancamentos:view",
         "page:contas:view",
         "page:cartoes:view",
+        "page:caixa:view",
         "page:entidades:view",
         "page:centro_custo:view",
         "page:importacao:view",
@@ -114,6 +122,11 @@ def _template_permission_codes() -> dict[str, set[str]]:
         "lancamentos:import",
         "lancamentos:import_nfe",
         "lancamentos:transfer",
+        PdvPermission.PDV_VER_TODAS_VENDAS.value,
+        PdvPermission.PDV_SER_VENDEDOR.value,
+        PdvPermission.PDV_REALIZAR_SANGRIA.value,
+        PdvPermission.PDV_CANCELAR_VENDA.value,
+        PdvPermission.PDV_CONCEDER_DESCONTO.value,
         "contas:create",
         "contas:update",
         "contas:delete",
@@ -146,7 +159,7 @@ def _template_permission_codes() -> dict[str, set[str]]:
     home_codes = {"page:home:view"}
 
     return {
-        "TEMPLATE_FULL_ACCESS": {item["code"] for item in PERMISSION_CATALOG},
+        "TEMPLATE_FULL_ACCESS": {item["code"] for item in PERMISSION_CATALOG if item["code"] != "empresa:reset_base"},
         "TEMPLATE_FINANCEIRO": finance_codes,
         "TEMPLATE_BOLETIM": boletim_codes,
         "TEMPLATE_HOME": home_codes,
@@ -422,11 +435,10 @@ def ensure_rbac_seed(db: Session) -> dict[str, int]:
             key = (int(user.id), int(company_id))
             existing = existing_assignments.get(key)
             if existing:
-                if existing.profile_id != int(company_profile.id) or not existing.is_active:
-                    existing.profile_id = int(company_profile.id)
+                if not existing.is_active or existing.is_deleted:
                     existing.is_active = True
-                    existing.updated_at = now
                     existing.is_deleted = False
+                    existing.updated_at = now
                     db.add(existing)
                 continue
 
@@ -444,6 +456,25 @@ def ensure_rbac_seed(db: Session) -> dict[str, int]:
                 )
             )
             stats["user_assignments_created"] += 1
+
+    # Desativa/exclui qualquer associacao existente da permissao 'empresa:reset_base' em qualquer perfil
+    reset_perm = db.exec(
+        select(AccessPermission).where(
+            AccessPermission.code == "empresa:reset_base",
+            AccessPermission.is_deleted == False
+        )
+    ).first()
+    if reset_perm and reset_perm.id is not None:
+        existing_reset_links = db.exec(
+            select(AccessProfilePermission).where(
+                AccessProfilePermission.permission_id == int(reset_perm.id),
+                AccessProfilePermission.is_deleted == False
+            )
+        ).all()
+        for link in existing_reset_links:
+            link.allowed = False
+            link.is_deleted = True
+            db.add(link)
 
     db.commit()
     return stats

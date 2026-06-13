@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Optional, List
 from sqlmodel import SQLModel
+from pydantic import field_validator
+import re
 from .base_audit import AuditReadMixin
 
 # --- BASE ---
@@ -25,6 +27,14 @@ class EntidadeBase(SQLModel):
     uf: Optional[str] = None
     observacoes: Optional[str] = None
     status: str = "ATIVO"
+
+    @field_validator("nome", "nome_fantasia", mode="before")
+    @classmethod
+    def clean_spaces(cls, v):
+        if isinstance(v, str):
+            v = v.replace("&nbsp;", " ").strip()
+            v = re.sub(r"\s+", " ", v)
+        return v
 
 # --- CREATE (sem empresa_id, o backend extrai do user autenticado) ---
 class EntidadeCreate(EntidadeBase):
@@ -51,6 +61,14 @@ class EntidadeUpdate(SQLModel):
     observacoes: Optional[str] = None
     status: Optional[str] = None
 
+    @field_validator("nome", "nome_fantasia", mode="before")
+    @classmethod
+    def clean_spaces(cls, v):
+        if isinstance(v, str):
+            v = v.replace("&nbsp;", " ").strip()
+            v = re.sub(r"\s+", " ", v)
+        return v
+
 # --- READ ---
 class EntidadeRead(EntidadeBase, AuditReadMixin):
     id: int
@@ -62,6 +80,7 @@ class EntidadeLookup(SQLModel):
     nome: str
     tipo: str = "AMBOS"
     tipo_pessoa: str = "PJ"
+    cpf_cnpj: Optional[str] = None
 
 
 class EntidadePage(SQLModel):

@@ -30,6 +30,7 @@ from app.services.importacao_bancaria_service import (
     buscar_lancamento_atrasado_mesmo_valor,
     buscar_lancamento_previsto_mesmo_dia_valor,
 )
+from app.services.ai_consultant_service import gerar_dossie_mensal
 
 router = APIRouter()
 
@@ -1429,3 +1430,28 @@ def perguntar_assistente(
         raise HTTPException(status_code=502, detail="Falha ao consultar o provedor de IA.")
     except requests.RequestException:
         raise HTTPException(status_code=502, detail="Falha de rede ao consultar o provedor de IA.")
+
+
+@router.post("/analise-fechamento")
+async def gerar_analise_fechamento(
+    payload: dict,
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Endpoint usado pelo frontend para gerar o Dossiê Executivo em Markdown.
+
+    Body esperado: {"ano": 2026, "mes": 4, "considerar_po": true}
+    Retorna: {"dossie": "# ...markdown..."}
+    """
+    ano = int(payload.get("ano") or 0)
+    mes = int(payload.get("mes") or 0)
+    considerar_po = bool(payload.get("considerar_po") or False)
+
+    try:
+        markdown = await gerar_dossie_mensal(empresa_id=empresa_id, ano=ano, mes=mes, considerar_po=considerar_po)
+        return {"dossie": markdown}
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - runtime fallback
+        logger.exception("Falha ao gerar dossiê de fechamento")
+        raise HTTPException(status_code=500, detail="Erro interno ao gerar dossiê.")

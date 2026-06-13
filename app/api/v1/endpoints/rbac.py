@@ -20,6 +20,7 @@ from app.models.user_company_profile import UserCompanyProfile
 from app.models.usuario import Usuario
 from app.services.access_seed_service import ensure_rbac_seed
 from app.services.access_control_service import invalidate_permission_cache
+from app.enums import PdvPermission
 
 router = APIRouter()
 
@@ -131,6 +132,7 @@ def _load_permissions(db: Session) -> list[PermissionRead]:
         .where(
             AccessPermission.is_deleted == False,
             AccessPermission.is_active == True,
+            AccessPermission.code != "empresa:reset_base",
         )
         .order_by(AccessPermission.module, AccessPermission.action, AccessPermission.code)
     ).all()
@@ -187,6 +189,8 @@ def _load_company_profiles(db: Session, *, empresa_id: int) -> list[AccessProfil
             if not link.allowed or link.is_deleted or not permission or permission.is_deleted or not permission.is_active:
                 continue
             if permission.id is None:
+                continue
+            if permission.code == "empresa:reset_base":
                 continue
             active_permissions.append(
                 PermissionRead(
@@ -317,6 +321,7 @@ def _sync_profile_permissions(
             AccessPermission.id.in_(normalized_ids),
             AccessPermission.is_deleted == False,
             AccessPermission.is_active == True,
+            AccessPermission.code != "empresa:reset_base",
         )
     ).all()
     permission_map = {int(permission.id): permission for permission in permissions if permission.id is not None}
@@ -482,8 +487,27 @@ def replace_profile_permissions(
 ):
     ensure_rbac_seed(db)
     profile = _get_profile_or_404(db, profile_id=profile_id, empresa_id=empresa_id)
-    if profile.is_system:
+    if profile.is_system and profile.code != "FULL_ACCESS":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Perfis de sistema não podem ter permissões alteradas")
+
+    if profile.code == "FULL_ACCESS":
+        # Garante que todas as outras permissões permaneçam ativas, exceto PDV_SER_VENDEDOR
+        all_perms = db.exec(
+            select(AccessPermission).where(
+                AccessPermission.is_deleted == False,
+                AccessPermission.is_active == True,
+                AccessPermission.code != "empresa:reset_base",
+            )
+        ).all()
+        
+        seller_perm = next((p for p in all_perms if p.code == PdvPermission.PDV_SER_VENDEDOR.value), None)
+        seller_perm_id = int(seller_perm.id) if seller_perm and seller_perm.id is not None else None
+        
+        new_permission_ids = [int(p.id) for p in all_perms if p.id is not None and p.code != PdvPermission.PDV_SER_VENDEDOR.value]
+        if seller_perm_id and seller_perm_id in payload.permission_ids:
+            new_permission_ids.append(seller_perm_id)
+            
+        payload.permission_ids = new_permission_ids
 
     _sync_profile_permissions(db, profile_id=profile_id, permission_ids=payload.permission_ids)
     db.commit()

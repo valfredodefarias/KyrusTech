@@ -45,12 +45,12 @@ def read_entidades_lookup(
 ):
     """Lista entidades em formato leve (lookup)."""
     rows = db.exec(
-        select(Entidade.id, Entidade.nome, Entidade.tipo, Entidade.tipo_pessoa)
+        select(Entidade.id, Entidade.nome, Entidade.tipo, Entidade.tipo_pessoa, Entidade.cpf_cnpj)
         .where(Entidade.empresa_id == empresa_id, Entidade.is_deleted == False)
         .order_by(Entidade.nome)
     ).all()
 
-    return [{"id": row[0], "nome": row[1], "tipo": row[2], "tipo_pessoa": row[3]} for row in rows]
+    return [{"id": row[0], "nome": row[1], "tipo": row[2], "tipo_pessoa": row[3], "cpf_cnpj": row[4]} for row in rows]
 
 @router.post(
     "/",

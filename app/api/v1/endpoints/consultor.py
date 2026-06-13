@@ -376,10 +376,17 @@ def listar_acesso_empresas(
         )
     ).all()
     
+    # Eager load companies to avoid N+1 query
+    empresa_ids = {acesso.empresa_id for acesso in acessos}
+    empresas_map = {}
+    if empresa_ids:
+        empresas = db.exec(select(Empresa).where(Empresa.id.in_(list(empresa_ids)), Empresa.is_deleted == False)).all()
+        empresas_map = {e.id: e for e in empresas if e.id is not None}
+        
     result = []
     for acesso in acessos:
-        empresa = db.get(Empresa, acesso.empresa_id)
-        if empresa and not empresa.is_deleted:
+        empresa = empresas_map.get(acesso.empresa_id)
+        if empresa:
             result.append({
                 "acesso_id": acesso.id,
                 "empresa_id": empresa.id,
@@ -500,14 +507,22 @@ def listar_consultores(
         )
     ).all()
     
-    result = []
-    for consultor in consultores:
-        acessos = db.exec(
+    # Eager load accesses to avoid N+1 query
+    consultor_ids = [c.id for c in consultores if c.id is not None]
+    acessos_map = {}
+    if consultor_ids:
+        acessos_all = db.exec(
             select(ConsultorEmpresa).where(
-                ConsultorEmpresa.usuario_id == consultor.id,
+                ConsultorEmpresa.usuario_id.in_(consultor_ids),
                 ConsultorEmpresa.ativo == True
             )
         ).all()
+        for ac in acessos_all:
+            acessos_map.setdefault(ac.usuario_id, []).append(ac)
+            
+    result = []
+    for consultor in consultores:
+        acessos = acessos_map.get(consultor.id, [])
         
         nome = getattr(consultor, "nome", None) or consultor.email
 
@@ -544,10 +559,17 @@ def listar_empresas_consultor(
         )
     ).all()
     
+    # Eager load companies to avoid N+1 query
+    empresa_ids = {acesso.empresa_id for acesso in acessos}
+    empresas_map = {}
+    if empresa_ids:
+        empresas = db.exec(select(Empresa).where(Empresa.id.in_(list(empresa_ids)), Empresa.is_deleted == False)).all()
+        empresas_map = {e.id: e for e in empresas if e.id is not None}
+        
     result = []
     for acesso in acessos:
-        empresa = db.get(Empresa, acesso.empresa_id)
-        if empresa and not empresa.is_deleted:
+        empresa = empresas_map.get(acesso.empresa_id)
+        if empresa:
             result.append({
                 "acesso_id": acesso.id,
                 "empresa_id": empresa.id,
@@ -765,9 +787,16 @@ def listar_usuarios(
     super_consultor: Usuario = Depends(get_super_consultor_user),
 ):
     usuarios = db.exec(select(Usuario).where(Usuario.is_deleted == False)).all()
+    # Eager load companies to avoid N+1 query
+    empresa_ids = {user.empresa_id for user in usuarios if user.empresa_id is not None}
+    empresas_map = {}
+    if empresa_ids:
+        empresas = db.exec(select(Empresa).where(Empresa.id.in_(list(empresa_ids)), Empresa.is_deleted == False)).all()
+        empresas_map = {e.id: e for e in empresas if e.id is not None}
+
     result: List[dict] = []
     for user in usuarios:
-        empresa = db.get(Empresa, user.empresa_id) if user.empresa_id else None
+        empresa = empresas_map.get(user.empresa_id) if user.empresa_id else None
         result.append({
             "id": user.id,
             "nome": getattr(user, "nome", None),

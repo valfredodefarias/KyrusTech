@@ -24,11 +24,12 @@ class ContaBase(SQLModel):
     centro_custo_id: Optional[int] = None
 
 class ContaCreate(ContaBase):
-    pass
+    allowed_user_ids: Optional[list[int]] = None
 
 class ContaRead(ContaBase):
     id: int
     empresa_id: int
+    allowed_user_ids: Optional[list[int]] = None
 
 class ContaUpdate(SQLModel):
     nome: Optional[str] = None
@@ -44,3 +45,4 @@ class ContaUpdate(SQLModel):
     tipo_integracao: Optional[str] = None
     # --- NOVO CAMPO UPDATE ---
     centro_custo_id: Optional[int] = None
+    allowed_user_ids: Optional[list[int]] = None

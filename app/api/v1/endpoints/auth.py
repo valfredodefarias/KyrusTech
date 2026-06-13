@@ -80,7 +80,7 @@ def refresh_session(
     return _issue_access_token(response, subject=current_user.email)
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/logout")
 def logout(response: Response):
     response.delete_cookie(
         key=settings.ACCESS_TOKEN_COOKIE_NAME,
@@ -89,4 +89,4 @@ def logout(response: Response):
         samesite="lax",
         path="/",
     )
-    return response
+    return {"status": "success"}

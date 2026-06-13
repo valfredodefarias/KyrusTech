@@ -20,6 +20,7 @@ from app.api.v1.endpoints import (
     dre,
     bank_presets,
     orcamentos,
+    pdv,
     rbac,
 )
 
@@ -56,6 +57,9 @@ api_router.include_router(importacao_nfe.router, prefix="/importacao", tags=["Im
 
 # --- RBAC ---
 api_router.include_router(rbac.router, prefix="/rbac", tags=["RBAC"])
+
+# --- PDV ---
+api_router.include_router(pdv.router, prefix="/pdv", tags=["PDV"])
 
 # --- IA ---
 api_router.include_router(ai_assistente.router, prefix="/ai", tags=["Assistente IA"])

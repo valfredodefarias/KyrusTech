@@ -21,7 +21,10 @@ from app.schemas.lancamento import LancamentoRead
 from app.models.conta import Conta
 from app.models.centro_custo import CentroCusto
 from app.models.lancamento import Lancamento
-from app.api.v1.deps import get_empresa_id_from_user, require_permission
+from app.models.usuario_conta_acesso import UsuarioContaAcesso
+from app.models.usuario import Usuario
+from app.api.v1.deps import get_empresa_id_from_user, require_permission, get_current_active_user
+from app.services.access_control_service import get_effective_permission_codes
 from app.core.network import get_backend_url
 from app.core.upload_security import IMAGE_ALLOWED_EXT_TO_MIME, UploadValidationError, write_validated_upload_file
 
@@ -112,16 +115,36 @@ def read_all_contas(
     *,
     db: Session = Depends(get_db), 
     empresa_id: int = Depends(get_empresa_id_from_user),
+    current_user: Usuario = Depends(get_current_active_user),
     include_saldo: bool = True,
 ):
     """
     Lista contas com SALDO CALCULADO (Inicial + Entradas - Saídas).
     """
-    _ensure_legacy_conta_columns(db)
     # Lista todas as contas da empresa
     contas = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
-    resultado = []
 
+    # Get user permissions to check if they are admin or manager
+    user_perms = get_effective_permission_codes(
+        db,
+        user_id=int(current_user.id),
+        empresa_id=empresa_id,
+        is_consultor=bool(current_user.is_consultor),
+        consultor_role=str(current_user.consultor_role or ""),
+    )
+    is_admin = "*" in user_perms or "profiles:manage" in user_perms
+
+    # If the user is not admin, filter cashier accounts they don't have access to
+    if not is_admin:
+        allowed_conta_ids = db.exec(
+            select(UsuarioContaAcesso.conta_id).where(UsuarioContaAcesso.usuario_id == int(current_user.id))
+        ).all()
+        contas = [
+            c for c in contas
+            if c.tipo.upper() != "CAIXA" or c.id in allowed_conta_ids
+        ]
+
+    resultado = []
     base = get_backend_url()
 
     # Agrega receitas e despesas por conta em uma única query (evita N+1)
@@ -161,6 +184,16 @@ def read_all_contas(
             for row in db.exec(saldo_query).all()
         }
 
+    # Fetch all user associations for these accounts
+    user_access_map = {}
+    if contas:
+        user_access_query = select(UsuarioContaAcesso).where(
+            UsuarioContaAcesso.conta_id.in_([c.id for c in contas if c.id is not None])
+        )
+        user_accesses = db.exec(user_access_query).all()
+        for access in user_accesses:
+            user_access_map.setdefault(access.conta_id, []).append(access.usuario_id)
+
     for conta in contas:
         receitas, despesas = saldos_por_conta.get(conta.id, (0, 0)) if include_saldo else (0, 0)
 
@@ -183,6 +216,7 @@ def read_all_contas(
         conta_dict["logo_url"] = _normalize_logo_url(conta_dict.get("logo_url"), base)
 
         conta_dict['saldo_atual'] = saldo_real
+        conta_dict['allowed_user_ids'] = user_access_map.get(conta.id, [])
         resultado.append(conta_dict)
 
     return resultado
@@ -336,7 +370,15 @@ def create_conta(
     conta_in: ContaCreate, 
     empresa_id: int = Depends(get_empresa_id_from_user)
 ):
-    return crud_conta.create(db=db, obj_in=conta_in, empresa_id=empresa_id)
+    db_obj = crud_conta.create(db=db, obj_in=conta_in, empresa_id=empresa_id)
+    if conta_in.allowed_user_ids is not None:
+        for user_id in conta_in.allowed_user_ids:
+            db.add(UsuarioContaAcesso(usuario_id=user_id, conta_id=db_obj.id))
+        db.commit()
+    
+    res = ContaRead.model_validate(db_obj)
+    res.allowed_user_ids = conta_in.allowed_user_ids or []
+    return res
 
 @router.patch(
     "/{conta_id}",
@@ -353,7 +395,18 @@ def update_conta(
     db_obj = crud_conta.get_by_id(db=db, id=conta_id, empresa_id=empresa_id)
     if not db_obj:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
-    return crud_conta.update(db=db, db_obj=db_obj, obj_in=conta_in)
+    db_obj = crud_conta.update(db=db, db_obj=db_obj, obj_in=conta_in)
+    
+    if conta_in.allowed_user_ids is not None:
+        db.execute(text("DELETE FROM usuario_conta_acesso WHERE conta_id = :conta_id"), {"conta_id": conta_id})
+        for user_id in conta_in.allowed_user_ids:
+            db.add(UsuarioContaAcesso(usuario_id=user_id, conta_id=conta_id))
+        db.commit()
+        
+    user_accesses = db.exec(select(UsuarioContaAcesso.usuario_id).where(UsuarioContaAcesso.conta_id == conta_id)).all()
+    res = ContaRead.model_validate(db_obj)
+    res.allowed_user_ids = user_accesses
+    return res
 
 @router.delete(
     "/{conta_id}",

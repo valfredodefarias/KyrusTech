@@ -83,6 +83,7 @@ def _run_startup_migrations() -> None:
             return
 
         logger.success("Database migrations are up to date")
+        _apply_legacy_schema_compatibility()
     finally:
         if connection is not None:
             try:
@@ -158,6 +159,8 @@ def _apply_legacy_schema_compatibility() -> None:
         "CREATE INDEX IF NOT EXISTS ix_entidades_tipo_pessoa ON entidades (tipo_pessoa)",
         "ALTER TABLE cartoes ADD COLUMN IF NOT EXISTS bandeira VARCHAR",
         "CREATE INDEX IF NOT EXISTS ix_cartoes_bandeira ON cartoes (bandeira)",
+        "ALTER TABLE produtos ADD COLUMN IF NOT EXISTS tipo VARCHAR NOT NULL DEFAULT 'PRODUTO'",
+        "CREATE INDEX IF NOT EXISTS ix_produtos_tipo ON produtos (tipo)",
     ]
 
     with engine.begin() as connection:

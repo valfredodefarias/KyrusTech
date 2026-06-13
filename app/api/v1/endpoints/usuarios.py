@@ -5,14 +5,18 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from loguru import logger
-from sqlmodel import Session
+from sqlmodel import Session, select, or_
 
 from app.api.v1.deps import get_consultor_user, get_current_active_user, get_empresa_id_from_user, require_permission
 from app.core.upload_security import IMAGE_ALLOWED_EXT_TO_MIME, UploadValidationError, safe_local_path_from_static_url, write_validated_upload_file
 from app.crud.crud_usuario import create_user
 from app.db.session import get_db
-from app.enums import ConsultorRole
+from app.enums import ConsultorRole, PdvPermission
+from app.models.access_permission import AccessPermission
+from app.models.access_profile import AccessProfile
+from app.models.access_profile_permission import AccessProfilePermission
 from app.models.empresa import Empresa
+from app.models.user_company_profile import UserCompanyProfile
 from app.models.usuario import Usuario
 from app.schemas.usuario import UserCreate, UserRead
 from app.services.access_control_service import get_effective_permission_codes
@@ -21,6 +25,43 @@ UPLOAD_DIR = Path("static/uploads/usuarios")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 router = APIRouter()
+
+
+@router.get(
+    "/vendedores",
+    response_model=list[UserRead],
+)
+def list_vendedores(
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Retorna apenas usuários ativos com a permissão PDV_SER_VENDEDOR no perfil da empresa."""
+    vendedores = db.exec(
+        select(Usuario)
+        .join(UserCompanyProfile, UserCompanyProfile.usuario_id == Usuario.id)  # type: ignore
+        .join(AccessProfile, AccessProfile.id == UserCompanyProfile.profile_id)  # type: ignore
+        .join(AccessProfilePermission, AccessProfilePermission.profile_id == AccessProfile.id)  # type: ignore
+        .join(AccessPermission, AccessPermission.id == AccessProfilePermission.permission_id)  # type: ignore
+        .where(
+            Usuario.is_deleted == False,
+            Usuario.is_active == True,
+            UserCompanyProfile.empresa_id == empresa_id,
+            UserCompanyProfile.is_deleted == False,
+            UserCompanyProfile.is_active == True,
+            or_(AccessProfile.empresa_id == empresa_id, AccessProfile.empresa_id == None),
+            AccessProfile.is_deleted == False,
+            AccessProfile.is_active == True,
+            AccessProfilePermission.is_deleted == False,
+            AccessProfilePermission.allowed == True,
+            AccessPermission.is_deleted == False,
+            AccessPermission.is_active == True,
+            AccessPermission.code == PdvPermission.PDV_SER_VENDEDOR.value,
+        )
+        .distinct()
+        .order_by(Usuario.nome, Usuario.email)
+    ).all()
+
+    return vendedores
 
 
 @router.post(
@@ -33,7 +74,7 @@ def create(
     *,
     db: Session = Depends(get_db),
     user_in: UserCreate,
-    current_user: Usuario = Depends(get_consultor_user),
+    current_user: Usuario = Depends(get_current_active_user),
 ):
     """Cria um novo usuário vinculado a uma empresa."""
     logger.info(f"Recebida requisição para criar usuário: {user_in.email} para empresa ID: {user_in.empresa_id}")

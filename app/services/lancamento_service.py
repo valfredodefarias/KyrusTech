@@ -57,6 +57,7 @@ class LancamentoService:
                 detail=f"Interessado é obrigatório para {operation} de lançamento.",
             )
 
+
     def _validate_centro_custo_required(self, payload: dict, *, operation: str) -> None:
         centro_custo_id = payload.get("centro_custo_id")
         if centro_custo_id in (None, "", 0, "0"):
@@ -100,6 +101,33 @@ class LancamentoService:
                 grouped_ids[group_key] = str(uuid.uuid4())
             payload["id_parcelamento"] = grouped_ids[group_key]
 
+    def obter_conta_caixa_fisica(self, empresa_id: int) -> int:
+        contas = self.session.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
+        # 1. Tipo CAIXA e nome contendo "caixa" ou "física"
+        for c in contas:
+            if c.tipo.upper() == "CAIXA" and "caixa" in c.nome.lower():
+                return int(c.id)
+        # 2. Tipo CAIXA
+        for c in contas:
+            if c.tipo.upper() == "CAIXA":
+                return int(c.id)
+        # 3. Nome contendo "caixa"
+        for c in contas:
+            if "caixa" in c.nome.lower():
+                return int(c.id)
+        # 4. Criar conta padrão se nenhuma existir
+        nova_conta = Conta(
+            nome="Caixa Física",
+            tipo="CAIXA",
+            saldo_inicial=Decimal("0.00"),
+            status="ATIVO",
+            empresa_id=empresa_id,
+            conta_como_disponibilidade=True
+        )
+        self.session.add(nova_conta)
+        self.session.flush()
+        return int(nova_conta.id)
+
     def _aplicar_regras_negocio(self, lancamento: Lancamento):
         """
         Centraliza a lógica:
@@ -111,6 +139,9 @@ class LancamentoService:
             # Se pagou mas não informou valor, assume o valor previsto
             if not lancamento.valor_pago:
                 lancamento.valor_pago = lancamento.valor_previsto
+            # Regra: Se é receita e não tem conta_id ou não tem interessado, vai para o Caixa Físico
+            if lancamento.tipo == "RECEITA" and (not lancamento.conta_id or not lancamento.entidade_id):
+                lancamento.conta_id = self.obter_conta_caixa_fisica(int(lancamento.empresa_id))
         else:
             lancamento.status = "EM ABERTO"
             # Se está em aberto, não tem valor pago ainda

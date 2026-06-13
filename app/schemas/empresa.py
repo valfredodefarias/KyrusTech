@@ -13,6 +13,7 @@ class EmpresaBase(SQLModel):
     logo_url: Optional[str] = None
     cor_primaria: Optional[str] = "#0d6efd"
     categoria_nfe_fornecedores_id: Optional[int] = None
+    pdv_config: Optional[str] = None
     is_active: bool = True
 
 class EmpresaCreate(EmpresaBase):
@@ -26,6 +27,7 @@ class EmpresaUpdate(SQLModel):
     logo_url: Optional[str] = None
     cor_primaria: Optional[str] = None
     categoria_nfe_fornecedores_id: Optional[int] = None
+    pdv_config: Optional[str] = None
     is_active: Optional[bool] = None
 
 class EmpresaRead(EmpresaBase, AuditReadMixin):

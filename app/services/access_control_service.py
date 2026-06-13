@@ -10,6 +10,7 @@ from app.models.access_permission import AccessPermission
 from app.models.access_profile import AccessProfile
 from app.models.access_profile_permission import AccessProfilePermission
 from app.models.user_company_profile import UserCompanyProfile
+from app.core.config import settings
 
 _PERMISSION_CACHE_TTL_SECONDS = 60
 _permission_cache: dict[tuple[int, int], tuple[float, set[str]]] = {}
@@ -99,7 +100,7 @@ def get_effective_permission_codes(
     )
 
     # Durante a transicao do rollout, fallback para evitar lockout se backfill ainda nao rodou.
-    if not permissions:
+    if not permissions and settings.ENVIRONMENT.lower() != "production":
         permissions = _load_all_active_permission_codes(db)
 
     _permission_cache[cache_key] = (now + _PERMISSION_CACHE_TTL_SECONDS, set(permissions))

@@ -23,3 +23,6 @@ from app.models.bank_preset_config import BankPresetConfig
 from app.models.audit_log import AuditLog
 from app.models.base_audit import AuditMixin
 from app.models.todo_item import TodoItem
+from app.models.produto import Produto
+from app.models.usuario_conta_acesso import UsuarioContaAcesso
+

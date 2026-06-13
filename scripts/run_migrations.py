@@ -87,6 +87,10 @@ def apply_legacy_schema_compatibility() -> None:
 
     ConsultorEmpresa.__table__.create(bind=engine, checkfirst=True)
     PlanoContasTemplateConfig.__table__.create(bind=engine, checkfirst=True)
+    
+    from app.models.usuario_conta_acesso import UsuarioContaAcesso
+    UsuarioContaAcesso.__table__.create(bind=engine, checkfirst=True)
+
 
 
 def ensure_rbac_defaults() -> dict[str, int]:

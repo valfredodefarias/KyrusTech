@@ -33,6 +33,7 @@ class Empresa(AuditMixin, SQLModel, table=True):
     logo_url: Optional[str] = None
     cor_primaria: Optional[str] = Field(default="#0d6efd")
     categoria_nfe_fornecedores_id: Optional[int] = Field(default=None, index=True)
+    pdv_config: Optional[str] = Field(default=None, description="Configuração do PDV em JSON")
     is_active: bool = Field(default=True, index=True)
     
     # created_at e updated_at já vêm do AuditMixin, mas mantemos o default

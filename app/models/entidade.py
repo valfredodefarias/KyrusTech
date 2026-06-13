@@ -4,6 +4,8 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
+from pydantic import field_validator
+import re
 from .base_audit import AuditMixin
 
 if TYPE_CHECKING:
@@ -32,6 +34,14 @@ class Entidade(AuditMixin, SQLModel, table=True):
     uf: Optional[str] = None
     observacoes: Optional[str] = None
     status: str = Field(default="ATIVO")
+
+    @field_validator("nome", "nome_fantasia", mode="before")
+    @classmethod
+    def clean_spaces(cls, v):
+        if isinstance(v, str):
+            v = v.replace("&nbsp;", " ").strip()
+            v = re.sub(r"\s+", " ", v)
+        return v
     
     empresa_id: int = Field(foreign_key="empresas.id", index=True)
     empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa", back_populates="entidades"))

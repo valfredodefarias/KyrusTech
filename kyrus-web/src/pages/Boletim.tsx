@@ -122,7 +122,7 @@ function resolveCentroCustoId(currentValue: number | null, centros: CentroCustoR
 type ViewMode = 'executivo' | 'pay-receive' | 'compras';
 type StatusFilter = 'TODOS' | 'PAGO' | 'EM_ABERTO' | 'ATRASADO' | 'HOJE' | 'AMANHA';
 type FlowFilter = 'ALL' | 'PAGAMENTO' | 'RECEBIMENTO';
-type CompraTipoFilter = 'ALL' | 'ENCOMENDA' | 'ESTOQUE';
+type CompraTipoFilter = 'ALL' | 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO';
 type CompraChartMode = 'LINHA_SEPARADA' | 'COLUNA_EMPILHADA' | 'COLUNA_SEPARADA';
 
 interface NormalizedRow {
@@ -264,16 +264,17 @@ function formatCurrencyCompact(value: number) {
   return `${Math.round(value)}`;
 }
 
-function parseDestinoCompra(value?: string | null): 'ENCOMENDA' | 'ESTOQUE' | null {
+function parseDestinoCompra(value?: string | null): 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | null {
   const normalized = normalizeText(value);
   if (!normalized) return null;
   if (normalized.includes('encomenda')) return 'ENCOMENDA';
   if (normalized.includes('estoque')) return 'ESTOQUE';
+  if (normalized.includes('demonstracao') || normalized.includes('demonstração')) return 'DEMONSTRACAO';
   return null;
 }
 
-function extractDestinoCompraFromObservacao(observacao?: string | null): 'ENCOMENDA' | 'ESTOQUE' | null {
-  const match = String(observacao || '').match(/DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE)/i);
+function extractDestinoCompraFromObservacao(observacao?: string | null): 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | null {
+  const match = String(observacao || '').match(/DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE|DEMONSTRACAO)/i);
   return parseDestinoCompra(match?.[1] || null);
 }
 
@@ -759,7 +760,7 @@ export function Boletim() {
 
         const [contasRes, lancamentosRes, categoriasRes, entidadesRes, centrosCustoRes] = await Promise.allSettled([
           api.get<ContaResumo[]>('/contas/'),
-          fetchLancamentosPaged<LancamentoResumo>({ data_inicio: yearStart, data_fim: yearEnd, include_anexos: false }, { pageSize: 1500 }),
+          fetchLancamentosPaged<LancamentoResumo>({ data_inicio: yearStart, data_fim: yearEnd, include_anexos: false, incluir_demonstracoes: true }, { pageSize: 1500 }),
           api.get<PlanoContaResumo[]>('/plano-contas/'),
           api.get<EntidadeResumo[]>('/entidades/'),
           api.get<CentroCustoResumo[]>('/centro-custo/'),
@@ -1551,7 +1552,7 @@ export function Boletim() {
           status: String(item.item.status || ''),
         };
       })
-      .filter((row) => row.monthIndex >= 0 && row.tipoCompra !== null && row.valor > 0);
+      .filter((row) => row.monthIndex >= 0 && row.tipoCompra !== null && (row.valor > 0 || row.tipoCompra === 'DEMONSTRACAO'));
 
     const rowsByTipo = purchaseRows.filter((row) => compraTipoFilter === 'ALL' || row.tipoCompra === compraTipoFilter);
     const mutedColor = isDark ? '#cbd5e1' : '#d1d5db';
@@ -1559,6 +1560,7 @@ export function Boletim() {
     const monthlyPedidos = {
       ENCOMENDA: Array.from({ length: 12 }, () => 0),
       ESTOQUE: Array.from({ length: 12 }, () => 0),
+      DEMONSTRACAO: Array.from({ length: 12 }, () => 0),
     };
 
     rowsByTipo.forEach((row) => {
@@ -1569,6 +1571,7 @@ export function Boletim() {
     const monthlyCap = {
       ENCOMENDA: Array.from({ length: 12 }, () => 0),
       ESTOQUE: Array.from({ length: 12 }, () => 0),
+      DEMONSTRACAO: Array.from({ length: 12 }, () => 0),
     };
     rowsByTipo.forEach((row) => {
       const idx = Number(row.capMonthIndex);
@@ -1580,9 +1583,16 @@ export function Boletim() {
     const totalsByTipo = {
       ENCOMENDA: monthlyPedidos.ENCOMENDA.reduce((a, b) => a + b, 0),
       ESTOQUE: monthlyPedidos.ESTOQUE.reduce((a, b) => a + b, 0),
+      DEMONSTRACAO: monthlyPedidos.DEMONSTRACAO.reduce((a, b) => a + b, 0),
     };
 
-    const donutSeries = [totalsByTipo.ENCOMENDA, totalsByTipo.ESTOQUE];
+    const countsByTipo = {
+      ENCOMENDA: purchaseRows.filter((r) => r.tipoCompra === 'ENCOMENDA').length,
+      ESTOQUE: purchaseRows.filter((r) => r.tipoCompra === 'ESTOQUE').length,
+      DEMONSTRACAO: purchaseRows.filter((r) => r.tipoCompra === 'DEMONSTRACAO').length,
+    };
+
+    const donutSeries = [totalsByTipo.ENCOMENDA, totalsByTipo.ESTOQUE, totalsByTipo.DEMONSTRACAO];
 
     const pedidosSeries = [
       {
@@ -1590,7 +1600,7 @@ export function Boletim() {
         data: monthlyPedidos.ENCOMENDA.map((value, monthIndex) => ({
           x: monthLabels[monthIndex],
           y: value,
-            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#3b82f6',
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#3b82f6',
         })),
       },
       {
@@ -1598,7 +1608,15 @@ export function Boletim() {
         data: monthlyPedidos.ESTOQUE.map((value, monthIndex) => ({
           x: monthLabels[monthIndex],
           y: value,
-            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
+        })),
+      },
+      {
+        name: 'Demonstração',
+        data: monthlyPedidos.DEMONSTRACAO.map((value, monthIndex) => ({
+          x: monthLabels[monthIndex],
+          y: value,
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#a855f7',
         })),
       },
     ];
@@ -1693,19 +1711,20 @@ export function Boletim() {
           dataPointSelection: (_event: any, _ctx: any, config: any) => {
             const idx = Number(config?.dataPointIndex);
             if (!Number.isFinite(idx) || idx < 0) return;
-            const nextFilter: CompraTipoFilter = idx === 0 ? 'ENCOMENDA' : 'ESTOQUE';
+            const nextFilter: CompraTipoFilter = idx === 0 ? 'ENCOMENDA' : idx === 1 ? 'ESTOQUE' : 'DEMONSTRACAO';
             setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
           },
           legendClick: (_ctx: any, seriesIndex: number) => {
-            const nextFilter: CompraTipoFilter = Number(seriesIndex) === 0 ? 'ENCOMENDA' : 'ESTOQUE';
+            const nextFilter: CompraTipoFilter = Number(seriesIndex) === 0 ? 'ENCOMENDA' : Number(seriesIndex) === 1 ? 'ESTOQUE' : 'DEMONSTRACAO';
             setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
           },
         },
       },
-      labels: ['Encomenda', 'Estoque'],
+      labels: ['Encomenda', 'Estoque', 'Demonstração'],
       colors: [
         compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ENCOMENDA' ? (isDark ? '#315ea1' : '#9dbcf1') : '#3b82f6',
         compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ESTOQUE' ? (isDark ? '#0f766e' : '#98e0d8') : '#14b8a6',
+        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'DEMONSTRACAO' ? (isDark ? '#5b21b6' : '#c084fc') : '#a855f7',
       ],
       dataLabels: { enabled: true, formatter: (value: number) => `${value.toFixed(0)}%` },
       legend: { show: true, position: 'bottom', labels: { colors: labelColor }, itemMargin: { horizontal: 8, vertical: 4 }, onItemClick: { toggleDataSeries: false } },
@@ -1742,6 +1761,7 @@ export function Boletim() {
         legend: { ...sharedChartOptions.legend, show: true },
       },
       tableRows,
+      countsByTipo,
     };
   }, [compraChartMode, compraTipoFilter, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, entidades, isDark, lancamentos, selectedCentroCustoId, selectedCompraMonthIndex]);
 
@@ -2378,6 +2398,17 @@ export function Boletim() {
                     <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Total estoque</div>
                     <div className={`mt-1 text-lg font-black ${isDark ? 'text-teal-300' : 'text-teal-600'}`}>{formatCurrency(comprasView.totalsByTipo.ESTOQUE)}</div>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setCompraTipoFilter((prev) => (prev === 'DEMONSTRACAO' ? 'ALL' : 'DEMONSTRACAO'))}
+                    className={`rounded-xl border px-3 py-2 text-left transition ${compraTipoFilter === 'DEMONSTRACAO' ? isDark ? 'border-purple-300/55 bg-purple-300/12' : 'border-purple-300 bg-purple-50' : isDark ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50'}`}
+                  >
+                    <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Total demonstração</div>
+                    <div className={`mt-1 text-lg font-black ${isDark ? 'text-purple-300' : 'text-purple-600'}`}>
+                      {formatCurrency(comprasView.totalsByTipo.DEMONSTRACAO)}
+                      <span className="text-xs font-normal ml-1.5 opacity-70">({comprasView.countsByTipo.DEMONSTRACAO} nota(s))</span>
+                    </div>
+                  </button>
                 </div>
               </section>
 
@@ -2457,18 +2488,33 @@ export function Boletim() {
                         <tr key={`compra-row-${index}-${row.numeroNfe || 'sem-nf'}`} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
                           <td className="px-4 py-2.5 font-medium">{formatDate(row.vencimento)}</td>
                           <td className="px-4 py-2.5 font-semibold">{row.emitente || '-'}</td>
-                          <td className="px-4 py-2.5">{row.numeroNfe || '-'}</td>
-                          <td className="px-4 py-2.5">
-                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${row.tipoCompra === 'ENCOMENDA' ? isDark ? 'border-blue-400/35 bg-blue-500/20 text-blue-300' : 'border-blue-200 bg-blue-100 text-blue-700' : isDark ? 'border-teal-400/35 bg-teal-500/20 text-teal-300' : 'border-teal-200 bg-teal-100 text-teal-700'}`}>
-                              {row.tipoCompra === 'ENCOMENDA' ? 'Encomenda' : 'Estoque'}
+                            <td className="px-4 py-2.5">
+                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${
+                              row.tipoCompra === 'ENCOMENDA'
+                                ? isDark ? 'border-blue-400/35 bg-blue-500/20 text-blue-300' : 'border-blue-200 bg-blue-100 text-blue-700'
+                                : row.tipoCompra === 'ESTOQUE'
+                                ? isDark ? 'border-teal-400/35 bg-teal-500/20 text-teal-300' : 'border-teal-200 bg-teal-100 text-teal-700'
+                                : isDark ? 'border-purple-400/35 bg-purple-500/20 text-purple-300' : 'border-purple-200 bg-purple-100 text-purple-700'
+                            }`}>
+                              {row.tipoCompra === 'ENCOMENDA' ? 'Encomenda' : row.tipoCompra === 'ESTOQUE' ? 'Estoque' : 'Demonstração'}
                             </span>
                           </td>
                           <td className="px-4 py-2.5">
-                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${normalizeText(row.status).includes('pago') ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                              {String(row.status || '-').toUpperCase()}
+                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${
+                              row.tipoCompra === 'DEMONSTRACAO'
+                                ? isDark ? 'border-purple-400/30 bg-purple-400/10 text-purple-300' : 'border-purple-200 bg-purple-50 text-purple-700'
+                                : normalizeText(row.status).includes('pago')
+                                ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'
+                            }`}>
+                              {row.tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAÇÃO' : String(row.status || '-').toUpperCase()}
                             </span>
                           </td>
-                          <td className={`px-4 py-2.5 text-right font-black whitespace-nowrap ${isDark ? 'text-rose-300' : 'text-rose-600'}`}>{formatCurrency(-Math.abs(row.valor))}</td>
+                          <td className={`px-4 py-2.5 text-right font-black whitespace-nowrap ${
+                            row.tipoCompra === 'DEMONSTRACAO'
+                              ? isDark ? 'text-purple-300' : 'text-purple-600'
+                              : isDark ? 'text-rose-300' : 'text-rose-600'
+                          }`}>{formatCurrency(row.tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(row.valor))}</td>
                         </tr>
                       ))}
                     </tbody>

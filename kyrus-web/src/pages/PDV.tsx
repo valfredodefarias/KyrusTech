@@ -4,6 +4,7 @@ import { AlertCircle, Calendar, Plus, Sparkles, X, Trash2, Edit3, Package, Dolla
 import { api, toPublicAssetUrl, normalizeListResponse } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
+import { BrandAvatar, inferCardBrand } from '../components/BrandAvatar';
 
 // Interfaces
 interface Produto {
@@ -66,6 +67,7 @@ interface VendaPagamentoLinha {
   numeroParcelas: number;
   valorParcela: string;
   dataPagamento: string;
+  bandeira?: string;
 }
 
 // Subcomponente Dropdown Pesquisável de Cliente
@@ -651,7 +653,7 @@ export function PDV() {
     setVendaDataPagamento(todayStr);
     setVendaObservacao('');
     setVendaStatus('REALIZADO');
-    setVendaPagamentos([{ tipoPagamento: 'dinheiro', valor: '', numeroParcelas: 1, valorParcela: '', dataPagamento: todayStr }]);
+    setVendaPagamentos([{ tipoPagamento: 'dinheiro', valor: '', numeroParcelas: 1, valorParcela: '', dataPagamento: todayStr, bandeira: 'VISA' }]);
     setComprovanteFiles([]);
     setExistingComprovantes([]);
     setSelectedVendedorId(currentUserId);
@@ -701,11 +703,12 @@ export function PDV() {
           valor: formatMonetario(p.valor),
           numeroParcelas: p.numero_parcelas || 1,
           valorParcela: formatMonetario(p.valor_parcela || ''),
-          dataPagamento: p.data_pagamento || venda.data || new Date().toISOString().split('T')[0]
+          dataPagamento: p.data_pagamento || venda.data || new Date().toISOString().split('T')[0],
+          bandeira: p.bandeira || 'VISA'
         }))
       );
     } else {
-      setVendaPagamentos([{ tipoPagamento: 'dinheiro', valor: '', numeroParcelas: 1, valorParcela: '', dataPagamento: venda.data || new Date().toISOString().split('T')[0] }]);
+      setVendaPagamentos([{ tipoPagamento: 'dinheiro', valor: '', numeroParcelas: 1, valorParcela: '', dataPagamento: venda.data || new Date().toISOString().split('T')[0], bandeira: 'VISA' }]);
     }
     
     setComprovanteFiles([]);
@@ -794,6 +797,8 @@ export function PDV() {
       updated[index].valorParcela = value;
     } else if (field === 'dataPagamento') {
       updated[index].dataPagamento = value;
+    } else if (field === 'bandeira') {
+      updated[index].bandeira = value;
     }
     
     // Auto-calcula valor da parcela
@@ -893,7 +898,8 @@ export function PDV() {
           valor_parcela: isMethodParcelado(p.tipoPagamento)
             ? parseMonetario(p.valorParcela)
             : null,
-          data_pagamento: p.dataPagamento || null
+          data_pagamento: p.dataPagamento || null,
+          bandeira: p.bandeira || 'OUTROS'
         })),
         rv: vendaRv.trim() || null,
         data_pagamento: vendaDataPagamento || null,
@@ -1793,88 +1799,120 @@ export function PDV() {
                   {vendaPagamentos.map((pag, index) => {
                     const methodObj = paymentMethods.find((m: any) => m.key === pag.tipoPagamento);
                     const isInstallments = methodObj ? methodObj.parcelada : (pag.tipoPagamento === 'cartao_credito_parcelado' || pag.tipoPagamento === 'boleto');
+                    const isCardPayment = pag.tipoPagamento.startsWith('cartao_') || pag.tipoPagamento.includes('cartao');
+                    
                     return (
-                      <div key={index} className="flex flex-col gap-3 sm:flex-row sm:items-center bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative">
-                        <div className="flex-1 min-w-[150px]">
-                          <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Forma de Pagamento</label>
-                          <select
-                            value={pag.tipoPagamento}
-                            onChange={(e) => handlePaymentChange(index, 'tipoPagamento', e.target.value)}
-                            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                          >
-                            {paymentMethods.map((method: any) => (
-                              <option key={method.key} value={method.key}>{method.label}</option>
-                            ))}
-                          </select>
-                        </div>
+                      <div key={index} className="flex flex-col bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative gap-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center w-full">
+                          <div className="flex-1 min-w-[150px]">
+                            <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Forma de Pagamento</label>
+                            <select
+                              value={pag.tipoPagamento}
+                              onChange={(e) => handlePaymentChange(index, 'tipoPagamento', e.target.value)}
+                              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                            >
+                              {paymentMethods.map((method: any) => (
+                                <option key={method.key} value={method.key}>{method.label}</option>
+                              ))}
+                            </select>
+                          </div>
 
-                        <div className="w-32 shrink-0">
-                          <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Valor (R$)</label>
-                          <div className="relative">
+                          <div className="w-32 shrink-0">
+                            <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Valor (R$)</label>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={pag.valor}
+                                onChange={(e) => handlePaymentChange(index, 'valor', formatMonetario(e.target.value))}
+                                className="w-full rounded-xl border border-slate-300 bg-white pl-3 pr-8 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                                placeholder="0,00"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => fillRemainingPayment(index)}
+                                className="absolute right-1 top-1 text-[10px] font-bold text-blue-500 hover:text-blue-600 px-1 py-1 bg-slate-100 dark:bg-slate-800 rounded transition cursor-pointer"
+                                title="Preencher valor restante"
+                              >
+                                ★
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="w-36 shrink-0">
+                            <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Data de Pagamento</label>
                             <input
-                              type="text"
-                              value={pag.valor}
-                              onChange={(e) => handlePaymentChange(index, 'valor', formatMonetario(e.target.value))}
-                              className="w-full rounded-xl border border-slate-300 bg-white pl-3 pr-8 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                              placeholder="0,00"
+                              type="date"
+                              required
+                              value={pag.dataPagamento}
+                              onChange={(e) => handlePaymentChange(index, 'dataPagamento', e.target.value)}
+                              className="w-full rounded-xl border border-slate-300 bg-white px-2 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                             />
+                          </div>
+
+                          {isInstallments && (
+                            <>
+                              <div className="w-20 shrink-0">
+                                <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Parcelas</label>
+                                <select
+                                  value={pag.numeroParcelas}
+                                  onChange={(e) => handlePaymentChange(index, 'numeroParcelas', e.target.value)}
+                                  className="w-full rounded-xl border border-slate-300 bg-white px-2 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                                >
+                                  {[1,2,3,4,5,6,7,8,9,10,11,12].map(n => (
+                                    <option key={n} value={n}>{n}x</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="w-28 shrink-0 text-right">
+                                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Valor Parcela</span>
+                                <span className="text-xs font-bold text-slate-500 block mt-2">
+                                  {currency.format(parseMonetario(pag.valorParcela) || 0)}
+                                </span>
+                              </div>
+                            </>
+                          )}
+
+                          {vendaPagamentos.length > 1 && (
                             <button
                               type="button"
-                              onClick={() => fillRemainingPayment(index)}
-                              className="absolute right-1 top-1 text-[10px] font-bold text-blue-500 hover:text-blue-600 px-1 py-1 bg-slate-100 dark:bg-slate-800 rounded transition cursor-pointer"
-                              title="Preencher valor restante"
+                              onClick={() => {
+                                setVendaPagamentos(vendaPagamentos.filter((_, idx) => idx !== index));
+                              }}
+                              className="absolute top-2 right-2 sm:static sm:mt-5 text-slate-400 hover:text-rose-500 cursor-pointer animate-in fade-in"
+                              title="Remover pagamento"
                             >
-                              ★
+                              <Trash2 className="w-4 h-4" />
                             </button>
+                          )}
+                        </div>
+
+                        {/* Card brand selector if payment method is card */}
+                        {isCardPayment && (
+                          <div className="w-full border-t border-slate-100 dark:border-slate-800/80 pt-3 mt-1 space-y-2 animate-in slide-in-from-top-1 duration-200">
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bandeira do Cartão</label>
+                            <div className="flex flex-wrap gap-2">
+                              {['VISA', 'MASTERCARD', 'ELO', 'AMEX', 'HIPERCARD', 'CABAL', 'OUTROS'].map((brand) => {
+                                const isSelected = (pag.bandeira || 'VISA') === brand;
+                                const brandObj = inferCardBrand(brand);
+                                return (
+                                  <button
+                                    key={brand}
+                                    type="button"
+                                    onClick={() => handlePaymentChange(index, 'bandeira', brand)}
+                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-[11px] font-bold transition duration-200 cursor-pointer ${
+                                      isSelected
+                                        ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 shadow-sm'
+                                        : 'border-slate-200 hover:border-slate-300 dark:border-slate-800 hover:dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
+                                    }`}
+                                  >
+                                    <BrandAvatar visual={brandObj} size="sm" className="w-5 h-5 shrink-0 rounded-lg text-[7px] border-none shadow-none" />
+                                    <span>{brand}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-
-                        <div className="w-36 shrink-0">
-                          <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Data de Pagamento</label>
-                          <input
-                            type="date"
-                            required
-                            value={pag.dataPagamento}
-                            onChange={(e) => handlePaymentChange(index, 'dataPagamento', e.target.value)}
-                            className="w-full rounded-xl border border-slate-300 bg-white px-2 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                          />
-                        </div>
-
-                        {isInstallments && (
-                          <>
-                            <div className="w-20 shrink-0">
-                              <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Parcelas</label>
-                              <select
-                                value={pag.numeroParcelas}
-                                onChange={(e) => handlePaymentChange(index, 'numeroParcelas', e.target.value)}
-                                className="w-full rounded-xl border border-slate-300 bg-white px-2 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                              >
-                                {[1,2,3,4,5,6,7,8,9,10,11,12].map(n => (
-                                  <option key={n} value={n}>{n}x</option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div className="w-28 shrink-0 text-right">
-                              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Valor Parcela</span>
-                              <span className="text-xs font-bold text-slate-500 block mt-2">
-                                {currency.format(parseMonetario(pag.valorParcela) || 0)}
-                              </span>
-                            </div>
-                          </>
-                        )}
-
-                        {vendaPagamentos.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setVendaPagamentos(vendaPagamentos.filter((_, idx) => idx !== index));
-                            }}
-                            className="absolute top-2 right-2 sm:static sm:mt-5 text-slate-400 hover:text-rose-500 cursor-pointer"
-                            title="Remover pagamento"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
                         )}
                       </div>
                     );

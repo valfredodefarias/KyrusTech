@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowRight,
@@ -183,6 +183,7 @@ interface LancamentoEditado extends LancamentoImportado {
 type FeedbackState = {
   type: 'success' | 'error' | 'warning';
   message: string;
+  conflitos?: string[];
 };
 
 interface ProcessarArquivoResponse {
@@ -390,7 +391,14 @@ function SearchableDropdown({
 
 export function ImportacaoOfx() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
+  const state = location.state as {
+    preLoadedResult?: ProcessarArquivoResponse;
+    preSelectedContaId?: number;
+    directFlow?: boolean;
+  } | undefined;
+  const [isDirectFlow, setIsDirectFlow] = useState(!!state?.directFlow);
   const [contas, setContas] = useState<ContaItem[]>([]);
   const [cartoes, setCartoes] = useState<CartaoItem[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoItem[]>([]);
@@ -405,6 +413,9 @@ export function ImportacaoOfx() {
   const [resultado, setResultado] = useState<ProcessarArquivoResponse | null>(null);
   const [lancamentosEditados, setLancamentosEditados] = useState<LancamentoEditado[]>([]);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
+  const [ignorarDivergencia, setIgnorarDivergencia] = useState(false);
+  const [linhaEditandoDescricao, setLinhaEditandoDescricao] = useState<number | null>(null);
+  const [descricaoTemporaria, setDescricaoTemporaria] = useState('');
   const [categorias, setCategorias] = useState<CategoriaItem[]>([]);
   const [entidades, setEntidades] = useState<EntidadeItem[]>([]);
   const [sugestoes, setSugestoes] = useState<Record<string, LancamentoSugestao>>({});
@@ -441,6 +452,17 @@ export function ImportacaoOfx() {
       setContaId(Number(contaParam));
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (state?.preLoadedResult) {
+      setResultado(state.preLoadedResult);
+      setIsDirectFlow(true);
+      if (state.preSelectedContaId) {
+        setContaId(Number(state.preSelectedContaId));
+        setModoImportacao('CONTA');
+      }
+    }
+  }, [state]);
 
   useEffect(() => {
     async function loadContas() {
@@ -766,6 +788,7 @@ export function ImportacaoOfx() {
           conta_id: modoImportacao === 'CONTA' ? Number(contaId) : null,
           cartao_id: modoImportacao === 'CARTAO' ? Number(cartaoId) : null,
           modo_importacao: modoImportacao,
+          ignorar_divergencia: ignorarDivergencia,
         };
 
         const { data } = await api.post<ConfirmarLancamentosResponse>('/importacao/confirmar-lancamentos', payload);
@@ -802,6 +825,7 @@ export function ImportacaoOfx() {
       setLancamentosEditados([]);
       setCategoriaAutofillAplicada({});
       setArquivo(null);
+      setIgnorarDivergencia(false);
       const contaImportadaId = modoImportacao === 'CONTA' ? Number(contaId) : null;
       const destinoPosImportacao = contaImportadaId
         ? `/contas?extrato_conta_id=${contaImportadaId}`
@@ -813,14 +837,15 @@ export function ImportacaoOfx() {
         const message = detail?.message || 'Erro ao confirmar importação.';
         const divergenciaDepois = (detail?.divergencia_saldo_ofx_depois || detail?.divergencia_saldo_ofx) as DivergenciaSaldoOfx | undefined;
         const divergenciaAntes = detail?.divergencia_saldo_ofx_antes as DivergenciaSaldoOfx | undefined;
+        const conflitos = detail?.conflitos as string[] | undefined;
         if (divergenciaDepois) {
           const blocoAntes = divergenciaAntes
             ? ` Antes: ${formatCurrency(divergenciaAntes.diferenca)}.`
             : '';
           const msgDivergencia = `${message}${blocoAntes} Depois: ${formatCurrency(divergenciaDepois.diferenca)}. Saldo OFX: ${formatCurrency(divergenciaDepois.saldo_ofx)} | Saldo sistema: ${formatCurrency(divergenciaDepois.saldo_sistema)}.`;
-          setFeedback({ type: 'error', message: msgDivergencia });
+          setFeedback({ type: 'error', message: msgDivergencia, conflitos: Array.isArray(conflitos) ? conflitos : undefined });
         } else {
-          setFeedback({ type: 'error', message });
+          setFeedback({ type: 'error', message, conflitos: Array.isArray(conflitos) ? conflitos : undefined });
         }
       } else {
         setFeedback({ type: 'error', message: detail || 'Erro ao confirmar importação.' });
@@ -1008,8 +1033,28 @@ export function ImportacaoOfx() {
 
   return (
     <div className="space-y-6 text-slate-800 dark:text-slate-100">
-      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a,#111827_55%,#022c22)] px-6 py-7 text-white shadow-[0_25px_80px_-45px_rgba(15,23,42,0.9)] dark:border-slate-800 md:px-8 md:py-8">
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_440px] xl:items-start">
+      {isDirectFlow ? (
+        <div className="flex items-center justify-between rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Conciliação de Extrato Bancário</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Revisando importação direta para:{' '}
+              <span className="font-bold text-slate-800 dark:text-slate-200">
+                {contaSelecionada ? `${contaSelecionada.nome}${contaSelecionada.banco ? ` (${contaSelecionada.banco})` : ''}` : 'Conta selecionada'}
+              </span>
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate(contaId ? `/contas?extrato_conta_id=${contaId}` : '/contas')}
+            className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-bold transition active:scale-95"
+          >
+            Cancelar e Voltar
+          </button>
+        </div>
+      ) : (
+        <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a,#111827_55%,#022c22)] px-6 py-7 text-white shadow-[0_25px_80px_-45px_rgba(15,23,42,0.9)] dark:border-slate-800 md:px-8 md:py-8">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_440px] xl:items-start">
           <div className="space-y-3">
             <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-emerald-200">OFX</p>
             <h1 className="max-w-3xl text-3xl font-black tracking-tight md:text-4xl">Importe, revise e confirme.</h1>
@@ -1174,11 +1219,21 @@ export function ImportacaoOfx() {
           </div>
         </div>
       </section>
+      )}
 
       {feedback && (
-        <div className={`flex items-start gap-3 rounded-2xl border px-4 py-4 text-sm shadow-sm ${feedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300' : feedback.type === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200' : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300'}`}>
-          {feedback.type === 'success' ? <CheckCircle className="mt-0.5 h-5 w-5 shrink-0" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />}
-          <span>{feedback.message}</span>
+        <div className={`flex flex-col gap-3 rounded-2xl border px-4 py-4 text-sm shadow-sm ${feedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300' : feedback.type === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200' : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300'}`}>
+          <div className="flex items-start gap-3">
+            {feedback.type === 'success' ? <CheckCircle className="mt-0.5 h-5 w-5 shrink-0" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />}
+            <span>{feedback.message}</span>
+          </div>
+          {feedback.conflitos && feedback.conflitos.length > 0 && (
+            <ul className="mt-1 list-disc pl-8 space-y-1 font-semibold text-rose-600 dark:text-rose-300">
+              {feedback.conflitos.map((c, idx) => (
+                <li key={idx}>{c}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
@@ -1324,7 +1379,45 @@ export function ImportacaoOfx() {
                       </div>
 
                       <div>
-                        <h3 className="text-lg font-black text-slate-900 dark:text-white">{lanc.descricao}</h3>
+                        {linhaEditandoDescricao === lanc.linha_arquivo ? (
+                          <input
+                            type="text"
+                            value={descricaoTemporaria}
+                            onChange={(e) => setDescricaoTemporaria(e.target.value)}
+                            onBlur={() => {
+                              if (descricaoTemporaria.trim()) {
+                                updateLancamento(lanc.linha_arquivo, { descricao: descricaoTemporaria.trim() });
+                              }
+                              setLinhaEditandoDescricao(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                if (descricaoTemporaria.trim()) {
+                                  updateLancamento(lanc.linha_arquivo, { descricao: descricaoTemporaria.trim() });
+                                }
+                                setLinhaEditandoDescricao(null);
+                              } else if (e.key === 'Escape') {
+                                setLinhaEditandoDescricao(null);
+                              }
+                            }}
+                            autoFocus
+                            className="w-full max-w-xl rounded-2xl border border-emerald-400 bg-white px-3 py-1.5 text-lg font-black text-slate-900 outline-none dark:bg-slate-950 dark:text-white focus:ring-1 focus:ring-emerald-400"
+                          />
+                        ) : (
+                          <h3
+                            onDoubleClick={() => {
+                              setLinhaEditandoDescricao(lanc.linha_arquivo);
+                              setDescricaoTemporaria(lanc.descricao);
+                            }}
+                            title="Clique duas vezes para editar a descrição"
+                            className="text-lg font-black text-slate-900 dark:text-white cursor-pointer hover:text-emerald-500 dark:hover:text-emerald-400 transition flex flex-wrap items-center gap-2 group"
+                          >
+                            {lanc.descricao}
+                            <span className="hidden group-hover:inline text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-500/80">
+                              (Duplo clique para editar)
+                            </span>
+                          </h3>
+                        )}
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                           <span className="font-black text-red-600 dark:text-red-300">{formatDate(lanc.data)}</span>
                           {lanc.razao_social ? ` • ${lanc.razao_social}` : ''}
@@ -1707,46 +1800,51 @@ export function ImportacaoOfx() {
                         ) : null}
 
                         {!lanc.entidade_id ? (
-                          <div className="mt-2 flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={lanc.interessado_digitado || ''}
-                              onChange={(e) => updateLancamento(lanc.linha_arquivo, { interessado_digitado: e.target.value })}
-                              placeholder="Digite interessado..."
-                              className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-white outline-none focus:border-blue-500 transition"
-                            />
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const nomeBruto = (lanc.interessado_digitado || lanc.interessado_sugerido || lanc.razao_social || '').trim();
-                                if (!nomeBruto) {
-                                  setFeedback({ type: 'error', message: 'Digite o nome do interessado.' });
-                                  return;
-                                }
-                                try {
-                                  setLoading(true);
-                                  // try extract cpf/cnpj if present
-                                  const cpfMatch = nomeBruto.match(/(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})|(\b\d{11,14}\b)/);
-                                  const cpf_cnpj = cpfMatch ? onlyDigits(cpfMatch[0]) : undefined;
-                                  const payload: any = { nome: nomeBruto.replace(/(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})|(\b\d{11,14}\b)/g, '').trim(), status: 'ATIVO' };
-                                  if (cpf_cnpj) payload.cpf_cnpj = cpf_cnpj;
-                                  const res = await api.post('/entidades/', payload);
-                                  const newItem = res.data;
-                                  // update local cache
-                                  setEntidades((prev) => [...prev, { id: newItem.id, nome: newItem.nome }]);
-                                  // associate with lancamento
-                                  updateLancamento(lanc.linha_arquivo, { entidade_id: Number(newItem.id) });
-                                  setFeedback({ type: 'success', message: 'Interessado criado com sucesso.' });
-                                } catch (error: any) {
-                                  setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao criar interessado.' });
-                                } finally {
-                                  setLoading(false);
-                                }
-                              }}
-                              className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold"
-                            >
-                              Aplicar
-                            </button>
+                          <div className="mt-2 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={lanc.interessado_digitado || ''}
+                                onChange={(e) => updateLancamento(lanc.linha_arquivo, { interessado_digitado: e.target.value })}
+                                placeholder="Ou digite o nome de um novo interessado..."
+                                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                              />
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const nomeBruto = (lanc.interessado_digitado || lanc.interessado_sugerido || lanc.razao_social || '').trim();
+                                  if (!nomeBruto) {
+                                    setFeedback({ type: 'error', message: 'Digite o nome do interessado.' });
+                                    return;
+                                  }
+                                  try {
+                                    setLoading(true);
+                                    // try extract cpf/cnpj if present
+                                    const cpfMatch = nomeBruto.match(/(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})|(\b\d{11,14}\b)/);
+                                    const cpf_cnpj = cpfMatch ? onlyDigits(cpfMatch[0]) : undefined;
+                                    const payload: any = { nome: nomeBruto.replace(/(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})|(\b\d{11,14}\b)/g, '').trim(), status: 'ATIVO' };
+                                    if (cpf_cnpj) payload.cpf_cnpj = cpf_cnpj;
+                                    const res = await api.post('/entidades/', payload);
+                                    const newItem = res.data;
+                                    // update local cache
+                                    setEntidades((prev) => [...prev, { id: newItem.id, nome: newItem.nome }]);
+                                    // associate with lancamento
+                                    updateLancamento(lanc.linha_arquivo, { entidade_id: Number(newItem.id) });
+                                    setFeedback({ type: 'success', message: 'Interessado criado com sucesso.' });
+                                  } catch (error: any) {
+                                    setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao criar interessado.' });
+                                  } finally {
+                                    setLoading(false);
+                                  }
+                                }}
+                                className="rounded-2xl bg-emerald-500 hover:bg-emerald-400 px-4 py-3 text-sm font-bold text-slate-950 transition whitespace-nowrap"
+                              >
+                                Criar Agora
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-slate-400 dark:text-slate-500 font-semibold tracking-wide">
+                              Se preferir, apenas digite o nome e prossiga: o interessado será cadastrado automaticamente ao confirmar a importação.
+                            </p>
                           </div>
                         ) : null}
                       </div>
@@ -1793,9 +1891,22 @@ export function ImportacaoOfx() {
             ) : null}
 
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Resumo para confirmação</p>
-                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{lancamentosEditados.length} item(ns) analisados. {resumo.semCategoria === 0 ? 'Os novos lançamentos já têm categoria.' : `${resumo.semCategoria} novo(s) ainda exigem categoria.`}</p>
+              <div className="space-y-2.5">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Resumo para confirmação</p>
+                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{lancamentosEditados.length} item(ns) analisados. {resumo.semCategoria === 0 ? 'Os novos lançamentos já têm categoria.' : `${resumo.semCategoria} novo(s) ainda exigem categoria.`}</p>
+                </div>
+                {modoImportacao === 'CONTA' && (
+                  <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-amber-600 dark:text-amber-400 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={ignorarDivergencia}
+                      onChange={(e) => setIgnorarDivergencia(e.target.checked)}
+                      className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                    Ignorar divergência de saldo se houver
+                  </label>
+                )}
               </div>
               <button
                 onClick={handleConfirmar}

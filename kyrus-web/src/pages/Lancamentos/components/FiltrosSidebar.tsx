@@ -15,6 +15,7 @@ interface FiltrosSidebarProps {
     dataModo: 'VENCIMENTO' | 'PAGAMENTO';
     dataInicio: string;
     dataFim: string;
+    ocultarVendasCartaoPendentes: boolean;
   };
   setFiltrosAvancados: React.Dispatch<React.SetStateAction<any>>;
   filtroRapido: string | null;
@@ -240,6 +241,24 @@ export const FiltrosSidebar = ({
                 );
               })}
             </div>
+          </div>
+
+          {/* Ocultar vendas de cartão pendentes */}
+          <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30">
+            <div className="flex flex-col pr-2">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                Ocultar vendas de cartão pendentes
+              </span>
+              <span className="text-[10px] text-slate-400">
+                Remove vendas PDV em aberto do extrato/lançamentos
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              className="h-4.5 w-4.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+              checked={filtrosAvancados.ocultarVendasCartaoPendentes}
+              onChange={(e) => setFiltrosAvancados((prev: any) => ({ ...prev, ocultarVendasCartaoPendentes: e.target.checked }))}
+            />
           </div>
 
           <MultiSelectDropdown

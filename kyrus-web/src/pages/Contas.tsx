@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { BankAvatar } from '../components/BrandAvatar';
@@ -228,6 +228,8 @@ function parseDateInput(value: string) {
 export function Contas() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const ofxInputRef = useRef<HTMLInputElement | null>(null);
+  const [ofxUploading, setOfxUploading] = useState(false);
   const bankPresets = useBankPresetStore((state) => state.presets);
   const bankPresetsLoaded = useBankPresetStore((state) => state.loaded);
   const fetchBankPresets = useBankPresetStore((state) => state.fetchPresets);
@@ -286,6 +288,9 @@ export function Contas() {
   const [extratoDeletePaidPhrase, setExtratoDeletePaidPhrase] = useState('');
   const [extratoDeleteIds, setExtratoDeleteIds] = useState<number[]>([]);
   const [lancamentosEmbedParams, setLancamentosEmbedParams] = useState<URLSearchParams | null>(null);
+  const [expandedLotes, setExpandedLotes] = useState<Record<number, any>>({});
+  const [lotesLoading, setLotesLoading] = useState<Record<number, boolean>>({});
+  const [loteVisivel, setLoteVisivel] = useState<Record<number, boolean>>({});
 
   // Formulário
   const [usuarios, setUsuarios] = useState<any[]>([]);
@@ -303,6 +308,47 @@ export function Contas() {
     tipo_integracao: 'MANUAL',
     allowed_user_ids: []
   });
+
+  async function handleOfxFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !extratoContaId) return;
+
+    setOfxUploading(true);
+    setNotice(null);
+
+    try {
+      const fd = new FormData();
+      fd.append('arquivo', file);
+      
+      const { data } = await api.post(
+        '/importacao/ofx/upload',
+        fd,
+        {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          params: { conta_id: Number(extratoContaId) },
+        }
+      );
+
+      navigate('/importacao_ofx', {
+        state: {
+          preLoadedResult: data,
+          preSelectedContaId: Number(extratoContaId),
+          directFlow: true,
+        },
+      });
+    } catch (error: any) {
+      console.error('Erro ao processar arquivo OFX', error);
+      setNotice({
+        type: 'error',
+        message: getApiErrorMessage(error, 'Erro ao processar arquivo OFX.'),
+      });
+    } finally {
+      setOfxUploading(false);
+      if (ofxInputRef.current) {
+        ofxInputRef.current.value = '';
+      }
+    }
+  }
 
   async function carregarUsuarios() {
     try {
@@ -649,12 +695,18 @@ export function Contas() {
       setExtratoLancamentos(items);
       setExtratoSelecionados([]);
       setExtratoFaturasExpandidas({});
+      setExpandedLotes({});
+      setLotesLoading({});
+      setLoteVisivel({});
     } catch (error) {
       console.error("Erro ao carregar extrato", error);
       setExtratoSaldoDetalhe(null);
       setExtratoLancamentos([]);
       setExtratoSelecionados([]);
       setExtratoFaturasExpandidas({});
+      setExpandedLotes({});
+      setLotesLoading({});
+      setLoteVisivel({});
     } finally {
       setExtratoLoading(false);
     }
@@ -697,6 +749,9 @@ export function Contas() {
     setExtratoPeriodoFim('');
     setExtratoSelecionados([]);
     setExtratoFaturasExpandidas({});
+    setExpandedLotes({});
+    setLotesLoading({});
+    setLoteVisivel({});
     setExtratoConta(null);
     setExtratoContaId(null);
     setContaExtratoNome('');
@@ -709,6 +764,34 @@ export function Contas() {
 
   function toggleExtratoFatura(key: string) {
     setExtratoFaturasExpandidas((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  async function toggleLoteExpand(depositoId: number) {
+    if (loteVisivel[depositoId]) {
+      setLoteVisivel((prev) => ({ ...prev, [depositoId]: false }));
+      return;
+    }
+
+    if (expandedLotes[depositoId] !== undefined) {
+      setLoteVisivel((prev) => ({ ...prev, [depositoId]: true }));
+      return;
+    }
+
+    setLotesLoading((prev) => ({ ...prev, [depositoId]: true }));
+    try {
+      const response = await api.get(`/pdv/conciliacao/lotes/deposito/${depositoId}`);
+      if (response.data && response.data.id) {
+        setExpandedLotes((prev) => ({ ...prev, [depositoId]: response.data }));
+        setLoteVisivel((prev) => ({ ...prev, [depositoId]: true }));
+      } else {
+        setExpandedLotes((prev) => ({ ...prev, [depositoId]: null }));
+      }
+    } catch (error) {
+      console.error('Erro ao buscar lote de cartão para o depósito:', error);
+      setExpandedLotes((prev) => ({ ...prev, [depositoId]: null }));
+    } finally {
+      setLotesLoading((prev) => ({ ...prev, [depositoId]: false }));
+    }
   }
 
   function resetExtratoDeleteFlow() {
@@ -974,6 +1057,22 @@ export function Contas() {
 
   return (
     <div className="flex flex-col h-full relative overflow-hidden bg-slate-50 dark:bg-slate-900">
+      <input
+        type="file"
+        ref={ofxInputRef}
+        accept=".ofx,.qfx"
+        className="hidden"
+        onChange={handleOfxFileChange}
+      />
+      {ofxUploading && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-950/60 backdrop-blur-sm">
+          <div className="rounded-3xl bg-white dark:bg-slate-900 p-8 shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col items-center max-w-sm text-center">
+            <Loader2 className="h-10 w-10 animate-spin text-emerald-500 mb-4" />
+            <p className="text-base font-bold text-slate-900 dark:text-white">Processando Extrato OFX</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Lendo transações, identificando duplicatas e buscando sugestões no financeiro...</p>
+          </div>
+        </div>
+      )}
       {notice && (
         <div className="fixed right-6 top-6 z-120 max-w-md rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
           <div className="flex items-start gap-3">
@@ -1039,7 +1138,13 @@ export function Contas() {
             <RefreshCw className={`w-5 h-5 ${loading || extratoLoading ? 'animate-spin' : ''}`} />
           </button>
           <button
-            onClick={() => navigate(extratoContaId ? `/importacao_ofx?conta_id=${extratoContaId}` : '/importacao_ofx')}
+            onClick={() => {
+              if (extratoOpen && extratoContaId) {
+                ofxInputRef.current?.click();
+              } else {
+                navigate('/importacao_ofx');
+              }
+            }}
             className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold text-sm whitespace-nowrap"
           >
             Importar OFX
@@ -1301,49 +1406,98 @@ export function Contas() {
                         }
 
                         const l = row.item;
+                        const hasLoteDetails = l.conciliado && Number(l.valor_entrada || 0) > 0 && (String(l.origem || '').toUpperCase() === 'EXTRATO' || String(l.origem || '').toUpperCase() === 'OFX_EXTRATO');
                         return (
-                          <tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                            <td className="p-3">
-                              <input
-                                type="checkbox"
-                                checked={extratoSelecionados.includes(l.id)}
-                                onChange={() => toggleExtratoSelecionado(l.id)}
-                                className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
-                              />
-                            </td>
-                            <td className="p-3 font-mono text-xs text-slate-500">
-                              {formatDateLike(l.data_pagamento || l.data_vencimento)}
-                            </td>
-                            <td className="p-3 font-medium text-slate-700 dark:text-slate-200">{l.descricao}</td>
-                            <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
-                            <td className="p-3 text-slate-500">{getCategoriaLabel(l)}</td>
-                            <td className="p-3 text-slate-500">{l.origem || '-'}</td>
-                            <td className="p-3">
-                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                {l.status}
-                              </span>
-                            </td>
-                            <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                            <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
-                            <td className="p-3 text-right">
-                              <div className="flex items-center justify-end gap-2">
-                                {!isTransferencia(l) && (
+                          <React.Fragment key={l.id}>
+                            <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                              <td className="p-3">
+                                <input
+                                  type="checkbox"
+                                  checked={extratoSelecionados.includes(l.id)}
+                                  onChange={() => toggleExtratoSelecionado(l.id)}
+                                  className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                                />
+                              </td>
+                              <td className="p-3 font-mono text-xs text-slate-500">
+                                {formatDateLike(l.data_pagamento || l.data_vencimento)}
+                              </td>
+                              <td className="p-3 font-medium text-slate-700 dark:text-slate-200">
+                                <div className="flex items-center gap-2">
+                                  {hasLoteDetails && (
+                                    <button
+                                      onClick={() => toggleLoteExpand(l.id)}
+                                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition"
+                                      title="Ver detalhes das vendas conciliadas neste repasse"
+                                    >
+                                      {lotesLoading[l.id] ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                                      ) : (
+                                        <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${loteVisivel[l.id] ? 'rotate-180' : ''}`} />
+                                      )}
+                                    </button>
+                                  )}
+                                  <span>{l.descricao}</span>
+                                </div>
+                              </td>
+                              <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
+                              <td className="p-3 text-slate-500">{getCategoriaLabel(l)}</td>
+                              <td className="p-3 text-slate-500">{l.origem || '-'}</td>
+                              <td className="p-3">
+                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {l.status}
+                                </span>
+                              </td>
+                              <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
+                              <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                              <td className="p-3 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  {!isTransferencia(l) && (
+                                    <button
+                                      onClick={() => handleAbrirLancamentoModal(l)}
+                                      className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                    >
+                                      <Edit2 className="w-4 h-4" />
+                                    </button>
+                                  )}
                                   <button
-                                    onClick={() => handleAbrirLancamentoModal(l)}
-                                    className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                    onClick={() => handleExcluirLancamento(l.id)}
+                                    className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
                                   >
-                                    <Edit2 className="w-4 h-4" />
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
-                                )}
-                                <button
-                                  onClick={() => handleExcluirLancamento(l.id)}
-                                  className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
+                                </div>
+                              </td>
+                            </tr>
+                            {loteVisivel[l.id] && expandedLotes[l.id] && (
+                              <>
+                                <tr className="bg-slate-50/50 dark:bg-slate-800/30 text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                  <td className="p-2 pl-12" colSpan={3}>Vendas Conciliadas</td>
+                                  <td className="p-2 text-right">Valor Bruto</td>
+                                  <td className="p-2 text-right">Taxa</td>
+                                  <td className="p-2 text-right">Valor Líquido</td>
+                                  <td className="p-2" colSpan={4}></td>
+                                </tr>
+                                {expandedLotes[l.id].itens?.map((item: any) => (
+                                  <tr key={item.id} className="bg-slate-50/20 dark:bg-slate-800/10 text-xs text-slate-600 dark:text-slate-450 border-l-2 border-blue-500">
+                                    <td className="p-2"></td>
+                                    <td className="p-2 font-mono text-slate-400 dark:text-slate-500">{item.data_venda ? new Date(item.data_venda + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}</td>
+                                    <td className="p-2 font-medium">{item.descricao_venda || 'Venda de Cartão'}</td>
+                                    <td className="p-2 text-right font-mono">{BRL.format(Number(item.valor_bruto))}</td>
+                                    <td className="p-2 text-right font-mono text-rose-500">-{BRL.format(Number(item.valor_taxa))}</td>
+                                    <td className="p-2 text-right font-mono text-emerald-600 font-bold">{BRL.format(Number(item.valor_liquido))}</td>
+                                    <td className="p-2" colSpan={4}></td>
+                                  </tr>
+                                ))}
+                                <tr className="bg-slate-50/40 dark:bg-slate-800/20 text-xs font-bold text-slate-700 dark:text-slate-350 border-b border-slate-200 dark:border-slate-700 border-l-2 border-blue-500">
+                                  <td className="p-2 pl-12" colSpan={3}>Total do Lote</td>
+                                  <td className="p-2 text-right font-mono">{BRL.format(Number(expandedLotes[l.id].valor_bruto))}</td>
+                                  <td className="p-2 text-right font-mono text-rose-500">-{BRL.format(Number(expandedLotes[l.id].valor_taxa))}</td>
+                                  <td className="p-2 text-right font-mono text-emerald-600">{BRL.format(Number(expandedLotes[l.id].valor_liquido))}</td>
+                                  <td className="p-2" colSpan={4}></td>
+                                </tr>
+                              </>
+                            )}
+                          </React.Fragment>
                         );
                       })
                     )}

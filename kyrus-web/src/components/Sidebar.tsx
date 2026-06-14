@@ -5,7 +5,7 @@ import {
   Landmark, CreditCard, Settings,
   Briefcase, X, LineChart, FileText,
   Calculator, Table2, ShoppingBag,
-  Banknote,
+  Banknote, Coins,
 } from 'lucide-react';
 import { useAuthStore, type AuthUser } from '../store/authStore';
 import { api } from '../services/api';
@@ -75,6 +75,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
     { icon: Banknote, label: 'Caixa', path: '/caixa', requiredPermissions: ['page:caixa:view'] },
     { icon: BarChart2, label: 'Boletim', path: '/boletim' },
     { icon: CreditCard, label: 'Cartões', path: '/cartoes' },
+    { icon: Coins, label: 'Conciliadora de Cartões', path: '/conciliacao-cartoes' },
     {
       icon: ShoppingBag,
       label: 'PDV',

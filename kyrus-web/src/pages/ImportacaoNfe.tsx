@@ -16,10 +16,10 @@ import {
 
 import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 
-type NfeStatus = 'AGUARDANDO_ENTREGA' | 'ENTREGUE' | 'CANCELADA';
+type NfeStatus = 'AGUARDANDO_ENTREGA' | 'ENTREGUE' | 'CANCELADA' | 'DEMONSTRACAO';
 type SortKey = 'descricao' | 'valor' | 'status' | 'data';
 type SortDirection = 'asc' | 'desc';
-type StatusFilter = 'TODOS' | 'AGUARDANDO_ENTREGA' | 'ENTREGUE' | 'CANCELADA';
+type StatusFilter = 'TODOS' | 'AGUARDANDO_ENTREGA' | 'ENTREGUE' | 'CANCELADA' | 'DEMONSTRACAO';
 type FormMode = 'NOVO' | 'EDITAR';
 
 interface NfeListItem {
@@ -148,6 +148,8 @@ interface NfeAnaliseResponse {
   parcelas: NfeAnaliseParcela[];
   alertas: string[];
   pode_confirmar: boolean;
+  natureza_operacao?: string | null;
+  is_demonstracao?: boolean;
 }
 
 interface NfeConfirmarParcelaPayload {
@@ -475,6 +477,7 @@ function formaPagamentoLabel(value: string) {
 
 function statusLabel(status: NfeStatus) {
   if (status === 'AGUARDANDO_ENTREGA') return 'AGUARDANDO ENTREGA';
+  if (status === 'DEMONSTRACAO') return 'DEMONSTRA\u00c7\u00c3O';
   return status.replace('_', ' ');
 }
 
@@ -485,12 +488,16 @@ function statusClasses(status: NfeStatus) {
   if (status === 'CANCELADA') {
     return 'bg-red-200/90 dark:bg-red-900/35 text-red-700 dark:text-red-300 border-red-300 dark:border-red-800';
   }
+  if (status === 'DEMONSTRACAO') {
+    return 'bg-purple-200/90 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-800';
+  }
   return 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800';
 }
 
 function rowClasses(status: NfeStatus) {
   if (status === 'ENTREGUE') return 'bg-emerald-100/70 dark:bg-emerald-900/25';
   if (status === 'CANCELADA') return 'bg-red-200/80 dark:bg-red-900/40';
+  if (status === 'DEMONSTRACAO') return 'bg-purple-100/70 dark:bg-purple-900/25';
   return '';
 }
 
@@ -1073,12 +1080,14 @@ export function ImportacaoNfe() {
       return;
     }
 
-    if (!analiseNfe.pode_confirmar || analiseNfe.parcelas.length === 0) {
+    const isDemonstracao = Boolean(analiseNfe.is_demonstracao) || String(novoForm.destinoCompra || '').trim().toUpperCase() === 'DEMONSTRACAO';
+
+    if (!isDemonstracao && (!analiseNfe.pode_confirmar || analiseNfe.parcelas.length === 0)) {
       setError('A analise do XML nao retornou parcelas para confirmar a importacao.');
       return;
     }
 
-    const parcelasPayload: NfeConfirmarParcelaPayload[] = analiseNfe.parcelas.map((parcela, index) => {
+    const parcelasPayload: NfeConfirmarParcelaPayload[] = isDemonstracao ? [] : analiseNfe.parcelas.map((parcela, index) => {
       const valorEditado = Number(pagamentosNota[index]?.valor || 0);
       const valorParcela = valorEditado > 0 ? valorEditado : Number(parcela.valor || 0);
       const dataVencimentoEditada = String(pagamentosNota[index]?.dataVencimento || '').trim();
@@ -1094,7 +1103,7 @@ export function ImportacaoNfe() {
       };
     }).filter((parcela) => parcela.valor > 0);
 
-    if (parcelasPayload.length === 0) {
+    if (!isDemonstracao && parcelasPayload.length === 0) {
       setError('Nao foi possivel confirmar: nenhuma parcela com valor valido.');
       return;
     }
@@ -1107,10 +1116,10 @@ export function ImportacaoNfe() {
         chave_nfe: onlyDigits(novoForm.chaveNfe || analiseNfe.chave_nfe),
         numero_nfe: String(novoForm.numero || analiseNfe.numero_nfe || '').trim(),
         tipo_lancamento: tipoLancamento,
-        situacao: String(novoForm.situacao || 'AGUARDANDO_ENTREGA').toUpperCase(),
+        situacao: isDemonstracao ? 'DEMONSTRACAO' : String(novoForm.situacao || 'AGUARDANDO_ENTREGA').toUpperCase(),
         cfop: String(novoForm.cfop || '').trim() || undefined,
-        natureza_operacao: String(novoForm.naturezaOperacao || '').trim() || undefined,
-        destino_compra: String(novoForm.destinoCompra || '').trim() || undefined,
+        natureza_operacao: String(novoForm.naturezaOperacao || analiseNfe.natureza_operacao || '').trim() || undefined,
+        destino_compra: isDemonstracao ? 'DEMONSTRACAO' : (String(novoForm.destinoCompra || '').trim() || undefined),
         valor_frete: Number(String(novoForm.valorFrete || '').replace(',', '.')) > 0
           ? Number(String(novoForm.valorFrete || '').replace(',', '.'))
           : undefined,
@@ -1908,8 +1917,9 @@ export function ImportacaoNfe() {
                 <span className={labelClassName}>Tipo de compra</span>
                 <div className="flex flex-wrap gap-2">
                   {[
-                    { value: 'ESTOQUE', label: 'Estoque' },
-                    { value: 'ENCOMENDA', label: 'Encomenda' },
+                    { value: 'ESTOQUE', label: 'Estoque', activeClass: 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200' },
+                    { value: 'ENCOMENDA', label: 'Encomenda', activeClass: 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200' },
+                    { value: 'DEMONSTRACAO', label: 'Demonstração', activeClass: 'border-purple-500 bg-purple-50 text-purple-700 dark:border-purple-400 dark:bg-purple-500/10 dark:text-purple-200' },
                   ].map((opcao) => {
                     const ativo = String(novoForm.destinoCompra || '').toUpperCase() === opcao.value;
                     return (
@@ -1917,7 +1927,7 @@ export function ImportacaoNfe() {
                         key={opcao.value}
                         type="button"
                         onClick={() => atualizarNovoForm('destinoCompra', opcao.value)}
-                        className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${ativo ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'}`}
+                        className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${ativo ? opcao.activeClass : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'}`}
                       >
                         {opcao.label}
                       </button>

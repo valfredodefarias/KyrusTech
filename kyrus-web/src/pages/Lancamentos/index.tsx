@@ -93,6 +93,7 @@ export function Lancamentos({
     dataModo: 'VENCIMENTO' as 'VENCIMENTO' | 'PAGAMENTO',
     dataInicio: '',
     dataFim: '',
+    ocultarVendasCartaoPendentes: true,
   });
   const [filtroRapido, setFiltroRapido] = useState<string | null>(null);
 
@@ -530,7 +531,7 @@ export function Lancamentos({
     } else {
       loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
     }
-  }, [currentEmpresaId, mesAtual, filtrosAvancados.dataInicio, filtrosAvancados.dataFim, filtrosAvancados.dataModo]);
+  }, [currentEmpresaId, mesAtual, filtrosAvancados.dataInicio, filtrosAvancados.dataFim, filtrosAvancados.dataModo, filtrosAvancados.ocultarVendasCartaoPendentes]);
 
   useEffect(() => {
     if (centros.length === 1) {
@@ -674,7 +675,7 @@ export function Lancamentos({
   };
 
   async function loadLancamentos(ini?: string, fim?: string, opts?: { force?: boolean; skipFallback?: boolean }) {
-    const key = `${currentEmpresaId ?? ''}|${ini || ''}|${fim || ''}`;
+    const key = `${currentEmpresaId ?? ''}|${ini || ''}|${fim || ''}|${filtrosAvancados.ocultarVendasCartaoPendentes}`;
     if (!opts?.force && key === lastLancamentosKeyRef.current && lancamentos.length > 0) return;
     lastLancamentosKeyRef.current = key;
 
@@ -689,6 +690,9 @@ export function Lancamentos({
       const params: any = {};
       if (ini) params.data_inicio = ini;
       if (fim) params.data_fim = fim;
+      if (filtrosAvancados.ocultarVendasCartaoPendentes) {
+        params.ocultar_vendas_cartao_pendentes = true;
+      }
       const rows = await fetchLancamentosPaged<Lancamento>(params, { pageSize: 1500, signal: controller.signal });
       setLancamentos(rows);
     } catch (e: any) {
@@ -1111,6 +1115,7 @@ export function Lancamentos({
       dataModo: 'VENCIMENTO',
       dataInicio: '',
       dataFim: '',
+      ocultarVendasCartaoPendentes: true,
     });
     setFiltroTexto('');
     setCentroCustoFiltro('');

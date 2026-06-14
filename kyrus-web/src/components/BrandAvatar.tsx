@@ -317,6 +317,75 @@ export const CARD_BRAND_OPTIONS = CARD_BRANDS.map((brand) => ({
   visual: brand as BrandVisual,
 }));
 
+const BrandSvgLogo = ({ brandKey, size = 'md' }: { brandKey: string; size?: 'sm' | 'md' | 'lg' }) => {
+  const normalizedKey = brandKey.toLowerCase();
+  
+  let dims = 'h-4.5 w-7.5';
+  if (size === 'sm') dims = 'h-3.5 w-6';
+  if (size === 'lg') dims = 'h-6 w-10';
+  
+  if (normalizedKey === 'pix') {
+    dims = size === 'sm' ? 'h-4.5 w-4.5' : size === 'md' ? 'h-5.5 w-5.5' : 'h-7 w-7';
+  }
+
+  switch (normalizedKey) {
+    case 'visa':
+      return (
+        <svg viewBox="0 0 24 15" className={`${dims} shrink-0`} fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M10.02 0.28H7.4L4.62 10.9L3.48 2.05C3.39 1.41 2.91 0.77 2.16 0.44C1.3 0.05 0.32 -0.16 0 0.05L0.08 0.42C0.63 0.63 1.25 1.05 1.51 1.76L3.4 12.87H6.18L10.39 0.28H10.02ZM15.7 3.51C15.7 1.83 13.9 1.48 12.55 1.05C11.14 0.61 9.4 0.28 9.4 1.88C9.4 3.01 10.92 3.42 12.33 3.86C13.8 4.3 15.7 4.7 15.7 3.51ZM14.9 8.27C14.9 5.37 11.75 4.97 9.8 4.41C7.89 3.86 5.8 3.51 5.8 5.75C5.8 7.37 7.7 8.04 9.68 8.6C11.64 9.15 14.9 9.38 14.9 8.27ZM20.87 0.28H18.72C17.75 0.28 17.15 0.94 16.92 1.76L13.56 12.87H16.32L16.87 10.9H20.24L20.57 12.87H23L20.87 0.28ZM17.47 8.44L18.55 4.67C18.55 4.67 18.76 3.96 18.9 3.32L19.46 8.44H17.47ZM23.36 0.28L21.36 12.87H24L26 0.28H23.36Z" fill="#1A1F71"/>
+        </svg>
+      );
+    case 'mastercard':
+      return (
+        <svg viewBox="0 0 24 15" className={`${dims} shrink-0`} xmlns="http://www.w3.org/2000/svg">
+          <circle cx="7.5" cy="7.5" r="7.5" fill="#EB001B" />
+          <circle cx="16.5" cy="7.5" r="7.5" fill="#F79E1B" opacity="0.85" />
+          <path d="M12 7.5a7.48 7.48 0 0 1 2.37-5.38 7.48 7.48 0 0 0-4.74 0A7.48 7.48 0 0 1 12 7.5z" fill="#FF5F00" />
+        </svg>
+      );
+    case 'elo':
+      return (
+        <svg viewBox="0 0 24 15" className={`${dims} shrink-0`} fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M6 10.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5" stroke="#EA580C" strokeWidth="2.5" strokeLinecap="round" />
+          <path d="M8 10.5c0-2 2-3 4-3s4 1 4 3" stroke="#FACC15" strokeWidth="2" strokeLinecap="round" />
+          <circle cx="12" cy="10.5" r="2" fill="#2563EB" />
+        </svg>
+      );
+    case 'amex':
+      return (
+        <svg viewBox="0 0 24 15" className={`${dims} shrink-0`} fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="24" height="15" rx="2" fill="#0070CD" />
+          <text x="12" y="9.5" fill="#FFFFFF" fontSize="6" fontWeight="bold" fontFamily="system-ui, sans-serif" textAnchor="middle" letterSpacing="0.2">AMEX</text>
+        </svg>
+      );
+    case 'hipercard':
+      return (
+        <svg viewBox="0 0 24 15" className={`${dims} shrink-0`} fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="24" height="15" rx="2" fill="#C1121F" />
+          <text x="12" y="9" fill="#FFFFFF" fontSize="5" fontWeight="black" fontFamily="system-ui, sans-serif" textAnchor="middle" letterSpacing="0.1">HIPER</text>
+        </svg>
+      );
+    case 'cabal':
+      return (
+        <svg viewBox="0 0 24 15" className={`${dims} shrink-0`} fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="24" height="15" rx="2" fill="#1E3A8A" />
+          <circle cx="9" cy="7.5" r="3.2" fill="#EF4444" opacity="0.8" />
+          <circle cx="15" cy="7.5" r="3.2" fill="#3B82F6" opacity="0.8" />
+          <path d="M12 5.5a2.5 2.5 0 0 1 0 4 2.5 2.5 0 0 1 0-4z" fill="#FFFFFF" />
+        </svg>
+      );
+    case 'pix':
+      return (
+        <svg viewBox="0 0 24 24" className={`${dims} shrink-0`} fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2L2 12l10 10 10-10L12 2zm0 3.8L18.2 12 12 18.2 5.8 12 12 5.8z" fill="#32BCAD" />
+          <path d="M12 8.5L8.5 12l3.5 3.5 3.5-3.5-3.5-3.5z" fill="#32BCAD" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+};
+
 export function BrandAvatar({ visual, size = 'md', className = '' }: BrandAvatarProps) {
   const style = {
     background: visual.background,
@@ -325,13 +394,15 @@ export function BrandAvatar({ visual, size = 'md', className = '' }: BrandAvatar
     boxShadow: `inset 0 0 0 1px ${visual.accent}22`,
   } as CSSProperties;
 
+  const svgLogo = BrandSvgLogo({ brandKey: visual.key, size });
+
   return (
     <div
-      className={`flex items-center justify-center rounded-2xl border font-black uppercase tracking-[0.18em] ${SIZE_CLASS[size]} ${className}`}
+      className={`flex items-center justify-center rounded-2xl border font-black uppercase tracking-[0.18em] overflow-hidden ${SIZE_CLASS[size]} ${className}`}
       style={style}
       title={visual.label}
     >
-      {visual.shortLabel}
+      {svgLogo ? svgLogo : visual.shortLabel}
     </div>
   );
 }

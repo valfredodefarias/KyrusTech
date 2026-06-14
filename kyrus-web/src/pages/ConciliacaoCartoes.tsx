@@ -605,18 +605,22 @@ export function ConciliacaoCartoes() {
   }, [selectedDeposito]);
 
   // Grouped Rule Form Actions
-  const handleOpenCreateRegra = () => {
+  const handleOpenConfigureBrand = (brandName: string) => {
     setGroupedRegraForm({
-      bandeira: 'VISA',
+      bandeira: brandName,
       conta_destino_id: contas.length > 0 ? String(contas[0].id) : '',
       plano_contas_taxa_id: categoriasDespesa.length > 0 ? String(categoriasDespesa[0].id) : '',
-      debito: initialModalityState('cartao_debito'),
+      debito: { ...initialModalityState('cartao_debito'), active: true },
       credito_vista: initialModalityState('cartao_credito_vista'),
       credito_parcelado: initialModalityState('cartao_credito_parcelado'),
     });
     setDrawerSubTab('debito');
     setIsEditingRegra(false);
     setShowRegraDrawer(true);
+  };
+
+  const handleOpenCreateRegra = () => {
+    handleOpenConfigureBrand('VISA');
   };
 
   const handleOpenEditGroupedRegra = (g: GroupedBandeira) => {
@@ -831,7 +835,14 @@ export function ConciliacaoCartoes() {
   }
 
   const groupedRegras = useMemo(() => {
+    const defaultBrands = ['VISA', 'MASTERCARD', 'ELO', 'AMEX', 'HIPERCARD', 'CABAL', 'PIX'];
     const groups: Record<string, GroupedBandeira> = {};
+    
+    // Initialize groups for default brands
+    defaultBrands.forEach(b => {
+      groups[b] = { bandeira: b };
+    });
+
     regras.forEach(r => {
       const brand = r.bandeira.toUpperCase();
       if (!groups[brand]) {
@@ -845,7 +856,15 @@ export function ConciliacaoCartoes() {
         groups[brand].credito_parcelado = r;
       }
     });
-    return Object.values(groups).sort((a, b) => a.bandeira.localeCompare(b.bandeira));
+
+    return Object.values(groups).sort((a, b) => {
+      const aIdx = defaultBrands.indexOf(a.bandeira);
+      const bIdx = defaultBrands.indexOf(b.bandeira);
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+      return a.bandeira.localeCompare(b.bandeira);
+    });
   }, [regras]);
 
   // Manual Reconciliation Memos
@@ -1775,20 +1794,13 @@ export function ConciliacaoCartoes() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {groupedRegras.length === 0 && (
-                      <div className="col-span-full py-16 text-center text-slate-500 border-2 border-dashed border-slate-300 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900">
-                        <AlertCircle className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-                        <h4 className="font-bold text-slate-950 dark:text-white">Nenhum parâmetro configurado</h4>
-                        <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">Configure os primeiros parâmetros de cartão para que as taxas e os prazos sejam calculados nas vendas.</p>
-                      </div>
-                    )}
-
                     {groupedRegras.map(g => {
                       const brandObj = inferCardBrand(g.bandeira);
+                      const isConfigured = !!(g.debito || g.credito_vista || g.credito_parcelado);
                       return (
                         <div
                           key={g.bandeira}
-                          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4 hover:shadow-md transition relative overflow-hidden flex flex-col justify-between"
+                          className={`bg-white dark:bg-slate-900 border ${isConfigured ? 'border-slate-200 dark:border-slate-800' : 'border-slate-200/60 dark:border-slate-800/60 opacity-90'} rounded-2xl p-5 shadow-sm space-y-4 hover:shadow-md transition relative overflow-hidden flex flex-col justify-between`}
                         >
                           <div className="absolute top-0 right-0 -mr-6 -mt-6 w-20 h-20 bg-blue-500 opacity-5 rounded-full blur-xl pointer-events-none"></div>
 
@@ -1797,26 +1809,36 @@ export function ConciliacaoCartoes() {
                               <BrandAvatar visual={brandObj} size="sm" />
                               <div>
                                 <span className="font-black text-slate-950 dark:text-white text-sm block">{g.bandeira}</span>
-                                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold mt-0.5">Configurações Ativas</span>
+                                {isConfigured ? (
+                                  <span className="text-[9px] bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider block mt-0.5 w-max">
+                                    Configurado
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider block mt-0.5 w-max">
+                                    Não Configurado
+                                  </span>
+                                )}
                               </div>
                             </div>
 
-                            <div className="flex gap-1.5">
-                              <button
-                                onClick={() => handleOpenEditGroupedRegra(g)}
-                                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg transition"
-                                title="Editar"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteGroupedRegra(g)}
-                                className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition"
-                                title="Excluir"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
+                            {isConfigured && (
+                              <div className="flex gap-1.5">
+                                <button
+                                  onClick={() => handleOpenEditGroupedRegra(g)}
+                                  className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg transition"
+                                  title="Editar"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteGroupedRegra(g)}
+                                  className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition"
+                                  title="Excluir"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
                           </div>
 
                           <div className="space-y-3">
@@ -1833,11 +1855,11 @@ export function ConciliacaoCartoes() {
                                   <span className="font-bold text-blue-600 dark:text-blue-400 text-xs font-mono">{Number(g.debito.taxa_porcentagem || 0).toFixed(2)}%</span>
                                 </div>
                               </div>
-                            ) : (
+                            ) : isConfigured ? (
                               <div className="text-[10px] text-slate-400 bg-slate-50/50 dark:bg-slate-800/10 p-2 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 flex justify-between items-center opacity-60">
                                 <span>Débito não configurado</span>
                               </div>
-                            )}
+                            ) : null}
 
                             {/* Crédito à Vista */}
                             {g.credito_vista ? (
@@ -1860,11 +1882,11 @@ export function ConciliacaoCartoes() {
                                   </div>
                                 )}
                               </div>
-                            ) : (
+                            ) : isConfigured ? (
                               <div className="text-[10px] text-slate-400 bg-slate-50/50 dark:bg-slate-800/10 p-2 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 flex justify-between items-center opacity-60">
                                 <span>Crédito à Vista não configurado</span>
                               </div>
-                            )}
+                            ) : null}
 
                             {/* Crédito Parcelado */}
                             {g.credito_parcelado ? (
@@ -1887,26 +1909,42 @@ export function ConciliacaoCartoes() {
                                   )}
                                 </div>
                               </div>
-                            ) : (
+                            ) : isConfigured ? (
                               <div className="text-[10px] text-slate-400 bg-slate-50/50 dark:bg-slate-800/10 p-2 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 flex justify-between items-center opacity-60">
                                 <span>Crédito Parcelado não configurado</span>
+                              </div>
+                            ) : null}
+
+                            {!isConfigured && (
+                              <div className="py-6 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/30 dark:bg-slate-900/30 text-slate-400">
+                                Sem taxas configuradas
                               </div>
                             )}
                           </div>
 
-                          <div className="text-[10px] text-slate-400 font-semibold space-y-1">
-                            {((g.debito?.fds_proximo_dia_util) || (g.credito_vista?.fds_proximo_dia_util) || (g.credito_parcelado?.fds_proximo_dia_util)) && (
-                              <p className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
-                                <Check className="w-3.5 h-3.5" /> Fim de semana rola p/ próximo dia útil
+                          {isConfigured ? (
+                            <div className="text-[10px] text-slate-400 font-semibold space-y-1 mt-2">
+                              {((g.debito?.fds_proximo_dia_util) || (g.credito_vista?.fds_proximo_dia_util) || (g.credito_parcelado?.fds_proximo_dia_util)) && (
+                                <p className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                                  <Check className="w-3.5 h-3.5" /> Fim de semana rola p/ próximo dia útil
+                                </p>
+                              )}
+                              <p className="truncate">
+                                Conta destino: {
+                                  contas.find(c => String(c.id) === String(g.debito?.conta_destino_id || g.credito_vista?.conta_destino_id || g.credito_parcelado?.conta_destino_id))?.nome ||
+                                  `Não configurada`
+                                }
                               </p>
-                            )}
-                            <p className="truncate">
-                              Conta destino: {
-                                contas.find(c => String(c.id) === String(g.debito?.conta_destino_id || g.credito_vista?.conta_destino_id || g.credito_parcelado?.conta_destino_id))?.nome ||
-                                `Não configurada`
-                              }
-                            </p>
-                          </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenConfigureBrand(g.bandeira)}
+                              className="w-full mt-2 py-2 bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 border border-blue-200/50 dark:border-blue-800/50 font-bold rounded-xl flex items-center justify-center gap-1.5 transition"
+                            >
+                              <Plus className="w-4 h-4" /> Configurar {brandObj.label}
+                            </button>
+                          )}
                         </div>
                       );
                     })}
@@ -1933,7 +1971,7 @@ export function ConciliacaoCartoes() {
                         <select
                           value={regraForm.tipo_pagamento}
                           onChange={e => setRegraForm({ ...regraForm, tipo_pagamento: e.target.value })}
-                          className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-transparent text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                          className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-transparent text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 font-bold"
                         >
                           <option value="cartao_credito_vista">Crédito à Vista</option>
                           <option value="cartao_credito_parcelado">Crédito Parcelado</option>
@@ -1941,21 +1979,46 @@ export function ConciliacaoCartoes() {
                         </select>
                       </div>
 
+                      {/* Habilitar esta forma de pagamento */}
+                      <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/60">
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Habilitar esta forma de pagamento</span>
+                        <input
+                          type="checkbox"
+                          checked={activeModality.active}
+                          onChange={e => {
+                            setGroupedRegraForm(prev => {
+                              const next = { ...prev };
+                              next[activeModalityKey] = {
+                                ...next[activeModalityKey],
+                                active: e.target.checked
+                              };
+                              return next;
+                            });
+                          }}
+                          className="rounded text-blue-500 focus:ring-blue-500 h-4 w-4"
+                        />
+                      </div>
+
                       {/* Bandeira */}
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Bandeira</label>
-                        <select
-                          value={regraForm.bandeira}
-                          onChange={e => setRegraForm({ ...regraForm, bandeira: e.target.value })}
-                          className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-transparent text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="VISA">VISA</option>
-                          <option value="MASTERCARD">MASTERCARD</option>
-                          <option value="ELO">ELO</option>
-                          <option value="AMEX">AMEX</option>
-                          <option value="HIPERCARD">HIPERCARD</option>
-                          <option value="CABAL">CABAL</option>
-                        </select>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Bandeira</label>
+                        <div className="grid grid-cols-4 gap-2">
+                          {['VISA', 'MASTERCARD', 'ELO', 'AMEX', 'HIPERCARD', 'CABAL', 'PIX'].map(bName => {
+                            const visual = inferCardBrand(bName);
+                            const isSelected = groupedRegraForm.bandeira.toUpperCase() === bName;
+                            return (
+                              <button
+                                key={bName}
+                                type="button"
+                                onClick={() => setGroupedRegraForm(prev => ({ ...prev, bandeira: bName }))}
+                                className={`flex flex-col items-center justify-center p-2.5 rounded-xl border transition-all gap-1.5 ${isSelected ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/20 ring-1 ring-blue-500' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 bg-white dark:bg-slate-900'}`}
+                              >
+                                <BrandAvatar visual={visual} size="sm" />
+                                <span className="text-[10px] font-bold tracking-wider">{visual.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
 
                       {/* Taxas */}

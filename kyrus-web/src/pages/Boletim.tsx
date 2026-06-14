@@ -1,6 +1,7 @@
 import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  Banknote,
   Building2,
   CalendarDays,
   Landmark,
@@ -8,6 +9,7 @@ import {
   ShoppingCart,
   Sparkles,
 } from 'lucide-react';
+
 
 import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
@@ -2196,9 +2198,11 @@ export function Boletim() {
                         <tr key={conta.id} className={foraDoDisponivel ? isDark ? 'border-t border-amber-300/12 bg-amber-300/5 text-white' : 'border-t border-amber-100 bg-amber-50/60 text-slate-800' : isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
                           <td className="px-4 py-3">
                             <button type="button" onClick={() => handleBankAuditClick(conta)} className={`flex w-full items-center gap-2 rounded-xl px-1 py-1 text-left transition ${activeBank ? isDark ? 'bg-amber-300/12' : 'bg-amber-100/70' : ''}`}>
-                              <div className={`flex h-9 w-9 items-center justify-center overflow-hidden rounded-2xl ${logo ? '' : isDark ? 'bg-white/8 text-white/55' : 'bg-slate-100 text-slate-400'}`}>
+                              <div className={`flex h-9 w-9 items-center justify-center overflow-hidden rounded-2xl ${logo ? '' : conta.tipo === 'CAIXA' ? (isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600') : (isDark ? 'bg-white/8 text-white/55' : 'bg-slate-100 text-slate-400')}`}>
                                 {logo ? (
                                   <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={contaDisplayName} integrationType={conta.tipo} size="sm" className="h-9 w-9" imageClassName="rounded-2xl" fallbackClassName="rounded-2xl border-0 shadow-none" />
+                                ) : conta.tipo === 'CAIXA' ? (
+                                  <Banknote className="h-4 w-4" />
                                 ) : (
                                   <Landmark className="h-4 w-4" />
                                 )}

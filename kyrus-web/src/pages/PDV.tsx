@@ -1906,7 +1906,7 @@ export function PDV() {
                                         : 'border-slate-200 hover:border-slate-300 dark:border-slate-800 hover:dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
                                     }`}
                                   >
-                                    <BrandAvatar visual={brandObj} size="sm" className="w-5 h-5 shrink-0 rounded-lg text-[7px] border-none shadow-none" />
+                                    <BrandAvatar visual={brandObj} size="sm" className="w-8 h-5 shrink-0 rounded-lg text-[8px] border-none shadow-none" />
                                     <span>{brand}</span>
                                   </button>
                                 );

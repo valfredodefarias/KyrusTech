@@ -161,11 +161,26 @@ def _apply_legacy_schema_compatibility() -> None:
         "CREATE INDEX IF NOT EXISTS ix_cartoes_bandeira ON cartoes (bandeira)",
         "ALTER TABLE produtos ADD COLUMN IF NOT EXISTS tipo VARCHAR NOT NULL DEFAULT 'PRODUTO'",
         "CREATE INDEX IF NOT EXISTS ix_produtos_tipo ON produtos (tipo)",
+        "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pdv_config VARCHAR",
+        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS tipo_prazo VARCHAR DEFAULT 'DIAS_CORRIDOS'",
+        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS dia_fixo INTEGER",
+        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS fds_proximo_dia_util BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS modo_parcelamento VARCHAR DEFAULT 'PRO_RATA'",
+        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS taxa_antecipacao NUMERIC(5,2) DEFAULT 0.00",
     ]
 
     with engine.begin() as connection:
         for statement in statements:
             connection.execute(text(statement))
+
+    # Criar tabelas se não existirem (caso Alembic falhe)
+    from app.models.regra_cartao import RegraCartao
+    from app.models.lote_cartao import LoteCartao
+    from app.models.lote_cartao_item import LoteCartaoItem
+    RegraCartao.__table__.create(bind=engine, checkfirst=True)
+    LoteCartao.__table__.create(bind=engine, checkfirst=True)
+    LoteCartaoItem.__table__.create(bind=engine, checkfirst=True)
+
 
 # --- INICIALIZAR APLICAÇÃO ---
 app = FastAPI(

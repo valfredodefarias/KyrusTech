@@ -79,6 +79,12 @@ def apply_legacy_schema_compatibility() -> None:
         "UPDATE plano_contas SET considerar_nos_resultados = TRUE WHERE coalesce(oculta, FALSE) = FALSE",
         "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS transferencia_grupo_id VARCHAR",
         "CREATE INDEX IF NOT EXISTS ix_lancamentos_transferencia_grupo_id ON lancamentos (transferencia_grupo_id)",
+        "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pdv_config VARCHAR",
+        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS tipo_prazo VARCHAR DEFAULT 'DIAS_CORRIDOS'",
+        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS dia_fixo INTEGER",
+        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS fds_proximo_dia_util BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS modo_parcelamento VARCHAR DEFAULT 'PRO_RATA'",
+        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS taxa_antecipacao NUMERIC(5,2) DEFAULT 0.00",
     ]
 
     with engine.begin() as connection:
@@ -90,6 +96,13 @@ def apply_legacy_schema_compatibility() -> None:
     
     from app.models.usuario_conta_acesso import UsuarioContaAcesso
     UsuarioContaAcesso.__table__.create(bind=engine, checkfirst=True)
+
+    from app.models.regra_cartao import RegraCartao
+    from app.models.lote_cartao import LoteCartao
+    from app.models.lote_cartao_item import LoteCartaoItem
+    RegraCartao.__table__.create(bind=engine, checkfirst=True)
+    LoteCartao.__table__.create(bind=engine, checkfirst=True)
+    LoteCartaoItem.__table__.create(bind=engine, checkfirst=True)
 
 
 

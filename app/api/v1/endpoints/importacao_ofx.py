@@ -2181,6 +2181,7 @@ class ConfirmarLancamentosRequest(BaseModel):
     cartao_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
     modo_importacao: Optional[str] = None
+    ignorar_divergencia: bool = False
 
 
 @router.post(
@@ -2404,6 +2405,42 @@ def confirmar_lancamentos(
 
             if import_hash:
                 import_hashes_processados.add(import_hash)
+
+            # Resolvendo ou criando entidade (interessado) se necessario
+            entidade_id = lanc_data.get("entidade_id")
+            if not entidade_id:
+                nome_entidade_bruto = lanc_data.get("interessado_digitado") or lanc_data.get("interessado_sugerido") or lanc_data.get("razao_social")
+                if nome_entidade_bruto:
+                    nome_entidade = str(nome_entidade_bruto).strip()
+                    # Limpa CPF/CNPJ se embutido
+                    cpf_cnpj_match = re.search(r"(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})|(\b\d{11,14}\b)", nome_entidade)
+                    cpf_cnpj_val = None
+                    if cpf_cnpj_match:
+                        cpf_cnpj_val = re.sub(r"\D", "", cpf_cnpj_match.group(0))
+                        nome_entidade = re.sub(r"(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})|(\b\d{11,14}\b)", "", nome_entidade).strip()
+                    nome_entidade = re.sub(r"\s+", " ", nome_entidade).strip()
+                    if nome_entidade:
+                        entidade_existente = db.exec(
+                            select(Entidade).where(
+                                Entidade.empresa_id == empresa_id,
+                                func.lower(Entidade.nome) == func.lower(nome_entidade)
+                            )
+                        ).first()
+                        if entidade_existente:
+                            entidade_id = entidade_existente.id
+                        else:
+                            nova_entidade = Entidade(
+                                nome=nome_entidade,
+                                tipo="AMBOS",
+                                tipo_pessoa="PJ" if (cpf_cnpj_val and len(cpf_cnpj_val) == 14) else "PF",
+                                cpf_cnpj=cpf_cnpj_val,
+                                status="ATIVO",
+                                empresa_id=empresa_id
+                            )
+                            db.add(nova_entidade)
+                            db.flush()
+                            entidade_id = nova_entidade.id
+            lanc_data["entidade_id"] = entidade_id
 
             from app.services.importacao_bancaria_service import parsear_data
 
@@ -2662,7 +2699,7 @@ def confirmar_lancamentos(
             )
             abs_divergencia_antes = abs(Decimal(str((divergencia_saldo_ofx_antes or {}).get("diferenca") or "0")))
             abs_divergencia_depois = abs(Decimal(str((divergencia_saldo_ofx or {}).get("diferenca") or "0")))
-            if abs_divergencia_depois > abs_divergencia_antes + Decimal("0.01"):
+            if not request.ignorar_divergencia and abs_divergencia_depois > abs_divergencia_antes + Decimal("0.01"):
                 logger.warning(
                     "[OFX] Divergencia de saldo piorou apos confirmacao conta_id={} empresa_id={} abs_antes={} abs_depois={} antes={} depois={}",
                     conta_resolvida_id,

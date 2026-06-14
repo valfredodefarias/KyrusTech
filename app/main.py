@@ -179,9 +179,10 @@ app = FastAPI(
 def startup_event() -> None:
     global SCHEDULER_TASK
     _run_startup_migrations()
-    _ensure_rbac_defaults()
-    SCHEDULER_STOP_EVENT.clear()
-    SCHEDULER_TASK = asyncio.create_task(run_integracao_scheduler(SCHEDULER_STOP_EVENT))
+    if os.getenv("TESTING") != "1":
+        _ensure_rbac_defaults()
+        SCHEDULER_STOP_EVENT.clear()
+        SCHEDULER_TASK = asyncio.create_task(run_integracao_scheduler(SCHEDULER_STOP_EVENT))
 
 
 @app.on_event("shutdown")

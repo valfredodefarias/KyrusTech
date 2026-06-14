@@ -90,6 +90,8 @@ class NfeAnaliseResponse(BaseModel):
     parcelas: list[NfeParcelaAnalise]
     alertas: list[str]
     pode_confirmar: bool
+    natureza_operacao: Optional[str] = None
+    is_demonstracao: bool = False
 
 
 class NfeParcelaConfirmar(BaseModel):
@@ -130,7 +132,7 @@ class NfeConfirmarRequest(BaseModel):
     plano_contas_id: Optional[int] = None
     observacao: Optional[str] = None
     itens: list[NfeItemPersistencia] = Field(default_factory=list)
-    parcelas: list[NfeParcelaConfirmar]
+    parcelas: list[NfeParcelaConfirmar] = Field(default_factory=list)
 
 
 class NfeConfirmarResponse(BaseModel):
@@ -521,7 +523,7 @@ def _compor_observacao_com_situacao(
         partes.append(f"CFOP {cfop_normalizado}")
 
     destino_normalizado = str(destino_compra or "").strip().upper()
-    if destino_normalizado in {"ENCOMENDA", "ESTOQUE"}:
+    if destino_normalizado in {"ENCOMENDA", "ESTOQUE", "DEMONSTRACAO"}:
         partes.append(f"DestinoCompra {destino_normalizado}")
 
     natureza_normalizada = re.sub(r"\s+", " ", str(natureza_operacao or "")).strip()
@@ -2281,11 +2283,32 @@ def analisar_nfe_xml(
                 "Nao foi possivel sugerir uma categoria compativel. Verifique o plano de contas antes de confirmar."
             )
 
+        # Detectar notas sem faturamento (demonstracao, bonificacao, remessa, etc.)
+        _PALAVRAS_SEM_FATURAMENTO = [
+            "AJUSTE", "CORRECAO", "CORREÇÃO", "REMESSA",
+            "BONIFICACAO", "BONIFICAÇÃO", "DEVOLUCAO", "DEVOLUÇÃO",
+            "RETORNO", "BRINDE", "DEMONSTRACAO", "DEMONSTRAÇÃO", "DOACAO", "DOAÇÃO",
+        ]
+        natureza_upper = str(documento.natureza_operacao or "").upper()
+        is_demonstracao = (
+            not documento.parcelas
+            and any(p in natureza_upper for p in _PALAVRAS_SEM_FATURAMENTO)
+        )
+
+        if is_demonstracao:
+            alertas.append(
+                f"Nota identificada como demonstracao/sem faturamento (natureza: {documento.natureza_operacao}). "
+                "Nenhum lancamento financeiro sera criado."
+            )
+
+        pode_confirmar = bool(documento.parcelas) or is_demonstracao
+
         logger.info(
-            "[NFE] Analise concluida empresa_id={} chave_nfe={} parcelas={} alerta_count={}",
+            "[NFE] Analise concluida empresa_id={} chave_nfe={} parcelas={} is_demo={} alerta_count={}",
             empresa_id,
             documento.chave_nfe,
             total_parcelas,
+            is_demonstracao,
             len(alertas),
         )
 
@@ -2324,7 +2347,9 @@ def analisar_nfe_xml(
             ],
             parcelas=parcelas_payload,
             alertas=alertas,
-            pode_confirmar=bool(documento.parcelas),
+            pode_confirmar=pode_confirmar,
+            natureza_operacao=documento.natureza_operacao or None,
+            is_demonstracao=is_demonstracao,
         )
     except HTTPException:
         raise
@@ -2356,13 +2381,15 @@ def confirmar_importacao_nfe(
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    if not request.parcelas:
+    destino_compra_normalizado = str(request.destino_compra or "").strip().upper()
+    is_demonstracao = destino_compra_normalizado == "DEMONSTRACAO"
+
+    if not request.parcelas and not is_demonstracao:
         raise HTTPException(status_code=400, detail="Envie ao menos uma parcela para importacao")
 
     tipo_lancamento = str(request.tipo_lancamento or "").strip().upper()
     if tipo_lancamento != "DESPESA":
         raise HTTPException(status_code=400, detail="Importacao de NF-e aceita apenas DESPESA")
-        raise HTTPException(status_code=400, detail="Tipo de lancamento invalido para importacao NF-e")
 
     chave_nfe = _only_digits(request.chave_nfe)
     if not chave_nfe:
@@ -2431,6 +2458,68 @@ def confirmar_importacao_nfe(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Ja existe lancamento importado para uma ou mais parcelas desta NF-e",
+        )
+
+    # Notas de demonstracao: registrar sem criar lancamentos financeiros
+    if is_demonstracao:
+        observacao_demo = _compor_observacao_com_situacao(
+            request.observacao or f"NF-e {numero_nfe} | Chave {chave_nfe}",
+            situacao_nfe,
+            cfop=cfop_nfe,
+            emitente_documento=emitente_documento_nfe,
+            destino_compra="DEMONSTRACAO",
+            natureza_operacao=request.natureza_operacao,
+            valor_frete=request.valor_frete,
+            itens_meta=itens_meta,
+        )
+        lancamento_demo = Lancamento(
+            descricao=f"DEMO NFE: ({numero_nfe})",
+            tipo=tipo_lancamento,
+            origem="NFE_XML",
+            ipp=False,
+            previsto=False,
+            valor_previsto=Decimal("0.00"),
+            valor_pago=Decimal("0.00"),
+            valor_juros=Decimal("0.00"),
+            valor_desconto=Decimal("0.00"),
+            valor_multa=Decimal("0.00"),
+            data_vencimento=request.data_emissao,
+            data_pagamento=None,
+            data_competencia=request.data_emissao,
+            competencia=request.data_emissao.strftime("%m/%Y"),
+            numero_parcela=0,
+            id_parcelamento=parcela_group_id,
+            observacao=observacao_demo,
+            conciliado=False,
+            import_hash=_import_hash(empresa_id, chave_nfe, 0),
+            transferencia_grupo_id=None,
+            empresa_id=empresa_id,
+            plano_contas_id=int(request.plano_contas_id) if request.plano_contas_id else None,
+            conta_id=int(conta.id) if conta and conta.id else None,
+            entidade_id=int(entidade_padrao.id) if entidade_padrao and entidade_padrao.id else None,
+            cartao_id=None,
+            centro_custo_id=centro_custo_id,
+        )
+        db.add(lancamento_demo)
+        db.commit()
+        db.refresh(lancamento_demo)
+
+        demo_id = int(lancamento_demo.id or 0)
+        logger.info(
+            "[NFE] Nota de demonstracao registrada empresa_id={} chave_nfe={} lancamento_id={}",
+            empresa_id,
+            chave_nfe,
+            demo_id,
+        )
+
+        return NfeConfirmarResponse(
+            id_parcelamento=parcela_group_id,
+            chave_nfe=chave_nfe,
+            numero_nfe=numero_nfe,
+            tipo_lancamento=tipo_lancamento,
+            total_parcelas=0,
+            lancamentos_criados=1,
+            lancamento_ids=[demo_id] if demo_id else [],
         )
 
     lancamentos: list[Lancamento] = []

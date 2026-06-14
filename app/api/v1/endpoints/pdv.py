@@ -24,6 +24,9 @@ from app.models.conta import Conta
 from app.models.anexo_lancamento import AnexoLancamento
 from app.models.entidade import Entidade
 from app.models.centro_custo import CentroCusto
+from app.models.regra_cartao import RegraCartao
+from app.models.lote_cartao import LoteCartao
+from app.models.lote_cartao_item import LoteCartaoItem
 from app.schemas.pdv import (
     PdvVendaGrupoRead,
     PdvVendaItemRead,
@@ -32,7 +35,13 @@ from app.schemas.pdv import (
     ProdutoCreate,
     ProdutoUpdate,
     PdvVendaCreate,
-    PdvVendaPagamento
+    PdvVendaPagamento,
+    RegraCartaoRead,
+    RegraCartaoCreate,
+    RegraCartaoUpdate,
+    LoteCartaoRead,
+    LoteCartaoCreate,
+    LoteCartaoItemRead
 )
 from app.services.access_control_service import get_effective_permission_codes
 from app.core.upload_security import (
@@ -77,6 +86,134 @@ def obter_conta_caixa_fisica(db: Session, empresa_id: int) -> int:
     db.add(nova_conta)
     db.flush()
     return nova_conta.id
+
+
+import calendar
+from datetime import timedelta
+
+def calcular_vencimento_dia_fixo(base_date: date, dia_fixo: int) -> date:
+    # Se a data atual já passou do dia fixo, vai para o próximo mês
+    if base_date.day < dia_fixo:
+        try:
+            return base_date.replace(day=dia_fixo)
+        except ValueError:
+            pass
+    
+    # Próximo mês
+    year = base_date.year + (base_date.month // 12)
+    month = (base_date.month % 12) + 1
+    last_day = calendar.monthrange(year, month)[1]
+    target_day = min(dia_fixo, last_day)
+    return date(year, month, target_day)
+
+
+def adicionar_dias_uteis(start_date: date, days: int) -> date:
+    current_date = start_date
+    added_days = 0
+    while added_days < days:
+        current_date += timedelta(days=1)
+        if current_date.weekday() < 5:  # Segunda a Sexta
+            added_days += 1
+    return current_date
+
+
+def calcular_payout_date(base_date: date, regra: RegraCartao) -> date:
+    # 1. Calcular data base com tipo de prazo
+    if regra.tipo_prazo == "DIA_FIXO_MES" and regra.dia_fixo:
+        vencimento = calcular_vencimento_dia_fixo(base_date, regra.dia_fixo)
+    elif regra.tipo_prazo == "DIAS_UTEIS":
+        vencimento = adicionar_dias_uteis(base_date, regra.dias_payout)
+    else:  # DIAS_CORRIDOS
+        vencimento = base_date + timedelta(days=regra.dias_payout)
+        
+    # 2. Rolar para o próximo dia útil se cair no final de semana
+    if regra.fds_proximo_dia_util and vencimento.weekday() >= 5:
+        days_to_add = 7 - vencimento.weekday()
+        vencimento = vencimento + timedelta(days=days_to_add)
+        
+    return vencimento
+
+
+def shift_months(base_date: date, months: int) -> date:
+    if months == 0:
+        return base_date
+    year = base_date.year + (base_date.month - 1 + months) // 12
+    month = (base_date.month - 1 + months) % 12 + 1
+    last_day = calendar.monthrange(year, month)[1]
+    day = min(base_date.day, last_day)
+    return date(year, month, day)
+
+
+def obter_regra_cartao(
+    db: Session,
+    empresa_id: int,
+    tipo_pagamento: str,
+    bandeira: str,
+    centro_custo_id: Optional[int] = None
+) -> Optional[RegraCartao]:
+    bandeira_upper = bandeira.upper() if bandeira else "OUTROS"
+    
+    # 1. Tentar correspondência exata: tipo, bandeira e centro de custo
+    if centro_custo_id:
+        regra = db.exec(
+            select(RegraCartao)
+            .where(
+                RegraCartao.empresa_id == empresa_id,
+                RegraCartao.tipo_pagamento == tipo_pagamento,
+                RegraCartao.bandeira == bandeira_upper,
+                RegraCartao.centro_custo_id == centro_custo_id,
+                RegraCartao.is_deleted == False
+            )
+        ).first()
+        if regra:
+            return regra
+
+    # 2. Tentar tipo e bandeira, sem centro de custo (centro_custo_id = None)
+    regra = db.exec(
+        select(RegraCartao)
+        .where(
+            RegraCartao.empresa_id == empresa_id,
+            RegraCartao.tipo_pagamento == tipo_pagamento,
+            RegraCartao.bandeira == bandeira_upper,
+            RegraCartao.centro_custo_id == None,
+            RegraCartao.is_deleted == False
+        )
+    ).first()
+    if regra:
+        return regra
+
+    # 3. Tentar tipo e bandeira "OUTROS" com centro de custo
+    if centro_custo_id and bandeira_upper != "OUTROS":
+        regra = db.exec(
+            select(RegraCartao)
+            .where(
+                RegraCartao.empresa_id == empresa_id,
+                RegraCartao.tipo_pagamento == tipo_pagamento,
+                RegraCartao.bandeira == "OUTROS",
+                RegraCartao.centro_custo_id == centro_custo_id,
+                RegraCartao.is_deleted == False
+            )
+        ).first()
+        if regra:
+            return regra
+
+    # 4. Tentar tipo e bandeira "OUTROS" sem centro de custo
+    if bandeira_upper != "OUTROS":
+        regra = db.exec(
+            select(RegraCartao)
+            .where(
+                RegraCartao.empresa_id == empresa_id,
+                RegraCartao.tipo_pagamento == tipo_pagamento,
+                RegraCartao.bandeira == "OUTROS",
+                RegraCartao.centro_custo_id == None,
+                RegraCartao.is_deleted == False
+            )
+        ).first()
+        if regra:
+            return regra
+
+    return None
+
 
 
 @router.get("/vendas", response_model=PdvVendasRead)
@@ -355,6 +492,139 @@ def deletar_produto_pdv(
     return
 
 
+# --- Rotas para Regras de Cartão do PDV ---
+
+@router.get("/regras-cartao", response_model=list[RegraCartaoRead])
+def listar_regras_cartao(
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Lista todas as regras de repasse de cartão cadastradas para a empresa."""
+    return db.exec(
+        select(RegraCartao)
+        .where(RegraCartao.empresa_id == empresa_id, RegraCartao.is_deleted == False)
+        .order_by(RegraCartao.tipo_pagamento, RegraCartao.bandeira)
+    ).all()
+
+
+@router.post("/regras-cartao", response_model=RegraCartaoRead, status_code=201)
+def criar_regra_cartao(
+    regra_in: RegraCartaoCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Cria uma nova regra de repasse de cartão."""
+    if regra_in.conta_destino_id:
+        conta = db.get(Conta, regra_in.conta_destino_id)
+        if not conta or conta.empresa_id != empresa_id:
+            raise HTTPException(status_code=400, detail="Conta destino inválida.")
+            
+    if regra_in.plano_contas_taxa_id:
+        plano = db.get(PlanoContas, regra_in.plano_contas_taxa_id)
+        if not plano or plano.empresa_id != empresa_id:
+            raise HTTPException(status_code=400, detail="Plano de contas de taxa inválido.")
+
+    regra = RegraCartao(
+        empresa_id=empresa_id,
+        tipo_pagamento=regra_in.tipo_pagamento,
+        bandeira=regra_in.bandeira.upper(),
+        centro_custo_id=regra_in.centro_custo_id,
+        taxa_porcentagem=regra_in.taxa_porcentagem,
+        dias_payout=regra_in.dias_payout,
+        tipo_prazo=regra_in.tipo_prazo,
+        dia_fixo=regra_in.dia_fixo,
+        fds_proximo_dia_util=regra_in.fds_proximo_dia_util,
+        modo_parcelamento=regra_in.modo_parcelamento,
+        taxa_antecipacao=regra_in.taxa_antecipacao,
+        conta_destino_id=regra_in.conta_destino_id,
+        plano_contas_taxa_id=regra_in.plano_contas_taxa_id,
+        created_by_id=current_user.id,
+        updated_by_id=current_user.id,
+    )
+    db.add(regra)
+    db.commit()
+    db.refresh(regra)
+    return regra
+
+
+@router.put("/regras-cartao/{id}", response_model=RegraCartaoRead)
+def atualizar_regra_cartao(
+    id: int,
+    regra_in: RegraCartaoUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Atualiza as configurações de uma regra de repasse de cartão existente."""
+    regra = db.get(RegraCartao, id)
+    if not regra or regra.empresa_id != empresa_id or regra.is_deleted:
+        raise HTTPException(status_code=404, detail="Regra de cartão não encontrada.")
+
+    if regra_in.conta_destino_id:
+        conta = db.get(Conta, regra_in.conta_destino_id)
+        if not conta or conta.empresa_id != empresa_id:
+            raise HTTPException(status_code=400, detail="Conta destino inválida.")
+            
+    if regra_in.plano_contas_taxa_id:
+        plano = db.get(PlanoContas, regra_in.plano_contas_taxa_id)
+        if not plano or plano.empresa_id != empresa_id:
+            raise HTTPException(status_code=400, detail="Plano de contas de taxa inválido.")
+
+    if regra_in.tipo_pagamento is not None:
+        regra.tipo_pagamento = regra_in.tipo_pagamento
+    if regra_in.bandeira is not None:
+        regra.bandeira = regra_in.bandeira.upper()
+    if regra_in.centro_custo_id is not None:
+        regra.centro_custo_id = regra_in.centro_custo_id
+    if regra_in.taxa_porcentagem is not None:
+        regra.taxa_porcentagem = regra_in.taxa_porcentagem
+    if regra_in.dias_payout is not None:
+        regra.dias_payout = regra_in.dias_payout
+    if regra_in.tipo_prazo is not None:
+        regra.tipo_prazo = regra_in.tipo_prazo
+    if regra_in.dia_fixo is not None:
+        regra.dia_fixo = regra_in.dia_fixo
+    if regra_in.fds_proximo_dia_util is not None:
+        regra.fds_proximo_dia_util = regra_in.fds_proximo_dia_util
+    if regra_in.modo_parcelamento is not None:
+        regra.modo_parcelamento = regra_in.modo_parcelamento
+    if regra_in.taxa_antecipacao is not None:
+        regra.taxa_antecipacao = regra_in.taxa_antecipacao
+    if regra_in.conta_destino_id is not None:
+        regra.conta_destino_id = regra_in.conta_destino_id
+    if regra_in.plano_contas_taxa_id is not None:
+        regra.plano_contas_taxa_id = regra_in.plano_contas_taxa_id
+
+    regra.updated_by_id = current_user.id
+    regra.updated_at = datetime.utcnow()
+    db.add(regra)
+    db.commit()
+    db.refresh(regra)
+    return regra
+
+
+@router.delete("/regras-cartao/{id}", status_code=204)
+def deletar_regra_cartao(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Deleta (exclusão lógica) uma regra de repasse de cartão."""
+    regra = db.get(RegraCartao, id)
+    if not regra or regra.empresa_id != empresa_id or regra.is_deleted:
+        raise HTTPException(status_code=404, detail="Regra de cartão não encontrada.")
+
+    regra.is_deleted = True
+    regra.deleted_at = datetime.utcnow()
+    regra.deleted_by_id = current_user.id
+    db.add(regra)
+    db.commit()
+    return
+
+
+
 # --- Rota para Criar Venda Itemizada no PDV ---
 
 @router.post("/vendas", response_model=PdvVendaItemRead, status_code=201)
@@ -536,6 +806,13 @@ def criar_venda_pdv(
                 p.tipo_pagamento in ["dinheiro", "pix_chave", "pix_qr", "cartao_credito_vista"]
             )
 
+        # Buscar regra de cartão se houver
+        regra = obter_regra_cartao(db, empresa_id, p.tipo_pagamento, p.bandeira, venda_in.centro_custo_id)
+        if regra:
+            is_paid = False
+            if regra.conta_destino_id:
+                conta_id = regra.conta_destino_id
+
         if is_paid and not conta_id:
             conta_id = obter_conta_caixa_fisica(db, empresa_id)
 
@@ -556,11 +833,21 @@ def criar_venda_pdv(
             last_val = total_pag - (base_val * (num_parc - 1))
 
             for i in range(1, num_parc + 1):
-                # Calculate consecutive monthly vencimento dates (starting 1 month from today)
-                year = hoje_pag.year + (hoje_pag.month - 1 + i) // 12
-                month = (hoje_pag.month - 1 + i) % 12 + 1
-                day = min(hoje_pag.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month-1])
-                vencimento = date(year, month, day)
+                # Calculate payout date and fees
+                if regra:
+                    if regra.modo_parcelamento == "ANTECIPADO":
+                        vencimento = calcular_payout_date(hoje_pag, regra)
+                        fee_percentage = regra.taxa_porcentagem + (i - 1) * regra.taxa_antecipacao
+                    else:
+                        base_installment_date = shift_months(hoje_pag, i - 1)
+                        vencimento = calcular_payout_date(base_installment_date, regra)
+                        fee_percentage = regra.taxa_porcentagem
+                else:
+                    year = hoje_pag.year + (hoje_pag.month - 1 + i) // 12
+                    month = (hoje_pag.month - 1 + i) % 12 + 1
+                    day = min(hoje_pag.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month-1])
+                    vencimento = date(year, month, day)
+                    fee_percentage = Decimal("0.00")
 
                 valor_linha = base_val if i < num_parc else last_val
                 
@@ -568,6 +855,14 @@ def criar_venda_pdv(
                 obs_data["tipo_pagamento"] = p.tipo_pagamento
                 obs_data["numero_parcela"] = i
                 obs_data["total_parcelas"] = num_parc
+                if regra:
+                    fee_amount = (valor_linha * fee_percentage / 100).quantize(Decimal("0.01"))
+                    liquid_value = valor_linha - fee_amount
+                    obs_data["bandeira"] = regra.bandeira
+                    obs_data["cartao_taxa"] = float(fee_percentage)
+                    obs_data["cartao_taxa_valor"] = float(fee_amount)
+                    obs_data["cartao_liquido_previsto"] = float(liquid_value)
+                    obs_data["cartao_regra_id"] = regra.id
 
                 l = Lancamento(
                     descricao=f"Venda RV-AUTOGERADO ({i}/{num_parc}) - {descricao_geral[:150]}",
@@ -604,8 +899,25 @@ def criar_venda_pdv(
             desconto_ja_atribuido = True
         else:
             # Single payment
+            if regra:
+                vencimento = calcular_payout_date(hoje_pag, regra)
+                fee_percentage = regra.taxa_porcentagem
+                fee_amount = (p.valor * fee_percentage / 100).quantize(Decimal("0.01"))
+                liquid_value = p.valor - fee_amount
+            else:
+                vencimento = hoje_pag
+                fee_percentage = Decimal("0.00")
+                fee_amount = Decimal("0.00")
+                liquid_value = p.valor
+
             obs_data = dados_observacao_base.copy()
             obs_data["tipo_pagamento"] = p.tipo_pagamento
+            if regra:
+                obs_data["bandeira"] = regra.bandeira
+                obs_data["cartao_taxa"] = float(fee_percentage)
+                obs_data["cartao_taxa_valor"] = float(fee_amount)
+                obs_data["cartao_liquido_previsto"] = float(liquid_value)
+                obs_data["cartao_regra_id"] = regra.id
 
             l = Lancamento(
                 descricao=f"Venda RV-AUTOGERADO - {descricao_geral[:200]}",
@@ -617,7 +929,7 @@ def criar_venda_pdv(
                 valor_juros=Decimal("0.00"),
                 valor_desconto=Decimal("0.00") if desconto_ja_atribuido else venda_in.desconto,
                 valor_multa=Decimal("0.00"),
-                data_vencimento=hoje_pag,
+                data_vencimento=vencimento,
                 data_pagamento=hoje_pag if is_paid else None,
                 data_competencia=hoje_pag,
                 empresa_id=empresa_id,
@@ -892,6 +1204,13 @@ def atualizar_venda_pdv(
                 p.tipo_pagamento in ["dinheiro", "pix_chave", "pix_qr", "cartao_credito_vista"]
             )
 
+        # Buscar regra de cartão se houver
+        regra = obter_regra_cartao(db, empresa_id, p.tipo_pagamento, p.bandeira, venda_in.centro_custo_id)
+        if regra:
+            is_paid = False
+            if regra.conta_destino_id:
+                conta_id = regra.conta_destino_id
+
         if is_paid and not conta_id:
             conta_id = obter_conta_caixa_fisica(db, empresa_id)
 
@@ -911,10 +1230,21 @@ def atualizar_venda_pdv(
             last_val = total_pag - (base_val * (num_parc - 1))
 
             for i in range(1, num_parc + 1):
-                year = hoje_pag.year + (hoje_pag.month - 1 + i) // 12
-                month = (hoje_pag.month - 1 + i) % 12 + 1
-                day = min(hoje_pag.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month-1])
-                vencimento = date(year, month, day)
+                # Calculate payout date and fees
+                if regra:
+                    if regra.modo_parcelamento == "ANTECIPADO":
+                        vencimento = calcular_payout_date(hoje_pag, regra)
+                        fee_percentage = regra.taxa_porcentagem + (i - 1) * regra.taxa_antecipacao
+                    else:
+                        base_installment_date = shift_months(hoje_pag, i - 1)
+                        vencimento = calcular_payout_date(base_installment_date, regra)
+                        fee_percentage = regra.taxa_porcentagem
+                else:
+                    year = hoje_pag.year + (hoje_pag.month - 1 + i) // 12
+                    month = (hoje_pag.month - 1 + i) % 12 + 1
+                    day = min(hoje_pag.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month-1])
+                    vencimento = date(year, month, day)
+                    fee_percentage = Decimal("0.00")
 
                 valor_linha = base_val if i < num_parc else last_val
                 
@@ -922,6 +1252,14 @@ def atualizar_venda_pdv(
                 obs_data["tipo_pagamento"] = p.tipo_pagamento
                 obs_data["numero_parcela"] = i
                 obs_data["total_parcelas"] = num_parc
+                if regra:
+                    fee_amount = (valor_linha * fee_percentage / 100).quantize(Decimal("0.01"))
+                    liquid_value = valor_linha - fee_amount
+                    obs_data["bandeira"] = regra.bandeira
+                    obs_data["cartao_taxa"] = float(fee_percentage)
+                    obs_data["cartao_taxa_valor"] = float(fee_amount)
+                    obs_data["cartao_liquido_previsto"] = float(liquid_value)
+                    obs_data["cartao_regra_id"] = regra.id
 
                 l = Lancamento(
                     descricao=f"Venda RV-AUTOGERADO ({i}/{num_parc}) - {descricao_geral[:150]}",
@@ -957,8 +1295,26 @@ def atualizar_venda_pdv(
                 launches_created.append(l)
             desconto_ja_atribuido = True
         else:
+            # Single payment
+            if regra:
+                vencimento = calcular_payout_date(hoje_pag, regra)
+                fee_percentage = regra.taxa_porcentagem
+                fee_amount = (p.valor * fee_percentage / 100).quantize(Decimal("0.01"))
+                liquid_value = p.valor - fee_amount
+            else:
+                vencimento = hoje_pag
+                fee_percentage = Decimal("0.00")
+                fee_amount = Decimal("0.00")
+                liquid_value = p.valor
+
             obs_data = dados_observacao_base.copy()
             obs_data["tipo_pagamento"] = p.tipo_pagamento
+            if regra:
+                obs_data["bandeira"] = regra.bandeira
+                obs_data["cartao_taxa"] = float(fee_percentage)
+                obs_data["cartao_taxa_valor"] = float(fee_amount)
+                obs_data["cartao_liquido_previsto"] = float(liquid_value)
+                obs_data["cartao_regra_id"] = regra.id
 
             l = Lancamento(
                 descricao=f"Venda RV-AUTOGERADO - {descricao_geral[:200]}",
@@ -970,7 +1326,7 @@ def atualizar_venda_pdv(
                 valor_juros=Decimal("0.00"),
                 valor_desconto=Decimal("0.00") if desconto_ja_atribuido else venda_in.desconto,
                 valor_multa=Decimal("0.00"),
-                data_vencimento=hoje_pag,
+                data_vencimento=vencimento,
                 data_pagamento=hoje_pag if is_paid else None,
                 data_competencia=hoje_pag,
                 empresa_id=empresa_id,
@@ -1209,3 +1565,487 @@ def upload_comprovante_venda_pdv(
 
     db.commit()
     return {"message": "Comprovantes anexados com sucesso.", "urls": [u[1] for u in uploaded_urls]}
+
+
+@router.get("/recebiveis", status_code=200)
+def listar_recebiveis_cartao(
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Lista todos os recebíveis de cartão previstos/recebidos da empresa (Agenda de Recebíveis)."""
+    query = (
+        select(Lancamento, Usuario, Entidade)
+        .join(Usuario, Usuario.id == Lancamento.created_by_id, isouter=True)
+        .join(Entidade, Entidade.id == Lancamento.entidade_id, isouter=True)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.tipo == "RECEITA",
+            Lancamento.origem == "PDV"
+        )
+    )
+    rows = db.exec(query).all()
+    
+    recebiveis = []
+    for l, vendedor, cliente in rows:
+        if not l.observacao:
+            continue
+        try:
+            meta = json.loads(l.observacao)
+        except Exception:
+            continue
+            
+        tipo_pag = meta.get("tipo_pagamento", "")
+        if not (tipo_pag.startswith("cartao_") or "cartao" in tipo_pag):
+            continue
+            
+        status_l = "PAGO" if l.status == "PAGO" else "A RECEBER"
+        
+        taxa_perc = Decimal(str(meta.get("cartao_taxa", 0.0)))
+        valor_bruto = l.valor_previsto
+        valor_taxa = Decimal(str(meta.get("cartao_taxa_valor", 0.0)))
+        if not meta.get("cartao_taxa_valor") and taxa_perc > 0:
+            valor_taxa = (valor_bruto * taxa_perc / 100).quantize(Decimal("0.01"))
+            
+        valor_liquido = Decimal(str(meta.get("cartao_liquido_previsto", float(valor_bruto - valor_taxa))))
+        
+        recebiveis.append({
+            "id": l.id,
+            "venda_id_uuid": l.id_parcelamento,
+            "rv": meta.get("rv", f"RV-{l.id:06d}"),
+            "data_venda": l.data_competencia or (l.created_at.date() if l.created_at else date.today()),
+            "data_vencimento": l.data_vencimento,
+            "descricao": l.descricao,
+            "tipo_pagamento": tipo_pag,
+            "bandeira": meta.get("bandeira", "OUTROS").upper(),
+            "numero_parcela": meta.get("numero_parcela"),
+            "total_parcelas": meta.get("total_parcelas"),
+            "valor_bruto": valor_bruto,
+            "valor_taxa": valor_taxa,
+            "valor_liquido": valor_liquido,
+            "status": status_l,
+            "vendedor": (vendedor.nome or vendedor.email) if vendedor else "Sem vendedor",
+            "vendedor_id": l.created_by_id,
+            "cliente": (cliente.nome or cliente.nome_fantasia or "Cliente Final") if cliente else "Cliente Final",
+            "cliente_id": l.entidade_id,
+            "itens": meta.get("itens", []),
+            "conta_id": l.conta_id,
+            "plano_contas_id": l.plano_contas_id
+        })
+        
+    recebiveis.sort(key=lambda r: (r["data_vencimento"], r["id"]), reverse=True)
+    return recebiveis
+
+
+@router.post("/conciliacao/auto-match", status_code=200)
+def auto_match_conciliacao(
+    lancamento_deposito_id: int,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Retorna sugestões de recebíveis que correspondem ao valor creditado no extrato."""
+    deposito = db.get(Lancamento, lancamento_deposito_id)
+    if not deposito or deposito.empresa_id != empresa_id or deposito.is_deleted:
+        raise HTTPException(status_code=404, detail="Lançamento de depósito não encontrado.")
+    
+    valor_deposito = deposito.valor_pago if deposito.valor_pago > 0 else deposito.valor_previsto
+    if not valor_deposito or valor_deposito <= 0:
+        raise HTTPException(status_code=400, detail="Lançamento de depósito tem valor zerado ou inválido.")
+        
+    data_deposito = deposito.data_pagamento or deposito.data_vencimento
+    if not data_deposito:
+        data_deposito = deposito.created_at.date() if deposito.created_at else date.today()
+
+    launches = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.tipo == "RECEITA",
+            Lancamento.origem == "PDV",
+            Lancamento.status == "EM ABERTO"
+        )
+    ).all()
+    
+    recebiveis_abertos = []
+    for l in launches:
+        if not l.observacao:
+            continue
+        try:
+            meta = json.loads(l.observacao)
+        except Exception:
+            continue
+        
+        tipo_pag = meta.get("tipo_pagamento", "")
+        if not (tipo_pag.startswith("cartao_") or "cartao" in tipo_pag):
+            continue
+            
+        taxa_perc = Decimal(str(meta.get("cartao_taxa", 0.0)))
+        valor_bruto = l.valor_previsto
+        valor_taxa = Decimal(str(meta.get("cartao_taxa_valor", 0.0)))
+        if not meta.get("cartao_taxa_valor") and taxa_perc > 0:
+            valor_taxa = (valor_bruto * taxa_perc / 100).quantize(Decimal("0.01"))
+        valor_liquido = Decimal(str(meta.get("cartao_liquido_previsto", float(valor_bruto - valor_taxa))))
+        
+        recebiveis_abertos.append({
+            "id": l.id,
+            "data_vencimento": l.data_vencimento or l.data_competencia,
+            "bandeira": meta.get("bandeira", "OUTROS").upper(),
+            "valor_bruto": valor_bruto,
+            "valor_taxa": valor_taxa,
+            "valor_liquido": valor_liquido,
+            "descricao": l.descricao,
+            "numero_parcela": meta.get("numero_parcela"),
+            "total_parcelas": meta.get("total_parcelas")
+        })
+
+    suggestions = []
+    
+    # 1. Sugestões de Lote (agrupamento por data de vencimento e bandeira)
+    grupos = defaultdict(list)
+    for r in recebiveis_abertos:
+        key = (r["data_vencimento"], r["bandeira"])
+        grupos[key].append(r)
+        
+    for (dt, band), itens in grupos.items():
+        total_liquido = sum(i["valor_liquido"] for i in itens)
+        total_bruto = sum(i["valor_bruto"] for i in itens)
+        total_taxa = sum(i["valor_taxa"] for i in itens)
+        
+        diff_dias = abs((dt - data_deposito).days)
+        diff_valor = abs(total_liquido - valor_deposito)
+        
+        if diff_valor < Decimal("0.10") and diff_dias <= 7:
+            score = 100 - (diff_dias * 5) - int(diff_valor * 100)
+            score = max(0, min(100, score))
+            suggestions.append({
+                "tipo": "GRUPO_DIA_BANDEIRA",
+                "label": f"Lote de {band} previsto para {dt.strftime('%d/%m/%Y')}",
+                "score": score,
+                "valor_bruto": total_bruto,
+                "valor_taxa": total_taxa,
+                "valor_liquido": total_liquido,
+                "lancamentos": [i["id"] for i in itens],
+                "detalhes": f"{len(itens)} venda(s) de {band} em {dt.strftime('%d/%m')}"
+            })
+
+    # 2. Sugestões de Recebível Individual (avulso)
+    for r in recebiveis_abertos:
+        diff_dias = abs((r["data_vencimento"] - data_deposito).days)
+        diff_valor = abs(r["valor_liquido"] - valor_deposito)
+        
+        if diff_valor < Decimal("0.10") and diff_dias <= 7:
+            score = 95 - (diff_dias * 5) - int(diff_valor * 100)
+            score = max(0, min(95, score))
+            suggestions.append({
+                "tipo": "AVULSO",
+                "label": f"Venda individual {r['descricao']} - {r['bandeira']}",
+                "score": score,
+                "valor_bruto": r["valor_bruto"],
+                "valor_taxa": r["valor_taxa"],
+                "valor_liquido": r["valor_liquido"],
+                "lancamentos": [r["id"]],
+                "detalhes": f"Venda prevista para {r['data_vencimento'].strftime('%d/%m/%Y')}"
+            })
+
+    # 3. Sugestões de Combinação de Recebíveis
+    for dt, itens in defaultdict(list).items():
+        if len(itens) > 1 and len(itens) <= 6:
+            from itertools import combinations
+            for k in range(2, min(4, len(itens) + 1)):
+                for comb in combinations(itens, k):
+                    total_liquido = sum(c["valor_liquido"] for c in comb)
+                    total_bruto = sum(c["valor_bruto"] for c in comb)
+                    total_taxa = sum(c["valor_taxa"] for c in comb)
+                    
+                    diff_dias = abs((dt - data_deposito).days)
+                    diff_valor = abs(total_liquido - valor_deposito)
+                    
+                    if diff_valor < Decimal("0.10") and diff_dias <= 7:
+                        score = 90 - (diff_dias * 5) - int(diff_valor * 100)
+                        score = max(0, min(90, score))
+                        suggestions.append({
+                            "tipo": "COMBINACAO",
+                            "label": f"Combinação de {k} vendas previstas para {dt.strftime('%d/%m/%Y')}",
+                            "score": score,
+                            "valor_bruto": total_bruto,
+                            "valor_taxa": total_taxa,
+                            "valor_liquido": total_liquido,
+                            "lancamentos": [c["id"] for c in comb],
+                            "detalhes": f"{k} vendas previstas para {dt.strftime('%d/%m')}"
+                        })
+
+    suggestions.sort(key=lambda s: s["score"], reverse=True)
+    return suggestions
+
+
+@router.post("/conciliacao/lotes", response_model=LoteCartaoRead, status_code=201)
+def criar_e_conciliar_lote_cartao(
+    lote_in: LoteCartaoCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Cria o lote de cartão, liquida os recebíveis e lança a despesa de taxas adquirentes correspondente."""
+    # 1. Carregar e validar lançamentos de cartão
+    if not lote_in.lancamento_ids:
+        raise HTTPException(status_code=400, detail="Nenhum lançamento informado para conciliação.")
+        
+    recebiveis = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.id.in_(lote_in.lancamento_ids),
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False
+        )
+    ).all()
+    
+    if len(recebiveis) != len(lote_in.lancamento_ids):
+        raise HTTPException(status_code=400, detail="Um ou mais lançamentos informados são inválidos ou não pertencem à empresa.")
+
+    for r in recebiveis:
+        if r.status == "PAGO":
+            raise HTTPException(status_code=400, detail=f"Lançamento ID {r.id} já está pago/conciliado.")
+
+    # 2. Validar conta destino
+    conta = db.get(Conta, lote_in.conta_destino_id)
+    if not conta or conta.empresa_id != empresa_id:
+        raise HTTPException(status_code=400, detail="Conta destino inválida.")
+
+    # 3. Calcular somas
+    total_bruto = Decimal("0.00")
+    total_taxa = Decimal("0.00")
+    total_liquido = Decimal("0.00")
+    
+    primeira_regra_id = None
+    regra = None
+    
+    for r in recebiveis:
+        total_bruto += r.valor_previsto
+        
+        # Obter taxa da observação
+        taxa_valor = Decimal("0.00")
+        if r.observacao:
+            try:
+                meta = json.loads(r.observacao)
+                taxa_valor = Decimal(str(meta.get("cartao_taxa_valor", 0.0)))
+                if not primeira_regra_id and meta.get("cartao_regra_id"):
+                    primeira_regra_id = int(meta.get("cartao_regra_id"))
+            except Exception:
+                pass
+        
+        total_taxa += taxa_valor
+        total_liquido += (r.valor_previsto - taxa_valor)
+
+    if primeira_regra_id:
+        regra = db.get(RegraCartao, primeira_regra_id)
+        print("DEBUG RECONCILIATION: regra found =", regra)
+        if regra:
+            print("DEBUG RECONCILIATION: regra.plano_contas_taxa_id =", regra.plano_contas_taxa_id)
+    else:
+        print("DEBUG RECONCILIATION: primeira_regra_id is None")
+
+    # 4. Criar o LoteCartao
+    lote = LoteCartao(
+        empresa_id=empresa_id,
+        data_pagamento=lote_in.data_pagamento,
+        valor_bruto=total_bruto,
+        valor_taxa=total_taxa,
+        valor_liquido=total_liquido,
+        conta_destino_id=lote_in.conta_destino_id,
+        lancamento_deposito_id=lote_in.lancamento_deposito_id,
+        status="CONCILIADO",
+        created_by_id=current_user.id,
+        updated_by_id=current_user.id
+    )
+    db.add(lote)
+    db.flush()  # Gerar ID do lote
+
+    # 5. Criar itens do lote e liquidar os recebíveis
+    for r in recebiveis:
+        taxa_valor = Decimal("0.00")
+        if r.observacao:
+            try:
+                meta = json.loads(r.observacao)
+                taxa_valor = Decimal(str(meta.get("cartao_taxa_valor", 0.0)))
+            except Exception:
+                pass
+                
+        item = LoteCartaoItem(
+            lote_cartao_id=lote.id,
+            lancamento_id=r.id,
+            valor_bruto=r.valor_previsto,
+            valor_taxa=taxa_valor,
+            valor_liquido=r.valor_previsto - taxa_valor
+        )
+        db.add(item)
+        
+        # Liquidar o recebível de cartão como PAGO
+        r.status = "PAGO"
+        r.data_pagamento = lote_in.data_pagamento
+        r.valor_pago = r.valor_previsto  # Receita bruta
+        r.conta_id = lote_in.conta_destino_id
+        r.conciliado = True
+        r.updated_by_id = current_user.id
+        r.updated_at = datetime.utcnow()
+        db.add(r)
+
+    # 6. Lançar a despesa de taxas adquirentes correspondente
+    if total_taxa > 0:
+        # Encontrar plano de contas de taxa adequado
+        plano_taxa_id = None
+        if regra and regra.plano_contas_taxa_id:
+            plano_taxa_id = regra.plano_contas_taxa_id
+        else:
+            plano_despesa = db.exec(
+                select(PlanoContas)
+                .where(
+                    PlanoContas.empresa_id == empresa_id,
+                    PlanoContas.tipo == "D",
+                    PlanoContas.eh_cabecalho == False,
+                    PlanoContas.is_deleted == False
+                )
+            ).all()
+            print("DEBUG RECONCILIATION: plano_despesa count =", len(plano_despesa))
+            for pd in plano_despesa:
+                print(f"DEBUG RECONCILIATION: item id={pd.id} nome={pd.nome} tipo={pd.tipo} eh_cabecalho={pd.eh_cabecalho} is_deleted={pd.is_deleted}")
+                if "taxa" in (pd.nome or "").lower() or "financeir" in (pd.nome or "").lower():
+                    plano_taxa_id = pd.id
+                    break
+            if not plano_taxa_id and plano_despesa:
+                plano_taxa_id = plano_despesa[0].id
+
+        if not plano_taxa_id:
+            raise HTTPException(status_code=400, detail="Nenhuma categoria de despesa financeira ou taxa cadastrada no plano de contas.")
+
+        despesa_taxa = Lancamento(
+            descricao=f"Taxa de Adm. Cartão Lote #{lote.id}",
+            tipo="DESPESA",
+            status="PAGO",
+            origem="PDV",
+            valor_previsto=total_taxa,
+            valor_pago=total_taxa,
+            valor_juros=Decimal("0.00"),
+            valor_desconto=Decimal("0.00"),
+            valor_multa=Decimal("0.00"),
+            data_vencimento=lote_in.data_pagamento,
+            data_pagamento=lote_in.data_pagamento,
+            data_competencia=lote_in.data_pagamento,
+            empresa_id=empresa_id,
+            plano_contas_id=plano_taxa_id,
+            conta_id=lote_in.conta_destino_id,
+            created_by_id=current_user.id,
+            updated_by_id=current_user.id,
+            observacao=json.dumps({"lote_cartao_id": lote.id, "conciliacao_taxa": True}),
+            is_deleted=False,
+            ipp=False,
+            previsto=True,
+            conciliado=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+        db.add(despesa_taxa)
+
+    # 7. Se houver lançamento de depósito bancário do extrato, conciliar
+    if lote_in.lancamento_deposito_id:
+        dep_entry = db.get(Lancamento, lote_in.lancamento_deposito_id)
+        if dep_entry and dep_entry.empresa_id == empresa_id:
+            dep_entry.status = "PAGO"
+            dep_entry.conciliado = True
+            dep_entry.data_pagamento = lote_in.data_pagamento
+            dep_entry.valor_pago = dep_entry.valor_previsto
+            dep_entry.updated_by_id = current_user.id
+            dep_entry.updated_at = datetime.utcnow()
+            db.add(dep_entry)
+
+    db.commit()
+    db.refresh(lote)
+    
+    # Preencher itens associados para o schema de leitura
+    db_items = db.exec(
+        select(LoteCartaoItem)
+        .where(LoteCartaoItem.lote_cartao_id == lote.id)
+    ).all()
+    
+    itens_read = []
+    for item in db_items:
+        r_db = db.get(Lancamento, item.lancamento_id)
+        itens_read.append(
+            LoteCartaoItemRead(
+                id=item.id,
+                lote_cartao_id=item.lote_cartao_id,
+                lancamento_id=item.lancamento_id,
+                valor_bruto=item.valor_bruto,
+                valor_taxa=item.valor_taxa,
+                valor_liquido=item.valor_liquido,
+                descricao_venda=r_db.descricao if r_db else None,
+                data_venda=r_db.data_competencia if r_db else None
+            )
+        )
+    
+    return LoteCartaoRead(
+        id=lote.id,
+        empresa_id=lote.empresa_id,
+        data_pagamento=lote.data_pagamento,
+        valor_bruto=lote.valor_bruto,
+        valor_taxa=lote.valor_taxa,
+        valor_liquido=lote.valor_liquido,
+        conta_destino_id=lote.conta_destino_id,
+        lancamento_deposito_id=lote.lancamento_deposito_id,
+        status=lote.status,
+        itens=itens_read
+    )
+
+
+@router.get("/conciliacao/lotes/deposito/{deposito_id}", response_model=LoteCartaoRead)
+def obter_lote_por_deposito(
+    deposito_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Retorna os detalhes do lote de cartão associado a um lançamento de depósito."""
+    lote = db.exec(
+        select(LoteCartao)
+        .where(
+            LoteCartao.lancamento_deposito_id == deposito_id,
+            LoteCartao.empresa_id == empresa_id
+        )
+    ).first()
+    
+    if not lote:
+        raise HTTPException(status_code=404, detail="Lote de cartão não encontrado para este depósito.")
+        
+    db_items = db.exec(
+        select(LoteCartaoItem)
+        .where(LoteCartaoItem.lote_cartao_id == lote.id)
+    ).all()
+    
+    itens_read = []
+    for item in db_items:
+        r_db = db.get(Lancamento, item.lancamento_id)
+        itens_read.append(
+            LoteCartaoItemRead(
+                id=item.id,
+                lote_cartao_id=item.lote_cartao_id,
+                lancamento_id=item.lancamento_id,
+                valor_bruto=item.valor_bruto,
+                valor_taxa=item.valor_taxa,
+                valor_liquido=item.valor_liquido,
+                descricao_venda=r_db.descricao if r_db else None,
+                data_venda=r_db.data_competencia if r_db else None
+            )
+        )
+        
+    return LoteCartaoRead(
+        id=lote.id,
+        empresa_id=lote.empresa_id,
+        data_pagamento=lote.data_pagamento,
+        valor_bruto=lote.valor_bruto,
+        valor_taxa=lote.valor_taxa,
+        valor_liquido=lote.valor_liquido,
+        conta_destino_id=lote.conta_destino_id,
+        lancamento_deposito_id=lote.lancamento_deposito_id,
+        status=lote.status,
+        itens=itens_read
+    )

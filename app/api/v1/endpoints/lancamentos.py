@@ -1552,6 +1552,12 @@ def listar_lancamentos(
     include_anexos: bool = Query(True),
     sem_paginacao: bool = Query(False),
     somente_pagos: bool = Query(False),
+    tipo: Optional[str] = Query(None),
+    origem: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    conciliado: Optional[bool] = Query(None),
+    ocultar_vendas_cartao_pendentes: bool = Query(False),
+    incluir_demonstracoes: bool = Query(False),
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
@@ -1566,6 +1572,14 @@ def listar_lancamentos(
         Lancamento.empresa_id == empresa_id,
         Lancamento.is_deleted == False
     )
+
+    if not incluir_demonstracoes:
+        query = query.where(
+            or_(
+                Lancamento.observacao.is_(None),
+                ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")
+            )
+        )
     if data_inicio and data_fim:
         query = query.where(
             or_(
@@ -1594,7 +1608,25 @@ def listar_lancamentos(
         query = query.where(Lancamento.conta_id == conta_id)
     if cartao_id:
         query = query.where(Lancamento.cartao_id == cartao_id)
+    if tipo:
+        query = query.where(Lancamento.tipo == tipo)
+    if origem:
+        if "," in origem:
+            origens = [o.strip() for o in origem.split(",")]
+            query = query.where(Lancamento.origem.in_(origens))
+        else:
+            query = query.where(Lancamento.origem == origem)
+    if status:
+        query = query.where(Lancamento.status == status)
+    if conciliado is not None:
+        if not conciliado:
+            query = query.where(or_(Lancamento.conciliado == False, Lancamento.conciliado.is_(None)))
+        else:
+            query = query.where(Lancamento.conciliado == True)
+    if ocultar_vendas_cartao_pendentes:
+        query = query.where(~((Lancamento.origem == "PDV") & (Lancamento.status == "EM ABERTO")))
     if somente_pagos:
+
         query = query.where(
             (col(Lancamento.status) == "PAGO")
             | (Lancamento.data_pagamento.is_not(None))

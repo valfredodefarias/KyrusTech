@@ -358,8 +358,9 @@ def _build_confirm_request(db: Session, *, empresa_id: int, centro_custo_id: Opt
     is_sem_faturamento = any(palavra in natureza for palavra in palavras_sem_faturamento)
 
     if is_sem_faturamento:
-        logger.info("[NFSTOCK] Nota {} identificada como sem faturamento ({}). Ignorando parcelas.", doc.numero_nfe, doc.natureza_operacao)
+        logger.info("[NFSTOCK] Nota {} identificada como sem faturamento ({}). Registrando como DEMONSTRACAO.", doc.numero_nfe, doc.natureza_operacao)
         parcelas = []
+        destino_compra = "DEMONSTRACAO"
     else:
         parcelas = [
             NfeParcelaConfirmar(
@@ -372,6 +373,7 @@ def _build_confirm_request(db: Session, *, empresa_id: int, centro_custo_id: Opt
             )
             for parcela in doc.parcelas
         ]
+        destino_compra = "ESTOQUE"
 
     return NfeConfirmarRequest(
         chave_nfe=doc.chave_nfe,
@@ -379,7 +381,7 @@ def _build_confirm_request(db: Session, *, empresa_id: int, centro_custo_id: Opt
         tipo_lancamento="DESPESA",
         situacao="AGUARDANDO_ENTREGA",
         natureza_operacao=doc.natureza_operacao or None,
-        destino_compra="ESTOQUE",
+        destino_compra=destino_compra,
         valor_frete=doc.valor_frete,
         cfop=doc.cfops[0] if doc.cfops else None,
         data_emissao=doc.data_emissao,

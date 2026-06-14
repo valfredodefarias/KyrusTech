@@ -26,9 +26,9 @@ BACKEND_LOG_LEVEL = "debug" if RELOAD_BACKEND else "info"
 async def init_db() -> None:
     try:
         SQLModel.metadata.create_all(engine)
-        print("✅ Banco de dados inicializado com sucesso")
+        print("Banco de dados inicializado com sucesso")
     except Exception as exc:
-        print(f"⚠️  Erro ao inicializar banco: {exc}")
+        print(f"Erro ao inicializar banco: {exc}")
 
 
 def _npm_binary() -> str:
@@ -118,15 +118,18 @@ async def supervise_processes(
 
 async def main() -> None:
     print("\n" + "=" * 80)
-    print("🚀 KyrusTech - Orquestrador Full Stack")
+    print("KyrusTech - Orquestrador Full Stack")
     print("=" * 80)
-    print(f"📦 Ambiente: {settings.ENVIRONMENT}")
-    print(f"🗄️  Banco: {settings.POSTGRES_SERVER}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}")
-    print(f"🌐 Backend: http://{BACKEND_HOST}:{BACKEND_PORT}")
-    print(f"🖥️  Frontend: http://{FRONTEND_HOST}:{FRONTEND_PORT}")
+    print(f"Ambiente: {settings.ENVIRONMENT}")
+    print(f"Banco: {settings.POSTGRES_SERVER}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}")
+    print(f"Backend: http://{BACKEND_HOST}:{BACKEND_PORT}")
+    print(f"Frontend: http://{FRONTEND_HOST}:{FRONTEND_PORT}")
     print("=" * 80)
 
-    await init_db()
+    try:
+        await init_db()
+    except Exception as e:
+        print(f"Database init skipped: {e}")
 
     backend_proc = None
     frontend_proc = None

@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlmodel import Session, select
+from sqlmodel import Session, select, or_
 
 from app.api.v1.deps import get_empresa_id_from_user
 from app.db.session import get_db
@@ -122,6 +122,12 @@ def read_dre(
         select(Lancamento)
         .where(Lancamento.empresa_id == empresa_id)
         .where(Lancamento.is_deleted == False)
+        .where(
+            or_(
+                Lancamento.observacao.is_(None),
+                ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")
+            )
+        )
         .where(Lancamento.data_vencimento >= inicio_serie)
         .where(Lancamento.data_vencimento <= fim_mes)
     ).all()

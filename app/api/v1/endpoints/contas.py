@@ -175,6 +175,10 @@ def read_all_contas(
                 Lancamento.is_deleted == False,
                 movimento_pago,
                 Lancamento.conta_id.is_not(None),
+                or_(
+                    Lancamento.observacao.is_(None),
+                    ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")
+                ),
             )
             .group_by(Lancamento.conta_id)
         )
@@ -246,6 +250,10 @@ def extrato_conta(
             Lancamento.conta_id == conta_id,
             Lancamento.is_deleted == False,
             _movimento_influencia_saldo_clause(),
+            or_(
+                Lancamento.observacao.is_(None),
+                ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")
+            ),
         )
         .order_by(Lancamento.data_pagamento.desc())
         .offset(skip)
@@ -289,6 +297,10 @@ def saldo_detalhe_conta(
             Lancamento.conta_id == conta_id,
             Lancamento.is_deleted == False,
             _movimento_influencia_saldo_clause(),
+            or_(
+                Lancamento.observacao.is_(None),
+                ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")
+            ),
         )
         .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).asc(), Lancamento.id.asc())
     ).all()

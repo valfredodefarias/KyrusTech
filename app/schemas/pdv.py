@@ -79,6 +79,7 @@ class PdvVendaPagamento(SQLModel):
     numero_parcelas: Optional[int] = 1
     valor_parcela: Optional[Decimal] = None
     data_pagamento: Optional[date] = None
+    bandeira: Optional[str] = "OUTROS"
 
 
 class PdvVendaCreate(SQLModel):
@@ -94,3 +95,85 @@ class PdvVendaCreate(SQLModel):
     cliente: Optional[str] = None  # mantido para compatibilidade
     observacao: Optional[str] = None
     comprovante_urls: Optional[List[str]] = None
+
+
+# --- Schemas de Regras de Cartão ---
+
+class RegraCartaoRead(SQLModel):
+    id: int
+    empresa_id: int
+    tipo_pagamento: str
+    bandeira: str
+    centro_custo_id: Optional[int] = None
+    taxa_porcentagem: Decimal
+    dias_payout: int
+    tipo_prazo: str
+    dia_fixo: Optional[int] = None
+    fds_proximo_dia_util: bool
+    modo_parcelamento: str
+    taxa_antecipacao: Decimal
+    conta_destino_id: Optional[int] = None
+    plano_contas_taxa_id: Optional[int] = None
+
+
+class RegraCartaoCreate(SQLModel):
+    tipo_pagamento: str
+    bandeira: str = "OUTROS"
+    centro_custo_id: Optional[int] = None
+    taxa_porcentagem: Decimal = Decimal("0.00")
+    dias_payout: int = 30
+    tipo_prazo: str = "DIAS_CORRIDOS"
+    dia_fixo: Optional[int] = None
+    fds_proximo_dia_util: bool = True
+    modo_parcelamento: str = "PRO_RATA"
+    taxa_antecipacao: Decimal = Decimal("0.00")
+    conta_destino_id: Optional[int] = None
+    plano_contas_taxa_id: Optional[int] = None
+
+
+class RegraCartaoUpdate(SQLModel):
+    tipo_pagamento: Optional[str] = None
+    bandeira: Optional[str] = None
+    centro_custo_id: Optional[int] = None
+    taxa_porcentagem: Optional[Decimal] = None
+    dias_payout: Optional[int] = None
+    tipo_prazo: Optional[str] = None
+    dia_fixo: Optional[int] = None
+    fds_proximo_dia_util: Optional[bool] = None
+    modo_parcelamento: Optional[str] = None
+    taxa_antecipacao: Optional[Decimal] = None
+    conta_destino_id: Optional[int] = None
+    plano_contas_taxa_id: Optional[int] = None
+
+
+# --- Schemas de Lotes e Conciliação de Cartão ---
+
+class LoteCartaoItemRead(SQLModel):
+    id: int
+    lote_cartao_id: int
+    lancamento_id: int
+    valor_bruto: Decimal
+    valor_taxa: Decimal
+    valor_liquido: Decimal
+    descricao_venda: Optional[str] = None
+    data_venda: Optional[date] = None
+
+
+class LoteCartaoRead(SQLModel):
+    id: int
+    empresa_id: int
+    data_pagamento: date
+    valor_bruto: Decimal
+    valor_taxa: Decimal
+    valor_liquido: Decimal
+    conta_destino_id: int
+    lancamento_deposito_id: Optional[int] = None
+    status: str
+    itens: Optional[List[LoteCartaoItemRead]] = None
+
+
+class LoteCartaoCreate(SQLModel):
+    data_pagamento: date
+    conta_destino_id: int
+    lancamento_deposito_id: Optional[int] = None
+    lancamento_ids: List[int]

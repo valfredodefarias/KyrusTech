@@ -25,4 +25,7 @@ from app.models.base_audit import AuditMixin
 from app.models.todo_item import TodoItem
 from app.models.produto import Produto
 from app.models.usuario_conta_acesso import UsuarioContaAcesso
+from app.models.regra_cartao import RegraCartao
+from app.models.lote_cartao import LoteCartao
+from app.models.lote_cartao_item import LoteCartaoItem
 

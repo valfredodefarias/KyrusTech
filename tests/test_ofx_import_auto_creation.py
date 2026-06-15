@@ -155,3 +155,99 @@ def test_ofx_import_auto_creation_and_divergence_bypass(client: TestClient, sess
 
         finally:
             app.dependency_overrides.clear()
+
+
+def test_ofx_value_proximity_and_greedy_matching(client: TestClient, session: Session, setup_test_db):
+    # Authentication overrides
+    def mock_get_current_user():
+        return setup_test_db["usuario"]
+
+    def mock_get_empresa_id_from_user():
+        return 1
+
+    app_dependency_overrides = {
+        get_current_user: mock_get_current_user,
+        get_current_active_user: mock_get_current_user,
+        get_empresa_id_from_user: mock_get_empresa_id_from_user
+    }
+    
+    app.dependency_overrides.update(app_dependency_overrides)
+    
+    # Create a planned transaction (previsto) in the DB
+    previsto = Lancamento(
+        descricao="Internet Mensal",
+        valor_previsto=Decimal("800.00"),
+        data_vencimento=date(2026, 6, 11),
+        data_competencia=date(2026, 6, 11),
+        tipo="DESPESA",
+        status="PENDENTE",
+        empresa_id=1,
+        conta_id=1,
+        plano_contas_id=10,
+        is_deleted=False
+    )
+    session.add(previsto)
+    session.commit()
+    session.refresh(previsto)
+
+    # We mock processar_ofx to return two OFX rows:
+    # Row 1 has value 780.00 (difference 20.00)
+    # Row 2 has value 790.00 (difference 10.00)
+    mocked_ofx_rows = [
+        {
+            "data": date(2026, 6, 11),
+            "data_pagamento": "2026-06-11",
+            "data_vencimento": "2026-06-11",
+            "descricao": "BOLETO MENSAL INTERNET SERVICE A",
+            "razao_social": "Internet Provider",
+            "cpf_cnpj": "",
+            "valor": Decimal("780.00"),
+            "tipo": "DESPESA",
+            "origem": "OFX_EXTRATO",
+            "linha_arquivo": 1,
+            "saldo_informativo": False
+        },
+        {
+            "data": date(2026, 6, 11),
+            "data_pagamento": "2026-06-11",
+            "data_vencimento": "2026-06-11",
+            "descricao": "BOLETO MENSAL INTERNET SERVICE B",
+            "razao_social": "Internet Provider",
+            "cpf_cnpj": "",
+            "valor": Decimal("790.00"),
+            "tipo": "DESPESA",
+            "origem": "OFX_EXTRATO",
+            "linha_arquivo": 2,
+            "saldo_informativo": False
+        }
+    ]
+
+    with patch("app.api.v1.endpoints.importacao_ofx.processar_ofx", return_value=mocked_ofx_rows), \
+         patch("app.api.deps.has_permission", return_value=True):
+        try:
+            # Call upload endpoint
+            response = client.post(
+                "/api/v1/importacao/ofx/upload?conta_id=1",
+                files={"arquivo": ("extrato.ofx", b"OFX CONTENT", "application/xml")}
+            )
+            assert response.status_code == 200
+            res_json = response.json()
+            
+            # Row 2 (index 1 in processados, because it was closer, 790 vs 800) should get B.
+            # Row 1 (index 0 in processados, 780 vs 800) should NOT get B.
+            processados = res_json["lancamentos"]
+            assert len(processados) == 2
+            
+            row_780 = next(p for p in processados if p["linha_arquivo"] == 1)
+            row_790 = next(p for p in processados if p["linha_arquivo"] == 2)
+            
+            # Verify row_790 matched previsto because it is closer (value score is higher)
+            assert row_790["sugestao_acao"] == "BAIXAR_PREVISTO"
+            assert row_790["lancamento_previsto_id"] == previsto.id
+            
+            # Verify row_780 was NOT matched to previsto because it lost the greedy match (was assigned to row_790)
+            assert row_780["sugestao_acao"] == "CRIAR_NOVO"
+            assert row_780["lancamento_previsto_id"] is None
+
+        finally:
+            app.dependency_overrides.clear()

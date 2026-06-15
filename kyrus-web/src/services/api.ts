@@ -8,6 +8,9 @@ function resolveConfiguredApiUrl() {
     if (typeof window !== 'undefined') {
       const host = window.location.hostname;
       if (host === 'localhost' || host === '127.0.0.1') {
+        if (window.location.port && window.location.port !== '8000' && window.location.port !== '80' && window.location.port !== '443') {
+          return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
+        }
         return '/api/v1';
       }
       if (host.startsWith('api.')) {

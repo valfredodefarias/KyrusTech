@@ -287,6 +287,7 @@ export function Dre() {
   const auditMetaLoadedRef = useRef(false);
   const loadedAllLancamentosRef = useRef(false);
   const isDark = useIsDarkMode();
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const waitMs = (ms: number) => new Promise<void>((resolve) => {
     window.setTimeout(resolve, ms);
@@ -343,6 +344,65 @@ export function Dre() {
       active = false;
     };
   }, [ano]);
+
+  useEffect(() => {
+    const tableEl = tableRef.current;
+    if (!tableEl) return;
+
+    const mainEl = tableEl.closest('main');
+    if (!mainEl) return;
+
+    const theadEl = tableEl.querySelector('thead');
+    if (!theadEl) return;
+
+    const thElements = theadEl.querySelectorAll('th');
+
+    let ticking = false;
+
+    const updateHeaderPosition = () => {
+      const mainRect = mainEl.getBoundingClientRect();
+      const tableRect = tableEl.getBoundingClientRect();
+
+      // Calculate how far the table top is above the main container viewport top.
+      const offset = mainRect.top - tableRect.top;
+
+      const headerHeight = theadEl.offsetHeight;
+      const maxOffset = tableRect.height - headerHeight;
+
+      // Translate the headers vertically
+      const translateY = Math.max(0, Math.min(offset, maxOffset));
+
+      thElements.forEach((th) => {
+        th.style.transform = `translateY(${translateY}px)`;
+      });
+    };
+
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          updateHeaderPosition();
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    // Initialize position
+    updateHeaderPosition();
+
+    // Listen on vertical scroll of main container and window resize
+    mainEl.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('resize', handleScroll, { passive: true });
+
+    return () => {
+      mainEl.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleScroll);
+      // Reset translation on unmount
+      thElements.forEach((th) => {
+        th.style.transform = '';
+      });
+    };
+  }, [loading]);
 
   const fetchFullYearLancamentos = async () => {
     if (loadedAllLancamentosRef.current) return;
@@ -1047,23 +1107,23 @@ export function Dre() {
         ) : null}
 
         <section className={`overflow-hidden rounded-none border shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] ${isDark ? 'border-slate-800 bg-slate-950/75' : 'border-slate-200 bg-white'}`}>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1520px] border-separate border-spacing-0 text-sm">
+          <div className="overflow-x-auto overflow-y-visible">
+            <table ref={tableRef} className="w-full min-w-[1520px] border-separate border-spacing-0 text-sm">
               <thead>
                 <tr>
-                  <th className="sticky left-0 z-20 border-b border-r border-slate-800 bg-slate-950 px-5 py-4 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white">Conta</th>
-                  <th className="border-b border-r border-slate-800 bg-slate-950 px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">Total</th>
+                  <th className="sticky left-0 z-30 border-b border-r border-slate-800 bg-slate-950 px-5 py-4 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white">Conta</th>
+                  <th className="z-20 border-b border-r border-slate-800 bg-slate-950 px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">Total</th>
                   {monthLabels.map((label, index) => (
                     <th
                       key={label}
                       onClick={() => setSelectedMonth((prev) => (prev === index ? null : index))}
                       title={selectedMonth === index ? 'Clique para voltar ao ano inteiro' : `Clique para filtrar ${label}`}
-                      className={`cursor-pointer border-b border-r px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 ${selectedMonth === index ? selectedMonthHeaderClass : 'border-slate-800 bg-slate-950 text-white'}`}
+                      className={`z-20 cursor-pointer border-b border-r px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 ${selectedMonth === index ? selectedMonthHeaderClass : 'border-slate-800 bg-slate-950 text-white'}`}
                     >
                       {label}
                     </th>
                   ))}
-                  <th className="w-3 border-b border-amber-300 bg-amber-200 px-0 py-0" />
+                  <th className="z-20 w-3 border-b border-amber-300 bg-amber-200 px-0 py-0" />
                 </tr>
               </thead>
               <tbody>

@@ -14,6 +14,7 @@ import {
   Trash2,
   UploadCloud,
   Wand2,
+  X,
 } from 'lucide-react';
 
 import { useAssistentePage } from '../components/AssistentePageContext';
@@ -30,10 +31,6 @@ function normalizarDescricao(texto?: string | null) {
     .trim();
 }
 
-function onlyDigits(value: string) {
-  return String(value || '').replace(/\D/g, '');
-}
-
 function encontrarEntidadeIdPorNome(nome?: string | null, entidades: EntidadeItem[] = []) {
   const chave = normalizarDescricao(nome);
   if (!chave) return null;
@@ -41,9 +38,27 @@ function encontrarEntidadeIdPorNome(nome?: string | null, entidades: EntidadeIte
   const exata = entidades.find((entidade) => normalizarDescricao(entidade.nome) === chave);
   if (exata) return exata.id;
 
+  const chaveWords = chave.split(' ');
+
   const contida = entidades.find((entidade) => {
     const candidato = normalizarDescricao(entidade.nome);
-    return candidato && (candidato.includes(chave) || chave.includes(candidato));
+    if (!candidato) return false;
+
+    const candidatoWords = candidato.split(' ');
+
+    if (candidato.length < 3) {
+      if (!chaveWords.includes(candidato)) return false;
+    } else {
+      if (!chave.includes(candidato)) return false;
+    }
+
+    if (chave.length < 3) {
+      if (!candidatoWords.includes(chave)) return false;
+    } else {
+      if (!candidato.includes(chave)) return false;
+    }
+
+    return true;
   });
 
   return contida?.id ?? null;
@@ -178,6 +193,7 @@ interface LancamentoEditado extends LancamentoImportado {
   sugestao_acao_original: NonNullable<LancamentoImportado['sugestao_acao']>;
   sugestao_confirmada: boolean;
   interessado_digitado?: string;
+  criar_novo_interessado?: boolean;
 }
 
 type FeedbackState = {
@@ -305,7 +321,7 @@ function SearchableDropdown({
   value: number | null | undefined;
   options: SearchableOption[];
   placeholder: string;
-  onChange: (value: number | null) => void;
+  onChange: (value: number | null, query?: string) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -324,6 +340,7 @@ function SearchableDropdown({
   const selected = options.find((option) => Number(option.id) === Number(value));
   const normalizedQuery = query.trim().toLowerCase();
   const filtered = options.filter((option) => {
+    if (option.id === -1) return true; // Always keep the "+ Criar novo" option visible
     if (!normalizedQuery) return true;
     const haystack = `${String(option.label || '').toLowerCase()} ${String(option.searchText || '').toLowerCase()}`;
     return haystack.includes(normalizedQuery);
@@ -359,7 +376,7 @@ function SearchableDropdown({
             <button
               type="button"
               onClick={() => {
-                onChange(null);
+                onChange(null, query);
                 setIsOpen(false);
               }}
               className="w-full border-b border-slate-100 px-3 py-2 text-left text-sm text-slate-500 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900"
@@ -373,12 +390,14 @@ function SearchableDropdown({
                 disabled={!!option.disabled}
                 onClick={() => {
                   if (option.disabled) return;
-                  onChange(option.id);
+                  onChange(option.id, query);
                   setIsOpen(false);
                 }}
                 className={`w-full border-b border-slate-100 px-3 py-2 text-left text-sm transition last:border-b-0 dark:border-slate-800 ${option.disabled ? 'cursor-not-allowed bg-slate-50 text-slate-400 dark:bg-slate-900 dark:text-slate-500' : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900'}`}
               >
-                <span className="truncate">{option.label}</span>
+                <span className="truncate">
+                  {option.id === -1 && query.trim() ? `+ Criar novo: "${query.trim()}"` : option.label}
+                </span>
               </button>
             ))}
             {filtered.length === 0 ? <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">Nenhum resultado.</div> : null}
@@ -443,7 +462,98 @@ export function ImportacaoOfx() {
     dataBase: null,
     centroCustoId: null,
   });
-  const [buscaSelecionados, setBuscaSelecionados] = useState<number[]>([]);
+
+
+  const [transferenciaConfirmacao, setTransferenciaConfirmacao] = useState<{
+    linhaArquivo: number;
+    atrasoId: number;
+    atrasado: RelacionamentoResumo | LancamentoDisponivel;
+    outrasLinhas: number[];
+  } | null>(null);
+
+  const [limiteResultados, setLimiteResultados] = useState(15);
+
+  const scrollCardIntoView = (linhaArquivo: number) => {
+    setTimeout(() => {
+      const el = document.getElementById(`card-lancamento-${linhaArquivo}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+  };
+
+  const obterOutrosLancamentosComSelecao = (atrasoId: number, linhaArquivoAtual: number) => {
+    return lancamentosEditados.filter((item) => {
+      if (item.linha_arquivo === linhaArquivoAtual) return false;
+      if (item.sugestao_acao === 'BAIXAR_PREVISTO' && Number(item.lancamento_previsto_id) === atrasoId) {
+        return true;
+      }
+      if (
+        item.sugestao_acao === 'RELACIONAR_ATRASADOS'
+        && Array.isArray(item.lancamentos_atrasados_relacionados)
+        && item.lancamentos_atrasados_relacionados.includes(atrasoId)
+      ) {
+        return true;
+      }
+      return false;
+    });
+  };
+
+  const confirmarTransferencia = () => {
+    if (!transferenciaConfirmacao) return;
+    const { linhaArquivo, atrasoId, atrasado, outrasLinhas } = transferenciaConfirmacao;
+
+    setLancamentosEditados((prev) =>
+      prev.map((item) => {
+        if (outrasLinhas.includes(item.linha_arquivo)) {
+          let nextPatch: Partial<LancamentoEditado> = {};
+          if (item.sugestao_acao === 'BAIXAR_PREVISTO' && Number(item.lancamento_previsto_id) === atrasoId) {
+            nextPatch = {
+              lancamento_previsto_id: null,
+              lancamento_previsto_resumo: null,
+              sugestao_confirmada: false,
+            };
+          }
+          if (item.sugestao_acao === 'RELACIONAR_ATRASADOS') {
+            const nextAtrasados = (item.lancamentos_atrasados_relacionados || []).filter((id) => id !== atrasoId);
+            const nextResumo = (item.lancamentos_atrasados_resumo || []).filter((r) => r.id !== atrasoId);
+            nextPatch = {
+              lancamentos_atrasados_relacionados: nextAtrasados,
+              lancamentos_atrasados_resumo: nextResumo,
+              sugestao_confirmada: false,
+            };
+          }
+          return { ...item, ...nextPatch };
+        }
+        return item;
+      })
+    );
+
+    setLancamentosEditados((prev) =>
+      prev.map((item) => {
+        if (item.linha_arquivo === linhaArquivo) {
+          const proximo = [...(item.lancamentos_atrasados_relacionados || []), atrasoId];
+          const originalAtrasado = item.lancamentos_atrasados_resumo?.find((r) => r.id === atrasoId);
+          const itemResumo = 'score' in atrasado 
+            ? (atrasado as RelacionamentoResumo) 
+            : mapDisponivelToResumo(atrasado as LancamentoDisponivel, 'Selecionado manualmente');
+          const resumos = originalAtrasado
+            ? item.lancamentos_atrasados_resumo
+            : [...(item.lancamentos_atrasados_resumo || []), itemResumo];
+          return {
+            ...item,
+            lancamentos_atrasados_relacionados: proximo,
+            lancamentos_atrasados_resumo: resumos,
+          };
+        }
+        return item;
+      })
+    );
+
+    setTransferenciaConfirmacao(null);
+    scrollCardIntoView(linhaArquivo);
+  };
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -452,6 +562,16 @@ export function ImportacaoOfx() {
       setContaId(Number(contaParam));
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (buscaDisponiveis.linhaArquivo != null && !buscaDisponiveis.loading) {
+      scrollCardIntoView(buscaDisponiveis.linhaArquivo);
+    }
+  }, [buscaDisponiveis.linhaArquivo, buscaDisponiveis.loading]);
+
+  useEffect(() => {
+    setLimiteResultados(15);
+  }, [buscaDisponiveis.termo, buscaDisponiveis.linhaArquivo]);
 
   useEffect(() => {
     if (state?.preLoadedResult) {
@@ -569,39 +689,7 @@ export function ImportacaoOfx() {
     return { conciliaveis, novos, receitas, despesas, semCategoria };
   }, [lancamentosEditados]);
 
-  const selecionadosConfirmadosPorId = useMemo(() => {
-    const mapa = new Map<number, Set<number>>();
-    for (const item of lancamentosEditados) {
-      if (!item.sugestao_confirmada) continue;
-      if (item.sugestao_acao === 'BAIXAR_PREVISTO' && item.lancamento_previsto_id) {
-        const previstoId = Number(item.lancamento_previsto_id);
-        if (previstoId > 0) {
-          const set = mapa.get(previstoId) || new Set<number>();
-          set.add(Number(item.linha_arquivo || 0));
-          mapa.set(previstoId, set);
-        }
-      }
 
-      if (item.sugestao_acao === 'RELACIONAR_ATRASADOS') {
-        const selecionados = Array.isArray(item.lancamentos_atrasados_relacionados)
-          ? item.lancamentos_atrasados_relacionados
-          : [];
-        const unicos = new Set<number>();
-        for (const atrasoIdRaw of selecionados) {
-          const atrasoId = Number(atrasoIdRaw || 0);
-          if (atrasoId > 0) {
-            unicos.add(atrasoId);
-          }
-        }
-        for (const atrasoId of unicos) {
-          const set = mapa.get(atrasoId) || new Set<number>();
-          set.add(Number(item.linha_arquivo || 0));
-          mapa.set(atrasoId, set);
-        }
-      }
-    }
-    return mapa;
-  }, [lancamentosEditados]);
 
   const assistenteConfig = useMemo(() => ({
     tela: 'geral' as const,
@@ -697,17 +785,6 @@ export function ImportacaoOfx() {
 
   const abrirBuscaDisponiveis = (lanc: LancamentoEditado) => {
     const centroCustoInicial = lanc.centro_custo_id ?? centroCustoPadraoBusca;
-    const selecionadosIniciais = (() => {
-      if (lanc.sugestao_acao === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_id) {
-        return [Number(lanc.lancamento_previsto_id)];
-      }
-      if (lanc.sugestao_acao === 'RELACIONAR_ATRASADOS') {
-        return (lanc.lancamentos_atrasados_relacionados || []).map((id) => Number(id));
-      }
-      return [];
-    })();
-
-    setBuscaSelecionados(selecionadosIniciais);
     setBuscaDisponiveis((prev) => ({
       ...prev,
       linhaArquivo: lanc.linha_arquivo,
@@ -784,7 +861,17 @@ export function ImportacaoOfx() {
         const chunk = chunks[i];
 
         const payload = {
-          lancamentos: chunk,
+          lancamentos: chunk.map((lanc) => {
+            if (!lanc.entidade_id && !lanc.criar_novo_interessado) {
+              return {
+                ...lanc,
+                interessado_digitado: '',
+                interessado_sugerido: '',
+                razao_social: '',
+              };
+            }
+            return lanc;
+          }),
           conta_id: modoImportacao === 'CONTA' ? Number(contaId) : null,
           cartao_id: modoImportacao === 'CARTAO' ? Number(cartaoId) : null,
           modo_importacao: modoImportacao,
@@ -872,13 +959,16 @@ export function ImportacaoOfx() {
         ?? encontrarEntidadeIdPorNome(entidadeSugestaoTexto, entidades)
         ?? null;
       const auto_preenchido = plano_contas_id != null || entidade_id != null;
+      const criar_novo_interessado = !entidade_id && !!entidadeSugestaoTexto;
+      const interessado_digitado = criar_novo_interessado ? String(entidadeSugestaoTexto) : '';
 
       const sugestaoOriginal = getSugestaoInicial(lanc);
       return {
         ...lanc,
         plano_contas_id,
         entidade_id,
-        interessado_digitado: '',
+        interessado_digitado,
+        criar_novo_interessado,
         auto_preenchido,
         interessado_sugerido: entidadeSugestaoTexto,
         sugestao_acao_original: sugestaoOriginal,
@@ -933,7 +1023,11 @@ export function ImportacaoOfx() {
     });
   }, [buscaDisponiveis.itens, buscaDisponiveis.termo, lancamentoBuscaAberto]);
 
-  const buscaDisponiveisAberta = !!lancamentoBuscaAberto;
+  const itensExibidos = useMemo(() => {
+    return itensDisponiveisFiltrados.slice(0, limiteResultados);
+  }, [itensDisponiveisFiltrados, limiteResultados]);
+
+
 
   const updateLancamento = (linhaArquivo: number, patch: Partial<LancamentoEditado>) => {
     setLancamentosEditados((prev) => prev.map((item) => (
@@ -990,6 +1084,7 @@ export function ImportacaoOfx() {
   };
 
   const fecharBuscaDisponiveis = () => {
+    const linha = buscaDisponiveis.linhaArquivo;
     setBuscaDisponiveis((prev) => ({
       ...prev,
       linhaArquivo: null,
@@ -997,38 +1092,9 @@ export function ImportacaoOfx() {
       error: null,
       loading: false,
     }));
-    setBuscaSelecionados([]);
-  };
-
-  const aplicarSelecaoDisponiveis = (lanc: LancamentoEditado) => {
-    const selecionados = buscaSelecionados.filter((id) => Number.isFinite(id));
-    if (selecionados.length === 0) {
-      fecharBuscaDisponiveis();
-      return;
+    if (linha != null) {
+      scrollCardIntoView(linha);
     }
-
-    const itensSelecionados = buscaDisponiveis.itens.filter((item) => selecionados.includes(item.id));
-    if (itensSelecionados.length === 1) {
-      const resumo = mapDisponivelToResumo(itensSelecionados[0], 'Selecionado manualmente');
-      updateLancamento(lanc.linha_arquivo, {
-        sugestao_acao: 'BAIXAR_PREVISTO',
-        lancamento_previsto_id: resumo.id ?? null,
-        lancamento_previsto_resumo: resumo,
-        lancamentos_atrasados_relacionados: [],
-        lancamentos_atrasados_resumo: [],
-      });
-    } else {
-      const resumos = itensSelecionados.map((item) => mapDisponivelToResumo(item, 'Selecionado manualmente'));
-      updateLancamento(lanc.linha_arquivo, {
-        sugestao_acao: 'RELACIONAR_ATRASADOS',
-        lancamento_previsto_id: null,
-        lancamento_previsto_resumo: null,
-        lancamentos_atrasados_relacionados: itensSelecionados.map((item) => item.id),
-        lancamentos_atrasados_resumo: resumos,
-      });
-    }
-
-    fecharBuscaDisponiveis();
   };
 
   return (
@@ -1318,11 +1384,18 @@ export function ImportacaoOfx() {
                 disabled: !!cat.eh_cabecalho || cat.permite_lancamentos === false,
                 searchText: `${cat.nome || ''} ${cat.codigo || ''} ${cat.tipo || ''}`,
               }));
-              const entidadeOptions: SearchableOption[] = entidades.map((ent) => ({
-                id: ent.id,
-                label: ent.nome,
-                searchText: ent.nome,
-              }));
+              const entidadeOptions: SearchableOption[] = [
+                {
+                  id: -1,
+                  label: '+ Criar novo...',
+                  searchText: '',
+                },
+                ...entidades.map((ent) => ({
+                  id: ent.id,
+                  label: ent.nome,
+                  searchText: ent.nome,
+                })),
+              ];
               const valorClass = lanc.tipo === 'RECEITA' ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300';
               const descartado = lanc.sugestao_acao === 'DESCARTAR';
               const conciliacaoAutomatica = isConciliacaoAutomatica(lanc.sugestao_acao);
@@ -1354,9 +1427,13 @@ export function ImportacaoOfx() {
                       : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900';
 
               return (
-                <article key={`${lanc.linha_arquivo}-${lanc.movimento_uid || 'ofx'}`} className={`rounded-3xl border p-5 shadow-sm transition ${descartado ? 'opacity-65' : ''} ${cardToneClass}`}>
+                <article
+                  id={`card-lancamento-${lanc.linha_arquivo}`}
+                  key={`${lanc.linha_arquivo}-${lanc.movimento_uid || 'ofx'}`}
+                  className={`rounded-3xl border p-5 shadow-sm transition ${descartado ? 'opacity-65' : ''} ${cardToneClass}`}
+                >
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                    <div className="space-y-3">
+                    <div className="space-y-3 flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         {duplicadoAnterior ? (
                           <span className="rounded-full border border-slate-300 bg-slate-200 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -1401,7 +1478,7 @@ export function ImportacaoOfx() {
                               }
                             }}
                             autoFocus
-                            className="w-full max-w-xl rounded-2xl border border-emerald-400 bg-white px-3 py-1.5 text-lg font-black text-slate-900 outline-none dark:bg-slate-950 dark:text-white focus:ring-1 focus:ring-emerald-400"
+                            className="w-full rounded-2xl border border-emerald-400 bg-white px-3 py-1.5 text-lg font-black text-slate-900 outline-none dark:bg-slate-950 dark:text-white focus:ring-1 focus:ring-emerald-400"
                           />
                         ) : (
                           <h3
@@ -1432,11 +1509,14 @@ export function ImportacaoOfx() {
                           <>
                             <button
                               type="button"
-                              onClick={() => updateLancamento(lanc.linha_arquivo, {
-                                sugestao_acao: lanc.sugestao_acao_original,
-                                lancamentos_atrasados_relacionados: [],
-                                sugestao_confirmada: false,
-                              })}
+                              onClick={() => {
+                                updateLancamento(lanc.linha_arquivo, {
+                                  sugestao_acao: lanc.sugestao_acao_original,
+                                  lancamentos_atrasados_relacionados: [],
+                                  sugestao_confirmada: false,
+                                });
+                                scrollCardIntoView(lanc.linha_arquivo);
+                              }}
                               className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"
                             >
                               Retomar sugestão
@@ -1444,67 +1524,68 @@ export function ImportacaoOfx() {
                             {!lanc.duplicata_id ? (
                               <button
                                 type="button"
-                                onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', lancamentos_atrasados_relacionados: [] })}
-                                    className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-lime-300 bg-lime-50 text-lime-800 dark:border-lime-800 dark:bg-lime-950/35 dark:text-lime-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
+                                onClick={() => {
+                                  updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', lancamentos_atrasados_relacionados: [] });
+                                  scrollCardIntoView(lanc.linha_arquivo);
+                                }}
+                                className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-lime-300 bg-lime-50 text-lime-800 dark:border-lime-800 dark:bg-lime-950/35 dark:text-lime-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
                               >
                                 Criar novo
                               </button>
                             ) : null}
                           </>
-                        ) : lanc.lancamento_previsto_id ? (
-                          <button
-                            type="button"
-                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'BAIXAR_PREVISTO', sugestao_confirmada: false })}
-                            className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'BAIXAR_PREVISTO' ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
-                          >
-                            Baixar previsto
-                          </button>
-                        ) : null}
-                        {!!lanc.lancamentos_atrasados_ids?.length ? (
-                          <button
-                            type="button"
-                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'RELACIONAR_ATRASADOS', sugestao_confirmada: false })}
-                            className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
-                          >
-                            Relacionar atrasados
-                          </button>
-                        ) : null}
-                        {!lanc.duplicata_id ? (
-                          <button
-                            type="button"
-                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', lancamentos_atrasados_relacionados: [] })}
-                            className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-lime-300 bg-lime-50 text-lime-800 dark:border-lime-800 dark:bg-lime-950/35 dark:text-lime-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
-                          >
-                            Criar novo
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'DESCARTAR', lancamentos_atrasados_relacionados: [] })}
-                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${descartado ? 'border-zinc-400 bg-zinc-100 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          Ignorar sugestao
-                        </button>
-                        {!descartado && !duplicadoAnterior ? (
-                          <button
-                            type="button"
-                            onClick={() => abrirBuscaDisponiveis(lanc)}
-                            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-700 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
-                          >
-                            <Search className="h-3.5 w-3.5" />
-                            {lanc.tipo === 'DESPESA' ? 'Buscar pagamento' : 'Buscar recebimento'}
-                          </button>
-                        ) : null}
-                        {sugestaoPendente ? (
-                          <button
-                            type="button"
-                            onClick={() => updateLancamento(lanc.linha_arquivo, { sugestao_confirmada: true })}
-                            className="rounded-full border border-emerald-400 bg-emerald-500 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-white transition hover:bg-emerald-600"
-                          >
-                            Confirma sugestao
-                          </button>
-                        ) : null}
+                        ) : (
+                          <>
+                            {!duplicadoAnterior && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'RELACIONAR_ATRASADOS', sugestao_confirmada: false });
+                                  abrirBuscaDisponiveis(lanc);
+                                  scrollCardIntoView(lanc.linha_arquivo);
+                                }}
+                                className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
+                              >
+                                Relacionar lançamentos
+                              </button>
+                            )}
+                            {!lanc.duplicata_id && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', lancamentos_atrasados_relacionados: [] });
+                                  scrollCardIntoView(lanc.linha_arquivo);
+                                }}
+                                className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-lime-300 bg-lime-50 text-lime-800 dark:border-lime-800 dark:bg-lime-950/35 dark:text-lime-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
+                              >
+                                Criar novo
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'DESCARTAR', lancamentos_atrasados_relacionados: [] });
+                                scrollCardIntoView(lanc.linha_arquivo);
+                              }}
+                              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              Ignorar sugestao
+                            </button>
+                            {sugestaoPendente && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateLancamento(lanc.linha_arquivo, { sugestao_confirmada: true });
+                                  scrollCardIntoView(lanc.linha_arquivo);
+                                }}
+                                className="rounded-full border border-emerald-400 bg-emerald-500 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-white transition hover:bg-emerald-600"
+                              >
+                                Confirma sugestao
+                              </button>
+                            )}
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -1525,252 +1606,296 @@ export function ImportacaoOfx() {
                     </div>
                   )}
 
-                  <div className="mt-4">
-                    {buscaDisponiveisAberta && lancamentoBuscaAberto && lancamentoBuscaAberto.linha_arquivo === lanc.linha_arquivo ? (
-                      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-4 py-4 dark:border-slate-800">
-                          <div>
-                            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-600 dark:text-emerald-300">
-                              {lancamentoBuscaAberto.tipo === 'DESPESA' ? 'Buscar pagamento' : 'Buscar recebimento'}
-                            </p>
-                            <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-900 dark:text-white">Lançamentos disponíveis</h2>
-                            <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
-                              Selecione pagamentos ou recebimentos atrasados, vencendo hoje, ou futuros se necessário. O painel rola por dentro e mantém a revisão no padrão da página.
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={fecharBuscaDisponiveis}
-                            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-600 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
-                          >
-                            Fechar
-                          </button>
-                        </div>
 
-                        <div className="flex max-h-[72vh] min-h-0 flex-col gap-4 p-4">
-                          <div className="grid gap-3 xl:grid-cols-[minmax(0,1.3fr)_minmax(240px,0.7fr)] xl:items-end">
-                            <div className="flex min-w-[220px] flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-950">
-                              <Search className="h-4 w-4 text-slate-400" />
-                              <input
-                                value={buscaDisponiveis.termo}
-                                onChange={(event) => setBuscaDisponiveis((prev) => ({ ...prev, termo: event.target.value }))}
-                                placeholder="Filtrar por descricao ou interessado"
-                                className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
-                              />
-                            </div>
 
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              <label className="block text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                                Centro de custo
-                                <select
-                                  value={buscaDisponiveis.centroCustoId ?? ''}
-                                  onChange={(event) => {
-                                    const centroId = event.target.value ? Number(event.target.value) : null;
-                                    setBuscaDisponiveis((prev) => ({ ...prev, centroCustoId: centroId }));
-                                    carregarLancamentosDisponiveis(lancamentoBuscaAberto, buscaDisponiveis.incluirFuturos, centroId);
-                                  }}
-                                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
-                                >
-                                  <option value="">Sem centro de custo</option>
-                                  {centrosCusto.map((centro) => (
-                                    <option key={centro.id} value={centro.id}>
-                                      {centro.nome}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-
-                              <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
-                                <input
-                                  type="checkbox"
-                                  checked={buscaDisponiveis.incluirFuturos}
-                                  onChange={(event) => {
-                                    const incluir = event.target.checked;
-                                    setBuscaDisponiveis((prev) => ({ ...prev, incluirFuturos: incluir }));
-                                    carregarLancamentosDisponiveis(lancamentoBuscaAberto, incluir, buscaDisponiveis.centroCustoId ?? centroCustoPadraoBusca);
-                                  }}
-                                />
-                                Incluir futuros (opcional)
-                              </label>
-                            </div>
-                          </div>
-
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Centro de custo padrão aplicado: {centrosCusto.find((centro) => centro.id === (buscaDisponiveis.centroCustoId ?? centroCustoPadraoBusca))?.nome || 'Sem centro de custo'}.
-                          </p>
-
-                          <div className="min-h-0 flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/50">
-                            <div className="max-h-[48vh] space-y-2 overflow-y-auto p-3 pr-2">
-                              {buscaDisponiveis.loading ? (
-                                <div className="flex items-center gap-2 px-2 py-6 text-sm text-slate-500 dark:text-slate-400">
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                  Buscando lancamentos...
-                                </div>
-                              ) : buscaDisponiveis.error ? (
-                                <p className="px-2 py-6 text-sm text-rose-600 dark:text-rose-300">{buscaDisponiveis.error}</p>
-                              ) : itensDisponiveisFiltrados.length === 0 ? (
-                                <p className="px-2 py-6 text-sm text-slate-500 dark:text-slate-400">Nenhum lancamento disponivel para este filtro.</p>
-                              ) : (
-                                itensDisponiveisFiltrados.map((item) => {
-                                  const jaSelecionado = buscaSelecionados.includes(item.id);
-                                  const linhasComMesmoId = selecionadosConfirmadosPorId.get(item.id);
-                                  const selecionadoEmOutro = Boolean(
-                                    linhasComMesmoId && Array.from(linhasComMesmoId).some((linha) => linha !== lancamentoBuscaAberto.linha_arquivo),
-                                  );
-                                  const bloqueado = !jaSelecionado && selecionadoEmOutro;
-                                  return (
-                                    <label
-                                      key={`disponivel-${lancamentoBuscaAberto.linha_arquivo}-${item.id}`}
-                                      className={`flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 ${bloqueado ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={jaSelecionado}
-                                        disabled={bloqueado}
-                                        onChange={(event) => {
-                                          if (bloqueado) return;
-                                          setBuscaSelecionados((prev) => {
-                                            if (event.target.checked) {
-                                              return [...new Set([...prev, item.id])];
-                                            }
-                                            return prev.filter((id) => id !== item.id);
-                                          });
-                                        }}
-                                      />
-                                      <div className="min-w-0 flex-1">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          <p className="font-semibold text-slate-900 dark:text-white">{item.descricao}</p>
-                                          <span className="text-xs text-slate-500 dark:text-slate-400">{formatCurrency(item.valor_previsto)}</span>
-                                        </div>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">Vence em {formatDate(item.data_vencimento)}</p>
-                                        {item.interessado ? (
-                                          <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Interessado: {item.interessado}</p>
-                                        ) : null}
-                                        {item.centro_custo_nome ? (
-                                          <p className="text-xs text-slate-500 dark:text-slate-400">CC: {item.centro_custo_nome}</p>
-                                        ) : null}
-                                        {bloqueado ? (
-                                          <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">Confirmado em outro lançamento.</p>
-                                        ) : null}
-                                      </div>
-                                    </label>
-                                  );
-                                })
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <p className="text-xs text-slate-500 dark:text-slate-400">{buscaSelecionados.length} item(ns) selecionados.</p>
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setBuscaSelecionados([])}
-                                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-600 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
-                              >
-                                Limpar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => aplicarSelecaoDisponiveis(lancamentoBuscaAberto)}
-                                className="rounded-full border border-emerald-300 bg-emerald-500 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-white transition hover:bg-emerald-600"
-                              >
-                                Aplicar selecao
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : lanc.sugestao_acao === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_resumo ? (
-                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">Melhor previsto encontrado</p>
-                        <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                          <div>
-                            {lanc.lancamento_previsto_resumo.interessado ? (
-                              <p className="text-xs font-bold text-slate-900 dark:text-white">Interessado: {lanc.lancamento_previsto_resumo.interessado}</p>
-                            ) : null}
-                            <p className="font-bold text-slate-900 dark:text-white">{lanc.lancamento_previsto_resumo.descricao}</p>
-                            <p className="text-sm text-slate-600 dark:text-slate-300">Vence em {formatDate(lanc.lancamento_previsto_resumo.data_vencimento)} • {formatCurrency(lanc.lancamento_previsto_resumo.valor_previsto)}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  {lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' && !!lanc.lancamentos_atrasados_resumo?.length && (
+                  {lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' && (
                     <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
-                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between border-b border-amber-200/40 pb-3 mb-3">
                         <div>
                           <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">Atrasados compatíveis</p>
                           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Selecione os atrasados que este movimento deve quitar.</p>
                         </div>
                       </div>
-                      <div className="mt-3 space-y-3">
-                        {[...(lanc.lancamentos_atrasados_resumo || [])]
-                          .map((resumo, index) => ({
-                            resumo,
-                            atrasoId: resumo?.id ?? lanc.lancamentos_atrasados_ids?.[index],
-                          }))
-                          .sort((a, b) => (b.resumo?.score || 0) - (a.resumo?.score || 0))
-                          .map(({ resumo: atrasado, atrasoId }, index) => {
-                          const marcado = atrasoId ? lanc.lancamentos_atrasados_relacionados.includes(atrasoId) : false;
-                          const linhasComMesmoAtraso = atrasoId ? selecionadosConfirmadosPorId.get(atrasoId) : undefined;
-                          const selecionadoEmOutroLancamento = Boolean(
-                            atrasoId
-                              && linhasComMesmoAtraso
-                              && Array.from(linhasComMesmoAtraso).some((linha) => linha !== lanc.linha_arquivo),
-                          );
-                          const bloqueadoPorOutroLancamento = !marcado && selecionadoEmOutroLancamento;
-                          return (
-                            <label
-                              key={`${lanc.linha_arquivo}-${index}`}
-                              className={`flex items-start gap-3 rounded-2xl border border-amber-200/70 bg-white/80 p-3 dark:border-amber-900/40 dark:bg-slate-900/60 ${bloqueadoPorOutroLancamento ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={marcado}
-                                disabled={bloqueadoPorOutroLancamento}
-                                onChange={(e) => {
-                                  if (!atrasoId) return;
-                                  if (bloqueadoPorOutroLancamento) return;
-                                  const proximo = e.target.checked
-                                    ? [...lanc.lancamentos_atrasados_relacionados, atrasoId]
-                                    : lanc.lancamentos_atrasados_relacionados.filter((item) => item !== atrasoId);
-                                  updateLancamento(lanc.linha_arquivo, { lancamentos_atrasados_relacionados: proximo });
-                                }}
-                              />
-                              <div className="min-w-0 flex-1">
-                                {atrasado.interessado ? (
-                                  <p className="text-xs font-bold text-slate-900 dark:text-white">Interessado: {atrasado.interessado}</p>
-                                ) : null}
-                                <div className="flex flex-col gap-1">
-                                  <p className="font-bold text-slate-900 dark:text-white">{atrasado.descricao}</p>
-                                </div>
-                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-300">
-                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 font-bold uppercase tracking-[0.14em] text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
-                                    Score {atrasado.score}
-                                  </span>
-                                  <span>Venceu em {formatDate(atrasado.data_vencimento)}</span>
-                                  <span>•</span>
-                                  <span>{formatCurrency(atrasado.valor_previsto)}</span>
-                                  {atrasado.centro_custo_nome ? (
-                                    <>
-                                      <span>•</span>
-                                      <span>CC: {atrasado.centro_custo_nome}</span>
-                                    </>
+
+                      {lanc.sugestao_confirmada ? (
+                        <div className="space-y-3">
+                          {(() => {
+                            const selecionados = (lanc.lancamentos_atrasados_resumo || [])
+                              .filter((r) => r.id != null && lanc.lancamentos_atrasados_relacionados?.includes(r.id));
+                            if (selecionados.length === 0) {
+                              return (
+                                <p className="text-xs italic text-slate-500">Nenhum lançamento selecionado.</p>
+                              );
+                            }
+                            return selecionados.map((atrasado, index) => (
+                              <div
+                                key={`confirmed-${lanc.linha_arquivo}-${atrasado.id}-${index}`}
+                                className="flex items-start justify-between gap-4 rounded-2xl border border-emerald-300 bg-emerald-50/50 p-3 dark:border-emerald-800/40 dark:bg-slate-900/40"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  {atrasado.interessado ? (
+                                    <p className="text-xs font-bold text-slate-900 dark:text-white">Interessado: {atrasado.interessado}</p>
                                   ) : null}
+                                  <p className="font-bold text-slate-900 dark:text-white">{atrasado.descricao}</p>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                    <span>Venceu em {formatDate(atrasado.data_vencimento)}</span>
+                                    {atrasado.centro_custo_nome ? (
+                                      <>
+                                        <span>•</span>
+                                        <span>CC: {atrasado.centro_custo_nome}</span>
+                                      </>
+                                    ) : null}
+                                  </div>
                                 </div>
-                                {atrasado.motivo ? (
-                                  <p className="mt-1 text-xs italic text-slate-500 dark:text-slate-400">{atrasado.motivo}</p>
-                                ) : null}
-                                {bloqueadoPorOutroLancamento ? (
-                                  <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">Esta sugestão já foi confirmada em outro lançamento.</p>
-                                ) : null}
+                                <div className="text-right shrink-0">
+                                  <p className="text-base font-black text-emerald-700 dark:text-emerald-300">
+                                    {formatCurrency(atrasado.valor_previsto)}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      // Uncheck item: set confirm to false, remove item
+                                      const proximoIds = (lanc.lancamentos_atrasados_relacionados || []).filter((id) => id !== atrasado.id);
+                                      const proximoResumos = (lanc.lancamentos_atrasados_resumo || []).filter((r) => r.id !== atrasado.id);
+                                      updateLancamento(lanc.linha_arquivo, {
+                                        lancamentos_atrasados_relacionados: proximoIds,
+                                        lancamentos_atrasados_resumo: proximoResumos,
+                                        sugestao_confirmada: false,
+                                      });
+                                      abrirBuscaDisponiveis(lanc);
+                                      scrollCardIntoView(lanc.linha_arquivo);
+                                    }}
+                                    className="mt-2 text-xs font-bold uppercase tracking-wider text-rose-600 hover:text-rose-700 transition"
+                                  >
+                                    Desassociar
+                                  </button>
+                                </div>
                               </div>
-                            </label>
-                          );
-                        })}
-                      </div>
+                            ));
+                          })()}
+                        </div>
+                      ) : (
+                        /* Edit mode: show search filters and candidates list */
+                        <div className="space-y-4">
+                          {/* Search & Filter Inputs (rendered inline when this card is active for search) */}
+                          {buscaDisponiveis.linhaArquivo === lanc.linha_arquivo ? (
+                            <div className="grid gap-3 p-3 rounded-2xl bg-amber-100/40 dark:bg-slate-950/20 border border-amber-200/50">
+                              <div className="flex flex-col md:flex-row md:items-end gap-3">
+                                <div className="flex-1">
+                                  <label className="block text-xs font-bold uppercase tracking-[0.16em] text-slate-500 mb-1">Filtrar descrição / interessado</label>
+                                  <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950">
+                                    <Search className="h-4 w-4 text-slate-400" />
+                                    <input
+                                      value={buscaDisponiveis.termo}
+                                      onChange={(event) => setBuscaDisponiveis((prev) => ({ ...prev, termo: event.target.value }))}
+                                      placeholder="Ex: Nome, NF, descrição..."
+                                      className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400 text-slate-850 dark:text-white"
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="w-full md:w-64">
+                                  <label className="block text-xs font-bold uppercase tracking-[0.16em] text-slate-500 mb-1">Centro de custo</label>
+                                  <select
+                                    value={buscaDisponiveis.centroCustoId ?? ''}
+                                    onChange={(event) => {
+                                      const centroId = event.target.value ? Number(event.target.value) : null;
+                                      setBuscaDisponiveis((prev) => ({ ...prev, centroCustoId: centroId }));
+                                      carregarLancamentosDisponiveis(lanc, buscaDisponiveis.incluirFuturos, centroId);
+                                    }}
+                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+                                  >
+                                    <option value="">Sem centro de custo</option>
+                                    {centrosCusto.map((centro) => (
+                                      <option key={centro.id} value={centro.id}>
+                                        {centro.nome}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                <div className="flex items-center">
+                                  <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 transition">
+                                    <input
+                                      type="checkbox"
+                                      checked={buscaDisponiveis.incluirFuturos}
+                                      onChange={(event) => {
+                                        const incluir = event.target.checked;
+                                        setBuscaDisponiveis((prev) => ({ ...prev, incluirFuturos: incluir }));
+                                        carregarLancamentosDisponiveis(lanc, incluir, buscaDisponiveis.centroCustoId);
+                                      }}
+                                    />
+                                    Incluir futuros
+                                  </label>
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {/* Candidates checklist */}
+                          <div className="space-y-3">
+                            {(() => {
+                              // If this card is active for search, use search results. Otherwise, use backend suggested list.
+                              const isSearchActive = buscaDisponiveis.linhaArquivo === lanc.linha_arquivo;
+                              
+                              if (isSearchActive && buscaDisponiveis.loading) {
+                                return (
+                                  <div className="flex items-center gap-2 py-4 text-sm text-slate-500">
+                                    <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+                                    Buscando lançamentos...
+                                  </div>
+                                );
+                              }
+
+                              const listToRender = isSearchActive 
+                                ? itensExibidos 
+                                : (lanc.lancamentos_atrasados_resumo || []).slice(0, 5); // display up to 5 initial suggestions
+
+                              if (listToRender.length === 0) {
+                                return (
+                                  <p className="text-sm text-slate-500 italic py-2">
+                                    {isSearchActive 
+                                      ? "Nenhum lançamento encontrado para os filtros informados." 
+                                      : "Nenhum lançamento compatível sugerido."}
+                                  </p>
+                                );
+                              }
+
+                              return listToRender.map((atrasado, index) => {
+                                const atrasoId = atrasado.id;
+                                const marcado = atrasoId != null && lanc.lancamentos_atrasados_relacionados?.includes(atrasoId);
+                                const outros = atrasoId ? obterOutrosLancamentosComSelecao(atrasoId, lanc.linha_arquivo) : [];
+                                const selecionadoEmOutroLancamento = outros.length > 0;
+
+                                return (
+                                  <label
+                                    key={`candidate-${lanc.linha_arquivo}-${atrasoId}-${index}`}
+                                    className={`flex items-start gap-3 rounded-2xl border bg-white/80 p-3 dark:bg-slate-900/60 transition duration-150 cursor-pointer ${selecionadoEmOutroLancamento ? 'border-rose-200 hover:bg-rose-50/10 dark:border-rose-950/40' : marcado ? 'border-emerald-300 bg-emerald-50/30' : 'border-amber-200/50 hover:bg-amber-50/40 dark:border-amber-900/40'}`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={marcado}
+                                      className="mt-1"
+                                      onChange={(e) => {
+                                        if (!atrasoId) return;
+                                        if (e.target.checked && selecionadoEmOutroLancamento) {
+                                          setTransferenciaConfirmacao({
+                                            linhaArquivo: lanc.linha_arquivo,
+                                            atrasoId,
+                                            atrasado,
+                                            outrasLinhas: outros.map((o) => o.linha_arquivo),
+                                          });
+                                        } else {
+                                          const proximoIds = e.target.checked
+                                            ? [...(lanc.lancamentos_atrasados_relacionados || []), atrasoId]
+                                            : (lanc.lancamentos_atrasados_relacionados || []).filter((id) => id !== atrasoId);
+                                          
+                                          const resumo = 'score' in atrasado ? (atrasado as RelacionamentoResumo) : mapDisponivelToResumo(atrasado as LancamentoDisponivel, 'Selecionado manualmente');
+                                          const proximoResumos = e.target.checked
+                                            ? [...(lanc.lancamentos_atrasados_resumo || []), resumo]
+                                            : (lanc.lancamentos_atrasados_resumo || []).filter((r) => r.id !== atrasoId);
+
+                                          updateLancamento(lanc.linha_arquivo, {
+                                            lancamentos_atrasados_relacionados: proximoIds,
+                                            lancamentos_atrasados_resumo: proximoResumos,
+                                          });
+                                        }
+                                      }}
+                                    />
+                                    
+                                    <div className="flex flex-1 items-start justify-between gap-4 min-w-0">
+                                      <div className="min-w-0 flex-1">
+                                        {atrasado.interessado ? (
+                                          <p className="text-xs font-bold text-slate-950 dark:text-white">Interessado: {atrasado.interessado}</p>
+                                        ) : null}
+                                        <p className="font-bold text-slate-900 dark:text-white break-words">{atrasado.descricao}</p>
+                                        
+                                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                          <span className="rounded-full bg-amber-100 px-2 py-0.5 font-bold uppercase tracking-[0.14em] text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
+                                            Score {'score' in atrasado ? atrasado.score : 100}
+                                          </span>
+                                          <span>Vence em {formatDate(atrasado.data_vencimento)}</span>
+                                          {atrasado.centro_custo_nome ? (
+                                            <>
+                                              <span>•</span>
+                                              <span>CC: {atrasado.centro_custo_nome}</span>
+                                            </>
+                                          ) : null}
+                                        </div>
+
+                                        {'motivo' in atrasado && (atrasado as any).motivo ? (
+                                          <p className="mt-1 text-xs italic text-slate-500 dark:text-slate-400">{(atrasado as any).motivo}</p>
+                                        ) : null}
+
+                                        {selecionadoEmOutroLancamento ? (
+                                          <p className="mt-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
+                                            Este lançamento está selecionado em outra movimentação. Selecionar aqui irá desassociá-lo de lá.
+                                          </p>
+                                        ) : null}
+                                      </div>
+
+                                      <div className="text-right shrink-0">
+                                        <p className="text-base font-black text-amber-700 dark:text-amber-400">
+                                          {formatCurrency('valor_previsto' in atrasado ? (atrasado as any).valor_previsto : (atrasado as any).valor)}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </label>
+                                );
+                              });
+                            })()}
+                          </div>
+
+                          {/* Footer Action buttons: Listar todos, Carregar mais, Fechar */}
+                          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-amber-200/40">
+                            {(() => {
+                              const isSearchActive = buscaDisponiveis.linhaArquivo === lanc.linha_arquivo;
+                              const selecionadosCount = lanc.lancamentos_atrasados_relacionados?.length || 0;
+                              return (
+                                <>
+                                  <p className="text-xs font-bold text-slate-500">
+                                    {selecionadosCount} lançamento(s) selecionado(s) para conciliar.
+                                  </p>
+
+                                  <div className="flex gap-2">
+                                    {isSearchActive ? (
+                                      <>
+                                        {itensDisponiveisFiltrados.length > limiteResultados && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setLimiteResultados((prev) => prev + 15)}
+                                            className="rounded-full bg-amber-500 hover:bg-amber-600 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-950 transition"
+                                          >
+                                            Carregar mais (+15)
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={fecharBuscaDisponiveis}
+                                          className="rounded-full border border-slate-300 bg-white hover:bg-slate-100 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-700 transition"
+                                        >
+                                          Recolher busca
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          abrirBuscaDisponiveis(lanc);
+                                          scrollCardIntoView(lanc.linha_arquivo);
+                                        }}
+                                        className="rounded-full bg-amber-500 hover:bg-amber-600 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-950 transition"
+                                      >
+                                        Listar todos os lançamentos
+                                      </button>
+                                    )}
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1787,66 +1912,51 @@ export function ImportacaoOfx() {
                       </div>
                       <div>
                         <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Interessado</label>
-                        <SearchableDropdown
-                          value={lanc.entidade_id}
-                          options={entidadeOptions}
-                          placeholder="Sem interessado"
-                          onChange={(value) => updateLancamento(lanc.linha_arquivo, { entidade_id: value })}
-                        />
-                        {!lanc.entidade_id && lanc.interessado_sugerido ? (
-                          <p className="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-300">
-                            Sugestão detectada: {lanc.interessado_sugerido}
-                          </p>
-                        ) : null}
-
-                        {!lanc.entidade_id ? (
-                          <div className="mt-2 space-y-2">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                value={lanc.interessado_digitado || ''}
-                                onChange={(e) => updateLancamento(lanc.linha_arquivo, { interessado_digitado: e.target.value })}
-                                placeholder="Ou digite o nome de um novo interessado..."
-                                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                              />
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  const nomeBruto = (lanc.interessado_digitado || lanc.interessado_sugerido || lanc.razao_social || '').trim();
-                                  if (!nomeBruto) {
-                                    setFeedback({ type: 'error', message: 'Digite o nome do interessado.' });
-                                    return;
-                                  }
-                                  try {
-                                    setLoading(true);
-                                    // try extract cpf/cnpj if present
-                                    const cpfMatch = nomeBruto.match(/(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})|(\b\d{11,14}\b)/);
-                                    const cpf_cnpj = cpfMatch ? onlyDigits(cpfMatch[0]) : undefined;
-                                    const payload: any = { nome: nomeBruto.replace(/(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})|(\b\d{11,14}\b)/g, '').trim(), status: 'ATIVO' };
-                                    if (cpf_cnpj) payload.cpf_cnpj = cpf_cnpj;
-                                    const res = await api.post('/entidades/', payload);
-                                    const newItem = res.data;
-                                    // update local cache
-                                    setEntidades((prev) => [...prev, { id: newItem.id, nome: newItem.nome }]);
-                                    // associate with lancamento
-                                    updateLancamento(lanc.linha_arquivo, { entidade_id: Number(newItem.id) });
-                                    setFeedback({ type: 'success', message: 'Interessado criado com sucesso.' });
-                                  } catch (error: any) {
-                                    setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao criar interessado.' });
-                                  } finally {
-                                    setLoading(false);
-                                  }
-                                }}
-                                className="rounded-2xl bg-emerald-500 hover:bg-emerald-400 px-4 py-3 text-sm font-bold text-slate-950 transition whitespace-nowrap"
-                              >
-                                Criar Agora
-                              </button>
-                            </div>
-                            <p className="text-[11px] text-slate-400 dark:text-slate-500 font-semibold tracking-wide">
-                              Se preferir, apenas digite o nome e prossiga: o interessado será cadastrado automaticamente ao confirmar a importação.
-                            </p>
+                        {lanc.criar_novo_interessado ? (
+                          <div className="relative flex items-center">
+                            <input
+                              type="text"
+                              value={lanc.interessado_digitado || ''}
+                              onChange={(e) => updateLancamento(lanc.linha_arquivo, { interessado_digitado: e.target.value })}
+                              placeholder="Digite o nome do novo interessado..."
+                              className="w-full rounded-2xl border border-emerald-400 bg-white pl-4 pr-24 py-3 text-sm outline-none transition dark:border-emerald-700 dark:bg-slate-950 dark:text-white focus:ring-1 focus:ring-emerald-400"
+                              autoFocus
+                            />
+                            <span className="absolute right-12 text-[10px] font-bold uppercase tracking-[0.15em] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-lg pointer-events-none">
+                              Novo
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateLancamento(lanc.linha_arquivo, { criar_novo_interessado: false, interessado_digitado: '' });
+                              }}
+                              className="absolute right-3 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                              title="Voltar para seleção"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
                           </div>
-                        ) : null}
+                        ) : (
+                          <SearchableDropdown
+                            value={lanc.entidade_id}
+                            options={entidadeOptions}
+                            placeholder="Sem interessado"
+                            onChange={(value, query) => {
+                              if (value === -1) {
+                                updateLancamento(lanc.linha_arquivo, {
+                                  criar_novo_interessado: true,
+                                  entidade_id: null,
+                                  interessado_digitado: query || lanc.interessado_sugerido || '',
+                                });
+                              } else {
+                                updateLancamento(lanc.linha_arquivo, {
+                                  entidade_id: value,
+                                  criar_novo_interessado: false,
+                                });
+                              }
+                            }}
+                          />
+                        )}
                       </div>
                     </div>
                   ) : null}
@@ -1932,6 +2042,73 @@ export function ImportacaoOfx() {
           </p>
         </section>
       )}
+      {transferenciaConfirmacao && (() => {
+        const { atrasado, linhaArquivo, outrasLinhas } = transferenciaConfirmacao;
+        const currentLanc = lancamentosEditados.find(item => item.linha_arquivo === linhaArquivo);
+        const conflitosText = outrasLinhas.map(linha => {
+          const l = lancamentosEditados.find(item => item.linha_arquivo === linha);
+          return l ? `Movimento: "${l.descricao}" (${formatCurrency(l.valor)})` : `Linha ${linha}`;
+        });
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-md">
+            <div className="w-full max-w-md scale-95 transform rounded-[32px] border border-rose-200 bg-white/95 p-6 shadow-2xl dark:border-rose-900/60 dark:bg-slate-900/95 transition-all">
+              <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-100 dark:bg-rose-950/40">
+                  <AlertTriangle className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">Conflito de Seleção</h3>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-rose-500">Lançamento já selecionado</p>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  O lançamento financeiro a seguir já está associado a outra movimentação:
+                </p>
+                
+                <div className="rounded-2xl border border-rose-100 bg-rose-50/50 p-3 text-xs dark:border-rose-950/30 dark:bg-rose-950/10">
+                  <p className="font-bold text-slate-900 dark:text-white">{atrasado.descricao}</p>
+                  <p className="mt-1 text-slate-500 dark:text-slate-400">
+                    Vencimento: {formatDate((atrasado as any).data_vencimento)} • Valor: {formatCurrency((atrasado as any).valor_previsto)}
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Atualmente associado em:</p>
+                  <ul className="list-disc pl-5 text-xs text-rose-700 dark:text-rose-300 space-y-1">
+                    {conflitosText.map((txt, idx) => (
+                      <li key={idx}>{txt}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Deseja remover a associação dos outros movimentos para vinculá-lo a "{currentLanc?.descricao}"?
+                </p>
+              </div>
+
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setTransferenciaConfirmacao(null)}
+                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-600 transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmarTransferencia}
+                  className="rounded-full bg-rose-600 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-white transition hover:bg-rose-700"
+                >
+                  Confirmar Transferência
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

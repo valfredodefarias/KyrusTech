@@ -87,9 +87,12 @@ def apply_legacy_schema_compatibility() -> None:
         "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS taxa_antecipacao NUMERIC(5,2) DEFAULT 0.00",
     ]
 
-    with engine.begin() as connection:
-        for statement in statements:
-            connection.execute(text(statement))
+    for statement in statements:
+        try:
+            with engine.begin() as connection:
+                connection.execute(text(statement))
+        except Exception as exc:
+            print(f"[WARN] Statement failed (might be expected): {statement}. Error: {exc}")
 
     ConsultorEmpresa.__table__.create(bind=engine, checkfirst=True)
     PlanoContasTemplateConfig.__table__.create(bind=engine, checkfirst=True)

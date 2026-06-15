@@ -503,8 +503,25 @@ def _interessado_combina_com_entidade(interessado: Optional[str], nome_entidade:
     if not interessado_norm or not entidade_norm:
         return False
 
-    if interessado_norm in entidade_norm or entidade_norm in interessado_norm:
+    if interessado_norm == entidade_norm:
         return True
+
+    interessado_words = interessado_norm.split()
+    entidade_words = entidade_norm.split()
+
+    if len(entidade_norm) < 3:
+        if entidade_norm in interessado_words:
+            return True
+    else:
+        if entidade_norm in interessado_norm:
+            return True
+
+    if len(interessado_norm) < 3:
+        if interessado_norm in entidade_words:
+            return True
+    else:
+        if interessado_norm in entidade_norm:
+            return True
 
     interessado_tokens = [t for t in interessado_norm.split() if t not in TOKENS_JURIDICOS_FRACOS]
     entidade_tokens = [t for t in entidade_norm.split() if t not in TOKENS_JURIDICOS_FRACOS]
@@ -513,8 +530,25 @@ def _interessado_combina_com_entidade(interessado: Optional[str], nome_entidade:
 
     base_interessado = " ".join(interessado_tokens)
     base_entidade = " ".join(entidade_tokens)
-    if base_interessado in base_entidade or base_entidade in base_interessado:
+    if base_interessado == base_entidade:
         return True
+
+    base_interessado_words = base_interessado.split()
+    base_entidade_words = base_entidade.split()
+
+    if len(base_entidade) < 3:
+        if base_entidade in base_interessado_words:
+            return True
+    else:
+        if base_entidade in base_interessado:
+            return True
+
+    if len(base_interessado) < 3:
+        if base_interessado in base_entidade_words:
+            return True
+    else:
+        if base_interessado in base_entidade:
+            return True
 
     similaridade = SequenceMatcher(None, base_interessado, base_entidade).ratio()
     return similaridade >= 0.72
@@ -1256,7 +1290,13 @@ def _score_candidate(origem: Dict, lancamento: Lancamento, kind: str) -> tuple[i
     similaridade = _calcular_similaridade_texto(origem, lancamento)
 
     score = 64 if kind == "previsto" else 28
-    score += max(0, 22 - int(valor_diferenca * 18))
+
+    denom = abs(valor) if abs(valor) > 0 else Decimal("1")
+    relative_diff = valor_diferenca / denom
+    pct_diff = min(Decimal("1.0"), relative_diff / MATCH_TOLERANCIA_PERCENTUAL)
+    value_score = int(Decimal("22") * (Decimal("1.0") - pct_diff))
+    score += value_score
+
     # Para previsto, data e valor devem ter peso maior que descricao do banco.
     score += min(8 if kind == "previsto" else 18, int(similaridade * (8 if kind == "previsto" else 18)))
     if kind == "previsto":
@@ -1706,7 +1746,7 @@ def upload_ofx(
                         if tokens_origem and tokens_ref and not (tokens_origem & tokens_ref):
                             continue
 
-                        if len(nome_norm) >= 8 and (nome_norm in nome_ref or nome_ref in nome_norm):
+                        if len(nome_norm) >= 8 and len(nome_ref) >= 8 and (nome_norm in nome_ref or nome_ref in nome_norm):
                             melhor_id = candidato_id
                             melhor_score = 1.0
                             break
@@ -1760,7 +1800,118 @@ def upload_ofx(
         historico_por_tipo = _agrupar_historico_por_tipo(historico_empresa)
         cache_relacionamentos: Dict[str, tuple[Optional[tuple[Lancamento, int, str]], List[tuple[Lancamento, int, str]]]] = {}
 
-        for lanc_raw in lancamentos_raw:
+        # Phase 1: Determine duplicates and info saldos first
+        info_ou_duplicatas = set()
+        hashes_vistos_pre = set()
+        ocorrencias_por_chave_conferencia_pre = {}
+        existentes_por_chave_conferencia_pre = {}
+
+        for i, lanc_raw in enumerate(lancamentos_raw):
+            if _eh_movimento_saldo_informativo(lanc_raw):
+                info_ou_duplicatas.add(i)
+                continue
+
+            permitir_importacao_por_quantidade = False
+            chave_conferencia = _montar_chave_conferencia_quantidade(lanc_raw, conta_db_id)
+            if chave_conferencia:
+                ocorrencia_atual = ocorrencias_por_chave_conferencia_pre.get(chave_conferencia, 0) + 1
+                ocorrencias_por_chave_conferencia_pre[chave_conferencia] = ocorrencia_atual
+
+                existentes = existentes_por_chave_conferencia_pre.get(chave_conferencia)
+                if existentes is None:
+                    existentes = _contar_existentes_por_chave_conferencia(db, empresa_id, chave_conferencia)
+                    existentes_por_chave_conferencia_pre[chave_conferencia] = existentes
+
+                if ocorrencia_atual > existentes:
+                    permitir_importacao_por_quantidade = True
+
+            if not permitir_importacao_por_quantidade:
+                if duplicatas_in_file_por_hash.get(str(lanc_raw.get("import_hash") or ""), 0) > 1:
+                    pass
+                elif lanc_raw["import_hash"] in hashes_vistos_pre:
+                    info_ou_duplicatas.add(i)
+                    continue
+
+                import_hash_atual = str(lanc_raw.get("import_hash") or "")
+                duplicata = duplicatas_por_hash.get(import_hash_atual)
+                if not duplicata:
+                    duplicata = verificar_duplicata_ofx_por_fallback(
+                        db,
+                        lanc_raw,
+                        empresa_id,
+                        conta_id=conta_db_id,
+                        ofx_bank_id=lanc_raw.get("ofx_bank_id"),
+                    )
+                if not duplicata and not modo_cartao:
+                    duplicata, _ = _buscar_duplicata_historica(
+                        db,
+                        lanc_raw,
+                        empresa_id,
+                        conta_db_id,
+                        lanc_raw.get("ofx_bank_id"),
+                    )
+                if duplicata:
+                    info_ou_duplicatas.add(i)
+                    continue
+
+            hashes_vistos_pre.add(lanc_raw["import_hash"])
+
+        # Phase 2: Fetch all candidate matches for non-duplicates and run greedy matching
+        candidates_by_row = {}
+        for i, lanc_raw in enumerate(lancamentos_raw):
+            if i in info_ou_duplicatas:
+                continue
+
+            melhor_previsto, melhores_atrasados = _buscar_melhores_relacionamentos(
+                db,
+                lanc_raw,
+                empresa_id,
+                centro_custo_id_resolvido,
+                atrasados_indisponiveis_ids=None,
+                previstos_indisponiveis_ids=None,
+            )
+            candidates_by_row[i] = (melhor_previsto, melhores_atrasados)
+
+        # Greedy match resolution
+        # Collect all candidate previsto matches: list of (ofx_index, previsto_lancamento, score, motivo)
+        all_previsto_matches = []
+        for i, (melhor_previsto, _) in candidates_by_row.items():
+            if melhor_previsto:
+                lanc_previsto, score, motivo = melhor_previsto
+                all_previsto_matches.append((i, lanc_previsto, score, motivo))
+
+        # Sort previsto matches by score descending
+        all_previsto_matches.sort(key=lambda x: x[2], reverse=True)
+
+        assigned_previsto_ids = set()
+        row_assigned_previsto = {}  # ofx_index -> (lanc_previsto, score, motivo)
+        for i, lanc_previsto, score, motivo in all_previsto_matches:
+            prev_id = int(lanc_previsto.id or 0)
+            if i not in row_assigned_previsto and prev_id not in assigned_previsto_ids:
+                row_assigned_previsto[i] = (lanc_previsto, score, motivo)
+                assigned_previsto_ids.add(prev_id)
+
+        # Collect all candidate atrasado matches: list of (ofx_index, atrasado_lancamento, score, motivo)
+        all_atrasado_matches = []
+        for i, (_, melhores_atrasados) in candidates_by_row.items():
+            for lanc_atrasado, score, motivo in melhores_atrasados:
+                all_atrasado_matches.append((i, lanc_atrasado, score, motivo))
+
+        # Sort atrasado matches by score descending
+        all_atrasado_matches.sort(key=lambda x: x[2], reverse=True)
+
+        assigned_atrasado_ids = set()
+        row_assigned_atrasados = {}  # ofx_index -> list of (lanc_atrasado, score, motivo)
+        for i, lanc_atrasado, score, motivo in all_atrasado_matches:
+            atr_id = int(lanc_atrasado.id or 0)
+            if atr_id not in assigned_atrasado_ids:
+                row_assigned_atrasados.setdefault(i, [])
+                if len(row_assigned_atrasados[i]) < 15:
+                    row_assigned_atrasados[i].append((lanc_atrasado, score, motivo))
+                    assigned_atrasado_ids.add(atr_id)
+
+        # Phase 3: Final assembly loop
+        for i, lanc_raw in enumerate(lancamentos_raw):
 
             if _eh_movimento_saldo_informativo(lanc_raw):
                 lanc_raw["saldo_informativo"] = True
@@ -1840,45 +1991,8 @@ def upload_ofx(
 
             hashes_vistos.add(lanc_raw["import_hash"])
 
-            chave_relacionamento = "|".join([
-                str(lanc_raw.get("tipo") or ""),
-                str(lanc_raw.get("data") or ""),
-                str(lanc_raw.get("valor") or ""),
-                str(centro_custo_id_resolvido or 0),
-                _normalizar_texto(lanc_raw.get("descricao")),
-                _normalizar_texto(lanc_raw.get("razao_social")),
-                _normalizar_texto(lanc_raw.get("referencia")),
-            ])
-            if chave_relacionamento in cache_relacionamentos:
-                melhor_previsto, melhores_atrasados = cache_relacionamentos[chave_relacionamento]
-                previsto_cache_id = int(melhor_previsto[0].id or 0) if melhor_previsto else 0
-                if previsto_cache_id and previsto_cache_id in previstos_reservados:
-                    melhor_previsto, melhores_atrasados = _buscar_melhores_relacionamentos(
-                        db,
-                        lanc_raw,
-                        empresa_id,
-                        centro_custo_id_resolvido,
-                        atrasados_indisponiveis_ids=atrasados_reservados,
-                        previstos_indisponiveis_ids=previstos_reservados,
-                    )
-                    cache_relacionamentos[chave_relacionamento] = (melhor_previsto, melhores_atrasados)
-            else:
-                melhor_previsto, melhores_atrasados = _buscar_melhores_relacionamentos(
-                    db,
-                    lanc_raw,
-                    empresa_id,
-                    centro_custo_id_resolvido,
-                    atrasados_indisponiveis_ids=atrasados_reservados,
-                    previstos_indisponiveis_ids=previstos_reservados,
-                )
-                cache_relacionamentos[chave_relacionamento] = (melhor_previsto, melhores_atrasados)
-
-            if melhor_previsto:
-                lanc_previsto_candidato = melhor_previsto[0]
-                previsto_candidato_id = int(lanc_previsto_candidato.id or 0)
-                if previsto_candidato_id:
-                    previstos_sugeridos.setdefault(previsto_candidato_id, 0)
-                    previstos_sugeridos[previsto_candidato_id] += 1
+            melhor_previsto = row_assigned_previsto.get(i)
+            melhores_atrasados = candidates_by_row.get(i, (None, []))[1]
 
             if melhor_previsto:
                 previstos += 1
@@ -1899,7 +2013,6 @@ def upload_ofx(
                 if previsto_id:
                     previstos_sugeridos.setdefault(previsto_id, 0)
                     previstos_sugeridos[previsto_id] += 1
-                    previstos_reservados.add(previsto_id)
 
             if melhores_atrasados:
                 atrasados += 1
@@ -1913,7 +2026,6 @@ def upload_ofx(
                     if atraso_id:
                         atrasados_sugeridos.setdefault(atraso_id, 0)
                         atrasados_sugeridos[atraso_id] += 1
-                        atrasados_reservados.add(atraso_id)
                 if not melhor_previsto:
                     lanc_raw["sugestao_acao"] = "RELACIONAR_ATRASADOS"
                     lanc_raw["score_conciliacao"] = melhores_atrasados[0][1]

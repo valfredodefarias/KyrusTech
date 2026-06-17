@@ -28,4 +28,5 @@ from app.models.usuario_conta_acesso import UsuarioContaAcesso
 from app.models.regra_cartao import RegraCartao
 from app.models.lote_cartao import LoteCartao
 from app.models.lote_cartao_item import LoteCartaoItem
-
+from app.models.movimento_ofx import MovimentoOFX
+from app.models.baixa import Baixa

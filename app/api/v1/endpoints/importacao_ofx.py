@@ -30,6 +30,9 @@ from app.models.cartao import Cartao
 from app.models.centro_custo import CentroCusto
 from app.models.entidade import Entidade
 from app.models.plano_contas import PlanoContas
+from app.models.movimento_ofx import MovimentoOFX
+from app.models.baixa import Baixa
+
 
 router = APIRouter()
 OFX_FILE_SIZE_LIMIT = 10 * 1024 * 1024
@@ -236,6 +239,8 @@ class LancamentoImportado(BaseModel):
     lancamento_previsto_resumo: Optional[RelacionamentoResumo] = None
     lancamentos_atrasados_resumo: List[RelacionamentoResumo] = Field(default_factory=list)
     duplicata_resumo: Optional[DuplicataResumo] = None
+    movimento_ofx_id: Optional[int] = None
+
 
 
 def _serializar_lancamento(lanc_raw: Dict) -> Dict:
@@ -1411,7 +1416,7 @@ def _buscar_melhores_relacionamentos(
 
     ranked_atrasados.sort(key=lambda item: item[1], reverse=True)
 
-    if not melhor_previsto and not ranked_atrasados:
+    if not melhor_previsto:
         melhor_previsto = _buscar_previsto_data_proxima_valor_exato(
             db,
             lancamento_ofx,
@@ -1515,6 +1520,10 @@ class ProcessarArquivoResponse(BaseModel):
     duplicatas_encontradas: int
     lancamentos_previstos_encontrados: int
     lancamentos_atrasados_encontrados: int
+    gap_detectado: bool = False
+    gap_data_ultimo: Optional[str] = None
+    gap_data_inicio_arquivo: Optional[str] = None
+    gap_dias: int = 0
 
 
 class LancamentoDisponivelResumo(BaseModel):
@@ -1671,6 +1680,35 @@ def upload_ofx(
                 detail="Arquivo OFX excede o limite de 10 MB.",
             )
         lancamentos_raw = processar_ofx(conteudo, empresa_id)
+        
+        # Calcular gap de datas
+        gap_detectado = False
+        gap_data_ultimo = None
+        gap_data_inicio_arquivo = None
+        gap_dias = 0
+
+        if not modo_cartao and conta_db_id > 0 and lancamentos_raw:
+            ultimo_mov = db.exec(
+                select(MovimentoOFX)
+                .where(MovimentoOFX.conta_id == conta_db_id, MovimentoOFX.empresa_id == empresa_id)
+                .order_by(MovimentoOFX.data.desc(), MovimentoOFX.id.desc())
+            ).first()
+            if ultimo_mov:
+                datas_arquivo = [l["data"] for l in lancamentos_raw if l.get("data")]
+                if datas_arquivo:
+                    data_min_arquivo = min(datas_arquivo)
+                    if isinstance(data_min_arquivo, datetime):
+                        data_min_arquivo = data_min_arquivo.date()
+                    elif isinstance(data_min_arquivo, str):
+                        from app.services.importacao_bancaria_service import parsear_data
+                        data_min_arquivo = parsear_data(data_min_arquivo)
+                    
+                    if data_min_arquivo and data_min_arquivo > ultimo_mov.data + timedelta(days=2):
+                        gap_detectado = True
+                        gap_data_ultimo = ultimo_mov.data.isoformat()
+                        gap_data_inicio_arquivo = data_min_arquivo.isoformat()
+                        gap_dias = (data_min_arquivo - ultimo_mov.data).days - 1
+
         categorias_empresa, entidades_por_id, centros_custo_por_id, historico_empresa = _carregar_contexto_classificacao(db, empresa_id)
 
         lancamentos_processados = []
@@ -1773,11 +1811,39 @@ def upload_ofx(
             lanc_raw["movimento_uid"] = referencia_movimento or f"fallback:{contexto_uid}:{lanc_raw['linha_arquivo']}"
             lanc_raw["referencia_externa"] = f"{contexto_uid}:{lanc_raw['movimento_uid']}"
             lanc_raw["referencia"] = lanc_raw["referencia_externa"]
-            lanc_raw["import_hash"] = gerar_import_hash(
+            hash_item = gerar_import_hash(
                 lanc_raw,
                 conta_id=conta_db_id,
                 cartao_id=(int(cartao.id) if cartao and cartao.id is not None else None),
             )
+            lanc_raw["import_hash"] = hash_item
+
+            # Persistir MovimentoOFX no banco de dados se não existir
+            existing_mov = db.exec(
+                select(MovimentoOFX).where(
+                    MovimentoOFX.empresa_id == empresa_id,
+                    MovimentoOFX.import_hash == hash_item
+                )
+            ).first()
+            
+            if not existing_mov:
+                from app.services.importacao_bancaria_service import parsear_data
+                data_mov = parsear_data(lanc_raw["data_pagamento"]) if lanc_raw.get("data_pagamento") else parsear_data(lanc_raw.get("data") or "")
+                existing_mov = MovimentoOFX(
+                    descricao=lanc_raw["descricao"],
+                    valor=Decimal(str(lanc_raw["valor"])),
+                    tipo=lanc_raw["tipo"],
+                    data=data_mov or date.today(),
+                    import_hash=hash_item,
+                    status="ABERTO",
+                    empresa_id=empresa_id,
+                    conta_id=conta_db_id,
+                )
+                db.add(existing_mov)
+                db.flush()
+            
+            lanc_raw["movimento_ofx_id"] = existing_mov.id
+
 
         duplicatas_por_hash = _carregar_duplicatas_por_hash(
             db,
@@ -1954,7 +2020,25 @@ def upload_ofx(
                     continue
 
                 import_hash_atual = str(lanc_raw.get("import_hash") or "")
-                duplicata = duplicatas_por_hash.get(import_hash_atual)
+                duplicata = None
+                mov_ofx = db.exec(
+                    select(MovimentoOFX).where(
+                        MovimentoOFX.empresa_id == empresa_id,
+                        MovimentoOFX.import_hash == import_hash_atual
+                    )
+                ).first()
+                if mov_ofx and mov_ofx.status == "CONCILIADO":
+                    baixa_rel = db.exec(
+                        select(Baixa).where(
+                            Baixa.movimento_ofx_id == mov_ofx.id,
+                            Baixa.is_deleted == False
+                        )
+                    ).first()
+                    if baixa_rel:
+                        duplicata = db.get(Lancamento, baixa_rel.lancamento_id)
+                if not duplicata:
+                    duplicata = duplicatas_por_hash.get(import_hash_atual)
+
                 if not duplicata:
                     duplicata = verificar_duplicata_ofx_por_fallback(
                         db,
@@ -2062,6 +2146,10 @@ def upload_ofx(
             duplicatas_encontradas=duplicatas,
             lancamentos_previstos_encontrados=previstos,
             lancamentos_atrasados_encontrados=atrasados,
+            gap_detectado=gap_detectado,
+            gap_data_ultimo=gap_data_ultimo,
+            gap_data_inicio_arquivo=gap_data_inicio_arquivo,
+            gap_dias=gap_dias,
         )
 
         
@@ -2287,8 +2375,65 @@ def _calcular_divergencia_saldo_ofx(
     }
 
 
+def atualizar_lancamento_apos_baixas(db: Session, lancamento_id: int):
+    lancamento = db.get(Lancamento, lancamento_id)
+    if not lancamento:
+        return
+    
+    baixas = db.exec(
+        select(Baixa).where(
+            Baixa.lancamento_id == lancamento_id,
+            Baixa.is_deleted == False
+        )
+    ).all()
+    
+    if not baixas:
+        lancamento.valor_pago = Decimal("0.00")
+        lancamento.valor_juros = Decimal("0.00")
+        lancamento.valor_multa = Decimal("0.00")
+        lancamento.valor_desconto = Decimal("0.00")
+        lancamento.data_pagamento = None
+        lancamento.conciliado = False
+        lancamento.status = "EM ABERTO"
+    else:
+        principal = sum(b.valor_pago for b in baixas if b.tipo_baixa == "PRINCIPAL")
+        juros = sum(b.valor_pago for b in baixas if b.tipo_baixa == "JUROS")
+        multa = sum(b.valor_pago for b in baixas if b.tipo_baixa == "MULTA")
+        desconto = sum(b.valor_pago for b in baixas if b.tipo_baixa == "DESCONTO")
+        
+        net_paid = principal + juros + multa - desconto
+        
+        lancamento.valor_pago = net_paid
+        lancamento.valor_juros = juros
+        lancamento.valor_multa = multa
+        lancamento.valor_desconto = desconto
+        
+        lancamento.data_pagamento = max(b.data_baixa for b in baixas)
+        lancamento.conciliado = True
+        
+        if net_paid >= (lancamento.valor_previsto - desconto):
+            lancamento.status = "PAGO"
+        else:
+            lancamento.status = "PARCIALMENTE_PAGO"
+            
+    db.add(lancamento)
+    db.flush()
+
+
+class AlocacaoItem(BaseModel):
+    lancamento_id: int
+    valor_alocado: Decimal
+    tipo_baixa: str = "PRINCIPAL"  # PRINCIPAL, JUROS, MULTA, DESCONTO
+
+
+class ConciliacaoMovimento(BaseModel):
+    movimento_ofx_id: int
+    alocacoes: List[AlocacaoItem]
+
+
 class ConfirmarLancamentosRequest(BaseModel):
-    lancamentos: List[Dict[str, Any]]
+    lancamentos: Optional[List[Dict[str, Any]]] = None
+    conciliacoes: Optional[List[ConciliacaoMovimento]] = None
     conta_id: Optional[int] = None
     cartao_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
@@ -2308,51 +2453,18 @@ def confirmar_lancamentos(
     lancamentos_criados = 0
     lancamentos_atualizados = 0
     erros: List[str] = []
-    import_hashes_processados: set[str] = set()
-    previstos_compensados_no_lote: set[int] = set()
-    atrasados_compensados_no_lote: set[int] = set()
-    ignorados_descartar = 0
-    ignorados_sugestao_pendente = 0
-    ignorados_duplicata_payload = 0
-    ignorados_idempotencia_lote = 0
-    ignorados_idempotencia_historico = 0
-    max_amostras_ignorados = 6
-    amostras_ignorados: Dict[str, List[Dict[str, Any]]] = {
-        "descartar": [],
-        "sugestao_pendente": [],
-        "duplicata_payload": [],
-        "idempotencia_lote": [],
-        "idempotencia_historico": [],
-    }
-    divergencia_saldo_ofx_antes: Optional[Dict[str, Any]] = None
-    divergencia_saldo_ofx: Optional[Dict[str, Any]] = None
-
-    def _registrar_amostra_ignorada(chave: str, item: Dict[str, Any]) -> None:
-        bucket = amostras_ignorados.get(chave)
-        if bucket is None or len(bucket) >= max_amostras_ignorados:
-            return
-        bucket.append({
-            "id": item.get("id"),
-            "linha_arquivo": item.get("linha_arquivo"),
-            "descricao": str(item.get("descricao") or "")[:140],
-            "valor": item.get("valor"),
-            "data": item.get("data"),
-            "tipo": item.get("tipo"),
-            "import_hash": str(item.get("import_hash") or "")[:16],
-            "sugestao_acao": item.get("sugestao_acao"),
-        })
-
+    
     conta_resolvida = None
     cartao_resolvido = None
     centro_custo_resolvido = None
     modo_cartao = str(request.modo_importacao or "").strip().upper() == "CARTAO" or bool(request.cartao_id)
+    
     logger.info(
-        "[OFX] Confirmacao iniciada empresa_id={} modo={} conta_id={} cartao_id={} itens={}",
+        "[OFX] Confirmacao iniciada empresa_id={} modo={} conta_id={} cartao_id={}",
         empresa_id,
         "CARTAO" if modo_cartao else "CONTA",
         request.conta_id,
         request.cartao_id,
-        len(request.lancamentos or []),
     )
 
     if modo_cartao:
@@ -2375,429 +2487,317 @@ def confirmar_lancamentos(
 
     saldo_ofx_referencia: Optional[Decimal] = None
     data_ofx_referencia: Optional[date] = None
-    if not modo_cartao:
-        saldo_ofx_referencia, data_ofx_referencia = _obter_referencia_saldo_ofx(request.lancamentos or [])
-        if conta_resolvida_id is not None and saldo_ofx_referencia is not None:
-            divergencia_saldo_ofx_antes = _calcular_divergencia_saldo_ofx(
-                db,
-                empresa_id,
-                conta_resolvida_id,
-                saldo_ofx_referencia,
-                data_ofx_referencia,
-            )
+    divergencia_saldo_ofx_antes: Optional[Dict[str, Any]] = None
+    divergencia_saldo_ofx: Optional[Dict[str, Any]] = None
 
-    def _lancamento_aberto_para_conciliar(lancamento: Lancamento) -> bool:
-        status_normalizado = str(lancamento.status or "").upper()
-        return status_normalizado in STATUS_ABERTOS and lancamento.data_pagamento is None
-
-    conflitos_previstos: Dict[int, set[int]] = {}
-    conflitos_atrasados: Dict[int, set[int]] = {}
-    for lanc_data in request.lancamentos or []:
-        sugestao_acao_raw = str(lanc_data.get("sugestao_acao") or "").strip().upper()
-        sugestao_confirmada = bool(lanc_data.get("sugestao_confirmada")) if "sugestao_confirmada" in lanc_data else True
-        possui_previsto = bool(lanc_data.get("lancamento_previsto_id"))
-        possui_atrasados = bool(lanc_data.get("lancamentos_atrasados_relacionados"))
-
-        if not sugestao_acao_raw:
-            if possui_previsto:
-                acao = "BAIXAR_PREVISTO"
-            elif possui_atrasados:
-                acao = "RELACIONAR_ATRASADOS"
-            else:
-                acao = "CRIAR_NOVO"
-        else:
-            acao = sugestao_acao_raw
-
-        if acao in {"IGNORAR_DUPLICATA", "DESCARTAR"}:
-            continue
-        if acao in {"BAIXAR_PREVISTO", "RELACIONAR_ATRASADOS"} and not sugestao_confirmada:
-            continue
-
-        linha_arquivo = int(lanc_data.get("linha_arquivo") or 0)
-
-        if not modo_cartao and acao == "BAIXAR_PREVISTO" and lanc_data.get("lancamento_previsto_id"):
-            try:
-                previsto_id = int(lanc_data.get("lancamento_previsto_id") or 0)
-            except Exception:
-                previsto_id = 0
-            if previsto_id > 0:
-                conflitos_previstos.setdefault(previsto_id, set()).add(linha_arquivo)
-
-        if not modo_cartao and acao == "RELACIONAR_ATRASADOS":
-            atrasados_ids = lanc_data.get("lancamentos_atrasados_relacionados") or []
-            if not isinstance(atrasados_ids, list):
-                continue
-            vistos_local: set[int] = set()
-            for atraso_id_raw in atrasados_ids:
-                try:
-                    atraso_id = int(atraso_id_raw)
-                except Exception:
-                    continue
-                if atraso_id <= 0 or atraso_id in vistos_local:
-                    continue
-                vistos_local.add(atraso_id)
-                conflitos_atrasados.setdefault(atraso_id, set()).add(linha_arquivo)
-
-    previstos_repetidos = {item_id: linhas for item_id, linhas in conflitos_previstos.items() if len(linhas) > 1}
-    atrasados_repetidos = {item_id: linhas for item_id, linhas in conflitos_atrasados.items() if len(linhas) > 1}
-    if previstos_repetidos or atrasados_repetidos:
-        conflitos_resumo: List[str] = []
-        for previsto_id, linhas in sorted(previstos_repetidos.items())[:5]:
-            linhas_validas = sorted([linha for linha in linhas if linha > 0])
-            conflitos_resumo.append(f"Previsto {previsto_id} repetido nas linhas {linhas_validas or ['?']}")
-        for atraso_id, linhas in sorted(atrasados_repetidos.items())[:5]:
-            linhas_validas = sorted([linha for linha in linhas if linha > 0])
-            conflitos_resumo.append(f"Atrasado {atraso_id} repetido nas linhas {linhas_validas or ['?']}")
-
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "message": "Conflito de conciliação: a mesma sugestão foi selecionada em mais de um lançamento. Remova as duplicidades e tente novamente.",
-                "conflitos": conflitos_resumo,
-            },
-        )
-
-    for lanc_data in request.lancamentos:
-        try:
-            sugestao_acao_raw = str(lanc_data.get("sugestao_acao") or "").strip().upper()
-            sugestao_confirmada = (
-                bool(lanc_data.get("sugestao_confirmada"))
-                if "sugestao_confirmada" in lanc_data
-                else True
-            )
-            possui_previsto = bool(lanc_data.get("lancamento_previsto_id"))
-            possui_atrasados = bool(lanc_data.get("lancamentos_atrasados_relacionados"))
-
-            # Compatibilidade: quando a ação não vier no payload, preserva o comportamento sugerido no upload.
-            if not sugestao_acao_raw:
-                if possui_previsto:
-                    acao = "BAIXAR_PREVISTO"
-                elif possui_atrasados:
-                    acao = "RELACIONAR_ATRASADOS"
-                else:
-                    acao = "CRIAR_NOVO"
-            else:
-                acao = sugestao_acao_raw
-
-            if acao in {"IGNORAR_DUPLICATA", "DESCARTAR"}:
-                ignorados_descartar += 1
-                _registrar_amostra_ignorada("descartar", lanc_data)
-                continue
-
-            # Sugestoes automaticas so devem ser executadas apos confirmacao explicita no frontend.
-            if acao in {"BAIXAR_PREVISTO", "RELACIONAR_ATRASADOS"} and not sugestao_confirmada:
-                ignorados_sugestao_pendente += 1
-                _registrar_amostra_ignorada("sugestao_pendente", lanc_data)
-                continue
-
-            # Duplicata identificada no upload nunca deve virar novo lançamento.
-            if lanc_data.get("duplicata_id") or lanc_data.get("duplicata_resumo"):
-                ignorados_duplicata_payload += 1
-                _registrar_amostra_ignorada("duplicata_payload", lanc_data)
-                continue
-
-            import_hash = str(lanc_data.get("import_hash") or "").strip()
-            if import_hash and import_hash in import_hashes_processados:
-                ignorados_idempotencia_lote += 1
-                _registrar_amostra_ignorada("idempotencia_lote", lanc_data)
-                logger.warning(
-                    "Importacao OFX ignorada por idempotencia no mesmo lote: "
-                    f"hash={import_hash} descricao={lanc_data.get('descricao')}"
-                )
-                continue
-
-            if _buscar_lancamento_por_import_hash(db, empresa_id, import_hash or None):
-                ignorados_idempotencia_historico += 1
-                _registrar_amostra_ignorada("idempotencia_historico", lanc_data)
-                logger.warning(
-                    "Importacao OFX ignorada por idempotencia: movimento ja confirmado anteriormente. "
-                    f"hash={import_hash} descricao={lanc_data.get('descricao')}"
-                )
-                continue
-
-            if import_hash:
-                import_hashes_processados.add(import_hash)
-
-            # Resolvendo ou criando entidade (interessado) se necessario
-            entidade_id = lanc_data.get("entidade_id")
-            if not entidade_id:
-                nome_entidade_bruto = lanc_data.get("interessado_digitado") or lanc_data.get("interessado_sugerido") or lanc_data.get("razao_social")
-                if nome_entidade_bruto:
-                    nome_entidade = str(nome_entidade_bruto).strip()
-                    # Limpa CPF/CNPJ se embutido
-                    cpf_cnpj_match = re.search(r"(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})|(\b\d{11,14}\b)", nome_entidade)
-                    cpf_cnpj_val = None
-                    if cpf_cnpj_match:
-                        cpf_cnpj_val = re.sub(r"\D", "", cpf_cnpj_match.group(0))
-                        nome_entidade = re.sub(r"(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})|(\b\d{11,14}\b)", "", nome_entidade).strip()
-                    nome_entidade = re.sub(r"\s+", " ", nome_entidade).strip()
-                    if nome_entidade:
-                        entidade_existente = db.exec(
-                            select(Entidade).where(
-                                Entidade.empresa_id == empresa_id,
-                                func.lower(Entidade.nome) == func.lower(nome_entidade)
-                            )
-                        ).first()
-                        if entidade_existente:
-                            entidade_id = entidade_existente.id
-                        else:
-                            nova_entidade = Entidade(
-                                nome=nome_entidade,
-                                tipo="AMBOS",
-                                tipo_pessoa="PJ" if (cpf_cnpj_val and len(cpf_cnpj_val) == 14) else "PF",
-                                cpf_cnpj=cpf_cnpj_val,
-                                status="ATIVO",
-                                empresa_id=empresa_id
-                            )
-                            db.add(nova_entidade)
-                            db.flush()
-                            entidade_id = nova_entidade.id
-            lanc_data["entidade_id"] = entidade_id
-
-            from app.services.importacao_bancaria_service import parsear_data
-
-            if acao == "BAIXAR_PREVISTO" and lanc_data.get("lancamento_previsto_id") and not modo_cartao:
-                previsto_id = int(lanc_data["lancamento_previsto_id"])
-                if previsto_id in previstos_compensados_no_lote:
-                    erros.append(
-                        f"Previsto id={previsto_id} apareceu em mais de um movimento no mesmo lote. O movimento foi convertido para criacao nova: {lanc_data.get('descricao')}"
-                    )
-                    logger.warning(
-                        "[OFX] Previsto reutilizado no mesmo lote empresa_id={} previsto_id={} descricao={}",
-                        empresa_id,
-                        previsto_id,
-                        str(lanc_data.get("descricao") or "")[:140],
-                    )
-                    acao = "CRIAR_NOVO"
-                else:
-                    lanc_existente = db.get(Lancamento, previsto_id)
-                    if (
-                        lanc_existente
-                        and not lanc_existente.is_deleted
-                        and int(lanc_existente.empresa_id) == int(empresa_id)
-                        and _lancamento_aberto_para_conciliar(lanc_existente)
-                    ):
-                        data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
-                        data_vencimento = parsear_data(lanc_data["data_vencimento"]) if lanc_data.get("data_vencimento") else None
-
-                        if data_vencimento:
-                            lanc_existente.data_vencimento = data_vencimento
-
-                        lanc_existente.data_pagamento = data_pagamento
-                        lanc_existente.status = "PAGO"
-                        lanc_existente.conciliado = True
-                        lanc_existente.valor_pago = Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"]))
-                        if lanc_data.get("plano_contas_id"):
-                            lanc_existente.plano_contas_id = int(lanc_data["plano_contas_id"])
-                        if lanc_data.get("entidade_id"):
-                            lanc_existente.entidade_id = int(lanc_data["entidade_id"])
-                        if conta_resolvida:
-                            lanc_existente.conta_id = conta_resolvida.id
-                        if centro_custo_resolvido:
-                            lanc_existente.centro_custo_id = centro_custo_resolvido
-                        if import_hash and not lanc_existente.import_hash:
-                            lanc_existente.import_hash = import_hash
-                        if lanc_data.get("ofx_bank_id") and not lanc_existente.ofx_bank_id:
-                            lanc_existente.ofx_bank_id = str(lanc_data.get("ofx_bank_id") or "").strip() or None
-                        movimento_uid = str(lanc_data.get("movimento_uid") or "").strip()
-                        referencia_externa = str(lanc_data.get("referencia_externa") or "").strip()
-                        if movimento_uid and not lanc_existente.movimento_uid:
-                            lanc_existente.movimento_uid = movimento_uid
-                        if referencia_externa and not lanc_existente.referencia_externa:
-                            lanc_existente.referencia_externa = referencia_externa
-                        db.add(lanc_existente)
-                        previstos_compensados_no_lote.add(previsto_id)
-                        lancamentos_atualizados += 1
-                        continue
-
-                    erros.append(
-                        f"Previsto id={previsto_id} nao encontrado/aberto para compensacao; movimento sera criado como novo: {lanc_data.get('descricao')}"
-                    )
-                    logger.warning(
-                        "[OFX] Previsto indisponivel para conciliacao empresa_id={} previsto_id={} descricao={}",
-                        empresa_id,
-                        previsto_id,
-                        str(lanc_data.get("descricao") or "")[:140],
-                    )
-                    acao = "CRIAR_NOVO"
-
-            if acao == "RELACIONAR_ATRASADOS" and lanc_data.get("lancamentos_atrasados_relacionados") and not modo_cartao:
-                atualizados_atrasados = 0
-                atrasados_ids_unicos: List[int] = []
-                for atrasado_id_raw in lanc_data["lancamentos_atrasados_relacionados"]:
-                    try:
-                        atrasado_id = int(atrasado_id_raw)
-                    except Exception:
-                        continue
-                    if atrasado_id <= 0 or atrasado_id in atrasados_ids_unicos:
-                        continue
-                    atrasados_ids_unicos.append(atrasado_id)
-
-                for atrasado_id in atrasados_ids_unicos:
-                    if atrasado_id in atrasados_compensados_no_lote:
-                        continue
-
-                    lanc_atrasado = db.get(Lancamento, atrasado_id)
-                    if not lanc_atrasado or lanc_atrasado.is_deleted or int(lanc_atrasado.empresa_id) != int(empresa_id):
-                        continue
-                    if not _lancamento_aberto_para_conciliar(lanc_atrasado):
-                        continue
-
-                    data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
-                    lanc_atrasado.data_pagamento = data_pagamento
-                    lanc_atrasado.status = "PAGO"
-                    lanc_atrasado.conciliado = True
-                    lanc_atrasado.valor_pago = Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"]))
-                    if lanc_data.get("plano_contas_id"):
-                        lanc_atrasado.plano_contas_id = int(lanc_data["plano_contas_id"])
-                    if lanc_data.get("entidade_id"):
-                        lanc_atrasado.entidade_id = int(lanc_data["entidade_id"])
-                    if conta_resolvida:
-                        lanc_atrasado.conta_id = conta_resolvida.id
-                    if centro_custo_resolvido:
-                        lanc_atrasado.centro_custo_id = centro_custo_resolvido
-                    if import_hash and not lanc_atrasado.import_hash:
-                        lanc_atrasado.import_hash = import_hash
-                    if lanc_data.get("ofx_bank_id") and not lanc_atrasado.ofx_bank_id:
-                        lanc_atrasado.ofx_bank_id = str(lanc_data.get("ofx_bank_id") or "").strip() or None
-                    movimento_uid = str(lanc_data.get("movimento_uid") or "").strip()
-                    referencia_externa = str(lanc_data.get("referencia_externa") or "").strip()
-                    if movimento_uid and not lanc_atrasado.movimento_uid:
-                        lanc_atrasado.movimento_uid = movimento_uid
-                    if referencia_externa and not lanc_atrasado.referencia_externa:
-                        lanc_atrasado.referencia_externa = referencia_externa
-                    db.add(lanc_atrasado)
-                    atrasados_compensados_no_lote.add(atrasado_id)
-                    lancamentos_atualizados += 1
-                    atualizados_atrasados += 1
-
-                if atualizados_atrasados == 0:
-                    erros.append(
-                        f"Nenhum atraso selecionado foi localizado para conciliacao: {lanc_data.get('descricao')}"
-                    )
-                    logger.warning(
-                        "[OFX] Nenhum atraso atualizado na conciliacao empresa_id={} descricao={} ids={}",
-                        empresa_id,
-                        str(lanc_data.get("descricao") or "")[:140],
-                        atrasados_ids_unicos,
-                    )
-                    continue
-
-                # Ao selecionar RELACIONAR_ATRASADOS, o comportamento esperado
-                # e somente quitar os selecionados, sem criar novo lancamento.
-                continue
-
-            plano_contas_id = lanc_data.get("plano_contas_id")
-            if not plano_contas_id:
-                plano_contas_table = getattr(PlanoContas, "__table__")
-                categoria = db.exec(
-                    select(PlanoContas).where(
-                        plano_contas_table.c.empresa_id == empresa_id,
-                        plano_contas_table.c.nome.ilike("%categorizar%")
-                    )
-                ).first()
-                if categoria:
-                    plano_contas_id = categoria.id
-                else:
-                    tipo_categoria = "R" if lanc_data.get("tipo") == "RECEITA" else "D"
-                    categoria_nova = PlanoContas(
-                        nome="A Categorizar",
-                        codigo=None,
-                        tipo=tipo_categoria,
-                        empresa_id=empresa_id,
-                        permite_lancamentos=True,
-                    )
-                    db.add(categoria_nova)
-                    db.commit()
-                    db.refresh(categoria_nova)
-                    plano_contas_id = categoria_nova.id
-
-            if not plano_contas_id:
-                erros.append(f"Lancamento {lanc_data.get('descricao')} sem categoria")
-                continue
-
-            data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
-            data_compra_base = parsear_data(lanc_data.get("data") or "") or parsear_data(lanc_data.get("data_vencimento") or "") or date.today()
-            data_vencimento = parsear_data(lanc_data["data_vencimento"]) if lanc_data.get("data_vencimento") else (data_pagamento or data_compra_base)
-            data_vencimento = data_vencimento or data_pagamento or data_compra_base or date.today()
-            data_pagamento = data_pagamento or data_vencimento or date.today()
-
-            if acao == "CRIAR_NOVO" and not modo_cartao and conta_resolvida_id is not None:
-                lancamento_probe = {
-                    "data": data_pagamento,
-                    "valor": lanc_data.get("valor_pago") or lanc_data.get("valor"),
-                    "tipo": lanc_data.get("tipo"),
-                    "descricao": lanc_data.get("descricao"),
-                    "razao_social": lanc_data.get("razao_social"),
-                    "interessado_sugerido": lanc_data.get("interessado_sugerido"),
-                    "referencia": lanc_data.get("referencia"),
-                }
-                duplicata_confirmacao, motivo_confirmacao = _buscar_duplicata_historica(
+    # Se não for cartão e tivermos conciliações em lote, calcular divergência antes
+    if not modo_cartao and request.conciliacoes:
+        primeiro_mov_id = request.conciliacoes[0].movimento_ofx_id if request.conciliacoes else None
+        if primeiro_mov_id and conta_resolvida_id is not None:
+            mov_db = db.get(MovimentoOFX, primeiro_mov_id)
+            if mov_db:
+                saldo_ofx_referencia = mov_db.valor
+                data_ofx_referencia = mov_db.data
+                divergencia_saldo_ofx_antes = _calcular_divergencia_saldo_ofx(
                     db,
-                    lancamento_probe,
                     empresa_id,
                     conta_resolvida_id,
-                    lanc_data.get("ofx_bank_id"),
+                    saldo_ofx_referencia,
+                    data_ofx_referencia,
                 )
-                if duplicata_confirmacao:
-                    ignorados_duplicata_payload += 1
-                    lanc_data["sugestao_acao"] = "DESCARTAR"
-                    lanc_data["motivo_conciliacao"] = f"Duplicata detectada na confirmacao: {motivo_confirmacao or 'movimento ja registrado na conta'}"
-                    _registrar_amostra_ignorada("duplicata_payload", lanc_data)
-                    logger.warning(
-                        "[OFX] Criacao evitada por duplicata detectada na confirmacao conta_id={} empresa_id={} candidato_id={} descricao={}",
-                        conta_resolvida_id,
-                        empresa_id,
-                        duplicata_confirmacao.id,
-                        str(lanc_data.get("descricao") or "")[:140],
-                    )
+
+    if not modo_cartao and request.conciliacoes is not None:
+        # --- NOVO FLUXO: CONCILIAÇÃO BASEADA EM SETTLEMENT/BAIXA ---
+        for conc in request.conciliacoes:
+            try:
+                movimento = db.exec(
+                    select(MovimentoOFX)
+                    .where(MovimentoOFX.id == conc.movimento_ofx_id, MovimentoOFX.empresa_id == empresa_id)
+                    .with_for_update()
+                ).first()
+
+                if not movimento:
+                    erros.append(f"Movimento bancário ID {conc.movimento_ofx_id} não encontrado.")
                     continue
 
-            status_novo = "PAGO"
-            origem_nova = str(lanc_data["origem"])
-            data_competencia_nova = data_pagamento or data_vencimento or date.today()
-            valor_pago_novo = Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"]))
-            conta_nova_id = (conta_resolvida.id if conta_resolvida else lanc_data.get("conta_id") or request.conta_id)
-            cartao_novo_id = None
+                if movimento.status == "CONCILIADO":
+                    erros.append(f"Movimento '{movimento.descricao}' já conciliado.")
+                    continue
 
-            if modo_cartao and cartao_resolvido:
-                status_novo = "EM ABERTO"
-                origem_nova = "OFX_FATURA_CARTAO"
-                data_competencia_nova = data_compra_base
-                data_vencimento = _compute_cartao_vencimento(data_compra_base, cartao_resolvido)
-                data_pagamento = None
-                valor_pago_novo = Decimal("0.00")
-                conta_nova_id = int(cartao_resolvido.conta_id) if cartao_resolvido.conta_id else None
-                cartao_novo_id = int(cartao_resolvido.id) if cartao_resolvido.id is not None else None
+                if not conc.alocacoes:
+                    movimento.status = "CONCILIADO"
+                    db.add(movimento)
+                    lancamentos_atualizados += 1
+                    continue
 
-            novo_lancamento = Lancamento(
-                descricao=str(lanc_data["descricao"]),
-                tipo=str(lanc_data["tipo"]),
-                status=status_novo,
-                origem=origem_nova,
-                valor_previsto=Decimal(str(lanc_data.get("valor_previsto") or lanc_data["valor"])),
-                valor_pago=valor_pago_novo,
-                data_vencimento=data_vencimento,
-                data_pagamento=data_pagamento,
-                data_competencia=data_competencia_nova,
-                empresa_id=empresa_id,
-                plano_contas_id=int(plano_contas_id),
-                entidade_id=int(lanc_data["entidade_id"]) if lanc_data.get("entidade_id") else None,
-                conta_id=conta_nova_id,
-                cartao_id=cartao_novo_id,
-                centro_custo_id=(centro_custo_resolvido or lanc_data.get("centro_custo_id") or request.centro_custo_id),
-                import_hash=import_hash or None,
-                movimento_uid=str(lanc_data.get("movimento_uid") or "").strip() or None,
-                referencia_externa=str(lanc_data.get("referencia_externa") or "").strip() or None,
-                ofx_bank_id=str(lanc_data.get("ofx_bank_id") or "").strip() or None,
-                conciliado=not modo_cartao,
-                ipp=False,
-            )
-            db.add(novo_lancamento)
-            lancamentos_criados += 1
-        except Exception as exc:
-            logger.error(f"Erro ao confirmar lancamento OFX: {exc}")
-            erros.append(str(exc))
+                soma_alocacoes = Decimal("0.00")
+                for aloc in conc.alocacoes:
+                    val = aloc.valor_alocado
+                    if aloc.tipo_baixa in ("PRINCIPAL", "JUROS", "MULTA"):
+                        soma_alocacoes += val
+                    elif aloc.tipo_baixa == "DESCONTO":
+                        soma_alocacoes -= val
+                    else:
+                        raise HTTPException(
+                            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail=f"Tipo de baixa inválido: {aloc.tipo_baixa}"
+                        )
+
+                if abs(soma_alocacoes - movimento.valor) > Decimal("0.01"):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "message": f"Divergência matemática detectada: a soma das alocações (R$ {soma_alocacoes}) difere do valor do movimento bancário (R$ {movimento.valor}).",
+                            "movimento_id": movimento.id,
+                        }
+                    )
+
+                for aloc in conc.alocacoes:
+                    lancamento = db.get(Lancamento, aloc.lancamento_id)
+                    if not lancamento or lancamento.is_deleted or int(lancamento.empresa_id) != int(empresa_id):
+                        raise HTTPException(
+                            status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"Lançamento ID {aloc.lancamento_id} não encontrado."
+                        )
+
+                    nova_baixa = Baixa(
+                        lancamento_id=aloc.lancamento_id,
+                        movimento_ofx_id=movimento.id,
+                        valor_pago=aloc.valor_alocado,
+                        data_baixa=movimento.data,
+                        tipo_baixa=aloc.tipo_baixa,
+                        empresa_id=empresa_id,
+                    )
+                    db.add(nova_baixa)
+                    db.flush()
+
+                    if conta_resolvida:
+                        lancamento.conta_id = conta_resolvida.id
+                    if centro_custo_resolvido:
+                        lancamento.centro_custo_id = centro_custo_resolvido
+                    lancamento.import_hash = movimento.import_hash
+                    lancamento.movimento_uid = movimento.import_hash
+                    
+                    atualizar_lancamento_apos_baixas(db, lancamento.id)
+
+                movimento.status = "CONCILIADO"
+                db.add(movimento)
+                lancamentos_atualizados += 1
+
+            except HTTPException as exc:
+                db.rollback()
+                raise exc
+            except Exception as exc:
+                logger.error(f"Erro ao conciliar movimento: {exc}")
+                erros.append(str(exc))
+                
+    else:
+        # --- FLUXO LEGADO/CARTÃO ---
+        if not request.lancamentos:
+            return {
+                "sucesso": True,
+                "lancamentos_criados": 0,
+                "lancamentos_atualizados": 0,
+                "erros": erros,
+            }
+
+        import uuid
+        previsto_counts = {}
+        for lanc_data in request.lancamentos:
+            sugestao_acao_raw = str(lanc_data.get("sugestao_acao") or "").strip().upper()
+            possui_previsto = bool(lanc_data.get("lancamento_previsto_id"))
+            if not sugestao_acao_raw:
+                acao_temp = "BAIXAR_PREVISTO" if possui_previsto else "CRIAR_NOVO"
+            else:
+                acao_temp = sugestao_acao_raw
+
+            if acao_temp == "BAIXAR_PREVISTO" and lanc_data.get("lancamento_previsto_id"):
+                p_id = int(lanc_data["lancamento_previsto_id"])
+                previsto_counts[p_id] = previsto_counts.get(p_id, 0) + 1
+
+        previsto_parcelamentos = {
+            p_id: f"split-previsto-{uuid.uuid4()}"
+            for p_id, count in previsto_counts.items() if count > 1
+        }
+        previstos_seen = set()
+
+        previstos_compensados_no_lote = set()
+        atrasados_compensados_no_lote = set()
+        import_hashes_processados = set()
+
+        for lanc_data in request.lancamentos:
+            try:
+                sugestao_acao_raw = str(lanc_data.get("sugestao_acao") or "").strip().upper()
+                sugestao_confirmada = bool(lanc_data.get("sugestao_confirmada")) if "sugestao_confirmada" in lanc_data else True
+                possui_previsto = bool(lanc_data.get("lancamento_previsto_id"))
+                possui_atrasados = bool(lanc_data.get("lancamentos_atrasados_relacionados"))
+
+                if not sugestao_acao_raw:
+                    acao = "BAIXAR_PREVISTO" if possui_previsto else "RELACIONAR_ATRASADOS" if possui_atrasados else "CRIAR_NOVO"
+                else:
+                    acao = sugestao_acao_raw
+
+                if acao in {"IGNORAR_DUPLICATA", "DESCARTAR"}:
+                    continue
+                if acao in {"BAIXAR_PREVISTO", "RELACIONAR_ATRASADOS"} and not sugestao_confirmada:
+                    continue
+
+                import_hash = str(lanc_data.get("import_hash") or "").strip()
+                if import_hash and import_hash in import_hashes_processados:
+                    continue
+                if _buscar_lancamento_por_import_hash(db, empresa_id, import_hash or None):
+                    continue
+                if import_hash:
+                    import_hashes_processados.add(import_hash)
+
+                # Resolvendo ou criando entidade (interessado) se necessario
+                entidade_id = lanc_data.get("entidade_id")
+                if not entidade_id:
+                    nome_entidade_bruto = lanc_data.get("interessado_digitado") or lanc_data.get("interessado_sugerido") or lanc_data.get("razao_social")
+                    if nome_entidade_bruto:
+                        nome_entidade = str(nome_entidade_bruto).strip()
+                        # Limpa CPF/CNPJ se embutido
+                        cpf_cnpj_match = re.search(r"(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})|(\b\d{11,14}\b)", nome_entidade)
+                        cpf_cnpj_val = None
+                        if cpf_cnpj_match:
+                            cpf_cnpj_val = re.sub(r"\D", "", cpf_cnpj_match.group(0))
+                            nome_entidade = re.sub(r"(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})|(\b\d{11,14}\b)", "", nome_entidade).strip()
+                        nome_entidade = re.sub(r"\s+", " ", nome_entidade).strip()
+                        if nome_entidade:
+                            entidade_existente = db.exec(
+                                select(Entidade).where(
+                                    Entidade.empresa_id == empresa_id,
+                                    func.lower(Entidade.nome) == func.lower(nome_entidade)
+                                )
+                            ).first()
+                            if entidade_existente:
+                                entidade_id = entidade_existente.id
+                            else:
+                                nova_entidade = Entidade(
+                                    nome=nome_entidade,
+                                    tipo="AMBOS",
+                                    tipo_pessoa="PJ" if (cpf_cnpj_val and len(cpf_cnpj_val) == 14) else "PF",
+                                    cpf_cnpj=cpf_cnpj_val,
+                                    status="ATIVO",
+                                    empresa_id=empresa_id
+                                )
+                                db.add(nova_entidade)
+                                db.flush()
+                                entidade_id = nova_entidade.id
+                lanc_data["entidade_id"] = entidade_id
+
+                from app.services.importacao_bancaria_service import parsear_data
+
+                if acao == "BAIXAR_PREVISTO" and lanc_data.get("lancamento_previsto_id"):
+                    previsto_id = int(lanc_data["lancamento_previsto_id"])
+                    lanc_existente = db.get(Lancamento, previsto_id)
+                    if lanc_existente and not lanc_existente.is_deleted and int(lanc_existente.empresa_id) == int(empresa_id):
+                        data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
+                        valor_confirmacao = Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"]))
+
+                        # Caso o previsto seja rateado/splitado no mesmo lote
+                        if previsto_id in previsto_parcelamentos:
+                            parcel_id = previsto_parcelamentos[previsto_id]
+                            if previsto_id not in previstos_seen:
+                                previstos_seen.add(previsto_id)
+                                lanc_existente.data_pagamento = data_pagamento
+                                lanc_existente.status = "PAGO"
+                                lanc_existente.conciliado = True
+                                lanc_existente.valor_previsto = valor_confirmacao
+                                lanc_existente.valor_pago = valor_confirmacao
+                                lanc_existente.id_parcelamento = parcel_id
+                                if lanc_data.get("plano_contas_id"):
+                                    lanc_existente.plano_contas_id = int(lanc_data["plano_contas_id"])
+                                if lanc_data.get("entidade_id"):
+                                    lanc_existente.entidade_id = int(lanc_data["entidade_id"])
+                                if conta_resolvida:
+                                    lanc_existente.conta_id = conta_resolvida.id
+                                db.add(lanc_existente)
+                                lancamentos_atualizados += 1
+                            else:
+                                novo_split = Lancamento(
+                                    descricao=lanc_existente.descricao,
+                                    tipo=lanc_existente.tipo,
+                                    status="PAGO",
+                                    origem=lanc_existente.origem or "OFX",
+                                    valor_previsto=valor_confirmacao,
+                                    valor_pago=valor_confirmacao,
+                                    data_vencimento=lanc_existente.data_vencimento,
+                                    data_pagamento=data_pagamento,
+                                    data_competencia=lanc_existente.data_competencia,
+                                    empresa_id=empresa_id,
+                                    plano_contas_id=int(lanc_data.get("plano_contas_id") or lanc_existente.plano_contas_id or 1),
+                                    entidade_id=int(lanc_data.get("entidade_id") or lanc_existente.entidade_id or 0) or None,
+                                    conta_id=conta_resolvida.id if conta_resolvida else lanc_existente.conta_id,
+                                    centro_custo_id=lanc_existente.centro_custo_id,
+                                    import_hash=import_hash or None,
+                                    conciliado=True,
+                                    id_parcelamento=parcel_id,
+                                )
+                                db.add(novo_split)
+                                lancamentos_criados += 1
+                            continue
+                        else:
+                            lanc_existente.data_pagamento = data_pagamento
+                            lanc_existente.status = "PAGO"
+                            lanc_existente.conciliado = True
+                            lanc_existente.valor_pago = valor_confirmacao
+                            if lanc_data.get("plano_contas_id"):
+                                lanc_existente.plano_contas_id = int(lanc_data["plano_contas_id"])
+                            if lanc_data.get("entidade_id"):
+                                lanc_existente.entidade_id = int(lanc_data["entidade_id"])
+                            if conta_resolvida:
+                                lanc_existente.conta_id = conta_resolvida.id
+                            db.add(lanc_existente)
+                            lancamentos_atualizados += 1
+                            continue
+
+
+                plano_contas_id = lanc_data.get("plano_contas_id")
+                data_pagamento = parsear_data(lanc_data["data_pagamento"]) if lanc_data.get("data_pagamento") else parsear_data(lanc_data.get("data") or "")
+                data_compra_base = parsear_data(lanc_data.get("data") or "") or date.today()
+                data_vencimento = parsear_data(lanc_data["data_vencimento"]) if lanc_data.get("data_vencimento") else data_compra_base
+                data_pagamento = data_pagamento or data_vencimento
+
+                status_novo = "PAGO"
+                origem_nova = str(lanc_data.get("origem") or "WEB")
+                valor_pago_novo = Decimal(str(lanc_data.get("valor_pago") or lanc_data["valor"]))
+                conta_nova_id = (conta_resolvida.id if conta_resolvida else request.conta_id)
+                cartao_novo_id = None
+
+                if modo_cartao and cartao_resolvido:
+                    status_novo = "EM ABERTO"
+                    origem_nova = "OFX_FATURA_CARTAO"
+                    data_vencimento = _compute_cartao_vencimento(data_compra_base, cartao_resolvido)
+                    data_pagamento = None
+                    valor_pago_novo = Decimal("0.00")
+                    conta_nova_id = int(cartao_resolvido.conta_id) if cartao_resolvido.conta_id else None
+                    cartao_novo_id = int(cartao_resolvido.id)
+
+                novo_lancamento = Lancamento(
+                    descricao=str(lanc_data["descricao"]),
+                    tipo=str(lanc_data["tipo"]),
+                    status=status_novo,
+                    origem=origem_nova,
+                    valor_previsto=Decimal(str(lanc_data.get("valor_previsto") or lanc_data["valor"])),
+                    valor_pago=valor_pago_novo,
+                    data_vencimento=data_vencimento,
+                    data_pagamento=data_pagamento,
+                    data_competencia=data_compra_base,
+                    empresa_id=empresa_id,
+                    plano_contas_id=int(plano_contas_id or 1),
+                    entidade_id=int(entidade_id) if entidade_id else None,
+                    conta_id=conta_nova_id,
+                    cartao_id=cartao_novo_id,
+                    centro_custo_id=centro_custo_resolvido,
+                    import_hash=import_hash or None,
+                    conciliado=not modo_cartao,
+                )
+                db.add(novo_lancamento)
+                lancamentos_criados += 1
+            except Exception as exc:
+                logger.error(f"Erro ao confirmar lancamento no fluxo legado: {exc}")
+                erros.append(str(exc))
 
     try:
         if not modo_cartao and conta_resolvida_id is not None and saldo_ofx_referencia is not None:
@@ -2812,20 +2812,29 @@ def confirmar_lancamentos(
             abs_divergencia_antes = abs(Decimal(str((divergencia_saldo_ofx_antes or {}).get("diferenca") or "0")))
             abs_divergencia_depois = abs(Decimal(str((divergencia_saldo_ofx or {}).get("diferenca") or "0")))
             if not request.ignorar_divergencia and abs_divergencia_depois > abs_divergencia_antes + Decimal("0.01"):
-                logger.warning(
-                    "[OFX] Divergencia de saldo piorou apos confirmacao conta_id={} empresa_id={} abs_antes={} abs_depois={} antes={} depois={}",
-                    conta_resolvida_id,
-                    empresa_id,
-                    abs_divergencia_antes,
-                    abs_divergencia_depois,
-                    divergencia_saldo_ofx_antes,
-                    divergencia_saldo_ofx,
-                )
+                mensagem_erro = "Importação OFX cancelada: a divergência de saldo aumentou após a conciliação. O sistema bloqueou para evitar inclusões indevidas."
+                try:
+                    deletados = db.exec(
+                        select(Lancamento).where(
+                            Lancamento.conta_id == conta_resolvida_id,
+                            Lancamento.is_deleted == True,
+                            Lancamento.empresa_id == empresa_id
+                        ).order_by(Lancamento.deleted_at.desc()).limit(3)
+                    ).all()
+                    if deletados:
+                        linhas_deletadas = [
+                            f"'{d.descricao}' (ID #{d.id}, R$ {d.valor_previsto or d.valor_pago})"
+                            for d in deletados
+                        ]
+                        mensagem_erro += f" Lançamento(s) excluído(s) recentemente nesta conta: {', '.join(linhas_deletadas)}."
+                except Exception as ex_diag:
+                    logger.error("[OFX] Erro ao buscar diagnóstico de saldos: {}", ex_diag)
+
                 db.rollback()
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail={
-                        "message": "Importacao OFX cancelada: a divergencia de saldo aumentou apos a conciliacao. O sistema bloqueou para evitar inclusoes indevidas.",
+                        "message": mensagem_erro,
                         "divergencia_saldo_ofx_antes": divergencia_saldo_ofx_antes,
                         "divergencia_saldo_ofx_depois": divergencia_saldo_ofx,
                     },
@@ -2838,27 +2847,13 @@ def confirmar_lancamentos(
     db.commit()
 
     logger.info(
-        "[OFX] Confirmacao finalizada empresa_id={} criados={} atualizados={} erros={} ignorados_descartar={} ignorados_sugestao_pendente={} ignorados_duplicata_payload={} ignorados_idempotencia_lote={} ignorados_idempotencia_historico={} divergencia_saldo_ofx={}",
+        "[OFX] Confirmacao finalizada empresa_id={} criados={} atualizados={} erros={}",
         empresa_id,
         lancamentos_criados,
         lancamentos_atualizados,
         len(erros),
-        ignorados_descartar,
-        ignorados_sugestao_pendente,
-        ignorados_duplicata_payload,
-        ignorados_idempotencia_lote,
-        ignorados_idempotencia_historico,
-        bool(divergencia_saldo_ofx),
     )
-    logger.info(
-        "[OFX] Confirmacao amostras_ignorados empresa_id={} descartar={} sugestao_pendente={} duplicata_payload={} idempotencia_lote={} idempotencia_historico={}",
-        empresa_id,
-        amostras_ignorados["descartar"],
-        amostras_ignorados["sugestao_pendente"],
-        amostras_ignorados["duplicata_payload"],
-        amostras_ignorados["idempotencia_lote"],
-        amostras_ignorados["idempotencia_historico"],
-    )
+
 
     return {
         "sucesso": True,
@@ -2868,3 +2863,53 @@ def confirmar_lancamentos(
         "divergencia_saldo_ofx_antes": divergencia_saldo_ofx_antes,
         "divergencia_saldo_ofx": divergencia_saldo_ofx,
     }
+
+
+@router.post(
+    "/ofx/desconciliar/{lancamento_id}",
+    dependencies=[Depends(require_permission("lancamentos:update"))],
+)
+def desconciliar_lancamento(
+    lancamento_id: int,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    lancamento = db.get(Lancamento, lancamento_id)
+    if not lancamento or lancamento.is_deleted or int(lancamento.empresa_id) != int(empresa_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lançamento não encontrado."
+        )
+
+    # Buscar todas as baixas ativas para este lançamento
+    baixas = db.exec(
+        select(Baixa).where(
+            Baixa.lancamento_id == lancamento_id,
+            Baixa.is_deleted == False,
+            Baixa.empresa_id == empresa_id
+        )
+    ).all()
+
+    if not baixas:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este lançamento não possui conciliações ativas."
+        )
+
+    for baixa in baixas:
+        baixa.is_deleted = True
+        db.add(baixa)
+        
+        # Se houver MovimentoOFX vinculado, reabri-lo
+        if baixa.movimento_ofx_id:
+            mov = db.get(MovimentoOFX, baixa.movimento_ofx_id)
+            if mov and int(mov.empresa_id) == int(empresa_id):
+                mov.status = "ABERTO"
+                db.add(mov)
+
+    db.flush()
+    atualizar_lancamento_apos_baixas(db, lancamento_id)
+    db.commit()
+
+    return {"sucesso": True, "mensagem": "Lançamento desconciliado com sucesso."}
+

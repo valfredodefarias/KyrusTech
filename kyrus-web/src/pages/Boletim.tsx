@@ -13,7 +13,7 @@ import {
 
 import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
-import { Lancamentos } from './Lancamentos';
+import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
 import { api, fetchLancamentosPaged, getPublicBaseUrl, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
@@ -594,7 +594,9 @@ function applyFilters(
 export function Boletim() {
   const navigate = useNavigate();
 
-  const [inlineLancamentoParams, setInlineLancamentoParams] = useState<URLSearchParams | null>(null);
+  const [isLancamentoDrawerOpen, setIsLancamentoDrawerOpen] = useState(false);
+  const [editingLancamentoId, setEditingLancamentoId] = useState<number | null>(null);
+  const [refreshCount, setRefreshCount] = useState(0);
 
   const buildLancamentosDestino = (lancamentoId: number, includeEmbed: boolean) => {
     const params = new URLSearchParams();
@@ -625,9 +627,8 @@ export function Boletim() {
       navigate(destino);
       return;
     }
-    const destinoEmbed = buildLancamentosDestino(lancamentoId, true);
-    const queryPart = destinoEmbed.split('?')[1] || '';
-    setInlineLancamentoParams(new URLSearchParams(queryPart));
+    setEditingLancamentoId(lancamentoId);
+    setIsLancamentoDrawerOpen(true);
   };
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -808,7 +809,7 @@ export function Boletim() {
         clearInterval(intervalId);
       }
     };
-  }, [referenceYear]);
+  }, [referenceYear, refreshCount]);
 
   const dashboard = useMemo(() => {
     const parsedReference = parseDateOnly(referenceDate);
@@ -2077,25 +2078,23 @@ export function Boletim() {
               </div>
             ) : null}
 
-            {inlineLancamentoParams ? (
-              <div className="fixed inset-0 z-[60]">
-                <button
-                  type="button"
-                  className="absolute inset-0 bg-slate-950/60"
-                  onClick={() => setInlineLancamentoParams(null)}
-                  aria-label="Fechar editor"
-                />
-                <aside className="absolute right-0 top-0 h-full w-[clamp(420px,34vw,640px)] max-w-[100vw] border-l border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950">
-                  <div className="h-full w-full overflow-hidden">
-                    <Lancamentos
-                      key={inlineLancamentoParams.toString()}
-                      forcedSearchParams={inlineLancamentoParams}
-                      onRequestCloseEmbed={() => setInlineLancamentoParams(null)}
-                    />
-                  </div>
-                </aside>
-              </div>
-            ) : null}
+            <LancamentoFormDrawer
+              showDrawer={isLancamentoDrawerOpen}
+              editarId={editingLancamentoId}
+              onClose={() => {
+                setIsLancamentoDrawerOpen(false);
+                setEditingLancamentoId(null);
+              }}
+              onSaveSuccess={async () => {
+                setIsLancamentoDrawerOpen(false);
+                setEditingLancamentoId(null);
+                setRefreshCount((prev) => prev + 1);
+              }}
+              categorias={categorias}
+              entidades={entidades}
+              contas={contas}
+              centros={centrosCusto}
+            />
 
             <div className="grid gap-3">
               <div className="grid gap-3 xl:grid-cols-2">

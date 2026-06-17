@@ -1,4 +1,4 @@
-import { Calendar, ChevronDown, Check, Paperclip, Search } from 'lucide-react';
+import { Calendar, ChevronDown, Check, Paperclip, Search, Layers } from 'lucide-react';
 import type { Lancamento, ListaSortKey, ListaSortDirection } from '../types';
 import {
   isTransferencia,
@@ -124,7 +124,8 @@ export const LancamentosTable = ({
                   {grouped.groups[date].map((l) => {
                     const atrasado = isLancamentoAtrasado(l);
                     const pago = String(l.status).toUpperCase() === 'PAGO';
-                    const statusLabel = pago ? 'PAGO' : atrasado ? 'ATRASADO' : l.status;
+                    const parcial = String(l.status).toUpperCase() === 'PARCIALMENTE_PAGO';
+                    const statusLabel = pago ? 'PAGO' : parcial ? 'PARCIAL' : atrasado ? 'ATRASADO' : l.status;
                     const transfer = isTransferencia(l);
                     return (
                       <tr
@@ -139,15 +140,19 @@ export const LancamentosTable = ({
                             ? 'bg-blue-100/80 dark:bg-blue-900/25'
                             : pago
                               ? 'bg-emerald-100/70 dark:bg-emerald-900/25'
-                              : atrasado
-                                ? 'bg-red-200/80 dark:bg-red-900/40'
-                                : ''
+                              : parcial
+                                ? 'bg-amber-100/40 dark:bg-amber-900/10'
+                                : atrasado
+                                  ? 'bg-red-200/80 dark:bg-red-900/40'
+                                  : ''
                         }`}
                       >
                         <td className="w-12 p-2.5 text-center align-middle" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             aria-label="Selecionar lançamento"
+                            disabled={l.conciliado}
+                            title={l.conciliado ? "Lançamentos conciliados não podem ser alterados em lote" : "Selecionar lançamento"}
                             onClick={() => {
                               setSelectedIds((prev) => {
                                 const s = new Set(prev);
@@ -157,9 +162,11 @@ export const LancamentosTable = ({
                               });
                             }}
                             className={`w-7 h-7 rounded border flex items-center justify-center transition pointer-events-auto ${
-                              selectedIds.has(l.id)
-                                ? 'bg-blue-600 border-blue-600 text-white'
-                                : 'border-slate-300 dark:border-slate-600 text-slate-500 hover:border-blue-400'
+                              l.conciliado
+                                ? 'opacity-40 cursor-not-allowed border-slate-200 dark:border-slate-800'
+                                : selectedIds.has(l.id)
+                                  ? 'bg-blue-600 border-blue-600 text-white'
+                                  : 'border-slate-300 dark:border-slate-600 text-slate-500 hover:border-blue-400'
                             }`}
                           >
                             <Check className={`w-3 h-3 ${selectedIds.has(l.id) ? 'opacity-100' : 'opacity-0'}`} />
@@ -177,13 +184,13 @@ export const LancamentosTable = ({
                               e.stopPropagation();
                               toggleIpp(l);
                             }}
-                            disabled={transfer}
+                            disabled={transfer || l.conciliado}
                             className={`w-7 h-7 rounded border flex items-center justify-center transition pointer-events-auto ${
                               l.ipp
                                 ? 'bg-purple-600 border-purple-600 text-white'
                                 : 'border-slate-300 dark:border-slate-600 text-slate-500 hover:border-purple-400'
-                            } ${transfer ? 'cursor-not-allowed opacity-40' : ''}`}
-                            title="Marcar como IPP"
+                            } ${transfer || l.conciliado ? 'cursor-not-allowed opacity-40' : ''}`}
+                            title={l.conciliado ? "Lançamento conciliado" : "Marcar como IPP"}
                             aria-pressed={l.ipp}
                           >
                             <Check className="w-3 h-3" />
@@ -194,11 +201,23 @@ export const LancamentosTable = ({
                             contaExtratoAtivaId !== null ? 'text-[13px]' : ''
                           }`}
                         >
-                          <div className="flex min-w-0 items-center gap-2">
+                           <div className="flex min-w-0 items-center gap-2">
                             <span className="truncate">{l.descricao}</span>
                             {l.anexos?.length > 0 && <Paperclip className="h-3 w-3 shrink-0 text-blue-400" />}
                           </div>
-                          {l.numero_parcela && <span className="text-[10px] text-slate-500">Parcela {l.numero_parcela}</span>}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                            {l.numero_parcela && (
+                              <span className="text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800/40 px-1.5 py-0.5 rounded">
+                                Parcela {l.numero_parcela}
+                              </span>
+                            )}
+                            {l.id_parcelamento && (
+                              <span className="text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 px-1.5 py-0.5 rounded font-medium flex items-center gap-1">
+                                <Layers className="w-2.5 h-2.5" />
+                                Vinculado
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="hidden p-2.5 align-middle md:table-cell">
                           <div className="truncate text-sm font-bold text-slate-700 dark:text-slate-300">
@@ -218,9 +237,11 @@ export const LancamentosTable = ({
                             className={`px-2.5 py-1 rounded text-[11px] font-bold uppercase border ${
                               pago
                                 ? 'bg-emerald-200/90 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
-                                : atrasado
-                                  ? 'bg-red-200/90 dark:bg-red-900/35 text-red-700 dark:text-red-300 border-red-300 dark:border-red-800'
-                                  : 'bg-slate-100 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600'
+                                : parcial
+                                  ? 'bg-amber-200/90 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                                  : atrasado
+                                    ? 'bg-red-200/90 dark:bg-red-900/35 text-red-700 dark:text-red-300 border-red-300 dark:border-red-800'
+                                    : 'bg-slate-100 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600'
                             }`}
                           >
                             {statusLabel}

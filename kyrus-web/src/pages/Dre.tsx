@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarDays, Sigma, TrendingDown, TrendingUp } from 'lucide-react';
 
 import { api, normalizeListResponse } from '../services/api';
-import { Lancamentos } from './Lancamentos';
+import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
 interface PlanoConta {
@@ -280,7 +280,9 @@ export function Dre() {
   const [hoveredKpi, setHoveredKpi] = useState<string | null>(null);
   const [somentePagos, setSomentePagos] = useState(true);
   const [auditPanel, setAuditPanel] = useState<DreAuditPanel | null>(null);
-  const [inlineLancamentoParams, setInlineLancamentoParams] = useState<URLSearchParams | null>(null);
+  const [isLancamentoDrawerOpen, setIsLancamentoDrawerOpen] = useState(false);
+  const [editingLancamentoId, setEditingLancamentoId] = useState<number | null>(null);
+  const [refreshCount, setRefreshCount] = useState(0);
   const [flashCellId, setFlashCellId] = useState<string | null>(null);
   const [flashOn, setFlashOn] = useState(false);
   const handledSpotlightRef = useRef('');
@@ -343,7 +345,7 @@ export function Dre() {
     return () => {
       active = false;
     };
-  }, [ano]);
+  }, [ano, refreshCount]);
 
   useEffect(() => {
     const tableEl = tableRef.current;
@@ -849,9 +851,8 @@ export function Dre() {
       navigate(destino);
       return;
     }
-    const destinoEmbed = buildLancamentosDestino(lancamentoId, true);
-    const queryPart = destinoEmbed.split('?')[1] || '';
-    setInlineLancamentoParams(new URLSearchParams(queryPart));
+    setEditingLancamentoId(lancamentoId);
+    setIsLancamentoDrawerOpen(true);
   };
 
   const openContaAudit = (contaId: number, monthIndex: number | null) => {
@@ -1111,19 +1112,19 @@ export function Dre() {
             <table ref={tableRef} className="w-full min-w-[1520px] border-separate border-spacing-0 text-sm">
               <thead>
                 <tr>
-                  <th className="sticky left-0 z-30 border-b border-r border-slate-800 bg-slate-950 px-5 py-4 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white">Conta</th>
-                  <th className="z-20 border-b border-r border-slate-800 bg-slate-950 px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">Total</th>
+                  <th className="sticky left-0 z-20 border-b border-r border-slate-800 bg-slate-950 px-5 py-4 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white">Conta</th>
+                  <th className="z-10 border-b border-r border-slate-800 bg-slate-950 px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white">Total</th>
                   {monthLabels.map((label, index) => (
                     <th
                       key={label}
                       onClick={() => setSelectedMonth((prev) => (prev === index ? null : index))}
                       title={selectedMonth === index ? 'Clique para voltar ao ano inteiro' : `Clique para filtrar ${label}`}
-                      className={`z-20 cursor-pointer border-b border-r px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 ${selectedMonth === index ? selectedMonthHeaderClass : 'border-slate-800 bg-slate-950 text-white'}`}
+                      className={`z-10 cursor-pointer border-b border-r px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 ${selectedMonth === index ? selectedMonthHeaderClass : 'border-slate-800 bg-slate-950 text-white'}`}
                     >
                       {label}
                     </th>
                   ))}
-                  <th className="z-20 w-3 border-b border-amber-300 bg-amber-200 px-0 py-0" />
+                  <th className="z-10 w-3 border-b border-amber-300 bg-amber-200 px-0 py-0" />
                 </tr>
               </thead>
               <tbody>
@@ -1424,25 +1425,23 @@ export function Dre() {
           </div>
         ) : null}
 
-        {inlineLancamentoParams ? (
-          <div className="fixed inset-0 z-[60]">
-            <button
-              type="button"
-              className="absolute inset-0 bg-slate-950/60"
-              onClick={() => setInlineLancamentoParams(null)}
-              aria-label="Fechar editor"
-            />
-            <aside className="absolute right-0 top-0 h-full w-[clamp(420px,34vw,640px)] max-w-[100vw] border-l border-slate-200 bg-white shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] dark:border-slate-700 dark:bg-slate-950">
-              <div className="h-full w-full overflow-hidden">
-                <Lancamentos
-                  key={inlineLancamentoParams.toString()}
-                  forcedSearchParams={inlineLancamentoParams}
-                  onRequestCloseEmbed={() => setInlineLancamentoParams(null)}
-                />
-              </div>
-            </aside>
-          </div>
-        ) : null}
+        <LancamentoFormDrawer
+          showDrawer={isLancamentoDrawerOpen}
+          editarId={editingLancamentoId}
+          onClose={() => {
+            setIsLancamentoDrawerOpen(false);
+            setEditingLancamentoId(null);
+          }}
+          onSaveSuccess={async () => {
+            setIsLancamentoDrawerOpen(false);
+            setEditingLancamentoId(null);
+            setRefreshCount((prev) => prev + 1);
+          }}
+          categorias={categorias}
+          entidades={entidades}
+          contas={contas}
+          centros={centrosCusto}
+        />
       </div>
     </div>
   );

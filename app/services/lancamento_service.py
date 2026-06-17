@@ -492,7 +492,17 @@ class LancamentoService:
         db_lancamento = self.get_by_id(lancamento_id, empresa_id)
         if self._is_transferencia(db_lancamento):
             raise HTTPException(status_code=400, detail="Transferências internas não podem ser editadas.")
+        
         dados_dict = dados_atualizacao.dict(exclude_unset=True)
+
+        if db_lancamento.conciliado:
+            campos_criticos = {"valor_previsto", "valor_pago", "conta_id", "data_pagamento", "tipo"}
+            for campo in campos_criticos:
+                if campo in dados_dict and dados_dict[campo] != getattr(db_lancamento, campo):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Campos críticos (valor, conta, data ou tipo) de lançamentos conciliados não podem ser editados diretamente. Desconcilie o lançamento primeiro."
+                    )
 
         if "competencia" in dados_dict:
             self._validate_competencia(dados_dict["competencia"])
@@ -527,6 +537,11 @@ class LancamentoService:
         return db_lancamento
     def delete(self, lancamento_id: int, empresa_id: int, user_id: int, confirmar_exclusao_pagos: bool = False):
         lancamento = self.get_by_id(lancamento_id, empresa_id)
+        if lancamento.conciliado:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Lançamentos conciliados não podem ser excluídos diretamente. Desconcilie o lançamento primeiro."
+            )
         if self._is_compensado_ou_pago(lancamento) and not confirmar_exclusao_pagos:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

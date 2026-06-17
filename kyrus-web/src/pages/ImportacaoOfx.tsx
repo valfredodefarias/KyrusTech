@@ -185,6 +185,16 @@ interface LancamentoImportado {
   lancamento_previsto_resumo?: RelacionamentoResumo | null;
   lancamentos_atrasados_resumo?: RelacionamentoResumo[];
   duplicata_resumo?: DuplicataResumo | null;
+  movimento_ofx_id?: number | null;
+}
+
+interface AlocacaoItemUI {
+  lancamento_id: number;
+  valor_alocado: number;
+  tipo_baixa: 'PRINCIPAL' | 'JUROS' | 'MULTA' | 'DESCONTO';
+  descricao?: string;
+  data_vencimento?: string;
+  valor_previsto?: number;
 }
 
 interface LancamentoEditado extends LancamentoImportado {
@@ -194,6 +204,7 @@ interface LancamentoEditado extends LancamentoImportado {
   sugestao_confirmada: boolean;
   interessado_digitado?: string;
   criar_novo_interessado?: boolean;
+  alocacoes?: AlocacaoItemUI[];
 }
 
 type FeedbackState = {
@@ -208,6 +219,10 @@ interface ProcessarArquivoResponse {
   duplicatas_encontradas: number;
   lancamentos_previstos_encontrados: number;
   lancamentos_atrasados_encontrados: number;
+  gap_detectado?: boolean;
+  gap_data_ultimo?: string | null;
+  gap_data_inicio_arquivo?: string | null;
+  gap_dias?: number;
 }
 
 interface ConfirmacaoProgressState {
@@ -432,7 +447,6 @@ export function ImportacaoOfx() {
   const [resultado, setResultado] = useState<ProcessarArquivoResponse | null>(null);
   const [lancamentosEditados, setLancamentosEditados] = useState<LancamentoEditado[]>([]);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
-  const [ignorarDivergencia, setIgnorarDivergencia] = useState(false);
   const [linhaEditandoDescricao, setLinhaEditandoDescricao] = useState<number | null>(null);
   const [descricaoTemporaria, setDescricaoTemporaria] = useState('');
   const [categorias, setCategorias] = useState<CategoriaItem[]>([]);
@@ -512,15 +526,18 @@ export function ImportacaoOfx() {
               lancamento_previsto_id: null,
               lancamento_previsto_resumo: null,
               sugestao_confirmada: false,
+              alocacoes: [],
             };
           }
           if (item.sugestao_acao === 'RELACIONAR_ATRASADOS') {
             const nextAtrasados = (item.lancamentos_atrasados_relacionados || []).filter((id) => id !== atrasoId);
             const nextResumo = (item.lancamentos_atrasados_resumo || []).filter((r) => r.id !== atrasoId);
+            const nextAlocacoes = (item.alocacoes || []).filter((a) => a.lancamento_id !== atrasoId);
             nextPatch = {
               lancamentos_atrasados_relacionados: nextAtrasados,
               lancamentos_atrasados_resumo: nextResumo,
               sugestao_confirmada: false,
+              alocacoes: nextAlocacoes,
             };
           }
           return { ...item, ...nextPatch };
@@ -540,10 +557,22 @@ export function ImportacaoOfx() {
           const resumos = originalAtrasado
             ? item.lancamentos_atrasados_resumo
             : [...(item.lancamentos_atrasados_resumo || []), itemResumo];
+          
+          const newAloc = {
+            lancamento_id: atrasoId,
+            valor_alocado: itemResumo.valor_previsto,
+            tipo_baixa: 'PRINCIPAL' as const,
+            descricao: itemResumo.descricao,
+            data_vencimento: itemResumo.data_vencimento,
+            valor_previsto: itemResumo.valor_previsto,
+          };
+          const nextAlocacoes = [...(item.alocacoes || []), newAloc];
+
           return {
             ...item,
             lancamentos_atrasados_relacionados: proximo,
             lancamentos_atrasados_resumo: resumos,
+            alocacoes: nextAlocacoes,
           };
         }
         return item;
@@ -688,6 +717,54 @@ export function ImportacaoOfx() {
     const semCategoria = items.filter((item) => item.sugestao_acao === 'CRIAR_NOVO' && !item.plano_contas_id).length;
     return { conciliaveis, novos, receitas, despesas, semCategoria };
   }, [lancamentosEditados]);
+
+  const getDiferencaAlocacao = (lanc: LancamentoEditado) => {
+    if (lanc.sugestao_acao === 'DESCARTAR' || lanc.sugestao_acao === 'IGNORAR_DUPLICATA') {
+      return 0;
+    }
+    if (lanc.sugestao_acao === 'CRIAR_NOVO') {
+      return 0;
+    }
+    
+    let alocs = lanc.alocacoes || [];
+    if (alocs.length === 0) {
+      if (lanc.sugestao_acao === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_id) {
+        alocs = [{
+          lancamento_id: lanc.lancamento_previsto_id,
+          valor_alocado: Math.abs(lanc.valor),
+          tipo_baixa: 'PRINCIPAL',
+        }];
+      } else if (lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_relacionados) {
+        alocs = lanc.lancamentos_atrasados_relacionados.map(id => {
+          const res = lanc.lancamentos_atrasados_resumo?.find(r => r.id === id);
+          return {
+            lancamento_id: id,
+            valor_alocado: res?.valor_previsto ?? Math.abs(lanc.valor),
+            tipo_baixa: 'PRINCIPAL',
+          };
+        });
+      }
+    }
+
+    let totalAlocado = 0;
+    alocs.forEach((aloc) => {
+      const val = Number(aloc.valor_alocado || 0);
+      if (aloc.tipo_baixa === 'DESCONTO') {
+        totalAlocado -= val;
+      } else {
+        totalAlocado += val;
+      }
+    });
+
+    return Number((Math.abs(lanc.valor) - totalAlocado).toFixed(2));
+  };
+
+  const todasTravaDeOuroValidas = useMemo(() => {
+    if (modoImportacao === 'CARTAO') return true;
+    return lancamentosEditados.every(lanc => {
+      return getDiferencaAlocacao(lanc) === 0;
+    });
+  }, [lancamentosEditados, modoImportacao]);
 
 
 
@@ -849,52 +926,197 @@ export function ImportacaoOfx() {
     setConfirmProgress(null);
     setFeedback(null);
     try {
-      const chunks = chunkArray(lancamentosEditados, OFX_CONFIRM_CHUNK_SIZE);
-      const totalItems = lancamentosEditados.length;
       let criados = 0;
       let atualizados = 0;
       const erros: string[] = [];
-      let processedItems = 0;
 
-      for (let i = 0; i < chunks.length; i += 1) {
-        const batchIndex = i + 1;
-        const chunk = chunks[i];
+      if (modoImportacao === 'CONTA') {
+        // First, resolve all CRIAR_NOVO launches by POSTing them to the backend.
+        const listCopy = [...lancamentosEditados];
 
-        const payload = {
-          lancamentos: chunk.map((lanc) => {
-            if (!lanc.entidade_id && !lanc.criar_novo_interessado) {
-              return {
-                ...lanc,
-                interessado_digitado: '',
-                interessado_sugerido: '',
-                razao_social: '',
+        for (let idx = 0; idx < listCopy.length; idx++) {
+          const lanc = listCopy[idx];
+          if (lanc.sugestao_acao === 'DESCARTAR' || lanc.sugestao_acao === 'IGNORAR_DUPLICATA') {
+            continue;
+          }
+
+          if (lanc.sugestao_acao === 'CRIAR_NOVO') {
+            try {
+              let entId = lanc.entidade_id;
+              if (!entId && lanc.criar_novo_interessado && lanc.interessado_digitado) {
+                const entRes = await api.post('/entidades/', {
+                  nome: lanc.interessado_digitado,
+                  tipo: 'AMBOS',
+                  tipo_pessoa: 'PJ',
+                  status: 'ATIVO',
+                });
+                entId = entRes.data.id;
+                await reloadEntidadesLookup();
+              }
+
+              const newLaunchPayload = {
+                descricao: lanc.descricao,
+                tipo: lanc.tipo,
+                status: 'PENDENTE',
+                origem: 'OFX',
+                valor_previsto: Math.abs(lanc.valor),
+                valor_pago: 0,
+                data_vencimento: lanc.data,
+                data_competencia: lanc.data,
+                plano_contas_id: lanc.plano_contas_id || 1,
+                entidade_id: entId || null,
+                conta_id: Number(contaId),
+                centro_custo_id: centroCustoPadraoBusca,
+                conciliado: false,
               };
-            }
-            return lanc;
-          }),
-          conta_id: modoImportacao === 'CONTA' ? Number(contaId) : null,
-          cartao_id: modoImportacao === 'CARTAO' ? Number(cartaoId) : null,
-          modo_importacao: modoImportacao,
-          ignorar_divergencia: ignorarDivergencia,
-        };
 
-        const { data } = await api.post<ConfirmarLancamentosResponse>('/importacao/confirmar-lancamentos', payload);
-        criados += Number(data?.lancamentos_criados || 0);
-        atualizados += Number(data?.lancamentos_atualizados || 0);
-        const errosChunk = Array.isArray(data?.erros) ? data.erros.filter(Boolean) : [];
-        if (errosChunk.length > 0) {
-          erros.push(...errosChunk.slice(0, 20));
+              const launchRes = await api.post('/lancamentos/', newLaunchPayload);
+              const novoId = launchRes.data.id;
+              criados += 1;
+
+              lanc.lancamento_previsto_id = novoId;
+              lanc.sugestao_acao = 'BAIXAR_PREVISTO';
+              lanc.alocacoes = [{
+                lancamento_id: novoId,
+                valor_alocado: Math.abs(lanc.valor),
+                tipo_baixa: 'PRINCIPAL',
+              }];
+            } catch (err: any) {
+              const errMsg = err?.response?.data?.detail || err.message || 'Erro ao criar lançamento';
+              erros.push(`Erro no movimento "${lanc.descricao}": ${errMsg}`);
+              lanc.sugestao_acao = 'DESCARTAR';
+            }
+          }
         }
 
-        processedItems += chunk.length;
-        setConfirmProgress({
-          currentBatch: batchIndex,
-          totalBatches: chunks.length,
-          processedItems,
-          totalItems,
-          criados,
-          atualizados,
+        // Now, compile all conciliacoes
+        const conciliacoesList: {
+          movimento_ofx_id: number;
+          alocacoes: {
+            lancamento_id: number;
+            valor_alocado: number;
+            tipo_baixa: 'PRINCIPAL' | 'JUROS' | 'MULTA' | 'DESCONTO';
+          }[];
+        }[] = [];
+
+        listCopy.forEach((lanc) => {
+          if (lanc.sugestao_acao === 'DESCARTAR' || lanc.sugestao_acao === 'IGNORAR_DUPLICATA') {
+            return;
+          }
+
+          let alocs = lanc.alocacoes || [];
+          if (alocs.length === 0) {
+            if (lanc.sugestao_acao === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_id) {
+              alocs = [{
+                lancamento_id: lanc.lancamento_previsto_id,
+                valor_alocado: Math.abs(lanc.valor),
+                tipo_baixa: 'PRINCIPAL',
+              }];
+            } else if (lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_relacionados) {
+              alocs = lanc.lancamentos_atrasados_relacionados.map((id) => {
+                const res = lanc.lancamentos_atrasados_resumo?.find((r) => r.id === id);
+                return {
+                  lancamento_id: id,
+                  valor_alocado: res?.valor_previsto ?? Math.abs(lanc.valor),
+                  tipo_baixa: 'PRINCIPAL' as const,
+                };
+              });
+            }
+          }
+
+          if (lanc.movimento_ofx_id) {
+            conciliacoesList.push({
+              movimento_ofx_id: lanc.movimento_ofx_id,
+              alocacoes: alocs.map((a) => ({
+                lancamento_id: a.lancamento_id,
+                valor_alocado: Number(a.valor_alocado),
+                tipo_baixa: a.tipo_baixa,
+              })),
+            });
+          }
         });
+
+        if (conciliacoesList.length === 0 && erros.length > 0) {
+          throw new Error(`Falha ao criar lançamentos: ${erros.join(' | ')}`);
+        }
+
+        const chunks = chunkArray(conciliacoesList, OFX_CONFIRM_CHUNK_SIZE);
+        const totalItems = conciliacoesList.length;
+        let processedItems = 0;
+
+        for (let i = 0; i < chunks.length; i += 1) {
+          const batchIndex = i + 1;
+          const chunk = chunks[i];
+
+          const payload = {
+            conciliacoes: chunk,
+            conta_id: Number(contaId),
+            modo_importacao: 'CONTA',
+            ignorar_divergencia: false,
+          };
+
+          const { data } = await api.post<ConfirmarLancamentosResponse>('/importacao/confirmar-lancamentos', payload);
+          atualizados += Number(data?.lancamentos_atualizados || 0);
+          const errosChunk = Array.isArray(data?.erros) ? data.erros.filter(Boolean) : [];
+          if (errosChunk.length > 0) {
+            erros.push(...errosChunk.slice(0, 20));
+          }
+
+          processedItems += chunk.length;
+          setConfirmProgress({
+            currentBatch: batchIndex,
+            totalBatches: chunks.length,
+            processedItems,
+            totalItems,
+            criados,
+            atualizados,
+          });
+        }
+      } else {
+        // --- LEGACY/CARTÃO FLOW ---
+        const chunks = chunkArray(lancamentosEditados, OFX_CONFIRM_CHUNK_SIZE);
+        const totalItems = lancamentosEditados.length;
+        let processedItems = 0;
+
+        for (let i = 0; i < chunks.length; i += 1) {
+          const batchIndex = i + 1;
+          const chunk = chunks[i];
+
+          const payload = {
+            lancamentos: chunk.map((lanc) => {
+              if (!lanc.entidade_id && !lanc.criar_novo_interessado) {
+                return {
+                  ...lanc,
+                  interessado_digitado: '',
+                  interessado_sugerido: '',
+                  razao_social: '',
+                };
+              }
+              return lanc;
+            }),
+            cartao_id: Number(cartaoId),
+            modo_importacao: 'CARTAO',
+            ignorar_divergencia: false,
+          };
+
+          const { data } = await api.post<ConfirmarLancamentosResponse>('/importacao/confirmar-lancamentos', payload);
+          criados += Number(data?.lancamentos_criados || 0);
+          atualizados += Number(data?.lancamentos_atualizados || 0);
+          const errosChunk = Array.isArray(data?.erros) ? data.erros.filter(Boolean) : [];
+          if (errosChunk.length > 0) {
+            erros.push(...errosChunk.slice(0, 20));
+          }
+
+          processedItems += chunk.length;
+          setConfirmProgress({
+            currentBatch: batchIndex,
+            totalBatches: chunks.length,
+            processedItems,
+            totalItems,
+            criados,
+            atualizados,
+          });
+        }
       }
 
       if (criados === 0 && atualizados === 0) {
@@ -912,7 +1134,6 @@ export function ImportacaoOfx() {
       setLancamentosEditados([]);
       setCategoriaAutofillAplicada({});
       setArquivo(null);
-      setIgnorarDivergencia(false);
       const contaImportadaId = modoImportacao === 'CONTA' ? Number(contaId) : null;
       const destinoPosImportacao = contaImportadaId
         ? `/contas?extrato_conta_id=${contaImportadaId}`
@@ -935,7 +1156,7 @@ export function ImportacaoOfx() {
           setFeedback({ type: 'error', message, conflitos: Array.isArray(conflitos) ? conflitos : undefined });
         }
       } else {
-        setFeedback({ type: 'error', message: detail || 'Erro ao confirmar importação.' });
+        setFeedback({ type: 'error', message: error.message || detail || 'Erro ao confirmar importação.' });
       }
     } finally {
       setConfirming(false);
@@ -963,6 +1184,31 @@ export function ImportacaoOfx() {
       const interessado_digitado = criar_novo_interessado ? String(entidadeSugestaoTexto) : '';
 
       const sugestaoOriginal = getSugestaoInicial(lanc);
+      const initialAlocacoes: AlocacaoItemUI[] = [];
+      if (sugestaoOriginal === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_id && lanc.lancamento_previsto_resumo) {
+        initialAlocacoes.push({
+          lancamento_id: lanc.lancamento_previsto_id,
+          valor_alocado: Math.abs(lanc.valor),
+          tipo_baixa: 'PRINCIPAL',
+          descricao: lanc.lancamento_previsto_resumo.descricao,
+          data_vencimento: lanc.lancamento_previsto_resumo.data_vencimento,
+          valor_previsto: lanc.lancamento_previsto_resumo.valor_previsto,
+        });
+      } else if (sugestaoOriginal === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_resumo) {
+        lanc.lancamentos_atrasados_resumo.forEach((atr) => {
+          if (atr.id) {
+            initialAlocacoes.push({
+              lancamento_id: atr.id,
+              valor_alocado: atr.valor_previsto,
+              tipo_baixa: 'PRINCIPAL',
+              descricao: atr.descricao,
+              data_vencimento: atr.data_vencimento,
+              valor_previsto: atr.valor_previsto,
+            });
+          }
+        });
+      }
+
       return {
         ...lanc,
         plano_contas_id,
@@ -973,8 +1219,9 @@ export function ImportacaoOfx() {
         interessado_sugerido: entidadeSugestaoTexto,
         sugestao_acao_original: sugestaoOriginal,
         sugestao_acao: lanc.sugestao_acao || sugestaoOriginal,
-        lancamentos_atrasados_relacionados: [],
+        lancamentos_atrasados_relacionados: sugestaoOriginal === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_ids ? lanc.lancamentos_atrasados_ids : [],
         sugestao_confirmada: false,
+        alocacoes: initialAlocacoes,
       } as LancamentoEditado;
     });
 
@@ -1303,6 +1550,23 @@ export function ImportacaoOfx() {
         </div>
       )}
 
+      {resultado?.gap_detectado && (
+        <div className="flex items-start gap-4 rounded-3xl border border-amber-200 bg-amber-50/50 p-6 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200 shadow-sm">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+          <div className="space-y-1">
+            <h4 className="text-base font-black tracking-tight">Intervalo de Extrato Ausente (Gap de Datas)</h4>
+            <p className="text-slate-600 dark:text-slate-300">
+              Detectamos um intervalo de <span className="font-extrabold text-amber-700 dark:text-amber-300">{resultado.gap_dias} dia(s)</span> sem conciliação bancária entre o último movimento importado (<span className="font-bold">{formatDate(resultado.gap_data_ultimo)}</span>) e o início deste arquivo (<span className="font-bold">{formatDate(resultado.gap_data_inicio_arquivo)}</span>).
+            </p>
+            <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+              Recomenda-se importar o extrato do período ausente antes de prosseguir para garantir a consistência do saldo e evitar travas.
+            </p>
+          </div>
+        </div>
+      )}
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Destino</p>
@@ -1510,10 +1774,36 @@ export function ImportacaoOfx() {
                             <button
                               type="button"
                               onClick={() => {
+                                const originalSug = lanc.sugestao_acao_original;
+                                const originalAloc: AlocacaoItemUI[] = [];
+                                if (originalSug === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_id && lanc.lancamento_previsto_resumo) {
+                                  originalAloc.push({
+                                    lancamento_id: lanc.lancamento_previsto_id,
+                                    valor_alocado: Math.abs(lanc.valor),
+                                    tipo_baixa: 'PRINCIPAL',
+                                    descricao: lanc.lancamento_previsto_resumo.descricao,
+                                    data_vencimento: lanc.lancamento_previsto_resumo.data_vencimento,
+                                    valor_previsto: lanc.lancamento_previsto_resumo.valor_previsto,
+                                  });
+                                } else if (originalSug === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_resumo) {
+                                  lanc.lancamentos_atrasados_resumo.forEach(atr => {
+                                    if (atr.id) {
+                                      originalAloc.push({
+                                        lancamento_id: atr.id,
+                                        valor_alocado: atr.valor_previsto,
+                                        tipo_baixa: 'PRINCIPAL',
+                                        descricao: atr.descricao,
+                                        data_vencimento: atr.data_vencimento,
+                                        valor_previsto: atr.valor_previsto,
+                                      });
+                                    }
+                                  });
+                                }
                                 updateLancamento(lanc.linha_arquivo, {
-                                  sugestao_acao: lanc.sugestao_acao_original,
-                                  lancamentos_atrasados_relacionados: [],
+                                  sugestao_acao: originalSug,
+                                  lancamentos_atrasados_relacionados: originalSug === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_ids ? lanc.lancamentos_atrasados_ids : [],
                                   sugestao_confirmada: false,
+                                  alocacoes: originalAloc,
                                 });
                                 scrollCardIntoView(lanc.linha_arquivo);
                               }}
@@ -1525,7 +1815,7 @@ export function ImportacaoOfx() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', lancamentos_atrasados_relacionados: [] });
+                                  updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', lancamentos_atrasados_relacionados: [], alocacoes: [] });
                                   scrollCardIntoView(lanc.linha_arquivo);
                                 }}
                                 className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-lime-300 bg-lime-50 text-lime-800 dark:border-lime-800 dark:bg-lime-950/35 dark:text-lime-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
@@ -1540,7 +1830,7 @@ export function ImportacaoOfx() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'RELACIONAR_ATRASADOS', sugestao_confirmada: false });
+                                  updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'RELACIONAR_ATRASADOS', sugestao_confirmada: false, lancamentos_atrasados_relacionados: [], alocacoes: [] });
                                   abrirBuscaDisponiveis(lanc);
                                   scrollCardIntoView(lanc.linha_arquivo);
                                 }}
@@ -1553,7 +1843,7 @@ export function ImportacaoOfx() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', lancamentos_atrasados_relacionados: [] });
+                                  updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'CRIAR_NOVO', lancamentos_atrasados_relacionados: [], alocacoes: [] });
                                   scrollCardIntoView(lanc.linha_arquivo);
                                 }}
                                 className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] transition ${lanc.sugestao_acao === 'CRIAR_NOVO' ? 'border-lime-300 bg-lime-50 text-lime-800 dark:border-lime-800 dark:bg-lime-950/35 dark:text-lime-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
@@ -1564,7 +1854,7 @@ export function ImportacaoOfx() {
                             <button
                               type="button"
                               onClick={() => {
-                                updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'DESCARTAR', lancamentos_atrasados_relacionados: [] });
+                                updateLancamento(lanc.linha_arquivo, { sugestao_acao: 'DESCARTAR', lancamentos_atrasados_relacionados: [], alocacoes: [] });
                                 scrollCardIntoView(lanc.linha_arquivo);
                               }}
                               className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
@@ -1608,7 +1898,333 @@ export function ImportacaoOfx() {
 
 
 
-                  {lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' && (
+                  {modoImportacao === 'CONTA' && (lanc.sugestao_acao === 'BAIXAR_PREVISTO' || lanc.sugestao_acao === 'RELACIONAR_ATRASADOS') && (
+                    <div className="mt-4 rounded-[24px] border border-slate-200 bg-slate-50/50 p-5 dark:border-slate-800 dark:bg-slate-950/30 backdrop-blur-sm space-y-4">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Alocações / Liquidação Financeira</p>
+                        <p className="mt-1 text-xs text-slate-500">Especifique o valor alocado e o tipo de baixa para cada título.</p>
+                      </div>
+
+                      {(() => {
+                        const currentAlocs = lanc.alocacoes || [];
+                        let displayedAlocs = currentAlocs;
+                        if (displayedAlocs.length === 0) {
+                          if (lanc.sugestao_acao === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_id) {
+                            displayedAlocs = [{
+                              lancamento_id: lanc.lancamento_previsto_id,
+                              valor_alocado: Math.abs(lanc.valor),
+                              tipo_baixa: 'PRINCIPAL',
+                              descricao: lanc.lancamento_previsto_resumo?.descricao,
+                              data_vencimento: lanc.lancamento_previsto_resumo?.data_vencimento,
+                              valor_previsto: lanc.lancamento_previsto_resumo?.valor_previsto,
+                            }];
+                          } else if (lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_relacionados) {
+                            displayedAlocs = lanc.lancamentos_atrasados_relacionados.map((id) => {
+                              const res = lanc.lancamentos_atrasados_resumo?.find((r) => r.id === id);
+                              return {
+                                lancamento_id: id,
+                                valor_alocado: res?.valor_previsto ?? Math.abs(lanc.valor),
+                                tipo_baixa: 'PRINCIPAL',
+                                descricao: res?.descricao,
+                                data_vencimento: res?.data_vencimento,
+                                valor_previsto: res?.valor_previsto,
+                              };
+                            });
+                          }
+                        }
+
+                        const handleUpdateAloc = (alocId: number, patch: Partial<AlocacaoItemUI>) => {
+                          const nextAlocs = displayedAlocs.map((a) => {
+                            if (a.lancamento_id === alocId) {
+                              return { ...a, ...patch };
+                            }
+                            return a;
+                          });
+                          updateLancamento(lanc.linha_arquivo, { alocacoes: nextAlocs });
+                        };
+
+                        const handleRemoveAloc = (alocId: number) => {
+                          const nextAlocs = displayedAlocs.filter((a) => a.lancamento_id !== alocId);
+                          const nextAtrasados = (lanc.lancamentos_atrasados_relacionados || []).filter((id) => id !== alocId);
+                          const nextResumo = (lanc.lancamentos_atrasados_resumo || []).filter((r) => r.id !== alocId);
+                          const nextPrevistoId = lanc.lancamento_previsto_id === alocId ? null : lanc.lancamento_previsto_id;
+                          const nextPrevistoResumo = lanc.lancamento_previsto_id === alocId ? null : lanc.lancamento_previsto_resumo;
+                          
+                          updateLancamento(lanc.linha_arquivo, {
+                            alocacoes: nextAlocs,
+                            lancamentos_atrasados_relacionados: nextAtrasados,
+                            lancamentos_atrasados_resumo: nextResumo,
+                            lancamento_previsto_id: nextPrevistoId,
+                            lancamento_previsto_resumo: nextPrevistoResumo,
+                          });
+                        };
+
+                        let totalAlocado = 0;
+                        displayedAlocs.forEach((aloc) => {
+                          const val = Number(aloc.valor_alocado || 0);
+                          if (aloc.tipo_baixa === 'DESCONTO') {
+                            totalAlocado -= val;
+                          } else {
+                            totalAlocado += val;
+                          }
+                        });
+                        const diffVal = Number((Math.abs(lanc.valor) - totalAlocado).toFixed(2));
+
+                        return (
+                          <div className="space-y-3">
+                            {displayedAlocs.length === 0 ? (
+                              <p className="text-xs italic text-slate-500 py-2">Nenhum lançamento alocado. Selecione lançamentos na busca abaixo.</p>
+                            ) : (
+                              displayedAlocs.map((aloc) => (
+                                <div key={aloc.lancamento_id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/60 md:flex-row md:items-center md:justify-between">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="font-bold text-slate-900 dark:text-white truncate">{aloc.descricao || `Lançamento #${aloc.lancamento_id}`}</p>
+                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                      <span>Vence em {formatDate(aloc.data_vencimento)}</span>
+                                      <span>•</span>
+                                      <span>Previsto: {formatCurrency(aloc.valor_previsto || 0)}</span>
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="flex flex-wrap items-center gap-3 shrink-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-bold text-slate-500 uppercase">R$</span>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={aloc.valor_alocado}
+                                        onChange={(e) => handleUpdateAloc(aloc.lancamento_id, { valor_alocado: Number(e.target.value) })}
+                                        className="w-28 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                                      />
+                                    </div>
+                                    
+                                    <select
+                                      value={aloc.tipo_baixa}
+                                      onChange={(e) => handleUpdateAloc(aloc.lancamento_id, { tipo_baixa: e.target.value as any })}
+                                      className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                    >
+                                      <option value="PRINCIPAL">Principal</option>
+                                      <option value="JUROS">Juros</option>
+                                      <option value="MULTA">Multa</option>
+                                      <option value="DESCONTO">Desconto</option>
+                                    </select>
+                                    
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveAloc(aloc.lancamento_id)}
+                                      className="rounded-xl p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition"
+                                      title="Remover alocação"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+
+                            {/* Totalizer */}
+                            <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-200/60 pt-4 dark:border-slate-800/40">
+                              <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                                <span>Movimento: <strong className="text-slate-900 dark:text-white">{formatCurrency(Math.abs(lanc.valor))}</strong></span>
+                                <span>Alocado: <strong className="text-slate-900 dark:text-white">{formatCurrency(totalAlocado)}</strong></span>
+                              </div>
+                              
+                              <div>
+                                {diffVal === 0 ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                    <Check className="h-3 w-3" />
+                                    Alocação completa (Trava de Ouro OK)
+                                  </span>
+                                ) : (
+                                  <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${diffVal > 0 ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300'}`}>
+                                    <AlertTriangle className="h-3 w-3" />
+                                    {diffVal > 0 ? `Falta alocar: ${formatCurrency(diffVal)}` : `Excedido em: ${formatCurrency(Math.abs(diffVal))}`}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Checklist search trigger / available launches */}
+                            <div className="mt-4 border-t border-slate-200/60 pt-4 dark:border-slate-800/40">
+                              {buscaDisponiveis.linhaArquivo === lanc.linha_arquivo ? (
+                                <div className="space-y-4">
+                                  <div className="grid gap-3 p-3 rounded-2xl bg-amber-100/30 dark:bg-slate-900/30 border border-amber-200/30 dark:border-slate-800">
+                                    <div className="flex flex-col md:flex-row md:items-end gap-3">
+                                      <div className="flex-1">
+                                        <label className="block text-xs font-bold uppercase tracking-[0.16em] text-slate-500 mb-1">Filtrar descrição / interessado</label>
+                                        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950">
+                                          <Search className="h-4 w-4 text-slate-400" />
+                                          <input
+                                            value={buscaDisponiveis.termo}
+                                            onChange={(event) => setBuscaDisponiveis((prev) => ({ ...prev, termo: event.target.value }))}
+                                            placeholder="Ex: Nome, NF, descrição..."
+                                            className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400 text-slate-800 dark:text-white"
+                                          />
+                                        </div>
+                                      </div>
+
+                                      <div className="w-full md:w-64">
+                                        <label className="block text-xs font-bold uppercase tracking-[0.16em] text-slate-500 mb-1">Centro de custo</label>
+                                        <select
+                                          value={buscaDisponiveis.centroCustoId ?? ''}
+                                          onChange={(event) => {
+                                            const centroId = event.target.value ? Number(event.target.value) : null;
+                                            setBuscaDisponiveis((prev) => ({ ...prev, centroCustoId: centroId }));
+                                            carregarLancamentosDisponiveis(lanc, buscaDisponiveis.incluirFuturos, centroId);
+                                          }}
+                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+                                        >
+                                          <option value="">Sem centro de custo</option>
+                                          {centrosCusto.map((centro) => (
+                                            <option key={centro.id} value={centro.id}>
+                                              {centro.nome}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+
+                                      <div className="flex items-center">
+                                        <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 transition">
+                                          <input
+                                            type="checkbox"
+                                            checked={buscaDisponiveis.incluirFuturos}
+                                            onChange={(event) => {
+                                              const incluir = event.target.checked;
+                                              setBuscaDisponiveis((prev) => ({ ...prev, incluirFuturos: incluir }));
+                                              carregarLancamentosDisponiveis(lanc, incluir, buscaDisponiveis.centroCustoId);
+                                            }}
+                                          />
+                                          Incluir futuros
+                                        </label>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                                    {buscaDisponiveis.loading ? (
+                                      <div className="flex items-center gap-2 py-4 text-sm text-slate-500">
+                                        <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                                        Buscando lançamentos...
+                                      </div>
+                                    ) : itensExibidos.length === 0 ? (
+                                      <p className="text-sm text-slate-500 italic py-2">Nenhum lançamento encontrado para os filtros informados.</p>
+                                    ) : (
+                                      itensExibidos.map((atrasado) => {
+                                        const atrId = atrasado.id;
+                                        const marcado = atrId != null && displayedAlocs.some((a) => a.lancamento_id === atrId);
+                                        const outros = atrId ? obterOutrosLancamentosComSelecao(atrId, lanc.linha_arquivo) : [];
+                                        const selecionadoEmOutro = outros.length > 0;
+
+                                        return (
+                                          <label
+                                            key={`candidate-${lanc.linha_arquivo}-${atrId}`}
+                                            className={`flex items-start gap-3 rounded-2xl border p-3 bg-white/80 dark:bg-slate-900/60 transition cursor-pointer ${selecionadoEmOutro ? 'border-rose-200 hover:bg-rose-50/10 dark:border-rose-950/40' : marcado ? 'border-emerald-300 bg-emerald-50/30' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50/50'}`}
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={marcado}
+                                              className="mt-1"
+                                              onChange={(e) => {
+                                                if (!atrId) return;
+                                                if (e.target.checked && selecionadoEmOutro) {
+                                                  setTransferenciaConfirmacao({
+                                                    linhaArquivo: lanc.linha_arquivo,
+                                                    atrasoId: atrId,
+                                                    atrasado,
+                                                    outrasLinhas: outros.map((o) => o.linha_arquivo),
+                                                  });
+                                                } else {
+                                                  const proximoIds = e.target.checked
+                                                    ? [...(lanc.lancamentos_atrasados_relacionados || []), atrId]
+                                                    : (lanc.lancamentos_atrasados_relacionados || []).filter((id) => id !== atrId);
+                                                  
+                                                  const res = 'score' in atrasado ? (atrasado as RelacionamentoResumo) : mapDisponivelToResumo(atrasado as LancamentoDisponivel, 'Selecionado manualmente');
+                                                  const proximoResumos = e.target.checked
+                                                    ? [...(lanc.lancamentos_atrasados_resumo || []), res]
+                                                    : (lanc.lancamentos_atrasados_resumo || []).filter((r) => r.id !== atrId);
+
+                                                  const proximoAlocs = e.target.checked
+                                                    ? [
+                                                        ...currentAlocs,
+                                                        {
+                                                          lancamento_id: atrId,
+                                                          valor_alocado: res.valor_previsto,
+                                                          tipo_baixa: 'PRINCIPAL' as const,
+                                                          descricao: res.descricao,
+                                                          data_vencimento: res.data_vencimento,
+                                                          valor_previsto: res.valor_previsto,
+                                                        }
+                                                      ]
+                                                    : currentAlocs.filter((a) => a.lancamento_id !== atrId);
+
+                                                  updateLancamento(lanc.linha_arquivo, {
+                                                    lancamentos_atrasados_relacionados: proximoIds,
+                                                    lancamentos_atrasados_resumo: proximoResumos,
+                                                    alocacoes: proximoAlocs,
+                                                  });
+                                                }
+                                              }}
+                                            />
+                                            
+                                            <div className="flex flex-1 items-start justify-between gap-4 min-w-0">
+                                              <div className="min-w-0 flex-1">
+                                                {atrasado.interessado && <p className="text-xs font-bold text-slate-950 dark:text-white">Interessado: {atrasado.interessado}</p>}
+                                                <p className="font-bold text-slate-900 dark:text-white break-words">{atrasado.descricao}</p>
+                                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                                  <span>Vence em {formatDate(atrasado.data_vencimento)}</span>
+                                                </div>
+                                                {selecionadoEmOutro && (
+                                                  <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-400">
+                                                    Selecionado em outra movimentação.
+                                                  </p>
+                                                )}
+                                              </div>
+                                              <div className="text-right shrink-0">
+                                                <p className="text-sm font-black text-slate-900 dark:text-white">{formatCurrency('valor_previsto' in atrasado ? (atrasado as any).valor_previsto : (atrasado as any).valor)}</p>
+                                              </div>
+                                            </div>
+                                          </label>
+                                        );
+                                      })
+                                    )}
+                                  </div>
+
+                                  <div className="flex justify-end gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-800/40">
+                                    {itensDisponiveisFiltrados.length > limiteResultados && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setLimiteResultados((prev) => prev + 15)}
+                                        className="rounded-full bg-emerald-500 hover:bg-emerald-600 px-4 py-1 text-[11px] font-bold uppercase tracking-wider text-slate-950"
+                                      >
+                                        Carregar mais (+15)
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={fecharBuscaDisponiveis}
+                                      className="rounded-full border border-slate-300 bg-white hover:bg-slate-100 px-4 py-1 text-[11px] font-bold uppercase tracking-wider text-slate-700"
+                                    >
+                                      Recolher busca
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => abrirBuscaDisponiveis(lanc)}
+                                  className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:text-emerald-700 transition"
+                                >
+                                  + Buscar e vincular outros lançamentos previstos
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {modoImportacao === 'CARTAO' && lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' && (
                     <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
                       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between border-b border-amber-200/40 pb-3 mb-3">
                         <div>
@@ -2006,21 +2622,18 @@ export function ImportacaoOfx() {
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Resumo para confirmação</p>
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{lancamentosEditados.length} item(ns) analisados. {resumo.semCategoria === 0 ? 'Os novos lançamentos já têm categoria.' : `${resumo.semCategoria} novo(s) ainda exigem categoria.`}</p>
                 </div>
-                {modoImportacao === 'CONTA' && (
-                  <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-amber-600 dark:text-amber-400 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={ignorarDivergencia}
-                      onChange={(e) => setIgnorarDivergencia(e.target.checked)}
-                      className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-700 dark:bg-slate-800"
-                    />
-                    Ignorar divergência de saldo se houver
-                  </label>
+                {modoImportacao === 'CONTA' && !todasTravaDeOuroValidas && (
+                  <div className="flex flex-wrap items-center gap-4">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 px-3 py-1 rounded-xl border border-rose-200 dark:border-rose-900/50">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Divergência matemática ativa (Trava de Ouro pendente)
+                    </span>
+                  </div>
                 )}
               </div>
               <button
                 onClick={handleConfirmar}
-                disabled={confirming || !resultado || resultado.lancamentos.length === 0}
+                disabled={confirming || !resultado || resultado.lancamentos.length === 0 || !todasTravaDeOuroValidas}
                 className="flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
               >
                 {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}

@@ -73,6 +73,8 @@ class ContaSaldoMovimentoOut(BaseModel):
     centro_custo_id: Optional[int] = None
     cartao_id: Optional[int] = None
     cartao_nome: Optional[str] = None
+    has_lote_card: bool = False
+
 
 
 class ContaSaldoDetalheOut(BaseModel):
@@ -305,6 +307,16 @@ def saldo_detalhe_conta(
         .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).asc(), Lancamento.id.asc())
     ).all()
 
+    movimento_ids = [m.id for m in movimentos if m.id is not None]
+    lotes_existentes = set()
+    if movimento_ids:
+        from app.models.lote_cartao import LoteCartao
+        lotes_query = select(LoteCartao.lancamento_deposito_id).where(
+            LoteCartao.lancamento_deposito_id.in_(movimento_ids),
+            LoteCartao.empresa_id == empresa_id
+        )
+        lotes_existentes = {val for val in db.exec(lotes_query).all() if val is not None}
+
     total_entradas = Decimal("0.00")
     total_saidas = Decimal("0.00")
     movimentos_out: List[ContaSaldoMovimentoOut] = []
@@ -351,8 +363,10 @@ def saldo_detalhe_conta(
                 centro_custo_id=movimento.centro_custo_id,
                 cartao_id=movimento.cartao_id,
                 cartao_nome=movimento.cartao.nome_cartao if movimento.cartao else None,
+                has_lote_card=movimento.id in lotes_existentes,
             )
         )
+
 
     movimentos_out.reverse()
 

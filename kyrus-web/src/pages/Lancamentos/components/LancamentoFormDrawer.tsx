@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X,
   Copy,
@@ -15,109 +15,134 @@ import {
   FileSpreadsheet,
   Presentation,
   FileText,
+  ArrowRightLeft,
+  Lock,
+  CheckCircle2,
+  AlertCircle,
+  Info,
 } from 'lucide-react';
 import { SearchableSelect } from '../../../components/SearchableSelect';
 import { BankAvatar } from '../../../components/BrandAvatar';
-import { toPublicAssetUrl } from '../../../services/api';
+import { toPublicAssetUrl, api, normalizeListResponse } from '../../../services/api';
 import { InputDark, CurrencyInputDark, ToggleSimNao } from './InputDark';
-import type { Lancamento, Anexo } from '../types';
+import type { Lancamento, Anexo, ToastItem } from '../types';
 import {
   computeCartaoVencimento,
   parseDescricaoParcela,
   resolveAnexoUrl,
+  formatDateShort,
+  formatCompetencia,
+  getTodayLocalYmd,
+  getLocalYmdDaysAgo,
+  toNextBusinessDay,
 } from '../utils';
+import { useLookupStore } from '../../../store/lookupStore';
+import { QuickEntityDrawer } from './QuickEntityDrawer';
 
 interface LancamentoFormDrawerProps {
   showDrawer: boolean;
-  isBoletimEmbed: boolean;
-  embedFullscreenDrawer: boolean;
+  onClose: () => void;
+  editarId?: number | null;
+  contaId?: number | null;
+  cartaoId?: number | null;
+  onSaveSuccess?: () => void;
+  isBoletimEmbed?: boolean;
+  embedFullscreenDrawer?: boolean;
   drawerPanelClassName?: string;
-  isEditing: boolean;
-  setIsEditing: (val: boolean) => void;
-  saving: boolean;
-  formData: any;
-  setFormData: React.Dispatch<React.SetStateAction<any>>;
-  filesToUpload: FileList | null;
-  setFilesToUpload: (files: FileList | null) => void;
-  hasUnsavedDrawerChanges: boolean;
-  parcelasSerie: Lancamento[];
-  parcelasSerieLoading: boolean;
-  parcelasVencimentosEdit: Record<number, string>;
-  setParcelasVencimentosEdit: React.Dispatch<React.SetStateAction<Record<number, string>>>;
-  ajustarParaDiaUtil: boolean;
-  setAjustarParaDiaUtil: (val: boolean) => void;
-  showParcelasSeriePanel: boolean;
-  categorias: any[];
-  entidades: any[];
-  contas: any[];
-  cartoes: any[];
-  centros: any[];
-  lancamentos: Lancamento[];
-  openEntityDrawer: () => void;
-  requestCloseDrawer: () => void;
-  handleSave: (e?: React.FormEvent) => void;
-  handleVerTodasParcelas: () => void;
-  handleSelecionarParcelaSerie: (item: Lancamento) => void;
-  handleRemoverAnexo: (anexo: Anexo) => void;
-  pushToast: (type: 'success' | 'error' | 'info', message: string) => void;
-  toggleConta: (id: number) => void;
-  toggleCartao: (id: number) => void;
-  handleVencimentoChange: (value: string) => void;
-  handleCompetenciaChange: (value: string) => void;
-  handleStatusPagoChange: (checked: boolean) => void;
-  handleValorPrevistoChange: (value: string) => void;
-  handleValorPagoChange: (value: string) => void;
-  handleDataPagamentoChange: (value: string) => void;
+  // Opcionais para injetar lookups externamente:
+  categorias?: any[];
+  entidades?: any[];
+  contas?: any[];
+  cartoes?: any[];
+  centros?: any[];
+  pushToast?: (type: 'success' | 'error' | 'info', message: string) => void;
   isCaixaMode?: boolean;
+  lancamentos?: Lancamento[];
 }
 
 export const LancamentoFormDrawer = ({
   showDrawer,
-  isBoletimEmbed,
-  embedFullscreenDrawer,
+  onClose,
+  editarId = null,
+  contaId = null,
+  cartaoId = null,
+  onSaveSuccess,
+  isBoletimEmbed = false,
+  embedFullscreenDrawer = false,
   drawerPanelClassName,
-  isEditing,
-  setIsEditing,
-  saving,
-  formData,
-  setFormData,
-  filesToUpload,
-  setFilesToUpload,
-  hasUnsavedDrawerChanges,
-  parcelasSerie,
-  parcelasSerieLoading,
-  parcelasVencimentosEdit,
-  setParcelasVencimentosEdit,
-  ajustarParaDiaUtil,
-  setAjustarParaDiaUtil,
-  showParcelasSeriePanel,
-  categorias,
-  entidades,
-  contas,
-  cartoes,
-  centros,
-  lancamentos,
-  openEntityDrawer,
-  requestCloseDrawer,
-  handleSave,
-  handleVerTodasParcelas,
-  handleSelecionarParcelaSerie,
-  handleRemoverAnexo,
-  pushToast,
-  toggleConta,
-  toggleCartao,
-  handleVencimentoChange,
-  handleCompetenciaChange,
-  handleStatusPagoChange,
-  handleValorPrevistoChange,
-  handleValorPagoChange,
-  handleDataPagamentoChange,
+  categorias: categoriasProp,
+  entidades: entidadesProp,
+  contas: contasProp,
+  cartoes: cartoesProp,
+  centros: centrosProp,
+  pushToast: pushToastProp,
   isCaixaMode = false,
+  lancamentos,
 }: LancamentoFormDrawerProps) => {
-  const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-  const pagamentoSectionRef = useRef<HTMLDivElement | null>(null);
+  // --- ESTADOS INTERNOS ---
+  const [formData, setFormData] = useState<any>({
+    id: null,
+    descricao: '',
+    valor_previsto: '',
+    data_vencimento: '',
+    tipo: 'DESPESA',
+    plano_contas_id: '',
+    centro_custo_id: '',
+    entidade_id: '',
+    conta_id: '',
+    cartao_id: '',
+    status: 'PENDENTE',
+    valor_pago: '',
+    data_pagamento: '',
+    ipp: false,
+    previsto: false,
+    competencia: '',
+    observacao: '',
+    is_parcelado: false,
+    qtd_parcelas: 2,
+    modo_calculo: 'TOTAL',
+    competencia_modo_parcelamento: 'POR_PARCELA',
+    anexos: [],
+  });
 
-  const getFullLogoUrl = (url?: string | null) => toPublicAssetUrl(url);
+  const [saving, setSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [filesToUpload, setFilesToUpload] = useState<FileList | null>(null);
+  const [initialDrawerFormSnapshot, setInitialDrawerFormSnapshot] = useState('');
+  const [initialScopedFields, setInitialScopedFields] = useState({
+    descricao: '',
+    plano_contas_id: '',
+    data_vencimento: '',
+  });
+
+  const [parcelasSerie, setParcelasSerie] = useState<Lancamento[]>([]);
+  const [parcelasSerieLoading, setParcelasSerieLoading] = useState(false);
+  const [parcelasVencimentosEdit, setParcelasVencimentosEdit] = useState<Record<number, string>>({});
+  const [ajustarParaDiaUtil, setAjustarParaDiaUtil] = useState(false);
+  const [showParcelasSeriePanel, setShowParcelasSeriePanel] = useState(false);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [showEntityDrawer, setShowEntityDrawer] = useState(false);
+
+  // --- LOOKUPS INTERNOS ---
+  const [localCategorias, setLocalCategorias] = useState<any[]>([]);
+  const [localEntidades, setLocalEntidades] = useState<any[]>([]);
+  const [localContas, setLocalContas] = useState<any[]>([]);
+  const [localCartoes, setLocalCartoes] = useState<any[]>([]);
+  const [localCentros, setLocalCentros] = useState<any[]>([]);
+
+  const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
+  const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
+
+  const categorias = categoriasProp || localCategorias;
+  const entidades = entidadesProp || localEntidades;
+  const contas = contasProp || localContas;
+  const cartoes = cartoesProp || localCartoes;
+  const centros = centrosProp || localCentros;
+
+  const autoPagamentoRef = useRef(true);
+  const autoCompetenciaRef = useRef(true);
+  const pagamentoSectionRef = useRef<HTMLDivElement | null>(null);
+  const [desconciliando, setDesconciliando] = useState(false);
 
   const sortedParcelasSerie = useMemo(() => {
     return [...parcelasSerie].sort((a, b) => {
@@ -159,6 +184,704 @@ export const LancamentoFormDrawer = ({
   }, [isEditing, formData?.id_parcelamento, formData?.numero_parcela, formData?.descricao]);
 
   const shouldShowParcelasSerie = !isBoletimEmbed && (isEditingParcelado || showParcelasSeriePanel);
+
+  const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  const pushToast = (type: 'success' | 'error' | 'info', message: string) => {
+    if (pushToastProp) {
+      pushToastProp(type, message);
+      return;
+    }
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts((prev) => [...prev, { id, type, message }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 3500);
+  };
+
+  const buildDrawerFormSnapshot = (data: any) =>
+    JSON.stringify({
+      id: data.id || null,
+      descricao: data.descricao || '',
+      valor_previsto: String(data.valor_previsto || ''),
+      data_vencimento: data.data_vencimento || '',
+      tipo: data.tipo || 'DESPESA',
+      plano_contas_id: String(data.plano_contas_id || ''),
+      centro_custo_id: String(data.centro_custo_id || ''),
+      entidade_id: String(data.entidade_id || ''),
+      conta_id: String(data.conta_id || ''),
+      cartao_id: String(data.cartao_id || ''),
+      status: data.status || 'PENDENTE',
+      valor_pago: String(data.valor_pago || ''),
+      data_pagamento: data.data_pagamento || '',
+      previsto: data.previsto ?? false,
+      competencia: data.competencia || '',
+      observacao: data.observacao || '',
+      is_parcelado: Boolean(data.is_parcelado),
+      qtd_parcelas: Number(data.qtd_parcelas || 2),
+      modo_calculo: data.modo_calculo || 'TOTAL',
+      competencia_modo_parcelamento: data.competencia_modo_parcelamento || 'POR_PARCELA',
+    });
+
+  const loadLookups = async () => {
+    try {
+      const promises = [];
+      if (!categoriasProp || categoriasProp.length === 0) {
+        promises.push(fetchPlanoContas().then((data) => setLocalCategorias(normalizeListResponse(data))));
+      }
+      if (!entidadesProp || entidadesProp.length === 0) {
+        promises.push(fetchEntidadesLookup().then((data) => setLocalEntidades(normalizeListResponse(data))));
+      }
+      if (!contasProp || contasProp.length === 0) {
+        promises.push(api.get('/contas/', { params: { include_saldo: true } }).then((res) => setLocalContas(normalizeListResponse(res.data))));
+      }
+      if (!cartoesProp || cartoesProp.length === 0) {
+        promises.push(api.get('/cartoes/').then((res) => setLocalCartoes(normalizeListResponse(res.data))));
+      }
+      if (!centrosProp || centrosProp.length === 0) {
+        promises.push(api.get('/centro-custo/').then((res) => setLocalCentros(normalizeListResponse(res.data))));
+      }
+      await Promise.all(promises);
+    } catch (error) {
+      console.error('Erro ao carregar lookups do formulário:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (showDrawer) {
+      void loadLookups();
+    }
+  }, [showDrawer, categoriasProp, entidadesProp, contasProp, cartoesProp, centrosProp]);
+
+  const loadParcelasSerie = async (parcelamentoId?: string, referencia?: Lancamento) => {
+    if (!parcelamentoId) {
+      const ref = referencia || (formData as Lancamento | undefined);
+      const parsedRef = parseDescricaoParcela(ref?.descricao);
+      if (!parsedRef) {
+        setParcelasSerie([]);
+        setParcelasVencimentosEdit({});
+        return;
+      }
+
+      const buildSerieFromDataset = (dataset: Lancamento[]) => {
+        const similares = (dataset || [])
+          .filter((item) => {
+            const parsedItem = parseDescricaoParcela(item.descricao);
+            if (!parsedItem) return false;
+            if (parsedItem.base !== parsedRef.base || parsedItem.total !== parsedRef.total) return false;
+            if (String(item.tipo || '') !== String(ref?.tipo || '')) return false;
+            if (Number(item.plano_contas_id || 0) !== Number(ref?.plano_contas_id || 0)) return false;
+
+            const contaRef = Number(ref?.conta_id || 0);
+            const contaItem = Number(item.conta_id || 0);
+            const cartaoRef = Number(ref?.cartao_id || 0);
+            const cartaoItem = Number(item.cartao_id || 0);
+
+            if (contaRef && contaItem && contaRef !== contaItem) return false;
+            if (cartaoRef && cartaoItem && cartaoRef !== cartaoItem) return false;
+            return true;
+          })
+          .map((item) => {
+            const parsedItem = parseDescricaoParcela(item.descricao);
+            return {
+              ...item,
+              numero_parcela: item.numero_parcela || parsedItem?.numero,
+            };
+          });
+
+        return ref && !similares.some((item) => Number(item.id) === Number(ref.id))
+          ? [...similares, { ...ref, numero_parcela: ref.numero_parcela || parsedRef.numero }]
+          : similares;
+      };
+
+      setParcelasSerieLoading(true);
+      try {
+        const refYear = Number(String(ref?.data_vencimento || '').slice(0, 4)) || new Date().getFullYear();
+        const res = await api.get('/lancamentos/', {
+          params: {
+            data_inicio: `${refYear - 2}-01-01`,
+            data_fim: `${refYear + 2}-12-31`,
+          },
+        });
+        const rows = normalizeListResponse<Lancamento>(res.data);
+        const withRef = buildSerieFromDataset(rows);
+        setParcelasSerie(withRef);
+        setParcelasVencimentosEdit(
+          withRef.reduce((acc: Record<number, string>, item: Lancamento) => {
+            acc[item.id] = item.data_vencimento;
+            return acc;
+          }, {})
+        );
+      } catch {
+        // Fallback
+      } finally {
+        setParcelasSerieLoading(false);
+      }
+      return;
+    }
+    setParcelasSerieLoading(true);
+    try {
+      const res = await api.get(`/lancamentos/parcelamento/${parcelamentoId}`);
+      const serie = Array.isArray(res.data) ? res.data : [];
+      setParcelasSerie(serie);
+      setParcelasVencimentosEdit(
+        serie.reduce((acc: Record<number, string>, item: Lancamento) => {
+          acc[item.id] = item.data_vencimento;
+          return acc;
+        }, {})
+      );
+    } catch {
+      setParcelasSerie([]);
+      setParcelasVencimentosEdit({});
+      pushToast('error', 'Não foi possível carregar as parcelas desta série.');
+    } finally {
+      setParcelasSerieLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showDrawer) return;
+
+    if (editarId) {
+      setIsEditing(true);
+      autoPagamentoRef.current = false;
+      autoCompetenciaRef.current = false;
+
+      const fetchLancamentoDetails = async () => {
+        try {
+          const res = await api.get(`/lancamentos/${editarId}`);
+          const l = res.data;
+          if (l) {
+            autoPagamentoRef.current = !l.data_pagamento;
+            autoCompetenciaRef.current = !l.competencia;
+            const nextFormData: any = {
+              ...l,
+              data_vencimento: l.cartao_id ? (l.data_competencia || l.data_vencimento) : l.data_vencimento,
+              conta_id: l.conta_id || '',
+              cartao_id: l.cartao_id || '',
+              centro_custo_id: l.centro_custo_id || '',
+              entidade_id: l.entidade_id || '',
+              plano_contas_id: l.plano_contas_id,
+              valor_previsto: l.valor_previsto,
+              valor_pago: l.valor_pago || l.valor_previsto,
+              data_pagamento: l.data_pagamento || l.data_vencimento,
+              previsto: l.previsto ?? true,
+              observacao: l.observacao || '',
+              competencia: l.competencia || formatCompetencia(l.data_competencia || l.data_vencimento),
+              competencia_modo_parcelamento: 'POR_PARCELA',
+              baixas: l.baixas || [],
+            };
+            setFormData(nextFormData);
+            setInitialScopedFields({
+              descricao: String(l.descricao || ''),
+              plano_contas_id: String(l.plano_contas_id || ''),
+              data_vencimento: String(l.data_vencimento || ''),
+            });
+            setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(nextFormData));
+            setFilesToUpload(null);
+            setAjustarParaDiaUtil(false);
+            setShowParcelasSeriePanel(false);
+
+            void loadParcelasSerie(l.id_parcelamento, l);
+          }
+        } catch (error) {
+          console.error('Erro ao buscar detalhes do lançamento:', error);
+          pushToast('error', 'Não foi possível carregar os detalhes do lançamento.');
+        }
+      };
+
+      void fetchLancamentoDetails();
+    } else {
+      setIsEditing(false);
+      autoPagamentoRef.current = true;
+      autoCompetenciaRef.current = true;
+      const todayStr = getTodayLocalYmd();
+      const defaultFormData: any = {
+        id: null,
+        descricao: '',
+        valor_previsto: '',
+        data_vencimento: todayStr,
+        tipo: 'DESPESA',
+        plano_contas_id: '',
+        centro_custo_id: '',
+        entidade_id: '',
+        conta_id: contaId || '',
+        cartao_id: cartaoId || '',
+        status: 'PENDENTE',
+        valor_pago: '',
+        data_pagamento: todayStr,
+        ipp: false,
+        previsto: false,
+        observacao: '',
+        competencia: formatCompetencia(todayStr),
+        is_parcelado: false,
+        qtd_parcelas: 2,
+        modo_calculo: 'TOTAL',
+        competencia_modo_parcelamento: 'POR_PARCELA',
+        anexos: [],
+        baixas: [],
+      };
+      setFormData(defaultFormData);
+      setInitialScopedFields({ descricao: '', plano_contas_id: '', data_vencimento: '' });
+      setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(defaultFormData));
+      setFilesToUpload(null);
+      setParcelasSerie([]);
+      setParcelasVencimentosEdit({});
+      setAjustarParaDiaUtil(false);
+      setShowParcelasSeriePanel(false);
+    }
+  }, [showDrawer, editarId, contaId, cartaoId]);
+
+  useEffect(() => {
+    if (!editarId && !formData.id && centros.length === 1 && !formData.centro_custo_id) {
+      setFormData((prev: any) => ({ ...prev, centro_custo_id: String(centros[0].id) }));
+    }
+  }, [centros, editarId, formData.id]);
+
+  const closeDrawerDirect = () => {
+    onClose();
+    setInitialDrawerFormSnapshot('');
+    setFilesToUpload(null);
+    setParcelasSerie([]);
+    setParcelasVencimentosEdit({});
+    setAjustarParaDiaUtil(false);
+    setShowParcelasSeriePanel(false);
+    setInitialScopedFields({ descricao: '', plano_contas_id: '', data_vencimento: '' });
+  };
+
+  const requestCloseDrawer = async () => {
+    if (saving) return;
+    if (!hasUnsavedDrawerChanges) {
+      closeDrawerDirect();
+      return;
+    }
+    const shouldSave = window.confirm(
+      'Você alterou informações e ainda não salvou. Você deseja salvar a informação antes de sair?'
+    );
+    if (shouldSave) {
+      await handleSave();
+      return;
+    }
+    closeDrawerDirect();
+  };
+
+  const hasUnsavedDrawerChanges = useMemo(() => {
+    if (!showDrawer) return false;
+    if (!initialDrawerFormSnapshot) return false;
+    if (filesToUpload && filesToUpload.length > 0) return true;
+    return buildDrawerFormSnapshot(formData) !== initialDrawerFormSnapshot;
+  }, [showDrawer, initialDrawerFormSnapshot, formData, filesToUpload]);
+
+  const handleVerTodasParcelas = async () => {
+    if (!canOpenParcelasSerie) {
+      pushToast('info', 'Este lançamento não possui série de parcelamento identificada.');
+      return;
+    }
+    setShowParcelasSeriePanel(true);
+    await loadParcelasSerie(formData?.id_parcelamento, formData as Lancamento);
+  };
+
+  const handleSelecionarParcelaSerie = (item: Lancamento) => {
+    if (Number(item.id) === Number(formData?.id)) return;
+    autoPagamentoRef.current = !item.data_pagamento;
+    autoCompetenciaRef.current = !item.competencia;
+
+    const nextFormData: any = {
+      ...item,
+      data_vencimento: item.cartao_id ? (item.data_competencia || item.data_vencimento) : item.data_vencimento,
+      conta_id: item.conta_id || '',
+      cartao_id: item.cartao_id || '',
+      centro_custo_id: item.centro_custo_id || '',
+      entidade_id: item.entidade_id || '',
+      plano_contas_id: item.plano_contas_id,
+      valor_previsto: item.valor_previsto,
+      valor_pago: item.valor_pago || item.valor_previsto,
+      data_pagamento: item.data_pagamento || item.data_vencimento,
+      previsto: item.previsto ?? true,
+      observacao: item.observacao || '',
+      competencia: item.competencia || formatCompetencia(item.data_competencia || item.data_vencimento),
+      competencia_modo_parcelamento: 'POR_PARCELA',
+    };
+
+    setIsEditing(true);
+    setFormData(nextFormData);
+    setInitialScopedFields({
+      descricao: String(item.descricao || ''),
+      plano_contas_id: String(item.plano_contas_id || ''),
+      data_vencimento: String(item.data_vencimento || ''),
+    });
+    setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(nextFormData));
+    setShowParcelasSeriePanel(true);
+    setFilesToUpload(null);
+  };
+
+  const handleRemoverAnexo = async (anexo: Anexo) => {
+    if (!anexo?.id) return;
+
+    const ok = window.confirm(`Remover o anexo "${anexo.nome_arquivo}"?`);
+    if (!ok) return;
+
+    const lancamentoId = Number(formData?.id || 0);
+    if (!lancamentoId) {
+      setFormData((prev: any) => ({
+        ...prev,
+        anexos: (prev?.anexos || []).filter((item: Anexo) => Number(item.id) !== Number(anexo.id)),
+      }));
+      pushToast('success', 'Anexo removido do formulário.');
+      return;
+    }
+
+    try {
+      try {
+        await api.delete(`/lancamentos/${lancamentoId}/anexos/${anexo.id}`);
+      } catch {
+        await api.post(`/lancamentos/${lancamentoId}/anexos/${anexo.id}/delete`);
+      }
+
+      setFormData((prev: any) => {
+        const next = {
+          ...prev,
+          anexos: (prev?.anexos || []).filter((item: Anexo) => Number(item.id) !== Number(anexo.id)),
+        };
+        setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(next));
+        return next;
+      });
+
+      pushToast('success', 'Anexo removido com sucesso.');
+    } catch {
+      pushToast('error', 'Não foi possível remover o anexo.');
+    }
+  };
+
+  const toggleConta = (id: number) => {
+    setFormData((prev: any) => ({ ...prev, conta_id: prev.conta_id === id ? '' : id, cartao_id: '' }));
+  };
+
+  const toggleCartao = (id: number) => {
+    setFormData((prev: any) => ({ ...prev, cartao_id: prev.cartao_id === id ? '' : id, conta_id: '' }));
+  };
+
+  const handleVencimentoChange = (value: string) => {
+    setFormData((prev: any) => {
+      const next = { ...prev, data_vencimento: value };
+      const prevCompetencia = formatCompetencia(prev.data_vencimento);
+      const nextCompetencia = formatCompetencia(value);
+      if (autoCompetenciaRef.current || !prev.competencia || prev.competencia === prevCompetencia) {
+        next.competencia = nextCompetencia;
+        autoCompetenciaRef.current = true;
+      }
+      if (
+        prev.status === 'PAGO' &&
+        (autoPagamentoRef.current || !prev.data_pagamento || prev.data_pagamento === prev.data_vencimento)
+      ) {
+        next.data_pagamento = value;
+        autoPagamentoRef.current = true;
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (!formData?.id || !formData?.data_vencimento || sortedParcelasSerie.length === 0) return;
+    setParcelasVencimentosEdit((prev) => ({ ...prev, [formData.id]: formData.data_vencimento }));
+  }, [formData?.id, formData?.data_vencimento, sortedParcelasSerie.length]);
+
+  const handleCompetenciaChange = (value: string) => {
+    autoCompetenciaRef.current = false;
+    setFormData((prev: any) => ({ ...prev, competencia: value }));
+  };
+
+  const handleStatusPagoChange = (checked: boolean) => {
+    setFormData((prev: any) => {
+      const next = { ...prev, status: checked ? 'PAGO' : 'PENDENTE' };
+      if (checked && (autoPagamentoRef.current || !prev.data_pagamento)) {
+        next.data_pagamento = prev.data_vencimento;
+        autoPagamentoRef.current = true;
+      }
+      if (checked && (!prev.valor_pago || Number(prev.valor_pago) === 0)) {
+        next.valor_pago = prev.valor_previsto;
+      }
+      if (!checked) {
+        next.conta_id = '';
+      }
+      return next;
+    });
+  };
+
+  const handleValorPrevistoChange = (value: string) => {
+    setFormData((prev: any) => {
+      const next = { ...prev, valor_previsto: value };
+      const valorPagoAtual = Number(prev.valor_pago || 0);
+      const valorPrevistoAnterior = Number(prev.valor_previsto || 0);
+
+      if (prev.status === 'PAGO' && (!prev.valor_pago || valorPagoAtual === 0 || valorPagoAtual === valorPrevistoAnterior)) {
+        next.valor_pago = value;
+      }
+
+      return next;
+    });
+  };
+
+  const handleValorPagoChange = (value: string) => {
+    autoPagamentoRef.current = false;
+    setFormData((prev: any) => ({ ...prev, valor_pago: value }));
+  };
+
+  const handleDataPagamentoChange = (value: string) => {
+    autoPagamentoRef.current = false;
+    setFormData((prev: any) => ({ ...prev, data_pagamento: value }));
+  };
+
+  async function handleSave(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!formData.descricao || !formData.valor_previsto || !formData.plano_contas_id) {
+      pushToast('info', 'Preencha os campos obrigatórios.');
+      return;
+    }
+    if (!formData.entidade_id) {
+      pushToast('info', 'Interessado é obrigatório.');
+      return;
+    }
+    const isNovoLancamento = !formData.id;
+    const dataLimiteRetroativa = getLocalYmdDaysAgo(2);
+
+    if (isNovoLancamento) {
+      const dataBaseNovo = formData.status === 'PAGO' ? formData.data_pagamento || formData.data_vencimento : formData.data_vencimento;
+      if (dataBaseNovo && dataBaseNovo < dataLimiteRetroativa) {
+        const confirmarRetroativo = window.confirm(
+          'Este lançamento possui data anterior a 2 dias atrás. Verifique se a data está correta e, se sim, confirme para lançar.'
+        );
+        if (!confirmarRetroativo) {
+          pushToast('info', 'Lançamento cancelado para revisão da data.');
+          return;
+        }
+      }
+    }
+
+    setSaving(true);
+    try {
+      if (!formData.id && !formData.centro_custo_id) {
+        pushToast('info', 'Selecione um centro de custo antes de salvar.');
+        setSaving(false);
+        return;
+      }
+
+      if (formData.status === 'PAGO' && !formData.conta_id) {
+        pushToast('info', 'Selecione o banco antes de salvar um lançamento já pago/recebido.');
+        setSaving(false);
+        return;
+      }
+
+      const computedCardDue = formData.cartao_id ? computeCartaoVencimento(formData.data_vencimento, formData.cartao_id, cartoes) : null;
+      const dataCompetencia = formData.cartao_id ? formData.data_vencimento : undefined;
+      const dataVencimento = computedCardDue || formData.data_vencimento;
+      const payload = {
+        ...formData,
+        valor_previsto: parseFloat(formData.valor_previsto),
+        plano_contas_id: parseInt(formData.plano_contas_id),
+        centro_custo_id: formData.centro_custo_id ? parseInt(formData.centro_custo_id) : null,
+        entidade_id: formData.entidade_id ? parseInt(formData.entidade_id) : null,
+        conta_id: formData.conta_id ? parseInt(formData.conta_id) : null,
+        cartao_id: formData.cartao_id ? parseInt(formData.cartao_id) : null,
+        valor_pago: formData.status === 'PAGO' ? parseFloat(formData.valor_pago || formData.valor_previsto) : 0,
+        data_pagamento: formData.status === 'PAGO' ? formData.data_pagamento : null,
+        data_competencia: dataCompetencia,
+        data_vencimento: dataVencimento,
+        competencia: formData.competencia || formatCompetencia(dataVencimento),
+        previsto: formData.previsto ?? false,
+      };
+
+      let id = formData.id;
+      if (formData.is_parcelado && !id) {
+        const idParcelamento = crypto.randomUUID();
+        const lista = [];
+        const qtd = formData.qtd_parcelas;
+        const [ano, mes, dia] = formData.data_vencimento.split('-').map(Number);
+        let val = formData.modo_calculo === 'TOTAL' ? payload.valor_previsto / qtd : payload.valor_previsto;
+
+        for (let i = 0; i < qtd; i++) {
+          const dt = new Date(ano, mes - 1 + i, dia);
+          const dataParcela = dt.toISOString().split('T')[0];
+          const vencimentoParcela = formData.cartao_id
+            ? computeCartaoVencimento(dataParcela, formData.cartao_id, cartoes) || dataParcela
+            : dataParcela;
+          const competenciaBase = formData.competencia_modo_parcelamento === 'MES_COMPRA' ? formData.data_vencimento : dataParcela;
+          lista.push({
+            ...payload,
+            valor_previsto: val,
+            data_vencimento: vencimentoParcela,
+            data_competencia: competenciaBase,
+            competencia: formatCompetencia(competenciaBase),
+            id_parcelamento: idParcelamento,
+            descricao: `${payload.descricao} (${i + 1}/${qtd})`,
+            numero_parcela: i + 1,
+            status: i === 0 && payload.status === 'PAGO' ? 'PAGO' : 'PENDENTE',
+            valor_pago: i === 0 && payload.status === 'PAGO' ? payload.valor_pago : 0,
+          });
+        }
+
+        const parcelasRetroativas = lista.filter((item: any) => String(item.data_vencimento || '') < dataLimiteRetroativa).length;
+        if (parcelasRetroativas > 0) {
+          const confirmarParcelasRetroativas = window.confirm(
+            `${parcelasRetroativas} parcela(s) possuem data anterior a 2 dias atrás. Verifique se as datas estão corretas e, se sim, confirme para lançar.`
+          );
+          if (!confirmarParcelasRetroativas) {
+            pushToast('info', 'Lançamento parcelado cancelado para revisão das datas.');
+            setSaving(false);
+            return;
+          }
+        }
+
+        await api.post('/lancamentos/bulk', lista);
+      } else {
+        if (id && isEditingParcelado) {
+          const scopedDescricaoChanged = String(formData.descricao || '') !== String(initialScopedFields.descricao || '');
+          const scopedCategoriaChanged =
+            String(formData.plano_contas_id || '') !== String(initialScopedFields.plano_contas_id || '');
+          const scopedVencimentoChanged = String(formData.data_vencimento || '') !== String(initialScopedFields.data_vencimento || '');
+          const hasScopedChange = scopedDescricaoChanged || scopedCategoriaChanged || scopedVencimentoChanged;
+
+          const comicBookSet = sortedParcelasSerie.length > 0 ? sortedParcelasSerie : [formData as Lancamento];
+          const shouldApplyScoped = hasScopedChange && comicBookSet.length > 1;
+
+          if (!shouldApplyScoped) {
+            await api.put(`/lancamentos/${id}`, payload);
+          } else {
+            const scopeAnswer = window.prompt(
+              'Aplicar alterações em qual escopo?\n1 - Só esta parcela\n2 - Esta e próximas\n3 - Todas',
+              '1'
+            );
+            if (scopeAnswer === null) {
+              pushToast('info', 'Salvar cancelado.');
+              setSaving(false);
+              return;
+            }
+
+            const escopoEscolhido: 'ESTA' | 'PROXIMAS' | 'TODAS' =
+              scopeAnswer.trim() === '3' ? 'TODAS' : scopeAnswer.trim() === '2' ? 'PROXIMAS' : 'ESTA';
+
+            const parcelaAtual = Number(currentParcelaNumber || 1);
+            const parcelasAlvo = comicBookSet.filter((item) => {
+              const numero = Number(item.numero_parcela || 0);
+              if (escopoEscolhido === 'TODAS') return true;
+              if (escopoEscolhido === 'PROXIMAS') return numero >= parcelaAtual;
+              return Number(item.id) === Number(id);
+            });
+
+            const updatePromises = parcelasAlvo.map(async (item) => {
+              const rowVencimento = parcelasVencimentosEdit[item.id] || item.data_vencimento;
+              const nextVencimento = scopedVencimentoChanged
+                ? ajustarParaDiaUtil
+                  ? toNextBusinessDay(rowVencimento)
+                  : rowVencimento
+                : item.data_vencimento;
+
+              const fallbackContaId = item.conta_id || payload.conta_id || null;
+              const fallbackCartaoId = item.cartao_id || payload.cartao_id || null;
+              const fallbackCentroCustoId = item.centro_custo_id || payload.centro_custo_id || null;
+              const fallbackEntidadeId = item.entidade_id || payload.entidade_id || null;
+
+              const rowPayload: any = {
+                conta_id: fallbackContaId,
+                centro_custo_id: fallbackCentroCustoId,
+                entidade_id: fallbackEntidadeId,
+                cartao_id: fallbackCartaoId,
+                tipo: item.tipo,
+                previsto: item.previsto ?? false,
+                status: item.status,
+                valor_previsto: Number(item.valor_previsto || 0),
+                valor_pago: Number(item.valor_pago || 0),
+                data_pagamento: item.data_pagamento || null,
+                descricao: scopedDescricaoChanged ? payload.descricao : item.descricao,
+                plano_contas_id: scopedCategoriaChanged ? payload.plano_contas_id : item.plano_contas_id,
+                data_vencimento: nextVencimento,
+                competencia: formatCompetencia(nextVencimento),
+                data_competencia: nextVencimento,
+                observacao: item.observacao || null,
+                conciliado: item.conciliado ?? false,
+                ipp: item.ipp ?? false,
+                id_parcelamento: item.id_parcelamento || formData.id_parcelamento || null,
+                numero_parcela: item.numero_parcela || null,
+              };
+
+              if (Number(item.id) === Number(id)) {
+                rowPayload.status = payload.status;
+                rowPayload.valor_pago = payload.valor_pago;
+                rowPayload.data_pagamento = payload.data_pagamento;
+                rowPayload.conta_id = payload.conta_id;
+                rowPayload.cartao_id = payload.cartao_id;
+                rowPayload.centro_custo_id = payload.centro_custo_id;
+                rowPayload.entidade_id = payload.entidade_id;
+                rowPayload.previsto = payload.previsto;
+                rowPayload.ipp = payload.ipp;
+                rowPayload.observacao = payload.observacao;
+              }
+
+              await api.put(`/lancamentos/${item.id}`, rowPayload);
+            });
+
+            await Promise.all(updatePromises);
+          }
+        } else if (id) {
+          await api.put(`/lancamentos/${id}`, payload);
+        } else {
+          const r = await api.post('/lancamentos/', payload);
+          id = r.data.id;
+        }
+
+        if (filesToUpload && id) {
+          const fd = new FormData();
+          for (let i = 0; i < filesToUpload.length; i++) fd.append('files', filesToUpload[i]);
+          await api.post(`/lancamentos/${id}/anexos`, fd);
+        }
+      }
+      closeDrawerDirect();
+      pushToast('success', isEditing ? 'Lançamento atualizado com sucesso.' : 'Lançamento salvo com sucesso.');
+      if (onSaveSuccess) {
+        onSaveSuccess();
+      }
+    } catch (e: any) {
+      const backendDetail = typeof e?.response?.data?.detail === 'string' ? e.response.data.detail.trim() : '';
+      pushToast('error', backendDetail || 'Erro ao salvar lançamento.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+
+  const handleDesconciliar = async () => {
+    if (!formData?.id) return;
+    const confirmDesconciliar = window.confirm(
+      'Tem certeza que deseja desfazer a conciliação deste lançamento? Isso removerá a baixa vinculada, reabrirá o movimento correspondente no extrato OFX e permitirá editar todos os campos novamente.'
+    );
+    if (!confirmDesconciliar) return;
+
+    setDesconciliando(true);
+    try {
+      await api.post(`/importacao/ofx/desconciliar/${formData.id}`);
+      pushToast('success', 'Conciliação desfeita com sucesso. Os campos de conciliação foram liberados.');
+      setFormData((prev: any) => ({
+        ...prev,
+        conciliado: false,
+        baixas: [],
+        valor_pago: '',
+        status: 'EM ABERTO',
+        data_pagamento: null,
+      }));
+      if (onSaveSuccess) {
+        await onSaveSuccess();
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || 'Erro ao desfazer conciliação.';
+      pushToast('error', `Falha ao desconciliar: ${msg}`);
+    } finally {
+      setDesconciliando(false);
+    }
+  };
+
+  const getFullLogoUrl = (url?: string | null) => toPublicAssetUrl(url);
+
+
 
   const getFileIcon = (nome: string) => {
     const ext = nome.split('.').pop()?.toLowerCase();
@@ -353,6 +1076,22 @@ export const LancamentoFormDrawer = ({
                   Duplicar
                 </button>
               )}
+              {isEditing && formData.conciliado && (
+                <button
+                  type="button"
+                  title="Desfazer a conciliação bancária deste lançamento"
+                  disabled={desconciliando}
+                  onClick={handleDesconciliar}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition disabled:opacity-50"
+                >
+                  {desconciliando ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <ArrowRightLeft className="w-3.5 h-3.5" />
+                  )}
+                  Desconciliar
+                </button>
+              )}
               {isEditing && canOpenParcelasSerie && !isBoletimEmbed && (
                 <button
                   type="button"
@@ -374,12 +1113,23 @@ export const LancamentoFormDrawer = ({
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative">
+            {formData.conciliado && (
+              <div className="flex items-start gap-3 p-4 rounded-xl border border-blue-200 bg-blue-50/50 dark:border-blue-900/50 dark:bg-blue-950/20 text-xs text-blue-700 dark:text-blue-300 animate-in fade-in duration-300">
+                <Lock className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Lançamento Conciliado com o Extrato</p>
+                  <p className="mt-0.5 text-slate-500 dark:text-slate-400 leading-relaxed">
+                    A edição de campos críticos (valor, datas, status e conta) está bloqueada. Para editá-los, clique no botão <strong>Desconciliar</strong> acima.
+                  </p>
+                </div>
+              </div>
+            )}
             {/* INTERESSADO */}
             <div>
               <div className="flex justify-between items-center mb-1">
                 <label className="text-xs font-bold text-slate-400 uppercase">Interessado</label>
                 <button
-                  onClick={openEntityDrawer}
+                  onClick={() => setShowEntityDrawer(true)}
                   className="text-[10px] text-blue-400 font-bold hover:text-blue-300 flex items-center gap-1"
                 >
                   <Plus className="w-3 h-3" /> Nova
@@ -391,7 +1141,7 @@ export const LancamentoFormDrawer = ({
                 value={formData.entidade_id}
                 onChange={(id: any) => {
                   const eid = String(id || '');
-                  const last = lancamentos.find((l) => String(l.entidade_id) === eid);
+                  const last = lancamentos?.find((l: Lancamento) => String(l.entidade_id) === eid);
                   setFormData((prev: any) => {
                     const hasCategoriaSelecionada = Boolean(prev.plano_contas_id);
                     if (!last || hasCategoriaSelecionada) {
@@ -420,12 +1170,14 @@ export const LancamentoFormDrawer = ({
               <InputDark
                 label={formData.cartao_id ? 'Data da compra' : 'Vencimento'}
                 type="date"
+                disabled={formData.conciliado}
                 value={formData.data_vencimento}
                 onChange={(e: any) => handleVencimentoChange(e.target.value)}
               />
               <CurrencyInputDark
                 label="Valor (R$)"
                 className="font-bold text-lg text-blue-400"
+                disabled={formData.conciliado}
                 value={formData.valor_previsto}
                 onValueChange={(value: string) => handleValorPrevistoChange(value)}
               />
@@ -545,9 +1297,10 @@ export const LancamentoFormDrawer = ({
                 value={formData.competencia}
                 onChange={(e: any) => handleCompetenciaChange(e.target.value)}
               />
-              {!isCaixaMode && (
+               {!isCaixaMode && (
                 <ToggleSimNao
                   label="Esse valor é previsto?"
+                  disabled={formData.conciliado}
                   value={!!formData.previsto}
                   onChange={(next) => setFormData((prev: any) => ({ ...prev, previsto: next }))}
                 />
@@ -585,7 +1338,12 @@ export const LancamentoFormDrawer = ({
             {/* PAGAMENTO */}
             {!isCaixaMode && (
               <div ref={pagamentoSectionRef} className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                <ToggleSimNao label="Já foi pago/recebido?" value={formData.status === 'PAGO'} onChange={handleStatusPagoChange} />
+                <ToggleSimNao
+                  label="Já foi pago/recebido?"
+                  disabled={formData.conciliado}
+                  value={formData.status === 'PAGO'}
+                  onChange={handleStatusPagoChange}
+                />
                 <div
                   className={`overflow-hidden transition-all duration-300 ease-out ${
                     formData.status === 'PAGO' ? 'max-h-48 opacity-100 mt-3' : 'max-h-0 opacity-0 mt-0'
@@ -595,12 +1353,14 @@ export const LancamentoFormDrawer = ({
                     <InputDark
                       label="Data da Baixa"
                       type="date"
+                      disabled={formData.conciliado}
                       value={formData.data_pagamento}
                       onChange={(e: any) => handleDataPagamentoChange(e.target.value)}
                     />
                     <CurrencyInputDark
                       label="Valor Pago (R$)"
                       className="text-emerald-400 font-bold"
+                      disabled={formData.conciliado}
                       value={formData.valor_pago}
                       onValueChange={(value: string) => handleValorPagoChange(value)}
                     />
@@ -615,7 +1375,8 @@ export const LancamentoFormDrawer = ({
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Centro de Custo</label>
                 <div className="mb-3">
                   <select
-                    className="w-full p-2 text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 outline-none"
+                    className="w-full p-2 text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={formData.conciliado}
                     value={formData.centro_custo_id}
                     onChange={(e) =>
                       setFormData((prev: any) => ({
@@ -658,8 +1419,16 @@ export const LancamentoFormDrawer = ({
                               {contasAtivasNoCentro.map((c) => (
                                 <div
                                   key={c.id}
-                                  onClick={() => toggleConta(c.id)}
-                                  className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${
+                                  onClick={() => {
+                                    if (!formData.conciliado) {
+                                      toggleConta(c.id);
+                                    }
+                                  }}
+                                  className={`p-2 rounded border text-xs font-bold flex gap-2 items-center transition ${
+                                    formData.conciliado
+                                      ? 'cursor-not-allowed opacity-60'
+                                      : 'cursor-pointer'
+                                  } ${
                                     formData.conta_id === c.id
                                       ? 'bg-blue-600 text-white border-blue-500 shadow-md'
                                       : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-slate-400'
@@ -704,8 +1473,16 @@ export const LancamentoFormDrawer = ({
                               .map((c) => (
                                 <div
                                   key={c.id}
-                                  onClick={() => toggleCartao(c.id)}
-                                  className={`p-2 rounded border cursor-pointer text-xs font-bold flex gap-2 items-center transition ${
+                                  onClick={() => {
+                                    if (!formData.conciliado) {
+                                      toggleCartao(c.id);
+                                    }
+                                  }}
+                                  className={`p-2 rounded border text-xs font-bold flex gap-2 items-center transition ${
+                                    formData.conciliado
+                                      ? 'cursor-not-allowed opacity-60'
+                                      : 'cursor-pointer'
+                                  } ${
                                     formData.cartao_id === c.id
                                       ? 'bg-purple-600 text-white border-purple-500 shadow-md'
                                       : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-slate-400'
@@ -756,6 +1533,44 @@ export const LancamentoFormDrawer = ({
                 </div>
               )}
             </div>
+
+            {/* HISTÓRICO DE CONCILIAÇÃO (BAIXAS) */}
+            {isEditing && formData.baixas && formData.baixas.length > 0 && (
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-2 flex items-center gap-1.5">
+                  <ArrowRightLeft className="w-3.5 h-3.5 text-blue-500" />
+                  Histórico de Conciliação / Baixas
+                </label>
+                <div className="space-y-2.5">
+                  {formData.baixas.map((baixa: any) => {
+                    const mov = baixa.movimento_ofx;
+                    return (
+                      <div key={baixa.id} className="flex justify-between items-start text-xs border-b border-slate-200 dark:border-slate-700/60 pb-2 last:border-0 last:pb-0">
+                        <div>
+                          <p className="font-semibold text-slate-700 dark:text-slate-200">
+                            {mov ? mov.descricao : `Baixa avulsa (${baixa.tipo_baixa})`}
+                          </p>
+                          <p className="text-[10px] text-slate-500">
+                            {mov ? `Movimento em ${formatDateShort(mov.data)}` : `Data da baixa: ${formatDateShort(baixa.data_baixa)}`}
+                            {baixa.tipo_baixa !== 'PRINCIPAL' && ` • Tipo: ${baixa.tipo_baixa}`}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-slate-700 dark:text-slate-100">
+                            {BRL.format(Number(baixa.valor_pago))}
+                          </p>
+                          {mov && (
+                            <span className="text-[9px] font-black uppercase text-blue-500 bg-blue-50 dark:bg-blue-950/40 px-1 py-0.2 rounded">
+                              OFX
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* ANEXOS */}
             <div>
@@ -841,6 +1656,44 @@ export const LancamentoFormDrawer = ({
           </div>
         </div>
       </div>
+      <QuickEntityDrawer
+        showEntityDrawer={showEntityDrawer}
+        onClose={() => setShowEntityDrawer(false)}
+        onSuccess={(newEntity) => {
+          setLocalEntidades((prev) => [...prev, newEntity]);
+          setFormData((prev: any) => ({ ...prev, entidade_id: String(newEntity.id) }));
+        }}
+        pushToast={pushToast}
+      />
+
+      {toasts.length > 0 && (
+        <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`px-4 py-3 rounded-xl shadow-xl border text-sm font-semibold flex items-center gap-2 ${
+                toast.type === 'success'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-300'
+                  : toast.type === 'error'
+                    ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/30 dark:border-red-800 dark:text-red-300'
+                    : 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-300'
+              }`}
+            >
+              {toast.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+              ) : toast.type === 'error' ? (
+                <AlertCircle className="w-4 h-4 shrink-0" />
+              ) : (
+                <Info className="w-4 h-4 shrink-0" />
+              )}
+              <span className="flex-1">{toast.message}</span>
+              <button onClick={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))} className="opacity-70 hover:opacity-100">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

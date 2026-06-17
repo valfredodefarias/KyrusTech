@@ -1656,7 +1656,22 @@ def criar_lancamento(lancamento_in: LancamentoCreate, service: LancamentoService
 @router.get("/{lancamento_id}", response_model=LancamentoRead)
 def obter_lancamento(lancamento_id: int, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, _ = require_empresa_user(current_user)
-    return service.get_by_id(lancamento_id, empresa_id)
+    db = service.session
+    lancamento = service.get_by_id(lancamento_id, empresa_id)
+    
+    from app.models.baixa import Baixa
+    from sqlmodel import select
+    baixas = db.exec(
+        select(Baixa).where(
+            Baixa.lancamento_id == lancamento_id,
+            Baixa.empresa_id == empresa_id
+        )
+    ).all()
+    
+    # Converte para LancamentoRead antes de atribuir campos que não existem no model de tabela
+    lancamento_read = LancamentoRead.model_validate(lancamento)
+    lancamento_read.baixas = baixas
+    return lancamento_read
 
 @router.get("/parcelamento/{parcelamento_id}", response_model=List[LancamentoRead])
 def listar_por_parcelamento(parcelamento_id: str, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):

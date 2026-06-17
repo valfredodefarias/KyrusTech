@@ -78,6 +78,19 @@ class LancamentoUpdate(SQLModel):
     numero_parcela: Optional[int] = None
     id_parcelamento: Optional[str] = None
 
+class MovimentoOFXRead(SQLModel):
+    id: int
+    descricao: str
+    valor: Decimal
+    data: date
+
+class BaixaRead(SQLModel):
+    id: int
+    valor_pago: Decimal
+    data_baixa: date
+    tipo_baixa: str
+    movimento_ofx: Optional[MovimentoOFXRead] = None
+
 # --- READ ---
 class LancamentoRead(LancamentoBase, AuditReadMixin):
     id: int
@@ -85,6 +98,7 @@ class LancamentoRead(LancamentoBase, AuditReadMixin):
     status: str 
     anexos: List[AnexoRead] = []
     entidade: Optional[EntidadeLookup] = None
+    baixas: List[BaixaRead] = []
 
 # --- SCHEMAS ESPECIAIS ---
 

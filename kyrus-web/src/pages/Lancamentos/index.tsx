@@ -21,20 +21,14 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
-import type { Lancamento, Anexo, ToastItem, ListaSortKey, ListaSortDirection, LancamentosProps } from './types';
+import type { Lancamento, ToastItem, ListaSortKey, ListaSortDirection, LancamentosProps } from './types';
 import {
   formatDateExtenso,
   formatDateShort,
   getTodayLocalYmd,
   getTomorrowLocalYmd,
-  getLocalYmdDaysAgo,
-  toNextBusinessDay,
-  parseDescricaoParcela,
   isLancamentoAtrasado,
   isLancamentoPago,
-  formatCompetencia,
-  isTransferencia,
-  computeCartaoVencimento,
 } from './utils';
 
 import { KpiCards } from './components/KpiCards';
@@ -43,7 +37,6 @@ import { TransferModal } from './components/TransferModal';
 import { BulkActionsBar } from './components/BulkActionsBar';
 import { BulkPayModal } from './components/BulkPayModal';
 import { BulkDeleteModal } from './components/BulkDeleteModal';
-import { QuickEntityDrawer } from './components/QuickEntityDrawer';
 import { LancamentosTable } from './components/LancamentosTable';
 import { LancamentoFormDrawer } from './components/LancamentoFormDrawer';
 
@@ -138,48 +131,10 @@ export function Lancamentos({
   // --- MODAIS ---
   const [showDrawer, setShowDrawer] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
-  const [showEntityDrawer, setShowEntityDrawer] = useState(false);
-
-  // --- FORMS ---
+  const [selectedEditarId, setSelectedEditarId] = useState<number | null>(null);
+  const [selectedContaId, setSelectedContaId] = useState<number | null>(null);
+  const [selectedCartaoId, setSelectedCartaoId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [filesToUpload, setFilesToUpload] = useState<FileList | null>(null);
-  const [initialDrawerFormSnapshot, setInitialDrawerFormSnapshot] = useState('');
-  const [initialScopedFields, setInitialScopedFields] = useState({
-    descricao: '',
-    plano_contas_id: '',
-    data_vencimento: '',
-  });
-  const [parcelasSerie, setParcelasSerie] = useState<Lancamento[]>([]);
-  const [parcelasSerieLoading, setParcelasSerieLoading] = useState(false);
-  const [parcelasVencimentosEdit, setParcelasVencimentosEdit] = useState<Record<number, string>>({});
-  const [ajustarParaDiaUtil, setAjustarParaDiaUtil] = useState(false);
-  const [showParcelasSeriePanel, setShowParcelasSeriePanel] = useState(false);
-
-  const [formData, setFormData] = useState<any>({
-    id: null,
-    descricao: '',
-    valor_previsto: '',
-    data_vencimento: '',
-    tipo: 'DESPESA',
-    plano_contas_id: '',
-    centro_custo_id: '',
-    entidade_id: '',
-    conta_id: '',
-    cartao_id: '',
-    status: 'PENDENTE',
-    valor_pago: '',
-    data_pagamento: '',
-    ipp: false,
-    previsto: false,
-    competencia: '',
-    observacao: '',
-    is_parcelado: false,
-    qtd_parcelas: 2,
-    modo_calculo: 'TOTAL',
-    competencia_modo_parcelamento: 'POR_PARCELA',
-    anexos: [],
-  });
 
   const [transferData, setTransferData] = useState({
     valor: '',
@@ -194,8 +149,6 @@ export function Lancamentos({
   const lancamentosAbortRef = useRef<AbortController | null>(null);
   const lastLancamentosKeyRef = useRef<string>('');
   const lastEmpresaIdRef = useRef<number | null>(null);
-  const autoPagamentoRef = useRef(true);
-  const autoCompetenciaRef = useRef(true);
   const quickOpenNovoHandledRef = useRef(false);
   const embedDrawerOpenedRef = useRef(false);
 
@@ -226,237 +179,7 @@ export function Lancamentos({
   const invalidateEntidadesLookup = useLookupStore((state) => state.invalidateEntidadesLookup);
   const invalidatePlanoContas = useLookupStore((state) => state.invalidatePlanoContas);
 
-  const buildDrawerFormSnapshot = (data: any) =>
-    JSON.stringify({
-      id: data.id || null,
-      descricao: data.descricao || '',
-      valor_previsto: String(data.valor_previsto || ''),
-      data_vencimento: data.data_vencimento || '',
-      tipo: data.tipo || 'DESPESA',
-      plano_contas_id: String(data.plano_contas_id || ''),
-      centro_custo_id: String(data.centro_custo_id || ''),
-      entidade_id: String(data.entidade_id || ''),
-      conta_id: String(data.conta_id || ''),
-      cartao_id: String(data.cartao_id || ''),
-      status: data.status || 'PENDENTE',
-      valor_pago: String(data.valor_pago || ''),
-      data_pagamento: data.data_pagamento || '',
-      previsto: data.previsto ?? false,
-      competencia: data.competencia || '',
-      observacao: data.observacao || '',
-      is_parcelado: Boolean(data.is_parcelado),
-      qtd_parcelas: Number(data.qtd_parcelas || 2),
-      modo_calculo: data.modo_calculo || 'TOTAL',
-      competencia_modo_parcelamento: data.competencia_modo_parcelamento || 'POR_PARCELA',
-    });
 
-  const hasUnsavedDrawerChanges = useMemo(() => {
-    if (!showDrawer) return false;
-    if (!initialDrawerFormSnapshot) return false;
-    if (filesToUpload && filesToUpload.length > 0) return true;
-    return buildDrawerFormSnapshot(formData) !== initialDrawerFormSnapshot;
-  }, [showDrawer, initialDrawerFormSnapshot, formData, filesToUpload]);
-
-  const closeDrawerDirect = () => {
-    setShowDrawer(false);
-    setInitialDrawerFormSnapshot('');
-    setFilesToUpload(null);
-    setParcelasSerie([]);
-    setParcelasVencimentosEdit({});
-    setAjustarParaDiaUtil(false);
-    setShowParcelasSeriePanel(false);
-    setInitialScopedFields({ descricao: '', plano_contas_id: '', data_vencimento: '' });
-  };
-
-  const sortedParcelasSerie = useMemo(() => {
-    return [...parcelasSerie].sort((a, b) => {
-      const parcelaA = Number(a.numero_parcela || 0);
-      const parcelaB = Number(b.numero_parcela || 0);
-      if (parcelaA !== parcelaB) return parcelaA - parcelaB;
-      return String(a.data_vencimento || '').localeCompare(String(b.data_vencimento || ''));
-    });
-  }, [parcelasSerie]);
-
-  const currentParcelaNumber = useMemo(() => {
-    if (formData?.numero_parcela) return Number(formData.numero_parcela);
-    const parsed = parseDescricaoParcela(formData?.descricao);
-    if (parsed?.numero) return parsed.numero;
-    const idx = sortedParcelasSerie.findIndex((p) => Number(p.id) === Number(formData?.id));
-    return idx >= 0 ? idx + 1 : 1;
-  }, [formData?.id, formData?.numero_parcela, formData?.descricao, sortedParcelasSerie]);
-
-  const currentParcelaTotal = useMemo(() => {
-    if (sortedParcelasSerie.length > 1) return sortedParcelasSerie.length;
-    const parsed = parseDescricaoParcela(formData?.descricao);
-    if (parsed?.total && parsed.total > 1) return parsed.total;
-    if (formData?.qtd_parcelas && Number(formData.qtd_parcelas) > 1) return Number(formData.qtd_parcelas);
-    return 1;
-  }, [sortedParcelasSerie.length, formData?.descricao, formData?.qtd_parcelas]);
-
-  const isEditingParcelado = useMemo(() => {
-    if (!isEditing) return false;
-    if (Boolean(formData?.id_parcelamento)) return currentParcelaTotal > 1;
-    if (Number(formData?.numero_parcela || 0) > 0 && currentParcelaTotal > 1) return true;
-    return Boolean(parseDescricaoParcela(formData?.descricao));
-  }, [isEditing, formData?.id_parcelamento, formData?.numero_parcela, formData?.descricao, currentParcelaTotal]);
-
-  const canOpenParcelasSerie = useMemo(() => {
-    if (!isEditing) return false;
-    if (Boolean(formData?.id_parcelamento)) return true;
-    if (Number(formData?.numero_parcela || 0) > 0) return true;
-    return Boolean(parseDescricaoParcela(formData?.descricao));
-  }, [isEditing, formData?.id_parcelamento, formData?.numero_parcela, formData?.descricao]);
-
-  const loadParcelasSerie = async (parcelamentoId?: string, referencia?: Lancamento) => {
-    if (!parcelamentoId) {
-      const ref = referencia || (formData as Lancamento | undefined);
-      const parsedRef = parseDescricaoParcela(ref?.descricao);
-      if (!parsedRef) {
-        setParcelasSerie([]);
-        setParcelasVencimentosEdit({});
-        return;
-      }
-
-      const buildSerieFromDataset = (dataset: Lancamento[]) => {
-        const similares = (dataset || [])
-          .filter((item) => {
-            const parsedItem = parseDescricaoParcela(item.descricao);
-            if (!parsedItem) return false;
-            if (parsedItem.base !== parsedRef.base || parsedItem.total !== parsedRef.total) return false;
-            if (String(item.tipo || '') !== String(ref?.tipo || '')) return false;
-            if (Number(item.plano_contas_id || 0) !== Number(ref?.plano_contas_id || 0)) return false;
-
-            const contaRef = Number(ref?.conta_id || 0);
-            const contaItem = Number(item.conta_id || 0);
-            const cartaoRef = Number(ref?.cartao_id || 0);
-            const cartaoItem = Number(item.cartao_id || 0);
-
-            if (contaRef && contaItem && contaRef !== contaItem) return false;
-            if (cartaoRef && cartaoItem && cartaoRef !== cartaoItem) return false;
-            return true;
-          })
-          .map((item) => {
-            const parsedItem = parseDescricaoParcela(item.descricao);
-            return {
-              ...item,
-              numero_parcela: item.numero_parcela || parsedItem?.numero,
-            };
-          });
-
-        return ref && !similares.some((item) => Number(item.id) === Number(ref.id))
-          ? [...similares, { ...ref, numero_parcela: ref.numero_parcela || parsedRef.numero }]
-          : similares;
-      };
-
-      let withRef = buildSerieFromDataset(lancamentos || []);
-
-      if (withRef.length < parsedRef.total) {
-        setParcelasSerieLoading(true);
-        try {
-          const refYear = Number(String(ref?.data_vencimento || '').slice(0, 4)) || new Date().getFullYear();
-          const rows = await fetchLancamentosPaged<Lancamento>(
-            {
-              data_inicio: `${refYear - 2}-01-01`,
-              data_fim: `${refYear + 2}-12-31`,
-              include_anexos: false,
-            },
-            { pageSize: 1500 }
-          );
-          withRef = buildSerieFromDataset(rows);
-        } catch {
-          // Mantém a série local se a busca ampla não responder.
-        } finally {
-          setParcelasSerieLoading(false);
-        }
-      }
-
-      setParcelasSerie(withRef);
-      setParcelasVencimentosEdit(
-        withRef.reduce((acc: Record<number, string>, item: Lancamento) => {
-          acc[item.id] = item.data_vencimento;
-          return acc;
-        }, {})
-      );
-      return;
-    }
-    setParcelasSerieLoading(true);
-    try {
-      const res = await api.get(`/lancamentos/parcelamento/${parcelamentoId}`);
-      const serie = Array.isArray(res.data) ? res.data : [];
-      setParcelasSerie(serie);
-      setParcelasVencimentosEdit(
-        serie.reduce((acc: Record<number, string>, item: Lancamento) => {
-          acc[item.id] = item.data_vencimento;
-          return acc;
-        }, {})
-      );
-    } catch {
-      setParcelasSerie([]);
-      setParcelasVencimentosEdit({});
-      pushToast('error', 'Não foi possível carregar as parcelas desta série.');
-    } finally {
-      setParcelasSerieLoading(false);
-    }
-  };
-
-  const requestCloseDrawer = async () => {
-    if (saving) return;
-    if (!hasUnsavedDrawerChanges) {
-      closeDrawerDirect();
-      return;
-    }
-    const shouldSave = window.confirm(
-      'Você alterou informações e ainda não salvou. Você deseja salvar a informação antes de sair?'
-    );
-    if (shouldSave) {
-      await handleSave();
-      return;
-    }
-    closeDrawerDirect();
-  };
-
-  const handleVerTodasParcelas = async () => {
-    if (!canOpenParcelasSerie) {
-      pushToast('info', 'Este lançamento não possui série de parcelamento identificada.');
-      return;
-    }
-    setShowParcelasSeriePanel(true);
-    await loadParcelasSerie(formData?.id_parcelamento, formData as Lancamento);
-  };
-
-  const handleSelecionarParcelaSerie = (item: Lancamento) => {
-    if (Number(item.id) === Number(formData?.id)) return;
-    autoPagamentoRef.current = !item.data_pagamento;
-    autoCompetenciaRef.current = !item.competencia;
-
-    const nextFormData: any = {
-      ...item,
-      data_vencimento: item.cartao_id ? (item.data_competencia || item.data_vencimento) : item.data_vencimento,
-      conta_id: item.conta_id || '',
-      cartao_id: item.cartao_id || '',
-      centro_custo_id: item.centro_custo_id || '',
-      entidade_id: item.entidade_id || '',
-      plano_contas_id: item.plano_contas_id,
-      valor_previsto: item.valor_previsto,
-      valor_pago: item.valor_pago || item.valor_previsto,
-      data_pagamento: item.data_pagamento || item.data_vencimento,
-      previsto: item.previsto ?? true,
-      observacao: item.observacao || '',
-      competencia: item.competencia || formatCompetencia(item.data_competencia || item.data_vencimento),
-      competencia_modo_parcelamento: 'POR_PARCELA',
-    };
-
-    setIsEditing(true);
-    setFormData(nextFormData);
-    setInitialScopedFields({
-      descricao: String(item.descricao || ''),
-      plano_contas_id: String(item.plano_contas_id || ''),
-      data_vencimento: String(item.data_vencimento || ''),
-    });
-    setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(nextFormData));
-    setShowParcelasSeriePanel(true);
-    setFilesToUpload(null);
-  };
 
   useEffect(() => {
     localStorage.setItem('lancamentos.filtrosRailCollapsed', filtrosRailCollapsed ? '1' : '0');
@@ -537,7 +260,6 @@ export function Lancamentos({
     if (centros.length === 1) {
       const onlyId = String(centros[0].id);
       setCentroCustoFiltro((prev) => prev || onlyId);
-      setFormData((prev: typeof formData) => (prev.centro_custo_id ? prev : { ...prev, centro_custo_id: onlyId }));
       setTransferData((prev) => (prev.centro_custo_id ? prev : { ...prev, centro_custo_id: onlyId }));
     }
   }, [centros]);
@@ -547,14 +269,13 @@ export function Lancamentos({
     if (searchParams.get('novo') !== '1') return;
     if (!auxLoadedRef.current || contas.length === 0) return;
 
-    openDrawer();
     const cartaoIdParam = Number(searchParams.get('cartao_id') || '');
     const contaIdParam = Number(searchParams.get('conta_id') || '');
-    if (Number.isFinite(cartaoIdParam) && cartaoIdParam > 0) {
-      setFormData((prev: any) => ({ ...prev, cartao_id: String(cartaoIdParam), conta_id: '' }));
-    } else if (Number.isFinite(contaIdParam) && contaIdParam > 0) {
-      setFormData((prev: any) => ({ ...prev, conta_id: String(contaIdParam), cartao_id: '' }));
-    }
+    openDrawer(
+      undefined,
+      Number.isFinite(contaIdParam) && contaIdParam > 0 ? contaIdParam : null,
+      Number.isFinite(cartaoIdParam) && cartaoIdParam > 0 ? cartaoIdParam : null
+    );
 
     quickOpenNovoHandledRef.current = true;
     const nextParams = new URLSearchParams(searchParams);
@@ -668,11 +389,7 @@ export function Lancamentos({
     }
   }
 
-  const recoverLancamentoState = async () => {
-    await syncCadastros({ silent: true });
-    await refreshLancamentosVisiveis();
-    await refreshContasComSaldo();
-  };
+
 
   async function loadLancamentos(ini?: string, fim?: string, opts?: { force?: boolean; skipFallback?: boolean }) {
     const key = `${currentEmpresaId ?? ''}|${ini || ''}|${fim || ''}|${filtrosAvancados.ocultarVendasCartaoPendentes}`;
@@ -1031,78 +748,24 @@ export function Lancamentos({
 
   // --- ACTIONS ---
 
-  const toggleConta = (id: number) => {
-    setFormData((prev: any) => ({ ...prev, conta_id: prev.conta_id === id ? '' : id, cartao_id: '' }));
+  const toggleMainSidebar = () => {
+    window.dispatchEvent(new CustomEvent('kyrus:sidebar-toggle'));
   };
 
-  const toggleCartao = (id: number) => {
-    setFormData((prev: any) => ({ ...prev, cartao_id: prev.cartao_id === id ? '' : id, conta_id: '' }));
-  };
-
-  const handleVencimentoChange = (value: string) => {
-    setFormData((prev: any) => {
-      const next = { ...prev, data_vencimento: value };
-      const prevCompetencia = formatCompetencia(prev.data_vencimento);
-      const nextCompetencia = formatCompetencia(value);
-      if (autoCompetenciaRef.current || !prev.competencia || prev.competencia === prevCompetencia) {
-        next.competencia = nextCompetencia;
-        autoCompetenciaRef.current = true;
+  const toggleListaSort = (key: ListaSortKey) => {
+    setListaSort((prev) => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
       }
-      if (
-        prev.status === 'PAGO' &&
-        (autoPagamentoRef.current || !prev.data_pagamento || prev.data_pagamento === prev.data_vencimento)
-      ) {
-        next.data_pagamento = value;
-        autoPagamentoRef.current = true;
-      }
-      return next;
+      return { key, direction: key === 'valor' ? 'desc' : 'asc' };
     });
   };
 
-  useEffect(() => {
-    if (!formData?.id || !formData?.data_vencimento || sortedParcelasSerie.length === 0) return;
-    setParcelasVencimentosEdit((prev) => ({ ...prev, [formData.id]: formData.data_vencimento }));
-  }, [formData?.id, formData?.data_vencimento, sortedParcelasSerie.length]);
-
-  const handleCompetenciaChange = (value: string) => {
-    autoCompetenciaRef.current = false;
-    setFormData((prev: any) => ({ ...prev, competencia: value }));
-  };
-
-  const handleStatusPagoChange = (checked: boolean) => {
-    setFormData((prev: any) => {
-      const next = { ...prev, status: checked ? 'PAGO' : 'PENDENTE' };
-      if (checked && (autoPagamentoRef.current || !prev.data_pagamento)) {
-        next.data_pagamento = prev.data_vencimento;
-        autoPagamentoRef.current = true;
-      }
-      if (checked && (!prev.valor_pago || Number(prev.valor_pago) === 0)) {
-        next.valor_pago = prev.valor_previsto;
-      }
-      if (!checked) {
-        next.conta_id = '';
-      }
-      return next;
-    });
-  };
-
-  const handleValorPrevistoChange = (value: string) => {
-    setFormData((prev: any) => {
-      const next = { ...prev, valor_previsto: value };
-      const valorPagoAtual = Number(prev.valor_pago || 0);
-      const valorPrevistoAnterior = Number(prev.valor_previsto || 0);
-
-      if (prev.status === 'PAGO' && (!prev.valor_pago || valorPagoAtual === 0 || valorPagoAtual === valorPrevistoAnterior)) {
-        next.valor_pago = value;
-      }
-
-      return next;
-    });
-  };
-
-  const handleValorPagoChange = (value: string) => {
-    autoPagamentoRef.current = false;
-    setFormData((prev: any) => ({ ...prev, valor_pago: value }));
+  const openDrawer = (item?: Lancamento, defaultContaId?: number | null, defaultCartaoId?: number | null) => {
+    setSelectedEditarId(item?.id || null);
+    setSelectedContaId(defaultContaId || null);
+    setSelectedCartaoId(defaultCartaoId || null);
+    setShowDrawer(true);
   };
 
   const resetFiltros = () => {
@@ -1123,101 +786,6 @@ export function Lancamentos({
     setContaExtratoAtivaId(null);
     setMesAtual(new Date());
   };
-
-  const toggleMainSidebar = () => {
-    window.dispatchEvent(new CustomEvent('kyrus:sidebar-toggle'));
-  };
-
-  const handleDataPagamentoChange = (value: string) => {
-    autoPagamentoRef.current = false;
-    setFormData((prev: any) => ({ ...prev, data_pagamento: value }));
-  };
-
-  function openDrawer(l?: Lancamento, options?: { preserveSeriePanel?: boolean }) {
-    let nextFormData: any;
-    if (l) {
-      if (isTransferencia(l)) return;
-      setIsEditing(true);
-      autoPagamentoRef.current = !l.data_pagamento;
-      autoCompetenciaRef.current = !l.competencia;
-      nextFormData = {
-        ...l,
-        data_vencimento: l.cartao_id ? (l.data_competencia || l.data_vencimento) : l.data_vencimento,
-        conta_id: l.conta_id || '',
-        cartao_id: l.cartao_id || '',
-        centro_custo_id: l.centro_custo_id || '',
-        entidade_id: l.entidade_id || '',
-        plano_contas_id: l.plano_contas_id,
-        valor_previsto: l.valor_previsto,
-        valor_pago: l.valor_pago || l.valor_previsto,
-        data_pagamento: l.data_pagamento || l.data_vencimento,
-        previsto: l.previsto ?? true,
-        observacao: l.observacao || '',
-        competencia: l.competencia || formatCompetencia(l.data_competencia || l.data_vencimento),
-        competencia_modo_parcelamento: 'POR_PARCELA',
-      };
-      setInitialScopedFields({
-        descricao: String(l.descricao || ''),
-        plano_contas_id: String(l.plano_contas_id || ''),
-        data_vencimento: String(l.data_vencimento || ''),
-      });
-      setShowParcelasSeriePanel(Boolean(options?.preserveSeriePanel));
-      setAjustarParaDiaUtil(false);
-      void loadParcelasSerie(l.id_parcelamento, l);
-
-      if (l.entidade_id && !entidades.some((item: any) => Number(item.id) === Number(l.entidade_id))) {
-        void (async () => {
-          try {
-            const response = await api.get(`/entidades/${l.entidade_id}`);
-            const entidade = response?.data;
-            if (!entidade?.id) return;
-            setEntidades((prev: any[]) =>
-              prev.some((item) => Number(item.id) === Number(entidade.id)) ? prev : [...prev, entidade]
-            );
-          } catch {
-            // No-op: mantém o formulário abrindo mesmo se o lookup falhar.
-          }
-        })();
-      }
-    } else {
-      setIsEditing(false);
-      autoPagamentoRef.current = true;
-      autoCompetenciaRef.current = true;
-      nextFormData = {
-        id: null,
-        descricao: '',
-        valor_previsto: '',
-        data_vencimento: new Date().toISOString().split('T')[0],
-        tipo: 'DESPESA',
-        plano_contas_id: '',
-        centro_custo_id: centroCustoFiltro || '',
-        entidade_id: '',
-        conta_id: '',
-        cartao_id: '',
-        status: 'PENDENTE',
-        valor_pago: '',
-        data_pagamento: new Date().toISOString().split('T')[0],
-        ipp: false,
-        previsto: false,
-        observacao: '',
-        competencia: formatCompetencia(new Date().toISOString().split('T')[0]),
-        is_parcelado: false,
-        qtd_parcelas: 2,
-        modo_calculo: 'TOTAL',
-        competencia_modo_parcelamento: 'POR_PARCELA',
-        anexos: [],
-      };
-      setInitialScopedFields({ descricao: '', plano_contas_id: '', data_vencimento: '' });
-      setShowParcelasSeriePanel(false);
-      setParcelasSerie([]);
-      setParcelasVencimentosEdit({});
-      setAjustarParaDiaUtil(false);
-    }
-    setFormData(nextFormData);
-    setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(nextFormData));
-    setFilesToUpload(null);
-    setShowDrawer(true);
-  }
 
   async function handleTransferencia() {
     if (!transferData.valor || !transferData.conta_origem_id || !transferData.conta_destino_id) {
@@ -1242,291 +810,6 @@ export function Lancamentos({
     }
   }
 
-  async function handleSave(e?: React.FormEvent) {
-    e?.preventDefault();
-    if (!formData.descricao || !formData.valor_previsto || !formData.plano_contas_id) {
-      pushToast('info', 'Preencha os campos obrigatórios.');
-      return;
-    }
-    if (!formData.entidade_id) {
-      pushToast('info', 'Interessado é obrigatório.');
-      return;
-    }
-    const isNovoLancamento = !formData.id;
-    const dataLimiteRetroativa = getLocalYmdDaysAgo(2);
-
-    if (isNovoLancamento) {
-      const dataBaseNovo = formData.status === 'PAGO' ? formData.data_pagamento || formData.data_vencimento : formData.data_vencimento;
-      if (dataBaseNovo && dataBaseNovo < dataLimiteRetroativa) {
-        const confirmarRetroativo = window.confirm(
-          'Este lançamento possui data anterior a 2 dias atrás. Verifique se a data está correta e, se sim, confirme para lançar.'
-        );
-        if (!confirmarRetroativo) {
-          pushToast('info', 'Lançamento cancelado para revisão da data.');
-          return;
-        }
-      }
-    }
-
-    setSaving(true);
-    try {
-      if (!formData.id && !formData.centro_custo_id) {
-        pushToast('info', 'Selecione um centro de custo antes de salvar.');
-        setSaving(false);
-        return;
-      }
-
-      if (formData.status === 'PAGO' && !formData.conta_id) {
-        pushToast('info', 'Selecione o banco antes de salvar um lançamento já pago/recebido.');
-        setSaving(false);
-        return;
-      }
-
-      const computedCardDue = formData.cartao_id ? computeCartaoVencimento(formData.data_vencimento, formData.cartao_id, cartoes) : null;
-      const dataCompetencia = formData.cartao_id ? formData.data_vencimento : undefined;
-      const dataVencimento = computedCardDue || formData.data_vencimento;
-      const payload = {
-        ...formData,
-        valor_previsto: parseFloat(formData.valor_previsto),
-        plano_contas_id: parseInt(formData.plano_contas_id),
-        centro_custo_id: formData.centro_custo_id ? parseInt(formData.centro_custo_id) : null,
-        entidade_id: formData.entidade_id ? parseInt(formData.entidade_id) : null,
-        conta_id: formData.conta_id ? parseInt(formData.conta_id) : null,
-        cartao_id: formData.cartao_id ? parseInt(formData.cartao_id) : null,
-        valor_pago: formData.status === 'PAGO' ? parseFloat(formData.valor_pago || formData.valor_previsto) : 0,
-        data_pagamento: formData.status === 'PAGO' ? formData.data_pagamento : null,
-        data_competencia: dataCompetencia,
-        data_vencimento: dataVencimento,
-        competencia: formData.competencia || formatCompetencia(dataVencimento),
-        previsto: formData.previsto ?? false,
-      };
-
-      let id = formData.id;
-      if (formData.is_parcelado && !id) {
-        const idParcelamento = crypto.randomUUID();
-        const lista = [];
-        const qtd = formData.qtd_parcelas;
-        const [ano, mes, dia] = formData.data_vencimento.split('-').map(Number);
-        let val = formData.modo_calculo === 'TOTAL' ? payload.valor_previsto / qtd : payload.valor_previsto;
-
-        for (let i = 0; i < qtd; i++) {
-          const dt = new Date(ano, mes - 1 + i, dia);
-          const dataParcela = dt.toISOString().split('T')[0];
-          const vencimentoParcela = formData.cartao_id
-            ? computeCartaoVencimento(dataParcela, formData.cartao_id, cartoes) || dataParcela
-            : dataParcela;
-          const competenciaBase = formData.competencia_modo_parcelamento === 'MES_COMPRA' ? formData.data_vencimento : dataParcela;
-          lista.push({
-            ...payload,
-            valor_previsto: val,
-            data_vencimento: vencimentoParcela,
-            data_competencia: competenciaBase,
-            competencia: formatCompetencia(competenciaBase),
-            id_parcelamento: idParcelamento,
-            descricao: `${payload.descricao} (${i + 1}/${qtd})`,
-            numero_parcela: i + 1,
-            status: i === 0 && payload.status === 'PAGO' ? 'PAGO' : 'PENDENTE',
-            valor_pago: i === 0 && payload.status === 'PAGO' ? payload.valor_pago : 0,
-          });
-        }
-
-        const parcelasRetroativas = lista.filter((item: any) => String(item.data_vencimento || '') < dataLimiteRetroativa).length;
-        if (parcelasRetroativas > 0) {
-          const confirmarParcelasRetroativas = window.confirm(
-            `${parcelasRetroativas} parcela(s) possuem data anterior a 2 dias atrás. Verifique se as datas estão corretas e, se sim, confirme para lançar.`
-          );
-          if (!confirmarParcelasRetroativas) {
-            pushToast('info', 'Lançamento parcelado cancelado para revisão das datas.');
-            setSaving(false);
-            return;
-          }
-        }
-
-        await api.post('/lancamentos/bulk', lista);
-      } else {
-        if (id && isEditingParcelado) {
-          const scopedDescricaoChanged = String(formData.descricao || '') !== String(initialScopedFields.descricao || '');
-          const scopedCategoriaChanged =
-            String(formData.plano_contas_id || '') !== String(initialScopedFields.plano_contas_id || '');
-          const scopedVencimentoChanged = String(formData.data_vencimento || '') !== String(initialScopedFields.data_vencimento || '');
-          const hasScopedChange = scopedDescricaoChanged || scopedCategoriaChanged || scopedVencimentoChanged;
-
-          const serieOrdenada = sortedParcelasSerie.length > 0 ? sortedParcelasSerie : [formData as Lancamento];
-          const shouldApplyScoped = hasScopedChange && serieOrdenada.length > 1;
-
-          if (!shouldApplyScoped) {
-            await api.put(`/lancamentos/${id}`, payload);
-          } else {
-            const scopeAnswer = window.prompt(
-              'Aplicar alterações em qual escopo?\n1 - Só esta parcela\n2 - Esta e próximas\n3 - Todas',
-              '1'
-            );
-            if (scopeAnswer === null) {
-              pushToast('info', 'Salvar cancelado.');
-              setSaving(false);
-              return;
-            }
-
-            const escopoEscolhido: 'ESTA' | 'PROXIMAS' | 'TODAS' =
-              scopeAnswer.trim() === '3' ? 'TODAS' : scopeAnswer.trim() === '2' ? 'PROXIMAS' : 'ESTA';
-
-            const parcelaAtual = Number(currentParcelaNumber || 1);
-            const parcelasAlvo = serieOrdenada.filter((item) => {
-              const numero = Number(item.numero_parcela || 0);
-              if (escopoEscolhido === 'TODAS') return true;
-              if (escopoEscolhido === 'PROXIMAS') return numero >= parcelaAtual;
-              return Number(item.id) === Number(id);
-            });
-
-            const updatePromises = parcelasAlvo.map(async (item) => {
-              const rowVencimento = parcelasVencimentosEdit[item.id] || item.data_vencimento;
-              const nextVencimento = scopedVencimentoChanged
-                ? ajustarParaDiaUtil
-                  ? toNextBusinessDay(rowVencimento)
-                  : rowVencimento
-                : item.data_vencimento;
-
-              const fallbackContaId = item.conta_id || payload.conta_id || null;
-              const fallbackCartaoId = item.cartao_id || payload.cartao_id || null;
-              const fallbackCentroCustoId = item.centro_custo_id || payload.centro_custo_id || null;
-              const fallbackEntidadeId = item.entidade_id || payload.entidade_id || null;
-
-              const rowPayload: any = {
-                conta_id: fallbackContaId,
-                centro_custo_id: fallbackCentroCustoId,
-                entidade_id: fallbackEntidadeId,
-                cartao_id: fallbackCartaoId,
-                tipo: item.tipo,
-                previsto: item.previsto ?? false,
-                status: item.status,
-                valor_previsto: Number(item.valor_previsto || 0),
-                valor_pago: Number(item.valor_pago || 0),
-                data_pagamento: item.data_pagamento || null,
-                descricao: scopedDescricaoChanged ? payload.descricao : item.descricao,
-                plano_contas_id: scopedCategoriaChanged ? payload.plano_contas_id : item.plano_contas_id,
-                data_vencimento: nextVencimento,
-                competencia: formatCompetencia(nextVencimento),
-                data_competencia: nextVencimento,
-                observacao: item.observacao || null,
-                conciliado: item.conciliado ?? false,
-                ipp: item.ipp ?? false,
-                id_parcelamento: item.id_parcelamento || formData.id_parcelamento || null,
-                numero_parcela: item.numero_parcela || null,
-              };
-
-              if (Number(item.id) === Number(id)) {
-                rowPayload.status = payload.status;
-                rowPayload.valor_pago = payload.valor_pago;
-                rowPayload.data_pagamento = payload.data_pagamento;
-                rowPayload.conta_id = payload.conta_id;
-                rowPayload.cartao_id = payload.cartao_id;
-                rowPayload.centro_custo_id = payload.centro_custo_id;
-                rowPayload.entidade_id = payload.entidade_id;
-                rowPayload.previsto = payload.previsto;
-                rowPayload.ipp = payload.ipp;
-                rowPayload.observacao = payload.observacao;
-              }
-
-              await api.put(`/lancamentos/${item.id}`, rowPayload);
-            });
-
-            await Promise.all(updatePromises);
-          }
-        } else if (id) {
-          await api.put(`/lancamentos/${id}`, payload);
-        } else {
-          const r = await api.post('/lancamentos/', payload);
-          id = r.data.id;
-        }
-
-        if (filesToUpload && id) {
-          const fd = new FormData();
-          for (let i = 0; i < filesToUpload.length; i++) fd.append('files', filesToUpload[i]);
-          await api.post(`/lancamentos/${id}/anexos`, fd);
-        }
-      }
-      closeDrawerDirect();
-      if (filtrosAvancados.dataModo === 'PAGAMENTO' && (filtrosAvancados.dataInicio || filtrosAvancados.dataFim)) {
-        loadLancamentos(undefined, undefined, { force: true, skipFallback: true });
-      } else if (filtrosAvancados.dataInicio) {
-        loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { force: true });
-      } else {
-        const ano = mesAtual.getFullYear();
-        const mes = mesAtual.getMonth() + 1;
-        loadLancamentos(
-          new Date(ano, mes - 1, 1).toISOString().split('T')[0],
-          new Date(ano, mes, 0).toISOString().split('T')[0],
-          { force: true }
-        );
-      }
-      await refreshContasComSaldo();
-      pushToast('success', isEditing ? 'Lançamento atualizado com sucesso.' : 'Lançamento salvo com sucesso.');
-    } catch (e: any) {
-      const isDbValidationError = Number(e?.response?.status) === 400;
-      if (isDbValidationError) {
-        const backendDetail = typeof e?.response?.data?.detail === 'string' ? e.response.data.detail.trim() : '';
-        try {
-          await recoverLancamentoState();
-        } catch (refreshError) {
-          console.error(refreshError);
-        }
-        if (backendDetail) {
-          pushToast('error', backendDetail);
-        }
-        pushToast('info', 'Alguns dados foram recarregados. Revise o lançamento e tente salvar novamente.');
-      } else {
-        const backendDetail = typeof e?.response?.data?.detail === 'string' ? e.response.data.detail.trim() : '';
-        pushToast('error', backendDetail || 'Erro ao salvar lançamento.');
-      }
-    } opacityRef: { setSaving(false); }
-  }
-
-  const handleRemoverAnexo = async (anexo: Anexo) => {
-    if (!anexo?.id) return;
-
-    const ok = window.confirm(`Remover o anexo "${anexo.nome_arquivo}"?`);
-    if (!ok) return;
-
-    const lancamentoId = Number(formData?.id || 0);
-    if (!lancamentoId) {
-      setFormData((prev: any) => ({
-        ...prev,
-        anexos: (prev?.anexos || []).filter((item: Anexo) => Number(item.id) !== Number(anexo.id)),
-      }));
-      pushToast('success', 'Anexo removido do formulário.');
-      return;
-    }
-
-    try {
-      try {
-        await api.delete(`/lancamentos/${lancamentoId}/anexos/${anexo.id}`);
-      } catch {
-        await api.post(`/lancamentos/${lancamentoId}/anexos/${anexo.id}/delete`);
-      }
-
-      setFormData((prev: any) => {
-        const next = {
-          ...prev,
-          anexos: (prev?.anexos || []).filter((item: Anexo) => Number(item.id) !== Number(anexo.id)),
-        };
-        setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(next));
-        return next;
-      });
-
-      setLancamentos((prev) =>
-        prev.map((item) =>
-          Number(item.id) === lancamentoId
-            ? { ...item, anexos: (item.anexos || []).filter((current) => Number(current.id) !== Number(anexo.id)) }
-            : item
-        )
-      );
-
-      pushToast('success', 'Anexo removido com sucesso.');
-    } catch {
-      pushToast('error', 'Não foi possível remover o anexo.');
-    }
-  };
-
   const quickFilterOptions = [
     { id: null, label: 'Todos' },
     { id: 'HOJE', label: 'Vcto Hoje', icon: ChevronRight },
@@ -1550,14 +833,7 @@ export function Lancamentos({
     contaExtratoAtivaId !== null ? 1 : 0,
   ].filter(Boolean).length;
 
-  const toggleListaSort = (key: ListaSortKey) => {
-    setListaSort((prev) => {
-      if (prev.key === key) {
-        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
-      }
-      return { key, direction: key === 'valor' ? 'desc' : 'asc' };
-    });
-  };
+
 
   return (
     <div
@@ -1867,57 +1143,41 @@ export function Lancamentos({
         saving={saving}
       />
 
-      <QuickEntityDrawer
-        showEntityDrawer={showEntityDrawer}
-        onClose={() => setShowEntityDrawer(false)}
-        onSuccess={(newEntity) => {
-          setEntidades((prev) => [...prev, newEntity]);
-          setFormData((prev: any) => ({ ...prev, entidade_id: String(newEntity.id) }));
-        }}
-        pushToast={pushToast}
-      />
-
       <LancamentoFormDrawer
         showDrawer={showDrawer}
+        editarId={selectedEditarId}
+        contaId={selectedContaId}
+        cartaoId={selectedCartaoId}
+        onClose={() => {
+          setShowDrawer(false);
+          setSelectedContaId(null);
+          setSelectedCartaoId(null);
+        }}
+        onSaveSuccess={async () => {
+          if (filtrosAvancados.dataModo === 'PAGAMENTO' && (filtrosAvancados.dataInicio || filtrosAvancados.dataFim)) {
+            await loadLancamentos(undefined, undefined, { force: true, skipFallback: true });
+          } else if (filtrosAvancados.dataInicio) {
+            await loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { force: true });
+          } else {
+            const ano = mesAtual.getFullYear();
+            const mes = mesAtual.getMonth() + 1;
+            await loadLancamentos(
+              new Date(ano, mes - 1, 1).toISOString().split('T')[0],
+              new Date(ano, mes, 0).toISOString().split('T')[0],
+              { force: true }
+            );
+          }
+          await refreshContasComSaldo();
+        }}
         isBoletimEmbed={isBoletimEmbed}
         embedFullscreenDrawer={embedFullscreenDrawer}
         drawerPanelClassName={drawerPanelClassName}
-        isEditing={isEditing}
-        setIsEditing={setIsEditing}
-        saving={saving}
-        formData={formData}
-        setFormData={setFormData}
-        filesToUpload={filesToUpload}
-        setFilesToUpload={setFilesToUpload}
-        hasUnsavedDrawerChanges={hasUnsavedDrawerChanges}
-        parcelasSerie={parcelasSerie}
-        parcelasSerieLoading={parcelasSerieLoading}
-        parcelasVencimentosEdit={parcelasVencimentosEdit}
-        setParcelasVencimentosEdit={setParcelasVencimentosEdit}
-        ajustarParaDiaUtil={ajustarParaDiaUtil}
-        setAjustarParaDiaUtil={setAjustarParaDiaUtil}
-        showParcelasSeriePanel={showParcelasSeriePanel}
         categorias={categorias}
         entidades={entidades}
         contas={contas}
         cartoes={cartoes}
         centros={centros}
-        lancamentos={lancamentos}
-        openEntityDrawer={() => setShowEntityDrawer(true)}
-        requestCloseDrawer={requestCloseDrawer}
-        handleSave={handleSave}
-        handleVerTodasParcelas={handleVerTodasParcelas}
-        handleSelecionarParcelaSerie={handleSelecionarParcelaSerie}
-        handleRemoverAnexo={handleRemoverAnexo}
         pushToast={pushToast}
-        toggleConta={toggleConta}
-        toggleCartao={toggleCartao}
-        handleVencimentoChange={handleVencimentoChange}
-        handleCompetenciaChange={handleCompetenciaChange}
-        handleStatusPagoChange={handleStatusPagoChange}
-        handleValorPrevistoChange={handleValorPrevistoChange}
-        handleValorPagoChange={handleValorPagoChange}
-        handleDataPagamentoChange={handleDataPagamentoChange}
       />
 
       {isBoletimEmbed && !isContasExtratoEmbed && !showDrawer && (

@@ -20,14 +20,12 @@ import {
   FileText,
 } from 'lucide-react';
 
-import type { Lancamento, Anexo, ToastItem } from './Lancamentos/types';
+import type { Lancamento, ToastItem } from './Lancamentos/types';
 import {
   getTodayLocalYmd,
-  formatCompetencia,
 } from './Lancamentos/utils';
 
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
-import { QuickEntityDrawer } from './Lancamentos/components/QuickEntityDrawer';
 
 export function Caixa() {
   const formatNumberBRL = (val: number) => {
@@ -70,51 +68,8 @@ export function Caixa() {
 
   // --- MODALS & DRAWERS ---
   const [showDrawer, setShowDrawer] = useState(false);
-  const [showEntityDrawer, setShowEntityDrawer] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [selectedEditarId, setSelectedEditarId] = useState<number | null>(null);
 
-  // --- DRAWER FORM STATES ---
-  const [filesToUpload, setFilesToUpload] = useState<FileList | null>(null);
-  const [initialDrawerFormSnapshot, setInitialDrawerFormSnapshot] = useState('');
-  const [, setInitialScopedFields] = useState({
-    descricao: '',
-    plano_contas_id: '',
-    data_vencimento: '',
-  });
-  const [parcelasSerie, setParcelasSerie] = useState<Lancamento[]>([]);
-  const [parcelasSerieLoading] = useState(false);
-  const [parcelasVencimentosEdit, setParcelasVencimentosEdit] = useState<Record<number, string>>({});
-  const [ajustarParaDiaUtil, setAjustarParaDiaUtil] = useState(false);
-  const [showParcelasSeriePanel] = useState(false);
-
-  const [formData, setFormData] = useState<any>({
-    id: null,
-    descricao: '',
-    valor_previsto: '',
-    data_vencimento: '',
-    tipo: 'DESPESA',
-    plano_contas_id: '',
-    centro_custo_id: '',
-    entidade_id: '',
-    conta_id: '',
-    cartao_id: '',
-    status: 'PENDENTE',
-    valor_pago: '',
-    data_pagamento: '',
-    ipp: false,
-    previsto: false,
-    competencia: '',
-    observacao: '',
-    is_parcelado: false,
-    qtd_parcelas: 2,
-    modo_calculo: 'TOTAL',
-    competencia_modo_parcelamento: 'POR_PARCELA',
-    anexos: [],
-  });
-
-  const autoPagamentoRef = useRef(true);
-  const autoCompetenciaRef = useRef(true);
   const auxLoadedRef = useRef(false);
 
   const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
@@ -431,300 +386,21 @@ export function Caixa() {
     }
   };
 
-  // --- DRAWER FORM ACTIONS ---
-  const buildDrawerFormSnapshot = (data: any) =>
-    JSON.stringify({
-      id: data.id || null,
-      descricao: data.descricao || '',
-      valor_previsto: String(data.valor_previsto || ''),
-      data_vencimento: data.data_vencimento || '',
-      tipo: data.tipo || 'DESPESA',
-      plano_contas_id: String(data.plano_contas_id || ''),
-      centro_custo_id: String(data.centro_custo_id || ''),
-      entidade_id: String(data.entidade_id || ''),
-      conta_id: String(data.conta_id || ''),
-      cartao_id: String(data.cartao_id || ''),
-      status: data.status || 'PENDENTE',
-      valor_pago: String(data.valor_pago || ''),
-      data_pagamento: data.data_pagamento || '',
-      previsto: data.previsto ?? false,
-      competencia: data.competencia || '',
-      observacao: data.observacao || '',
-      is_parcelado: Boolean(data.is_parcelado),
-      qtd_parcelas: Number(data.qtd_parcelas || 2),
-      modo_calculo: data.modo_calculo || 'TOTAL',
-      competencia_modo_parcelamento: data.competencia_modo_parcelamento || 'POR_PARCELA',
-    });
-
-  const hasUnsavedDrawerChanges = useMemo(() => {
-    if (!showDrawer) return false;
-    if (!initialDrawerFormSnapshot) return false;
-    if (filesToUpload && filesToUpload.length > 0) return true;
-    return buildDrawerFormSnapshot(formData) !== initialDrawerFormSnapshot;
-  }, [showDrawer, initialDrawerFormSnapshot, formData, filesToUpload]);
-
-  const closeDrawerDirect = () => {
-    setShowDrawer(false);
-    setInitialDrawerFormSnapshot('');
-    setFilesToUpload(null);
-    setParcelasSerie([]);
-    setParcelasVencimentosEdit({});
-    setAjustarParaDiaUtil(false);
-    setInitialScopedFields({ descricao: '', plano_contas_id: '', data_vencimento: '' });
-  };
-
-  const requestCloseDrawer = async () => {
-    if (saving) return;
-    if (!hasUnsavedDrawerChanges) {
-      closeDrawerDirect();
-      return;
-    }
-    const shouldSave = window.confirm(
-      'Você alterou informações e ainda não salvou. Você deseja salvar a informação antes de sair?'
-    );
-    if (shouldSave) {
-      await handleSave();
-      return;
-    }
-    closeDrawerDirect();
-  };
-
   // Launch drawer in new entry mode
   const handleOpenNewEntry = () => {
     if (!selectedContaId) {
       pushToast('info', 'Selecione um caixa físico antes de criar um lançamento.');
       return;
     }
-
-    setIsEditing(false);
-    autoPagamentoRef.current = true;
-    autoCompetenciaRef.current = true;
-
-    const todayYmd = getTodayLocalYmd();
-    const nextFormData = {
-      id: null,
-      descricao: '',
-      valor_previsto: '',
-      data_vencimento: todayYmd,
-      tipo: 'DESPESA',
-      plano_contas_id: '',
-      centro_custo_id: selectedConta?.centro_custo_id ? String(selectedConta.centro_custo_id) : '',
-      entidade_id: '',
-      conta_id: selectedContaId, // Pre-filled & locked to this account
-      cartao_id: '',
-      status: 'PAGO', // Realized cashier entry
-      valor_pago: '',
-      data_pagamento: todayYmd,
-      ipp: false,
-      previsto: false,
-      observacao: JSON.stringify({ tipo_pagamento: 'dinheiro', pdv_venda: false }),
-      competencia: formatCompetencia(todayYmd),
-      is_parcelado: false,
-      qtd_parcelas: 2,
-      modo_calculo: 'TOTAL',
-      competencia_modo_parcelamento: 'POR_PARCELA',
-      anexos: [],
-    };
-
-    setFormData(nextFormData);
-    setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(nextFormData));
-    setFilesToUpload(null);
-    setInitialScopedFields({ descricao: '', plano_contas_id: '', data_vencimento: '' });
-    setParcelasSerie([]);
-    setParcelasVencimentosEdit({});
-    setAjustarParaDiaUtil(false);
+    setSelectedEditarId(null);
     setShowDrawer(true);
   };
 
   // Launch drawer to edit a transaction
   const handleOpenEdit = (l: Lancamento) => {
-    setIsEditing(true);
-    autoPagamentoRef.current = !l.data_pagamento;
-    autoCompetenciaRef.current = !l.competencia;
-
-    const nextFormData: any = {
-      ...l,
-      data_vencimento: l.cartao_id ? (l.data_competencia || l.data_vencimento) : l.data_vencimento,
-      conta_id: l.conta_id || '',
-      cartao_id: l.cartao_id || '',
-      centro_custo_id: l.centro_custo_id || '',
-      entidade_id: l.entidade_id || '',
-      plano_contas_id: l.plano_contas_id,
-      valor_previsto: l.valor_previsto,
-      valor_pago: l.valor_pago || l.valor_previsto,
-      data_pagamento: l.data_pagamento || l.data_vencimento,
-      previsto: l.previsto ?? true,
-      observacao: l.observacao || '',
-      competencia: l.competencia || formatCompetencia(l.data_competencia || l.data_vencimento),
-      competencia_modo_parcelamento: 'POR_PARCELA',
-    };
-
-    setFormData(nextFormData);
-    setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(nextFormData));
-    setFilesToUpload(null);
-    setInitialScopedFields({
-      descricao: String(l.descricao || ''),
-      plano_contas_id: String(l.plano_contas_id || ''),
-      data_vencimento: String(l.data_vencimento || ''),
-    });
-    setAjustarParaDiaUtil(false);
+    setSelectedEditarId(l.id);
     setShowDrawer(true);
   };
-
-  // --- SAVE HANDLER ---
-  const handleSave = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!formData.descricao || !formData.valor_previsto || !formData.plano_contas_id) {
-      pushToast('info', 'Preencha os campos obrigatórios.');
-      return;
-    }
-    if (!formData.entidade_id) {
-      pushToast('info', 'Interessado é obrigatório.');
-      return;
-    }
-
-    setSaving(true);
-    try {
-      if (formData.status === 'PAGO' && !formData.conta_id) {
-        pushToast('info', 'Selecione o banco antes de salvar um lançamento já pago/recebido.');
-        setSaving(false);
-        return;
-      }
-
-      const payload = {
-        ...formData,
-        valor_previsto: parseFloat(formData.valor_previsto),
-        plano_contas_id: parseInt(formData.plano_contas_id),
-        centro_custo_id: formData.centro_custo_id ? parseInt(formData.centro_custo_id) : null,
-        entidade_id: formData.entidade_id ? parseInt(formData.entidade_id) : null,
-        conta_id: formData.conta_id ? parseInt(formData.conta_id) : null,
-        cartao_id: formData.cartao_id ? parseInt(formData.cartao_id) : null,
-        valor_pago: formData.status === 'PAGO' ? parseFloat(formData.valor_pago || formData.valor_previsto) : 0,
-        data_pagamento: formData.status === 'PAGO' ? formData.data_pagamento : null,
-        data_competencia: formData.data_vencimento,
-        data_vencimento: formData.data_vencimento,
-        competencia: formData.competencia || formatCompetencia(formData.data_vencimento),
-        previsto: formData.previsto ?? false,
-      };
-
-      let id = formData.id;
-      if (id) {
-        await api.put(`/lancamentos/${id}`, payload);
-      } else {
-        const r = await api.post('/lancamentos/', payload);
-        id = r.data.id;
-      }
-
-      if (filesToUpload && id) {
-        const fd = new FormData();
-        for (let i = 0; i < filesToUpload.length; i++) fd.append('files', filesToUpload[i]);
-        await api.post(`/lancamentos/${id}/anexos`, fd);
-      }
-
-      closeDrawerDirect();
-      await loadCaixaData();
-      await refreshSaldos();
-      pushToast('success', isEditing ? 'Lançamento atualizado.' : 'Lançamento salvo.');
-    } catch (e: any) {
-      const msg = typeof e?.response?.data?.detail === 'string' ? e.response.data.detail : '';
-      pushToast('error', msg || 'Erro ao salvar lançamento.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleRemoverAnexo = async (anexo: Anexo) => {
-    if (!anexo?.id || !formData?.id) return;
-    const ok = window.confirm(`Remover o anexo "${anexo.nome_arquivo}"?`);
-    if (!ok) return;
-
-    try {
-      try {
-        await api.delete(`/lancamentos/${formData.id}/anexos/${anexo.id}`);
-      } catch {
-        await api.post(`/lancamentos/${formData.id}/anexos/${anexo.id}/delete`);
-      }
-      setFormData((prev: any) => {
-        const next = {
-          ...prev,
-          anexos: (prev?.anexos || []).filter((item: Anexo) => Number(item.id) !== Number(anexo.id)),
-        };
-        setInitialDrawerFormSnapshot(buildDrawerFormSnapshot(next));
-        return next;
-      });
-      pushToast('success', 'Anexo removed.');
-    } catch {
-      pushToast('error', 'Erro ao remover anexo.');
-    }
-  };
-
-  // --- OTHERS DRAWER HANDLERS ---
-  const toggleConta = (id: number) => {
-    setFormData((prev: any) => ({ ...prev, conta_id: prev.conta_id === id ? '' : id, cartao_id: '' }));
-  };
-  const toggleCartao = (id: number) => {
-    setFormData((prev: any) => ({ ...prev, cartao_id: prev.cartao_id === id ? '' : id, conta_id: '' }));
-  };
-  const handleVencimentoChange = (value: string) => {
-    setFormData((prev: any) => {
-      const next = { ...prev, data_vencimento: value };
-      const prevCompetencia = formatCompetencia(prev.data_vencimento);
-      const nextCompetencia = formatCompetencia(value);
-      if (autoCompetenciaRef.current || !prev.competencia || prev.competencia === prevCompetencia) {
-        next.competencia = nextCompetencia;
-        autoCompetenciaRef.current = true;
-      }
-      if (
-        prev.status === 'PAGO' &&
-        (autoPagamentoRef.current || !prev.data_pagamento || prev.data_pagamento === prev.data_vencimento)
-      ) {
-        next.data_pagamento = value;
-        autoPagamentoRef.current = true;
-      }
-      return next;
-    });
-  };
-  const handleCompetenciaChange = (value: string) => {
-    autoCompetenciaRef.current = false;
-    setFormData((prev: any) => ({ ...prev, competencia: value }));
-  };
-  const handleStatusPagoChange = (checked: boolean) => {
-    setFormData((prev: any) => {
-      const next = { ...prev, status: checked ? 'PAGO' : 'PENDENTE' };
-      if (checked && (autoPagamentoRef.current || !prev.data_pagamento)) {
-        next.data_pagamento = prev.data_vencimento;
-        autoPagamentoRef.current = true;
-      }
-      if (checked && (!prev.valor_pago || Number(prev.valor_pago) === 0)) {
-        next.valor_pago = prev.valor_previsto;
-      }
-      return next;
-    });
-  };
-  const handleValorPrevistoChange = (value: string) => {
-    setFormData((prev: any) => {
-      const next = { ...prev, valor_previsto: value };
-      const valorPagoAtual = Number(prev.valor_pago || 0);
-      const valorPrevistoAnterior = Number(prev.valor_previsto || 0);
-
-      if (prev.status === 'PAGO' && (!prev.valor_pago || valorPagoAtual === 0 || valorPagoAtual === valorPrevistoAnterior)) {
-        next.valor_pago = value;
-      }
-      return next;
-    });
-  };
-  const handleValorPagoChange = (value: string) => {
-    autoPagamentoRef.current = false;
-    setFormData((prev: any) => ({ ...prev, valor_pago: value }));
-  };
-  const handleDataPagamentoChange = (value: string) => {
-    autoPagamentoRef.current = false;
-    setFormData((prev: any) => ({ ...prev, data_pagamento: value }));
-  };
-  const handleSelecionarParcelaSerie = (item: Lancamento) => {
-    handleOpenEdit(item);
-  };
-  const handleVerTodasParcelas = () => {};
 
   return (
     <div className="min-h-screen text-slate-800 dark:text-slate-100">
@@ -1137,58 +813,26 @@ export function Caixa() {
       {/* TRANSACTION DRAWER FORM */}
       <LancamentoFormDrawer
         showDrawer={showDrawer}
-        isBoletimEmbed={false}
-        embedFullscreenDrawer={false}
-        isEditing={isEditing}
-        setIsEditing={setIsEditing}
-        saving={saving}
-        formData={formData}
-        setFormData={setFormData}
-        filesToUpload={filesToUpload}
-        setFilesToUpload={setFilesToUpload}
-        hasUnsavedDrawerChanges={hasUnsavedDrawerChanges}
-        parcelasSerie={parcelasSerie}
-        parcelasSerieLoading={parcelasSerieLoading}
-        parcelasVencimentosEdit={parcelasVencimentosEdit}
-        setParcelasVencimentosEdit={setParcelasVencimentosEdit}
-        ajustarParaDiaUtil={ajustarParaDiaUtil}
-        setAjustarParaDiaUtil={setAjustarParaDiaUtil}
-        showParcelasSeriePanel={showParcelasSeriePanel}
+        editarId={selectedEditarId}
+        contaId={selectedContaId}
+        onClose={() => {
+          setShowDrawer(false);
+          setSelectedEditarId(null);
+        }}
+        onSaveSuccess={async () => {
+          setShowDrawer(false);
+          setSelectedEditarId(null);
+          await loadCaixaData();
+          await refreshSaldos();
+        }}
         categorias={categorias}
         entidades={entidades}
         contas={contas}
         cartoes={cartoes}
         centros={centros}
-        lancamentos={dailyLancamentos}
-        openEntityDrawer={() => setShowEntityDrawer(true)}
-        requestCloseDrawer={requestCloseDrawer}
-        handleSave={handleSave}
-        handleVerTodasParcelas={handleVerTodasParcelas}
-        handleSelecionarParcelaSerie={handleSelecionarParcelaSerie}
-        handleRemoverAnexo={handleRemoverAnexo}
         pushToast={pushToast}
-        toggleConta={toggleConta}
-        toggleCartao={toggleCartao}
-        handleVencimentoChange={handleVencimentoChange}
-        handleCompetenciaChange={handleCompetenciaChange}
-        handleStatusPagoChange={handleStatusPagoChange}
-        handleValorPrevistoChange={handleValorPrevistoChange}
-        handleValorPagoChange={handleValorPagoChange}
-        handleDataPagamentoChange={handleDataPagamentoChange}
         isCaixaMode={true}
-      />
-
-      {/* QUICK ENTITY DRAWER */}
-      <QuickEntityDrawer
-        showEntityDrawer={showEntityDrawer}
-        onClose={() => setShowEntityDrawer(false)}
-        onSuccess={async (newEntity: any) => {
-          setShowEntityDrawer(false);
-          await fetchEntidadesLookup(true);
-          setFormData((prev: any) => ({ ...prev, entidade_id: String(newEntity.id) }));
-          pushToast('success', 'Novo interessado salvo com sucesso.');
-        }}
-        pushToast={pushToast}
+        lancamentos={dailyLancamentos}
       />
     </div>
   );

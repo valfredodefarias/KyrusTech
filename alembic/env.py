@@ -44,6 +44,9 @@ from app.models.mapeamento_categoria import MapeamentoCategoria
 from app.models.dashboard_view_config import DashboardViewConfig
 from app.models.plano_contas_template_config import PlanoContasTemplateConfig
 from app.models.bank_preset_config import BankPresetConfig
+from app.models.movimento_ofx import MovimentoOFX
+from app.models.baixa import Baixa
+
 
 # --- 4. CONFIGURAÇÃO DO ALEMBIC ---
 config = context.config

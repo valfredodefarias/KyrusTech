@@ -378,7 +378,24 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
         session.refresh(deposito)
         assert deposito.status == "PAGO"
         assert deposito.conciliado is True
+
+        # 5. Verificar se a rota /contas/{conta_id}/saldo-detalhe retorna has_lote_card correto
+        res_saldo_detalhe = client.get("/api/v1/contas/1/saldo-detalhe")
+        assert res_saldo_detalhe.status_code == 200
+        saldo_detalhe = res_saldo_detalhe.json()
+        movs = saldo_detalhe["movimentos"]
+        
+        # O deposito (ID do deposito) deve ter has_lote_card = True
+        dep_mov = next((m for m in movs if m["id"] == deposito.id), None)
+        assert dep_mov is not None
+        assert dep_mov["has_lote_card"] is True
+
+        # O lanc_vista (outro lançamento normal) deve ter has_lote_card = False
+        normal_mov = next((m for m in movs if m["id"] == lanc_vista.id), None)
+        assert normal_mov is not None
+        assert normal_mov["has_lote_card"] is False
         
     finally:
         # Limpar overrides no FastAPI
         app.dependency_overrides.clear()
+

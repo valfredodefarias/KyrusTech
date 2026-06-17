@@ -251,3 +251,201 @@ def test_ofx_value_proximity_and_greedy_matching(client: TestClient, session: Se
 
         finally:
             app.dependency_overrides.clear()
+
+
+def test_ofx_close_date_previsto_prioritization(client: TestClient, session: Session, setup_test_db):
+    # Authentication overrides
+    def mock_get_current_user():
+        return setup_test_db["usuario"]
+
+    def mock_get_empresa_id_from_user():
+        return 1
+
+    app_dependency_overrides = {
+        get_current_user: mock_get_current_user,
+        get_current_active_user: mock_get_current_user,
+        get_empresa_id_from_user: mock_get_empresa_id_from_user
+    }
+    
+    app.dependency_overrides.update(app_dependency_overrides)
+    
+    # 1. Create a previsto that is on a different day (vencimento tomorrow, 2026-06-12) with the exact same value (2570.00)
+    previsto = Lancamento(
+        descricao="Previsto Correto",
+        valor_previsto=Decimal("2570.00"),
+        data_vencimento=date(2026, 6, 12),
+        data_competencia=date(2026, 6, 12),
+        tipo="DESPESA",
+        status="PENDENTE",
+        empresa_id=1,
+        conta_id=1,
+        plano_contas_id=10,
+        is_deleted=False
+    )
+    
+    # 2. Create an atrasado that has a matching value (within 5%, e.g., 2500.00) but is on an older date (vencimento 10 days ago, 2026-06-01)
+    atrasado = Lancamento(
+        descricao="Atrasado Qualquer",
+        valor_previsto=Decimal("2500.00"),
+        data_vencimento=date(2026, 6, 1),
+        data_competencia=date(2026, 6, 1),
+        tipo="DESPESA",
+        status="PENDENTE",
+        empresa_id=1,
+        conta_id=1,
+        plano_contas_id=10,
+        is_deleted=False
+    )
+    
+    session.add(previsto)
+    session.add(atrasado)
+    session.commit()
+    session.refresh(previsto)
+    session.refresh(atrasado)
+
+    mocked_ofx_rows = [
+        {
+            "data": date(2026, 6, 11), # Payment date
+            "data_pagamento": "2026-06-11",
+            "data_vencimento": "2026-06-11",
+            "descricao": "PAGAMENTO TESTE",
+            "razao_social": "Favorecido Teste",
+            "cpf_cnpj": "",
+            "valor": Decimal("2570.00"),
+            "tipo": "DESPESA",
+            "origem": "OFX_EXTRATO",
+            "linha_arquivo": 1,
+            "saldo_informativo": False
+        }
+    ]
+
+    with patch("app.api.v1.endpoints.importacao_ofx.processar_ofx", return_value=mocked_ofx_rows), \
+         patch("app.api.deps.has_permission", return_value=True):
+        try:
+            # Call upload endpoint
+            response = client.post(
+                "/api/v1/importacao/ofx/upload?conta_id=1",
+                files={"arquivo": ("extrato.ofx", b"OFX CONTENT", "application/xml")}
+            )
+            assert response.status_code == 200
+            res_json = response.json()
+            
+            processados = res_json["lancamentos"]
+            assert len(processados) == 1
+            row = processados[0]
+            
+            # The system should prioritize BAIXAR_PREVISTO with the close-date previsto (valor exato)
+            # over RELACIONAR_ATRASADOS with the older atrasado.
+            assert row["sugestao_acao"] == "BAIXAR_PREVISTO"
+            assert row["lancamento_previsto_id"] == previsto.id
+
+        finally:
+            app.dependency_overrides.clear()
+
+
+def test_ofx_import_split_previsto_reconciliation(client: TestClient, session: Session, setup_test_db):
+    # Authentication overrides
+    def mock_get_current_user():
+        return setup_test_db["usuario"]
+
+    def mock_get_empresa_id_from_user():
+        return 1
+
+    app_dependency_overrides = {
+        get_current_user: mock_get_current_user,
+        get_current_active_user: mock_get_current_user,
+        get_empresa_id_from_user: mock_get_empresa_id_from_user
+    }
+    
+    app.dependency_overrides.update(app_dependency_overrides)
+    
+    # Create one single previsto with a total value of 2739.99
+    previsto = Lancamento(
+        descricao="Salario Previsto",
+        valor_previsto=Decimal("2739.99"),
+        data_vencimento=date(2026, 6, 15),
+        data_competencia=date(2026, 6, 15),
+        tipo="DESPESA",
+        status="PENDENTE",
+        empresa_id=1,
+        conta_id=1,
+        plano_contas_id=10,
+        is_deleted=False
+    )
+    session.add(previsto)
+    session.commit()
+    session.refresh(previsto)
+
+    # We mock confirming/submitting the reconciliation payload
+    # Two OFX rows will target the same previsto.id
+    payload = {
+        "conta_id": 1,
+        "modo_importacao": "CONTA",
+        "ignorar_divergencia": True,
+        "lancamentos": [
+            {
+                "data": "2026-06-15",
+                "descricao": "PIX ENVIADO PARTE 1",
+                "valor": 1000.00,
+                "tipo": "DESPESA",
+                "origem": "OFX",
+                "linha_arquivo": 1,
+                "sugestao_acao": "BAIXAR_PREVISTO",
+                "sugestao_confirmada": True,
+                "lancamento_previsto_id": previsto.id,
+                "plano_contas_id": 10,
+                "import_hash": "hash_split_test_1"
+            },
+            {
+                "data": "2026-06-15",
+                "descricao": "PIX ENVIADO PARTE 2",
+                "valor": 1739.99,
+                "tipo": "DESPESA",
+                "origem": "OFX",
+                "linha_arquivo": 2,
+                "sugestao_acao": "BAIXAR_PREVISTO",
+                "sugestao_confirmada": True,
+                "lancamento_previsto_id": previsto.id,
+                "plano_contas_id": 10,
+                "import_hash": "hash_split_test_2"
+            }
+        ]
+    }
+
+    with patch("app.api.deps.has_permission", return_value=True):
+        try:
+            response = client.post("/api/v1/importacao/confirmar-lancamentos", json=payload)
+            print("SPLIT RESPONSE JSON:", response.json())
+            assert response.status_code == 200
+            res_json = response.json()
+            assert res_json["sucesso"] is True
+
+            # Query database to check the split results
+            session.expire_all()
+            all_lancs = session.exec(
+                select(Lancamento)
+                .where(Lancamento.empresa_id == 1)
+                .where(Lancamento.is_deleted == False)
+                .where(Lancamento.descricao.like("%Salario%"))
+            ).all()
+            
+            # Since confirmation creates reconciled entries,
+            # let's assert there are 2 launches matching Salario
+            assert len(all_lancs) == 2
+            
+            # Check they have status "PAGO" or similar, and are marked conciliado
+            for lanc in all_lancs:
+                assert lanc.conciliado is True
+                assert lanc.id_parcelamento is not None
+                assert lanc.id_parcelamento.startswith("split-previsto-")
+                
+            # Verify values
+            values = {lanc.valor_previsto for lanc in all_lancs}
+            assert Decimal("1000.00") in values
+            assert Decimal("1739.99") in values
+
+            # Verify that their id_parcelamento is exactly equal
+            assert all_lancs[0].id_parcelamento == all_lancs[1].id_parcelamento
+
+        finally:
+            app.dependency_overrides.clear()

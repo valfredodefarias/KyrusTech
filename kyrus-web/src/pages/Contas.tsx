@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { BankAvatar } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
-import { Lancamentos } from './Lancamentos';
+import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
 import { useBankPresetStore } from '../store/bankPresetStore';
 import { 
   Landmark, RefreshCw, Plus, Edit2, Trash2, ChevronRight, X, Check, Loader2, ChevronDown,
@@ -62,6 +62,8 @@ interface LancamentoItem {
   centro_custo_id?: number | null;
   cartao_id?: number | null;
   cartao_nome?: string | null;
+  has_lote_card?: boolean;
+  id_parcelamento?: string | null;
 }
 
 interface ExtratoGrupoFatura {
@@ -73,6 +75,17 @@ interface ExtratoGrupoFatura {
   dataBase: string;
   itens: LancamentoItem[];
 }
+
+interface ExtratoGrupoSplit {
+  key: string;
+  descricao: string;
+  totalEntrada: number;
+  totalSaida: number;
+  saldoApos: number;
+  dataBase: string;
+  itens: LancamentoItem[];
+}
+
 
 function getExtratoBaseDate(item: Pick<LancamentoItem, 'data_pagamento' | 'data_vencimento'>) {
   return item.data_pagamento || item.data_vencimento;
@@ -287,7 +300,8 @@ export function Contas() {
   const [extratoDeletePhrase, setExtratoDeletePhrase] = useState('');
   const [extratoDeletePaidPhrase, setExtratoDeletePaidPhrase] = useState('');
   const [extratoDeleteIds, setExtratoDeleteIds] = useState<number[]>([]);
-  const [lancamentosEmbedParams, setLancamentosEmbedParams] = useState<URLSearchParams | null>(null);
+  const [isLancamentoDrawerOpen, setIsLancamentoDrawerOpen] = useState(false);
+  const [editingLancamentoId, setEditingLancamentoId] = useState<number | null>(null);
   const [expandedLotes, setExpandedLotes] = useState<Record<number, any>>({});
   const [lotesLoading, setLotesLoading] = useState<Record<number, boolean>>({});
   const [loteVisivel, setLoteVisivel] = useState<Record<number, boolean>>({});
@@ -732,7 +746,6 @@ export function Contas() {
     setExtratoPeriodoInicio('');
     setExtratoPeriodoFim('');
     setExtratoLancamentos([]);
-    setLancamentosEmbedParams(null);
     if (categorias.length === 0) {
       await carregarCategorias();
     }
@@ -755,7 +768,6 @@ export function Contas() {
     setExtratoConta(null);
     setExtratoContaId(null);
     setContaExtratoNome('');
-    setLancamentosEmbedParams(null);
   }
 
   function toggleExtratoSelecionado(id: number) {
@@ -822,24 +834,13 @@ export function Contas() {
     if (lancamento && isTransferencia(lancamento)) {
       return;
     }
-    const params = new URLSearchParams();
-    params.set('embed_boletim', '1');
-    params.set('origem', 'contas_extrato');
-
-    if (lancamento?.id) {
-      params.set('editar_id', String(lancamento.id));
-      setLancamentosEmbedParams(params);
-      return;
-    }
-
-    if (!extratoContaId) return;
-    params.set('novo', '1');
-    params.set('conta_id', String(extratoContaId));
-    setLancamentosEmbedParams(params);
+    setEditingLancamentoId(lancamento?.id || null);
+    setIsLancamentoDrawerOpen(true);
   }
 
-  async function handleFecharLancamentosEmbed() {
-    setLancamentosEmbedParams(null);
+  async function handleFecharLancamentoDrawer() {
+    setIsLancamentoDrawerOpen(false);
+    setEditingLancamentoId(null);
     if (!extratoContaId) return;
 
     try {
@@ -981,36 +982,70 @@ export function Contas() {
   const extratoAgrupado = useMemo(() => {
     const singleRows: Array<{ type: 'single'; item: LancamentoItem }> = [];
     const grouped = new Map<string, ExtratoGrupoFatura>();
+    const groupedSplits = new Map<string, ExtratoGrupoSplit>();
+
+    // Count non-card occurrences of id_parcelamento
+    const splitCounts = new Map<string, number>();
+    extratoLancamentosFiltrados.forEach((item) => {
+      const isCardMovement = Number(item.cartao_id || 0) > 0;
+      if (!isCardMovement && item.id_parcelamento) {
+        const key = item.id_parcelamento.trim();
+        if (key) {
+          splitCounts.set(key, (splitCounts.get(key) || 0) + 1);
+        }
+      }
+    });
 
     extratoLancamentosFiltrados.forEach((item) => {
       const isCardMovement = Number(item.cartao_id || 0) > 0;
-      if (!isCardMovement) {
-        singleRows.push({ type: 'single', item });
+      if (isCardMovement) {
+        const competenciaBase = (item.data_vencimento || item.data_competencia || '').slice(0, 7);
+        if (!competenciaBase) {
+          singleRows.push({ type: 'single', item });
+          return;
+        }
+
+        const key = `${item.cartao_id}-${competenciaBase}`;
+        const current = grouped.get(key) || {
+          key,
+          cartaoNome: item.cartao_nome || `Cartão ${item.cartao_id}`,
+          competencia: competenciaBase,
+          totalSaida: 0,
+          saldoApos: Number(item.saldo_apos_movimento || 0),
+          dataBase: getExtratoBaseDate(item),
+          itens: [],
+        };
+
+        current.totalSaida += Number(item.valor_saida || item.valor_pago || item.valor_previsto || 0);
+        current.saldoApos = Number(item.saldo_apos_movimento || current.saldoApos || 0);
+        current.dataBase = current.dataBase || getExtratoBaseDate(item);
+        current.itens.push(item);
+        grouped.set(key, current);
         return;
       }
 
-      const competenciaBase = (item.data_vencimento || item.data_competencia || '').slice(0, 7);
-      if (!competenciaBase) {
-        singleRows.push({ type: 'single', item });
+      const splitKey = item.id_parcelamento ? item.id_parcelamento.trim() : '';
+      if (splitKey && (splitCounts.get(splitKey) || 0) > 1) {
+        const currentSplit: ExtratoGrupoSplit = groupedSplits.get(splitKey) || {
+          key: splitKey,
+          descricao: item.descricao || "Lançamento Rateado",
+          totalEntrada: 0,
+          totalSaida: 0,
+          saldoApos: Number(item.saldo_apos_movimento || 0),
+          dataBase: getExtratoBaseDate(item),
+          itens: [] as LancamentoItem[],
+        };
+
+        currentSplit.totalEntrada += Number(item.valor_entrada || 0);
+        currentSplit.totalSaida += Number(item.valor_saida || 0);
+        currentSplit.saldoApos = Number(item.saldo_apos_movimento || currentSplit.saldoApos || 0);
+        currentSplit.dataBase = currentSplit.dataBase || getExtratoBaseDate(item);
+        currentSplit.itens.push(item);
+        groupedSplits.set(splitKey, currentSplit);
         return;
       }
 
-      const key = `${item.cartao_id}-${competenciaBase}`;
-      const current = grouped.get(key) || {
-        key,
-        cartaoNome: item.cartao_nome || `Cartão ${item.cartao_id}`,
-        competencia: competenciaBase,
-        totalSaida: 0,
-        saldoApos: Number(item.saldo_apos_movimento || 0),
-        dataBase: getExtratoBaseDate(item),
-        itens: [],
-      };
-
-      current.totalSaida += Number(item.valor_saida || item.valor_pago || item.valor_previsto || 0);
-      current.saldoApos = Number(item.saldo_apos_movimento || current.saldoApos || 0);
-      current.dataBase = current.dataBase || getExtratoBaseDate(item);
-      current.itens.push(item);
-      grouped.set(key, current);
+      singleRows.push({ type: 'single', item });
     });
 
     grouped.forEach((group) => {
@@ -1019,12 +1054,30 @@ export function Contas() {
       group.saldoApos = Number(group.itens[0]?.saldo_apos_movimento || group.saldoApos || 0);
     });
 
+    groupedSplits.forEach((group) => {
+      group.itens.sort((left, right) => getDateTimestamp(getExtratoBaseDate(right)) - getDateTimestamp(getExtratoBaseDate(left)));
+      group.dataBase = getExtratoBaseDate(group.itens[0] || { data_pagamento: group.dataBase, data_vencimento: group.dataBase });
+      group.saldoApos = Number(group.itens[0]?.saldo_apos_movimento || group.saldoApos || 0);
+      
+      if (group.key.startsWith("split-previsto-")) {
+        const firstWithDesc = group.itens.find(i => i.descricao);
+        if (firstWithDesc) {
+          group.descricao = `${firstWithDesc.descricao} (Rateado)`;
+        }
+      }
+    });
+
     const invoiceRows = Array.from(grouped.values()).sort((left, right) => getDateTimestamp(right.dataBase) - getDateTimestamp(left.dataBase));
+    const splitRows = Array.from(groupedSplits.values()).sort((left, right) => getDateTimestamp(right.dataBase) - getDateTimestamp(left.dataBase));
     const singles = [...singleRows].sort((left, right) => getDateTimestamp(getExtratoBaseDate(right.item)) - getDateTimestamp(getExtratoBaseDate(left.item)));
 
-    return [...invoiceRows.map((group) => ({ type: 'invoice' as const, group })), ...singles].sort((left, right) => {
-      const leftDate = left.type === 'invoice' ? left.group.dataBase : getExtratoBaseDate(left.item);
-      const rightDate = right.type === 'invoice' ? right.group.dataBase : getExtratoBaseDate(right.item);
+    return [
+      ...invoiceRows.map((group) => ({ type: 'invoice' as const, group })),
+      ...splitRows.map((group) => ({ type: 'split' as const, group })),
+      ...singles
+    ].sort((left, right) => {
+      const leftDate = left.type === 'invoice' ? left.group.dataBase : left.type === 'split' ? left.group.dataBase : getExtratoBaseDate(left.item);
+      const rightDate = right.type === 'invoice' ? right.group.dataBase : right.type === 'split' ? right.group.dataBase : getExtratoBaseDate(right.item);
       return getDateTimestamp(rightDate) - getDateTimestamp(leftDate);
     });
   }, [extratoLancamentosFiltrados]);
@@ -1405,8 +1458,98 @@ export function Contas() {
                           );
                         }
 
+                        if (row.type === 'split') {
+                          const isExpanded = !!extratoFaturasExpandidas[row.group.key];
+                          const totalMovimento = row.group.totalEntrada - row.group.totalSaida;
+
+                          return (
+                            <React.Fragment key={row.group.key}>
+                              <tr className="bg-slate-50/80 dark:bg-slate-800/60">
+                                <td className="p-3 align-top">
+                                  <span className="inline-flex min-w-7 items-center justify-center rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                                    {row.group.itens.length}
+                                  </span>
+                                </td>
+                                <td className="p-3 font-mono text-xs text-slate-500 align-top">
+                                  {formatDateLike(row.group.dataBase)}
+                                </td>
+                                <td className="p-3 align-top" colSpan={4}>
+                                  <button
+                                    onClick={() => toggleExtratoFatura(row.group.key)}
+                                    className="flex items-start gap-3 text-left"
+                                  >
+                                    <ChevronDown className={`mt-0.5 h-4 w-4 text-slate-400 transition ${isExpanded ? 'rotate-180' : ''}`} />
+                                    <div>
+                                      <div className="font-semibold text-slate-800 dark:text-slate-100">{row.group.descricao}</div>
+                                      <div className="text-xs text-slate-500">{row.group.itens.length} lançamento(s) rateado(s)</div>
+                                    </div>
+                                  </button>
+                                </td>
+                                <td className="p-3 align-top">
+                                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                                    RATEADO
+                                  </span>
+                                </td>
+                                <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${totalMovimento >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {formatSignedCurrency(totalMovimento)}
+                                </td>
+                                <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(row.group.saldoApos)}</td>
+                                <td className="p-3" />
+                              </tr>
+
+                              {isExpanded && row.group.itens.map((l) => (
+                                <tr key={l.id} className="bg-white dark:bg-slate-800/20 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                                  <td className="p-3 pl-10">
+                                    <input
+                                      type="checkbox"
+                                      checked={extratoSelecionados.includes(l.id)}
+                                      onChange={() => toggleExtratoSelecionado(l.id)}
+                                      className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                                    />
+                                  </td>
+                                  <td className="p-3 font-mono text-xs text-slate-500">
+                                    {formatDateLike(l.data_pagamento || l.data_vencimento)}
+                                  </td>
+                                  <td className="p-3 font-medium text-slate-700 dark:text-slate-200">
+                                    <div>{l.descricao}</div>
+                                  </td>
+                                  <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
+                                  <td className="p-3 text-slate-500">{getCategoriaLabel(l)}</td>
+                                  <td className="p-3 text-slate-500">{l.origem || '-'}</td>
+                                  <td className="p-3">
+                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                      {l.status}
+                                    </span>
+                                  </td>
+                                  <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
+                                  <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                  <td className="p-3 text-right">
+                                    <div className="flex items-center justify-end gap-2">
+                                      {!isTransferencia(l) && (
+                                        <button
+                                          onClick={() => handleAbrirLancamentoModal(l)}
+                                          className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                        >
+                                          <Edit2 className="w-4 h-4" />
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => handleExcluirLancamento(l.id)}
+                                        className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          );
+                        }
+
+
                         const l = row.item;
-                        const hasLoteDetails = l.conciliado && Number(l.valor_entrada || 0) > 0 && (String(l.origem || '').toUpperCase() === 'EXTRATO' || String(l.origem || '').toUpperCase() === 'OFX_EXTRATO');
+                        const hasLoteDetails = !!l.has_lote_card;
                         return (
                           <React.Fragment key={l.id}>
                             <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
@@ -2025,16 +2168,16 @@ export function Contas() {
           </div>
       </div>
 
-      {lancamentosEmbedParams && (
-        <div className="fixed inset-0 z-[70]">
-          <Lancamentos
-            forcedSearchParams={lancamentosEmbedParams}
-            onRequestCloseEmbed={() => {
-              void handleFecharLancamentosEmbed();
-            }}
-          />
-        </div>
-      )}
+      <LancamentoFormDrawer
+        showDrawer={isLancamentoDrawerOpen}
+        editarId={editingLancamentoId}
+        contaId={extratoContaId}
+        onClose={handleFecharLancamentoDrawer}
+        onSaveSuccess={handleFecharLancamentoDrawer}
+        categorias={categorias}
+        contas={contas}
+        centros={centros}
+      />
 
       {extratoDeleteModalOpen && (
         <div className="fixed inset-0 z-[75] flex items-center justify-center p-4">

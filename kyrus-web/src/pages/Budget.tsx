@@ -524,16 +524,16 @@ export function Budget() {
           <table className="w-full min-w-[1400px] border-separate border-spacing-0 text-sm">
             <thead>
               <tr>
-                <th className="sticky left-0 top-0 z-40 border-b border-r border-slate-800 bg-slate-950/95 px-4 py-2 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
+                <th className="sticky left-0 top-0 z-20 border-b border-r border-slate-800 bg-slate-950/95 px-4 py-2 text-left text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
                   Conta
                 </th>
-                <th className="sticky top-0 z-30 border-b border-r border-slate-800 bg-slate-950/95 px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
+                <th className="sticky top-0 z-10 border-b border-r border-slate-800 bg-slate-950/95 px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.24em] text-white backdrop-blur">
                   Orçado total
                 </th>
                 {MONTH_LABELS.map((label) => (
                   <th
                     key={label}
-                    className="sticky top-0 z-30 min-w-[100px] w-[100px] border-b border-r border-slate-800 bg-slate-950/95 px-2 py-2 text-right text-[10px] font-black uppercase tracking-[0.18em] text-white backdrop-blur last:border-r-0"
+                    className="sticky top-0 z-10 min-w-[100px] w-[100px] border-b border-r border-slate-800 bg-slate-950/95 px-2 py-2 text-right text-[10px] font-black uppercase tracking-[0.18em] text-white backdrop-blur last:border-r-0"
                   >
                     {label}
                   </th>
@@ -566,7 +566,7 @@ export function Budget() {
                   return (
                     <Fragment key={section.key}>
                       <tr>
-                        <td className={`sticky left-0 z-20 border-b border-r px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white ${rowTone}`}>
+                        <td className={`sticky left-0 z-10 border-b border-r px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white ${rowTone}`}>
                           {section.label}
                         </td>
                         <td className={`border-b border-r px-4 py-3 text-right font-black text-white ${rowTone}`}>

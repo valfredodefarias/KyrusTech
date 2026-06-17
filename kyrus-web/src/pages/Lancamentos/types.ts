@@ -16,7 +16,7 @@ export interface Lancamento {
   data_competencia?: string;
   competencia?: string;
   previsto?: boolean;
-  status: 'PAGO' | 'PENDENTE' | 'EM ABERTO';
+  status: 'PAGO' | 'PENDENTE' | 'EM ABERTO' | 'PARCIALMENTE_PAGO';
   ipp: boolean;
   observacao?: string;
   conciliado?: boolean;

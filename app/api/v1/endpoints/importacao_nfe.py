@@ -1684,7 +1684,7 @@ def atualizar_nfe_importada(
     if ids_invalidos:
         raise HTTPException(status_code=400, detail=f"Parcelas invalidas para edicao: {ids_invalidos}")
 
-    competencia = request.data_emissao.strftime("%m/%Y")
+    competencia = request.data_emissao.strftime("%m-%Y")
     atualizados = 0
     total_valor = Decimal("0")
 
@@ -2107,7 +2107,7 @@ def importar_frete_para_financeiro(
         _assert_entidade_valida(db, empresa_id=empresa_id, entidade_id=entidade_id)
 
     data_competencia = request.data_vencimento
-    competencia = data_competencia.strftime("%m/%Y")
+    competencia = data_competencia.strftime("%m-%Y")
     import_hash = _frete_import_hash(empresa_id, cte_chave)
     descricao = f"CTE REF: N° {numero_nfe if numero_nfe != '-' else ''} || N° {cte_numero or ''}".strip()
     if not descricao:
@@ -2486,7 +2486,7 @@ def confirmar_importacao_nfe(
             data_vencimento=request.data_emissao,
             data_pagamento=None,
             data_competencia=request.data_emissao,
-            competencia=request.data_emissao.strftime("%m/%Y"),
+            competencia=request.data_emissao.strftime("%m-%Y"),
             numero_parcela=0,
             id_parcelamento=parcela_group_id,
             observacao=observacao_demo,
@@ -2554,8 +2554,8 @@ def confirmar_importacao_nfe(
                 total_parcelas,
             )
 
-            data_competencia = request.data_emissao or parcela.data_vencimento
-            competencia = data_competencia.strftime("%m/%Y")
+            data_competencia = request.data_emissao
+            competencia = data_competencia.strftime("%m-%Y")
             import_hash = _import_hash(empresa_id, chave_nfe, parcela.indice)
 
             observacao_base = _compor_observacao_com_situacao(

@@ -93,6 +93,19 @@ export const api = axios.create({
   withCredentials: true,
 });
 
+api.interceptors.request.use(
+  (config) => {
+    const user = useAuthStore.getState().user;
+    if (user && user.empresa_id) {
+      config.headers['X-Company-ID'] = String(user.empresa_id);
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
 export function normalizeListResponse<T>(data: unknown): T[] {
   if (Array.isArray(data)) {
     return data as T[];

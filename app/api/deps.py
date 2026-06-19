@@ -63,13 +63,34 @@ def get_current_active_user(current_user: Usuario = Depends(get_current_user)) -
     return current_user
 
 def get_empresa_id_from_user(
+    request: Request = None,
     current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ) -> int:
     """
     Retorna empresa_id do usuário.
-    Para consultores, valida se ele tem acesso à empresa_id atual.
+    Tenta obter o X-Company-ID enviado pelo cabeçalho da requisição para suportar multi-abas de consultores.
+    Se não for fornecido ou for inválido, cai de volta para o empresa_id salvo no banco.
     """
+    # 1. Verifica se foi enviado cabeçalho X-Company-ID
+    if request:
+        header_company_id = request.headers.get("x-company-id")
+        if header_company_id and header_company_id.isdigit():
+            empresa_id = int(header_company_id)
+            
+            # Valida se o usuário tem autorização para esta empresa
+            if current_user.is_consultor:
+                if current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value:
+                    return empresa_id
+                
+                from app.crud.crud_consultor_empresa import tem_acesso
+                if tem_acesso(session, current_user.id, empresa_id):
+                    return empresa_id
+            else:
+                if current_user.empresa_id == empresa_id:
+                    return empresa_id
+
+    # 2. Fallback para o comportamento padrão do banco
     if current_user.is_consultor and current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value:
         # Super consultor/admin pode operar qualquer empresa
         if current_user.empresa_id:

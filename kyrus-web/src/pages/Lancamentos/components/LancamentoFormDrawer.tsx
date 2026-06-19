@@ -104,6 +104,9 @@ export const LancamentoFormDrawer = ({
     qtd_parcelas: 2,
     modo_calculo: 'TOTAL',
     competencia_modo_parcelamento: 'POR_PARCELA',
+    tipo_intervalo: 'MENSAL',
+    intervalo_dias: 30,
+    ajustar_vencimento_dia_util: true,
     anexos: [],
   });
 
@@ -223,6 +226,9 @@ export const LancamentoFormDrawer = ({
       qtd_parcelas: Number(data.qtd_parcelas || 2),
       modo_calculo: data.modo_calculo || 'TOTAL',
       competencia_modo_parcelamento: data.competencia_modo_parcelamento || 'POR_PARCELA',
+      tipo_intervalo: data.tipo_intervalo || 'MENSAL',
+      intervalo_dias: Number(data.intervalo_dias || 30),
+      ajustar_vencimento_dia_util: data.ajustar_vencimento_dia_util ?? true,
     });
 
   const loadLookups = async () => {
@@ -371,6 +377,9 @@ export const LancamentoFormDrawer = ({
               observacao: l.observacao || '',
               competencia: l.competencia || formatCompetencia(l.data_competencia || l.data_vencimento),
               competencia_modo_parcelamento: 'POR_PARCELA',
+              tipo_intervalo: l.tipo_intervalo || 'MENSAL',
+              intervalo_dias: l.intervalo_dias || 30,
+              ajustar_vencimento_dia_util: l.ajustar_vencimento_dia_util ?? true,
               baixas: l.baixas || [],
             };
             setFormData(nextFormData);
@@ -420,6 +429,9 @@ export const LancamentoFormDrawer = ({
         qtd_parcelas: 2,
         modo_calculo: 'TOTAL',
         competencia_modo_parcelamento: 'POR_PARCELA',
+        tipo_intervalo: 'MENSAL',
+        intervalo_dias: 30,
+        ajustar_vencimento_dia_util: true,
         anexos: [],
         baixas: [],
         ...prefilledData,
@@ -738,11 +750,31 @@ export const LancamentoFormDrawer = ({
         let val = formData.modo_calculo === 'TOTAL' ? payload.valor_previsto / qtd : payload.valor_previsto;
 
         for (let i = 0; i < qtd; i++) {
-          const dt = new Date(ano, mes - 1 + i, dia);
-          const dataParcela = dt.toISOString().split('T')[0];
-          const vencimentoParcela = formData.cartao_id
+          let dataParcela = '';
+          if (formData.tipo_intervalo === 'DIAS') {
+            const dt = new Date(ano, mes - 1, dia);
+            const intervalo = Number(formData.intervalo_dias || 30);
+            dt.setDate(dt.getDate() + i * intervalo);
+            const y = dt.getFullYear();
+            const m = String(dt.getMonth() + 1).padStart(2, '0');
+            const d = String(dt.getDate()).padStart(2, '0');
+            dataParcela = `${y}-${m}-${d}`;
+          } else {
+            const dt = new Date(ano, mes - 1 + i, dia);
+            const y = dt.getFullYear();
+            const m = String(dt.getMonth() + 1).padStart(2, '0');
+            const d = String(dt.getDate()).padStart(2, '0');
+            dataParcela = `${y}-${m}-${d}`;
+          }
+
+          let vencimentoParcela = formData.cartao_id
             ? computeCartaoVencimento(dataParcela, formData.cartao_id, cartoes) || dataParcela
             : dataParcela;
+
+          if (formData.ajustar_vencimento_dia_util !== false) {
+            vencimentoParcela = toNextBusinessDay(vencimentoParcela);
+          }
+
           const competenciaBase = formData.competencia_modo_parcelamento === 'MES_COMPRA' ? formData.data_vencimento : dataParcela;
           lista.push({
             ...payload,
@@ -755,6 +787,7 @@ export const LancamentoFormDrawer = ({
             numero_parcela: i + 1,
             status: i === 0 && payload.status === 'PAGO' ? 'PAGO' : 'PENDENTE',
             valor_pago: i === 0 && payload.status === 'PAGO' ? payload.valor_pago : 0,
+            data_pagamento: i === 0 && payload.status === 'PAGO' ? payload.data_pagamento : null,
           });
         }
 
@@ -1280,6 +1313,70 @@ export const LancamentoFormDrawer = ({
                           </button>
                         </div>
                       </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Frequência</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setFormData((prev: any) => ({ ...prev, tipo_intervalo: 'MENSAL' }))}
+                            className={`py-2 rounded-lg text-xs font-bold border transition ${
+                              formData.tipo_intervalo !== 'DIAS'
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                            }`}
+                          >
+                            Mensal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFormData((prev: any) => ({ ...prev, tipo_intervalo: 'DIAS' }))}
+                            className={`py-2 rounded-lg text-xs font-bold border transition ${
+                              formData.tipo_intervalo === 'DIAS'
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                            }`}
+                          >
+                            A cada X dias
+                          </button>
+                        </div>
+                      </div>
+                      <div>
+                        {formData.tipo_intervalo === 'DIAS' ? (
+                          <InputDark
+                            label="Intervalo (dias)"
+                            type="number"
+                            min={1}
+                            value={formData.intervalo_dias || 30}
+                            onChange={(e: any) =>
+                              setFormData((prev: any) => ({
+                                ...prev,
+                                intervalo_dias: Math.max(1, Number(e.target.value) || 30),
+                              }))
+                            }
+                          />
+                        ) : (
+                          <div className="opacity-50 select-none">
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Intervalo</label>
+                            <div className="py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs text-slate-400 bg-white dark:bg-slate-900 h-[38px] flex items-center">
+                              30 dias (Aprox.)
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <ToggleSimNao
+                        label="Ajustar vencimentos para dia útil?"
+                        value={formData.ajustar_vencimento_dia_util !== false}
+                        onChange={(next) => setFormData((prev: any) => ({ ...prev, ajustar_vencimento_dia_util: next }))}
+                      />
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        Se ativado, parcelas que caírem em finais de semana serão movidas para a próxima segunda-feira.
+                      </p>
                     </div>
 
                     <div>

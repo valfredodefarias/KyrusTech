@@ -27,6 +27,12 @@ async def init_db() -> None:
     try:
         SQLModel.metadata.create_all(engine)
         print("Banco de dados inicializado com sucesso")
+        
+        # Executa raw SQL para adicionar a coluna undone caso ela não exista
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS undone BOOLEAN DEFAULT FALSE;"))
+            print("Verificação da coluna 'undone' concluída")
     except Exception as exc:
         print(f"Erro ao inicializar banco: {exc}")
 

@@ -58,6 +58,9 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./static:/app/static
+      - ./app:/app/app
+      - ./alembic:/app/alembic
+      - ./scripts:/app/scripts
     networks:
       - kyrus_portal
       - kyrus_db_internal

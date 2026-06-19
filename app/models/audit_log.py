@@ -22,6 +22,8 @@ class AuditLog(SQLModel, table=True):
     # Ex: {"valor_pago": {"old": 100.00, "new": 150.00}}
     changes: Optional[Any] = Field(default=None, sa_column=Column(JSON))
     
+    undone: bool = Field(default=False, nullable=False)
+    
     # Metadados
     user_id: Optional[int] = Field(default=None, index=True) # Quem fez
     ip_address: Optional[str] = None # Segurança extra

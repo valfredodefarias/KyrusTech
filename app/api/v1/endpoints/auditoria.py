@@ -7,7 +7,7 @@ from sqlmodel import Session, select, func, col
 from sqlalchemy import or_
 
 from app.db.session import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_empresa_id_from_user
 from app.crud.crud_consultor_empresa import tem_acesso
 from app.enums import ConsultorRole
 from app.models.consultor_empresa import ConsultorEmpresa
@@ -70,28 +70,12 @@ def listar_auditoria(
             )
         )
 
-    if not current_user.is_consultor:
-        empresa_filter = current_user.empresa_id
-        if empresa_filter:
-            users_subq = select(Usuario.id).where(Usuario.empresa_id == empresa_filter)
-            filters.append(col(AuditLog.user_id).in_(users_subq))
-    elif _is_super_consultor(current_user):
-        if empresa_id is not None:
-            users_subq = select(Usuario.id).where(Usuario.empresa_id == empresa_id)
-            filters.append(col(AuditLog.user_id).in_(users_subq))
-    else:
-        if empresa_id is not None:
-            if not tem_acesso(db, int(current_user.id), empresa_id):
-                raise HTTPException(status_code=403, detail="Sem acesso à empresa informada")
-            users_subq = select(Usuario.id).where(Usuario.empresa_id == empresa_id)
-            filters.append(col(AuditLog.user_id).in_(users_subq))
-        else:
-            empresas_subq = select(ConsultorEmpresa.empresa_id).where(
-                ConsultorEmpresa.usuario_id == current_user.id,
-                ConsultorEmpresa.ativo == True,
-            )
-            users_subq = select(Usuario.id).where(Usuario.empresa_id.in_(empresas_subq))
-            filters.append(col(AuditLog.user_id).in_(users_subq))
+    context_empresa_id = get_empresa_id_from_user(current_user=current_user, session=db)
+    if not context_empresa_id:
+        raise HTTPException(status_code=403, detail="Acesso negado: usuário ou contexto sem empresa vinculada")
+
+    users_subq = select(Usuario.id).where(Usuario.empresa_id == context_empresa_id)
+    filters.append(col(AuditLog.user_id).in_(users_subq))
 
     base_query = select(AuditLog, Usuario.email).join(Usuario, col(AuditLog.user_id) == col(Usuario.id), isouter=True)
     if filters:
@@ -124,7 +108,182 @@ def listar_auditoria(
                 ip_address=log.ip_address,
                 user_agent=log.user_agent,
                 created_at=_utc_to_brazil(log.created_at),
+                undone=log.undone,
             )
         )
 
     return AuditLogList(items=items, total=int(total))
+
+
+def get_model_by_table_name(table_name: str):
+    import app.models
+    from sqlmodel import SQLModel
+    
+    def get_all_subclasses(cls):
+        subclasses = set(cls.__subclasses__())
+        for subclass in list(subclasses):
+            subclasses.update(get_all_subclasses(subclass))
+        return subclasses
+
+    for cls in get_all_subclasses(SQLModel):
+        if getattr(cls, "__tablename__", None) == table_name:
+            return cls
+    return None
+
+
+def _verificar_acesso_log(db: Session, current_user: Usuario, log: AuditLog) -> None:
+    if _is_super_consultor(current_user):
+        return
+
+    log_empresa_id = None
+    if log.user_id:
+        log_user = db.get(Usuario, log.user_id)
+        if log_user:
+            log_empresa_id = log_user.empresa_id
+
+    if log_empresa_id is None:
+        model_cls = get_model_by_table_name(log.table_name)
+        if model_cls:
+            record = db.get(model_cls, log.record_id)
+            if record and hasattr(record, "empresa_id"):
+                log_empresa_id = getattr(record, "empresa_id")
+
+    if log_empresa_id is None:
+        raise HTTPException(status_code=403, detail="Não foi possível validar o acesso a este log")
+
+    if not current_user.is_consultor:
+        if current_user.empresa_id != log_empresa_id:
+            raise HTTPException(status_code=403, detail="Acesso negado a este log de auditoria")
+    else:
+        if not tem_acesso(db, int(current_user.id), log_empresa_id):
+            raise HTTPException(status_code=403, detail="Acesso negado a esta empresa")
+
+
+@router.post("/{log_id}/undo")
+def desfazer_auditoria(
+    log_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    log = db.get(AuditLog, log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Log de auditoria não encontrado")
+
+    _verificar_acesso_log(db, current_user, log)
+    
+    if log.undone:
+        raise HTTPException(status_code=400, detail="Esta ação já foi desfeita")
+    
+    model_cls = get_model_by_table_name(log.table_name)
+    if not model_cls:
+        raise HTTPException(status_code=400, detail=f"Tabela '{log.table_name}' não suportada para desfazer")
+        
+    record = db.get(model_cls, log.record_id)
+    
+    if log.action == "CREATE":
+        if record:
+            if hasattr(record, "is_deleted"):
+                record.is_deleted = True
+                record.deleted_at = datetime.utcnow()
+                record.deleted_by_id = current_user.id
+                db.add(record)
+            else:
+                db.delete(record)
+    elif log.action in ("UPDATE", "SOFT_DELETE"):
+        if not record:
+            raise HTTPException(status_code=404, detail="Registro original não encontrado")
+        
+        if not log.changes:
+            raise HTTPException(status_code=400, detail="Sem alterações registradas no log para reverter")
+            
+        for key, change in log.changes.items():
+            setattr(record, key, change.get("old"))
+        
+        db.add(record)
+    elif log.action == "RESTORE":
+        if record:
+            if hasattr(record, "is_deleted"):
+                record.is_deleted = True
+                record.deleted_at = datetime.utcnow()
+                record.deleted_by_id = current_user.id
+                db.add(record)
+            else:
+                db.delete(record)
+    else:
+        raise HTTPException(status_code=400, detail=f"Ação '{log.action}' não suporta desfazer")
+
+    log.undone = True
+    db.add(log)
+    db.commit()
+    
+    return {"message": "Ação desfeita com sucesso"}
+
+
+@router.post("/{log_id}/redo")
+def refazer_auditoria(
+    log_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    log = db.get(AuditLog, log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Log de auditoria não encontrado")
+
+    _verificar_acesso_log(db, current_user, log)
+    
+    if not log.undone:
+        raise HTTPException(status_code=400, detail="Esta ação não está desfeita")
+    
+    model_cls = get_model_by_table_name(log.table_name)
+    if not model_cls:
+        raise HTTPException(status_code=400, detail=f"Tabela '{log.table_name}' não suportada para refazer")
+        
+    record = db.get(model_cls, log.record_id)
+    
+    if log.action == "CREATE":
+        if record:
+            if hasattr(record, "is_deleted"):
+                record.is_deleted = False
+                record.deleted_at = None
+                record.deleted_by_id = None
+                db.add(record)
+        else:
+            if not log.changes:
+                raise HTTPException(status_code=400, detail="Sem alterações registradas no log para recriar")
+            
+            fields = {}
+            for key, change in log.changes.items():
+                val = change.get("new")
+                if val is not None:
+                    fields[key] = val
+            fields["id"] = log.record_id
+            
+            record = model_cls(**fields)
+            db.add(record)
+            
+    elif log.action in ("UPDATE", "SOFT_DELETE"):
+        if not record:
+            raise HTTPException(status_code=404, detail="Registro original não encontrado")
+        
+        if not log.changes:
+            raise HTTPException(status_code=400, detail="Sem alterações registradas no log para refazer")
+            
+        for key, change in log.changes.items():
+            setattr(record, key, change.get("new"))
+        
+        db.add(record)
+    elif log.action == "RESTORE":
+        if record:
+            if hasattr(record, "is_deleted"):
+                record.is_deleted = False
+                record.deleted_at = None
+                record.deleted_by_id = None
+                db.add(record)
+    else:
+        raise HTTPException(status_code=400, detail=f"Ação '{log.action}' não suporta refazer")
+
+    log.undone = False
+    db.add(log)
+    db.commit()
+    
+    return {"message": "Ação refeita com sucesso"}

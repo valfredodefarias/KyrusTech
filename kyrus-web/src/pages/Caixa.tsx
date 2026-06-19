@@ -420,13 +420,13 @@ export function Caixa() {
       </div>
 
       {/* PAGE HEADER */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800/80 px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm gap-4">
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800/80 px-4 sm:px-6 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm gap-3">
         <div>
-          <h1 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2 uppercase tracking-tight">
-            <Banknote className="h-6 w-6 text-blue-500" />
+          <h1 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2 uppercase tracking-tight">
+            <Banknote className="h-5 w-5 text-blue-500" />
             Movimento de Caixa
           </h1>
-          <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
             Registro de Caixa: <span className="text-slate-600 dark:text-slate-200">{selectedConta?.nome || '—'}</span>
           </p>
         </div>
@@ -436,9 +436,9 @@ export function Caixa() {
           {activeTab === 'fechamento' && selectedContaId !== null && !loading && (
             <button
               onClick={() => window.print()}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 shadow-sm transition"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 shadow-sm transition"
             >
-              <Printer className="h-4 w-4" />
+              <Printer className="h-3.5 w-3.5" />
               Imprimir Fechamento
             </button>
           )}
@@ -447,29 +447,29 @@ export function Caixa() {
               void loadCaixaData();
               void refreshSaldos();
             }}
-            className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 shadow-sm"
+            className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 shadow-sm"
             title="Recarregar"
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => handleOpenNewEntry()}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-bold text-white transition shadow-sm"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-3 py-2 text-xs font-bold text-white transition shadow-sm"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-3 w-3" />
             + Lançamento
           </button>
         </div>
       </header>
 
       {/* MAIN CONTENT CONTAINER */}
-      <div className="p-4 sm:p-6 md:p-8 space-y-6">
+      <div className="p-4 sm:p-5 space-y-4">
         {/* FILTER BAR & TABS SELECTOR */}
-        <section className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-slate-700/80 dark:bg-slate-900">
-          <div className="flex flex-wrap items-center gap-3">
+        <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm dark:border-slate-700/80 dark:bg-slate-900">
+          <div className="flex flex-wrap items-center gap-2.5">
             {/* DATE FILTER */}
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              <Calendar className="h-4 w-4 text-slate-400" />
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+              <Calendar className="h-3.5 w-3.5 text-slate-400" />
               <input
                 type="date"
                 value={dataInicio}
@@ -487,8 +487,8 @@ export function Caixa() {
 
             {/* CASHIER SELECTOR */}
             {caixasFisicos.length > 0 ? (
-              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                <Banknote className="h-4 w-4 text-slate-400" />
+              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                <Banknote className="h-3.5 w-3.5 text-slate-400" />
                 <span className="text-slate-400 font-normal">Caixa:</span>
                 <select
                   value={selectedContaId === null ? '' : String(selectedContaId)}
@@ -511,7 +511,7 @@ export function Caixa() {
           <div className="flex gap-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800 w-fit print:hidden">
             <button
               onClick={() => setActiveTab('fechamento')}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition-all ${
+              className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all ${
                 activeTab === 'fechamento'
                   ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white'
                   : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
@@ -521,7 +521,7 @@ export function Caixa() {
             </button>
             <button
               onClick={() => setActiveTab('extrato')}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition-all ${
+              className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all ${
                 activeTab === 'extrato'
                   ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white'
                   : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
@@ -543,58 +543,58 @@ export function Caixa() {
         ) : loading ? (
           <div className="p-12 text-center text-sm font-semibold text-slate-400">Carregando dados do caixa...</div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-4">
 
           {activeTab === 'fechamento' ? (
-            <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="space-y-4 animate-in fade-in duration-300">
 
               {/* KPI CARDS */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {/* ENTRADAS */}
-                <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800/80 dark:bg-slate-900 flex items-center justify-between transition-all hover:shadow-md">
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Entradas</span>
-                    <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono">
-                      R$ {formatNumberBRL(dailyKpis.entradas)}
+                <div className="rounded-2xl border border-slate-200/80 bg-white py-3.5 px-4 shadow-sm dark:border-slate-800/80 dark:bg-slate-900 flex items-center justify-between transition-all hover:shadow-md">
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Total Entradas</span>
+                    <p className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 font-mono">
+                       R$ {formatNumberBRL(dailyKpis.entradas)}
                     </p>
                   </div>
-                  <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl text-emerald-500">
-                    <TrendingUp className="h-5 w-5" />
+                  <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl text-emerald-500">
+                    <TrendingUp className="h-4.5 w-4.5" />
                   </div>
                 </div>
 
                 {/* SAÍDAS */}
-                <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800/80 dark:bg-slate-900 flex items-center justify-between transition-all hover:shadow-md">
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Saídas</span>
-                    <p className="text-xl font-extrabold text-rose-600 dark:text-rose-400 font-mono">
+                <div className="rounded-2xl border border-slate-200/80 bg-white py-3.5 px-4 shadow-sm dark:border-slate-800/80 dark:bg-slate-900 flex items-center justify-between transition-all hover:shadow-md">
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Total Saídas</span>
+                    <p className="text-lg font-extrabold text-rose-600 dark:text-rose-400 font-mono">
                       R$ {formatNumberBRL(dailyKpis.saidas)}
                     </p>
                   </div>
-                  <div className="p-3 bg-rose-50 dark:bg-rose-950/30 rounded-xl text-rose-500">
-                    <TrendingDown className="h-5 w-5" />
+                  <div className="p-2.5 bg-rose-50 dark:bg-rose-950/30 rounded-xl text-rose-500">
+                    <TrendingDown className="h-4.5 w-4.5" />
                   </div>
                 </div>
 
                 {/* SALDO DO DIA */}
-                <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800/80 dark:bg-slate-900 flex items-center justify-between transition-all hover:shadow-md">
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Saldo do Dia</span>
-                    <p className={`text-xl font-extrabold font-mono ${dailyKpis.saldo >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                <div className="rounded-2xl border border-slate-200/80 bg-white py-3.5 px-4 shadow-sm dark:border-slate-800/80 dark:bg-slate-900 flex items-center justify-between transition-all hover:shadow-md">
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Saldo do Dia</span>
+                    <p className={`text-lg font-extrabold font-mono ${dailyKpis.saldo >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-rose-600 dark:text-rose-400'}`}>
                       R$ {formatNumberBRL(dailyKpis.saldo)}
                     </p>
                   </div>
-                  <div className={`p-3 rounded-xl ${dailyKpis.saldo >= 0 ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-500' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-500'}`}>
-                    <DollarSign className="h-5 w-5" />
+                  <div className={`p-2.5 rounded-xl ${dailyKpis.saldo >= 0 ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-500' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-500'}`}>
+                    <DollarSign className="h-4.5 w-4.5" />
                   </div>
                 </div>
               </div>
 
               {/* DASHBOARD TABLES GRID */}
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
                 {/* LEFT COLUMN: MOVIMENTO CAIXA DO DIA */}
-                <div className="lg:col-span-4 flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 transition-all hover:shadow-md">
-                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 mb-4 flex items-center gap-1.5">
+                <div className="lg:col-span-4 flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 transition-all hover:shadow-md">
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
                     <Wallet className="h-4 w-4 text-blue-500" />
                     Movimento Caixa do Dia
                   </h3>
@@ -603,25 +603,25 @@ export function Caixa() {
                     <table className="min-w-full text-xs">
                       <thead>
                         <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                          <th className="px-3 py-3 text-left">Forma Pagto</th>
-                          <th className="px-3 py-3 text-right">Valor</th>
+                          <th className="px-2 py-2 text-left">Forma Pagto</th>
+                          <th className="px-2 py-2 text-right">Valor</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100/60 dark:divide-slate-800/60">
                         {totalReceitasPorForma.list.length === 0 ? (
                           <tr>
-                            <td colSpan={2} className="px-3 py-6 text-center text-slate-400 italic font-semibold">
+                            <td colSpan={2} className="px-2 py-4 text-center text-slate-400 italic font-semibold">
                               Nenhum recebimento registrado.
                             </td>
                           </tr>
                         ) : (
                           totalReceitasPorForma.list.map((item) => (
                             <tr key={item.key} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                              <td className="px-3 py-3 text-slate-700 dark:text-slate-300 font-bold flex items-center gap-2">
+                              <td className="px-2 py-2 text-slate-700 dark:text-slate-300 font-bold flex items-center gap-2">
                                 {getPaymentIcon(item.key)}
                                 {item.label}
                               </td>
-                              <td className="px-3 py-3 text-right font-mono font-extrabold text-slate-800 dark:text-white">
+                              <td className="px-2 py-2 text-right font-mono font-extrabold text-slate-800 dark:text-white">
                                 R$ {formatNumberBRL(item.value)}
                               </td>
                             </tr>
@@ -630,8 +630,8 @@ export function Caixa() {
                       </tbody>
                       <tfoot>
                         <tr className="border-t border-slate-200 dark:border-slate-700 font-bold">
-                          <td className="px-3 py-4 text-slate-800 dark:text-white uppercase font-black">Total geral</td>
-                          <td className="px-3 py-4 text-right font-mono font-black text-slate-900 dark:text-white">
+                          <td className="px-2 py-2.5 text-slate-800 dark:text-white uppercase font-black">Total geral</td>
+                          <td className="px-2 py-2.5 text-right font-mono font-black text-slate-900 dark:text-white">
                             R$ {formatNumberBRL(totalReceitasPorForma.totalGeral)}
                           </td>
                         </tr>
@@ -641,20 +641,20 @@ export function Caixa() {
                 </div>
 
                 {/* RIGHT COLUMN: MOVIMENTAÇÃO */}
-                <div className="lg:col-span-8 flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 transition-all hover:shadow-md">
-                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 mb-4 flex items-center gap-1.5">
+                <div className="lg:col-span-8 flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 transition-all hover:shadow-md">
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
                     <TrendingUp className="h-4 w-4 text-emerald-500" />
                     Movimentação do Dia
                   </h3>
 
-                  <div className="flex-1 overflow-x-auto">
+                  <div className="flex-1 overflow-auto max-h-[290px] border border-slate-100 dark:border-slate-800/60 rounded-xl relative">
                     <table className="min-w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                          <th className="px-3 py-3 text-left">Classificação</th>
-                          <th className="px-3 py-3 text-left">Cliente</th>
-                          <th className="px-3 py-3 text-left">Histórico</th>
-                          <th className="px-3 py-3 text-right">Saldo</th>
+                      <thead className="sticky top-0 bg-white dark:bg-slate-900 shadow-[0_1px_0_rgba(0,0,0,0.05)] dark:shadow-[0_1px_0_rgba(255,255,255,0.05)] z-10">
+                        <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                          <th className="px-3 py-2 text-left bg-white dark:bg-slate-900">Classificação</th>
+                          <th className="px-3 py-2 text-left bg-white dark:bg-slate-900">Cliente</th>
+                          <th className="px-3 py-2 text-left bg-white dark:bg-slate-900">Histórico</th>
+                          <th className="px-3 py-2 text-right bg-white dark:bg-slate-900">Saldo</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100/60 dark:divide-slate-800/60">
@@ -671,26 +671,26 @@ export function Caixa() {
                               onClick={() => handleOpenEdit(item.raw)}
                               className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 transition border-b border-slate-50 dark:border-slate-800/40 last:border-0"
                             >
-                              <td className="px-3 py-3 font-bold text-slate-800 dark:text-white truncate max-w-[150px]" title={item.classificacao}>
+                              <td className="px-3 py-2 font-bold text-slate-800 dark:text-white truncate max-w-[150px]" title={item.classificacao}>
                                 {item.classificacao}
                               </td>
-                              <td className="px-3 py-3 text-slate-600 dark:text-slate-400 truncate max-w-[120px]" title={item.cliente}>
+                              <td className="px-3 py-2 text-slate-600 dark:text-slate-400 truncate max-w-[120px]" title={item.cliente}>
                                 {item.cliente}
                               </td>
-                              <td className="px-3 py-3 text-slate-500 dark:text-slate-500 truncate max-w-[200px]" title={item.historico}>
+                              <td className="px-3 py-2 text-slate-500 dark:text-slate-500 truncate max-w-[200px]" title={item.historico}>
                                 {item.historico}
                               </td>
-                              <td className={`px-3 py-3 text-right font-mono font-extrabold ${item.saldo < 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                              <td className={`px-3 py-2 text-right font-mono font-extrabold ${item.saldo < 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
                                 {item.saldo < 0 ? '-' : '+'} R$ {formatNumberBRL(Math.abs(item.saldo))}
                               </td>
                             </tr>
                           ))
                         )}
                       </tbody>
-                      <tfoot>
-                        <tr className="border-t border-slate-200 dark:border-slate-700 font-bold">
-                          <td colSpan={3} className="px-3 py-4 text-slate-800 dark:text-white uppercase font-black">Total geral</td>
-                          <td className={`px-3 py-4 text-right font-mono font-black ${movimentacoes.totalGeral < 0 ? 'text-rose-500' : 'text-slate-900 dark:text-white'}`}>
+                      <tfoot className="sticky bottom-0 bg-white dark:bg-slate-900 shadow-[0_-1px_0_rgba(0,0,0,0.1)] dark:shadow-[0_-1px_0_rgba(255,255,255,0.1)] z-10">
+                        <tr className="font-bold">
+                          <td colSpan={3} className="px-3 py-2.5 text-slate-800 dark:text-white uppercase font-black bg-white dark:bg-slate-900">Total geral</td>
+                          <td className={`px-3 py-2.5 text-right font-mono font-black bg-white dark:bg-slate-900 ${movimentacoes.totalGeral < 0 ? 'text-rose-500' : 'text-slate-900 dark:text-white'}`}>
                             R$ {formatNumberBRL(movimentacoes.totalGeral)}
                           </td>
                         </tr>
@@ -701,13 +701,13 @@ export function Caixa() {
               </div>
 
               {/* FOOTER BALANCES */}
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center border-t border-slate-100 dark:border-slate-800 pt-5">
-                <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200/50 p-4 shrink-0 shadow-inner">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center border-t border-slate-100 dark:border-slate-800 pt-4">
+                <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200/50 py-2.5 px-4 shrink-0 shadow-inner">
                   <span className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                     <DollarSign className="h-4 w-4 text-emerald-500" />
                     Disponível no caixa:
                   </span>
-                  <div className="bg-white dark:bg-slate-950 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-5 py-2.5 shadow-sm">
+                  <div className="bg-white dark:bg-slate-950 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-5 py-2 shadow-sm">
                     <span className="font-mono text-lg font-black text-slate-800 dark:text-white leading-none">
                       R$ {selectedConta ? formatNumberBRL(selectedConta.saldo_atual ?? selectedConta.saldo_inicial ?? 0) : '0,00'}
                     </span>
@@ -759,13 +759,13 @@ export function Caixa() {
                       </div>
                       
                       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                        <table className="min-w-full text-xs text-left">
+                        <table className="min-w-full text-xs text-left table-fixed">
                           <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:bg-slate-800/40">
                             <tr>
-                              <th className="px-4 py-3">Descrição</th>
-                              <th className="px-4 py-3">Interessado</th>
-                              <th className="px-4 py-3">Categoria</th>
-                              <th className="px-4 py-3 text-right">Valor</th>
+                              <th className="px-4 py-3 w-[40%]">Descrição</th>
+                              <th className="px-4 py-3 w-[20%]">Interessado</th>
+                              <th className="px-4 py-3 w-[25%]">Categoria</th>
+                              <th className="px-4 py-3 text-right w-[15%]">Valor</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -782,13 +782,13 @@ export function Caixa() {
                                   onClick={() => handleOpenEdit(l)}
                                   className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 transition"
                                 >
-                                  <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">
+                                  <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white truncate" title={l.descricao}>
                                     {l.descricao}
                                   </td>
-                                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
+                                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400 truncate" title={entName}>
                                     {entName}
                                   </td>
-                                  <td className="px-4 py-3 text-slate-500 dark:text-slate-500">
+                                  <td className="px-4 py-3 text-slate-500 dark:text-slate-500 truncate" title={catName}>
                                     {catName}
                                   </td>
                                   <td className={`px-4 py-3 text-right font-mono font-bold ${isReceita ? 'text-emerald-500' : 'text-rose-500'}`}>

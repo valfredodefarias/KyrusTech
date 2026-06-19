@@ -6,10 +6,13 @@ import {
   Check,
   CheckCircle,
   ChevronDown,
+  Edit,
   FileSpreadsheet,
   Filter,
   Landmark,
+  Layers,
   Loader2,
+  RefreshCw,
   Search,
   Trash2,
   UploadCloud,
@@ -20,6 +23,7 @@ import {
 import { useAssistentePage } from '../components/AssistentePageContext';
 import { BankAvatar } from '../components/BrandAvatar';
 import { api, normalizeListResponse } from '../services/api';
+import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
 
 function normalizarDescricao(texto?: string | null) {
   if (!texto) return '';
@@ -193,8 +197,10 @@ interface AlocacaoItemUI {
   valor_alocado: number;
   tipo_baixa: 'PRINCIPAL' | 'JUROS' | 'MULTA' | 'DESCONTO';
   descricao?: string;
+  interessado?: string | null;
   data_vencimento?: string;
   valor_previsto?: number;
+  decisao_excedido?: 'MANTER';
 }
 
 interface LancamentoEditado extends LancamentoImportado {
@@ -223,6 +229,8 @@ interface ProcessarArquivoResponse {
   gap_data_ultimo?: string | null;
   gap_data_inicio_arquivo?: string | null;
   gap_dias?: number;
+  saldo_ofx?: number | null;
+  saldo_ofx_data?: string | null;
 }
 
 interface ConfirmacaoProgressState {
@@ -313,7 +321,7 @@ function mapDisponivelToResumo(item: LancamentoDisponivel, motivo: string): Rela
 }
 
 function getSugestaoInicial(lanc: LancamentoImportado): NonNullable<LancamentoImportado['sugestao_acao']> {
-  if (lanc.sugestao_acao && lanc.sugestao_acao !== 'DESCARTAR') return lanc.sugestao_acao;
+  if (lanc.sugestao_acao) return lanc.sugestao_acao;
   if (lanc.lancamento_previsto_id) return 'BAIXAR_PREVISTO';
   if ((lanc.lancamentos_atrasados_ids || []).length > 0) return 'RELACIONAR_ATRASADOS';
   if (lanc.duplicata_id) return 'IGNORAR_DUPLICATA';
@@ -487,6 +495,14 @@ export function ImportacaoOfx() {
 
   const [limiteResultados, setLimiteResultados] = useState(15);
 
+  const [formDrawerConfig, setFormDrawerConfig] = useState<{
+    show: boolean;
+    prefilledData?: any;
+    editarId?: number | null;
+    linhaArquivo?: number;
+    diffVal?: number;
+  }>({ show: false });
+
   const scrollCardIntoView = (linhaArquivo: number) => {
     setTimeout(() => {
       const el = document.getElementById(`card-lancamento-${linhaArquivo}`);
@@ -563,6 +579,7 @@ export function ImportacaoOfx() {
             valor_alocado: itemResumo.valor_previsto,
             tipo_baixa: 'PRINCIPAL' as const,
             descricao: itemResumo.descricao,
+            interessado: itemResumo.interessado,
             data_vencimento: itemResumo.data_vencimento,
             valor_previsto: itemResumo.valor_previsto,
           };
@@ -581,6 +598,387 @@ export function ImportacaoOfx() {
 
     setTransferenciaConfirmacao(null);
     scrollCardIntoView(linhaArquivo);
+  };
+
+  const confirmarRateio = () => {
+    if (!transferenciaConfirmacao) return;
+    const { linhaArquivo, atrasoId, atrasado, outrasLinhas } = transferenciaConfirmacao;
+
+    let totalAlocadoEmOutros = 0;
+    lancamentosEditados.forEach((item) => {
+      if (outrasLinhas.includes(item.linha_arquivo)) {
+        const aloc = item.alocacoes?.find((a) => a.lancamento_id === atrasoId);
+        if (aloc) {
+          totalAlocadoEmOutros += aloc.valor_alocado;
+        }
+      }
+    });
+
+    const valorPrevisto = 'valor_previsto' in atrasado ? (atrasado as any).valor_previsto : 0;
+    const restante = Math.max(0.01, valorPrevisto - totalAlocadoEmOutros);
+
+    setLancamentosEditados((prev) =>
+      prev.map((item) => {
+        if (item.linha_arquivo === linhaArquivo) {
+          const proximo = [...(item.lancamentos_atrasados_relacionados || [])];
+          if (!proximo.includes(atrasoId)) {
+            proximo.push(atrasoId);
+          }
+
+          const originalAtrasado = item.lancamentos_atrasados_resumo?.find((r) => r.id === atrasoId);
+          const itemResumo = 'score' in atrasado 
+            ? (atrasado as RelacionamentoResumo) 
+            : mapDisponivelToResumo(atrasado as LancamentoDisponivel, 'Selecionado manualmente');
+          
+          const resumos = originalAtrasado
+            ? item.lancamentos_atrasados_resumo
+            : [...(item.lancamentos_atrasados_resumo || []), itemResumo];
+
+          const jaTemAloc = item.alocacoes?.find((a) => a.lancamento_id === atrasoId);
+          let nextAlocacoes = [...(item.alocacoes || [])];
+          if (!jaTemAloc) {
+            nextAlocacoes.push({
+              lancamento_id: atrasoId,
+              valor_alocado: restante,
+              tipo_baixa: 'PRINCIPAL' as const,
+              descricao: itemResumo.descricao,
+              interessado: itemResumo.interessado,
+              data_vencimento: itemResumo.data_vencimento,
+              valor_previsto: itemResumo.valor_previsto,
+            });
+          }
+
+          return {
+            ...item,
+            lancamentos_atrasados_relacionados: proximo,
+            lancamentos_atrasados_resumo: resumos,
+            alocacoes: nextAlocacoes,
+          };
+        }
+        return item;
+      })
+    );
+
+    setTransferenciaConfirmacao(null);
+    scrollCardIntoView(linhaArquivo);
+  };
+
+  const handleAjustarVencimento = async (linhaArquivo: number, lancamentoId: number, novoValor: number) => {
+    try {
+      setLoading(true);
+      await api.put(`/lancamentos/${lancamentoId}`, { valor_previsto: novoValor });
+      
+      setLancamentosEditados((prev) =>
+        prev.map((item) => {
+          if (item.linha_arquivo === linhaArquivo && item.alocacoes) {
+            const nextAlocs = item.alocacoes.map((a) => {
+              if (a.lancamento_id === lancamentoId) {
+                return { ...a, valor_previsto: novoValor };
+              }
+              return a;
+            });
+            let nextPrevistoResumo = item.lancamento_previsto_resumo;
+            if (item.lancamento_previsto_id === lancamentoId && nextPrevistoResumo) {
+              nextPrevistoResumo = { ...nextPrevistoResumo, valor_previsto: novoValor };
+            }
+            let nextAtrasadosResumo = item.lancamentos_atrasados_resumo;
+            if (nextAtrasadosResumo) {
+              nextAtrasadosResumo = nextAtrasadosResumo.map((r) => {
+                if (r.id === lancamentoId) {
+                  return { ...r, valor_previsto: novoValor };
+                }
+                return r;
+              });
+            }
+            return {
+              ...item,
+              alocacoes: nextAlocs,
+              lancamento_previsto_resumo: nextPrevistoResumo,
+              lancamentos_atrasados_resumo: nextAtrasadosResumo,
+            };
+          }
+          return item;
+        })
+      );
+      setFeedback({ type: 'success', message: 'Valor previsto do lançamento ajustado com sucesso no banco de dados!' });
+    } catch (err: any) {
+      console.error('Erro ao ajustar valor previsto do lançamento', err);
+      const errMsg = err?.response?.data?.detail || err?.message || 'Erro ao atualizar';
+      setFeedback({ type: 'error', message: `Erro ao ajustar valor previsto: ${errMsg}` });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleManterPrevisto = (linhaArquivo: number, lancamentoId: number) => {
+    setLancamentosEditados((prev) =>
+      prev.map((item) => {
+        if (item.linha_arquivo === linhaArquivo && item.alocacoes) {
+          const nextAlocs = item.alocacoes.map((a) => {
+            if (a.lancamento_id === lancamentoId) {
+              return { ...a, decisao_excedido: 'MANTER' as const };
+            }
+            return a;
+          });
+          return { ...item, alocacoes: nextAlocs };
+        }
+        return item;
+      })
+    );
+  };
+
+  const handleAbrirFormJurosMulta = async (lanc: LancamentoEditado, diffVal: number) => {
+    try {
+      setLoading(true);
+      const originalAloc = lanc.alocacoes?.[0] || lanc.lancamento_previsto_resumo;
+      const originalId = (originalAloc as any)?.lancamento_id || (originalAloc as any)?.id;
+      
+      let originalEntidadeId: number | null = null;
+      let originalDesc = lanc.descricao;
+
+      if (originalId) {
+        const origRes = await api.get(`/lancamentos/${originalId}`);
+        originalEntidadeId = origRes.data.entidade_id || null;
+        originalDesc = origRes.data.descricao || lanc.descricao;
+      }
+
+      const prefilledDescription = `Juros e multa referente a ${originalDesc}`;
+      
+      const prefilled: any = {
+        descricao: prefilledDescription,
+        tipo: lanc.tipo || 'DESPESA',
+        valor_previsto: diffVal,
+        valor_pago: diffVal,
+        data_vencimento: lanc.data,
+        data_pagamento: lanc.data,
+        status: 'PAGO',
+        previsto: true,
+        conta_id: contaId || '',
+        cartao_id: cartaoId || '',
+        centro_custo_id: centroCustoPadraoBusca || '',
+        entidade_id: originalEntidadeId ? String(originalEntidadeId) : '',
+      };
+
+      setFormDrawerConfig({
+        show: true,
+        prefilledData: prefilled,
+        linhaArquivo: lanc.linha_arquivo,
+        diffVal: diffVal,
+      });
+    } catch (err) {
+      console.error('Erro ao obter dados do lançamento original', err);
+      const originalDesc = lanc.lancamento_previsto_resumo?.descricao 
+        || (lanc.alocacoes && lanc.alocacoes.length > 0 ? lanc.alocacoes[0].descricao : null)
+        || lanc.descricao;
+
+      setFormDrawerConfig({
+        show: true,
+        prefilledData: {
+          descricao: `Juros e multa referente a ${originalDesc}`,
+          tipo: lanc.tipo || 'DESPESA',
+          valor_previsto: diffVal,
+          valor_pago: diffVal,
+          data_vencimento: lanc.data,
+          data_pagamento: lanc.data,
+          status: 'PAGO',
+          previsto: true,
+          conta_id: contaId || '',
+          cartao_id: cartaoId || '',
+          centro_custo_id: centroCustoPadraoBusca || '',
+        },
+        linhaArquivo: lanc.linha_arquivo,
+        diffVal: diffVal,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditarLancamentoExistente = (linhaArquivo: number, lancamentoId: number) => {
+    setFormDrawerConfig({
+      show: true,
+      editarId: lancamentoId,
+      linhaArquivo,
+    });
+  };
+
+  const handleFormDrawerSalvo = async (createdId?: number) => {
+    if (formDrawerConfig.editarId) {
+      const editedId = formDrawerConfig.editarId;
+      setFormDrawerConfig({ show: false });
+      try {
+        setLoading(true);
+        const res = await api.get(`/lancamentos/${editedId}`);
+        const updated = res.data;
+        setLancamentosEditados((prev) =>
+          prev.map((item) => {
+            if (item.alocacoes) {
+              const hasAloc = item.alocacoes.some((a) => a.lancamento_id === editedId);
+              if (hasAloc) {
+                const nextAlocs = item.alocacoes.map((a) => {
+                  if (a.lancamento_id === editedId) {
+                    return {
+                      ...a,
+                      descricao: updated.descricao,
+                      interessado: updated.entidade?.nome || null,
+                      data_vencimento: updated.data_vencimento,
+                      valor_previsto: updated.valor_previsto,
+                    };
+                  }
+                  return a;
+                });
+                
+                let nextPrevistoResumo = item.lancamento_previsto_resumo;
+                if (item.lancamento_previsto_id === editedId && nextPrevistoResumo) {
+                  nextPrevistoResumo = {
+                    ...nextPrevistoResumo,
+                    descricao: updated.descricao,
+                    interessado: updated.entidade?.nome || null,
+                    data_vencimento: updated.data_vencimento,
+                    valor_previsto: updated.valor_previsto,
+                  };
+                }
+                
+                let nextAtrasadosResumo = item.lancamentos_atrasados_resumo;
+                if (nextAtrasadosResumo) {
+                  nextAtrasadosResumo = nextAtrasadosResumo.map((r) => {
+                    if (r.id === editedId) {
+                      return {
+                        ...r,
+                        descricao: updated.descricao,
+                        interessado: updated.entidade?.nome || null,
+                        data_vencimento: updated.data_vencimento,
+                        valor_previsto: updated.valor_previsto,
+                      };
+                    }
+                    return r;
+                  });
+                }
+
+                return {
+                  ...item,
+                  alocacoes: nextAlocs,
+                  lancamento_previsto_resumo: nextPrevistoResumo,
+                  lancamentos_atrasados_resumo: nextAtrasadosResumo,
+                };
+              }
+            }
+            return item;
+          })
+        );
+        setFeedback({ type: 'success', message: 'Lançamento atualizado com sucesso!' });
+      } catch (error) {
+        console.error('Erro ao atualizar lançamento após edição', error);
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      if (!createdId || formDrawerConfig.linhaArquivo === undefined || formDrawerConfig.diffVal === undefined) {
+        setFormDrawerConfig({ show: false });
+        return;
+      }
+
+      const { linhaArquivo, diffVal } = formDrawerConfig;
+      setFormDrawerConfig({ show: false });
+
+      try {
+        setLoading(true);
+        const res = await api.get(`/lancamentos/${createdId}`);
+        const createdLaunch = res.data;
+
+        setLancamentosEditados((prev) =>
+          prev.map((item) => {
+            if (item.linha_arquivo === linhaArquivo) {
+              const currentAlocs = item.alocacoes || [];
+              const newAloc: AlocacaoItemUI = {
+                lancamento_id: createdId,
+                valor_alocado: diffVal,
+                tipo_baixa: 'PRINCIPAL',
+                descricao: createdLaunch.descricao,
+                interessado: createdLaunch.entidade?.nome || null,
+                data_vencimento: createdLaunch.data_vencimento,
+                valor_previsto: createdLaunch.valor_previsto,
+              };
+
+              let nextAtrasados = item.lancamentos_atrasados_relacionados || [];
+              let nextAtrasadosResumo = item.lancamentos_atrasados_resumo || [];
+
+              const resumoItem = {
+                id: createdId,
+                descricao: createdLaunch.descricao,
+                interessado: createdLaunch.entidade?.nome || null,
+                data_vencimento: createdLaunch.data_vencimento,
+                valor_previsto: createdLaunch.valor_previsto,
+                score: 0,
+                motivo: 'Criado para diferença (juros/multa)',
+              };
+
+              if (item.sugestao_acao === 'RELACIONAR_ATRASADOS') {
+                if (!nextAtrasados.includes(createdId)) {
+                  nextAtrasados = [...nextAtrasados, createdId];
+                }
+                if (!nextAtrasadosResumo.some((r) => r.id === createdId)) {
+                  nextAtrasadosResumo = [...nextAtrasadosResumo, resumoItem];
+                }
+              } else {
+                const originalId = item.lancamento_previsto_id;
+                nextAtrasados = [];
+                if (originalId) nextAtrasados.push(originalId);
+                nextAtrasados.push(createdId);
+
+                nextAtrasadosResumo = [];
+                if (originalId && item.lancamento_previsto_resumo) {
+                  nextAtrasadosResumo.push({
+                    id: originalId,
+                    descricao: item.lancamento_previsto_resumo.descricao,
+                    interessado: item.lancamento_previsto_resumo.interessado,
+                    data_vencimento: item.lancamento_previsto_resumo.data_vencimento,
+                    valor_previsto: item.lancamento_previsto_resumo.valor_previsto,
+                    score: 1,
+                    motivo: 'Original',
+                  });
+                }
+                nextAtrasadosResumo.push(resumoItem);
+              }
+
+              return {
+                ...item,
+                sugestao_acao: 'RELACIONAR_ATRASADOS' as const,
+                lancamentos_atrasados_relacionados: nextAtrasados,
+                lancamentos_atrasados_resumo: nextAtrasadosResumo,
+                alocacoes: [...currentAlocs, newAloc],
+              };
+            }
+            return item;
+          })
+        );
+
+        setFeedback({ type: 'success', message: 'Lançamento de diferença criado e vinculado com sucesso!' });
+      } catch (error) {
+        console.error('Erro ao buscar lançamento recém-criado', error);
+        setLancamentosEditados((prev) =>
+          prev.map((item) => {
+            if (item.linha_arquivo === linhaArquivo) {
+              const currentAlocs = item.alocacoes || [];
+              const newAloc: AlocacaoItemUI = {
+                lancamento_id: createdId,
+                valor_alocado: diffVal,
+                tipo_baixa: 'PRINCIPAL',
+                descricao: `Juros e multa referente a...`,
+                valor_previsto: diffVal,
+              };
+              return {
+                ...item,
+                alocacoes: [...currentAlocs, newAloc],
+              };
+            }
+            return item;
+          })
+        );
+      } finally {
+        setLoading(false);
+      }
+    }
   };
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -718,53 +1116,9 @@ export function ImportacaoOfx() {
     return { conciliaveis, novos, receitas, despesas, semCategoria };
   }, [lancamentosEditados]);
 
-  const getDiferencaAlocacao = (lanc: LancamentoEditado) => {
-    if (lanc.sugestao_acao === 'DESCARTAR' || lanc.sugestao_acao === 'IGNORAR_DUPLICATA') {
-      return 0;
-    }
-    if (lanc.sugestao_acao === 'CRIAR_NOVO') {
-      return 0;
-    }
-    
-    let alocs = lanc.alocacoes || [];
-    if (alocs.length === 0) {
-      if (lanc.sugestao_acao === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_id) {
-        alocs = [{
-          lancamento_id: lanc.lancamento_previsto_id,
-          valor_alocado: Math.abs(lanc.valor),
-          tipo_baixa: 'PRINCIPAL',
-        }];
-      } else if (lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_relacionados) {
-        alocs = lanc.lancamentos_atrasados_relacionados.map(id => {
-          const res = lanc.lancamentos_atrasados_resumo?.find(r => r.id === id);
-          return {
-            lancamento_id: id,
-            valor_alocado: res?.valor_previsto ?? Math.abs(lanc.valor),
-            tipo_baixa: 'PRINCIPAL',
-          };
-        });
-      }
-    }
 
-    let totalAlocado = 0;
-    alocs.forEach((aloc) => {
-      const val = Number(aloc.valor_alocado || 0);
-      if (aloc.tipo_baixa === 'DESCONTO') {
-        totalAlocado -= val;
-      } else {
-        totalAlocado += val;
-      }
-    });
 
-    return Number((Math.abs(lanc.valor) - totalAlocado).toFixed(2));
-  };
 
-  const todasTravaDeOuroValidas = useMemo(() => {
-    if (modoImportacao === 'CARTAO') return true;
-    return lancamentosEditados.every(lanc => {
-      return getDiferencaAlocacao(lanc) === 0;
-    });
-  }, [lancamentosEditados, modoImportacao]);
 
 
 
@@ -1053,6 +1407,8 @@ export function ImportacaoOfx() {
             conta_id: Number(contaId),
             modo_importacao: 'CONTA',
             ignorar_divergencia: false,
+            saldo_ofx: resultado?.saldo_ofx ?? null,
+            saldo_ofx_data: resultado?.saldo_ofx_data ?? null,
           };
 
           const { data } = await api.post<ConfirmarLancamentosResponse>('/importacao/confirmar-lancamentos', payload);
@@ -1191,17 +1547,19 @@ export function ImportacaoOfx() {
           valor_alocado: Math.abs(lanc.valor),
           tipo_baixa: 'PRINCIPAL',
           descricao: lanc.lancamento_previsto_resumo.descricao,
+          interessado: lanc.lancamento_previsto_resumo.interessado,
           data_vencimento: lanc.lancamento_previsto_resumo.data_vencimento,
           valor_previsto: lanc.lancamento_previsto_resumo.valor_previsto,
         });
       } else if (sugestaoOriginal === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_resumo) {
         lanc.lancamentos_atrasados_resumo.forEach((atr) => {
-          if (atr.id) {
+          if (atr.id && lanc.lancamentos_atrasados_ids?.includes(atr.id)) {
             initialAlocacoes.push({
               lancamento_id: atr.id,
               valor_alocado: atr.valor_previsto,
               tipo_baixa: 'PRINCIPAL',
               descricao: atr.descricao,
+              interessado: atr.interessado,
               data_vencimento: atr.data_vencimento,
               valor_previsto: atr.valor_previsto,
             });
@@ -1263,11 +1621,42 @@ export function ImportacaoOfx() {
     }
 
     const termoBuscaDisponiveis = normalizarDescricao(buscaDisponiveis.termo);
-    return buscaDisponiveis.itens.filter((item) => {
-      if (!termoBuscaDisponiveis) return true;
+    const cleanTerm = buscaDisponiveis.termo.trim().replace(/[^\d.,]/g, '').replace(',', '.');
+    const termNum = cleanTerm ? parseFloat(cleanTerm) : NaN;
+
+    const filtered = buscaDisponiveis.itens.filter((item) => {
+      if (!buscaDisponiveis.termo.trim()) return true;
       const haystack = normalizarDescricao(`${item.descricao} ${item.interessado || ''}`);
-      return haystack.includes(termoBuscaDisponiveis);
+      const matchesText = haystack.includes(termoBuscaDisponiveis);
+      const matchesVal = !isNaN(termNum) && (
+        Math.abs(item.valor_previsto - termNum) < 0.01 || 
+        String(item.valor_previsto).includes(cleanTerm)
+      );
+      return matchesText || matchesVal;
     });
+
+    const descMov = normalizarDescricao(lancamentoBuscaAberto.descricao);
+    const wordsMov = descMov.split(' ').filter(w => w.length > 2);
+    const movVal = Math.abs(lancamentoBuscaAberto.valor);
+
+    return filtered.map(item => {
+      const descItem = normalizarDescricao(item.descricao);
+      const wordsItem = descItem.split(' ').filter(w => w.length > 2);
+      let overlapCount = 0;
+      wordsMov.forEach(w => {
+        if (wordsItem.includes(w)) overlapCount++;
+      });
+      const textSimilarity = wordsMov.length > 0 ? (overlapCount / wordsMov.length) : 0;
+
+      const diffVal = Math.abs(item.valor_previsto - movVal);
+      const valueProximity = diffVal === 0 ? 1.0 : (1.0 / (1.0 + diffVal));
+
+      const score = textSimilarity * 0.7 + valueProximity * 0.3;
+
+      return { item, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .map(entry => entry.item);
   }, [buscaDisponiveis.itens, buscaDisponiveis.termo, lancamentoBuscaAberto]);
 
   const itensExibidos = useMemo(() => {
@@ -1694,7 +2083,7 @@ export function ImportacaoOfx() {
                 <article
                   id={`card-lancamento-${lanc.linha_arquivo}`}
                   key={`${lanc.linha_arquivo}-${lanc.movimento_uid || 'ofx'}`}
-                  className={`rounded-3xl border p-5 shadow-sm transition ${descartado ? 'opacity-65' : ''} ${cardToneClass}`}
+                  className={`rounded-3xl border p-3.5 shadow-sm transition ${descartado ? 'opacity-65' : ''} ${cardToneClass}`}
                 >
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="space-y-3 flex-1 min-w-0">
@@ -1759,10 +2148,11 @@ export function ImportacaoOfx() {
                             </span>
                           </h3>
                         )}
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                          <span className="font-black text-red-600 dark:text-red-300">{formatDate(lanc.data)}</span>
-                          {lanc.razao_social ? ` • ${lanc.razao_social}` : ''}
-                        </p>
+                        {lanc.razao_social ? (
+                          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                            {lanc.razao_social}
+                          </p>
+                        ) : null}
                       </div>
 
                       {mostrarMotivoConciliacao ? (
@@ -1787,7 +2177,7 @@ export function ImportacaoOfx() {
                                   });
                                 } else if (originalSug === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_resumo) {
                                   lanc.lancamentos_atrasados_resumo.forEach(atr => {
-                                    if (atr.id) {
+                                    if (atr.id && lanc.lancamentos_atrasados_ids?.includes(atr.id)) {
                                       originalAloc.push({
                                         lancamento_id: atr.id,
                                         valor_alocado: atr.valor_previsto,
@@ -1867,6 +2257,13 @@ export function ImportacaoOfx() {
                                 type="button"
                                 onClick={() => {
                                   updateLancamento(lanc.linha_arquivo, { sugestao_confirmada: true });
+                                  if (buscaDisponiveis.linhaArquivo === lanc.linha_arquivo) {
+                                    setBuscaDisponiveis((prev) => ({
+                                      ...prev,
+                                      linhaArquivo: null,
+                                      itens: [],
+                                    }));
+                                  }
                                   scrollCardIntoView(lanc.linha_arquivo);
                                 }}
                                 className="rounded-full border border-emerald-400 bg-emerald-500 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-white transition hover:bg-emerald-600"
@@ -1879,12 +2276,18 @@ export function ImportacaoOfx() {
                       </div>
                     </div>
 
-                    <div className="min-w-60 rounded-[22px] border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
-                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
-                        <Landmark className="h-4 w-4" />
-                        Movimento bancário
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Data</span>
+                        <p className="text-sm font-black text-slate-700 dark:text-slate-300">{formatDate(lanc.data)}</p>
                       </div>
-                      <p className={`mt-3 text-2xl font-black ${valorClass}`}>{formatCurrency(Number(lanc.valor || 0))}</p>
+                      <div className="min-w-44 rounded-[22px] border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/60">
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                          <Landmark className="h-3.5 w-3.5" />
+                          Movimento
+                        </div>
+                        <p className={`mt-1 text-xl font-black ${valorClass}`}>{formatCurrency(Number(lanc.valor || 0))}</p>
+                      </div>
                     </div>
                   </div>
 
@@ -1899,7 +2302,7 @@ export function ImportacaoOfx() {
 
 
                   {modoImportacao === 'CONTA' && (lanc.sugestao_acao === 'BAIXAR_PREVISTO' || lanc.sugestao_acao === 'RELACIONAR_ATRASADOS') && (
-                    <div className="mt-4 rounded-[24px] border border-slate-200 bg-slate-50/50 p-5 dark:border-slate-800 dark:bg-slate-950/30 backdrop-blur-sm space-y-4">
+                    <div className="mt-4 rounded-[24px] border border-slate-200 bg-slate-50/50 p-3.5 dark:border-slate-800 dark:bg-slate-950/30 backdrop-blur-sm space-y-4">
                       <div>
                         <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Alocações / Liquidação Financeira</p>
                         <p className="mt-1 text-xs text-slate-500">Especifique o valor alocado e o tipo de baixa para cada título.</p>
@@ -1915,6 +2318,7 @@ export function ImportacaoOfx() {
                               valor_alocado: Math.abs(lanc.valor),
                               tipo_baixa: 'PRINCIPAL',
                               descricao: lanc.lancamento_previsto_resumo?.descricao,
+                              interessado: lanc.lancamento_previsto_resumo?.interessado,
                               data_vencimento: lanc.lancamento_previsto_resumo?.data_vencimento,
                               valor_previsto: lanc.lancamento_previsto_resumo?.valor_previsto,
                             }];
@@ -1926,6 +2330,7 @@ export function ImportacaoOfx() {
                                 valor_alocado: res?.valor_previsto ?? Math.abs(lanc.valor),
                                 tipo_baixa: 'PRINCIPAL',
                                 descricao: res?.descricao,
+                                interessado: res?.interessado,
                                 data_vencimento: res?.data_vencimento,
                                 valor_previsto: res?.valor_previsto,
                               };
@@ -1936,7 +2341,11 @@ export function ImportacaoOfx() {
                         const handleUpdateAloc = (alocId: number, patch: Partial<AlocacaoItemUI>) => {
                           const nextAlocs = displayedAlocs.map((a) => {
                             if (a.lancamento_id === alocId) {
-                              return { ...a, ...patch };
+                              const updated = { ...a, ...patch };
+                              if (patch.valor_alocado !== undefined && patch.valor_alocado !== a.valor_alocado) {
+                                delete (updated as any).decisao_excedido;
+                              }
+                              return updated;
                             }
                             return a;
                           });
@@ -1975,51 +2384,94 @@ export function ImportacaoOfx() {
                             {displayedAlocs.length === 0 ? (
                               <p className="text-xs italic text-slate-500 py-2">Nenhum lançamento alocado. Selecione lançamentos na busca abaixo.</p>
                             ) : (
-                              displayedAlocs.map((aloc) => (
-                                <div key={aloc.lancamento_id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/60 md:flex-row md:items-center md:justify-between">
-                                  <div className="min-w-0 flex-1">
-                                    <p className="font-bold text-slate-900 dark:text-white truncate">{aloc.descricao || `Lançamento #${aloc.lancamento_id}`}</p>
-                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                                      <span>Vence em {formatDate(aloc.data_vencimento)}</span>
-                                      <span>•</span>
-                                      <span>Previsto: {formatCurrency(aloc.valor_previsto || 0)}</span>
-                                    </div>
-                                  </div>
-                                  
-                                  <div className="flex flex-wrap items-center gap-3 shrink-0">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs font-bold text-slate-500 uppercase">R$</span>
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        value={aloc.valor_alocado}
-                                        onChange={(e) => handleUpdateAloc(aloc.lancamento_id, { valor_alocado: Number(e.target.value) })}
-                                        className="w-28 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                                      />
+                              <>
+                                {displayedAlocs.map((aloc) => (
+                                  <div key={aloc.lancamento_id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/60 md:flex-row md:items-center md:justify-between">
+                                    <div className="min-w-0 flex-1">
+                                      {aloc.interessado && (
+                                        <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                          {aloc.interessado}
+                                        </p>
+                                      )}
+                                      <p className="font-bold text-slate-900 dark:text-white truncate">{aloc.descricao || `Lançamento #${aloc.lancamento_id}`}</p>
+                                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                        <span>Previsto: {formatCurrency(aloc.valor_previsto || 0)}</span>
+                                      </div>
                                     </div>
                                     
-                                    <select
-                                      value={aloc.tipo_baixa}
-                                      onChange={(e) => handleUpdateAloc(aloc.lancamento_id, { tipo_baixa: e.target.value as any })}
-                                      className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
-                                    >
-                                      <option value="PRINCIPAL">Principal</option>
-                                      <option value="JUROS">Juros</option>
-                                      <option value="MULTA">Multa</option>
-                                      <option value="DESCONTO">Desconto</option>
-                                    </select>
-                                    
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveAloc(aloc.lancamento_id)}
-                                      className="rounded-xl p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition"
-                                      title="Remover alocação"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </button>
+                                    <div className="flex flex-wrap items-center gap-3 shrink-0">
+                                      <div className="text-right mr-1.5">
+                                        <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400">Vencimento</span>
+                                        <p className="text-xs font-black text-slate-700 dark:text-slate-300">{formatDate(aloc.data_vencimento)}</p>
+                                      </div>
+                                      
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold text-slate-500 uppercase">R$</span>
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          value={aloc.valor_alocado}
+                                          onChange={(e) => handleUpdateAloc(aloc.lancamento_id, { valor_alocado: Number(e.target.value) })}
+                                          className="w-28 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                                        />
+                                      </div>
+                                      
+                                      <button
+                                        type="button"
+                                        onClick={() => handleEditarLancamentoExistente(lanc.linha_arquivo, aloc.lancamento_id)}
+                                        className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition mr-1"
+                                        title="Editar lançamento"
+                                      >
+                                        <Edit className="h-4 w-4" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveAloc(aloc.lancamento_id)}
+                                        className="rounded-xl p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition"
+                                        title="Remover alocação"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
+                                    </div>
                                   </div>
-                                </div>
-                              ))
+                                ))}
+
+                                {displayedAlocs.length === 1 && (() => {
+                                  const aloc = displayedAlocs[0];
+                                  if (aloc.valor_alocado > (aloc.valor_previsto || 0) && aloc.decisao_excedido !== 'MANTER') {
+                                    return (
+                                      <div className="p-4 rounded-2xl border border-amber-200 bg-amber-50/40 dark:border-amber-900/30 dark:bg-amber-950/10 space-y-3">
+                                        <div className="flex items-start gap-2.5">
+                                          <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                                          <div className="flex-1">
+                                            <h4 className="font-extrabold text-sm text-amber-800 dark:text-amber-300">Valor Alocado Excede o Previsto</h4>
+                                            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                                              O valor da movimentação ({formatCurrency(aloc.valor_alocado)}) é maior que o valor previsto original do título ({formatCurrency(aloc.valor_previsto || 0)}). Como deseja ajustar?
+                                            </p>
+                                          </div>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2 pt-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleAjustarVencimento(lanc.linha_arquivo, aloc.lancamento_id, aloc.valor_alocado)}
+                                            className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-[0.98] transition text-xs font-bold text-white shadow-sm"
+                                          >
+                                            Ajustar valor do lançamento para {formatCurrency(aloc.valor_alocado)}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleManterPrevisto(lanc.linha_arquivo, aloc.lancamento_id)}
+                                            className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 dark:bg-slate-950 dark:border-slate-800 dark:hover:bg-slate-900 dark:text-slate-300 transition text-xs font-bold shadow-sm"
+                                          >
+                                            Manter previsto e pagar com valor maior (juros/multa)
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                })()}
+                              </>
                             )}
 
                             {/* Totalizer */}
@@ -2033,13 +2485,24 @@ export function ImportacaoOfx() {
                                 {diffVal === 0 ? (
                                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
                                     <Check className="h-3 w-3" />
-                                    Alocação completa (Trava de Ouro OK)
+                                    Alocação completa
                                   </span>
                                 ) : (
-                                  <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${diffVal > 0 ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300'}`}>
-                                    <AlertTriangle className="h-3 w-3" />
-                                    {diffVal > 0 ? `Falta alocar: ${formatCurrency(diffVal)}` : `Excedido em: ${formatCurrency(Math.abs(diffVal))}`}
-                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${diffVal > 0 ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300'}`}>
+                                      <AlertTriangle className="h-3 w-3" />
+                                      {diffVal > 0 ? `Falta alocar: ${formatCurrency(diffVal)}` : `Excedido em: ${formatCurrency(Math.abs(diffVal))}`}
+                                    </span>
+                                    {diffVal > 0 && displayedAlocs.length > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAbrirFormJurosMulta(lanc, diffVal)}
+                                        className="inline-flex items-center gap-1 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-[0.98] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-sm transition"
+                                      >
+                                        Lançar Diferença
+                                      </button>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -2142,7 +2605,7 @@ export function ImportacaoOfx() {
                                                   const proximoResumos = e.target.checked
                                                     ? [...(lanc.lancamentos_atrasados_resumo || []), res]
                                                     : (lanc.lancamentos_atrasados_resumo || []).filter((r) => r.id !== atrId);
-
+                                                  
                                                   const proximoAlocs = e.target.checked
                                                     ? [
                                                         ...currentAlocs,
@@ -2151,6 +2614,7 @@ export function ImportacaoOfx() {
                                                           valor_alocado: res.valor_previsto,
                                                           tipo_baixa: 'PRINCIPAL' as const,
                                                           descricao: res.descricao,
+                                                          interessado: res.interessado,
                                                           data_vencimento: res.data_vencimento,
                                                           valor_previsto: res.valor_previsto,
                                                         }
@@ -2622,18 +3086,11 @@ export function ImportacaoOfx() {
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Resumo para confirmação</p>
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{lancamentosEditados.length} item(ns) analisados. {resumo.semCategoria === 0 ? 'Os novos lançamentos já têm categoria.' : `${resumo.semCategoria} novo(s) ainda exigem categoria.`}</p>
                 </div>
-                {modoImportacao === 'CONTA' && !todasTravaDeOuroValidas && (
-                  <div className="flex flex-wrap items-center gap-4">
-                    <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 px-3 py-1 rounded-xl border border-rose-200 dark:border-rose-900/50">
-                      <AlertTriangle className="h-3.5 w-3.5" />
-                      Divergência matemática ativa (Trava de Ouro pendente)
-                    </span>
-                  </div>
-                )}
+
               </div>
               <button
                 onClick={handleConfirmar}
-                disabled={confirming || !resultado || resultado.lancamentos.length === 0 || !todasTravaDeOuroValidas}
+                disabled={confirming || !resultado || resultado.lancamentos.length === 0}
                 className="flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
               >
                 {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
@@ -2656,8 +3113,7 @@ export function ImportacaoOfx() {
         </section>
       )}
       {transferenciaConfirmacao && (() => {
-        const { atrasado, linhaArquivo, outrasLinhas } = transferenciaConfirmacao;
-        const currentLanc = lancamentosEditados.find(item => item.linha_arquivo === linhaArquivo);
+        const { atrasado, outrasLinhas } = transferenciaConfirmacao;
         const conflitosText = outrasLinhas.map(linha => {
           const l = lancamentosEditados.find(item => item.linha_arquivo === linha);
           return l ? `Movimento: "${l.descricao}" (${formatCurrency(l.valor)})` : `Linha ${linha}`;
@@ -2665,63 +3121,112 @@ export function ImportacaoOfx() {
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-md">
-            <div className="w-full max-w-md scale-95 transform rounded-[32px] border border-rose-200 bg-white/95 p-6 shadow-2xl dark:border-rose-900/60 dark:bg-slate-900/95 transition-all">
-              <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-100 dark:bg-rose-950/40">
+            <div className="w-full max-w-lg scale-95 transform rounded-[32px] border border-slate-200 bg-white/95 p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900/95 transition-all">
+              {/* Header */}
+              <div className="flex items-center gap-3.5 text-amber-500 dark:text-amber-400 pb-4 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10">
                   <AlertTriangle className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">Conflito de Seleção</h3>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-rose-500">Lançamento já selecionado</p>
+                  <h3 className="text-xl font-black tracking-tight text-slate-900 dark:text-white">Conflito de Seleção</h3>
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-amber-600 dark:text-amber-500">Este lançamento já possui vínculo</p>
                 </div>
               </div>
 
-              <div className="mt-4 space-y-3">
-                <p className="text-sm text-slate-600 dark:text-slate-300">
-                  O lançamento financeiro a seguir já está associado a outra movimentação:
-                </p>
-                
-                <div className="rounded-2xl border border-rose-100 bg-rose-50/50 p-3 text-xs dark:border-rose-950/30 dark:bg-rose-950/10">
-                  <p className="font-bold text-slate-900 dark:text-white">{atrasado.descricao}</p>
-                  <p className="mt-1 text-slate-500 dark:text-slate-400">
-                    Vencimento: {formatDate((atrasado as any).data_vencimento)} • Valor: {formatCurrency((atrasado as any).valor_previsto)}
-                  </p>
+              {/* Conflict details */}
+              <div className="mt-5 space-y-4">
+                <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">Lançamento Selecionado</p>
+                  <p className="mt-1.5 font-extrabold text-slate-800 dark:text-slate-200">{atrasado.descricao}</p>
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                    <span>Vencimento: <strong className="text-slate-700 dark:text-slate-300">{formatDate((atrasado as any).data_vencimento)}</strong></span>
+                    <span>Valor total: <strong className="text-slate-700 dark:text-slate-300">{formatCurrency((atrasado as any).valor_previsto)}</strong></span>
+                  </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Atualmente associado em:</p>
-                  <ul className="list-disc pl-5 text-xs text-rose-700 dark:text-rose-300 space-y-1">
+                {/* Associations */}
+                <div className="rounded-2xl border border-rose-100/50 bg-rose-50/20 p-4 dark:border-rose-950/10 dark:bg-rose-950/5">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-rose-600 dark:text-rose-400">Atualmente vinculado em:</p>
+                  <ul className="mt-2 space-y-2">
                     {conflitosText.map((txt, idx) => (
-                      <li key={idx}>{txt}</li>
+                      <li key={idx} className="flex items-start gap-2 text-xs text-rose-700 dark:text-rose-300 font-medium">
+                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-rose-500" />
+                        <span>{txt}</span>
+                      </li>
                     ))}
                   </ul>
                 </div>
 
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                  Deseja remover a associação dos outros movimentos para vinculá-lo a "{currentLanc?.descricao}"?
-                </p>
-              </div>
+                <div className="pt-2">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500 mb-3">Escolha como deseja prosseguir:</p>
+                  
+                  <div className="space-y-2.5">
+                    {/* Option 1: Ratear */}
+                    <button
+                      type="button"
+                      onClick={confirmarRateio}
+                      className="w-full flex items-center gap-4 rounded-2xl border border-amber-200 bg-amber-50/20 p-3.5 text-left transition hover:bg-amber-100/30 hover:border-amber-300 active:scale-[0.99] dark:border-amber-900/30 dark:bg-amber-950/5 dark:hover:bg-amber-950/20 dark:hover:border-amber-700"
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                        <Layers className="h-5 w-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white">Vincular a ambos (Ratear)</h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Associa o lançamento a ambos os movimentos e distribui os saldos automaticamente.</p>
+                      </div>
+                    </button>
 
-              <div className="mt-6 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setTransferenciaConfirmacao(null)}
-                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-600 transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-300 dark:hover:bg-slate-800"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmarTransferencia}
-                  className="rounded-full bg-rose-600 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-white transition hover:bg-rose-700"
-                >
-                  Confirmar Transferência
-                </button>
+                    {/* Option 2: Transferir */}
+                    <button
+                      type="button"
+                      onClick={confirmarTransferencia}
+                      className="w-full flex items-center gap-4 rounded-2xl border border-rose-200 bg-rose-50/25 p-3.5 text-left transition hover:bg-rose-100/30 hover:border-rose-300 active:scale-[0.99] dark:border-rose-900/30 dark:bg-rose-950/5 dark:hover:bg-rose-950/25 dark:hover:border-rose-700"
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
+                        <RefreshCw className="h-5 w-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white">Transferir lançamento totalmente</h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Associa exclusivamente a este movimento, removendo o vínculo de outras movimentações.</p>
+                      </div>
+                    </button>
+
+                    {/* Option 3: Cancelar */}
+                    <button
+                      type="button"
+                      onClick={() => setTransferenciaConfirmacao(null)}
+                      className="w-full flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-3.5 text-left transition hover:bg-slate-50 hover:border-slate-300 active:scale-[0.99] dark:border-slate-800 dark:bg-slate-950/10 dark:hover:bg-slate-900/60 dark:hover:border-slate-700"
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                        <X className="h-5 w-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white">Cancelar</h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Mantém as associações originais e fecha esta janela.</p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         );
       })()}
+
+      {formDrawerConfig.show && (
+        <LancamentoFormDrawer
+          showDrawer={formDrawerConfig.show}
+          onClose={() => setFormDrawerConfig({ show: false })}
+          editarId={formDrawerConfig.editarId}
+          prefilledData={formDrawerConfig.prefilledData}
+          onSaveSuccess={handleFormDrawerSalvo}
+          categorias={categorias}
+          entidades={entidades}
+          contas={contas}
+          cartoes={cartoes}
+          centros={centrosCusto}
+        />
+      )}
     </div>
   );
 }

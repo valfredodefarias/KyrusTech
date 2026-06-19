@@ -449,3 +449,99 @@ def test_ofx_import_split_previsto_reconciliation(client: TestClient, session: S
 
         finally:
             app.dependency_overrides.clear()
+
+
+def test_ofx_multiple_atrasados_only_preselects_best_match(client: TestClient, session: Session, setup_test_db):
+    # Authentication overrides
+    def mock_get_current_user():
+        return setup_test_db["usuario"]
+
+    def mock_get_empresa_id_from_user():
+        return 1
+
+    app_dependency_overrides = {
+        get_current_user: mock_get_current_user,
+        get_current_active_user: mock_get_current_user,
+        get_empresa_id_from_user: mock_get_empresa_id_from_user
+    }
+    
+    app.dependency_overrides.update(app_dependency_overrides)
+    
+    # Create two atrasados (overdue expected launches):
+    # Atrasado A: closer date/better match (vencimento 2026-06-05, value 450)
+    # Atrasado B: further date/lower score (vencimento 2026-05-20, value 444)
+    atrasado_a = Lancamento(
+        descricao="proseg",
+        valor_previsto=Decimal("450.00"),
+        data_vencimento=date(2026, 6, 5),
+        data_competencia=date(2026, 6, 5),
+        tipo="DESPESA",
+        status="PENDENTE",
+        empresa_id=1,
+        conta_id=1,
+        plano_contas_id=10,
+        is_deleted=False
+    )
+    atrasado_b = Lancamento(
+        descricao="NFE 60919",
+        valor_previsto=Decimal("444.00"),
+        data_vencimento=date(2026, 5, 20),
+        data_competencia=date(2026, 5, 20),
+        tipo="DESPESA",
+        status="PENDENTE",
+        empresa_id=1,
+        conta_id=1,
+        plano_contas_id=10,
+        is_deleted=False
+    )
+    session.add(atrasado_a)
+    session.add(atrasado_b)
+    session.commit()
+    session.refresh(atrasado_a)
+    session.refresh(atrasado_b)
+
+    mocked_ofx_rows = [
+        {
+            "data": date(2026, 6, 15),
+            "data_pagamento": "2026-06-15",
+            "data_vencimento": "2026-06-15",
+            "descricao": "PIX ENVIADO BRENO SANCHES",
+            "razao_social": "proseg",
+            "cpf_cnpj": "",
+            "valor": Decimal("450.00"),
+            "tipo": "DESPESA",
+            "origem": "OFX_EXTRATO",
+            "linha_arquivo": 1,
+            "saldo_informativo": False
+        }
+    ]
+
+    with patch("app.api.v1.endpoints.importacao_ofx.processar_ofx", return_value=mocked_ofx_rows), \
+         patch("app.api.deps.has_permission", return_value=True):
+        try:
+            response = client.post(
+                "/api/v1/importacao/ofx/upload?conta_id=1",
+                files={"arquivo": ("extrato.ofx", b"OFX CONTENT", "application/xml")}
+            )
+            assert response.status_code == 200
+            res_json = response.json()
+            
+            processados = res_json["lancamentos"]
+            assert len(processados) == 1
+            row = processados[0]
+            
+            # Should have action RELACIONAR_ATRASADOS
+            assert row["sugestao_acao"] == "RELACIONAR_ATRASADOS"
+            
+            # lancamentos_atrasados_ids should contain ONLY the best match (atrasado_a)
+            assert row["lancamentos_atrasados_ids"] == [atrasado_a.id]
+            
+            # lancamentos_atrasados_resumo should contain both
+            resumo_ids = [r["id"] for r in row["lancamentos_atrasados_resumo"]]
+            assert atrasado_a.id in resumo_ids
+            assert atrasado_b.id in resumo_ids
+            assert len(resumo_ids) >= 2
+
+        finally:
+            app.dependency_overrides.clear()
+

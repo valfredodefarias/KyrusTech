@@ -781,6 +781,7 @@ def _buscar_duplicata_historica(
                 ),
                 or_(
                     Lancamento.valor_previsto.between(valor_min, valor_max),  # type: ignore[attr-defined]
+                    Lancamento.valor_pago.between(valor_min, valor_max),  # type: ignore[attr-defined]
                 ),
             )
             .order_by(Lancamento.data_pagamento.desc(), Lancamento.id.desc())  # type: ignore[attr-defined]
@@ -796,11 +797,16 @@ def _buscar_duplicata_historica(
                 Lancamento.tipo == lancamento_ofx.get("tipo"),
                 Lancamento.ofx_bank_id == banco_normalizado,
                 or_(
+                    Lancamento.conta_id == conta_id,
+                    Lancamento.conta_id.is_(None),  # type: ignore[attr-defined]
+                ),
+                or_(
                     Lancamento.data_pagamento.between(data_inicio, data_fim),  # type: ignore[attr-defined]
                     Lancamento.data_vencimento.between(data_inicio, data_fim),  # type: ignore[attr-defined]
                 ),
                 or_(
                     Lancamento.valor_previsto.between(valor_min, valor_max),  # type: ignore[attr-defined]
+                    Lancamento.valor_pago.between(valor_min, valor_max),  # type: ignore[attr-defined]
                 ),
             )
             .order_by(Lancamento.data_pagamento.desc(), Lancamento.id.desc())  # type: ignore[attr-defined]
@@ -1274,12 +1280,6 @@ def _aplicar_sugestoes_deterministicas(
 
 def _build_match_reason(data_diferenca: int, valor_diferenca: Decimal, similaridade: float, kind: str) -> str:
     partes = []
-    if kind == "previsto":
-        partes.append("vence no mesmo dia")
-    else:
-        dias = abs(data_diferenca)
-        partes.append(f"atrasado ha {dias} dia{'s' if dias != 1 else ''}")
-    partes.append(f"diferenca de valor de R$ {float(valor_diferenca):.2f}")
     if similaridade >= 0.72:
         partes.append("descricao muito parecida")
     elif similaridade >= 0.48:
@@ -1524,6 +1524,8 @@ class ProcessarArquivoResponse(BaseModel):
     gap_data_ultimo: Optional[str] = None
     gap_data_inicio_arquivo: Optional[str] = None
     gap_dias: int = 0
+    saldo_ofx: Optional[float] = None
+    saldo_ofx_data: Optional[str] = None
 
 
 class LancamentoDisponivelResumo(BaseModel):
@@ -1844,6 +1846,8 @@ def upload_ofx(
             
             lanc_raw["movimento_ofx_id"] = existing_mov.id
 
+        db.commit()
+
 
         duplicatas_por_hash = _carregar_duplicatas_por_hash(
             db,
@@ -2100,7 +2104,8 @@ def upload_ofx(
 
             if melhores_atrasados:
                 atrasados += 1
-                lanc_raw["lancamentos_atrasados_ids"] = [l.id for l, _, _ in melhores_atrasados]
+                best_atrasado = melhores_atrasados[0][0]
+                lanc_raw["lancamentos_atrasados_ids"] = [best_atrasado.id] if best_atrasado.id is not None else []
                 lanc_raw["lancamentos_atrasados_resumo"] = [
                     _build_resumo(lancamento, score, motivo, entidades_por_id, centros_custo_por_id)
                     for lancamento, score, motivo in melhores_atrasados
@@ -2140,6 +2145,12 @@ def upload_ofx(
                 lancamento["entidade_id"] = entidade_id
             lancamentos_serializados.append(LancamentoImportado(**_serializar_lancamento(lancamento)))
 
+        ofx_saldo_val = None
+        ofx_saldo_dt = None
+        if lancamentos_raw:
+            ofx_saldo_val = lancamentos_raw[0].get("ofx_saldo_arquivo")
+            ofx_saldo_dt = lancamentos_raw[0].get("ofx_saldo_data")
+
         return ProcessarArquivoResponse(
             lancamentos=lancamentos_serializados,
             total_processado=len(lancamentos_raw),
@@ -2150,6 +2161,8 @@ def upload_ofx(
             gap_data_ultimo=gap_data_ultimo,
             gap_data_inicio_arquivo=gap_data_inicio_arquivo,
             gap_dias=gap_dias,
+            saldo_ofx=ofx_saldo_val,
+            saldo_ofx_data=ofx_saldo_dt,
         )
 
         
@@ -2439,6 +2452,8 @@ class ConfirmarLancamentosRequest(BaseModel):
     centro_custo_id: Optional[int] = None
     modo_importacao: Optional[str] = None
     ignorar_divergencia: bool = False
+    saldo_ofx: Optional[Decimal] = None
+    saldo_ofx_data: Optional[date] = None
 
 
 @router.post(
@@ -2490,21 +2505,20 @@ def confirmar_lancamentos(
     divergencia_saldo_ofx_antes: Optional[Dict[str, Any]] = None
     divergencia_saldo_ofx: Optional[Dict[str, Any]] = None
 
-    # Se não for cartão e tivermos conciliações em lote, calcular divergência antes
-    if not modo_cartao and request.conciliacoes:
-        primeiro_mov_id = request.conciliacoes[0].movimento_ofx_id if request.conciliacoes else None
-        if primeiro_mov_id and conta_resolvida_id is not None:
-            mov_db = db.get(MovimentoOFX, primeiro_mov_id)
-            if mov_db:
-                saldo_ofx_referencia = mov_db.valor
-                data_ofx_referencia = mov_db.data
-                divergencia_saldo_ofx_antes = _calcular_divergencia_saldo_ofx(
-                    db,
-                    empresa_id,
-                    conta_resolvida_id,
-                    saldo_ofx_referencia,
-                    data_ofx_referencia,
-                )
+    # Se não for cartão e tivermos informações do saldo do extrato na requisição, calcular divergência antes
+    if not modo_cartao:
+        if request.saldo_ofx is not None:
+            saldo_ofx_referencia = request.saldo_ofx
+            data_ofx_referencia = request.saldo_ofx_data
+        
+        if saldo_ofx_referencia is not None and data_ofx_referencia is not None and conta_resolvida_id is not None:
+            divergencia_saldo_ofx_antes = _calcular_divergencia_saldo_ofx(
+                db,
+                empresa_id,
+                conta_resolvida_id,
+                saldo_ofx_referencia,
+                data_ofx_referencia,
+            )
 
     if not modo_cartao and request.conciliacoes is not None:
         # --- NOVO FLUXO: CONCILIAÇÃO BASEADA EM SETTLEMENT/BAIXA ---

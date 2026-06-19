@@ -74,6 +74,7 @@ class ContaSaldoMovimentoOut(BaseModel):
     cartao_id: Optional[int] = None
     cartao_nome: Optional[str] = None
     has_lote_card: bool = False
+    import_hash: Optional[str] = None
 
 
 
@@ -364,6 +365,7 @@ def saldo_detalhe_conta(
                 cartao_id=movimento.cartao_id,
                 cartao_nome=movimento.cartao.nome_cartao if movimento.cartao else None,
                 has_lote_card=movimento.id in lotes_existentes,
+                import_hash=movimento.import_hash,
             )
         )
 

@@ -15,6 +15,7 @@ class AuditLogItem(SQLModel):
     user_email: Optional[str] = None
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
+    undone: bool = False
     created_at: datetime
 
 class AuditLogList(SQLModel):

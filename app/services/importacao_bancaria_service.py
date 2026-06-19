@@ -16,7 +16,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
-from sqlmodel import Session, or_, select
+from sqlmodel import Session, or_, select, and_
 
 from app.models.entidade import Entidade
 from app.models.lancamento import Lancamento
@@ -239,12 +239,22 @@ def verificar_duplicata_ofx_por_fallback(
 
     movimento_uid = _normalizar_texto(lancamento.get("movimento_uid"))
     referencia_externa = _normalizar_texto(lancamento.get("referencia_externa"))
-    escopo_clauses = []
-    if banco_resolvido:
-        escopo_clauses.append(Lancamento.ofx_bank_id == banco_resolvido)
+    
+    scope_filter = None
     if conta_resolvida:
-        escopo_clauses.append(Lancamento.conta_id == conta_resolvida)
-
+        if banco_resolvido:
+            scope_filter = or_(
+                Lancamento.conta_id == conta_resolvida,
+                and_(
+                    Lancamento.conta_id.is_(None),
+                    Lancamento.ofx_bank_id == banco_resolvido
+                )
+            )
+        else:
+            scope_filter = Lancamento.conta_id == conta_resolvida
+    elif banco_resolvido:
+        scope_filter = Lancamento.ofx_bank_id == banco_resolvido
+ 
     if movimento_uid and not movimento_uid.startswith("fallback:"):
         query = select(Lancamento).where(
             Lancamento.empresa_id == empresa_id,
@@ -252,12 +262,12 @@ def verificar_duplicata_ofx_por_fallback(
             Lancamento.origem == "OFX_EXTRATO",
             Lancamento.movimento_uid == movimento_uid,
         )
-        if escopo_clauses:
-            query = query.where(or_(*escopo_clauses))
+        if scope_filter is not None:
+            query = query.where(scope_filter)
         candidato = db.exec(query).first()
         if candidato:
             return candidato
-
+ 
     if referencia_externa:
         query = select(Lancamento).where(
             Lancamento.empresa_id == empresa_id,
@@ -265,8 +275,8 @@ def verificar_duplicata_ofx_por_fallback(
             Lancamento.origem == "OFX_EXTRATO",
             Lancamento.referencia_externa == referencia_externa,
         )
-        if escopo_clauses:
-            query = query.where(or_(*escopo_clauses))
+        if scope_filter is not None:
+            query = query.where(scope_filter)
         candidato = db.exec(query).first()
         if candidato:
             return candidato

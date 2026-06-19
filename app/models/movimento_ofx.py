@@ -29,8 +29,8 @@ class MovimentoOFX(AuditMixin, SQLModel, table=True):
     conta_id: int = Field(foreign_key="contas.id", index=True)
 
     # Relacionamentos
-    empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa", lazy="joined"))
-    conta: "Conta" = Relationship(sa_relationship=relationship("Conta", lazy="joined"))
+    empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa", lazy="selectin"))
+    conta: "Conta" = Relationship(sa_relationship=relationship("Conta", lazy="selectin"))
     baixas: list["Baixa"] = Relationship(
         sa_relationship=relationship(
             "Baixa",

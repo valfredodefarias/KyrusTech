@@ -64,6 +64,7 @@ interface LancamentoItem {
   cartao_nome?: string | null;
   has_lote_card?: boolean;
   id_parcelamento?: string | null;
+  import_hash?: string | null;
 }
 
 interface ExtratoGrupoFatura {
@@ -996,6 +997,18 @@ export function Contas() {
       }
     });
 
+    // Count non-card occurrences of import_hash
+    const hashCounts = new Map<string, number>();
+    extratoLancamentosFiltrados.forEach((item) => {
+      const isCardMovement = Number(item.cartao_id || 0) > 0;
+      if (!isCardMovement && item.import_hash) {
+        const key = item.import_hash.trim();
+        if (key) {
+          hashCounts.set(key, (hashCounts.get(key) || 0) + 1);
+        }
+      }
+    });
+
     extratoLancamentosFiltrados.forEach((item) => {
       const isCardMovement = Number(item.cartao_id || 0) > 0;
       if (isCardMovement) {
@@ -1024,8 +1037,14 @@ export function Contas() {
         return;
       }
 
-      const splitKey = item.id_parcelamento ? item.id_parcelamento.trim() : '';
-      if (splitKey && (splitCounts.get(splitKey) || 0) > 1) {
+      let splitKey = '';
+      if (item.import_hash && (hashCounts.get(item.import_hash.trim()) || 0) > 1) {
+        splitKey = `hash-${item.import_hash.trim()}`;
+      } else if (item.id_parcelamento && (splitCounts.get(item.id_parcelamento.trim()) || 0) > 1) {
+        splitKey = item.id_parcelamento.trim();
+      }
+
+      if (splitKey) {
         const currentSplit: ExtratoGrupoSplit = groupedSplits.get(splitKey) || {
           key: splitKey,
           descricao: item.descricao || "Lançamento Rateado",
@@ -1063,6 +1082,21 @@ export function Contas() {
         const firstWithDesc = group.itens.find(i => i.descricao);
         if (firstWithDesc) {
           group.descricao = `${firstWithDesc.descricao} (Rateado)`;
+        }
+      } else if (group.key.startsWith("hash-")) {
+        let mainItem = group.itens[0];
+        let maxVal = -1;
+        group.itens.forEach((i) => {
+          const val = Math.abs(getExtratoSignedValue(i.valor_entrada, i.valor_saida));
+          if (val > maxVal) {
+            maxVal = val;
+            mainItem = i;
+          }
+        });
+        if (mainItem && mainItem.descricao) {
+          group.descricao = `${mainItem.descricao} (Agrupado)`;
+        } else {
+          group.descricao = "Lançamento Agrupado";
         }
       }
     });
@@ -1481,13 +1515,15 @@ export function Contas() {
                                     <ChevronDown className={`mt-0.5 h-4 w-4 text-slate-400 transition ${isExpanded ? 'rotate-180' : ''}`} />
                                     <div>
                                       <div className="font-semibold text-slate-800 dark:text-slate-100">{row.group.descricao}</div>
-                                      <div className="text-xs text-slate-500">{row.group.itens.length} lançamento(s) rateado(s)</div>
+                                      <div className="text-xs text-slate-500">
+                                        {row.group.itens.length} lançamento(s) {row.group.key.startsWith('hash-') ? 'agrupado(s)' : 'rateado(s)'}
+                                      </div>
                                     </div>
                                   </button>
                                 </td>
                                 <td className="p-3 align-top">
                                   <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
-                                    RATEADO
+                                    {row.group.key.startsWith('hash-') ? 'AGRUPADO' : 'RATEADO'}
                                   </span>
                                 </td>
                                 <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${totalMovimento >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>

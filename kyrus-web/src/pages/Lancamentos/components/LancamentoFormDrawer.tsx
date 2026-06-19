@@ -45,7 +45,7 @@ interface LancamentoFormDrawerProps {
   editarId?: number | null;
   contaId?: number | null;
   cartaoId?: number | null;
-  onSaveSuccess?: () => void;
+  onSaveSuccess?: (createdId?: number) => void;
   isBoletimEmbed?: boolean;
   embedFullscreenDrawer?: boolean;
   drawerPanelClassName?: string;
@@ -58,6 +58,7 @@ interface LancamentoFormDrawerProps {
   pushToast?: (type: 'success' | 'error' | 'info', message: string) => void;
   isCaixaMode?: boolean;
   lancamentos?: Lancamento[];
+  prefilledData?: Partial<any>;
 }
 
 export const LancamentoFormDrawer = ({
@@ -78,6 +79,7 @@ export const LancamentoFormDrawer = ({
   pushToast: pushToastProp,
   isCaixaMode = false,
   lancamentos,
+  prefilledData,
 }: LancamentoFormDrawerProps) => {
   // --- ESTADOS INTERNOS ---
   const [formData, setFormData] = useState<any>({
@@ -420,6 +422,7 @@ export const LancamentoFormDrawer = ({
         competencia_modo_parcelamento: 'POR_PARCELA',
         anexos: [],
         baixas: [],
+        ...prefilledData,
       };
       setFormData(defaultFormData);
       setInitialScopedFields({ descricao: '', plano_contas_id: '', data_vencimento: '' });
@@ -430,7 +433,7 @@ export const LancamentoFormDrawer = ({
       setAjustarParaDiaUtil(false);
       setShowParcelasSeriePanel(false);
     }
-  }, [showDrawer, editarId, contaId, cartaoId]);
+  }, [showDrawer, editarId, contaId, cartaoId, prefilledData]);
 
   useEffect(() => {
     if (!editarId && !formData.id && centros.length === 1 && !formData.centro_custo_id) {
@@ -838,7 +841,7 @@ export const LancamentoFormDrawer = ({
       closeDrawerDirect();
       pushToast('success', isEditing ? 'Lançamento atualizado com sucesso.' : 'Lançamento salvo com sucesso.');
       if (onSaveSuccess) {
-        onSaveSuccess();
+        onSaveSuccess(id || undefined);
       }
     } catch (e: any) {
       const backendDetail = typeof e?.response?.data?.detail === 'string' ? e.response.data.detail.trim() : '';
@@ -869,7 +872,7 @@ export const LancamentoFormDrawer = ({
         data_pagamento: null,
       }));
       if (onSaveSuccess) {
-        await onSaveSuccess();
+        await onSaveSuccess(formData?.id || undefined);
       }
     } catch (err: any) {
       const msg = err?.response?.data?.detail || err?.message || 'Erro ao desfazer conciliação.';

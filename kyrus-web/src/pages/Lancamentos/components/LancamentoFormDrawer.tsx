@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X,
   Copy,
-  LayoutGrid,
   Plus,
   Trash2,
   Download,
@@ -127,6 +126,37 @@ export const LancamentoFormDrawer = ({
   const [showParcelasSeriePanel, setShowParcelasSeriePanel] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [showEntityDrawer, setShowEntityDrawer] = useState(false);
+  const [showScopeModal, setShowScopeModal] = useState(false);
+  const [scopeModalResolver, setScopeModalResolver] = useState<((value: 'ESTA' | 'PROXIMAS' | 'TODAS' | null) => void) | null>(null);
+
+  const [confirmModal, setConfirmModal] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    resolver: ((value: boolean) => void) | null;
+  }>({
+    show: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirmar',
+    cancelText: 'Cancelar',
+    resolver: null,
+  });
+
+  const showConfirm = (title: string, message: string, confirmText = 'Confirmar', cancelText = 'Cancelar') => {
+    return new Promise<boolean>((resolve) => {
+      setConfirmModal({
+        show: true,
+        title,
+        message,
+        confirmText,
+        cancelText,
+        resolver: resolve,
+      });
+    });
+  };
 
   // --- LOOKUPS INTERNOS ---
   const [localCategorias, setLocalCategorias] = useState<any[]>([]);
@@ -180,13 +210,6 @@ export const LancamentoFormDrawer = ({
     if (Number(formData?.numero_parcela || 0) > 0 && currentParcelaTotal > 1) return true;
     return Boolean(parseDescricaoParcela(formData?.descricao));
   }, [isEditing, formData?.id_parcelamento, formData?.numero_parcela, formData?.descricao, currentParcelaTotal]);
-
-  const canOpenParcelasSerie = useMemo(() => {
-    if (!isEditing) return false;
-    if (Boolean(formData?.id_parcelamento)) return true;
-    if (Number(formData?.numero_parcela || 0) > 0) return true;
-    return Boolean(parseDescricaoParcela(formData?.descricao));
-  }, [isEditing, formData?.id_parcelamento, formData?.numero_parcela, formData?.descricao]);
 
   const shouldShowParcelasSerie = !isBoletimEmbed && (isEditingParcelado || showParcelasSeriePanel);
 
@@ -485,7 +508,8 @@ export const LancamentoFormDrawer = ({
       closeDrawerDirect();
       return;
     }
-    const shouldSave = window.confirm(
+    const shouldSave = await showConfirm(
+      'Aviso',
       'Você alterou informações e ainda não salvou. Você deseja salvar a informação antes de sair?'
     );
     if (shouldSave) {
@@ -502,14 +526,7 @@ export const LancamentoFormDrawer = ({
     return buildDrawerFormSnapshot(formData) !== initialDrawerFormSnapshot;
   }, [showDrawer, initialDrawerFormSnapshot, formData, filesToUpload]);
 
-  const handleVerTodasParcelas = async () => {
-    if (!canOpenParcelasSerie) {
-      pushToast('info', 'Este lançamento não possui série de parcelamento identificada.');
-      return;
-    }
-    setShowParcelasSeriePanel(true);
-    await loadParcelasSerie(formData?.id_parcelamento, formData as Lancamento);
-  };
+
 
   const handleSelecionarParcelaSerie = (item: Lancamento) => {
     if (Number(item.id) === Number(formData?.id)) return;
@@ -548,7 +565,7 @@ export const LancamentoFormDrawer = ({
   const handleRemoverAnexo = async (anexo: Anexo) => {
     if (!anexo?.id) return;
 
-    const ok = window.confirm(`Remover o anexo "${anexo.nome_arquivo}"?`);
+    const ok = await showConfirm('Remover Anexo', `Remover o anexo "${anexo.nome_arquivo}"?`);
     if (!ok) return;
 
     const lancamentoId = Number(formData?.id || 0);
@@ -678,7 +695,8 @@ export const LancamentoFormDrawer = ({
     if (isNovoLancamento) {
       const dataBaseNovo = formData.status === 'PAGO' ? formData.data_pagamento || formData.data_vencimento : formData.data_vencimento;
       if (dataBaseNovo && dataBaseNovo < dataLimiteRetroativa) {
-        const confirmarRetroativo = window.confirm(
+        const confirmarRetroativo = await showConfirm(
+          'Confirmação de Data',
           'Este lançamento possui data anterior a 2 dias atrás. Verifique se a data está correta e, se sim, confirme para lançar.'
         );
         if (!confirmarRetroativo) {
@@ -793,7 +811,8 @@ export const LancamentoFormDrawer = ({
 
         const parcelasRetroativas = lista.filter((item: any) => String(item.data_vencimento || '') < dataLimiteRetroativa).length;
         if (parcelasRetroativas > 0) {
-          const confirmarParcelasRetroativas = window.confirm(
+          const confirmarParcelasRetroativas = await showConfirm(
+            'Confirmação de Datas',
             `${parcelasRetroativas} parcela(s) possuem data anterior a 2 dias atrás. Verifique se as datas estão corretas e, se sim, confirme para lançar.`
           );
           if (!confirmarParcelasRetroativas) {
@@ -818,18 +837,18 @@ export const LancamentoFormDrawer = ({
           if (!shouldApplyScoped) {
             await api.put(`/lancamentos/${id}`, payload);
           } else {
-            const scopeAnswer = window.prompt(
-              'Aplicar alterações em qual escopo?\n1 - Só esta parcela\n2 - Esta e próximas\n3 - Todas',
-              '1'
-            );
-            if (scopeAnswer === null) {
+            const escopoEscolhido = await new Promise<'ESTA' | 'PROXIMAS' | 'TODAS' | null>((resolve) => {
+              setShowScopeModal(true);
+              setScopeModalResolver(() => resolve);
+            });
+            setShowScopeModal(false);
+            setScopeModalResolver(null);
+
+            if (escopoEscolhido === null) {
               pushToast('info', 'Salvar cancelado.');
               setSaving(false);
               return;
             }
-
-            const escopoEscolhido: 'ESTA' | 'PROXIMAS' | 'TODAS' =
-              scopeAnswer.trim() === '3' ? 'TODAS' : scopeAnswer.trim() === '2' ? 'PROXIMAS' : 'ESTA';
 
             const parcelaAtual = Number(currentParcelaNumber || 1);
             const parcelasAlvo = comicBookSet.filter((item) => {
@@ -912,17 +931,61 @@ export const LancamentoFormDrawer = ({
         onSaveSuccess(id || undefined);
       }
     } catch (e: any) {
-      const backendDetail = typeof e?.response?.data?.detail === 'string' ? e.response.data.detail.trim() : '';
-      pushToast('error', backendDetail || 'Erro ao salvar lançamento.');
+      console.error('Erro ao salvar lançamento:', e);
+      let errorMsg = 'Erro ao salvar lançamento.';
+      if (e?.response?.data?.detail) {
+        if (typeof e.response.data.detail === 'string') {
+          errorMsg = e.response.data.detail;
+        } else if (Array.isArray(e.response.data.detail)) {
+          errorMsg = e.response.data.detail
+            .map((err: any) => {
+              const field = err.loc ? err.loc.filter((x: any) => x !== 'body').join('.') : '';
+              return `${field ? `Campo [${field}]: ` : ''}${err.msg}`;
+            })
+            .join('; ');
+        } else if (typeof e.response.data.detail === 'object') {
+          errorMsg = JSON.stringify(e.response.data.detail);
+        }
+      }
+      pushToast('error', errorMsg);
     } finally {
       setSaving(false);
     }
   }
 
+  const handleDelete = async () => {
+    if (!formData?.id) return;
+
+    const isPago = formData.status === 'PAGO';
+    const message = isPago
+      ? 'Aviso: Este lançamento está PAGO. Tem certeza que deseja excluí-lo? Esta ação removerá a baixa e o lançamento definitivamente.'
+      : 'Tem certeza que deseja excluir este lançamento? Esta ação não poderá ser desfeita.';
+
+    const ok = await showConfirm('Excluir Lançamento', message);
+    if (!ok) return;
+
+    setSaving(true);
+    try {
+      await api.delete(`/lancamentos/${formData.id}`, {
+        params: { confirmar_exclusao_pagos: true }
+      });
+      pushToast('success', 'Lançamento excluído com sucesso.');
+      closeDrawerDirect();
+      if (onSaveSuccess) {
+        onSaveSuccess();
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || 'Erro ao excluir lançamento.';
+      pushToast('error', `Falha ao excluir: ${msg}`);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleDesconciliar = async () => {
     if (!formData?.id) return;
-    const confirmDesconciliar = window.confirm(
+    const confirmDesconciliar = await showConfirm(
+      'Desfazer Conciliação',
       'Tem certeza que deseja desfazer a conciliação deste lançamento? Isso removerá a baixa vinculada, reabrirá o movimento correspondente no extrato OFX e permitirá editar todos os campos novamente.'
     );
     if (!confirmDesconciliar) return;
@@ -1133,27 +1196,38 @@ export const LancamentoFormDrawer = ({
             <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing ? 'Editar' : 'Novo'} Lançamento</h2>
             <div className="flex items-center gap-1">
               {isEditing && (
-                <button
-                  type="button"
-                  title="Duplicar este lançamento"
-                  onClick={() => {
-                    setIsEditing(false);
-                    setFormData((prev: any) => ({
-                      ...prev,
-                      id: null,
-                      status: 'PENDENTE',
-                      data_pagamento: prev.data_vencimento,
-                      valor_pago: '',
-                      is_parcelado: false,
-                      anexos: [],
-                    }));
-                    setFilesToUpload(null);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  Duplicar
-                </button>
+                <>
+                  <button
+                    type="button"
+                    title="Excluir este lançamento"
+                    onClick={handleDelete}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Excluir
+                  </button>
+                  <button
+                    type="button"
+                    title="Duplicar este lançamento"
+                    onClick={() => {
+                      setIsEditing(false);
+                      setFormData((prev: any) => ({
+                        ...prev,
+                        id: null,
+                        status: 'PENDENTE',
+                        data_pagamento: prev.data_vencimento,
+                        valor_pago: '',
+                        is_parcelado: false,
+                        anexos: [],
+                      }));
+                      setFilesToUpload(null);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition cursor-pointer"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    Duplicar
+                  </button>
+                </>
               )}
               {isEditing && formData.conciliado && (
                 <button
@@ -1161,7 +1235,7 @@ export const LancamentoFormDrawer = ({
                   title="Desfazer a conciliação bancária deste lançamento"
                   disabled={desconciliando}
                   onClick={handleDesconciliar}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition disabled:opacity-50 cursor-pointer"
                 >
                   {desconciliando ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1169,17 +1243,6 @@ export const LancamentoFormDrawer = ({
                     <ArrowRightLeft className="w-3.5 h-3.5" />
                   )}
                   Desconciliar
-                </button>
-              )}
-              {isEditing && canOpenParcelasSerie && !isBoletimEmbed && (
-                <button
-                  type="button"
-                  title="Abrir a série completa de parcelas"
-                  onClick={() => void handleVerTodasParcelas()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 dark:text-amber-200 bg-amber-100/80 dark:bg-amber-500/15 border border-amber-300/80 dark:border-amber-700/70 hover:bg-amber-200/80 dark:hover:bg-amber-500/25 transition"
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  Ver todas as parcelas
                 </button>
               )}
               <button
@@ -1808,6 +1871,97 @@ export const LancamentoFormDrawer = ({
         }}
         pushToast={pushToast}
       />
+
+      {confirmModal.show && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+            onClick={() => {
+              confirmModal.resolver?.(false);
+              setConfirmModal((prev) => ({ ...prev, show: false }));
+            }}
+          ></div>
+          <div className="relative bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-md p-6 border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in duration-200">
+            <h3 className="font-extrabold text-xl text-slate-800 dark:text-white mb-2 tracking-tight">
+              {confirmModal.title}
+            </h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
+              {confirmModal.message}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  confirmModal.resolver?.(false);
+                  setConfirmModal((prev) => ({ ...prev, show: false }));
+                }}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
+              >
+                {confirmModal.cancelText || 'Cancelar'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  confirmModal.resolver?.(true);
+                  setConfirmModal((prev) => ({ ...prev, show: false }));
+                }}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition duration-150 cursor-pointer border-0 shadow-lg shadow-blue-500/10"
+              >
+                {confirmModal.confirmText || 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showScopeModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => scopeModalResolver?.(null)}></div>
+          <div className="relative bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-md p-6 border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in duration-200">
+            <h3 className="font-extrabold text-xl text-slate-800 dark:text-white mb-2 tracking-tight">
+              Aplicar alterações
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
+              Você alterou campos que afetam a recorrência das parcelas. Escolha em qual escopo deseja aplicar estas alterações:
+            </p>
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => scopeModalResolver?.('ESTA')}
+                className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-100 transition duration-150 text-left flex justify-between items-center group cursor-pointer border-0"
+              >
+                <span>Só esta parcela</span>
+                <span className="text-[10px] text-slate-400 group-hover:text-slate-300">Apenas a parcela atual</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => scopeModalResolver?.('PROXIMAS')}
+                className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-100 transition duration-150 text-left flex justify-between items-center group cursor-pointer border-0"
+              >
+                <span>Esta e as próximas</span>
+                <span className="text-[10px] text-slate-400 group-hover:text-slate-300">Da atual em diante</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => scopeModalResolver?.('TODAS')}
+                className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-blue-600 hover:bg-blue-500 text-white transition duration-150 text-left flex justify-between items-center group shadow-lg shadow-blue-500/10 cursor-pointer border-0"
+              >
+                <span>Todas as parcelas</span>
+                <span className="text-[10px] text-blue-200 group-hover:text-white">A série completa</span>
+              </button>
+            </div>
+            <div className="flex justify-end mt-6 pt-4 border-t border-slate-100 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => scopeModalResolver?.(null)}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer border-0"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toasts.length > 0 && (
         <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">

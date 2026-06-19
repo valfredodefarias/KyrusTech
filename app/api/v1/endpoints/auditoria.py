@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select, func, col
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 
 from app.db.session import get_db
 from app.api.deps import get_current_user, get_empresa_id_from_user
@@ -75,7 +75,15 @@ def listar_auditoria(
         raise HTTPException(status_code=403, detail="Acesso negado: usuário ou contexto sem empresa vinculada")
 
     users_subq = select(Usuario.id).where(Usuario.empresa_id == context_empresa_id)
-    filters.append(col(AuditLog.user_id).in_(users_subq))
+    filters.append(
+        or_(
+            AuditLog.empresa_id == context_empresa_id,
+            and_(
+                AuditLog.empresa_id == None,
+                col(AuditLog.user_id).in_(users_subq)
+            )
+        )
+    )
 
     base_query = select(AuditLog, Usuario.email).join(Usuario, col(AuditLog.user_id) == col(Usuario.id), isouter=True)
     if filters:

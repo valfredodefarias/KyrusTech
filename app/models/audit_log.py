@@ -26,6 +26,7 @@ class AuditLog(SQLModel, table=True):
     
     # Metadados
     user_id: Optional[int] = Field(default=None, index=True) # Quem fez
+    empresa_id: Optional[int] = Field(default=None, index=True) # A qual empresa pertence o registro
     ip_address: Optional[str] = None # Segurança extra
     user_agent: Optional[str] = None # Navegador/Dispositivo
     created_at: datetime = Field(default_factory=datetime.utcnow)

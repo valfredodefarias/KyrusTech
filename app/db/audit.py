@@ -132,12 +132,27 @@ def write_audit_logs(session: OrmSession, flush_context) -> None:  # type: ignor
             record_id = _get_record_id(obj)
             if record_id is None:
                 continue
+            
+            # Resolve empresa_id
+            empresa_id = None
+            table_name = _get_table_name(obj)
+            if table_name == "empresas":
+                empresa_id = record_id
+            else:
+                empresa_id = getattr(obj, "empresa_id", None)
+                if empresa_id is not None:
+                    try:
+                        empresa_id = int(empresa_id)
+                    except (TypeError, ValueError):
+                        empresa_id = None
+
             log = AuditLog(
-                table_name=_get_table_name(obj),
+                table_name=table_name,
                 record_id=record_id,
                 action=entry["action"],
                 changes=entry.get("changes") or None,
                 user_id=audit_user_id,
+                empresa_id=empresa_id,
                 ip_address=audit_ip_address,
                 user_agent=audit_user_agent,
             )

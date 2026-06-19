@@ -95,7 +95,7 @@ export function Auditoria() {
           limit,
           table_name: tableName || undefined,
           action: action || undefined,
-          user_id: userId ? Number(userId) : undefined,
+          user_id: userId || undefined,
           q: q || undefined,
           start: start || undefined,
           end: end || undefined
@@ -163,7 +163,7 @@ export function Auditoria() {
           <input
             value={userId}
             onChange={(e) => { setPage(0); setUserId(e.target.value); }}
-            placeholder="User ID"
+            placeholder="Usuário (Email / ID)"
             className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
           />
           <input

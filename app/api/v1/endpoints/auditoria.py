@@ -44,7 +44,7 @@ def listar_auditoria(
     limit: int = Query(50, ge=1, le=200),
     table_name: Optional[str] = None,
     action: Optional[str] = None,
-    user_id: Optional[int] = None,
+    user_id: Optional[str] = None,
     empresa_id: Optional[int] = None,
     q: Optional[str] = None,
     start: Optional[datetime] = None,
@@ -57,7 +57,10 @@ def listar_auditoria(
     if action:
         filters.append(col(AuditLog.action).ilike(f"%{action}%"))
     if user_id:
-        filters.append(AuditLog.user_id == user_id)
+        if user_id.isdigit():
+            filters.append(AuditLog.user_id == int(user_id))
+        else:
+            filters.append(col(Usuario.email).ilike(f"%{user_id}%"))
     if start:
         filters.append(AuditLog.created_at >= _br_local_to_utc_naive(start))
     if end:
@@ -67,6 +70,7 @@ def listar_auditoria(
             or_(
                 col(AuditLog.table_name).ilike(f"%{q}%"),
                 col(AuditLog.action).ilike(f"%{q}%"),
+                col(Usuario.email).ilike(f"%{q}%"),
             )
         )
 
@@ -89,7 +93,7 @@ def listar_auditoria(
     if filters:
         base_query = base_query.where(*filters)
 
-    total_query = select(func.count()).select_from(AuditLog)
+    total_query = select(func.count()).select_from(AuditLog).join(Usuario, col(AuditLog.user_id) == col(Usuario.id), isouter=True)
     if filters:
         total_query = total_query.where(*filters)
     total = db.exec(total_query).one()

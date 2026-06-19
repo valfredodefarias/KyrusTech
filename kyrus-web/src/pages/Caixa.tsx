@@ -6,7 +6,6 @@ import {
   Banknote,
   Plus,
   RefreshCw,
-  Printer,
   Calendar,
   AlertCircle,
   Info,
@@ -403,7 +402,7 @@ export function Caixa() {
   };
 
   return (
-    <div className="min-h-screen text-slate-800 dark:text-slate-100">
+    <div className="h-[calc(100vh-66px)] w-full flex flex-col overflow-hidden text-slate-800 dark:text-slate-100">
       {/* Toast notifications */}
       <div className="fixed right-4 top-4 z-[9999] flex flex-col gap-2">
         {toasts.map((t) => (
@@ -420,41 +419,98 @@ export function Caixa() {
       </div>
 
       {/* PAGE HEADER */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800/80 px-4 sm:px-6 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm gap-3">
-        <div>
-          <h1 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2 uppercase tracking-tight">
-            <Banknote className="h-5 w-5 text-blue-500" />
-            Movimento de Caixa
-          </h1>
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-            Registro de Caixa: <span className="text-slate-600 dark:text-slate-200">{selectedConta?.nome || '—'}</span>
-          </p>
-        </div>
-        
-        {/* REFRESH & NEW ENTRY BUTTONS */}
-        <div className="flex gap-2">
-          {activeTab === 'fechamento' && selectedContaId !== null && !loading && (
+      <header className="shrink-0 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800/80 px-4 sm:px-6 py-1.5 flex flex-wrap items-center justify-between shadow-sm gap-2 print:hidden">
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-1.5 uppercase tracking-tight">
+              <Banknote className="h-4.5 w-4.5 text-blue-500" />
+              Movimento de Caixa
+            </h1>
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+              Registro de Caixa: <span className="text-slate-600 dark:text-slate-200">{selectedConta?.nome || '—'}</span>
+            </p>
+          </div>
+          
+          {/* TABS SELECTOR */}
+          <div className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800 w-fit">
             <button
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 shadow-sm transition"
+              onClick={() => setActiveTab('fechamento')}
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-bold transition-all ${
+                activeTab === 'fechamento'
+                  ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
             >
-              <Printer className="h-3.5 w-3.5" />
-              Imprimir Fechamento
+              Resumo
             </button>
+            <button
+              onClick={() => setActiveTab('extrato')}
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-bold transition-all ${
+                activeTab === 'extrato'
+                  ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              Extrato
+            </button>
+          </div>
+        </div>
+
+        {/* FILTERS & ACTIONS */}
+        <div className="flex items-center gap-2">
+          {/* DATE FILTER */}
+          <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 px-2 py-0.5 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+            <Calendar className="h-3.5 w-3.5 text-slate-400" />
+            <input
+              type="date"
+              value={dataInicio}
+              onChange={(e) => setDataInicio(e.target.value)}
+              className="bg-transparent font-bold outline-none cursor-pointer w-[110px]"
+            />
+            <span className="text-slate-300 dark:text-slate-650 font-normal">até</span>
+            <input
+              type="date"
+              value={dataFim}
+              onChange={(e) => setDataFim(e.target.value)}
+              className="bg-transparent font-bold outline-none cursor-pointer w-[110px]"
+            />
+          </div>
+
+          {/* CASHIER SELECTOR */}
+          {caixasFisicos.length > 0 ? (
+            <label className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 px-2 py-0.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
+              <Banknote className="h-3.5 w-3.5 text-slate-400" />
+              <span className="text-slate-400 font-normal">Caixa:</span>
+              <select
+                value={selectedContaId === null ? '' : String(selectedContaId)}
+                onChange={(e) => setSelectedContaId(Number(e.target.value))}
+                className="bg-transparent font-black text-slate-700 dark:text-white outline-none cursor-pointer"
+              >
+                {caixasFisicos.map((c) => (
+                  <option key={c.id} value={c.id} className="text-slate-900">
+                    {c.nome}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <span className="text-[11px] italic text-rose-500 font-bold">Nenhum caixa ativo.</span>
           )}
+
+          {/* ACTION BUTTONS */}
           <button
             onClick={() => {
               void loadCaixaData();
               void refreshSaldos();
             }}
-            className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 shadow-sm"
+            className="p-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 shadow-sm"
             title="Recarregar"
           >
             <RefreshCw className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => handleOpenNewEntry()}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-3 py-2 text-xs font-bold text-white transition shadow-sm"
+            className="inline-flex items-center gap-1 rounded-lg bg-blue-600 hover:bg-blue-700 px-2.5 py-1 text-[11px] font-bold text-white transition shadow-sm"
           >
             <Plus className="h-3 w-3" />
             + Lançamento
@@ -463,165 +519,97 @@ export function Caixa() {
       </header>
 
       {/* MAIN CONTENT CONTAINER */}
-      <div className="p-4 sm:p-5 space-y-4">
-        {/* FILTER BAR & TABS SELECTOR */}
-        <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm dark:border-slate-700/80 dark:bg-slate-900">
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* DATE FILTER */}
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              <Calendar className="h-3.5 w-3.5 text-slate-400" />
-              <input
-                type="date"
-                value={dataInicio}
-                onChange={(e) => setDataInicio(e.target.value)}
-                className="bg-transparent font-bold outline-none"
-              />
-              <span className="text-slate-300 dark:text-slate-600 font-normal">até</span>
-              <input
-                type="date"
-                value={dataFim}
-                onChange={(e) => setDataFim(e.target.value)}
-                className="bg-transparent font-bold outline-none"
-              />
-            </div>
-
-            {/* CASHIER SELECTOR */}
-            {caixasFisicos.length > 0 ? (
-              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                <Banknote className="h-3.5 w-3.5 text-slate-400" />
-                <span className="text-slate-400 font-normal">Caixa:</span>
-                <select
-                  value={selectedContaId === null ? '' : String(selectedContaId)}
-                  onChange={(e) => setSelectedContaId(Number(e.target.value))}
-                  className="bg-transparent font-black text-slate-700 dark:text-white outline-none"
-                >
-                  {caixasFisicos.map((c) => (
-                    <option key={c.id} value={c.id} className="text-slate-900">
-                      {c.nome}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <span className="text-xs italic text-rose-500 font-bold">Nenhum caixa físico ativo cadastrado.</span>
-            )}
-          </div>
-
-          {/* TABS SELECTOR */}
-          <div className="flex gap-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800 w-fit print:hidden">
-            <button
-              onClick={() => setActiveTab('fechamento')}
-              className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all ${
-                activeTab === 'fechamento'
-                  ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white'
-                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
-            >
-              Resumo / Fechamento
-            </button>
-            <button
-              onClick={() => setActiveTab('extrato')}
-              className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all ${
-                activeTab === 'extrato'
-                  ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white'
-                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
-            >
-              Extrato Completo
-            </button>
-          </div>
-        </section>
-
+      <div className="flex-1 p-3 sm:p-4 min-h-0 flex flex-col overflow-hidden">
         {selectedContaId === null ? (
-          <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
-            <Banknote className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" />
-            <h3 className="mt-4 text-lg font-black text-slate-800 dark:text-white">Nenhum Caixa Selecionado</h3>
-            <p className="mt-2 text-sm text-slate-500">
+          <div className="flex-1 flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
+            <Banknote className="mx-auto h-10 w-10 text-slate-300 dark:text-slate-600" />
+            <h3 className="mt-3 text-base font-black text-slate-800 dark:text-white">Nenhum Caixa Selecionado</h3>
+            <p className="mt-1 text-xs text-slate-500">
               Cadastre uma conta com tipo "Caixa Físico" nas configurações financeiras para começar.
             </p>
           </div>
         ) : loading ? (
-          <div className="p-12 text-center text-sm font-semibold text-slate-400">Carregando dados do caixa...</div>
+          <div className="flex-1 flex items-center justify-center p-8 text-center text-xs font-semibold text-slate-400">Carregando dados do caixa...</div>
         ) : (
-          <div className="space-y-4">
+          <div className="flex-1 min-h-0 flex flex-col space-y-3">
 
           {activeTab === 'fechamento' ? (
-            <div className="space-y-4 animate-in fade-in duration-300">
+            <div className="flex-1 min-h-0 flex flex-col space-y-3 animate-in fade-in duration-300">
 
               {/* KPI CARDS */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3 shrink-0">
                 {/* ENTRADAS */}
-                <div className="rounded-2xl border border-slate-200/80 bg-white py-3.5 px-4 shadow-sm dark:border-slate-800/80 dark:bg-slate-900 flex items-center justify-between transition-all hover:shadow-md">
+                <div className="rounded-xl border border-slate-200/80 bg-white py-2 px-3 shadow-sm dark:border-slate-800/80 dark:bg-slate-900 flex items-center justify-between transition-all hover:shadow-md">
                   <div className="space-y-0.5">
                     <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Total Entradas</span>
-                    <p className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 font-mono">
+                    <p className="text-base font-extrabold text-emerald-600 dark:text-emerald-400 font-mono">
                        R$ {formatNumberBRL(dailyKpis.entradas)}
                     </p>
                   </div>
-                  <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl text-emerald-500">
-                    <TrendingUp className="h-4.5 w-4.5" />
+                  <div className="p-1.5 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg text-emerald-500">
+                    <TrendingUp className="h-4 w-4" />
                   </div>
                 </div>
 
                 {/* SAÍDAS */}
-                <div className="rounded-2xl border border-slate-200/80 bg-white py-3.5 px-4 shadow-sm dark:border-slate-800/80 dark:bg-slate-900 flex items-center justify-between transition-all hover:shadow-md">
+                <div className="rounded-xl border border-slate-200/80 bg-white py-2 px-3 shadow-sm dark:border-slate-800/80 dark:bg-slate-900 flex items-center justify-between transition-all hover:shadow-md">
                   <div className="space-y-0.5">
                     <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Total Saídas</span>
-                    <p className="text-lg font-extrabold text-rose-600 dark:text-rose-400 font-mono">
+                    <p className="text-base font-extrabold text-rose-600 dark:text-rose-400 font-mono">
                       R$ {formatNumberBRL(dailyKpis.saidas)}
                     </p>
                   </div>
-                  <div className="p-2.5 bg-rose-50 dark:bg-rose-950/30 rounded-xl text-rose-500">
-                    <TrendingDown className="h-4.5 w-4.5" />
+                  <div className="p-1.5 bg-rose-50 dark:bg-rose-950/30 rounded-lg text-rose-500">
+                    <TrendingDown className="h-4 w-4" />
                   </div>
                 </div>
 
                 {/* SALDO DO DIA */}
-                <div className="rounded-2xl border border-slate-200/80 bg-white py-3.5 px-4 shadow-sm dark:border-slate-800/80 dark:bg-slate-900 flex items-center justify-between transition-all hover:shadow-md">
+                <div className="rounded-xl border border-slate-200/80 bg-white py-2 px-3 shadow-sm dark:border-slate-800/80 dark:bg-slate-900 flex items-center justify-between transition-all hover:shadow-md">
                   <div className="space-y-0.5">
                     <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Saldo do Dia</span>
-                    <p className={`text-lg font-extrabold font-mono ${dailyKpis.saldo >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                    <p className={`text-base font-extrabold font-mono ${dailyKpis.saldo >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-rose-600 dark:text-rose-400'}`}>
                       R$ {formatNumberBRL(dailyKpis.saldo)}
                     </p>
                   </div>
-                  <div className={`p-2.5 rounded-xl ${dailyKpis.saldo >= 0 ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-500' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-500'}`}>
-                    <DollarSign className="h-4.5 w-4.5" />
+                  <div className={`p-1.5 rounded-lg ${dailyKpis.saldo >= 0 ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-500' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-500'}`}>
+                    <DollarSign className="h-4 w-4" />
                   </div>
                 </div>
               </div>
 
               {/* DASHBOARD TABLES GRID */}
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+              <div className="flex-1 min-h-0 grid grid-cols-1 gap-3 lg:grid-cols-12">
                 {/* LEFT COLUMN: MOVIMENTO CAIXA DO DIA */}
-                <div className="lg:col-span-4 flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 transition-all hover:shadow-md">
-                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
-                    <Wallet className="h-4 w-4 text-blue-500" />
+                <div className="lg:col-span-4 flex flex-col rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 transition-all hover:shadow-md">
+                  <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-1.5">
+                    <Wallet className="h-3.5 w-3.5 text-blue-500" />
                     Movimento Caixa do Dia
                   </h3>
 
-                  <div className="flex-1 overflow-x-auto">
+                  <div className="flex-1 overflow-y-auto pr-1">
                     <table className="min-w-full text-xs">
                       <thead>
-                        <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                          <th className="px-2 py-2 text-left">Forma Pagto</th>
-                          <th className="px-2 py-2 text-right">Valor</th>
+                        <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 font-bold uppercase tracking-wider text-[9px]">
+                          <th className="px-1 py-1.5 text-left">Forma Pagto</th>
+                          <th className="px-1 py-1.5 text-right">Valor</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100/60 dark:divide-slate-800/60">
                         {totalReceitasPorForma.list.length === 0 ? (
                           <tr>
-                            <td colSpan={2} className="px-2 py-4 text-center text-slate-400 italic font-semibold">
+                            <td colSpan={2} className="px-1 py-3 text-center text-slate-400 italic font-semibold text-[11px]">
                               Nenhum recebimento registrado.
                             </td>
                           </tr>
                         ) : (
                           totalReceitasPorForma.list.map((item) => (
                             <tr key={item.key} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                              <td className="px-2 py-2 text-slate-700 dark:text-slate-300 font-bold flex items-center gap-2">
+                              <td className="px-1 py-1 text-slate-700 dark:text-slate-300 font-bold flex items-center gap-1.5 text-[11px]">
                                 {getPaymentIcon(item.key)}
                                 {item.label}
                               </td>
-                              <td className="px-2 py-2 text-right font-mono font-extrabold text-slate-800 dark:text-white">
+                              <td className="px-1 py-1 text-right font-mono font-extrabold text-slate-800 dark:text-white text-[11px]">
                                 R$ {formatNumberBRL(item.value)}
                               </td>
                             </tr>
@@ -629,9 +617,9 @@ export function Caixa() {
                         )}
                       </tbody>
                       <tfoot>
-                        <tr className="border-t border-slate-200 dark:border-slate-700 font-bold">
-                          <td className="px-2 py-2.5 text-slate-800 dark:text-white uppercase font-black">Total geral</td>
-                          <td className="px-2 py-2.5 text-right font-mono font-black text-slate-900 dark:text-white">
+                        <tr className="border-t border-slate-200 dark:border-slate-700 font-bold text-[11px]">
+                          <td className="px-1 py-2 text-slate-800 dark:text-white uppercase font-black">Total geral</td>
+                          <td className="px-1 py-2 text-right font-mono font-black text-slate-900 dark:text-white">
                             R$ {formatNumberBRL(totalReceitasPorForma.totalGeral)}
                           </td>
                         </tr>
@@ -641,26 +629,26 @@ export function Caixa() {
                 </div>
 
                 {/* RIGHT COLUMN: MOVIMENTAÇÃO */}
-                <div className="lg:col-span-8 flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 transition-all hover:shadow-md">
-                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
-                    <TrendingUp className="h-4 w-4 text-emerald-500" />
+                <div className="lg:col-span-8 flex flex-col rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 transition-all hover:shadow-md">
+                  <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-1.5">
+                    <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
                     Movimentação do Dia
                   </h3>
 
-                  <div className="flex-1 overflow-auto max-h-[290px] border border-slate-100 dark:border-slate-800/60 rounded-xl relative">
+                  <div className="flex-1 overflow-y-auto border border-slate-100 dark:border-slate-800/60 rounded-lg relative">
                     <table className="min-w-full text-xs">
                       <thead className="sticky top-0 bg-white dark:bg-slate-900 shadow-[0_1px_0_rgba(0,0,0,0.05)] dark:shadow-[0_1px_0_rgba(255,255,255,0.05)] z-10">
-                        <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                          <th className="px-3 py-2 text-left bg-white dark:bg-slate-900">Classificação</th>
-                          <th className="px-3 py-2 text-left bg-white dark:bg-slate-900">Cliente</th>
-                          <th className="px-3 py-2 text-left bg-white dark:bg-slate-900">Histórico</th>
-                          <th className="px-3 py-2 text-right bg-white dark:bg-slate-900">Saldo</th>
+                        <tr className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">
+                          <th className="px-2 py-1.5 text-left bg-white dark:bg-slate-900">Classificação</th>
+                          <th className="px-2 py-1.5 text-left bg-white dark:bg-slate-900">Cliente</th>
+                          <th className="px-2 py-1.5 text-left bg-white dark:bg-slate-900">Histórico</th>
+                          <th className="px-2 py-1.5 text-right bg-white dark:bg-slate-900">Saldo</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100/60 dark:divide-slate-800/60">
                         {movimentacoes.list.length === 0 ? (
                           <tr>
-                            <td colSpan={4} className="px-3 py-6 text-center text-slate-400 italic font-semibold">
+                            <td colSpan={4} className="px-2 py-4 text-center text-slate-400 italic font-semibold text-[11px]">
                               Nenhuma movimentação registrada.
                             </td>
                           </tr>
@@ -671,16 +659,16 @@ export function Caixa() {
                               onClick={() => handleOpenEdit(item.raw)}
                               className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 transition border-b border-slate-50 dark:border-slate-800/40 last:border-0"
                             >
-                              <td className="px-3 py-2 font-bold text-slate-800 dark:text-white truncate max-w-[150px]" title={item.classificacao}>
+                              <td className="px-2 py-1 font-bold text-slate-800 dark:text-white truncate max-w-[150px] text-[11px]" title={item.classificacao}>
                                 {item.classificacao}
                               </td>
-                              <td className="px-3 py-2 text-slate-600 dark:text-slate-400 truncate max-w-[120px]" title={item.cliente}>
+                              <td className="px-2 py-1 text-slate-600 dark:text-slate-400 truncate max-w-[120px] text-[11px]" title={item.cliente}>
                                 {item.cliente}
                               </td>
-                              <td className="px-3 py-2 text-slate-500 dark:text-slate-500 truncate max-w-[200px]" title={item.historico}>
+                              <td className="px-2 py-1 text-slate-500 dark:text-slate-500 truncate max-w-[200px] text-[11px]" title={item.historico}>
                                 {item.historico}
                               </td>
-                              <td className={`px-3 py-2 text-right font-mono font-extrabold ${item.saldo < 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                              <td className={`px-2 py-1 text-right font-mono font-extrabold text-[11px] ${item.saldo < 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
                                 {item.saldo < 0 ? '-' : '+'} R$ {formatNumberBRL(Math.abs(item.saldo))}
                               </td>
                             </tr>
@@ -688,9 +676,9 @@ export function Caixa() {
                         )}
                       </tbody>
                       <tfoot className="sticky bottom-0 bg-white dark:bg-slate-900 shadow-[0_-1px_0_rgba(0,0,0,0.1)] dark:shadow-[0_-1px_0_rgba(255,255,255,0.1)] z-10">
-                        <tr className="font-bold">
-                          <td colSpan={3} className="px-3 py-2.5 text-slate-800 dark:text-white uppercase font-black bg-white dark:bg-slate-900">Total geral</td>
-                          <td className={`px-3 py-2.5 text-right font-mono font-black bg-white dark:bg-slate-900 ${movimentacoes.totalGeral < 0 ? 'text-rose-500' : 'text-slate-900 dark:text-white'}`}>
+                        <tr className="font-bold text-[11px]">
+                          <td colSpan={3} className="px-2 py-2 text-slate-800 dark:text-white uppercase font-black bg-white dark:bg-slate-900">Total geral</td>
+                          <td className={`px-2 py-2 text-right font-mono font-black bg-white dark:bg-slate-900 ${movimentacoes.totalGeral < 0 ? 'text-rose-500' : 'text-slate-900 dark:text-white'}`}>
                             R$ {formatNumberBRL(movimentacoes.totalGeral)}
                           </td>
                         </tr>
@@ -701,14 +689,14 @@ export function Caixa() {
               </div>
 
               {/* FOOTER BALANCES */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center border-t border-slate-100 dark:border-slate-800 pt-4">
-                <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200/50 py-2.5 px-4 shrink-0 shadow-inner">
-                  <span className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                    <DollarSign className="h-4 w-4 text-emerald-500" />
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center border-t border-slate-100 dark:border-slate-800 pt-2.5 shrink-0">
+                <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/50 py-1 px-2.5 shrink-0 shadow-inner">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                    <DollarSign className="h-3.5 w-3.5 text-emerald-500" />
                     Disponível no caixa:
                   </span>
-                  <div className="bg-white dark:bg-slate-950 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-5 py-2 shadow-sm">
-                    <span className="font-mono text-lg font-black text-slate-800 dark:text-white leading-none">
+                  <div className="bg-white dark:bg-slate-950 border border-slate-200/80 dark:border-slate-700/80 rounded-lg px-3 py-1 shadow-sm">
+                    <span className="font-mono text-sm font-black text-slate-800 dark:text-white leading-none">
                       R$ {selectedConta ? formatNumberBRL(selectedConta.saldo_atual ?? selectedConta.saldo_inicial ?? 0) : '0,00'}
                     </span>
                   </div>
@@ -716,8 +704,8 @@ export function Caixa() {
               </div>
             </div>
           ) : (
-            <div className="space-y-4 animate-in fade-in duration-200">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="flex-1 min-h-0 flex flex-col space-y-4 animate-in fade-in duration-200">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center shrink-0">
                 
                 {/* SEARCH INPUT */}
                 <div className="relative max-w-md w-full">
@@ -735,7 +723,7 @@ export function Caixa() {
               </div>
 
               {groupedExtrato.sortedDates.length === 0 ? (
-                <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
+                <div className="flex-1 flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
                   <Search className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" />
                   <h3 className="mt-4 text-lg font-black text-slate-800 dark:text-white">Nenhum lançamento</h3>
                   <p className="mt-2 text-sm text-slate-500">
@@ -743,10 +731,10 @@ export function Caixa() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-6">
+                <div className="flex-1 overflow-y-auto pr-1 space-y-6">
                   {groupedExtrato.sortedDates.map((date) => (
                     <div key={date} className="space-y-2 text-[15px]">
-                      <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider pl-1">
+                      <div className="text-xs font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider pl-1">
                         {(() => {
                           const [y, m, d] = date.split('-');
                           return new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString('pt-BR', {

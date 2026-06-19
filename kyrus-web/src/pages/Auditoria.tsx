@@ -4,16 +4,13 @@ import { RefreshCw, Search, ChevronLeft, ChevronRight, Eye, EyeOff, Undo2, Redo2
 
 interface AuditLogItem {
   id: number;
-  table_name: string;
-  record_id: number;
-  action: string;
-  changes?: any;
-  user_id?: number;
+  friendly_table_name: string;
+  friendly_action: string;
+  friendly_details: string[];
   user_email?: string;
-  ip_address?: string;
-  user_agent?: string;
   created_at: string;
   undone?: boolean;
+  is_undoable: boolean;
 }
 
 const formatDateTime = (iso: string) => new Date(iso).toLocaleString('pt-BR');
@@ -188,34 +185,31 @@ export function Auditoria() {
                 <th className="py-2 text-left">Usuário</th>
                 <th className="py-2 text-left">Ação</th>
                 <th className="py-2 text-left">Tabela</th>
-                <th className="py-2 text-left">Registro</th>
                 <th className="py-2 text-left">Detalhes</th>
                 <th className="py-2 text-left">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-              {loading ? (
-                <tr><td colSpan={7} className="py-6 text-center text-slate-400">Carregando...</td></tr>
+               {loading ? (
+                <tr><td colSpan={6} className="py-6 text-center text-slate-400">Carregando...</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={7} className="py-6 text-center text-slate-400">Sem eventos encontrados.</td></tr>
+                <tr><td colSpan={6} className="py-6 text-center text-slate-400">Sem eventos encontrados.</td></tr>
               ) : (
                 items.map(item => {
-                  const isUndoable = ['CREATE', 'UPDATE', 'SOFT_DELETE', 'RESTORE'].includes(item.action);
                   const isRowLoading = actionLoading[item.id];
                   return (
                     <tr key={item.id} className={`hover:bg-slate-50 dark:hover:bg-slate-700/40 ${item.undone ? 'opacity-60 bg-rose-50/20 dark:bg-rose-950/10' : ''}`}>
                       <td className="py-3 text-slate-500 font-mono">{formatDateTime(item.created_at)}</td>
-                      <td className="py-3 text-slate-700 dark:text-slate-100">{item.user_email || item.user_id || 'Sistema (sem usuário)'}</td>
+                      <td className="py-3 text-slate-700 dark:text-slate-100">{item.user_email || 'Sistema (sem usuário)'}</td>
                       <td className="py-3 text-slate-700 dark:text-slate-100 flex items-center gap-2">
-                        {item.action}
+                        {item.friendly_action}
                         {item.undone && (
                           <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
                             Desfeito
                           </span>
                         )}
                       </td>
-                      <td className="py-3 text-slate-700 dark:text-slate-100">{item.table_name}</td>
-                      <td className="py-3 text-slate-700 dark:text-slate-100 font-mono">#{item.record_id}</td>
+                      <td className="py-3 text-slate-700 dark:text-slate-100">{item.friendly_table_name}</td>
                       <td className="py-3">
                         <button
                           onClick={() => toggleExpanded(item.id)}
@@ -225,13 +219,32 @@ export function Auditoria() {
                           {expandedIds.has(item.id) ? 'Ocultar' : 'Ver'}
                         </button>
                         {expandedIds.has(item.id) && (
-                          <pre className="mt-2 whitespace-pre-wrap text-[11px] text-slate-500 bg-slate-50 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-700">
-                            {JSON.stringify(item.changes || {}, null, 2)}
-                          </pre>
+                          <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3 max-w-lg">
+                            <div className="max-h-60 overflow-y-auto pr-1">
+                              {item.friendly_details.length === 0 ? (
+                                <span className="text-slate-400 italic text-xs">Sem detalhes</span>
+                              ) : (
+                                <ul className="space-y-1 text-xs text-slate-600 dark:text-slate-300">
+                                  {item.friendly_details.map((detail, idx) => (
+                                    <li key={idx} className="flex flex-wrap items-center gap-1">
+                                      {detail}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+
+                            <button
+                              onClick={() => toggleExpanded(item.id)}
+                              className="text-[10px] font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition uppercase tracking-wider block mt-1 pt-2 border-t border-slate-200/60 dark:border-slate-700/60"
+                            >
+                              ✕ Ocultar
+                            </button>
+                          </div>
                         )}
                       </td>
                       <td className="py-3">
-                        {isUndoable ? (
+                        {item.is_undoable ? (
                           item.undone ? (
                             <button
                               onClick={() => handleRedo(item.id)}

@@ -103,9 +103,11 @@ def apply_legacy_schema_compatibility() -> None:
     from app.models.regra_cartao import RegraCartao
     from app.models.lote_cartao import LoteCartao
     from app.models.lote_cartao_item import LoteCartaoItem
+    from app.models.user_session import UserSession
     RegraCartao.__table__.create(bind=engine, checkfirst=True)
     LoteCartao.__table__.create(bind=engine, checkfirst=True)
     LoteCartaoItem.__table__.create(bind=engine, checkfirst=True)
+    UserSession.__table__.create(bind=engine, checkfirst=True)
 
 
 

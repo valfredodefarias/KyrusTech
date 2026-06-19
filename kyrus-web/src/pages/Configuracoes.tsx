@@ -7,7 +7,8 @@ import {
   Building2, UploadCloud, Layers, Save, Loader2, 
   Palette, Check, AlertCircle, Camera, RefreshCw,
   Download, CalendarRange, Trash2, Users,
-  PanelLeftClose, PanelLeftOpen, ShoppingBag, Plus
+  PanelLeftClose, PanelLeftOpen, ShoppingBag, Plus,
+  Shield, Monitor
 } from 'lucide-react';
 import { Entidades } from './Entidades';
 
@@ -1511,14 +1512,190 @@ const ExportacaoFinanceira = () => {
   );
 };
 
+// --- SUB-COMPONENTE: SEGURANÇA E ACESSOS ---
+interface UserSessionItem {
+  id: number;
+  ip_address: string;
+  user_agent: string;
+  is_active: boolean;
+  is_current: boolean;
+  created_at: string;
+  last_activity_at: string;
+}
+
+const SegurancaSessoes = () => {
+  const [sessions, setSessions] = useState<UserSessionItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [revoking, setRevoking] = useState(false);
+
+  async function loadSessions() {
+    setLoading(true);
+    try {
+      const { data } = await api.get<UserSessionItem[]>('/auth/sessions');
+      setSessions(data || []);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadSessions();
+  }, []);
+
+  async function handleRevokeOthers() {
+    if (!window.confirm('Deseja realmente desconectar todas as outras sessões ativas?')) return;
+    
+    setRevoking(true);
+    try {
+      await api.post('/auth/sessions/revoke-others');
+      alert('Outras sessões desconectadas com sucesso!');
+      await loadSessions();
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao desconectar outras sessões.');
+    } finally {
+      setRevoking(false);
+    }
+  }
+
+  function parseUserAgent(ua: string) {
+    if (!ua) return { os: 'Desconhecido', browser: 'Desconhecido' };
+    
+    let os = 'Outro';
+    if (ua.includes('Windows NT')) os = 'Windows';
+    else if (ua.includes('Macintosh')) os = 'macOS';
+    else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS';
+    else if (ua.includes('Android')) os = 'Android';
+    else if (ua.includes('Linux')) os = 'Linux';
+
+    let browser = 'Outro';
+    if (ua.includes('Firefox')) browser = 'Firefox';
+    else if (ua.includes('Chrome') && !ua.includes('Chromium') && !ua.includes('Edg/')) browser = 'Chrome';
+    else if (ua.includes('Safari') && !ua.includes('Chrome')) browser = 'Safari';
+    else if (ua.includes('Edg/')) browser = 'Edge';
+    else if (ua.includes('Opera') || ua.includes('OPR')) browser = 'Opera';
+
+    return { os, browser };
+  }
+
+  if (loading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>;
+
+  const activeSessionsCount = sessions.filter(s => s.is_active && !s.is_current).length;
+
+  return (
+    <div className="w-full animate-in fade-in slide-in-from-bottom-4">
+      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-none p-4 sm:p-6 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-6 border-b border-slate-200 dark:border-slate-700">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+              <Shield className="w-6 h-6 text-indigo-500" /> Segurança e Acessos
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Gerencie e visualize as sessões ativas do seu usuário no Kyrus ERP. Identifique onde e quando a sua conta foi acessada.
+            </p>
+          </div>
+          {activeSessionsCount > 0 && (
+            <button
+              onClick={handleRevokeOthers}
+              disabled={revoking}
+              className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white rounded-xl shadow-md transition disabled:opacity-50 cursor-pointer shrink-0"
+            >
+              {revoking ? 'Desconectando...' : 'Desconectar outros dispositivos'}
+            </button>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
+                <tr>
+                  <th className="px-4 py-3">Dispositivo / Sistema</th>
+                  <th className="px-4 py-3">Endereço IP</th>
+                  <th className="px-4 py-3">Data de Login</th>
+                  <th className="px-4 py-3">Última Atividade</th>
+                  <th className="px-4 py-3 text-right font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700 bg-white dark:bg-slate-800">
+                {sessions.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
+                      Nenhuma sessão ativa ou recente encontrada.
+                    </td>
+                  </tr>
+                ) : (
+                  sessions.map((session) => {
+                    const { os, browser } = parseUserAgent(session.user_agent);
+                    return (
+                      <tr
+                        key={session.id}
+                        className={`hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors ${
+                          session.is_current ? 'bg-indigo-50/20 dark:bg-indigo-950/10' : ''
+                        }`}
+                      >
+                        <td className="px-4 py-4">
+                          <div className="flex items-center gap-3">
+                            <span className="p-2 rounded-xl bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400">
+                              <Monitor className="w-5 h-5" />
+                            </span>
+                            <div>
+                              <p className="font-bold text-slate-900 dark:text-white">
+                                {browser} no {os}
+                              </p>
+                              <p className="text-xs text-slate-400 truncate max-w-[280px]" title={session.user_agent}>
+                                {session.user_agent}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 font-mono text-xs text-slate-500 dark:text-slate-400">
+                          {session.ip_address}
+                        </td>
+                        <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">
+                          {new Date(session.created_at).toLocaleString('pt-BR')}
+                        </td>
+                        <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">
+                          {new Date(session.last_activity_at).toLocaleString('pt-BR')}
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          {session.is_current ? (
+                            <span className="px-2.5 py-1 text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300 rounded-full border border-indigo-200/50 dark:border-indigo-900/50">
+                              Dispositivo Atual
+                            </span>
+                          ) : session.is_active ? (
+                            <span className="px-2.5 py-1 text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300 rounded-full border border-emerald-200/50 dark:border-emerald-900/50">
+                              Conectado
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 text-[10px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-400 rounded-full border border-slate-200 dark:border-slate-700">
+                              Desconectado
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- PÁGINA PRINCIPAL ---
 export function Configuracoes() {
-  type ConfigTab = 'EMPRESA' | 'USUARIO' | 'INTERESSADOS' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO' | 'RBAC' | 'NFSTOCK' | 'PDV';
+  type ConfigTab = 'EMPRESA' | 'USUARIO' | 'SEGURANCA' | 'INTERESSADOS' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO' | 'RBAC' | 'NFSTOCK' | 'PDV';
   const [searchParams, setSearchParams] = useSearchParams();
   const [menuCollapsed, setMenuCollapsed] = useState(false);
 
   const isConfigTab = (value: string | null): value is ConfigTab => {
-    return value === 'EMPRESA' || value === 'USUARIO' || value === 'INTERESSADOS' || value === 'PLANO' || value === 'IMPORTACAO' || value === 'FINANCEIRO' || value === 'RBAC' || value === 'NFSTOCK' || value === 'PDV';
+    return value === 'EMPRESA' || value === 'USUARIO' || value === 'SEGURANCA' || value === 'INTERESSADOS' || value === 'PLANO' || value === 'IMPORTACAO' || value === 'FINANCEIRO' || value === 'RBAC' || value === 'NFSTOCK' || value === 'PDV';
   };
 
   const [activeTab, setActiveTab] = useState<ConfigTab>(() => {
@@ -1551,6 +1728,7 @@ export function Configuracoes() {
   const tabs: Array<{ key: ConfigTab; label: string; description: string; icon: any }> = [
     { key: 'EMPRESA', label: 'Minha Empresa', description: 'Identidade visual e dados da conta', icon: Building2 },
     { key: 'USUARIO', label: 'Meu Usuário', description: 'Foto e dados da conta', icon: Camera },
+    { key: 'SEGURANCA', label: 'Segurança e Acessos', description: 'Sessões ativas e histórico', icon: Shield },
     { key: 'INTERESSADOS', label: 'Interessados', description: 'Clientes, fornecedores e contatos', icon: Users },
     { key: 'PLANO', label: 'Plano de Contas', description: 'Estrutura e organização contábil', icon: Layers },
     { key: 'IMPORTACAO', label: 'Importação de Dados', description: 'Entradas em lote e conciliações', icon: UploadCloud },
@@ -1610,6 +1788,7 @@ export function Configuracoes() {
           <section className="custom-scrollbar min-h-0 overflow-y-auto pr-0">
             {activeTab === 'EMPRESA' && <DadosEmpresa />}
             {activeTab === 'USUARIO' && <DadosUsuario />}
+            {activeTab === 'SEGURANCA' && <SegurancaSessoes />}
             {activeTab === 'INTERESSADOS' && (
               <div className="animate-in fade-in slide-in-from-right-4">
                 <Entidades />

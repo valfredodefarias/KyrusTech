@@ -1,7 +1,7 @@
 # app/api/v1/endpoints/auditoria.py
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from typing import List, Optional
+from typing import List, Optional, Tuple, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select, func, col
 from sqlalchemy import or_, and_
@@ -34,6 +34,78 @@ def _utc_to_brazil(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(BRAZIL_TZ)
+
+TABLE_TRANSLATIONS = {
+    "usuarios": "Usuários",
+    "contas": "Contas Bancárias",
+    "lancamentos": "Lançamentos",
+    "integracoes_bancarias": "Integrações Bancárias",
+    "empresas": "Empresas",
+    "anexos_lancamento": "Anexos de Lançamento",
+}
+
+ACTION_TRANSLATIONS = {
+    "CREATE": "Criação",
+    "UPDATE": "Alteração",
+    "DELETE": "Exclusão",
+    "SOFT_DELETE": "Arquivamento",
+    "RESTORE": "Restauração",
+}
+
+FIELD_TRANSLATIONS = {
+    "empresa_id": "Empresa",
+    "email": "E-mail",
+    "nome": "Nome",
+    "is_active": "Status Ativo",
+    "perfil": "Perfil",
+    "saldo_inicial": "Saldo Inicial",
+    "saldo_atual": "Saldo Atual",
+    "tipo": "Tipo de Conta",
+    "descricao": "Descrição",
+    "data": "Data",
+    "valor": "Valor",
+    "categoria": "Categoria",
+    "conciliado": "Conciliado",
+    "conta_id": "Conta Bancária",
+    "observacao": "Observação",
+    "favorecido": "Favorecido",
+    "documento": "Documento",
+    "ignorado": "Ignorado",
+    "parent_id": "Lançamento Pai",
+    "ofx_transaction_id": "ID Transação OFX",
+    "importado": "Importado",
+}
+
+def _build_friendly_log_data(log: AuditLog) -> Tuple[str, str, List[str], bool]:
+    table = log.table_name or ""
+    action = log.action or ""
+    changes = log.changes or {}
+    
+    is_system_access = table == "usuarios" and action == "UPDATE" and isinstance(changes, dict) and "empresa_id" in changes
+    
+    if is_system_access:
+        return "Acesso", "-", ["Acessou o sistema"], False
+        
+    friendly_table = TABLE_TRANSLATIONS.get(table, table)
+    friendly_action = ACTION_TRANSLATIONS.get(action, action)
+    friendly_details = []
+    
+    is_undoable = action in ("CREATE", "UPDATE", "SOFT_DELETE", "RESTORE")
+    
+    if isinstance(changes, dict):
+        for key, change in changes.items():
+            field_name = FIELD_TRANSLATIONS.get(key, key)
+            if isinstance(change, dict) and ("old" in change or "new" in change):
+                old_val = change.get("old")
+                new_val = change.get("new")
+                old_str = str(old_val) if old_val is not None else "Vazio"
+                new_str = str(new_val) if new_val is not None else "Vazio"
+                friendly_details.append(f"{field_name}: de {old_str} para {new_str}")
+            else:
+                val_str = str(change) if change is not None else "Vazio"
+                friendly_details.append(f"{field_name}: {val_str}")
+                
+    return friendly_table, friendly_action, friendly_details, is_undoable
 
 @router.get("/", response_model=AuditLogList)
 def listar_auditoria(
@@ -108,19 +180,19 @@ def listar_auditoria(
         if log.id is None:
             continue
         email = row[1]
+        
+        friendly_table, friendly_action, friendly_details, is_undoable = _build_friendly_log_data(log)
+        
         items.append(
             AuditLogItem(
                 id=log.id,
-                table_name=log.table_name,
-                record_id=log.record_id,
-                action=log.action,
-                changes=log.changes,
-                user_id=log.user_id,
+                friendly_table_name=friendly_table,
+                friendly_action=friendly_action,
+                friendly_details=friendly_details,
                 user_email=email,
-                ip_address=log.ip_address,
-                user_agent=log.user_agent,
-                created_at=_utc_to_brazil(log.created_at),
                 undone=log.undone,
+                is_undoable=is_undoable,
+                created_at=_utc_to_brazil(log.created_at),
             )
         )
 

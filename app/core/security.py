@@ -16,7 +16,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 ALGORITHM = "HS256"
 
 def create_access_token(
-    subject: Union[str, Any], expires_delta: Optional[timedelta] = None # <-- E correção aqui
+    subject: Union[str, Any], expires_delta: Optional[timedelta] = None, session_id: Optional[str] = None
 ) -> str:
     """
     Cria um token de acesso JWT.
@@ -30,6 +30,8 @@ def create_access_token(
         )
     
     to_encode = {"exp": expire, "sub": str(subject)}
+    if session_id:
+        to_encode["sid"] = session_id
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 

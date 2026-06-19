@@ -191,7 +191,10 @@ api.interceptors.response.use(
         requestUrl.includes('/auth/session') ||
         requestUrl.includes('/auth/refresh');
 
-      if (!isAuthFlowRequest) {
+      if (status === 401 && (detail.includes('outro dispositivo') || detail.includes('sessão ativa em outro'))) {
+        useAuthStore.getState().setOtherDeviceConnected(true);
+        useAuthStore.getState().logout(true); // Keep the flag!
+      } else if (!isAuthFlowRequest) {
         useAuthStore.getState().logout();
       }
     }

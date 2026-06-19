@@ -16,11 +16,13 @@ interface AuthState {
   initialized: boolean;
   user: AuthUser | null;
   sessionExpiresAt: string | null;
+  otherDeviceConnected: boolean;
   setAuthenticated: (authenticated: boolean) => void;
   setInitialized: (initialized: boolean) => void;
   setUser: (user: AuthUser | null) => void;
   setSessionExpiresAt: (sessionExpiresAt: string | null) => void;
-  logout: () => void;
+  setOtherDeviceConnected: (val: boolean) => void;
+  logout: (keepOtherDeviceFlag?: boolean) => void;
   isAuthenticated: () => boolean;
 }
 
@@ -29,6 +31,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   initialized: false,
   user: null,
   sessionExpiresAt: null,
+  otherDeviceConnected: false,
 
   setAuthenticated: (authenticated) => set({ authenticated }),
 
@@ -38,8 +41,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setSessionExpiresAt: (sessionExpiresAt) => set({ sessionExpiresAt }),
 
-  logout: () => {
-    set({ authenticated: false, initialized: true, user: null, sessionExpiresAt: null });
+  setOtherDeviceConnected: (otherDeviceConnected) => set({ otherDeviceConnected }),
+
+  logout: (keepOtherDeviceFlag) => {
+    set({ 
+      authenticated: false, 
+      initialized: true, 
+      user: null, 
+      sessionExpiresAt: null,
+      otherDeviceConnected: keepOtherDeviceFlag ? get().otherDeviceConnected : false
+    });
   },
 
   isAuthenticated: () => get().authenticated,

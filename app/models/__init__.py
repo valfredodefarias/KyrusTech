@@ -30,3 +30,4 @@ from app.models.lote_cartao import LoteCartao
 from app.models.lote_cartao_item import LoteCartaoItem
 from app.models.movimento_ofx import MovimentoOFX
 from app.models.baixa import Baixa
+from app.models.user_session import UserSession

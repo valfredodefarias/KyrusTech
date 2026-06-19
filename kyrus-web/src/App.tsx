@@ -6,6 +6,7 @@ import type { JSX } from 'react';
 import { Layout } from './components/Layout';
 import { api } from './services/api';
 import { useAuthStore } from './store/authStore';
+import { TabSyncGuard } from './components/TabSyncGuard';
 
 const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
 const Home = lazy(() => import('./pages/Home').then((module) => ({ default: module.Home })));
@@ -49,6 +50,7 @@ function PrivateRoute({ children }: { children: JSX.Element }) {
 
 function App() {
   const initialized = useAuthStore((state) => state.initialized);
+  const authenticated = useAuthStore((state) => state.authenticated);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
   const setAuthenticated = useAuthStore((state) => state.setAuthenticated);
   const setInitialized = useAuthStore((state) => state.setInitialized);
@@ -97,49 +99,68 @@ function App() {
     };
   }, [setAuthenticated, setInitialized, setSessionExpiresAt, setUser]);
 
+  // Rastrear atividade da sessão em background para desconectar imediatamente se outro dispositivo logar
+  useEffect(() => {
+    if (!authenticated) {
+      return;
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        await api.get('/auth/session');
+      } catch (err) {
+        console.error('Erro de validação em background da sessão:', err);
+      }
+    }, 10000); // Executa a cada 10 segundos
+
+    return () => clearInterval(interval);
+  }, [authenticated]);
+
   return (
     <BrowserRouter>
-      <Suspense fallback={<RouteFallback />}>
-        <Routes>
-          <Route
-            path="/"
-            element={
-              initialized
-                ? <Navigate to={isAuthenticated ? "/home" : "/login"} replace />
-                : <RouteFallback />
-            }
-          />
-          <Route path="/login" element={<Login />} />
+      <TabSyncGuard>
+        <Suspense fallback={<RouteFallback />}>
+          <Routes>
+            <Route
+              path="/"
+              element={
+                initialized
+                  ? <Navigate to={isAuthenticated ? "/home" : "/login"} replace />
+                  : <RouteFallback />
+              }
+            />
+            <Route path="/login" element={<Login />} />
 
-          <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
-            <Route path="/home" element={<Home />} />
-            <Route path="/boletim" element={<Boletim />} />
-            <Route path="/dre" element={<Dre />} />
-            <Route path="/consultor" element={<Consultor />} />
-            <Route path="/lancamentos" element={<Lancamentos />} />
-            <Route path="/entidades" element={<Navigate to="/config?tab=INTERESSADOS" replace />} />
-            <Route path="/contas" element={<Contas />} />
-            <Route path="/orcamentos" element={<Orcamentos />} />
-            <Route path="/budget" element={<Budget />} />
-            <Route path="/cartoes" element={<Cartoes />} />
-            <Route path="/conciliacao-cartoes" element={<ConciliacaoCartoes />} />
-            <Route path="/pdv" element={<Pdv />} />
-            <Route path="/pdv/fechamento" element={<PdvFechamento />} />
-            <Route path="/caixa" element={<Caixa />} />
-            <Route path="/centro-custo" element={<CentroCusto />} />
-            <Route path="/config" element={<Configuracoes />} />
-            <Route path="/importacao" element={<Importacao />} />
-            <Route path="/importacao_interessados" element={<ImportacaoEntidades />} />
-            <Route path="/importacao_ofx" element={<ImportacaoOfx />} />
-            <Route path="/importacao_nfe" element={<ImportacaoNfe />} />
-            <Route path="/auditoria" element={<Auditoria />} />
-            <Route path="/integracoes" element={<Navigate to="/integracoes/asaas" replace />} />
-            <Route path="/integracoes/asaas" element={<IntegracaoAsaas />} />
-          </Route>
+            <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
+              <Route path="/home" element={<Home />} />
+              <Route path="/boletim" element={<Boletim />} />
+              <Route path="/dre" element={<Dre />} />
+              <Route path="/consultor" element={<Consultor />} />
+              <Route path="/lancamentos" element={<Lancamentos />} />
+              <Route path="/entidades" element={<Navigate to="/config?tab=INTERESSADOS" replace />} />
+              <Route path="/contas" element={<Contas />} />
+              <Route path="/orcamentos" element={<Orcamentos />} />
+              <Route path="/budget" element={<Budget />} />
+              <Route path="/cartoes" element={<Cartoes />} />
+              <Route path="/conciliacao-cartoes" element={<ConciliacaoCartoes />} />
+              <Route path="/pdv" element={<Pdv />} />
+              <Route path="/pdv/fechamento" element={<PdvFechamento />} />
+              <Route path="/caixa" element={<Caixa />} />
+              <Route path="/centro-custo" element={<CentroCusto />} />
+              <Route path="/config" element={<Configuracoes />} />
+              <Route path="/importacao" element={<Importacao />} />
+              <Route path="/importacao_interessados" element={<ImportacaoEntidades />} />
+              <Route path="/importacao_ofx" element={<ImportacaoOfx />} />
+              <Route path="/importacao_nfe" element={<ImportacaoNfe />} />
+              <Route path="/auditoria" element={<Auditoria />} />
+              <Route path="/integracoes" element={<Navigate to="/integracoes/asaas" replace />} />
+              <Route path="/integracoes/asaas" element={<IntegracaoAsaas />} />
+            </Route>
 
-          <Route path="*" element={<Navigate to="/boletim" replace />} />
-        </Routes>
-      </Suspense>
+            <Route path="*" element={<Navigate to="/boletim" replace />} />
+          </Routes>
+        </Suspense>
+      </TabSyncGuard>
     </BrowserRouter>
   );
 }

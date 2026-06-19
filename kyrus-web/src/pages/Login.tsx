@@ -17,6 +17,8 @@ export function Login() {
   const setSessionExpiresAt = useAuthStore((state) => state.setSessionExpiresAt);
   const authenticated = useAuthStore((state) => state.authenticated);
   const initialized = useAuthStore((state) => state.initialized);
+  const otherDeviceConnected = useAuthStore((state) => state.otherDeviceConnected);
+  const setOtherDeviceConnected = useAuthStore((state) => state.setOtherDeviceConnected);
   const navigate = useNavigate();
 
   type LoginSessionResponse = {
@@ -34,6 +36,7 @@ export function Login() {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setOtherDeviceConnected(false);
 
     try {
       const formData = new URLSearchParams();
@@ -72,6 +75,15 @@ export function Login() {
           </h1>
           <p className="text-slate-400 text-sm mt-2">Acesse sua conta para continuar</p>
         </div>
+
+        {otherDeviceConnected && (
+          <div className="mb-5 p-4 rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300 text-xs space-y-1.5 animate-in slide-in-from-top-2 duration-200">
+            <p className="font-bold flex items-center gap-1">
+              ⚠️ Sessão encerrada
+            </p>
+            <p>Outro dispositivo ou navegador se conectou à sua conta neste momento. Faça login novamente para reconectar.</p>
+          </div>
+        )}
 
         <form onSubmit={handleLogin} className="space-y-5">
           <div>

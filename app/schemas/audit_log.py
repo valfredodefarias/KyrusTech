@@ -7,15 +7,12 @@ from sqlmodel import SQLModel
 
 class AuditLogItem(SQLModel):
     id: int
-    table_name: str
-    record_id: int
-    action: str
-    changes: Optional[Any] = None
-    user_id: Optional[int] = None
+    friendly_table_name: str
+    friendly_action: str
+    friendly_details: List[str]
     user_email: Optional[str] = None
-    ip_address: Optional[str] = None
-    user_agent: Optional[str] = None
     undone: bool = False
+    is_undoable: bool = False
     created_at: datetime
 
 class AuditLogList(SQLModel):

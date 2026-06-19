@@ -409,7 +409,7 @@ export const LancamentoFormDrawer = ({
         entidade_id: '',
         conta_id: contaId || '',
         cartao_id: cartaoId || '',
-        status: 'PENDENTE',
+        status: isCaixaMode ? 'PAGO' : 'PENDENTE',
         valor_pago: '',
         data_pagamento: todayStr,
         ipp: false,
@@ -436,10 +436,25 @@ export const LancamentoFormDrawer = ({
   }, [showDrawer, editarId, contaId, cartaoId, prefilledData]);
 
   useEffect(() => {
-    if (!editarId && !formData.id && centros.length === 1 && !formData.centro_custo_id) {
-      setFormData((prev: any) => ({ ...prev, centro_custo_id: String(centros[0].id) }));
+    if (!editarId && !formData.id && !formData.centro_custo_id) {
+      if (centros.length === 1) {
+        setFormData((prev: any) => ({ ...prev, centro_custo_id: String(centros[0].id) }));
+      } else {
+        const activeContaId = formData.conta_id || contaId;
+        if (activeContaId) {
+          const found = contas.find((c) => Number(c.id) === Number(activeContaId));
+          if (found && found.centro_custo_id) {
+            setFormData((prev: any) => ({ ...prev, centro_custo_id: String(found.centro_custo_id) }));
+          }
+        } else if (formData.cartao_id) {
+          const found = cartoes.find((c) => Number(c.id) === Number(formData.cartao_id));
+          if (found && found.centro_custo_id) {
+            setFormData((prev: any) => ({ ...prev, centro_custo_id: String(found.centro_custo_id) }));
+          }
+        }
+      }
     }
-  }, [centros, editarId, formData.id]);
+  }, [centros, contas, cartoes, editarId, formData.id, formData.conta_id, formData.cartao_id, formData.centro_custo_id, contaId]);
 
   const closeDrawerDirect = () => {
     onClose();
@@ -663,13 +678,32 @@ export const LancamentoFormDrawer = ({
 
     setSaving(true);
     try {
-      if (!formData.id && !formData.centro_custo_id) {
+      let finalCentroCustoId = formData.centro_custo_id;
+      if (!formData.id && !finalCentroCustoId) {
+        const activeContaId = formData.conta_id || contaId;
+        if (activeContaId) {
+          const found = contas.find((c) => Number(c.id) === Number(activeContaId));
+          if (found && found.centro_custo_id) {
+            finalCentroCustoId = String(found.centro_custo_id);
+          }
+        } else if (formData.cartao_id) {
+          const found = cartoes.find((c) => Number(c.id) === Number(formData.cartao_id));
+          if (found && found.centro_custo_id) {
+            finalCentroCustoId = String(found.centro_custo_id);
+          }
+        }
+      }
+
+      if (!formData.id && !finalCentroCustoId) {
         pushToast('info', 'Selecione um centro de custo antes de salvar.');
         setSaving(false);
         return;
       }
 
-      if (formData.status === 'PAGO' && !formData.conta_id) {
+      const finalContaId = formData.conta_id || contaId;
+      const isPago = isCaixaMode || formData.status === 'PAGO';
+
+      if (isPago && !finalContaId) {
         pushToast('info', 'Selecione o banco antes de salvar um lançamento já pago/recebido.');
         setSaving(false);
         return;
@@ -680,18 +714,19 @@ export const LancamentoFormDrawer = ({
       const dataVencimento = computedCardDue || formData.data_vencimento;
       const payload = {
         ...formData,
+        status: isPago ? 'PAGO' : formData.status,
         valor_previsto: parseFloat(formData.valor_previsto),
         plano_contas_id: parseInt(formData.plano_contas_id),
-        centro_custo_id: formData.centro_custo_id ? parseInt(formData.centro_custo_id) : null,
+        centro_custo_id: finalCentroCustoId ? parseInt(finalCentroCustoId) : null,
         entidade_id: formData.entidade_id ? parseInt(formData.entidade_id) : null,
-        conta_id: formData.conta_id ? parseInt(formData.conta_id) : null,
+        conta_id: finalContaId ? parseInt(String(finalContaId)) : null,
         cartao_id: formData.cartao_id ? parseInt(formData.cartao_id) : null,
-        valor_pago: formData.status === 'PAGO' ? parseFloat(formData.valor_pago || formData.valor_previsto) : 0,
-        data_pagamento: formData.status === 'PAGO' ? formData.data_pagamento : null,
+        valor_pago: isPago ? parseFloat(formData.valor_pago || formData.valor_previsto) : 0,
+        data_pagamento: isPago ? (formData.data_pagamento || formData.data_vencimento) : null,
         data_competencia: dataCompetencia,
         data_vencimento: dataVencimento,
         competencia: formData.competencia || formatCompetencia(dataVencimento),
-        previsto: formData.previsto ?? false,
+        previsto: isCaixaMode ? false : (formData.previsto ?? false),
       };
 
       let id = formData.id;
@@ -932,8 +967,16 @@ export const LancamentoFormDrawer = ({
         { id: '', label: 'Selecione...' },
         ...entidades
           .slice()
-          .sort((a: any, b: any) => String(a?.nome || '').localeCompare(String(b?.nome || ''), 'pt-BR'))
-          .map((e: any) => ({ id: e.id, label: e.nome || e.razao_social || `Interessado ${e.id}` })),
+          .sort((a: any, b: any) => {
+            const nameA = String(a?.nome || '').replace(/&nbsp;/g, ' ').trim();
+            const nameB = String(b?.nome || '').replace(/&nbsp;/g, ' ').trim();
+            return nameA.localeCompare(nameB, 'pt-BR');
+          })
+          .map((e: any) => {
+            const rawLabel = e.nome || e.razao_social || `Interessado ${e.id}`;
+            const cleanLabel = rawLabel.replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+            return { id: e.id, label: cleanLabel };
+          }),
       ],
     },
   ], [entidades]);

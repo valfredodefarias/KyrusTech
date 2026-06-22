@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, fetchLancamentosPaged, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
@@ -8,7 +8,7 @@ import {
   Palette, Check, AlertCircle, Camera, RefreshCw,
   Download, CalendarRange, Trash2, Users,
   PanelLeftClose, PanelLeftOpen, ShoppingBag, Plus,
-  Shield, Monitor
+  Shield, Monitor, DollarSign, Percent, RotateCcw
 } from 'lucide-react';
 import { Entidades } from './Entidades';
 
@@ -1688,14 +1688,797 @@ const SegurancaSessoes = () => {
   );
 };
 
+// --- SUB-COMPONENTE: CONFIGURAÇÕES DE COMISSÕES ---
+const ConfiguracoesComissoes = () => {
+  const [loading, setLoading] = useState(false);
+  const [savingRegra, setSavingRegra] = useState(false);
+  const [savingMetas, setSavingMetas] = useState(false);
+  const [deletingRegraId, setDeletingRegraId] = useState<number | null>(null);
+
+  const currentYear = new Date().getFullYear();
+  const [ano, setAno] = useState<number>(currentYear);
+
+  // Matriz de metas dos vendedores por ano
+  interface VendedorAnoMetas {
+    vendedor_id: number;
+    nome: string;
+    email: string;
+    meses: Array<{
+      mes: number;
+      valor_meta: number;
+    }>;
+  }
+  const [metasMatrix, setMetasMatrix] = useState<VendedorAnoMetas[]>([]);
+  const originalMetasValuesRef = useRef<Map<string, number>>(new Map());
+
+  // Estado de edição da célula
+  const [editingCell, setEditingCell] = useState<{ vendedorId: number; mes: number } | null>(null);
+  const [editingValue, setEditingValue] = useState('');
+
+  // Regras vigentes e centros de custo
+  const [regras, setRegras] = useState<any[]>([]);
+  const [centros, setCentros] = useState<CentroCustoOption[]>([]);
+
+  // Formulário de Nova Regra
+  const [centroCustoId, setCentroCustoId] = useState<string>('');
+  const [taxaServico, setTaxaServico] = useState<number>(100);
+  const [diasTolerancia, setDiasTolerancia] = useState<number>(0);
+  const [redutorAtraso, setRedutorAtraso] = useState<number>(0);
+  const [diasLimite, setDiasLimite] = useState<number>(365);
+  const [faixas, setFaixas] = useState<Array<{ min_faturamento: number; taxa: number }>>([
+    { min_faturamento: 0, taxa: 0.6 },
+    { min_faturamento: 10000, taxa: 1.9 },
+    { min_faturamento: 25000, taxa: 5.0 }
+  ]);
+
+  // Modal retroativo
+  const [showRetroactiveModal, setShowRetroactiveModal] = useState(false);
+
+  useEffect(() => {
+    void loadInitialData();
+  }, []);
+
+  useEffect(() => {
+    void loadMetas(ano);
+  }, [ano]);
+
+  const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+  const formatBRL = (value: number) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  };
+
+  async function loadInitialData() {
+    setLoading(true);
+    try {
+      const [{ data: centrosData }, { data: regrasData }] = await Promise.all([
+        api.get<CentroCustoOption[]>('/centro-custo/'),
+        api.get<any[]>('/comissoes/config/regras')
+      ]);
+
+      const centrosAtivos = normalizeListResponse<CentroCustoOption>(centrosData)
+        .filter((item) => String(item.status || 'ATIVO').toUpperCase() === 'ATIVO')
+        .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+
+      setCentros(centrosAtivos);
+      setRegras(regrasData);
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao carregar configurações de comissão.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadMetas(selectedYear: number) {
+    try {
+      const { data } = await api.get<VendedorAnoMetas[]>(`/comissoes/config/metas/ano/${selectedYear}`);
+      setMetasMatrix(data);
+      
+      const map = new Map<string, number>();
+      data.forEach((v) => {
+        v.meses.forEach((m) => {
+          map.set(`${v.vendedor_id}:${m.mes}`, m.valor_meta);
+        });
+      });
+      originalMetasValuesRef.current = map;
+      setEditingCell(null);
+      setEditingValue('');
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao carregar metas dos vendedores.');
+    }
+  }
+
+  function handleAddFaixa() {
+    setFaixas([...faixas, { min_faturamento: 0, taxa: 0 }]);
+  }
+
+  function handleRemoveFaixa(index: number) {
+    setFaixas(faixas.filter((_, i) => i !== index));
+  }
+
+  function handleFaixaChange(index: number, field: 'min_faturamento' | 'taxa', value: number) {
+    const updated = [...faixas];
+    updated[index][field] = value;
+    setFaixas(updated);
+  }
+
+  function handleSaveRegraClick() {
+    if (faixas.length === 0) {
+      alert('Adicione pelo menos uma faixa de comissão para produtos.');
+      return;
+    }
+    setShowRetroactiveModal(true);
+  }
+
+  async function handleConfirmRegraSave(retroativo: boolean) {
+    setShowRetroactiveModal(false);
+    setSavingRegra(true);
+    try {
+      const faixasDec = faixas.map((f) => ({
+        min_faturamento: Number(f.min_faturamento),
+        taxa: Number(f.taxa) / 100
+      }));
+
+      const payload = {
+        centro_custo_id: centroCustoId ? Number(centroCustoId) : null,
+        taxa_servico: Number(taxaServico) / 100,
+        dias_tolerancia_atraso: Number(diasTolerancia),
+        redutor_atraso_intermediario_pct: Number(redutorAtraso) / 100,
+        dias_limite_atraso: Number(diasLimite),
+        faixas_produtos_json: JSON.stringify(faixasDec),
+        retroativo
+      };
+
+      await api.post('/comissoes/config/regras', payload);
+      alert('Regra de comissão salva com sucesso!');
+      
+      const { data: regrasData } = await api.get('/comissoes/config/regras');
+      setRegras(regrasData);
+    } catch (error: any) {
+      console.error(error);
+      alert(error?.response?.data?.detail || 'Erro ao salvar regra de comissão.');
+    } finally {
+      setSavingRegra(false);
+    }
+  }
+
+  async function handleDeleteRegra(id: number) {
+    if (!window.confirm('Tem certeza que deseja remover esta regra?')) return;
+    setDeletingRegraId(id);
+    try {
+      await api.delete(`/comissoes/config/regras/${id}`);
+      alert('Regra de comissão removida!');
+      setRegras(regras.filter((r) => r.id !== id));
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao remover regra.');
+    } finally {
+      setDeletingRegraId(null);
+    }
+  }
+
+  // Matriz goals editing functions
+  function beginCellEdit(vendedorId: number, mes: number, currentValue: number) {
+    setEditingCell({ vendedorId, mes });
+    setEditingValue(String(currentValue));
+  }
+
+  function commitEditingCell() {
+    if (!editingCell) return;
+    const nextVal = Number(editingValue);
+    const safeVal = Number.isFinite(nextVal) ? nextVal : 0;
+    
+    setMetasMatrix((prev) => 
+      prev.map((v) => {
+        if (v.vendedor_id !== editingCell.vendedorId) return v;
+        return {
+          ...v,
+          meses: v.meses.map((m) => {
+            if (m.mes !== editingCell.mes) return m;
+            return { ...m, valor_meta: safeVal };
+          })
+        };
+      })
+    );
+    setEditingCell(null);
+    setEditingValue('');
+  }
+
+  function cancelEditingCell() {
+    setEditingCell(null);
+    setEditingValue('');
+  }
+
+  const dirtyPayloads = useMemo(() => {
+    const payloads: Array<{ vendedor_id: number; mes: number; ano: number; valor_meta: number }> = [];
+    metasMatrix.forEach((v) => {
+      v.meses.forEach((m) => {
+        const key = `${v.vendedor_id}:${m.mes}`;
+        const originalVal = originalMetasValuesRef.current.get(key) ?? 0;
+        const currentVal = Number(m.valor_meta) || 0;
+        if (Math.abs(currentVal - originalVal) > 0.0001) {
+          payloads.push({
+            vendedor_id: v.vendedor_id,
+            mes: m.mes,
+            ano: ano,
+            valor_meta: currentVal
+          });
+        }
+      });
+    });
+    return payloads;
+  }, [metasMatrix, ano]);
+
+  const hasPendingChanges = dirtyPayloads.length > 0;
+
+  useEffect(() => {
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      if (!hasPendingChanges) return;
+      event.preventDefault();
+      event.returnValue = '';
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasPendingChanges]);
+
+  async function handleSaveChanges() {
+    let currentMatrix = metasMatrix;
+    if (editingCell) {
+      const nextVal = Number(editingValue);
+      const safeVal = Number.isFinite(nextVal) ? nextVal : 0;
+      currentMatrix = metasMatrix.map((v) => {
+        if (v.vendedor_id !== editingCell.vendedorId) return v;
+        return {
+          ...v,
+          meses: v.meses.map((m) => {
+            if (m.mes !== editingCell.mes) return m;
+            return { ...m, valor_meta: safeVal };
+          })
+        };
+      });
+      setMetasMatrix(currentMatrix);
+      setEditingCell(null);
+      setEditingValue('');
+    }
+
+    const payloads: Array<{ vendedor_id: number; mes: number; ano: number; valor_meta: number }> = [];
+    currentMatrix.forEach((v) => {
+      v.meses.forEach((m) => {
+        const key = `${v.vendedor_id}:${m.mes}`;
+        const originalVal = originalMetasValuesRef.current.get(key) ?? 0;
+        const currentVal = Number(m.valor_meta) || 0;
+        if (Math.abs(currentVal - originalVal) > 0.0001) {
+          payloads.push({
+            vendedor_id: v.vendedor_id,
+            mes: m.mes,
+            ano: ano,
+            valor_meta: currentVal
+          });
+        }
+      });
+    });
+
+    if (!payloads.length) return;
+
+    setSavingMetas(true);
+    try {
+      await api.post('/comissoes/config/metas/batch', payloads);
+      alert('Metas atualizadas com sucesso!');
+      await loadMetas(ano);
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao salvar as metas.');
+    } finally {
+      setSavingMetas(false);
+    }
+  }
+
+  async function handleResetChanges() {
+    await loadMetas(ano);
+  }
+
+  const getLojaMetaForMes = (mesIndex: number) => {
+    return metasMatrix.reduce((sum, v) => {
+      const m = v.meses.find((item) => item.mes === mesIndex);
+      return sum + (m ? m.valor_meta : 0);
+    }, 0);
+  };
+
+  const getVendedorTotalAno = (v: VendedorAnoMetas) => {
+    return v.meses.reduce((sum, m) => sum + m.valor_meta, 0);
+  };
+
+  const grandTotalLoja = useMemo(() => {
+    return Array.from({ length: 12 }, (_, i) => i + 1)
+      .reduce((sum, mes) => sum + getLojaMetaForMes(mes), 0);
+  }, [metasMatrix]);
+
+  const sortedFaixasWithRanges = useMemo(() => {
+    const sorted = [...faixas].sort((a, b) => a.min_faturamento - b.min_faturamento);
+    return sorted.map((f, idx) => {
+      const nextFaixa = sorted[idx + 1];
+      let rangeText = '';
+      if (nextFaixa) {
+        rangeText = `De ${formatBRL(f.min_faturamento)} até ${formatBRL(nextFaixa.min_faturamento - 0.01)}`;
+      } else {
+        rangeText = `A partir de ${formatBRL(f.min_faturamento)}`;
+      }
+      return {
+        ...f,
+        rangeText,
+        originalIndex: faixas.indexOf(f)
+      };
+    });
+  }, [faixas]);
+
+  const currentMonthName = new Date().toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
+
+  return (
+    <div className="w-full animate-in fade-in slide-in-from-bottom-4 space-y-6">
+      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-none p-4 sm:p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 dark:border-slate-700 pb-4 mb-4">
+          <div>
+            <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-blue-500" /> Metas Mensais de Vendas
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Defina a meta de faturamento de cada vendedor por mês e acompanhe o total da loja.</p>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+              <span className="font-bold">Ano</span>
+              <input
+                type="number"
+                min={2000}
+                max={2100}
+                value={ano}
+                onChange={(e) => setAno(Number(e.target.value) || currentYear)}
+                className="w-16 border-0 bg-transparent p-0 text-right text-xs font-bold outline-none focus:ring-0"
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={handleSaveChanges}
+              disabled={!hasPendingChanges || savingMetas}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Save className="h-3.5 w-3.5" />
+              Salvar Alterações
+            </button>
+
+            <button
+              type="button"
+              onClick={handleResetChanges}
+              disabled={!hasPendingChanges || savingMetas}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Recarregar
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="p-6 flex justify-center"><Loader2 className="animate-spin text-blue-500 w-6 h-6"/></div>
+        ) : (
+          <div className="space-y-4">
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+              <table className="w-full min-w-[1200px] border-separate border-spacing-0 text-sm">
+                <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500 dark:bg-slate-900/50">
+                  <tr>
+                    <th className="sticky left-0 z-20 border-b border-r border-slate-200 bg-slate-50 dark:bg-slate-900 dark:border-slate-700 px-4 py-3 text-left">
+                      Vendedor
+                    </th>
+                    {MONTH_LABELS.map((label) => (
+                      <th key={label} className="min-w-[100px] w-[100px] border-b border-r border-slate-200 dark:border-slate-700 px-2 py-3 text-right">
+                        {label}
+                      </th>
+                    ))}
+                    <th className="border-b border-slate-200 dark:border-slate-700 px-3 py-3 text-right">
+                      Total (Ano)
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700 bg-white dark:bg-slate-800">
+                  {metasMatrix.length === 0 ? (
+                    <tr>
+                      <td colSpan={14} className="px-4 py-12 text-center text-slate-400">
+                        Nenhum vendedor ou meta cadastrada para este ano.
+                      </td>
+                    </tr>
+                  ) : (
+                    metasMatrix.map((v, idx) => {
+                      const rowBg = idx % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-slate-50/50 dark:bg-slate-900/20';
+                      const totalAno = getVendedorTotalAno(v);
+
+                      return (
+                        <tr key={v.vendedor_id} className={`${rowBg} hover:bg-slate-100/50 dark:hover:bg-slate-700/20 transition-colors`}>
+                          <td className={`sticky left-0 z-10 border-r border-b border-slate-200 dark:border-slate-700 px-4 py-3 shadow-[4px_0_8px_-6px_rgba(15,23,42,0.15)] ${rowBg} font-bold text-slate-900 dark:text-white`}>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{v.nome}</p>
+                              <p className="text-[10px] text-slate-400 font-medium truncate">{v.email}</p>
+                            </div>
+                          </td>
+
+                          {v.meses.map((m) => {
+                            const isEditing = editingCell?.vendedorId === v.vendedor_id && editingCell?.mes === m.mes;
+                            const key = `${v.vendedor_id}:${m.mes}`;
+                            const originalVal = originalMetasValuesRef.current.get(key) ?? 0;
+                            const currentVal = m.valor_meta;
+                            const isDirty = Math.abs(currentVal - originalVal) > 0.0001;
+                            const cellClass = isDirty ? 'bg-blue-50/80 dark:bg-blue-950/40 text-blue-700 dark:text-blue-200 font-bold' : '';
+
+                            return (
+                              <td
+                                key={m.mes}
+                                onDoubleClick={() => beginCellEdit(v.vendedor_id, m.mes, currentVal)}
+                                className={`min-w-[100px] w-[100px] border-r border-b border-slate-200 dark:border-slate-700 px-2 py-3 text-right cursor-text ${cellClass}`}
+                                title="Clique duplo para editar"
+                              >
+                                <div className="flex items-center justify-end leading-tight min-h-[20px]">
+                                  {isEditing ? (
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      autoFocus
+                                      value={editingValue}
+                                      onChange={(e) => setEditingValue(e.target.value)}
+                                      onBlur={commitEditingCell}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          commitEditingCell();
+                                        }
+                                        if (e.key === 'Escape') {
+                                          e.preventDefault();
+                                          cancelEditingCell();
+                                        }
+                                      }}
+                                      className="w-full appearance-none bg-transparent px-0 py-0 text-right outline-none border-b-2 border-blue-500 text-slate-900 dark:text-slate-100 font-bold [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                    />
+                                  ) : (
+                                    <span className="text-sm font-bold tabular-nums text-slate-800 dark:text-slate-100">
+                                      {formatBRL(currentVal)}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          })}
+
+                          <td className="border-b border-slate-200 dark:border-slate-700 px-3 py-3 text-right font-black text-slate-900 dark:text-white tabular-nums bg-slate-50/30 dark:bg-slate-900/10">
+                            {formatBRL(totalAno)}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                  
+                  {/* Linha da Meta da Loja (Soma) */}
+                  {metasMatrix.length > 0 && (
+                    <tr className="bg-slate-100/90 dark:bg-slate-900/90 font-black text-slate-900 dark:text-white">
+                      <td className="sticky left-0 z-10 border-r border-b border-slate-200 dark:border-slate-700 px-4 py-3 bg-slate-100 dark:bg-slate-900 shadow-[4px_0_8px_-6px_rgba(15,23,42,0.15)]">
+                        <span className="text-xs uppercase tracking-wider">META DA LOJA (Soma)</span>
+                      </td>
+                      
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((mes) => {
+                        const sumVal = getLojaMetaForMes(mes);
+                        return (
+                          <td key={mes} className="border-r border-b border-slate-200 dark:border-slate-700 px-2 py-3 text-right tabular-nums">
+                            {formatBRL(sumVal)}
+                          </td>
+                        );
+                      })}
+
+                      <td className="border-b border-slate-200 dark:border-slate-700 px-3 py-3 text-right tabular-nums">
+                        {formatBRL(grandTotalLoja)}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              💡 Dica: Dê um duplo clique em qualquer valor da tabela para alterar a meta daquele mês diretamente na célula.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-none p-4 sm:p-6 shadow-sm">
+          <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2 border-b border-slate-100 dark:border-slate-700 pb-4 mb-4">
+            <Percent className="w-5 h-5 text-blue-500" /> Nova Regra de Comissão
+          </h2>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Centro de Custo</label>
+              <select
+                value={centroCustoId}
+                onChange={(e) => setCentroCustoId(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+              >
+                <option value="">PADRÃO GLOBAL (Todas as filiais)</option>
+                {centros.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nome}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Comissão de Serviços (%)</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  value={taxaServico}
+                  onChange={(e) => setTaxaServico(Number(e.target.value))}
+                  className="w-full rounded-xl border border-slate-300 bg-white pr-8 pl-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                />
+                <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">%</span>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/10 p-3.5 space-y-3">
+              <div className="flex items-center gap-1.5 text-xs font-bold uppercase text-slate-700 dark:text-slate-300">
+                <span>Penalidades de Atraso em Boleto</span>
+                <span className="text-[10px] text-amber-500 normal-case font-normal">(Apenas para Boleto e Boleto Parcelado)</span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1.5">Tolerância</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={diasTolerancia}
+                      onChange={(e) => setDiasTolerancia(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-300 bg-white pr-12 pl-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                    />
+                    <span className="absolute right-3 top-2.5 text-[10px] text-slate-400 font-bold">dias</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1.5">Redutor</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={redutorAtraso}
+                      onChange={(e) => setRedutorAtraso(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-300 bg-white pr-8 pl-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                    />
+                    <span className="absolute right-3 top-2.5 text-[10px] text-slate-400 font-bold">%</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1.5">Limite Máx.</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={diasLimite}
+                      onChange={(e) => setDiasLimite(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-300 bg-white pr-12 pl-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                    />
+                    <span className="absolute right-3 top-2.5 text-[10px] text-slate-400 font-bold">dias</span>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[10px] text-slate-400 font-medium">
+                💡 A comissão de boletos parcelados é paga conforme o cliente quita as parcelas. Atrasos além da tolerância reduzem a comissão pelo percentual do redutor, e atrasos superiores ao limite máximo zeram a comissão.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/10 p-3.5 space-y-3">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-1.5 text-xs font-bold uppercase text-slate-700 dark:text-slate-300">
+                  <span>Escalonamento de Produtos</span>
+                  <span className="text-[10px] text-blue-500 normal-case font-normal">(Comissão proporcional ao faturamento)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddFaixa}
+                  className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-500 transition cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Adicionar Faixa
+                </button>
+              </div>
+              
+              <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                {sortedFaixasWithRanges.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-4">Nenhuma faixa de comissão configurada.</p>
+                ) : (
+                  sortedFaixasWithRanges.map((item) => (
+                    <div key={item.originalIndex} className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                      <div className="min-w-0 flex-1">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
+                          {item.rangeText}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="relative w-36">
+                          <span className="absolute left-2.5 top-2 text-[10px] text-slate-400 font-bold">Mín R$</span>
+                          <input
+                            type="number"
+                            value={item.min_faturamento}
+                            onChange={(e) => handleFaixaChange(item.originalIndex, 'min_faturamento', Number(e.target.value))}
+                            className="w-full rounded-lg border border-slate-300 bg-white pl-12 pr-2 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                          />
+                        </div>
+
+                        <div className="relative w-24">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={item.taxa}
+                            onChange={(e) => handleFaixaChange(item.originalIndex, 'taxa', Number(e.target.value))}
+                            className="w-full rounded-lg border border-slate-300 bg-white pr-6 pl-2.5 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                            placeholder="Taxa"
+                          />
+                          <span className="absolute right-2 top-2 text-xs text-slate-400 font-bold">%</span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFaixa(item.originalIndex)}
+                          className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition"
+                          title="Remover Faixa"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-700 flex justify-end">
+              <button
+                onClick={handleSaveRegraClick}
+                disabled={savingRegra}
+                className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-blue-500 disabled:opacity-60 inline-flex items-center gap-2"
+              >
+                {savingRegra ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Salvar Regra de Comissão
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="lg:col-span-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-none p-4 sm:p-6 shadow-sm">
+          <h2 className="text-xl font-black text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-700 pb-4 mb-4">
+            Regras Vigentes no Banco
+          </h2>
+          
+          <div className="space-y-4 max-h-[500px] overflow-y-auto pr-1">
+            {regras.length === 0 ? (
+              <div className="text-center py-10 text-slate-400 text-sm">Nenhuma regra de comissão cadastrada.</div>
+            ) : (
+              regras.map((r) => {
+                let faixasObj = [];
+                try {
+                  faixasObj = JSON.parse(r.faixas_produtos_json);
+                } catch (e) {}
+
+                return (
+                  <div key={r.id} className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/20 space-y-3 relative group">
+                    <button
+                      disabled={deletingRegraId === r.id}
+                      onClick={() => void handleDeleteRegra(r.id)}
+                      className="absolute top-4 right-4 p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      {deletingRegraId === r.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    </button>
+
+                    <div>
+                      <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300 rounded-md">
+                        {r.centro_custo_nome}
+                      </span>
+                      <p className="text-[10px] text-slate-400 mt-1">Vigência a partir de: {new Date(r.data_inicio).toLocaleDateString('pt-BR')}</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-slate-400 block">Comissão de Serviços:</span>
+                        <span className="font-bold text-slate-700 dark:text-slate-200">{(r.taxa_servico * 100).toFixed(1)}%</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Atraso Boleto (Tolerância/Limite):</span>
+                        <span className="font-bold text-slate-700 dark:text-slate-200">{r.dias_tolerancia_atraso}d / {r.dias_limite_atraso}d</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-slate-400 block">Redutor Atraso Boleto:</span>
+                        <span className="font-bold text-slate-700 dark:text-slate-200">{(r.redutor_atraso_intermediario_pct * 100).toFixed(1)}% de desconto</span>
+                      </div>
+                    </div>
+
+                    {faixasObj.length > 0 && (
+                      <div className="border-t border-slate-200 dark:border-slate-700 pt-2">
+                        <span className="text-[10px] font-bold text-slate-400 block uppercase mb-1">Escalonamento de Produtos:</span>
+                        <div className="flex flex-wrap gap-2">
+                          {faixasObj.map((f: any, idx: number) => (
+                            <span key={idx} className="px-2 py-1 text-[10px] font-mono bg-slate-200 dark:bg-slate-800 rounded text-slate-600 dark:text-slate-300">
+                              &ge; R$ {f.min_faturamento.toLocaleString('pt-BR')} &rarr; {(f.taxa * 100).toFixed(1)}%
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+
+      {showRetroactiveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-800 border border-slate-200 dark:border-slate-700 animate-in zoom-in-95">
+            <h3 className="text-lg font-black text-slate-900 dark:text-white">Aplicar Retroativamente?</h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              Você está alterando as regras vigentes para esta filial. Deseja que esta nova configuração seja aplicada de forma retroativa para as comissões calculadas desde o início do mês atual ({currentMonthName})?
+            </p>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                onClick={() => void handleConfirmRegraSave(false)}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                Não (Apenas futuras)
+              </button>
+              <button
+                onClick={() => void handleConfirmRegraSave(true)}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-500"
+              >
+                Sim (Retroativo)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hasPendingChanges ? (
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-2xl border border-amber-200 bg-white/95 px-4 py-3 shadow-[0_20px_60px_-24px_rgba(15,23,42,0.45)] backdrop-blur animate-[pulse_2.5s_ease-in-out_infinite] dark:border-amber-500/30 dark:bg-slate-950/95 text-slate-800 dark:text-slate-100">
+          <div className="hidden sm:block">
+            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-600 dark:text-amber-300">Alterações pendentes nas metas</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Você tem {dirtyPayloads.length} meta(s) modificada(s).</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveChanges}
+            disabled={savingMetas}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Save className="h-4 w-4" />
+            {savingMetas ? 'Salvando...' : 'Salvar Alterações'}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 // --- PÁGINA PRINCIPAL ---
 export function Configuracoes() {
-  type ConfigTab = 'EMPRESA' | 'USUARIO' | 'SEGURANCA' | 'INTERESSADOS' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO' | 'RBAC' | 'NFSTOCK' | 'PDV';
+  type ConfigTab = 'EMPRESA' | 'USUARIO' | 'SEGURANCA' | 'INTERESSADOS' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO' | 'RBAC' | 'NFSTOCK' | 'PDV' | 'COMISSOES';
   const [searchParams, setSearchParams] = useSearchParams();
   const [menuCollapsed, setMenuCollapsed] = useState(false);
 
   const isConfigTab = (value: string | null): value is ConfigTab => {
-    return value === 'EMPRESA' || value === 'USUARIO' || value === 'SEGURANCA' || value === 'INTERESSADOS' || value === 'PLANO' || value === 'IMPORTACAO' || value === 'FINANCEIRO' || value === 'RBAC' || value === 'NFSTOCK' || value === 'PDV';
+    return value === 'EMPRESA' || value === 'USUARIO' || value === 'SEGURANCA' || value === 'INTERESSADOS' || value === 'PLANO' || value === 'IMPORTACAO' || value === 'FINANCEIRO' || value === 'RBAC' || value === 'NFSTOCK' || value === 'PDV' || value === 'COMISSOES';
   };
 
   const [activeTab, setActiveTab] = useState<ConfigTab>(() => {
@@ -1736,6 +2519,7 @@ export function Configuracoes() {
     { key: 'PDV', label: 'Configurações do PDV', description: 'Mapeamento e liquidação de vendas', icon: ShoppingBag },
     { key: 'NFSTOCK', label: 'NFStock', description: 'Credenciais por centro de custo', icon: UploadCloud },
     { key: 'RBAC', label: 'Perfis de Acesso', description: 'Permissões e governança', icon: Layers },
+    { key: 'COMISSOES', label: 'Comissões e Metas', description: 'Regras de comissão e metas de vendas', icon: DollarSign },
   ];
 
   const getTabClass = (tab: ConfigTab) => {
@@ -1785,7 +2569,7 @@ export function Configuracoes() {
             </div>
           </aside>
 
-          <section className="custom-scrollbar min-h-0 overflow-y-auto pr-0">
+          <section className="custom-scrollbar min-h-0 overflow-y-auto pr-0 animate-in fade-in">
             {activeTab === 'EMPRESA' && <DadosEmpresa />}
             {activeTab === 'USUARIO' && <DadosUsuario />}
             {activeTab === 'SEGURANCA' && <SegurancaSessoes />}
@@ -1804,6 +2588,7 @@ export function Configuracoes() {
             {activeTab === 'PDV' && <ConfiguracoesPDV />}
             {activeTab === 'NFSTOCK' && <IntegracaoNfstockCentroCusto />}
             {activeTab === 'RBAC' && <RbacManager />}
+            {activeTab === 'COMISSOES' && <ConfiguracoesComissoes />}
           </section>
         </div>
       </div>

@@ -49,7 +49,10 @@ def decode_access_token_expiration(access_token: str) -> datetime:
 # Funções de Senha
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica se uma senha em texto puro corresponde a um hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        return False
 
 def get_password_hash(password: str) -> str:
     """Gera o hash de uma senha em texto puro."""

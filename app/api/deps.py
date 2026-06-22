@@ -1,10 +1,12 @@
 # app/api/deps.py
-from typing import Generator
-from fastapi import Cookie, Depends, HTTPException, Request, status
+from typing import Generator, Any
+from fastapi import Cookie, Depends, HTTPException, Request, status, Header
 from jose import jwt, JWTError
 from loguru import logger
 from pydantic import ValidationError
 from sqlmodel import Session, select
+from datetime import datetime
+from app.models.idempotency_log import IdempotencyLog
 
 from app.core.config import settings
 from app.db.session import get_session
@@ -246,3 +248,55 @@ def require_any_permission(permission_codes: list[str] | tuple[str, ...]):
         raise HTTPException(status_code=403, detail="Permissao insuficiente para este recurso")
 
     return _dependency
+
+
+class IdempotencyCompletedException(Exception):
+    def __init__(self, response_body: Any):
+        self.response_body = response_body
+
+
+async def check_idempotency(
+    session: Session = Depends(get_session),
+    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
+) -> str | None:
+    if not x_idempotency_key:
+        yield None
+        return
+
+    # Buscar chave existente no banco
+    log = session.exec(select(IdempotencyLog).where(IdempotencyLog.idempotency_key == x_idempotency_key)).first()
+    if log:
+        if log.status == "processing":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Aguarde o processamento"
+            )
+        elif log.status == "completed":
+            raise IdempotencyCompletedException(log.response_body)
+        
+        # Se for failed, tentar novamente: atualiza para processing
+        log.status = "processing"
+        log.updated_at = datetime.utcnow()
+        session.add(log)
+        session.commit()
+    else:
+        # Criar novo registro de idempotência com status processing
+        log = IdempotencyLog(
+            idempotency_key=x_idempotency_key,
+            status="processing",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+        session.add(log)
+        session.commit()
+
+    try:
+        yield x_idempotency_key
+    except Exception as e:
+        # Se ocorrer uma exceção não tratada na rota, marca como failed para tentar novamente mais tarde
+        session.rollback()
+        log.status = "failed"
+        log.updated_at = datetime.utcnow()
+        session.add(log)
+        session.commit()
+        raise e

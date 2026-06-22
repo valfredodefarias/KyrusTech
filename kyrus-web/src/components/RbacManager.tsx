@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 
 import { api, toPublicAssetUrl } from '../services/api';
+import { useAuthStore } from '../store/authStore';
 
 interface PermissionItem {
   id: number;
@@ -164,6 +165,11 @@ function getUserDisplayName(user: RbacUser) {
 export function RbacManager() {
   const [canManage, setCanManage] = useState(false);
   const [checkingAccess, setCheckingAccess] = useState(true);
+  const [userPermissions, setUserPermissions] = useState<string[]>([]);
+  const [userEditEmail, setUserEditEmail] = useState('');
+  const [userEditPassword, setUserEditPassword] = useState('');
+  const [userEditIsActive, setUserEditIsActive] = useState(true);
+  const [updatingCredentials, setUpdatingCredentials] = useState(false);
   const [activeView, setActiveView] = useState<'profiles' | 'users'>('profiles');
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   const [showUserEditor, setShowUserEditor] = useState(false);
@@ -205,6 +211,55 @@ export function RbacManager() {
   const selectedUser = useMemo(() => {
     return users.find((user) => user.id === selectedUserId) || null;
   }, [users, selectedUserId]);
+
+  const loggedInRbacUser = useMemo(() => {
+    const currentUserId = useAuthStore.getState().user?.id;
+    return users.find((u) => u.id === currentUserId) || null;
+  }, [users]);
+
+  const isManager = useMemo(() => {
+    const userState = useAuthStore.getState().user;
+    if (userState?.is_consultor) return true;
+    
+    const hasPerm = userPermissions.includes('*') || userPermissions.includes('usuarios:update');
+    if (!hasPerm) return false;
+
+    if (loggedInRbacUser) {
+      const code = loggedInRbacUser.profile_code?.toUpperCase() || '';
+      const name = loggedInRbacUser.profile_name?.toLowerCase() || '';
+      return code === 'FULL_ACCESS' || code === 'GERENTE' || name.includes('gerente');
+    }
+    return false;
+  }, [loggedInRbacUser, userPermissions]);
+
+  async function handleUpdateUserCredentials() {
+    if (!selectedUser) return;
+    if (!userEditEmail.trim()) {
+      setFeedback({ type: 'warning', message: 'O e-mail não pode ficar vazio.' });
+      return;
+    }
+
+    setUpdatingCredentials(true);
+    setFeedback(null);
+    try {
+      const payload: { email: string; password?: string; is_active?: boolean } = {
+        email: userEditEmail.trim(),
+        is_active: userEditIsActive,
+      };
+      if (userEditPassword) {
+        payload.password = userEditPassword;
+      }
+
+      await api.put(`/usuarios/${selectedUser.id}`, payload);
+      await loadData();
+      setUserEditPassword('');
+      setFeedback({ type: 'success', message: 'Credenciais do usuário atualizadas com sucesso.' });
+    } catch (error: any) {
+      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao atualizar credenciais.' });
+    } finally {
+      setUpdatingCredentials(false);
+    }
+  }
 
   const filteredProfiles = useMemo(() => {
     const query = profileSearch.trim().toLowerCase();
@@ -319,6 +374,7 @@ export function RbacManager() {
         const { data } = await api.get<CurrentUserResponse>('/usuarios/me');
         const permissionList = data.permissions || [];
         if (!active) return;
+        setUserPermissions(permissionList);
         setCanManage(permissionList.includes('*') || permissionList.includes('profiles:manage'));
       } catch {
         if (active) setCanManage(false);
@@ -359,8 +415,14 @@ export function RbacManager() {
   useEffect(() => {
     if (selectedUser) {
       setSelectedUserProfileId(selectedUser.profile_id ?? '');
+      setUserEditEmail(selectedUser.email);
+      setUserEditPassword('');
+      setUserEditIsActive(selectedUser.is_active);
     } else {
       setSelectedUserProfileId('');
+      setUserEditEmail('');
+      setUserEditPassword('');
+      setUserEditIsActive(true);
     }
   }, [selectedUser]);
 
@@ -1173,6 +1235,58 @@ export function RbacManager() {
                     </div>
                   ) : null}
                 </div>
+
+                {isManager && (
+                  <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Credenciais</p>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Atualize o e-mail e a senha de acesso deste usuário.</p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="block">
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400">E-mail / Login</span>
+                        <input
+                          type="email"
+                          value={userEditEmail}
+                          onChange={(e) => setUserEditEmail(e.target.value)}
+                          className="mt-1 w-full rounded-2xl border border-slate-350 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                        />
+                      </label>
+
+                      <label className="block">
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Nova Senha (opcional)</span>
+                        <input
+                          type="password"
+                          value={userEditPassword}
+                          onChange={(e) => setUserEditPassword(e.target.value)}
+                          placeholder="Digite para alterar"
+                          className="mt-1 w-full rounded-2xl border border-slate-350 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                        />
+                      </label>
+
+                      <label className="flex items-center gap-2.5 text-sm font-bold text-slate-650 dark:text-slate-350 cursor-pointer select-none py-1">
+                        <input
+                          type="checkbox"
+                          checked={userEditIsActive}
+                          onChange={(e) => setUserEditIsActive(e.target.checked)}
+                          className="h-4.5 w-4.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                        />
+                        Usuário Ativo (Permite Login)
+                      </label>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleUpdateUserCredentials}
+                      disabled={updatingCredentials || !userEditEmail.trim()}
+                      className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60 shadow-sm"
+                    >
+                      {updatingCredentials ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      {updatingCredentials ? 'Salvando...' : 'Salvar Credenciais'}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

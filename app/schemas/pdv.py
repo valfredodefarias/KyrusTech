@@ -40,6 +40,8 @@ class PdvVendasRead(SQLModel):
     total_vendas: int
     total_valor: Decimal
     grupos: List[PdvVendaGrupoRead]
+    has_more: Optional[bool] = False
+
 
 
 # --- Novos Schemas para Produtos e Vendas Itemizadas ---
@@ -51,12 +53,27 @@ class ProdutoRead(SQLModel):
     empresa_id: int
     is_active: bool
     tipo: str
+    codigo_barras: Optional[str] = None
+    imagem_url: Optional[str] = None
+    preco_custo_medio: Optional[float] = 0.0
+    ncm: Optional[str] = None
+    cest: Optional[str] = None
+    cfop_padrao: Optional[str] = None
+    revisao_pendente: Optional[bool] = False
+    quantidade_estoque: Optional[float] = 0.0
 
 
 class ProdutoCreate(SQLModel):
     nome: str
     preco_unitario: Decimal
     tipo: str = "PRODUTO"
+    codigo_barras: Optional[str] = None
+    imagem_url: Optional[str] = None
+    preco_custo_medio: Optional[float] = 0.0
+    ncm: Optional[str] = None
+    cest: Optional[str] = None
+    cfop_padrao: Optional[str] = None
+    revisao_pendente: bool = False
 
 
 class ProdutoUpdate(SQLModel):
@@ -64,6 +81,13 @@ class ProdutoUpdate(SQLModel):
     preco_unitario: Optional[Decimal] = None
     is_active: Optional[bool] = None
     tipo: Optional[str] = None
+    codigo_barras: Optional[str] = None
+    imagem_url: Optional[str] = None
+    preco_custo_medio: Optional[float] = None
+    ncm: Optional[str] = None
+    cest: Optional[str] = None
+    cfop_padrao: Optional[str] = None
+    revisao_pendente: Optional[bool] = None
 
 
 class PdvVendaItemCreate(SQLModel):

@@ -46,6 +46,9 @@ from app.models.plano_contas_template_config import PlanoContasTemplateConfig
 from app.models.bank_preset_config import BankPresetConfig
 from app.models.movimento_ofx import MovimentoOFX
 from app.models.baixa import Baixa
+from app.models.produto import Produto
+from app.models.fornecedor_produto_equivalencia import FornecedorProdutoEquivalencia
+from app.models.movimentacao_estoque import MovimentacaoEstoque
 
 
 # --- 4. CONFIGURAÇÃO DO ALEMBIC ---

@@ -44,8 +44,32 @@ docker compose up -d
 
 ## Comandos Úteis do Docker
 - `docker compose up -d`: Inicia os serviços em segundo plano.
+- `docker compose up -d --build`: Reconstrói as imagens e inicia os serviços.
+- `docker compose up -d --build frontend`: Recompila e atualiza o container do frontend.
 - `docker compose down`: Para os serviços e remove os containers.
-- `docker compose logs -f db`: Vê os logs do banco de dados em tempo real.    
+- `docker compose logs -f [serviço]`: Acompanha os logs de um serviço em tempo real (ex: `backend`, `frontend`, `db`).
 
-consultor@kyrustech.com
-Senha: consultor123
+## 🧪 Executando Testes Automatizados
+Para rodar a suíte de testes unitários e de integração do backend:
+```bash
+# Executa todos os testes
+docker compose exec backend pytest
+
+# Executa um teste específico (ex: teste do payload minimizado)
+docker compose exec backend pytest tests/test_lancamentos_minimized.py
+```
+
+## ⚡ Otimizações de Desempenho Recentes
+Para manter o carregamento das telas instantâneo, implementamos otimizações de tráfego de dados e CPU:
+- **Boletim Financeiro**: Otimizado para realizar **uma única chamada paralela** (removendo requisições sequenciais consecutivas).
+- **Endpoint Minimizado**: Adição da flag `minimized=true` no endpoint `/lancamentos/` no backend para retornar apenas dados essenciais via `JSONResponse` direto, ignorando a serialização demorada do Pydantic (economia de **56% de banda** e redução no uso de CPU do servidor).
+- **Lookup de Entidades**: A busca de interessados passou a usar `/entidades/lookup`, reduzindo o payload inicial de entidades em **90%**.
+- Para diagnósticos completos, análises e reflexões de viabilidade sobre o uso de matrizes/Arrays tipados no frontend, consulte o documento: [OTIMIZACAO_BOLETIM.md](OTIMIZACAO_BOLETIM.md).
+
+## Usuários de Teste Padrão
+* **Administrador (SUPER_CONSULTOR):**
+  * Email: `admin@kyrustech.com`
+  * Senha: `admin123`
+* **Consultor Interno:**
+  * Email: `consultor@kyrustech.com`
+  * Senha: `consultor123`

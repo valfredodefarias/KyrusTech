@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import type { FormEvent } from 'react';
-import { AlertCircle, Calendar, Plus, Sparkles, X, Trash2, Edit3, Package, DollarSign, Percent, User, Download, Check, Ban, RotateCcw, UploadCloud } from 'lucide-react';
+import { AlertCircle, Calendar, Plus, Sparkles, X, Trash2, Edit3, Package, DollarSign, Percent, User, Download, Check, Ban, RotateCcw, UploadCloud, Search, Loader2, Info, QrCode, Camera } from 'lucide-react';
 import { api, toPublicAssetUrl, normalizeListResponse } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
 import { BrandAvatar, inferCardBrand } from '../components/BrandAvatar';
+import { usePosStore } from '../store/usePosStore';
 
 // Interfaces
 interface Produto {
@@ -14,7 +15,16 @@ interface Produto {
   empresa_id: number;
   is_active: boolean;
   tipo?: string;
+  codigo_barras?: string | null;
+  imagem_url?: string | null;
+  preco_custo_medio?: number | null;
+  ncm?: string | null;
+  cest?: string | null;
+  cfop_padrao?: string | null;
+  revisao_pendente?: boolean;
+  quantidade_estoque?: number;
 }
+
 
 interface PdvVendaItem {
   id: number;
@@ -52,6 +62,7 @@ interface PdvVendasResponse {
   total_vendas: number;
   total_valor: number;
   grupos: PdvVendaGrupo[];
+  has_more?: boolean;
 }
 
 interface VendaItemLinha {
@@ -175,11 +186,13 @@ function SearchableProductSelect({
   products,
   selectedValue,
   onChange,
+  onCreateClick,
   placeholder = 'Selecione um produto'
 }: {
   products: Produto[];
   selectedValue: string;
   onChange: (productId: string) => void;
+  onCreateClick?: () => void;
   placeholder?: string;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -215,6 +228,13 @@ function SearchableProductSelect({
         <span className={selectedProduct ? 'text-slate-900 dark:text-white font-medium w-full' : 'text-slate-400 w-full'}>
           {selectedProduct ? (
             <span className="flex items-center gap-2">
+              {selectedProduct.imagem_url && (
+                <img
+                  src={toPublicAssetUrl(selectedProduct.imagem_url) ?? undefined}
+                  alt={selectedProduct.nome}
+                  className="w-5 h-5 rounded object-cover border border-slate-200 dark:border-slate-800 shrink-0 bg-white"
+                />
+              )}
               <span className={`inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.05em] shrink-0 ${
                 selectedProduct.tipo === 'SERVICO'
                   ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'
@@ -239,6 +259,19 @@ function SearchableProductSelect({
             className="mb-2 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-700 outline-none focus:border-blue-500 dark:border-slate-800 dark:bg-slate-900 dark:text-white"
             onClick={(e) => e.stopPropagation()}
           />
+          {onCreateClick && (
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                onCreateClick();
+                setIsOpen(false);
+              }}
+              className="cursor-pointer rounded-lg px-3 py-2 text-xs transition bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold dark:bg-blue-950/40 dark:hover:bg-blue-900/60 dark:text-blue-400 mb-2 flex items-center gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              + Cadastrar Novo Item
+            </div>
+          )}
           {filtered.length === 0 ? (
             <div className="px-3 py-2 text-xs text-slate-400">Nenhum item encontrado</div>
           ) : (
@@ -258,6 +291,17 @@ function SearchableProductSelect({
               >
                 <div className="flex items-center justify-between w-full gap-2">
                   <div className="flex items-center gap-2 truncate">
+                    {prod.imagem_url ? (
+                      <img
+                        src={toPublicAssetUrl(prod.imagem_url) ?? undefined}
+                        alt={prod.nome}
+                        className="w-6 h-6 rounded object-cover border border-slate-200 dark:border-slate-800 shrink-0 bg-white"
+                      />
+                    ) : (
+                      <div className="w-6 h-6 rounded border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-center text-[7px] font-bold text-slate-400 shrink-0">
+                        N/A
+                      </div>
+                    )}
                     <span className={`inline-flex rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase shrink-0 ${
                       prod.tipo === 'SERVICO'
                         ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'
@@ -267,9 +311,20 @@ function SearchableProductSelect({
                     </span>
                     <span className="truncate">{prod.nome}</span>
                   </div>
-                  <span className="font-semibold text-slate-500 dark:text-slate-400 shrink-0">
-                    {formatCurrency(Number(prod.preco_unitario))}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {prod.tipo === 'PRODUTO' && (
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
+                        Number(prod.quantidade_estoque || 0) > 0
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300'
+                          : 'bg-rose-100 text-rose-800 dark:bg-rose-500/15 dark:text-rose-300'
+                      }`}>
+                        Estoque: {prod.quantidade_estoque ?? 0}
+                      </span>
+                    )}
+                    <span className="font-semibold text-slate-500 dark:text-slate-400 shrink-0">
+                      {formatCurrency(Number(prod.preco_unitario))}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))
@@ -279,6 +334,7 @@ function SearchableProductSelect({
     </div>
   );
 }
+
 
 // Helpers para formatação e parsing de máscara monetária
 const formatMonetario = (val: string | number) => {
@@ -295,10 +351,37 @@ const parseMonetario = (val: string | number): number => {
   return parseInt(cleanVal, 10) / 100;
 };
 
+const handleDownloadQrCode = async (product: Produto) => {
+  try {
+    const data = product.codigo_barras || `KYRUS-PROD-${product.id}`;
+    const url = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(data)}`;
+    const response = await fetch(url);
+    const blob = await response.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = `${product.nome.toLowerCase().replace(/\s+/g, '_')}_qrcode.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(blobUrl);
+  } catch (error) {
+    console.error("Erro ao baixar o QR Code:", error);
+    const data = product.codigo_barras || `KYRUS-PROD-${product.id}`;
+    window.open(`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(data)}`, '_blank');
+  }
+};
+
 // Componente Principal
 export function PDV() {
   const currentUserId = useAuthStore((state) => state.user?.id ?? null);
   const currentUserName = useAuthStore((state) => state.user?.nome ?? state.user?.email ?? '');
+
+  const pendingSales = usePosStore((state) => state.pendingSales);
+  const isOnline = usePosStore((state) => state.isOnline);
+  const addSale = usePosStore((state) => state.addSale);
+  const syncPendingSales = usePosStore((state) => state.syncPendingSales);
 
   // Tab Control: 'vendas' | 'produtos'
   const [currentTab, setCurrentTab] = useState<'vendas' | 'produtos'>('vendas');
@@ -313,6 +396,7 @@ export function PDV() {
   const [loadingProdutos, setLoadingProdutos] = useState(false);
   const [errorProdutos, setErrorProdutos] = useState<string | null>(null);
   const [filtroProdutoTipo, setFiltroProdutoTipo] = useState<'TODOS' | 'PRODUTO' | 'SERVICO'>('TODOS');
+  const [filtroRevisaoPendente, setFiltroRevisaoPendente] = useState<boolean>(false);
 
   // Produto Form State (Modal)
   const [showProdutoForm, setShowProdutoForm] = useState(false);
@@ -320,7 +404,58 @@ export function PDV() {
   const [produtoNome, setProdutoNome] = useState('');
   const [produtoPreco, setProdutoPreco] = useState('');
   const [produtoTipo, setProdutoTipo] = useState<string>('PRODUTO');
+  const [produtoRevisaoPendente, setProdutoRevisaoPendente] = useState<boolean>(false);
   const [savingProduto, setSavingProduto] = useState(false);
+
+  // Mapeamento / Mesclagem State
+  const [showVincularModal, setShowVincularModal] = useState(false);
+  const [selectedExistenteId, setSelectedExistenteId] = useState<string>('');
+  const [merging, setMerging] = useState(false);
+
+  // QR Code & Scanner State
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrModalProduct, setQrModalProduct] = useState<Produto | null>(null);
+  const [showScannerModal, setShowScannerModal] = useState(false);
+
+  const handleScanBarcode = (barcode: string) => {
+    const found = produtos.find(p => p.codigo_barras === barcode && p.is_active !== false);
+    if (!found) {
+      alert(`Código de barras "${barcode}" não encontrado no catálogo de produtos.`);
+      return;
+    }
+    
+    // Add to vendaItens or replace the first empty item
+    const emptyIndex = vendaItens.findIndex(item => !item.produtoId);
+    if (emptyIndex !== -1) {
+      const newItens = [...vendaItens];
+      newItens[emptyIndex] = {
+        produtoId: String(found.id),
+        quantidade: 1,
+        desconto: '0',
+        precoUnitario: formatMonetario(found.preco_unitario)
+      };
+      setVendaItens(newItens);
+    } else {
+      setVendaItens([...vendaItens, {
+        produtoId: String(found.id),
+        quantidade: 1,
+        desconto: '0',
+        precoUnitario: formatMonetario(found.preco_unitario)
+      }]);
+    }
+    setShowScannerModal(false);
+  };
+
+  // Novos campos para aba e catalogacao detalhada (Passo 6)
+  const [produtoCodigoBarras, setProdutoCodigoBarras] = useState('');
+  const [produtoImagemUrl, setProdutoImagemUrl] = useState('');
+  const [produtoPrecoCustoMedio, setProdutoPrecoCustoMedio] = useState('');
+  const [produtoNcm, setProdutoNcm] = useState('');
+  const [produtoCest, setProdutoCest] = useState('');
+  const [produtoCfopPadrao, setProdutoCfopPadrao] = useState('');
+  const [filtroProdutoNome, setFiltroProdutoNome] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const empresaId = useAuthStore((state) => state.user?.empresa_id ?? null);
   const [empresa, setEmpresa] = useState<any>(null);
@@ -376,6 +511,7 @@ export function PDV() {
   const [selectedVendedorId, setSelectedVendedorId] = useState<number | null>(null);
   const [vendaItens, setVendaItens] = useState<VendaItemLinha[]>([{ produtoId: '', quantidade: 1, desconto: '0' }]);
   const [vendaObservacao, setVendaObservacao] = useState('');
+  const [limit, setLimit] = useState(200);
   
   // Múltiplos Pagamentos, Status e Comprovante
   const [vendaStatus, setVendaStatus] = useState<string>('REALIZADO');
@@ -406,13 +542,27 @@ export function PDV() {
   const [filtroVendedor, setFiltroVendedor] = useState('TODOS');
 
   const activeProdutos = useMemo(() => {
-    return produtos.filter((p) => p.is_active !== false);
+    return produtos.filter((p) => p.is_active !== false && !p.revisao_pendente);
   }, [produtos]);
 
   const filteredProdutos = useMemo(() => {
-    if (filtroProdutoTipo === 'TODOS') return produtos;
-    return produtos.filter((p) => (p.tipo || 'PRODUTO') === filtroProdutoTipo);
-  }, [produtos, filtroProdutoTipo]);
+    let result = produtos;
+    if (filtroProdutoTipo !== 'TODOS') {
+      result = result.filter((p) => (p.tipo || 'PRODUTO') === filtroProdutoTipo);
+    }
+    if (filtroRevisaoPendente) {
+      result = result.filter((p) => p.revisao_pendente);
+    }
+    if (filtroProdutoNome.trim()) {
+      const q = filtroProdutoNome.toLowerCase().trim();
+      result = result.filter(
+        (p) =>
+          p.nome.toLowerCase().includes(q) ||
+          (p.codigo_barras && p.codigo_barras.toLowerCase().includes(q))
+      );
+    }
+    return result;
+  }, [produtos, filtroProdutoTipo, filtroRevisaoPendente, filtroProdutoNome]);
 
   // Flat sales list from groups
   const flatVendas = useMemo(() => {
@@ -490,11 +640,11 @@ export function PDV() {
   const [savingCliente, setSavingCliente] = useState(false);
 
   // Load Vendas
-  async function loadVendas() {
+  async function loadVendas(limitVal = limit) {
     try {
       setLoading(true);
       setError(null);
-      const response = await api.get<PdvVendasResponse>('/pdv/vendas');
+      const response = await api.get<PdvVendasResponse>(`/pdv/vendas?limit=${limitVal}`);
       if (response.data && typeof response.data === 'object' && 'error' in response.data) {
         setData(null);
         setError(String((response.data as { error?: string }).error || 'Não foi possível carregar as vendas do PDV.'));
@@ -557,12 +707,124 @@ export function PDV() {
 
   useEffect(() => {
     void loadEmpresa();
-    void loadVendas();
     void loadProdutos();
     void loadVendedores();
     void loadCentrosCusto();
     void fetchEntidadesLookup();
   }, [empresaId]);
+
+  useEffect(() => {
+    void loadVendas(limit);
+  }, [empresaId, limit]);
+
+  useEffect(() => {
+    if (isOnline) {
+      void syncPendingSales();
+    }
+  }, [isOnline]);
+
+  // Hook Global para Leitor de Código de Barras (Passo 6)
+  const barcodeBufferRef = useRef<string>('');
+  const lastCharTimeRef = useRef<number>(0);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignora teclas de modificação comuns
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+      const now = Date.now();
+      const timeDiff = now - lastCharTimeRef.current;
+      
+      if (e.key === 'Enter') {
+        const barcode = barcodeBufferRef.current.trim();
+        barcodeBufferRef.current = ''; // Limpa buffer
+        
+        if (barcode.length >= 8 && /^[0-9a-zA-Z]+$/.test(barcode)) {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // Ação ao detectar o código de barras
+          const foundProduct = produtos.find(
+            (p) => p.codigo_barras && p.codigo_barras.trim().toLowerCase() === barcode.toLowerCase()
+          );
+
+          if (foundProduct) {
+            if (showVendaForm) {
+              // Se a gaveta de venda estiver aberta, adiciona/incrementa o produto
+              setVendaItens((prevItens) => {
+                const existingIdx = prevItens.findIndex((item) => String(item.produtoId) === String(foundProduct.id));
+                if (existingIdx > -1) {
+                  const updated = [...prevItens];
+                  updated[existingIdx].quantidade += 1;
+                  return updated;
+                }
+                const last = prevItens[prevItens.length - 1];
+                if (last && !last.produtoId) {
+                  const updated = [...prevItens];
+                  updated[updated.length - 1] = {
+                    produtoId: String(foundProduct.id),
+                    quantidade: 1,
+                    desconto: '0',
+                    precoUnitario: formatMonetario(foundProduct.preco_unitario),
+                  };
+                  return updated;
+                }
+                return [
+                  ...prevItens,
+                  {
+                    produtoId: String(foundProduct.id),
+                    quantidade: 1,
+                    desconto: '0',
+                    precoUnitario: formatMonetario(foundProduct.preco_unitario),
+                  },
+                ];
+              });
+            } else {
+              // Se a gaveta de venda estiver fechada
+              if (currentTab === 'produtos') {
+                // Se estiver na aba de produtos, busca e foca
+                setFiltroProdutoNome(barcode);
+                const input = document.getElementById('produto-search-input');
+                if (input) {
+                  (input as HTMLInputElement).focus();
+                }
+              } else {
+                // Se estiver em outra aba (vendas), abre a gaveta e adiciona o produto
+                setShowVendaForm(true);
+                setVendaItens([
+                  {
+                    produtoId: String(foundProduct.id),
+                    quantidade: 1,
+                    desconto: '0',
+                    precoUnitario: formatMonetario(foundProduct.preco_unitario),
+                  },
+                ]);
+              }
+            }
+          } else {
+            alert(`Produto com código de barras "${barcode}" não cadastrado.`);
+          }
+          return;
+        }
+      }
+
+      // Se o tempo desde o último caractere for superior a 50ms, assume-se que é digitação manual
+      if (timeDiff > 50) {
+        barcodeBufferRef.current = '';
+      }
+
+      // Acumula apenas caracteres alfanuméricos
+      if (e.key.length === 1 && /^[0-9a-zA-Z]$/.test(e.key)) {
+        barcodeBufferRef.current += e.key;
+        lastCharTimeRef.current = now;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [produtos, showVendaForm, currentTab]);
 
   // Formatters
   const currency = useMemo(() => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }), []);
@@ -579,7 +841,7 @@ export function PDV() {
       if (!item.produtoId) return;
       const prod = produtos.find((p) => String(p.id) === String(item.produtoId));
       if (prod) {
-        const precoUsado = (prod.tipo === 'SERVICO' && item.precoUnitario)
+        const precoUsado = item.precoUnitario
           ? parseMonetario(item.precoUnitario)
           : Number(prod.preco_unitario);
         subtotal += precoUsado * item.quantidade;
@@ -612,6 +874,13 @@ export function PDV() {
         nome: produtoNome.trim(),
         preco_unitario: parseMonetario(produtoPreco),
         tipo: produtoTipo,
+        codigo_barras: produtoCodigoBarras.trim() || null,
+        imagem_url: produtoImagemUrl.trim() || null,
+        preco_custo_medio: produtoPrecoCustoMedio ? parseMonetario(produtoPrecoCustoMedio) : 0.0,
+        ncm: produtoNcm.trim() || null,
+        cest: produtoCest.trim() || null,
+        cfop_padrao: produtoCfopPadrao.trim() || null,
+        revisao_pendente: false,
       };
 
       if (editingProduto) {
@@ -624,6 +893,13 @@ export function PDV() {
       setProdutoNome('');
       setProdutoPreco('');
       setProdutoTipo('PRODUTO');
+      setProdutoCodigoBarras('');
+      setProdutoImagemUrl('');
+      setProdutoPrecoCustoMedio('');
+      setProdutoNcm('');
+      setProdutoCest('');
+      setProdutoCfopPadrao('');
+      setProdutoRevisaoPendente(false);
       setEditingProduto(null);
       await loadProdutos();
     } catch (err: any) {
@@ -641,6 +917,25 @@ export function PDV() {
       await loadProdutos();
     } catch (err: any) {
       alert(err?.response?.data?.detail || 'Erro ao remover produto.');
+    }
+  }
+
+  // Mesclar/Vincular Produto
+  async function handleMesclarProdutos() {
+    if (!editingProduto || !selectedExistenteId) return;
+    try {
+      setMerging(true);
+      await api.post(`/pdv/produtos/${editingProduto.id}/mesclar/${selectedExistenteId}`);
+      setShowVincularModal(false);
+      setShowProdutoForm(false);
+      setEditingProduto(null);
+      setSelectedExistenteId('');
+      alert('Produtos mesclados com sucesso!');
+      await loadProdutos();
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Erro ao mesclar produtos.');
+    } finally {
+      setMerging(false);
     }
   }
 
@@ -875,6 +1170,91 @@ export function PDV() {
       setSavingVenda(true);
       setErrorVenda(null);
 
+      // Se NÃO for edição, salvamos Offline-First na fila local!
+      if (!isEditingSale) {
+        const selectedCliente = entidadesLookup.find((c) => String(c.id) === String(selectedEntidadeId));
+        const selectedVendedor = vendedores.find((v) => String(v.id) === String(selectedVendedorId));
+        const selectedCentro = centrosCusto.find((cc) => String(cc.id) === String(selectedCentroCustoId));
+
+        const itemNomesList = validItens.map((i) => {
+          const prod = produtos.find((p) => String(p.id) === String(i.produtoId));
+          return `${prod?.nome || 'Item'} x${i.quantidade}`;
+        }).join(', ');
+
+        const comprovanteFilesBase64: { name: string; type: string; data: string }[] = [];
+        for (const file of comprovanteFiles) {
+          const base64Data = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => {
+              const resStr = reader.result as string;
+              resolve(resStr.split(',')[1]);
+            };
+            reader.onerror = reject;
+          });
+          comprovanteFilesBase64.push({
+            name: file.name,
+            type: file.type,
+            data: base64Data,
+          });
+        }
+
+        const salePayload = {
+          entidade_id: selectedEntidadeId,
+          centro_custo_id: selectedCentroCustoId,
+          vendedor_id: selectedVendedorId,
+          desconto: vendaValores.totalDesconto,
+          status: vendaStatus,
+          itens: validItens.map((i) => {
+            const prod = produtos.find((p) => String(p.id) === String(i.produtoId));
+            const isService = prod?.tipo === 'SERVICO';
+            return {
+              produto_id: parseInt(i.produtoId),
+              quantidade: i.quantidade,
+              desconto: parseMonetario(i.desconto),
+              preco_unitario: isService && i.precoUnitario ? parseMonetario(i.precoUnitario) : null,
+            };
+          }),
+          pagamentos: vendaPagamentos.map((p) => ({
+            tipo_pagamento: p.tipoPagamento,
+            valor: parseMonetario(p.valor),
+            numero_parcelas: p.numeroParcelas,
+            valor_parcela: isMethodParcelado(p.tipoPagamento)
+              ? parseMonetario(p.valorParcela)
+              : null,
+            data_pagamento: p.dataPagamento || null,
+            bandeira: p.bandeira || 'OUTROS'
+          })),
+          rv: vendaRv.trim() || null,
+          data_pagamento: vendaDataPagamento || null,
+          observacao: vendaObservacao.trim() || null,
+          comprovante_urls: existingComprovantes,
+          comprovanteFiles: comprovanteFilesBase64,
+
+          clienteNome: selectedCliente?.nome || 'Consumidor Final',
+          vendedorNome: selectedVendedor?.nome || currentUserName || 'Vendedor',
+          centroCustoNome: selectedCentro?.nome || 'Geral',
+          itensNomes: itemNomesList
+        };
+
+        addSale(salePayload);
+
+        setShowVendaForm(false);
+        setComprovanteFiles([]);
+        setExistingComprovantes([]);
+        setIsEditingSale(false);
+        setEditingSaleUuid(null);
+
+        // Se online, aguarda brevemente a sincronização inicial e recarrega
+        if (isOnline) {
+          setTimeout(() => {
+            void loadVendas();
+          }, 800);
+        }
+        return;
+      }
+
+      // Fluxo padrão para edição
       const body = {
         entidade_id: selectedEntidadeId,
         centro_custo_id: selectedCentroCustoId,
@@ -907,17 +1287,9 @@ export function PDV() {
         comprovante_urls: existingComprovantes
       };
 
-      let response;
-      if (isEditingSale && editingSaleUuid) {
-        response = await api.put(`/pdv/vendas/${editingSaleUuid}`, body);
-      } else {
-        response = await api.post('/pdv/vendas', body);
-      }
-      
-      const createdSale = response.data;
-      const targetUuid = isEditingSale ? editingSaleUuid : createdSale?.venda_id_uuid;
+      await api.put(`/pdv/vendas/${editingSaleUuid}`, body);
+      const targetUuid = editingSaleUuid;
 
-      // Upload comprovantes se selecionados (multi-upload usando chave 'files')
       if (comprovanteFiles.length > 0 && targetUuid) {
         const formDataUpload = new FormData();
         comprovanteFiles.forEach((file) => {
@@ -999,6 +1371,13 @@ export function PDV() {
                     setProdutoNome('');
                     setProdutoPreco('');
                     setProdutoTipo('PRODUTO');
+                    setProdutoCodigoBarras('');
+                    setProdutoImagemUrl('');
+                    setProdutoPrecoCustoMedio('');
+                    setProdutoNcm('');
+                    setProdutoCest('');
+                    setProdutoCfopPadrao('');
+                    setProdutoRevisaoPendente(false);
                     setShowProdutoForm(true);
                   }}
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-500 cursor-pointer"
@@ -1040,6 +1419,59 @@ export function PDV() {
         {/* Conteúdo Aba Vendas */}
         {currentTab === 'vendas' && (
           <>
+            {/* Visual Queue for Pending Sales */}
+            {pendingSales.length > 0 && (
+              <div className="rounded-3xl border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20 backdrop-blur-sm shadow-sm space-y-3 mb-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <UploadCloud className="h-5 w-5 text-amber-600 dark:text-amber-400 animate-pulse" />
+                    <h3 className="font-bold text-sm text-amber-900 dark:text-amber-200">
+                      Vendas em fila de sincronização ({pendingSales.length})
+                    </h3>
+                  </div>
+                  {!isOnline && (
+                    <span className="text-[10px] bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Offline
+                    </span>
+                  )}
+                  {isOnline && (
+                    <span className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-450 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Online - Sincronizando
+                    </span>
+                  )}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+                  {pendingSales.map((sale) => (
+                    <div key={sale.idempotency_key} className="bg-white/70 dark:bg-slate-900/60 rounded-2xl p-3 border border-amber-100 dark:border-amber-950/50 flex flex-col justify-between gap-3 shadow-sm transition hover:scale-[1.01]">
+                      <div>
+                        <div className="flex justify-between items-start gap-2">
+                          <span className="font-bold text-xs text-slate-800 dark:text-white truncate">
+                            {sale.clienteNome || 'Consumidor Final'}
+                          </span>
+                          <span className="text-xs font-black text-slate-900 dark:text-white shrink-0">
+                            {currency.format(sale.pagamentos.reduce((acc, p) => acc + p.valor, 0))}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
+                          {sale.itensNomes}
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between text-[9px] text-slate-400 dark:text-slate-500 pt-1 border-t border-slate-100 dark:border-slate-800">
+                        <span>
+                          {sale.dataHoraLocal 
+                            ? new Date(sale.dataHoraLocal).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) 
+                            : '--:--'}
+                        </span>
+                        <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
+                          <RotateCcw className="w-2.5 h-2.5 animate-spin" />
+                          Salvando
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {loading ? (
               <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500 shadow-sm dark:border-slate-700 dark:bg-slate-900">Carregando vendas do PDV...</div>
             ) : error ? (
@@ -1238,6 +1670,17 @@ export function PDV() {
                     </div>
                   </section>
                 )))}
+                {data?.has_more && (
+                  <div className="flex justify-center mt-6">
+                    <button
+                      type="button"
+                      onClick={() => setLimit((prev) => prev + 150)}
+                      className="px-6 py-2.5 rounded-xl border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:bg-slate-900 transition font-bold text-sm cursor-pointer shadow-sm"
+                    >
+                      Carregar Mais Vendas
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -1267,41 +1710,66 @@ export function PDV() {
               </div>
             ) : produtos.length > 0 ? (
               <>
-                {/* Filtros por tipo de item */}
-                <div className="flex gap-2 mb-4 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                  <button
-                    type="button"
-                    onClick={() => setFiltroProdutoTipo('TODOS')}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-                      filtroProdutoTipo === 'TODOS'
-                        ? 'bg-blue-600 text-white shadow-md'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-750 dark:text-slate-300'
-                    }`}
-                  >
-                    Todos ({produtos.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFiltroProdutoTipo('PRODUTO')}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-                      filtroProdutoTipo === 'PRODUTO'
-                        ? 'bg-blue-600 text-white shadow-md'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-750 dark:text-slate-300'
-                    }`}
-                  >
-                    Produtos ({produtos.filter(p => (p.tipo || 'PRODUTO') === 'PRODUTO').length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFiltroProdutoTipo('SERVICO')}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-                      filtroProdutoTipo === 'SERVICO'
-                        ? 'bg-purple-600 text-white shadow-md'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-750 dark:text-slate-300'
-                    }`}
-                  >
-                    Serviços ({produtos.filter(p => p.tipo === 'SERVICO').length})
-                  </button>
+                {/* Filtros e Busca */}
+                <div className="flex flex-col md:flex-row gap-4 mb-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm justify-between items-stretch md:items-center">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFiltroProdutoTipo('TODOS')}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        filtroProdutoTipo === 'TODOS'
+                          ? 'bg-blue-600 text-white shadow-md'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-750 dark:text-slate-300'
+                      }`}
+                    >
+                      Todos ({produtos.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroProdutoTipo('PRODUTO')}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        filtroProdutoTipo === 'PRODUTO'
+                          ? 'bg-blue-600 text-white shadow-md'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-750 dark:text-slate-300'
+                      }`}
+                    >
+                      Produtos ({produtos.filter(p => (p.tipo || 'PRODUTO') === 'PRODUTO').length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroProdutoTipo('SERVICO')}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        filtroProdutoTipo === 'SERVICO'
+                          ? 'bg-purple-600 text-white shadow-md'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-750 dark:text-slate-300'
+                      }`}
+                    >
+                      Serviços ({produtos.filter(p => p.tipo === 'SERVICO').length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroRevisaoPendente(!filtroRevisaoPendente)}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                        filtroRevisaoPendente
+                          ? 'bg-amber-500 text-white shadow-md'
+                          : 'bg-amber-50/50 hover:bg-amber-100/60 text-amber-700 dark:bg-amber-950/20 dark:hover:bg-amber-900/30 dark:text-amber-400'
+                      }`}
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                      Pendentes de Revisão ({produtos.filter(p => p.revisao_pendente).length})
+                    </button>
+                  </div>
+                  <div className="relative w-full md:w-80">
+                    <input
+                      id="produto-search-input"
+                      type="text"
+                      value={filtroProdutoNome}
+                      onChange={(e) => setFiltroProdutoNome(e.target.value)}
+                      placeholder="Pesquisar por nome ou código..."
+                      className="w-full rounded-xl border border-slate-350 bg-white pl-9 pr-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                    />
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  </div>
                 </div>
 
                 {filteredProdutos.length === 0 ? (
@@ -1327,7 +1795,25 @@ export function PDV() {
                           {filteredProdutos.map((prod) => (
                             <tr key={prod.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                               <td className="px-5 py-4 align-middle text-sm font-semibold text-slate-900 dark:text-white">
-                                {prod.nome}
+                                <div className="flex items-center gap-3">
+                                  {prod.imagem_url ? (
+                                    <img
+                                      src={toPublicAssetUrl(prod.imagem_url) ?? undefined}
+                                      alt={prod.nome}
+                                      className="w-10 h-10 rounded-lg object-cover border border-slate-250 dark:border-slate-800 shrink-0 bg-white shadow-sm"
+                                    />
+                                  ) : (
+                                    <div className="w-10 h-10 rounded-lg border border-dashed border-slate-250 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-center text-[9px] font-bold text-slate-400 dark:text-slate-550 shrink-0 shadow-inner">
+                                      N/A
+                                    </div>
+                                  )}
+                                  <div className="min-w-0">
+                                    <span className="block truncate font-bold text-slate-900 dark:text-white">{prod.nome}</span>
+                                    {prod.codigo_barras && (
+                                      <span className="block font-mono text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{prod.codigo_barras}</span>
+                                    )}
+                                  </div>
+                                </div>
                               </td>
                               <td className="px-5 py-4 align-middle text-center">
                                 <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
@@ -1346,10 +1832,28 @@ export function PDV() {
                                   <button
                                     type="button"
                                     onClick={() => {
+                                      setQrModalProduct(prod);
+                                      setShowQrModal(true);
+                                    }}
+                                    className="text-slate-500 hover:text-blue-500 dark:text-slate-400 dark:hover:text-blue-400 cursor-pointer"
+                                    title="Visualizar QR Code"
+                                  >
+                                    <QrCode className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
                                       setEditingProduto(prod);
                                       setProdutoNome(prod.nome);
                                       setProdutoPreco(formatMonetario(prod.preco_unitario));
                                       setProdutoTipo(prod.tipo || 'PRODUTO');
+                                      setProdutoCodigoBarras(prod.codigo_barras || '');
+                                      setProdutoImagemUrl(prod.imagem_url || '');
+                                      setProdutoPrecoCustoMedio(prod.preco_custo_medio ? formatMonetario(prod.preco_custo_medio) : '');
+                                      setProdutoNcm(prod.ncm || '');
+                                      setProdutoCest(prod.cest || '');
+                                      setProdutoCfopPadrao(prod.cfop_padrao || '');
+                                      setProdutoRevisaoPendente(prod.revisao_pendente || false);
                                       setShowProdutoForm(true);
                                     }}
                                     className="text-slate-500 hover:text-blue-500 dark:text-slate-400 dark:hover:text-blue-400 cursor-pointer"
@@ -1390,92 +1894,293 @@ export function PDV() {
       {/* Modal de Produto */}
       {showProdutoForm && (
         <>
-          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowProdutoForm(false)} />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-              <div className="flex justify-between items-center mb-6">
+          <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowProdutoForm(false)} />
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <div className="w-full max-w-md max-h-[85vh] flex flex-col rounded-2xl bg-white shadow-xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+              <div className="flex justify-between items-center p-6 pb-4 border-b border-slate-150 dark:border-slate-800/80 shrink-0">
                 <h3 className="text-lg font-black text-slate-900 dark:text-white">
                   {editingProduto ? (produtoTipo === 'SERVICO' ? 'Editar Serviço' : 'Editar Produto') : (produtoTipo === 'SERVICO' ? 'Novo Serviço' : 'Novo Produto')}
                 </h3>
-                <button onClick={() => setShowProdutoForm(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white">
+                <button onClick={() => setShowProdutoForm(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleProdutoSubmit} className="space-y-4">
-                <div>
-                  <label className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Tipo de Item</label>
-                  <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-950 p-1.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setProdutoTipo('PRODUTO')}
-                      className={`py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
-                        produtoTipo === 'PRODUTO'
-                          ? 'bg-blue-600 text-white shadow-sm'
-                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'
-                      }`}
-                    >
-                      Produto
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setProdutoTipo('SERVICO')}
-                      className={`py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
-                        produtoTipo === 'SERVICO'
-                          ? 'bg-purple-600 text-white shadow-sm'
-                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'
-                      }`}
-                    >
-                      Serviço
-                    </button>
+              <form onSubmit={handleProdutoSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+                {/* Seção: Informações Básicas */}
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5" />
+                    Informações Básicas
+                  </h4>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-500 dark:text-slate-350">Tipo de Item</label>
+                    <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-950 p-1.5 rounded-xl border border-slate-250 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setProdutoTipo('PRODUTO')}
+                        className={`py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
+                          produtoTipo === 'PRODUTO'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'
+                        }`}
+                      >
+                        Produto
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProdutoTipo('SERVICO')}
+                        className={`py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
+                          produtoTipo === 'SERVICO'
+                            ? 'bg-purple-600 text-white shadow-sm'
+                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'
+                        }`}
+                      >
+                        Serviço
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-500 dark:text-slate-350">Nome do {produtoTipo === 'SERVICO' ? 'Serviço' : 'Produto'}</label>
+                    <input
+                      type="text"
+                      required
+                      value={produtoNome}
+                      onChange={(e) => setProdutoNome(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      placeholder={produtoTipo === 'SERVICO' ? 'Ex: Corte de Cabelo' : 'Ex: Coca-cola 350ml'}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-500 dark:text-slate-350">Valor Individual (R$)</label>
+                    <input
+                      type="text"
+                      required
+                      value={produtoPreco}
+                      onChange={(e) => setProdutoPreco(formatMonetario(e.target.value))}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      placeholder="0,00"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-500 dark:text-slate-350">Imagem (opcional)</label>
+                    <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-950/20 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                      {produtoImagemUrl ? (
+                        <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-slate-250 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-900 flex items-center justify-center shadow-sm">
+                          <img src={toPublicAssetUrl(produtoImagemUrl) ?? undefined} alt="Preview do Produto" className="w-full h-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => setProdutoImagemUrl('')}
+                            className="absolute top-0.5 right-0.5 p-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded-full transition shadow cursor-pointer"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={uploadingImage}
+                          className="w-16 h-16 border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-lg flex flex-col items-center justify-center text-slate-400 dark:border-slate-800 dark:text-slate-500 transition hover:bg-slate-100 dark:hover:bg-slate-900/40 shrink-0 cursor-pointer"
+                        >
+                          {uploadingImage ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                          ) : (
+                            <>
+                              <Plus className="w-4 h-4 mb-0.5" />
+                              <span className="text-[8px] font-bold uppercase tracking-wider">Imagem</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          try {
+                            setUploadingImage(true);
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            const res = await api.post<{ url: string }>('/anexos/upload', formData, {
+                              headers: { 'Content-Type': 'multipart/form-data' },
+                            });
+                            setProdutoImagemUrl(res.data.url);
+                          } catch (err: any) {
+                            alert(err?.response?.data?.detail || 'Erro ao enviar imagem.');
+                          } finally {
+                            setUploadingImage(false);
+                          }
+                        }}
+                        className="hidden"
+                      />
+                      <div className="text-[10px] text-slate-400 leading-normal">
+                        Formatos aceitos: JPG, PNG, WEBP ou GIF. Limite máximo: 2MB.
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-200">Nome do {produtoTipo === 'SERVICO' ? 'Serviço' : 'Produto'}</label>
-                  <input
-                    type="text"
-                    required
-                    value={produtoNome}
-                    onChange={(e) => setProdutoNome(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                    placeholder={produtoTipo === 'SERVICO' ? 'Ex: Corte de Cabelo' : 'Ex: Coca-cola 350ml'}
-                  />
+                <div className="border-b border-slate-150 dark:border-slate-800/80" />
+
+                {/* Seção: Códigos de Identificação */}
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+                    <QrCode className="w-3.5 h-3.5" />
+                    Identificação e Código de Barras
+                  </h4>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-500 dark:text-slate-350">Código de Barras / EAN</label>
+                    <input
+                      type="text"
+                      value={produtoCodigoBarras}
+                      onChange={(e) => setProdutoCodigoBarras(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white font-mono"
+                      placeholder="Ex: 7891234567890"
+                    />
+                    <p className="mt-1.5 text-[10px] text-slate-400 leading-normal">
+                      Código de fábrica para leitura óptica automática.
+                    </p>
+
+                    {/* QR Code preview if code exists */}
+                    {produtoCodigoBarras && (
+                      <div className="mt-3 bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent(produtoCodigoBarras)}`}
+                          alt="Preview QR Code"
+                          className="w-12 h-12 object-contain"
+                        />
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Código de Barras Ativo</span>
+                          <span className="font-mono text-xs text-slate-800 dark:text-slate-200 font-bold">{produtoCodigoBarras}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-200">Valor Individual (R$)</label>
-                  <input
-                    type="text"
-                    required
-                    value={produtoPreco}
-                    onChange={(e) => setProdutoPreco(formatMonetario(e.target.value))}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                    placeholder="0,00"
-                  />
+                <div className="border-b border-slate-150 dark:border-slate-800/80" />
+
+                {/* Seção: Parâmetros Fiscais */}
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+                    <Percent className="w-3.5 h-3.5" />
+                    Parâmetros Fiscais
+                  </h4>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-500 dark:text-slate-350">NCM (Nomenclatura Comum do Mercosul)</label>
+                    <input
+                      type="text"
+                      value={produtoNcm}
+                      onChange={(e) => setProdutoNcm(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      placeholder="Ex: 2202.10.00"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-500 dark:text-slate-350">CEST (Cód. Especificador da Subst. Tributária)</label>
+                    <input
+                      type="text"
+                      value={produtoCest}
+                      onChange={(e) => setProdutoCest(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      placeholder="Ex: 03.010.00"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-500 dark:text-slate-350">CFOP Padrão de Venda</label>
+                    <input
+                      type="text"
+                      value={produtoCfopPadrao}
+                      onChange={(e) => setProdutoCfopPadrao(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      placeholder="Ex: 5102"
+                    />
+                  </div>
                 </div>
 
-                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setShowProdutoForm(false)}
-                    className="px-4 py-2 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850 transition"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={savingProduto}
-                    className="px-5 py-2 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 transition disabled:opacity-50"
-                  >
-                    {savingProduto ? 'Salvando...' : 'Salvar'}
-                  </button>
+                <div className="border-b border-slate-150 dark:border-slate-800/80" />
+
+                {/* Seção: Custos e Margens */}
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+                    <DollarSign className="w-3.5 h-3.5" />
+                    Custos e Estoque
+                  </h4>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-500 dark:text-slate-350">Preço de Custo Médio (R$)</label>
+                    <input
+                      type="text"
+                      value={produtoPrecoCustoMedio}
+                      onChange={(e) => setProdutoPrecoCustoMedio(formatMonetario(e.target.value))}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      placeholder="0,00"
+                    />
+                    <p className="mt-2 text-[10px] text-blue-700 dark:text-blue-300 bg-blue-50/50 dark:bg-blue-950/20 p-2.5 rounded-xl border border-blue-100 dark:border-blue-900/30 leading-normal flex items-start gap-1.5">
+                      <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      <span>Atualizado automaticamente ao importar XML de NF-e de compra.</span>
+                    </p>
+                  </div>
+
+                  {editingProduto && editingProduto.tipo === 'PRODUTO' && (
+                    <div>
+                      <label className="mb-1.5 block text-xs font-bold text-slate-500 dark:text-slate-350">Saldo Atual em Estoque</label>
+                      <div className="w-full rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50 px-3 py-2.5 text-sm text-slate-700 dark:text-slate-300 font-bold flex items-center gap-2">
+                        <Package className="w-4 h-4 text-blue-500" />
+                        {editingProduto.quantidade_estoque ?? 0} unidades
+                      </div>
+                    </div>
+                  )}
                 </div>
               </form>
+
+              <div className="flex justify-end gap-3 p-6 pt-4 border-t border-slate-150 dark:border-slate-800/80 shrink-0">
+                {produtoRevisaoPendente && (
+                  <button
+                    type="button"
+                    onClick={() => setShowVincularModal(true)}
+                    className="mr-auto px-4 py-2 rounded-xl text-sm font-bold text-amber-650 border border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-900/50 dark:hover:bg-amber-950/20 transition cursor-pointer"
+                  >
+                    Vincular a Existente (De/Para)
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowProdutoForm(false)}
+                  className="px-4 py-2 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingProduto || uploadingImage}
+                  onClick={() => {
+                    const form = document.querySelector('form') as HTMLFormElement;
+                    if (form) {
+                      form.requestSubmit();
+                    }
+                  }}
+                  className="px-5 py-2 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 transition disabled:opacity-50 cursor-pointer"
+                >
+                  {savingProduto ? 'Salvando...' : (produtoRevisaoPendente ? 'Salvar e Tirar da Revisão' : 'Salvar')}
+                </button>
+              </div>
             </div>
           </div>
         </>
       )}
+
 
       {/* Drawer da Nova Venda (PDV Completo) */}
       {showVendaForm && (
@@ -1647,7 +2352,7 @@ export function PDV() {
                     {vendaItens.map((item, index) => {
                       const prod = produtos.find((p) => String(p.id) === String(item.produtoId));
                       const isService = prod?.tipo === 'SERVICO';
-                      const precoUsado = (isService && item.precoUnitario)
+                      const precoUsado = item.precoUnitario
                         ? parseMonetario(item.precoUnitario)
                         : (prod ? Number(prod.preco_unitario) : 0);
                       const rawSub = precoUsado * item.quantidade;
@@ -1672,7 +2377,22 @@ export function PDV() {
                                 }
                                 setVendaItens(newItens);
                               }}
+                              onCreateClick={() => {
+                                setEditingProduto(null);
+                                setProdutoNome('');
+                                setProdutoPreco('');
+                                setProdutoTipo('PRODUTO');
+                                setProdutoCodigoBarras('');
+                                setProdutoImagemUrl('');
+                                setProdutoPrecoCustoMedio('');
+                                setProdutoNcm('');
+                                setProdutoCest('');
+                                setProdutoCfopPadrao('');
+                                setProdutoRevisaoPendente(false);
+                                setShowProdutoForm(true);
+                              }}
                             />
+
                           </div>
 
                           <div className="w-28 shrink-0">
@@ -1755,6 +2475,14 @@ export function PDV() {
                     >
                       <Plus className="w-3.5 h-3.5" />
                       Adicionar Item
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowScannerModal(true)}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-600 transition cursor-pointer ml-4"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      Escanear com Câmera
                     </button>
                   </div>
                 )}
@@ -2066,8 +2794,8 @@ export function PDV() {
       {/* Modal Rápido de Cadastro de Cliente */}
       {showClienteModal && (
         <>
-          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowClienteModal(false)} />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowClienteModal(false)} />
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-black text-slate-900 dark:text-white">
@@ -2182,6 +2910,245 @@ export function PDV() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </>
+      )}
+      {/* Modal de Vinculação Retroativa (De/Para) */}
+      {showVincularModal && (
+        <>
+          <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowVincularModal(false)} />
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <Package className="w-5 h-5 text-amber-500" />
+                  Vincular a Produto Existente
+                </h3>
+                <button onClick={() => setShowVincularModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="text-sm text-slate-600 dark:text-slate-350 bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 leading-normal">
+                  Esta ação irá transferir todo o estoque e movimentações de <strong>"{produtoNome}"</strong> para o produto selecionado abaixo, e recalculará o preço de custo médio dele. O produto temporário será arquivado.
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold text-slate-400 uppercase tracking-wider">Selecionar Produto Oficial</label>
+                  <SearchableProductSelect
+                    products={produtos.filter(p => !p.revisao_pendente && p.is_active !== false && p.id !== editingProduto?.id)}
+                    selectedValue={selectedExistenteId}
+                    onChange={(val) => setSelectedExistenteId(val)}
+                    placeholder="Busque o produto no catálogo..."
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowVincularModal(false);
+                      setSelectedExistenteId('');
+                    }}
+                    className="px-4 py-2 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850 transition"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={merging || !selectedExistenteId}
+                    onClick={handleMesclarProdutos}
+                    className="px-5 py-2 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 transition disabled:opacity-50"
+                  >
+                    {merging ? 'Vinculando...' : 'Vincular e Mesclar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Modal de QR Code */}
+      {showQrModal && qrModalProduct && (
+        <>
+          <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowQrModal(false)} />
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center relative">
+              <button onClick={() => setShowQrModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+              <h3 className="text-lg font-black text-slate-900 dark:text-white mb-2">QR Code do Produto</h3>
+              <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-6">{qrModalProduct.nome}</p>
+              
+              <div className="bg-slate-50 dark:bg-slate-950 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 inline-block mb-6 shadow-inner">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(qrModalProduct.codigo_barras || `KYRUS-PROD-${qrModalProduct.id}`)}`}
+                  alt="QR Code"
+                  className="w-40 h-40 object-contain mx-auto"
+                />
+              </div>
+
+              <div className="space-y-4">
+                <div className="text-xs bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <span className="font-bold text-slate-400 block uppercase tracking-wider mb-1 text-[9px]">Código de Barras</span>
+                  <span className="font-mono text-sm text-slate-800 dark:text-slate-200">{qrModalProduct.codigo_barras || `Sem EAN (ID: ${qrModalProduct.id})`}</span>
+                </div>
+                
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const printWindow = window.open('', '_blank');
+                      if (printWindow) {
+                        printWindow.document.write(`
+                          <html>
+                            <head>
+                              <title>Imprimir QR Code - ${qrModalProduct.nome}</title>
+                              <style>
+                                body {
+                                  display: flex;
+                                  flex-direction: column;
+                                  align-items: center;
+                                  justify-content: center;
+                                  height: 100vh;
+                                  margin: 0;
+                                  font-family: sans-serif;
+                                  text-align: center;
+                                }
+                                .card {
+                                  border: 1px solid #ccc;
+                                  padding: 20px;
+                                  border-radius: 8px;
+                                }
+                                img {
+                                  width: 200px;
+                                  height: 200px;
+                                }
+                                h1 { font-size: 16px; margin: 10px 0 5px 0; }
+                                p { font-size: 14px; font-weight: bold; margin: 0; }
+                              </style>
+                            </head>
+                            <body onload="window.print(); window.close();">
+                              <div class="card">
+                                <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrModalProduct.codigo_barras || `KYRUS-PROD-${qrModalProduct.id}`)}" />
+                                <h1>${qrModalProduct.nome}</h1>
+                                <p>${qrModalProduct.codigo_barras || `ID: ${qrModalProduct.id}`}</p>
+                              </div>
+                            </body>
+                          </html>
+                        `);
+                        printWindow.document.close();
+                      }
+                    }}
+                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 transition cursor-pointer"
+                  >
+                    Imprimir Código
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadQrCode(qrModalProduct)}
+                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 dark:text-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-center transition cursor-pointer"
+                  >
+                    Download PNG
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Modal de Simulação de Escaner de Código de Barras */}
+      {showScannerModal && (
+        <>
+          <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowScannerModal(false)} />
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800 relative">
+              <button onClick={() => setShowScannerModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+              <h3 className="text-lg font-black text-slate-900 dark:text-white mb-2">Simulador de Leitor (Câmera)</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">Para fins de simulação e teste, escolha um produto ativo ou insira seu código de barras para simular a leitura óptica.</p>
+
+              {/* Viewfinder Animation */}
+              <div className="relative w-full h-44 bg-slate-950 rounded-2xl overflow-hidden mb-6 flex flex-col items-center justify-center border border-slate-800 shadow-inner">
+                {/* Camera preview mock overlay */}
+                <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#22c55e_1px,transparent_1px)] [background-size:16px_16px]" />
+                <div className="absolute w-full h-0.5 bg-green-500/80 animate-[bounce_3s_infinite] shadow-[0_0_8px_#22c55e]" />
+                <div className="absolute border-2 border-slate-500/30 w-4/5 h-2/3 rounded-xl flex items-center justify-center pointer-events-none">
+                  <div className="absolute -top-1 -left-1 w-4 h-4 border-t-4 border-l-4 border-green-500 rounded-tl" />
+                  <div className="absolute -top-1 -right-1 w-4 h-4 border-t-4 border-r-4 border-green-500 rounded-tr" />
+                  <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-4 border-l-4 border-green-500 rounded-bl" />
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-4 border-r-4 border-green-500 rounded-br" />
+                </div>
+                <Camera className="w-8 h-8 text-slate-600 animate-pulse" />
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-2 animate-pulse">Aguardando código...</span>
+              </div>
+
+              {/* Manual Input */}
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold text-slate-400 uppercase tracking-wider">Digitar Código Manualmente</label>
+                  <div className="flex gap-2">
+                    <input
+                      id="scanner-manual-input"
+                      type="text"
+                      placeholder="Ex: 7891234567890"
+                      className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const inputVal = (e.target as HTMLInputElement).value.trim();
+                          if (inputVal) {
+                            handleScanBarcode(inputVal);
+                            (e.target as HTMLInputElement).value = '';
+                          }
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const input = document.getElementById('scanner-manual-input') as HTMLInputElement;
+                        const val = input?.value.trim();
+                        if (val) {
+                          handleScanBarcode(val);
+                          input.value = '';
+                        }
+                      }}
+                      className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 transition cursor-pointer"
+                    >
+                      Bipar
+                    </button>
+                  </div>
+                </div>
+
+                {/* Simulated list of items in catalog */}
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold text-slate-400 uppercase tracking-wider">Itens Disponíveis com Código ({produtos.filter(p => p.codigo_barras && p.is_active !== false).length})</label>
+                  <div className="max-h-40 overflow-y-auto space-y-1.5 border border-slate-200 dark:border-slate-800 rounded-xl p-2 bg-slate-50/50 dark:bg-slate-950/20">
+                    {produtos.filter(p => p.codigo_barras && p.is_active !== false).map((prod) => (
+                      <div
+                        key={prod.id}
+                        onClick={() => {
+                          if (prod.codigo_barras) {
+                            handleScanBarcode(prod.codigo_barras);
+                          }
+                        }}
+                        className="flex items-center justify-between text-xs p-2 rounded-lg bg-white hover:bg-blue-50/50 dark:bg-slate-900 dark:hover:bg-slate-850/50 border border-slate-150 dark:border-slate-800 cursor-pointer transition"
+                      >
+                        <span className="font-semibold truncate pr-2 text-slate-700 dark:text-slate-300">{prod.nome}</span>
+                        <span className="font-mono text-[10px] text-blue-600 dark:text-blue-400 shrink-0 font-bold">{prod.codigo_barras}</span>
+                      </div>
+                    ))}
+                    {produtos.filter(p => p.codigo_barras && p.is_active !== false).length === 0 && (
+                      <div className="text-center p-3 text-slate-400 text-xs">Nenhum produto cadastrado com código de barras.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </>

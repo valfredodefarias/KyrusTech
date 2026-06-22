@@ -24,6 +24,8 @@ from app.models.audit_log import AuditLog
 from app.models.base_audit import AuditMixin
 from app.models.todo_item import TodoItem
 from app.models.produto import Produto
+from app.models.fornecedor_produto_equivalencia import FornecedorProdutoEquivalencia
+from app.models.movimentacao_estoque import MovimentacaoEstoque
 from app.models.usuario_conta_acesso import UsuarioContaAcesso
 from app.models.regra_cartao import RegraCartao
 from app.models.lote_cartao import LoteCartao
@@ -31,3 +33,8 @@ from app.models.lote_cartao_item import LoteCartaoItem
 from app.models.movimento_ofx import MovimentoOFX
 from app.models.baixa import Baixa
 from app.models.user_session import UserSession
+from app.models.idempotency_log import IdempotencyLog
+from app.models.regra_comissao import RegraComissao
+from app.models.meta_vendedor import MetaVendedor
+
+

@@ -6,6 +6,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from loguru import logger
 from sqlmodel import Session, select, or_
+from sqlalchemy.orm import selectinload
 
 from app.api.v1.deps import get_consultor_user, get_current_active_user, get_empresa_id_from_user, require_permission
 from app.core.upload_security import IMAGE_ALLOWED_EXT_TO_MIME, UploadValidationError, safe_local_path_from_static_url, write_validated_upload_file
@@ -18,8 +19,9 @@ from app.models.access_profile_permission import AccessProfilePermission
 from app.models.empresa import Empresa
 from app.models.user_company_profile import UserCompanyProfile
 from app.models.usuario import Usuario
-from app.schemas.usuario import UserCreate, UserRead
-from app.services.access_control_service import get_effective_permission_codes
+from app.models.consultor_empresa import ConsultorEmpresa
+from app.schemas.usuario import UserCreate, UserRead, UserUpdate
+from app.services.access_control_service import get_effective_permission_codes, invalidate_permission_cache
 
 UPLOAD_DIR = Path("static/uploads/usuarios")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -35,29 +37,16 @@ def list_vendedores(
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    """Retorna apenas usuários ativos com a permissão PDV_SER_VENDEDOR no perfil da empresa."""
+    """Retorna todos os usuários ativos da empresa que não são consultores, excluindo o usuário fictício Loja."""
     vendedores = db.exec(
         select(Usuario)
-        .join(UserCompanyProfile, UserCompanyProfile.usuario_id == Usuario.id)  # type: ignore
-        .join(AccessProfile, AccessProfile.id == UserCompanyProfile.profile_id)  # type: ignore
-        .join(AccessProfilePermission, AccessProfilePermission.profile_id == AccessProfile.id)  # type: ignore
-        .join(AccessPermission, AccessPermission.id == AccessProfilePermission.permission_id)  # type: ignore
         .where(
-            Usuario.is_deleted == False,
+            Usuario.empresa_id == empresa_id,
             Usuario.is_active == True,
-            UserCompanyProfile.empresa_id == empresa_id,
-            UserCompanyProfile.is_deleted == False,
-            UserCompanyProfile.is_active == True,
-            or_(AccessProfile.empresa_id == empresa_id, AccessProfile.empresa_id == None),
-            AccessProfile.is_deleted == False,
-            AccessProfile.is_active == True,
-            AccessProfilePermission.is_deleted == False,
-            AccessProfilePermission.allowed == True,
-            AccessPermission.is_deleted == False,
-            AccessPermission.is_active == True,
-            AccessPermission.code == PdvPermission.PDV_SER_VENDEDOR.value,
+            Usuario.is_deleted == False,
+            Usuario.is_consultor == False,
+            Usuario.email != "loja@kyrus_legado.com"
         )
-        .distinct()
         .order_by(Usuario.nome, Usuario.email)
     ).all()
 
@@ -222,3 +211,125 @@ def delete_foto_me(
     db.commit()
     db.refresh(current_user)
     return current_user
+
+
+@router.put(
+    "/{usuario_id}",
+    response_model=UserRead,
+    dependencies=[Depends(require_permission("usuarios:update"))],
+)
+def update_usuario(
+    usuario_id: int,
+    user_in: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+):
+    """
+    Permite a um gerente atualizar email e senha (e outros campos) de um usuário da mesma empresa.
+    """
+    logger.info(f"Recebida requisição para atualizar usuário ID {usuario_id} por {current_user.email}")
+    
+    # 1. Obter empresa em contexto
+    empresa_id = get_empresa_id_from_user(current_user=current_user, session=db)
+    
+    # 2. Verificar se o usuário logado é gerente
+    # Se for consultor ou se tiver o perfil de FULL_ACCESS ou GERENTE
+    is_manager = False
+    if current_user.is_consultor:
+        is_manager = True
+    else:
+        # Buscar perfil do usuário logado na empresa em contexto
+        assignment = db.exec(
+            select(UserCompanyProfile)
+            .options(selectinload(UserCompanyProfile.profile))
+            .where(
+                UserCompanyProfile.usuario_id == current_user.id,
+                UserCompanyProfile.empresa_id == empresa_id,
+                UserCompanyProfile.is_deleted == False,
+                UserCompanyProfile.is_active == True,
+            )
+        ).first()
+        if assignment and assignment.profile:
+            profile = assignment.profile
+            profile_code = (profile.code or "").upper()
+            profile_name = (profile.name or "").lower()
+            if profile_code in ("FULL_ACCESS", "GERENTE") or "gerente" in profile_name:
+                is_manager = True
+
+    if not is_manager:
+        raise HTTPException(
+            status_code=403,
+            detail="Apenas usuários com perfil de gerente podem atualizar e-mail e senha de outros usuários."
+        )
+
+    # 3. Buscar usuário alvo
+    target_user = db.exec(
+        select(Usuario).where(
+            Usuario.id == usuario_id,
+            Usuario.is_deleted == False
+        )
+    ).first()
+    
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
+    # 4. Verificar se o usuário alvo pertence à mesma empresa
+    allowed_user = False
+    if target_user.empresa_id == empresa_id:
+        allowed_user = True
+    else:
+        consultant_access = db.exec(
+            select(ConsultorEmpresa).where(
+                ConsultorEmpresa.usuario_id == usuario_id,
+                ConsultorEmpresa.empresa_id == empresa_id,
+                ConsultorEmpresa.ativo == True,
+                ConsultorEmpresa.is_deleted == False,
+            )
+        ).first()
+        allowed_user = consultant_access is not None
+
+    if not allowed_user:
+        raise HTTPException(
+            status_code=403,
+            detail="Você não tem permissão para alterar este usuário."
+        )
+
+    # 5. Aplicar atualizações
+    # Email
+    if user_in.email is not None:
+        normalized_email = user_in.email.strip().lower()
+        if normalized_email != target_user.email:
+            # Validar se o email já está em uso por outro usuário ativo
+            existing_user = db.exec(
+                select(Usuario).where(
+                    Usuario.email == normalized_email,
+                    Usuario.is_deleted == False,
+                    Usuario.id != usuario_id
+                )
+            ).first()
+            if existing_user:
+                raise HTTPException(status_code=400, detail="Este e-mail já está em uso por outro usuário.")
+            target_user.email = normalized_email
+
+    # Nome
+    if user_in.nome is not None:
+        target_user.nome = user_in.nome.strip()
+
+    # Password
+    if user_in.password is not None and user_in.password.strip():
+        from app.core.security import get_password_hash
+        target_user.hashed_password = get_password_hash(user_in.password)
+
+    # Active status
+    if user_in.is_active is not None:
+        target_user.is_active = user_in.is_active
+
+    db.add(target_user)
+    db.commit()
+    db.refresh(target_user)
+    
+    # Invalidar cache de permissões do usuário atualizado
+    invalidate_permission_cache(user_id=usuario_id, empresa_id=empresa_id)
+
+    logger.success(f"Usuário ID {usuario_id} atualizado com sucesso por {current_user.email}")
+    return target_user

@@ -1,9 +1,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Database,
   Filter,
   Info,
   Loader2,
@@ -11,6 +13,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  UploadCloud,
   X,
 } from 'lucide-react';
 
@@ -21,6 +24,15 @@ type SortKey = 'descricao' | 'valor' | 'status' | 'data';
 type SortDirection = 'asc' | 'desc';
 type StatusFilter = 'TODOS' | 'AGUARDANDO_ENTREGA' | 'ENTREGUE' | 'CANCELADA' | 'DEMONSTRACAO';
 type FormMode = 'NOVO' | 'EDITAR';
+
+interface CategoriaItem {
+  id: number;
+  nome: string;
+  tipo?: string;
+  codigo?: string | null;
+  eh_cabecalho?: boolean;
+  permite_lancamentos?: boolean;
+}
 
 interface NfeListItem {
   id_parcelamento: string;
@@ -88,6 +100,9 @@ interface NfeDraftItem {
   cfop: string;
   valorUnitario: number;
   desconto: number;
+  codigoFornecedor: string;
+  codigoBarras: string;
+  ncm: string;
 }
 
 interface NfeDraftPagamento {
@@ -345,6 +360,9 @@ function parseNfeXml(xmlContent: string): ParsedNfeXml {
         cfop: xmlFirstText(prod, 'CFOP'),
         valorUnitario,
         desconto,
+        codigoFornecedor: xmlFirstText(prod, 'cProd'),
+        codigoBarras: xmlFirstText(prod, 'cEAN'),
+        ncm: xmlFirstText(prod, 'NCM'),
       };
     })
     .filter((item): item is Omit<NfeDraftItem, 'id'> => Boolean(item));
@@ -561,6 +579,9 @@ export function ImportacaoNfe() {
   const [idParcelamentoEditando, setIdParcelamentoEditando] = useState<string | null>(null);
   const [planoContasSelecionadoId, setPlanoContasSelecionadoId] = useState<number | null>(null);
   const [carregandoEdicaoId, setCarregandoEdicaoId] = useState<string | null>(null);
+  const [planoContas, setPlanoContas] = useState<CategoriaItem[]>([]);
+  const [loadingPlanoContas, setLoadingPlanoContas] = useState(false);
+  const [erroPlanoContas, setErroPlanoContas] = useState<string | null>(null);
   const draftIdRef = useRef(1);
   const importXmlInputRef = useRef<HTMLInputElement | null>(null);
   const importFreteXmlInputRef = useRef<HTMLInputElement | null>(null);
@@ -569,6 +590,30 @@ export function ImportacaoNfe() {
   const [cteDataEmissao, setCteDataEmissao] = useState('');
   const [freteFinanceiroImportado, setFreteFinanceiroImportado] = useState(false);
   const [freteVencimento, setFreteVencimento] = useState('');
+
+  // Unified XML import state variables
+  const [isDragging, setIsDragging] = useState(false);
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
+  const [importResult, setImportResult] = useState<{
+    status: 'sucesso' | 'sucesso_parcial';
+    chave_nfe: string;
+    numero_nfe: string;
+    fornecedor_nome: string;
+    valor_total: number;
+    itens_mapeados: any[];
+    lancamentos_criados: number[];
+    movimentacoes_estoque_criadas: number[];
+  } | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  // De/Para mapping state variables
+  const [showMappingDrawer, setShowMappingDrawer] = useState(false);
+  const [pendingItems, setPendingItems] = useState<any[]>([]);
+  const [produtos, setProdutos] = useState<any[]>([]);
+  const [loadingProdutos, setLoadingProdutos] = useState(false);
+  const [selectedMapping, setSelectedMapping] = useState<Record<string, number>>({});
+  const [fornecedorId, setFornecedorId] = useState<number | null>(null);
+  const [fornecedorNome, setFornecedorNome] = useState('');
 
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -605,6 +650,51 @@ export function ImportacaoNfe() {
 
     return () => window.clearTimeout(timer);
   }, [searchInput]);
+
+  const carregarPlanoContas = useCallback(async () => {
+    setLoadingPlanoContas(true);
+    setErroPlanoContas(null);
+    try {
+      const { data } = await api.get<CategoriaItem[]>('/plano-contas/');
+      const cats = normalizeListResponse<CategoriaItem>(data)
+        .filter((item) => item.eh_cabecalho !== true && item.permite_lancamentos !== false)
+        .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+      setPlanoContas(cats);
+    } catch {
+      setPlanoContas([]);
+      setErroPlanoContas('Nao foi possivel carregar o plano de contas.');
+    } finally {
+      setLoadingPlanoContas(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void carregarPlanoContas();
+  }, [carregarPlanoContas]);
+
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      setIsDragging(true);
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      setIsDragging(false);
+      const file = e.dataTransfer?.files?.[0] || null;
+      if (file) {
+        void handleUnifiedXmlUpload(file);
+      }
+    };
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, []);
 
   const carregarLista = useCallback(async () => {
     setLoading(true);
@@ -827,6 +917,7 @@ export function ImportacaoNfe() {
     setCteDataEmissao('');
     setFreteFinanceiroImportado(false);
     setFreteVencimento('');
+    setPlanoContasSelecionadoId(null);
     draftIdRef.current = 1;
   }
 
@@ -876,6 +967,9 @@ export function ImportacaoNfe() {
             cfop: String(item.cfop || data.cfop || '').trim(),
             valorUnitario: valorUnitario > 0 ? valorUnitario : valorTotal,
             desconto,
+            codigoFornecedor: '',
+            codigoBarras: '',
+            ncm: String(item.ncm || '').trim(),
           };
         })
         .filter((item) => item.valorUnitario > 0 || item.produtoServico.length > 0);
@@ -889,6 +983,9 @@ export function ImportacaoNfe() {
           cfop: String(data.cfop || '').trim(),
           valorUnitario: Number(data.valor_total || 0),
           desconto: 0,
+          codigoFornecedor: '',
+          codigoBarras: '',
+          ncm: '',
         }].filter((fallback) => fallback.valorUnitario > 0);
 
       const pagamentosImportados: NfeDraftPagamento[] = (Array.isArray(data.parcelas) ? data.parcelas : []).map((parcela) => ({
@@ -984,8 +1081,26 @@ export function ImportacaoNfe() {
   }
 
   async function confirmarFormulario() {
+    if (!planoContasSelecionadoId) {
+      setError('Selecione o plano de contas da NF-e antes de confirmar.');
+      return;
+    }
+
     if (centrosCusto.length > 0 && !centroCustoSelecionadoId) {
       setError('Selecione o centro de custo da NF-e antes de confirmar.');
+      return;
+    }
+
+    if (formMode === 'NOVO' && pendingImportFile) {
+      setConfirmandoImportacao(true);
+      setError(null);
+      try {
+        await processarXmlComoCompra(pendingImportFile, planoContasSelecionadoId, centroCustoSelecionadoId);
+      } catch (err: any) {
+        setError(err?.response?.data?.detail || 'Erro ao processar importacao de compras.');
+      } finally {
+        setConfirmandoImportacao(false);
+      }
       return;
     }
 
@@ -1034,7 +1149,7 @@ export function ImportacaoNfe() {
               valor_unitario: Number(item.valorUnitario || 0),
               valor_total: subtotalItem(item),
               cfop: String(item.cfop || novoForm.cfop || '').trim() || undefined,
-              ncm: undefined,
+              ncm: item.ncm || undefined,
             }))
             .filter((item) => item.valor_total > 0 || item.descricao.length > 0),
           parcelas: parcelasPayload,
@@ -1137,7 +1252,7 @@ export function ImportacaoNfe() {
             valor_unitario: Number(item.valorUnitario || 0),
             valor_total: subtotalItem(item),
             cfop: String(item.cfop || novoForm.cfop || '').trim() || undefined,
-            ncm: undefined,
+            ncm: item.ncm || undefined,
           }))
           .filter((item) => item.valor_total > 0 || item.descricao.length > 0),
         parcelas: parcelasPayload,
@@ -1229,6 +1344,9 @@ export function ImportacaoNfe() {
         cfop: novoForm.cfop || '',
         valorUnitario: 0,
         desconto: 0,
+        codigoFornecedor: '',
+        codigoBarras: '',
+        ncm: '',
       },
     ]));
   }
@@ -1265,6 +1383,123 @@ export function ImportacaoNfe() {
     }
     setErroPdf(null);
     setPdfAnexo(file);
+  }
+
+  const carregarProdutos = async () => {
+    setLoadingProdutos(true);
+    try {
+      const { data } = await api.get<any[]>('/pdv/produtos');
+      setProdutos(data || []);
+    } catch (err) {
+      console.error('Erro ao carregar produtos:', err);
+    } finally {
+      setLoadingProdutos(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showMappingDrawer) {
+      void carregarProdutos();
+    }
+  }, [showMappingDrawer]);
+
+  async function processarXmlComoCompra(file: File | null, planoContasId?: number | null, centroCustoId?: number | null) {
+    if (!file) return;
+    setImportandoXml(true);
+    setImportError(null);
+    setImportResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('arquivo', file);
+
+      const params: Record<string, any> = {};
+      if (planoContasId) params.plano_contas_id = planoContasId;
+      if (centroCustoId) params.centro_custo_id = centroCustoId;
+
+      const { data } = await api.post<any>('/compras/importar-xml', formData, { params });
+
+      if (data.status === 'sucesso') {
+        setImportResult({
+          status: 'sucesso',
+          chave_nfe: data.chave_nfe,
+          numero_nfe: data.numero_nfe,
+          fornecedor_nome: data.fornecedor_nome,
+          valor_total: data.valor_total,
+          itens_mapeados: data.itens_mapeados || [],
+          lancamentos_criados: data.lancamentos_criados || [],
+          movimentacoes_estoque_criadas: data.movimentacoes_estoque_criadas || [],
+        });
+        setPendingImportFile(null);
+        setShowMappingDrawer(false);
+        setRefreshToken((prev) => prev + 1);
+        fecharFormulario();
+      } else if (data.status === 'sucesso_parcial') {
+        setFornecedorId(data.fornecedor_id);
+        setFornecedorNome(data.fornecedor_nome);
+        setPendingItems(data.itens_pendentes || []);
+        setSelectedMapping({});
+        setShowMappingDrawer(true);
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || 'Erro ao processar importacao de compras.';
+      setImportError(msg);
+      setError(msg);
+    } finally {
+      setImportandoXml(false);
+    }
+  }
+
+  async function salvarEquivalencia(codigoFornecedor: string, produtoInternoId: number) {
+    if (!fornecedorId) return;
+    try {
+      await api.post('/compras/equivalencias', {
+        fornecedor_id: fornecedorId,
+        codigo_produto_fornecedor: codigoFornecedor,
+        produto_interno_id: produtoInternoId,
+      });
+      setSelectedMapping((prev) => ({
+        ...prev,
+        [codigoFornecedor]: produtoInternoId,
+      }));
+    } catch (err) {
+      setImportError('Nao foi possivel salvar o mapeamento do produto.');
+    }
+  }
+
+  async function handleUnifiedXmlUpload(file: File | null) {
+    if (!file) return;
+
+    const nome = String(file.name || '').toLowerCase();
+    const isXml = file.type.includes('xml') || nome.endsWith('.xml');
+    if (!isXml) {
+      setImportError('Selecione um arquivo XML valido.');
+      return;
+    }
+
+    setImportError(null);
+    setImportResult(null);
+
+    try {
+      const xmlContent = await file.text();
+
+      // CTe auto routing
+      if (xmlContent.includes('<infCte>') || xmlContent.includes('<CTe')) {
+        void importarXmlFreteCte(file);
+        return;
+      }
+
+      const parsed = parseNfeXml(xmlContent);
+
+      if (parsed.itens && parsed.itens.length > 0) {
+        setPendingImportFile(file);
+      } else {
+        setPendingImportFile(null);
+      }
+      void importarXmlParaFormulario(file);
+    } catch (err: any) {
+      setImportError(err.message || 'Erro ao ler ou processar o arquivo XML.');
+    }
   }
 
   function abrirSeletorXml() {
@@ -1308,6 +1543,9 @@ export function ImportacaoNfe() {
           cfop: String(item.cfop || '').trim(),
           valorUnitario: Number(item.valor_unitario || 0),
           desconto: 0,
+          codigoFornecedor: '',
+          codigoBarras: '',
+          ncm: String(item.ncm || '').trim(),
         }))
         : [];
 
@@ -1326,9 +1564,12 @@ export function ImportacaoNfe() {
       const pagamentosFonte = pagamentosDaAnalise.length > 0 ? pagamentosDaAnalise : parsed.pagamentos;
 
       let nextId = 1;
-      const itensImportados: NfeDraftItem[] = itensFonte.map((item) => ({
+      const itensImportados: NfeDraftItem[] = itensFonte.map((item, idx) => ({
         ...item,
         id: nextId++,
+        codigoFornecedor: item.codigoFornecedor || parsed.itens[idx]?.codigoFornecedor || '',
+        codigoBarras: item.codigoBarras || parsed.itens[idx]?.codigoBarras || '',
+        ncm: item.ncm || parsed.itens[idx]?.ncm || '',
       }));
       const pagamentosImportados: NfeDraftPagamento[] = pagamentosFonte.map((item) => ({
         ...item,
@@ -1586,7 +1827,7 @@ export function ImportacaoNfe() {
                 accept=".xml,text/xml,application/xml"
                 className="hidden"
                 onChange={(event) => {
-                  void importarXmlParaFormulario(event.target.files?.[0] || null);
+                  void handleUnifiedXmlUpload(event.target.files?.[0] || null);
                   event.currentTarget.value = '';
                 }}
               />
@@ -1627,10 +1868,10 @@ export function ImportacaoNfe() {
               <button
                 type="button"
                 onClick={confirmarFormulario}
-                disabled={confirmandoImportacao}
+                disabled={confirmandoImportacao || importandoXml}
                 className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
               >
-                {confirmandoImportacao
+                {confirmandoImportacao || importandoXml
                   ? (formMode === 'EDITAR' ? 'Salvando...' : 'Confirmando...')
                   : (formMode === 'EDITAR' ? 'Salvar' : 'Confirmar')}
               </button>
@@ -1647,6 +1888,55 @@ export function ImportacaoNfe() {
 
       {!mostrarNovoFormulario ? (
         <>
+          {importError && (
+            <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300 flex items-start gap-2.5 mb-3 text-left">
+              <AlertTriangle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
+              <div>
+                <h5 className="font-bold">Erro na Importação</h5>
+                <p className="text-xs mt-0.5">{importError}</p>
+              </div>
+            </div>
+          )}
+
+          {importResult && importResult.status === 'sucesso' && (
+            <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-4 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-350 space-y-3 animate-in zoom-in-95 text-left mb-3">
+              <div className="flex items-start gap-2.5">
+                <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+                <div>
+                  <h5 className="font-bold text-base text-slate-900 dark:text-white">NF-e Importada com Sucesso!</h5>
+                  <p className="text-xs mt-0.5">Todos os produtos foram identificados e os dados salvos de forma íntegra no banco de dados (ACID).</p>
+                </div>
+              </div>
+              
+              <div className="text-xs bg-white dark:bg-slate-900 rounded-lg p-3 border border-slate-200 dark:border-slate-800 space-y-1.5 font-medium text-slate-600 dark:text-slate-300 shadow-sm">
+                <div>Nota Fiscal: <span className="font-bold text-slate-900 dark:text-white">{importResult.numero_nfe}</span></div>
+                <div>Fornecedor: <span className="font-bold text-slate-900 dark:text-white">{importResult.fornecedor_nome}</span></div>
+                <div>Valor Total: <span className="font-bold text-slate-900 dark:text-white">{formatCurrency(importResult.valor_total)}</span></div>
+                <div>Lançamentos criados: <span className="font-bold text-slate-900 dark:text-white">{importResult.lancamentos_criados.length} parcelas</span></div>
+                <div>Itens cadastrados no estoque: <span className="font-bold text-slate-900 dark:text-white">{importResult.itens_mapeados.length} itens</span></div>
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => setImportResult(null)}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition shadow-sm"
+                >
+                  Confirmar e Fechar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {importandoXml && (
+            <div className="flex items-center justify-center gap-2.5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-300 mb-3 text-left">
+              <Loader2 className="h-5 w-5 animate-spin text-blue-500 shrink-0" />
+              <div>
+                <span className="font-bold">Importando XML...</span>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Aguarde enquanto os dados da nota fiscal são processados pelo sistema.</p>
+              </div>
+            </div>
+          )}
           <button
             type="button"
             aria-label="Fechar painel de filtros"
@@ -1876,8 +2166,41 @@ export function ImportacaoNfe() {
                 </select>
               </label>
 
-              <div className="md:col-span-4">
-                <span className={labelClassName}>Centro de custo da NF-e</span>
+              <div className="md:col-span-3">
+                <span className={labelClassName}>
+                  <span className="text-rose-500">*</span>
+                  Plano de contas (Categoria)
+                </span>
+                {loadingPlanoContas ? (
+                  <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Carregando plano de contas...
+                  </div>
+                ) : (
+                  <select
+                    className={inputClassName}
+                    value={planoContasSelecionadoId || ''}
+                    onChange={(event) => setPlanoContasSelecionadoId(Number(event.target.value) || null)}
+                  >
+                    <option value="">-- Selecione a categoria --</option>
+                    {planoContas.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.codigo ? `${cat.codigo} - ${cat.nome}` : cat.nome}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {erroPlanoContas ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{erroPlanoContas}</p> : null}
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  A categoria selecionada será vinculada a todos os lançamentos gerados pela nota.
+                </p>
+              </div>
+
+              <div className="md:col-span-3">
+                <span className={labelClassName}>
+                  <span className="text-rose-500">*</span>
+                  Centro de custo da NF-e
+                </span>
                 {loadingCentrosCusto ? (
                   <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1910,16 +2233,16 @@ export function ImportacaoNfe() {
                 ) : null}
 
                 {erroCentrosCusto ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{erroCentrosCusto}</p> : null}
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">O mesmo centro de custo selecionado aqui sera aplicado em todos os lancamentos financeiros da NF-e.</p>
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">O mesmo centro de custo selecionado aqui será aplicado em todos os lançamentos financeiros da NF-e.</p>
               </div>
 
-              <label className="md:col-span-2">
+              <div className="md:col-span-6 mt-2">
                 <span className={labelClassName}>Tipo de compra</span>
                 <div className="flex flex-wrap gap-2">
                   {[
-                    { value: 'ESTOQUE', label: 'Estoque', activeClass: 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200' },
-                    { value: 'ENCOMENDA', label: 'Encomenda', activeClass: 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200' },
-                    { value: 'DEMONSTRACAO', label: 'Demonstração', activeClass: 'border-purple-500 bg-purple-50 text-purple-700 dark:border-purple-400 dark:bg-purple-500/10 dark:text-purple-200' },
+                    { value: 'ESTOQUE', label: 'Estoque', activeClass: 'border-blue-550 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-550/10 dark:text-blue-200' },
+                    { value: 'ENCOMENDA', label: 'Encomenda', activeClass: 'border-blue-50 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200' },
+                    { value: 'DEMONSTRACAO', label: 'Demonstração', activeClass: 'border-purple-55 bg-purple-50 text-purple-700 dark:border-purple-400 dark:bg-purple-500/10 dark:text-purple-200' },
                   ].map((opcao) => {
                     const ativo = String(novoForm.destinoCompra || '').toUpperCase() === opcao.value;
                     return (
@@ -1934,7 +2257,7 @@ export function ImportacaoNfe() {
                     );
                   })}
                 </div>
-              </label>
+              </div>
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-5">
@@ -1991,23 +2314,45 @@ export function ImportacaoNfe() {
               <table className="w-full text-left">
                 <thead className="border-b border-slate-200 text-[11px] font-bold uppercase text-slate-500 dark:border-slate-700">
                   <tr>
-                    <th className="px-2 py-2">Item</th>
-                    <th className="px-2 py-2">Produto/servico</th>
-                    <th className="px-2 py-2">Qtd</th>
-                    <th className="px-2 py-2">CFOP</th>
-                    <th className="px-2 py-2 text-right">Valor un</th>
-                    <th className="px-2 py-2 text-right">Subtotal</th>
-                    <th className="px-2 py-2 text-right">Desconto</th>
+                    <th className="px-2 py-2 w-12">Item</th>
+                    <th className="px-2 py-2 w-28">Cód. Forn.</th>
+                    <th className="px-2 py-2 w-36">EAN (Barras)</th>
+                    <th className="px-2 py-2">Produto/Serviço</th>
+                    <th className="px-2 py-2 w-28">NCM</th>
+                    <th className="px-2 py-2 w-16">Qtd</th>
+                    <th className="px-2 py-2 w-20">CFOP</th>
+                    <th className="px-2 py-2 text-right w-24">Valor un</th>
+                    <th className="px-2 py-2 text-right w-24">Subtotal</th>
+                    <th className="px-2 py-2 text-right w-24">Desconto</th>
                   </tr>
                 </thead>
                 <tbody>
                   {itensNota.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-2 py-8 text-center text-slate-400">Sem dados</td>
+                      <td colSpan={10} className="px-2 py-8 text-center text-slate-400">Sem dados</td>
                     </tr>
                   ) : itensNota.map((item, index) => (
                     <tr key={item.id} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0">
                       <td className="px-2 py-2 text-sm font-bold text-slate-700 dark:text-slate-200">{index + 1}</td>
+                      
+                      <td className="px-2 py-2">
+                        <input
+                          className={tableInputClassName}
+                          value={item.codigoFornecedor || ''}
+                          onChange={(event) => atualizarItem(item.id, 'codigoFornecedor', event.target.value)}
+                          placeholder="Código"
+                        />
+                      </td>
+
+                      <td className="px-2 py-2">
+                        <input
+                          className={tableInputClassName}
+                          value={item.codigoBarras || ''}
+                          onChange={(event) => atualizarItem(item.id, 'codigoBarras', event.target.value)}
+                          placeholder="EAN"
+                        />
+                      </td>
+
                       <td className="px-2 py-2">
                         <input
                           className={tableInputClassName}
@@ -2016,6 +2361,16 @@ export function ImportacaoNfe() {
                           placeholder="Digite o produto/servico"
                         />
                       </td>
+
+                      <td className="px-2 py-2">
+                        <input
+                          className={tableInputClassName}
+                          value={item.ncm || ''}
+                          onChange={(event) => atualizarItem(item.id, 'ncm', event.target.value)}
+                          placeholder="NCM"
+                        />
+                      </td>
+
                       <td className="px-2 py-2">
                         <input
                           type="number"
@@ -2506,6 +2861,154 @@ export function ImportacaoNfe() {
             </div>
           </footer>
         </>
+      )}
+
+      {isDragging && (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            const file = e.dataTransfer.files?.[0] || null;
+            void handleUnifiedXmlUpload(file);
+          }}
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-900/80 backdrop-blur-md text-center p-6 animate-in fade-in-0 duration-200"
+        >
+          <div className="max-w-md p-8 rounded-2xl border-2 border-dashed border-blue-500 bg-white/10 dark:bg-slate-900/40 text-white space-y-4 shadow-2xl">
+            <UploadCloud className="mx-auto h-16 w-16 text-blue-400 animate-bounce" />
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white">Importar XML de NF-e / CTe</h3>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              Solte o arquivo XML da nota fiscal em qualquer lugar da tela para iniciar a importação.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {showMappingDrawer && (
+        <div className="fixed inset-0 z-[50] flex items-center justify-end bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in-0 duration-200">
+          <div className="w-full max-w-xl h-full bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 flex flex-col transform animate-in slide-in-from-right duration-250 text-left">
+            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="space-y-1">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Database className="h-5 w-5 text-amber-500" />
+                  Mapeamento de Produtos (De/Para)
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Associe os itens da NF-e do fornecedor <span className="font-bold text-slate-700 dark:text-slate-300">{fornecedorNome}</span> com produtos internos.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMappingDrawer(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {pendingItems.map((item, idx) => {
+                const code = item.codigo_produto_fornecedor;
+                const isMapped = selectedMapping[code] !== undefined;
+                return (
+                  <div key={idx} className={`p-4 border rounded-xl transition ${isMapped ? 'border-emerald-200 bg-emerald-50/10' : 'border-amber-200 bg-amber-50/10'}`}>
+                    <div className="flex justify-between items-start gap-2 mb-3">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Produto do Fornecedor</span>
+                        <h5 className="font-bold text-sm text-slate-800 dark:text-slate-100">{item.descricao_fornecedor}</h5>
+                        <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-2">
+                          <span>Cód: <span className="font-bold">{code}</span></span>
+                          {item.codigo_barras && (
+                            <>
+                              <span>•</span>
+                              <span>EAN: <span className="font-bold">{item.codigo_barras}</span></span>
+                            </>
+                          )}
+                          <span>•</span>
+                          <span>Qtd: <span className="font-bold">{item.quantidade}</span></span>
+                        </div>
+                      </div>
+                      {isMapped ? (
+                        <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-450 uppercase bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 rounded">Mapeado</span>
+                      ) : (
+                        <span className="text-[10px] font-black text-amber-600 dark:text-amber-450 uppercase bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 rounded">Pendente</span>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-bold uppercase text-slate-500">Associar ao Produto Interno:</label>
+                      {loadingProdutos ? (
+                        <div className="text-xs text-slate-500 flex items-center gap-2">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <span>Carregando catálogo interno...</span>
+                        </div>
+                      ) : (
+                        <select
+                          value={selectedMapping[code] || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val) {
+                              void salvarEquivalencia(code, Number(val));
+                            }
+                          }}
+                          className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition"
+                        >
+                          <option value="">-- Selecione o produto correspondente no ERP --</option>
+                          {produtos.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.nome} {p.codigo_barras ? `(EAN: ${p.codigo_barras})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
+                Mapeados: <span className="font-bold text-slate-800 dark:text-white">{Object.keys(selectedMapping).length}</span> de <span className="font-bold text-slate-800 dark:text-white">{pendingItems.length}</span>
+              </span>
+              
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMappingDrawer(false)}
+                  className="px-4 py-2 border border-slate-300 dark:border-slate-750 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold transition"
+                >
+                  Fechar
+                </button>
+                {Object.keys(selectedMapping).length === pendingItems.length && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void processarXmlComoCompra(pendingImportFile, planoContasSelecionadoId, centroCustoSelecionadoId);
+                    }}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-md transition flex items-center gap-1.5"
+                  >
+                    {importandoXml ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>Processando...</span>
+                      </>
+                    ) : (
+                      <span>Re-importar e Finalizar</span>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

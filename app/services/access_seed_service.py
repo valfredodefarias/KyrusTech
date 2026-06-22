@@ -96,6 +96,10 @@ TEMPLATE_PROFILE_CODES: dict[str, dict[str, Any]] = {
         "name": "Template - Home",
         "description": "Template minimo para acesso a Home",
     },
+    "TEMPLATE_VENDEDOR": {
+        "name": "Template - Vendedor",
+        "description": "Template para vendedores com acesso ao PDV e metas",
+    },
 }
 
 
@@ -157,12 +161,14 @@ def _template_permission_codes() -> dict[str, set[str]]:
     }
     boletim_codes = {"page:home:view", "page:boletim:view", "page:dre:view", "auditoria:view"}
     home_codes = {"page:home:view"}
+    vendedor_codes = {"page:home:view", "page:caixa:view", PdvPermission.PDV_SER_VENDEDOR.value}
 
     return {
         "TEMPLATE_FULL_ACCESS": {item["code"] for item in PERMISSION_CATALOG if item["code"] != "empresa:reset_base"},
         "TEMPLATE_FINANCEIRO": finance_codes,
         "TEMPLATE_BOLETIM": boletim_codes,
         "TEMPLATE_HOME": home_codes,
+        "TEMPLATE_VENDEDOR": vendedor_codes,
     }
 
 
@@ -402,6 +408,77 @@ def ensure_rbac_seed(db: Session) -> dict[str, int]:
             stats["template_links_created"] += 1
 
     db.commit()
+
+    # Provisionar perfil Vendedor nas empresas
+    vendedor_template = templates_by_code.get("TEMPLATE_VENDEDOR")
+    if vendedor_template and vendedor_template.id is not None:
+        vendedor_template_links = db.exec(
+            select(AccessProfilePermission).where(
+                AccessProfilePermission.profile_id == int(vendedor_template.id),
+                AccessProfilePermission.is_deleted == False,
+                AccessProfilePermission.allowed == True,
+            )
+        ).all()
+        vendedor_permission_ids = [int(link.permission_id) for link in vendedor_template_links if link.permission_id is not None]
+        
+        for company in companies:
+            if company.id is None:
+                continue
+            v_profile = db.exec(
+                select(AccessProfile).where(
+                    AccessProfile.empresa_id == int(company.id),
+                    AccessProfile.code == "VENDEDOR",
+                    AccessProfile.is_deleted == False,
+                )
+            ).first()
+            if not v_profile:
+                v_profile = AccessProfile(
+                    empresa_id=int(company.id),
+                    name="Vendedor",
+                    code="VENDEDOR",
+                    description="Perfil padrão vendedor criado automaticamente com acesso ao PDV e metas",
+                    is_active=True,
+                    is_system=True,
+                    is_template=False,
+                    base_template_code="TEMPLATE_VENDEDOR",
+                    created_at=now,
+                    updated_at=now,
+                    is_deleted=False,
+                )
+                db.add(v_profile)
+                db.commit()
+                db.refresh(v_profile)
+                stats["company_profiles_created"] += 1
+            else:
+                v_profile.name = "Vendedor"
+                v_profile.description = v_profile.description or "Perfil padrão vendedor criado automaticamente com acesso ao PDV e metas"
+                v_profile.is_system = True
+                v_profile.is_template = False
+                v_profile.is_active = True
+                v_profile.base_template_code = "TEMPLATE_VENDEDOR"
+                v_profile.updated_at = now
+                v_profile.is_deleted = False
+                db.add(v_profile)
+
+            for permission_id in vendedor_permission_ids:
+                key = (int(v_profile.id), int(permission_id))
+                if key in company_link_keys:
+                    continue
+                db.add(
+                    AccessProfilePermission.model_validate(
+                        {
+                            "profile_id": int(v_profile.id),
+                            "permission_id": int(permission_id),
+                            "allowed": True,
+                            "created_at": now,
+                            "updated_at": now,
+                            "is_deleted": False,
+                        }
+                    )
+                )
+                company_link_keys.add(key)
+                stats["template_links_created"] += 1
+        db.commit()
 
     existing_assignments = {
         (int(item.usuario_id), int(item.empresa_id)): item

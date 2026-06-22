@@ -16,3 +16,14 @@ class Produto(AuditMixin, SQLModel, table=True):
     is_active: bool = Field(default=True, index=True)
     tipo: str = Field(default="PRODUTO", index=True)
 
+    # Novos campos para Compras e Gestão de Estoque
+    codigo_barras: Optional[str] = Field(default=None, unique=True, index=True)
+    imagem_url: Optional[str] = Field(default=None)
+    preco_custo_medio: Optional[float] = Field(default=0.0)
+    ncm: Optional[str] = Field(default=None)
+    cest: Optional[str] = Field(default=None)
+    cfop_padrao: Optional[str] = Field(default=None)
+    revisao_pendente: bool = Field(default=False, index=True)
+
+
+

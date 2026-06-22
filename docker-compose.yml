@@ -8,6 +8,8 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kyrus_pass}
       - POSTGRES_DB=${POSTGRES_DB:-kyrus_erp}
       - POSTGRES_ALLOWED_CIDRS=${POSTGRES_ALLOWED_CIDRS:-}
+    ports:
+      - "5432:5432"
     volumes:
       - db_kyrustech_data:/var/lib/postgresql/data
     healthcheck:

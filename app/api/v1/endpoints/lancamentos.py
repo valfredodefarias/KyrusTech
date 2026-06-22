@@ -16,7 +16,7 @@ from difflib import SequenceMatcher
 from openpyxl import load_workbook
 
 from fastapi import APIRouter, Depends, Query, UploadFile, File, status, Form, HTTPException, BackgroundTasks, Response, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from sqlmodel import Session, select, col
 from sqlalchemy.orm import noload, selectinload
 from sqlalchemy import or_
@@ -1558,6 +1558,7 @@ def listar_lancamentos(
     conciliado: Optional[bool] = Query(None),
     ocultar_vendas_cartao_pendentes: bool = Query(False),
     incluir_demonstracoes: bool = Query(False),
+    minimized: bool = Query(False),
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
@@ -1566,8 +1567,12 @@ def listar_lancamentos(
     safe_skip = max(skip, 0)
 
     # Always load the related `entidade` for export/usage; load anexos only when requested.
-    load_options = [selectinload(cast(Any, Lancamento.entidade))]
-    load_options.append(selectinload(cast(Any, Lancamento.anexos)) if include_anexos else noload(cast(Any, Lancamento.anexos)))
+    if minimized:
+        load_options = [noload(cast(Any, Lancamento.entidade)), noload(cast(Any, Lancamento.anexos))]
+    else:
+        load_options = [selectinload(cast(Any, Lancamento.entidade))]
+        load_options.append(selectinload(cast(Any, Lancamento.anexos)) if include_anexos else noload(cast(Any, Lancamento.anexos)))
+
     query = select(Lancamento).options(*load_options).where(
         Lancamento.empresa_id == empresa_id,
         Lancamento.is_deleted == False
@@ -1638,6 +1643,30 @@ def listar_lancamentos(
         query = query.offset(safe_skip).limit(safe_limit)
 
     results = db.exec(query).all()
+    if minimized:
+        minimized_data = []
+        for item in results:
+            minimized_data.append({
+                "id": item.id,
+                "descricao": item.descricao,
+                "tipo": item.tipo,
+                "status": item.status,
+                "origem": item.origem,
+                "observacao": item.observacao,
+                "id_parcelamento": item.id_parcelamento,
+                "data_vencimento": item.data_vencimento.isoformat() if item.data_vencimento else None,
+                "data_pagamento": item.data_pagamento.isoformat() if item.data_pagamento else None,
+                "data_competencia": item.data_competencia.isoformat() if item.data_competencia else None,
+                "competencia": item.competencia,
+                "valor_previsto": float(item.valor_previsto) if item.valor_previsto is not None else 0.0,
+                "valor_pago": float(item.valor_pago) if item.valor_pago is not None else 0.0,
+                "plano_contas_id": item.plano_contas_id,
+                "conta_id": item.conta_id,
+                "entidade_id": item.entidade_id,
+                "centro_custo_id": item.centro_custo_id,
+            })
+        return JSONResponse(content=minimized_data)
+
     if not include_anexos:
         for item in results:
             item.anexos = []

@@ -80,3 +80,16 @@ alembic/versions/*
 alembic/versions/__pycache__/
 .env
 .gitignore
+
+# Temporary and local data files
+*.csv
+*.xlsx
+backups/
+scratch/
+sql/
+app/csv_erick_rows.json
+app/diagnose.py
+app/diagnose_erick.py
+app/diagnose_output.txt
+app/diagnose_sellers_output.txt
+static/diagnose_output.txt

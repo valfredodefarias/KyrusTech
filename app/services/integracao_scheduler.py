@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from threading import Event
 
 from loguru import logger
@@ -26,6 +26,19 @@ def _to_utc_naive(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def cleanup_old_idempotency_logs(db: Session) -> None:
+    """Remove logs de idempotência mais antigos que 3 dias para economizar espaço no BD."""
+    try:
+        cutoff = datetime.utcnow() - timedelta(days=3)
+        statement = text("DELETE FROM idempotency_logs WHERE created_at < :cutoff")
+        result = db.exec(statement, {"cutoff": cutoff})
+        db.commit()
+        if result.rowcount > 0:
+            logger.info("[Scheduler] Limpeza de idempotência: {} registros antigos deletados", result.rowcount)
+    except Exception as exc:
+        logger.error("[Scheduler] Falha ao limpar logs de idempotência: {}", exc)
+
+
 def run_due_integracoes_sync() -> None:
     now = datetime.utcnow()
     with Session(engine) as db:
@@ -36,6 +49,7 @@ def run_due_integracoes_sync() -> None:
             return
 
         try:
+            cleanup_old_idempotency_logs(db)
             due_integracoes = db.exec(
                 select(IntegracaoBancaria).where(
                     IntegracaoBancaria.is_deleted == False,

@@ -22,6 +22,9 @@ from app.api.v1.endpoints import (
     orcamentos,
     pdv,
     rbac,
+    compras,
+    comissoes,
+    comissao_config,
 )
 
 api_router = APIRouter()
@@ -60,6 +63,13 @@ api_router.include_router(rbac.router, prefix="/rbac", tags=["RBAC"])
 
 # --- PDV ---
 api_router.include_router(pdv.router, prefix="/pdv", tags=["PDV"])
+
+# --- COMPRAS ---
+api_router.include_router(compras.router, prefix="/compras", tags=["Compras"])
+
+# --- COMISSÕES ---
+api_router.include_router(comissoes.router, prefix="/comissoes", tags=["Comissões"])
+api_router.include_router(comissao_config.router, prefix="/comissoes/config", tags=["Configurações de Comissões"])
 
 # --- IA ---
 api_router.include_router(ai_assistente.router, prefix="/ai", tags=["Assistente IA"])

@@ -27,6 +27,7 @@ const PdvFechamento = lazy(() => import('./pages/PDVFechamento').then((module) =
 const Caixa = lazy(() => import('./pages/Caixa').then((module) => ({ default: module.Caixa })));
 const Configuracoes = lazy(() => import('./pages/Configuracoes').then((module) => ({ default: module.Configuracoes })));
 const Auditoria = lazy(() => import('./pages/Auditoria').then((module) => ({ default: module.Auditoria })));
+const ComissoesDashboard = lazy(() => import('./pages/ComissoesDashboard').then((module) => ({ default: module.ComissoesDashboard })));
 const IntegracaoAsaas = lazy(() => import('./pages/IntegracaoAsaas').then((module) => ({ default: module.IntegracaoAsaas })));
 const ImportacaoOfx = lazy(() => import('./pages/ImportacaoOfx').then((module) => ({ default: module.ImportacaoOfx })));
 const ImportacaoNfe = lazy(() => import('./pages/ImportacaoNfe').then((module) => ({ default: module.ImportacaoNfe })));
@@ -153,6 +154,7 @@ function App() {
               <Route path="/importacao_ofx" element={<ImportacaoOfx />} />
               <Route path="/importacao_nfe" element={<ImportacaoNfe />} />
               <Route path="/auditoria" element={<Auditoria />} />
+              <Route path="/comissoes" element={<ComissoesDashboard />} />
               <Route path="/integracoes" element={<Navigate to="/integracoes/asaas" replace />} />
               <Route path="/integracoes/asaas" element={<IntegracaoAsaas />} />
             </Route>

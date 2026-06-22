@@ -14,7 +14,7 @@ import {
 import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
-import { api, fetchLancamentosPaged, getPublicBaseUrl, normalizeListResponse, toPublicAssetUrl } from '../services/api';
+import { api, getPublicBaseUrl, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
 interface ContaResumo {
@@ -763,9 +763,9 @@ export function Boletim() {
 
         const [contasRes, lancamentosRes, categoriasRes, entidadesRes, centrosCustoRes] = await Promise.allSettled([
           api.get<ContaResumo[]>('/contas/'),
-          fetchLancamentosPaged<LancamentoResumo>({ data_inicio: yearStart, data_fim: yearEnd, include_anexos: false, incluir_demonstracoes: true }, { pageSize: 1500 }),
+          api.get<LancamentoResumo[]>('/lancamentos/', { params: { data_inicio: yearStart, data_fim: yearEnd, include_anexos: false, incluir_demonstracoes: true, minimized: true, sem_paginacao: true } }).then(res => res.data),
           api.get<PlanoContaResumo[]>('/plano-contas/'),
-          api.get<EntidadeResumo[]>('/entidades/'),
+          api.get<EntidadeResumo[]>('/entidades/lookup'),
           api.get<CentroCustoResumo[]>('/centro-custo/'),
         ]);
 

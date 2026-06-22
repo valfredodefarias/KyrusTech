@@ -237,7 +237,6 @@ def _load_company_users(db: Session, *, empresa_id: int) -> list[RbacUserRead]:
         select(Usuario)
         .where(
             Usuario.is_deleted == False,
-            Usuario.is_active == True,
             or_(Usuario.empresa_id == empresa_id, Usuario.id.in_(consultor_ids)),
         )
         .order_by(Usuario.nome, Usuario.email)

@@ -25,7 +25,7 @@ Este arquivo dita o comportamento de todos os agentes de IA no desenvolvimento d
 
 ### Frontend (React + Vite + TypeScript)
 * **Design e UI Reutilizável**: Utilize os componentes de UI padronizados localizados em `src/components` (ex: `CurrencyInput`, `MultiSelectDropdown`, `SearchableSelect`).
-* **Estilização**: Siga o padrão visual moderno com Tailwind CSS. Priorize layouts responsivos, modais deslizantes laterais (Drawers) e animações suaves (conforme o padrão da tela `Lancamentos.tsx` e `FRONTEND_UI_GUIDELINES.md`).
+* **Estilização**: Siga o padrão visual moderno com Tailwind CSS. Priorize layouts responsivos, modais deslizantes laterais (Drawers) e animações suaves (conforme o padrão da tela `Lancamentos.tsx` e as diretrizes do `ARCHITECTURE.md`).
 * **Gerenciamento de Estado**: Utilize as stores `zustand` existentes (`useAuthStore`, `useLookupStore`) em `src/store`.
 
 ## 3. Diretrizes de Segurança (Obrigatório)

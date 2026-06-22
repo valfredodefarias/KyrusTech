@@ -24,6 +24,9 @@ class NFeItem:
     valor_total: Decimal
     cfop: str
     ncm: str
+    c_prod: str = ""
+    c_ean: str = ""
+    cest: str = ""
 
 
 @dataclass
@@ -235,6 +238,10 @@ def parse_nfe_xml(xml_content: bytes, empresa_cnpj: str = "") -> NFeDocumento:
         if ncm and ncm not in ncms:
             ncms.append(ncm)
 
+        c_prod = _find_first_text(prod, ("cProd",))
+        c_ean = _find_first_text(prod, ("cEAN",))
+        cest = _find_first_text(prod, ("CEST",))
+
         x_prod = _find_first_text(prod, ("xProd",))
         q_com = _find_first_text(prod, ("qCom",))
         v_un_com = _find_first_text(prod, ("vUnCom",))
@@ -265,6 +272,9 @@ def parse_nfe_xml(xml_content: bytes, empresa_cnpj: str = "") -> NFeDocumento:
                         valor_total=valor_item,
                         cfop=cfop,
                         ncm=ncm,
+                        c_prod=c_prod,
+                        c_ean=c_ean,
+                        cest=cest,
                     )
                 )
             except ValueError:

@@ -5,7 +5,7 @@ import {
   Landmark, CreditCard, Settings,
   Briefcase, X, LineChart, FileText,
   Calculator, Table2, ShoppingBag,
-  Banknote, Coins, History,
+  Banknote, Coins, History, Award,
 } from 'lucide-react';
 import { useAuthStore, type AuthUser } from '../store/authStore';
 import { api } from '../services/api';
@@ -102,6 +102,11 @@ function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
       label: 'Auditoria',
       path: '/auditoria',
       requiredPermissions: ['page:auditoria:view'],
+    },
+    {
+      icon: Award,
+      label: 'Comissões e Metas',
+      path: '/comissoes',
     },
     { icon: Settings, label: 'Configurações', path: '/config' },
   ];

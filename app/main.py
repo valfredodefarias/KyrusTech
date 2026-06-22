@@ -15,7 +15,8 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.openapi.docs import get_swagger_ui_html
 from loguru import logger
 from sqlalchemy import text
 from sqlmodel import Session
@@ -177,17 +178,28 @@ def _apply_legacy_schema_compatibility() -> None:
     from app.models.regra_cartao import RegraCartao
     from app.models.lote_cartao import LoteCartao
     from app.models.lote_cartao_item import LoteCartaoItem
+    from app.models.idempotency_log import IdempotencyLog
     RegraCartao.__table__.create(bind=engine, checkfirst=True)
     LoteCartao.__table__.create(bind=engine, checkfirst=True)
     LoteCartaoItem.__table__.create(bind=engine, checkfirst=True)
+    IdempotencyLog.__table__.create(bind=engine, checkfirst=True)
 
 
 # --- INICIALIZAR APLICAÇÃO ---
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="API Backend do Kyrus ERP",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url=None,
+    redoc_url=None
 )
+
+from app.api.deps import IdempotencyCompletedException
+
+@app.exception_handler(IdempotencyCompletedException)
+async def idempotency_completed_handler(request: Request, exc: IdempotencyCompletedException):
+    return JSONResponse(content=exc.response_body, status_code=200)
+
 
 
 @app.on_event("startup")
@@ -263,12 +275,28 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     if response.headers.get("content-type", "").startswith("text/html"):
-        response.headers.setdefault(
-            "Content-Security-Policy",
-            "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; object-src 'none'; "
-            "img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
-            "script-src 'self'; connect-src 'self' ws: wss: http: https:; font-src 'self' data:; worker-src 'self' blob:"
-        )
+        path = request.url.path
+        if path in ("/docs", "/swagger", "/redoc"):
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'self' https://cdn.jsdelivr.net; "
+                "base-uri 'self'; "
+                "frame-ancestors 'self'; "
+                "object-src 'none'; "
+                "img-src 'self' data: blob: https://fastapi.tiangolo.com; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+                "connect-src 'self' ws: wss: http: https:; "
+                "font-src 'self' data: https://fonts.gstatic.com; "
+                "worker-src 'self' blob:"
+            )
+        else:
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; object-src 'none'; "
+                "img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
+                "script-src 'self'; connect-src 'self' ws: wss: http: https:; font-src 'self' data:; worker-src 'self' blob:"
+            )
     return response
 
 
@@ -383,6 +411,103 @@ async def audit_context_middleware(request: Request, call_next):
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # --- ENDPOINTS PRINCIPAIS ---
+@app.get("/docs", include_in_schema=False)
+async def custom_redoc_html():
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Kyrus ERP - Documentação de API</title>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="icon" type="image/png" href="https://fastapi.tiangolo.com/img/favicon.png">
+        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+        <style>
+          body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+          }
+        </style>
+      </head>
+      <body>
+        <div id="redoc-container"></div>
+        <script src="https://cdn.jsdelivr.net/npm/redoc@latest/bundles/redoc.standalone.js"> </script>
+        <script>
+          Redoc.init('/openapi.json', {
+            theme: {
+              colors: {
+                primary: {
+                  main: '#0284c7'
+                },
+                success: {
+                  main: '#10b981'
+                },
+                warning: {
+                  main: '#f59e0b'
+                },
+                error: {
+                  main: '#ef4444'
+                },
+                text: {
+                  primary: '#0f172a',
+                  secondary: '#64748b'
+                },
+                responses: {
+                  success: {
+                    color: '#10b981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.06)'
+                  }
+                }
+              },
+              typography: {
+                fontSize: '14px',
+                fontFamily: "'Plus Jakarta Sans', sans-serif",
+                headings: {
+                  fontFamily: "'Plus Jakarta Sans', sans-serif",
+                  fontWeight: '700'
+                },
+                code: {
+                  fontFamily: "'Fira Code', monospace",
+                  fontSize: '13px',
+                  backgroundColor: '#f1f5f9',
+                  color: '#0f172a'
+                }
+              },
+              sidebar: {
+                backgroundColor: '#0f172a',
+                textColor: '#94a3b8',
+                activeTextColor: '#ffffff',
+                width: '260px'
+              },
+              rightPanel: {
+                backgroundColor: '#1e293b',
+                textColor: '#e2e8f0',
+                width: '40%'
+              }
+            },
+            scrollYOffset: 0,
+            hideDownloadButton: false,
+            expandResponses: "200,201",
+            nativeScrollbars: true,
+            pathInMiddlePanel: true
+          }, document.getElementById('redoc-container'));
+        </script>
+      </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content, status_code=200)
+
+@app.get("/swagger", include_in_schema=False)
+async def custom_swagger_ui():
+    return get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title=app.title + " - Interactive API",
+        oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
+        swagger_js_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js",
+        swagger_css_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css",
+    )
+
 @app.get("/", tags=["Root"])
 async def read_root():
     """Endpoint raiz da API"""
@@ -390,6 +515,7 @@ async def read_root():
         "message": f"Bem-vindo à API do {settings.PROJECT_NAME}",
         "environment": settings.ENVIRONMENT,
         "docs": "/docs",
+        "swagger": "/swagger",
         "openapi": "/openapi.json"
     }
 

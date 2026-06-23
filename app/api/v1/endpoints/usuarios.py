@@ -3,7 +3,7 @@
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Request
 from loguru import logger
 from sqlmodel import Session, select, or_
 from sqlalchemy.orm import selectinload
@@ -63,6 +63,7 @@ def create(
     *,
     db: Session = Depends(get_db),
     user_in: UserCreate,
+    request: Request,
     current_user: Usuario = Depends(get_current_active_user),
 ):
     """Cria um novo usuário vinculado a uma empresa."""
@@ -80,10 +81,15 @@ def create(
         if not payload.is_consultor:
             payload.consultor_role = ConsultorRole.USUARIO_NORMAL.value
         payload.is_superuser = False
+        
+        # Se for um usuário comum (não consultor) e empresa_id não for informado,
+        # associa automaticamente à empresa do contexto atual.
+        if not payload.is_consultor and payload.empresa_id is None:
+            payload.empresa_id = get_empresa_id_from_user(current_user=current_user, session=db, request=request)
     else:
         if payload.is_consultor:
             raise HTTPException(status_code=403, detail="Somente super consultor pode criar consultores.")
-        empresa_contexto = get_empresa_id_from_user(current_user=current_user, session=db)
+        empresa_contexto = get_empresa_id_from_user(current_user=current_user, session=db, request=request)
         if payload.empresa_id not in (None, empresa_contexto):
             raise HTTPException(status_code=403, detail="Você não pode criar usuários fora da empresa em contexto.")
 

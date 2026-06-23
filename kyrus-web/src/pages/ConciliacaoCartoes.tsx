@@ -407,13 +407,6 @@ export function ConciliacaoCartoes() {
           plano_contas_taxa_id: prev.plano_contas_taxa_id || String(despesas[0].id)
         }));
       }
-
-      // Load specific tab data
-      if (activeTab === 'agenda') {
-        await fetchAgenda();
-      } else if (activeTab === 'conciliacao') {
-        await fetchDepositos();
-      }
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
     } finally {
@@ -422,15 +415,38 @@ export function ConciliacaoCartoes() {
   };
 
   const fetchAgenda = async () => {
+    setLoading(true);
     try {
-      const res = await api.get('/pdv/recebiveis');
+      let start = startDate;
+      let end = endDate;
+      if (!start && !end) {
+        // Fetch a 3-month window centered on currentMonth (previous month, current month, next month)
+        // to cover all calendar padding and adjacent calculations
+        const year = currentMonth.getFullYear();
+        const month = currentMonth.getMonth();
+        const startOfPrev = new Date(year, month - 1, 1);
+        const endOfNext = new Date(year, month + 2, 0);
+        
+        start = startOfPrev.toISOString().split('T')[0];
+        end = endOfNext.toISOString().split('T')[0];
+      }
+      
+      const res = await api.get('/pdv/recebiveis', {
+        params: {
+          start_date: start,
+          end_date: end
+        }
+      });
       setRecebiveis(normalizeListResponse<Recebivel>(res.data));
     } catch (e) {
       console.error('Erro ao carregar recebíveis:', e);
+    } finally {
+      setLoading(false);
     }
   };
 
   const fetchDepositos = async () => {
+    setLoading(true);
     try {
       const res = await api.get('/lancamentos/', {
         params: {
@@ -443,11 +459,28 @@ export function ConciliacaoCartoes() {
       setDepositos(normalizeListResponse<DepositoExtrato>(res.data));
     } catch (e) {
       console.error('Erro ao carregar depósitos:', e);
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Load static resources once on mount
   useEffect(() => {
     void loadData();
+  }, []);
+
+  // Fetch agenda dynamically based on activeTab, month, and date filters
+  useEffect(() => {
+    if (activeTab === 'agenda') {
+      void fetchAgenda();
+    }
+  }, [activeTab, currentMonth, startDate, endDate]);
+
+  // Fetch non-reconciled deposits when on conciliacao tab
+  useEffect(() => {
+    if (activeTab === 'conciliacao') {
+      void fetchDepositos();
+    }
   }, [activeTab]);
 
   // Auto-scroll to details panel when selectedDay changes

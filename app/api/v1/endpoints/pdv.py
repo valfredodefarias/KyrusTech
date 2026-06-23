@@ -901,6 +901,8 @@ def upload_comprovante_venda_pdv(
 def listar_recebiveis_cartao(
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
 ):
     """Lista todos os recebíveis de cartão previstos/recebidos da empresa (Agenda de Recebíveis)."""
     query = (
@@ -914,6 +916,11 @@ def listar_recebiveis_cartao(
             Lancamento.origem == "PDV"
         )
     )
+    if start_date:
+        query = query.where(Lancamento.data_vencimento >= start_date)
+    if end_date:
+        query = query.where(Lancamento.data_vencimento <= end_date)
+        
     rows = db.exec(query).all()
     
     recebiveis = []
@@ -986,6 +993,7 @@ def auto_match_conciliacao(
     if not data_deposito:
         data_deposito = deposito.created_at.date() if deposito.created_at else date.today()
 
+    from datetime import timedelta
     launches = db.exec(
         select(Lancamento)
         .where(
@@ -993,7 +1001,9 @@ def auto_match_conciliacao(
             Lancamento.is_deleted == False,
             Lancamento.tipo == "RECEITA",
             Lancamento.origem == "PDV",
-            Lancamento.status == "EM ABERTO"
+            Lancamento.status == "EM ABERTO",
+            Lancamento.data_vencimento >= data_deposito - timedelta(days=7),
+            Lancamento.data_vencimento <= data_deposito + timedelta(days=7)
         )
     ).all()
     

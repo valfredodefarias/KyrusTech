@@ -2219,7 +2219,7 @@ export function PDV() {
       {showVendaForm && (
         <>
           <div className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowVendaForm(false)} />
-          <div className="fixed inset-y-0 right-0 w-full max-w-3xl bg-white dark:bg-slate-900 shadow-2xl z-50 transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 translate-x-0">
+          <div className="fixed inset-y-0 right-0 w-full md:max-w-[75vw] bg-white dark:bg-slate-900 shadow-2xl z-50 transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 translate-x-0">
             {/* Header */}
             <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-900">
               <div>

@@ -242,6 +242,11 @@ function SearchableProductSelect({
               }`}>
                 {selectedProduct.tipo === 'SERVICO' ? 'Serviço' : 'Produto'}
               </span>
+              {selectedProduct.revisao_pendente && (
+                <span className="inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.05em] shrink-0 bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                  Revisar
+                </span>
+              )}
               <span className="truncate">{selectedProduct.nome} - {formatCurrency(Number(selectedProduct.preco_unitario))}</span>
             </span>
           ) : placeholder}
@@ -289,8 +294,8 @@ function SearchableProductSelect({
                     : 'text-slate-700 dark:text-slate-300'
                 }`}
               >
-                <div className="flex items-center justify-between w-full gap-2">
-                  <div className="flex items-center gap-2 truncate">
+                <div className="flex items-center justify-between w-full gap-2 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     {prod.imagem_url ? (
                       <img
                         src={toPublicAssetUrl(prod.imagem_url) ?? undefined}
@@ -309,6 +314,11 @@ function SearchableProductSelect({
                     }`}>
                       {prod.tipo === 'SERVICO' ? 'Serviço' : 'Produto'}
                     </span>
+                    {prod.revisao_pendente && (
+                      <span className="inline-flex rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase shrink-0 bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                        Revisar
+                      </span>
+                    )}
                     <span className="truncate">{prod.nome}</span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -542,7 +552,7 @@ export function PDV() {
   const [filtroVendedor, setFiltroVendedor] = useState('TODOS');
 
   const activeProdutos = useMemo(() => {
-    return produtos.filter((p) => p.is_active !== false && !p.revisao_pendente);
+    return produtos.filter((p) => p.is_active !== false);
   }, [produtos]);
 
   const filteredProdutos = useMemo(() => {
@@ -1808,7 +1818,14 @@ export function PDV() {
                                     </div>
                                   )}
                                   <div className="min-w-0">
-                                    <span className="block truncate font-bold text-slate-900 dark:text-white">{prod.nome}</span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="block truncate font-bold text-slate-900 dark:text-white">{prod.nome}</span>
+                                      {prod.revisao_pendente && (
+                                        <span className="inline-flex rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 shrink-0">
+                                          Revisar
+                                        </span>
+                                      )}
+                                    </div>
                                     {prod.codigo_barras && (
                                       <span className="block font-mono text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{prod.codigo_barras}</span>
                                     )}
@@ -1907,6 +1924,14 @@ export function PDV() {
               </div>
 
               <form onSubmit={handleProdutoSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+                {produtoRevisaoPendente && (
+                  <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-250 dark:border-amber-900/40 rounded-xl p-3 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                    <div>
+                      <span className="font-bold">Item Pendente de Revisão:</span> Salvar este formulário irá aprovar e validar as informações do produto, removendo a pendência de revisão.
+                    </div>
+                  </div>
+                )}
                 {/* Seção: Informações Básicas */}
                 <div className="space-y-4">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5">

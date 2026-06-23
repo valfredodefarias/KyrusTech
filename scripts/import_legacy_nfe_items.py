@@ -26,9 +26,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Importar itens e estoque de XMLs de NF-e legadas vinculando ao financeiro existente")
     parser.add_argument("directory", help="Diretório contendo os arquivos XML das Notas Fiscais")
     parser.add_argument("--dry-run", action="store_true", help="Simular importação sem salvar no banco de dados")
+    parser.add_argument("--centro-custo-id", type=int, help="ID do Centro de Custo padrão para novos lançamentos ou vínculos")
     return parser.parse_args()
 
-def process_single_xml(db: Session, xml_path: Path, dry_run: bool = False):
+def process_single_xml(db: Session, xml_path: Path, dry_run: bool = False, default_centro_custo_id: int | None = None):
     print(f"\n----------------------------------------")
     print(f"Processando arquivo: {xml_path.name}")
     
@@ -161,6 +162,9 @@ def process_single_xml(db: Session, xml_path: Path, dry_run: bool = False):
                 match_candidato.id_parcelamento = parcela_group_id
                 match_candidato.import_hash = import_hash
                 match_candidato.numero_parcela = parcela.index
+                # Atualiza centro de custo se estiver em branco e foi passado um padrão
+                if match_candidato.centro_custo_id is None and default_centro_custo_id is not None:
+                    match_candidato.centro_custo_id = default_centro_custo_id
                 # Atualiza com as informações da nota se estiver sem
                 if not match_candidato.competencia:
                     match_candidato.data_competencia = nfe_doc.data_emissao
@@ -189,7 +193,8 @@ def process_single_xml(db: Session, xml_path: Path, dry_run: bool = False):
                     import_hash=import_hash,
                     empresa_id=EMPRESA_ID,
                     plano_contas_id=plano_contas_id,
-                    entidade_id=fornecedor.id
+                    entidade_id=fornecedor.id,
+                    centro_custo_id=default_centro_custo_id
                 )
                 db.add(novo_lancamento)
 
@@ -219,7 +224,7 @@ def main():
     with Session(engine) as db:
         for xml_file in xml_files:
             try:
-                if process_single_xml(db, xml_file, dry_run=args.dry_run):
+                if process_single_xml(db, xml_file, dry_run=args.dry_run, default_centro_custo_id=args.centro_custo_id):
                     sucessos += 1
             except Exception as e:
                 print(f"Falha ao processar {xml_file.name}: {e}")

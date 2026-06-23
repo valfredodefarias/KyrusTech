@@ -164,12 +164,15 @@ def get_metas(
     """
     empresa_id = 27  # Rosario Belem
     
-    # 1. Buscar todos os usuários ativos da empresa
+    # 1. Buscar todos os vendedores ativos da empresa (excluindo consultores e "Loja" legado)
     vendedores = db.exec(
         select(Usuario)
         .where(
             Usuario.empresa_id == empresa_id,
-            Usuario.is_active == True
+            Usuario.is_active == True,
+            Usuario.is_deleted == False,
+            Usuario.is_consultor == False,
+            Usuario.email != "loja@kyrus_legado.com"
         )
         .order_by(Usuario.nome)
     ).all()
@@ -259,12 +262,14 @@ def get_metas_ano(
     """
     empresa_id = 27  # Rosario Belem
     
-    # Buscar vendedores ativos da empresa (excluindo usuário "Loja" por nome/e-mail)
+    # Buscar vendedores ativos da empresa (excluindo consultores e usuário "Loja" por e-mail)
     vendedores = db.exec(
         select(Usuario)
         .where(
             Usuario.empresa_id == empresa_id,
             Usuario.is_active == True,
+            Usuario.is_deleted == False,
+            Usuario.is_consultor == False,
             Usuario.email != "loja@kyrus_legado.com"
         )
         .order_by(Usuario.nome)

@@ -75,21 +75,27 @@ type Feedback = {
 };
 
 function sortPermissions(items: PermissionItem[]) {
-  return [...items].sort((left, right) => {
-    const moduleCompare = left.module.localeCompare(right.module, 'pt-BR');
-    if (moduleCompare !== 0) return moduleCompare;
-    const actionCompare = left.action.localeCompare(right.action, 'pt-BR');
-    if (actionCompare !== 0) return actionCompare;
-    return left.code.localeCompare(right.code, 'pt-BR');
-  });
+  return [...items]
+    .filter((item) => item.module !== 'consultor')
+    .sort((left, right) => {
+      const moduleCompare = left.module.localeCompare(right.module, 'pt-BR');
+      if (moduleCompare !== 0) return moduleCompare;
+      const actionCompare = left.action.localeCompare(right.action, 'pt-BR');
+      if (actionCompare !== 0) return actionCompare;
+      return left.code.localeCompare(right.code, 'pt-BR');
+    });
 }
 
 function groupPermissions(items: PermissionItem[]) {
   const grouped = new Map<string, PermissionItem[]>();
   sortPermissions(items).forEach((item) => {
-    const bucket = grouped.get(item.module) || [];
+    let moduleName = item.module;
+    if (item.code === 'lancamentos:import_nfe') {
+      moduleName = 'importacao_nfe';
+    }
+    const bucket = grouped.get(moduleName) || [];
     bucket.push(item);
-    grouped.set(item.module, bucket);
+    grouped.set(moduleName, bucket);
   });
   return Array.from(grouped.entries());
 }
@@ -141,7 +147,8 @@ function getPermissionSubtitle(permission: PermissionItem) {
     return 'Permissão de acesso à página';
   }
 
-  return `Permissão do módulo ${formatLabel(permission.module)}`;
+  const moduleName = permission.code === 'lancamentos:import_nfe' ? 'importacao_nfe' : permission.module;
+  return `Permissão do módulo ${formatLabel(moduleName)}`;
 }
 
 function getInitials(value: string) {

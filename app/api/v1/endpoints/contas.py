@@ -180,7 +180,7 @@ def read_all_contas(
                 Lancamento.conta_id.is_not(None),
                 or_(
                     Lancamento.observacao.is_(None),
-                    ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")
+                    (~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%") & ~Lancamento.observacao.ilike('%"legacy_id_venda"%'))
                 ),
             )
             .group_by(Lancamento.conta_id)
@@ -255,7 +255,7 @@ def extrato_conta(
             _movimento_influencia_saldo_clause(),
             or_(
                 Lancamento.observacao.is_(None),
-                ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")
+                (~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%") & ~Lancamento.observacao.ilike('%"legacy_id_venda"%'))
             ),
         )
         .order_by(Lancamento.data_pagamento.desc())
@@ -302,7 +302,7 @@ def saldo_detalhe_conta(
             _movimento_influencia_saldo_clause(),
             or_(
                 Lancamento.observacao.is_(None),
-                ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")
+                (~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%") & ~Lancamento.observacao.ilike('%"legacy_id_venda"%'))
             ),
         )
         .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).asc(), Lancamento.id.asc())

@@ -125,7 +125,7 @@ def read_dre(
         .where(
             or_(
                 Lancamento.observacao.is_(None),
-                ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")
+                (~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%") & ~Lancamento.observacao.ilike('%"legacy_id_venda"%'))
             )
         )
         .where(Lancamento.data_vencimento >= inicio_serie)

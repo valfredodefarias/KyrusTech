@@ -10,7 +10,7 @@ from typing import List, Optional
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
-from sqlmodel import Session, select, col
+from sqlmodel import Session, select, col, or_
 
 from app.api.v1.deps import get_current_active_user, get_empresa_id_from_user
 from app.api.deps import check_idempotency
@@ -913,7 +913,11 @@ def listar_recebiveis_cartao(
             Lancamento.empresa_id == empresa_id,
             Lancamento.is_deleted == False,
             Lancamento.tipo == "RECEITA",
-            Lancamento.origem == "PDV"
+            Lancamento.origem == "PDV",
+            or_(
+                Lancamento.observacao.is_(None),
+                ~Lancamento.observacao.ilike('%"legacy_id_venda"%')
+            )
         )
     )
     if start_date:
@@ -1003,7 +1007,11 @@ def auto_match_conciliacao(
             Lancamento.origem == "PDV",
             Lancamento.status == "EM ABERTO",
             Lancamento.data_vencimento >= data_deposito - timedelta(days=7),
-            Lancamento.data_vencimento <= data_deposito + timedelta(days=7)
+            Lancamento.data_vencimento <= data_deposito + timedelta(days=7),
+            or_(
+                Lancamento.observacao.is_(None),
+                ~Lancamento.observacao.ilike('%"legacy_id_venda"%')
+            )
         )
     ).all()
     

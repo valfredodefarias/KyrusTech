@@ -1558,6 +1558,7 @@ def listar_lancamentos(
     conciliado: Optional[bool] = Query(None),
     ocultar_vendas_cartao_pendentes: bool = Query(False),
     incluir_demonstracoes: bool = Query(False),
+    incluir_importacao_legada: bool = Query(False),
     minimized: bool = Query(False),
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
@@ -1583,6 +1584,13 @@ def listar_lancamentos(
             or_(
                 Lancamento.observacao.is_(None),
                 ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")
+            )
+        )
+    if not incluir_importacao_legada:
+        query = query.where(
+            or_(
+                Lancamento.observacao.is_(None),
+                ~Lancamento.observacao.ilike('%"legacy_id_venda"%')
             )
         )
     if data_inicio and data_fim:

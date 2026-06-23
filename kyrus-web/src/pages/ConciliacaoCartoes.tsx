@@ -470,7 +470,7 @@ export function ConciliacaoCartoes() {
       rv: item.rv || '',
       data_venda: item.data_venda || '',
       data_vencimento: item.data_vencimento || '',
-      bandeira: item.bandeira || 'VISA',
+      bandeira: item.bandeira || 'OUTROS',
       tipo_pagamento: item.tipo_pagamento || 'cartao_credito_vista',
       entidade_id: item.cliente_id !== null && item.cliente_id !== undefined ? String(item.cliente_id) : '',
       vendedor_id: item.vendedor_id !== null && item.vendedor_id !== undefined ? String(item.vendedor_id) : '',

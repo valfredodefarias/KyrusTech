@@ -534,7 +534,7 @@ export function PDV() {
   // Múltiplos Pagamentos, Status e Comprovante
   const [vendaStatus, setVendaStatus] = useState<string>('REALIZADO');
   const [vendaPagamentos, setVendaPagamentos] = useState<VendaPagamentoLinha[]>([
-    { tipoPagamento: 'dinheiro', valor: '', numeroParcelas: 1, valorParcela: '', dataPagamento: '' }
+    { tipoPagamento: 'dinheiro', valor: '', numeroParcelas: 1, valorParcela: '', dataPagamento: '', bandeira: 'VISA' }
   ]);
   const [comprovanteFiles, setComprovanteFiles] = useState<File[]>([]);
   const [existingComprovantes, setExistingComprovantes] = useState<string[]>([]);
@@ -1017,7 +1017,7 @@ export function PDV() {
           numeroParcelas: p.numero_parcelas || 1,
           valorParcela: formatMonetario(p.valor_parcela || ''),
           dataPagamento: p.data_pagamento || venda.data || new Date().toISOString().split('T')[0],
-          bandeira: p.bandeira || 'VISA'
+          bandeira: p.bandeira || 'OUTROS'
         }))
       );
     } else {
@@ -2654,7 +2654,7 @@ export function PDV() {
                             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bandeira do Cartão</label>
                             <div className="flex flex-wrap gap-2">
                               {['VISA', 'MASTERCARD', 'ELO', 'AMEX', 'HIPERCARD', 'CABAL', 'OUTROS'].map((brand) => {
-                                const isSelected = (pag.bandeira || 'VISA') === brand;
+                                const isSelected = (pag.bandeira || 'OUTROS') === brand;
                                 const brandObj = inferCardBrand(brand);
                                 return (
                                   <button
@@ -2681,7 +2681,7 @@ export function PDV() {
                   
                   <button
                     type="button"
-                    onClick={() => setVendaPagamentos([...vendaPagamentos, { tipoPagamento: paymentMethods[0]?.key || 'dinheiro', valor: '', numeroParcelas: 1, valorParcela: '', dataPagamento: new Date().toISOString().split('T')[0] }])}
+                    onClick={() => setVendaPagamentos([...vendaPagamentos, { tipoPagamento: paymentMethods[0]?.key || 'dinheiro', valor: '', numeroParcelas: 1, valorParcela: '', dataPagamento: new Date().toISOString().split('T')[0], bandeira: 'VISA' }])}
                     className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-500 hover:text-blue-600 transition cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />

@@ -1046,6 +1046,10 @@ def _carregar_contexto_classificacao(
         .where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.is_deleted == False,
+            or_(
+                Lancamento.observacao.is_(None),
+                ~Lancamento.observacao.ilike('%"legacy_id_venda"%')
+            )
         )
         .limit(HISTORICO_SUGESTAO_LIMITE)
     ).all())
@@ -1465,6 +1469,10 @@ def _buscar_previsto_data_proxima_valor_exato(
         Lancamento.status.in_(STATUS_ABERTOS),  # type: ignore[attr-defined]
         Lancamento.data_vencimento.between(data_inicio, data_fim),  # type: ignore[attr-defined]
         Lancamento.valor_previsto.between(valor_min, valor_max),  # type: ignore[attr-defined]
+        or_(
+            Lancamento.observacao.is_(None),
+            ~Lancamento.observacao.ilike('%"legacy_id_venda"%')
+        )
     )
 
     if conta_id > 0:
@@ -1567,6 +1575,10 @@ def listar_lancamentos_disponiveis(
         Lancamento.status.in_(STATUS_ABERTOS),  # type: ignore[attr-defined]
         Lancamento.data_pagamento.is_(None),  # type: ignore[attr-defined]
         or_(Lancamento.conciliado == False, Lancamento.conciliado.is_(None)),  # type: ignore[attr-defined]
+        or_(
+            Lancamento.observacao.is_(None),
+            ~Lancamento.observacao.ilike('%"legacy_id_venda"%')
+        )
     ]
     if conta_id:
         filtros.append(or_(Lancamento.conta_id == conta_id, Lancamento.conta_id.is_(None)))  # type: ignore[attr-defined]

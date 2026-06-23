@@ -655,14 +655,18 @@ export function Dre() {
 
       if (raiz.tipoCategoria === 'RECEITA') {
         receitaRows.push(...branch.rows);
-        branch.monthly.forEach((value, index) => {
-          receitaMonthly[index] += value;
-        });
+        if (raiz.grupoExibicao !== 'RECEITAS_NAO_OPERACIONAIS') {
+          branch.monthly.forEach((value, index) => {
+            receitaMonthly[index] += value;
+          });
+        }
       } else {
         despesaRows.push(...branch.rows);
-        branch.monthly.forEach((value, index) => {
-          despesaMonthly[index] += value;
-        });
+        if (raiz.grupoExibicao !== 'DESPESAS_NAO_OPERACIONAIS') {
+          branch.monthly.forEach((value, index) => {
+            despesaMonthly[index] += value;
+          });
+        }
       }
     });
 

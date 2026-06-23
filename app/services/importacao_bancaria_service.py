@@ -351,6 +351,10 @@ def buscar_lancamento_previsto_mesmo_dia_valor(
         lancamento_table.c.valor_previsto >= valor_min,
         lancamento_table.c.valor_previsto <= valor_max,
         lancamento_table.c.status.in_(_status_aberto_clause()),
+        or_(
+            lancamento_table.c.observacao.is_(None),
+            ~lancamento_table.c.observacao.ilike('%"legacy_id_venda"%')
+        ),
     )
     if centro_custo_id:
         query = query.where(lancamento_table.c.centro_custo_id == centro_custo_id)
@@ -388,6 +392,10 @@ def buscar_lancamento_atrasado_mesmo_valor(
         lancamento_table.c.valor_previsto >= valor_min,
         lancamento_table.c.valor_previsto <= valor_max,
         lancamento_table.c.status.in_(_status_aberto_clause()),
+        or_(
+            lancamento_table.c.observacao.is_(None),
+            ~lancamento_table.c.observacao.ilike('%"legacy_id_venda"%')
+        ),
     )
     if centro_custo_id:
         query = query.where(lancamento_table.c.centro_custo_id == centro_custo_id)

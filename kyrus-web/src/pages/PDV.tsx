@@ -223,11 +223,11 @@ function SearchableProductSelect({
     <div ref={wrapperRef} className="relative w-full">
       <div
         onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus-within:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+        className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus-within:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white min-w-0"
       >
-        <span className={selectedProduct ? 'text-slate-900 dark:text-white font-medium w-full' : 'text-slate-400 w-full'}>
+        <div className="flex-1 min-w-0 mr-2">
           {selectedProduct ? (
-            <span className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               {selectedProduct.imagem_url && (
                 <img
                   src={toPublicAssetUrl(selectedProduct.imagem_url) ?? undefined}
@@ -247,10 +247,12 @@ function SearchableProductSelect({
                   Revisar
                 </span>
               )}
-              <span className="truncate">{selectedProduct.nome} - {formatCurrency(Number(selectedProduct.preco_unitario))}</span>
-            </span>
-          ) : placeholder}
-        </span>
+              <span className="truncate text-slate-900 dark:text-white font-medium">{selectedProduct.nome} - {formatCurrency(Number(selectedProduct.preco_unitario))}</span>
+            </div>
+          ) : (
+            <span className="text-slate-400">{placeholder}</span>
+          )}
+        </div>
         <span className="text-slate-400 text-xs shrink-0">▼</span>
       </div>
 
@@ -270,6 +272,7 @@ function SearchableProductSelect({
                 e.stopPropagation();
                 onCreateClick();
                 setIsOpen(false);
+                setSearch('');
               }}
               className="cursor-pointer rounded-lg px-3 py-2 text-xs transition bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold dark:bg-blue-950/40 dark:hover:bg-blue-900/60 dark:text-blue-400 mb-2 flex items-center gap-1.5"
             >
@@ -288,52 +291,59 @@ function SearchableProductSelect({
                   setIsOpen(false);
                   setSearch('');
                 }}
-                className={`cursor-pointer rounded-lg px-3 py-2 text-xs transition hover:bg-slate-100 dark:hover:bg-slate-900 ${
+                className={`cursor-pointer rounded-xl p-2.5 text-xs transition hover:bg-slate-100 dark:hover:bg-slate-900 border-b border-slate-100/50 dark:border-slate-900/50 last:border-b-0 ${
                   String(prod.id) === String(selectedValue)
-                    ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 font-semibold'
+                    ? 'bg-blue-50/50 text-blue-600 dark:bg-blue-950/20 dark:text-blue-400 font-semibold'
                     : 'text-slate-700 dark:text-slate-300'
                 }`}
               >
-                <div className="flex items-center justify-between w-full gap-2 min-w-0">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    {prod.imagem_url ? (
-                      <img
-                        src={toPublicAssetUrl(prod.imagem_url) ?? undefined}
-                        alt={prod.nome}
-                        className="w-6 h-6 rounded object-cover border border-slate-200 dark:border-slate-800 shrink-0 bg-white"
-                      />
-                    ) : (
-                      <div className="w-6 h-6 rounded border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-center text-[7px] font-bold text-slate-400 shrink-0">
-                        N/A
-                      </div>
-                    )}
-                    <span className={`inline-flex rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase shrink-0 ${
-                      prod.tipo === 'SERVICO'
-                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'
-                        : 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300'
-                    }`}>
-                      {prod.tipo === 'SERVICO' ? 'Serviço' : 'Produto'}
-                    </span>
-                    {prod.revisao_pendente && (
-                      <span className="inline-flex rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase shrink-0 bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-                        Revisar
-                      </span>
-                    )}
-                    <span className="truncate">{prod.nome}</span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {prod.tipo === 'PRODUTO' && (
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
-                        Number(prod.quantidade_estoque || 0) > 0
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300'
-                          : 'bg-rose-100 text-rose-800 dark:bg-rose-500/15 dark:text-rose-300'
+                <div className="flex gap-2.5 items-start min-w-0 w-full">
+                  {prod.imagem_url ? (
+                    <img
+                      src={toPublicAssetUrl(prod.imagem_url) ?? undefined}
+                      alt={prod.nome}
+                      className="w-10 h-10 rounded-lg object-cover border border-slate-200 dark:border-slate-800 shrink-0 bg-white"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-lg border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-center text-[8px] font-bold text-slate-400 shrink-0">
+                      N/A
+                    </div>
+                  )}
+
+                  <div className="flex-1 min-w-0 flex flex-col gap-1">
+                    <div className="font-bold text-slate-900 dark:text-white truncate">
+                      {prod.nome}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1 text-[9px]">
+                      <span className={`inline-flex rounded px-1.5 py-0.5 font-bold uppercase shrink-0 ${
+                        prod.tipo === 'SERVICO'
+                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'
+                          : 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300'
                       }`}>
-                        Estoque: {prod.quantidade_estoque ?? 0}
+                        {prod.tipo === 'SERVICO' ? 'Serviço' : 'Produto'}
                       </span>
-                    )}
-                    <span className="font-semibold text-slate-500 dark:text-slate-400 shrink-0">
-                      {formatCurrency(Number(prod.preco_unitario))}
-                    </span>
+
+                      {prod.revisao_pendente && (
+                        <span className="inline-flex rounded px-1.5 py-0.5 font-bold uppercase shrink-0 bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                          Revisar
+                        </span>
+                      )}
+
+                      {prod.tipo === 'PRODUTO' && (
+                        <span className={`inline-flex rounded px-1.5 py-0.5 font-bold uppercase shrink-0 ${
+                          Number(prod.quantidade_estoque || 0) > 0
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300'
+                            : 'bg-rose-100 text-rose-800 dark:bg-rose-500/15 dark:text-rose-300'
+                        }`}>
+                          Estoque: {prod.quantidade_estoque ?? 0}
+                        </span>
+                      )}
+
+                      <span className="font-bold text-slate-500 dark:text-slate-400 ml-auto text-[10px]">
+                        {formatCurrency(Number(prod.preco_unitario))}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -345,8 +355,6 @@ function SearchableProductSelect({
   );
 }
 
-
-// Helpers para formatação e parsing de máscara monetária
 const formatMonetario = (val: string | number) => {
   const cleanVal = typeof val === 'number' ? val.toFixed(2).replace('.', '') : String(val || '').replace(/\D/g, '');
   if (!cleanVal) return '';

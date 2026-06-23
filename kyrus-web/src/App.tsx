@@ -49,6 +49,33 @@ function PrivateRoute({ children }: { children: JSX.Element }) {
   return isAuthenticated ? children : <Navigate to="/" />;
 }
 
+function ProtectedRoute({ children, requiredPermissions }: { children: JSX.Element; requiredPermissions?: string[] }) {
+  const initialized = useAuthStore((state) => state.initialized);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
+  const user = useAuthStore((state) => state.user);
+
+  if (!initialized) {
+    return <RouteFallback />;
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/" />;
+  }
+
+  const permissions = user?.permissions || [];
+  const hasPermission = 
+    permissions.includes('*') || 
+    !requiredPermissions || 
+    requiredPermissions.length === 0 || 
+    requiredPermissions.some((p) => permissions.includes(p));
+
+  if (!hasPermission) {
+    return <Navigate to="/home" replace />;
+  }
+
+  return children;
+}
+
 function App() {
   const initialized = useAuthStore((state) => state.initialized);
   const authenticated = useAuthStore((state) => state.authenticated);
@@ -133,30 +160,60 @@ function App() {
             <Route path="/login" element={<Login />} />
 
             <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
-              <Route path="/home" element={<Home />} />
-              <Route path="/boletim" element={<Boletim />} />
-              <Route path="/dre" element={<Dre />} />
-              <Route path="/consultor" element={<Consultor />} />
-              <Route path="/lancamentos" element={<Lancamentos />} />
+              <Route path="/home" element={<ProtectedRoute requiredPermissions={['page:home:view']}><Home /></ProtectedRoute>} />
+              <Route path="/boletim" element={<ProtectedRoute requiredPermissions={['page:boletim:view']}><Boletim /></ProtectedRoute>} />
+              <Route path="/dre" element={<ProtectedRoute requiredPermissions={['page:dre:view']}><Dre /></ProtectedRoute>} />
+              <Route path="/consultor" element={<ProtectedRoute requiredPermissions={['page:consultor:view']}><Consultor /></ProtectedRoute>} />
+              <Route path="/lancamentos" element={<ProtectedRoute requiredPermissions={['page:lancamentos:view']}><Lancamentos /></ProtectedRoute>} />
               <Route path="/entidades" element={<Navigate to="/config?tab=INTERESSADOS" replace />} />
-              <Route path="/contas" element={<Contas />} />
-              <Route path="/orcamentos" element={<Orcamentos />} />
-              <Route path="/budget" element={<Budget />} />
-              <Route path="/cartoes" element={<Cartoes />} />
-              <Route path="/conciliacao-cartoes" element={<ConciliacaoCartoes />} />
-              <Route path="/pdv" element={<Pdv />} />
-              <Route path="/pdv/fechamento" element={<PdvFechamento />} />
-              <Route path="/caixa" element={<Caixa />} />
-              <Route path="/centro-custo" element={<CentroCusto />} />
-              <Route path="/config" element={<Configuracoes />} />
-              <Route path="/importacao" element={<Importacao />} />
-              <Route path="/importacao_interessados" element={<ImportacaoEntidades />} />
-              <Route path="/importacao_ofx" element={<ImportacaoOfx />} />
-              <Route path="/importacao_nfe" element={<ImportacaoNfe />} />
-              <Route path="/auditoria" element={<Auditoria />} />
-              <Route path="/comissoes" element={<ComissoesDashboard />} />
+              <Route path="/contas" element={<ProtectedRoute requiredPermissions={['page:contas:view']}><Contas /></ProtectedRoute>} />
+              <Route path="/orcamentos" element={<ProtectedRoute requiredPermissions={['page:dre:view']}><Orcamentos /></ProtectedRoute>} />
+              <Route path="/budget" element={<ProtectedRoute requiredPermissions={['page:dre:view']}><Budget /></ProtectedRoute>} />
+              <Route path="/cartoes" element={<ProtectedRoute requiredPermissions={['page:cartoes:view']}><Cartoes /></ProtectedRoute>} />
+              <Route path="/conciliacao-cartoes" element={<ProtectedRoute requiredPermissions={['page:cartoes:view']}><ConciliacaoCartoes /></ProtectedRoute>} />
+              <Route
+                path="/pdv"
+                element={
+                  <ProtectedRoute
+                    requiredPermissions={[
+                      'PDV_VER_TODAS_VENDAS',
+                      'PDV_SER_VENDEDOR',
+                      'PDV_REALIZAR_SANGRIA',
+                      'PDV_CANCELAR_VENDA',
+                      'PDV_CONCEDER_DESCONTO',
+                    ]}
+                  >
+                    <Pdv />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/pdv/fechamento"
+                element={
+                  <ProtectedRoute
+                    requiredPermissions={[
+                      'PDV_VER_TODAS_VENDAS',
+                      'PDV_SER_VENDEDOR',
+                      'PDV_REALIZAR_SANGRIA',
+                      'PDV_CANCELAR_VENDA',
+                      'PDV_CONCEDER_DESCONTO',
+                    ]}
+                  >
+                    <PdvFechamento />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="/caixa" element={<ProtectedRoute requiredPermissions={['page:caixa:view']}><Caixa /></ProtectedRoute>} />
+              <Route path="/centro-custo" element={<ProtectedRoute requiredPermissions={['page:centro_custo:view']}><CentroCusto /></ProtectedRoute>} />
+              <Route path="/config" element={<ProtectedRoute requiredPermissions={['page:configuracoes:view']}><Configuracoes /></ProtectedRoute>} />
+              <Route path="/importacao" element={<ProtectedRoute requiredPermissions={['page:importacao:view']}><Importacao /></ProtectedRoute>} />
+              <Route path="/importacao_interessados" element={<ProtectedRoute requiredPermissions={['page:importacao_entidades:view']}><ImportacaoEntidades /></ProtectedRoute>} />
+              <Route path="/importacao_ofx" element={<ProtectedRoute requiredPermissions={['page:importacao_ofx:view']}><ImportacaoOfx /></ProtectedRoute>} />
+              <Route path="/importacao_nfe" element={<ProtectedRoute requiredPermissions={['page:importacao_nfe:view', 'page:importacao:view']}><ImportacaoNfe /></ProtectedRoute>} />
+              <Route path="/auditoria" element={<ProtectedRoute requiredPermissions={['page:auditoria:view']}><Auditoria /></ProtectedRoute>} />
+              <Route path="/comissoes" element={<ProtectedRoute requiredPermissions={['page:boletim:view']}><ComissoesDashboard /></ProtectedRoute>} />
               <Route path="/integracoes" element={<Navigate to="/integracoes/asaas" replace />} />
-              <Route path="/integracoes/asaas" element={<IntegracaoAsaas />} />
+              <Route path="/integracoes/asaas" element={<ProtectedRoute requiredPermissions={['page:integracoes:view']}><IntegracaoAsaas /></ProtectedRoute>} />
             </Route>
 
             <Route path="*" element={<Navigate to="/boletim" replace />} />

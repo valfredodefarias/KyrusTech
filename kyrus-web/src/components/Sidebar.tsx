@@ -22,7 +22,7 @@ function hasAnyPermission(permissions: string[] | null | undefined, requiredPerm
     return true;
   }
   if (!permissions || permissions.length === 0) {
-    return true;
+    return false;
   }
   if (permissions.includes('*')) {
     return true;
@@ -69,13 +69,13 @@ function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
   const permissions = user?.permissions || [];
 
   const baseMenuItems: MenuItem[] = [
-    { icon: Home, label: 'Visão Geral', path: '/home' },
-    { icon: Landmark, label: 'Contas Bancárias', path: '/contas' },
-    { icon: PlusCircle, label: 'Lançamentos', path: '/lancamentos' },
+    { icon: Home, label: 'Visão Geral', path: '/home', requiredPermissions: ['page:home:view'] },
+    { icon: Landmark, label: 'Contas Bancárias', path: '/contas', requiredPermissions: ['page:contas:view'] },
+    { icon: PlusCircle, label: 'Lançamentos', path: '/lancamentos', requiredPermissions: ['page:lancamentos:view'] },
     { icon: Banknote, label: 'Caixa', path: '/caixa', requiredPermissions: ['page:caixa:view'] },
-    { icon: BarChart2, label: 'Boletim', path: '/boletim' },
-    { icon: CreditCard, label: 'Cartões', path: '/cartoes' },
-    { icon: Coins, label: 'Conciliadora de Cartões', path: '/conciliacao-cartoes' },
+    { icon: BarChart2, label: 'Boletim', path: '/boletim', requiredPermissions: ['page:boletim:view'] },
+    { icon: CreditCard, label: 'Cartões', path: '/cartoes', requiredPermissions: ['page:cartoes:view'] },
+    { icon: Coins, label: 'Conciliadora de Cartões', path: '/conciliacao-cartoes', requiredPermissions: ['page:cartoes:view'] },
     {
       icon: ShoppingBag,
       label: 'PDV',
@@ -88,15 +88,15 @@ function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
         'PDV_CONCEDER_DESCONTO',
       ],
     },
-    { icon: Calculator, label: 'Orçamentos', path: '/orcamentos' },
-    { icon: Table2, label: 'Budget', path: '/budget' },
+    { icon: Calculator, label: 'Orçamentos', path: '/orcamentos', requiredPermissions: ['page:dre:view'] },
+    { icon: Table2, label: 'Budget', path: '/budget', requiredPermissions: ['page:dre:view'] },
     {
       icon: FileText,
       label: 'Importação NF-e',
       path: '/importacao_nfe',
       requiredPermissions: ['page:importacao_nfe:view', 'page:importacao:view'],
     },
-    { icon: LineChart, label: 'DRE', path: '/dre' },
+    { icon: LineChart, label: 'DRE', path: '/dre', requiredPermissions: ['page:dre:view'] },
     {
       icon: History,
       label: 'Auditoria',
@@ -107,13 +107,14 @@ function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
       icon: Award,
       label: 'Comissões e Metas',
       path: '/comissoes',
+      requiredPermissions: ['page:boletim:view'],
     },
-    { icon: Settings, label: 'Configurações', path: '/config' },
+    { icon: Settings, label: 'Configurações', path: '/config', requiredPermissions: ['page:configuracoes:view'] },
   ];
 
   const menuItems = [...baseMenuItems];
   if (isConsultor) {
-    menuItems.unshift({ icon: Briefcase, label: 'Área do Consultor', path: '/consultor' });
+    menuItems.unshift({ icon: Briefcase, label: 'Área do Consultor', path: '/consultor', requiredPermissions: ['page:consultor:view'] });
   }
 
   const menuItemsFiltered = menuItems.filter((item) => {

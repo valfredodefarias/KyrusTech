@@ -40,11 +40,9 @@ def _issue_access_token(response: Response, db: Session, *, subject: str, reques
             active_sess.is_active = False
             db.add(active_sess)
             
-        ip = "127.0.0.1"
-        user_agent = "Unknown"
-        if request:
-            ip = request.client.host if request.client else "127.0.0.1"
-            user_agent = request.headers.get("user-agent", "Unknown")
+        from app.core.network import get_client_ip
+        ip = get_client_ip(request) if request else "127.0.0.1"
+        user_agent = request.headers.get("user-agent", "Unknown") if request else "Unknown"
             
         new_session = UserSession(
             user_id=user.id,

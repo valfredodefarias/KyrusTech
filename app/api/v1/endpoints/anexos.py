@@ -30,7 +30,8 @@ def upload_arquivo(
     Requer autenticação.
     """
     
-    origin = request.client.host if request and request.client else "unknown"
+    from app.core.network import get_client_ip
+    origin = get_client_ip(request)
 
     extensao = Path(file.filename or "arquivo").suffix.lower()
     if not extensao or extensao not in IMAGE_ALLOWED_EXT_TO_MIME:

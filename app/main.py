@@ -301,17 +301,8 @@ async def security_headers_middleware(request: Request, call_next):
 
 
 def _client_identifier(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for", "")
-    if forwarded_for:
-        first_ip = forwarded_for.split(",", 1)[0].strip()
-        if first_ip:
-            return first_ip
-
-    forwarded_host = request.headers.get("x-real-ip", "").strip()
-    if forwarded_host:
-        return forwarded_host
-
-    return request.client.host if request.client else "unknown"
+    from app.core.network import get_client_ip
+    return get_client_ip(request)
 
 
 def _rate_limit_for_path(path: str) -> tuple[int, int] | None:
@@ -398,7 +389,8 @@ async def cache_headers_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def audit_context_middleware(request: Request, call_next):
-    client_host = request.client.host if request.client else None
+    from app.core.network import get_client_ip
+    client_host = get_client_ip(request)
     user_agent = request.headers.get("user-agent")
     set_audit_request(client_host, user_agent)
     try:

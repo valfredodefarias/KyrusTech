@@ -6,6 +6,7 @@ from functools import lru_cache
 import socket
 import logging
 from typing import Optional
+from fastapi import Request
 
 from app.core.config import settings
 
@@ -134,4 +135,26 @@ def get_frontend_url(ip: Optional[str] = None, port: int = 5501) -> str:
     if ip is None:
         ip = get_local_ip()
     return f"http://{ip}:{port}"
+
+
+def get_client_ip(request: Optional[Request]) -> str:
+    """
+    Extrai o IP real do cliente, considerando os cabeçalhos de proxy como
+    X-Forwarded-For e X-Real-IP.
+    """
+    if not request:
+        return "127.0.0.1"
+
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        first_ip = forwarded_for.split(",", 1)[0].strip()
+        if first_ip:
+            return first_ip
+
+    real_ip = request.headers.get("x-real-ip", "").strip()
+    if real_ip:
+        return real_ip
+
+    return request.client.host if request.client else "127.0.0.1"
+
 

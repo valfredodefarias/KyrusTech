@@ -15,17 +15,8 @@ _LOGIN_EVENTS: dict[str, deque[float]] = defaultdict(deque)
 
 
 def _client_identifier(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for", "")
-    if forwarded_for:
-        first_ip = forwarded_for.split(",", 1)[0].strip()
-        if first_ip:
-            return first_ip
-
-    real_ip = request.headers.get("x-real-ip", "").strip()
-    if real_ip:
-        return real_ip
-
-    return request.client.host if request.client else "unknown"
+    from app.core.network import get_client_ip
+    return get_client_ip(request)
 
 
 def _normalize_email(email: str) -> str:

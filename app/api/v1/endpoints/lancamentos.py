@@ -1808,7 +1808,8 @@ def transferir_valores(transf_in: TransferenciaCreate, service: LancamentoServic
 def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo: str = Query("OUTROS"), request: Request = None, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     anexos_criados = []
     empresa_id, user_id = require_empresa_user(current_user)
-    origin = request.client.host if request and request.client else "unknown"
+    from app.core.network import get_client_ip
+    origin = get_client_ip(request)
 
     if not files:
         register_upload_rejection(
@@ -1980,7 +1981,7 @@ def delete_anexo_lancamento(
             endpoint="/api/v1/lancamentos/{id}/anexos/{anexo_id}",
             empresa_id=empresa_id,
             user_id=getattr(current_user, "id", None),
-            origin=request.client.host if request and request.client else "unknown",
+            origin=get_client_ip(request),
             reason="tentativa_path_traversal_ou_url_invalida",
             filename=str(anexo.nome_arquivo or ""),
         )

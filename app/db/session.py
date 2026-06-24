@@ -30,8 +30,9 @@ def get_db(request: Request) -> Generator[Session, None, None]:
     """
     with Session(engine) as session:
         try:
-            client_host = request.client.host if request.client else None
-            user_agent = request.headers.get("user-agent")
+            from app.core.network import get_client_ip
+            client_host = get_client_ip(request)
+            user_agent = request.headers.get("user-agent") if request else None
             session.info["audit_ip_address"] = client_host
             session.info["audit_user_agent"] = user_agent
             yield session

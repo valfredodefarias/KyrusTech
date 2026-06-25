@@ -455,6 +455,7 @@ export function ImportacaoOfx() {
   const [resultado, setResultado] = useState<ProcessarArquivoResponse | null>(null);
   const [lancamentosEditados, setLancamentosEditados] = useState<LancamentoEditado[]>([]);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
+  const [canForceDivergencia, setCanForceDivergencia] = useState(false);
   const [linhaEditandoDescricao, setLinhaEditandoDescricao] = useState<number | null>(null);
   const [descricaoTemporaria, setDescricaoTemporaria] = useState('');
   const [categorias, setCategorias] = useState<CategoriaItem[]>([]);
@@ -1262,7 +1263,7 @@ export function ImportacaoOfx() {
     }
   };
 
-  const handleConfirmar = async () => {
+  const handleConfirmar = async (forceIgnore = false) => {
     if (confirming) return;
     if (!resultado || resultado.lancamentos.length === 0) {
       setFeedback({ type: 'warning', message: 'Nenhum lançamento disponível para confirmar.' });
@@ -1279,6 +1280,7 @@ export function ImportacaoOfx() {
     setConfirming(true);
     setConfirmProgress(null);
     setFeedback(null);
+    setCanForceDivergencia(false);
     try {
       let criados = 0;
       let atualizados = 0;
@@ -1429,7 +1431,7 @@ export function ImportacaoOfx() {
             conciliacoes: chunk,
             conta_id: Number(contaId),
             modo_importacao: 'CONTA',
-            ignorar_divergencia: false,
+            ignorar_divergencia: forceIgnore,
             saldo_ofx: resultado?.saldo_ofx ?? null,
             saldo_ofx_data: resultado?.saldo_ofx_data ?? null,
           };
@@ -1475,7 +1477,7 @@ export function ImportacaoOfx() {
             }),
             cartao_id: Number(cartaoId),
             modo_importacao: 'CARTAO',
-            ignorar_divergencia: false,
+            ignorar_divergencia: forceIgnore,
           };
 
           const { data } = await api.post<ConfirmarLancamentosResponse>('/importacao/confirmar-lancamentos', payload);
@@ -1520,6 +1522,10 @@ export function ImportacaoOfx() {
       setTimeout(() => navigate(destinoPosImportacao), 900);
     } catch (error: any) {
       const detail = error?.response?.data?.detail;
+      const isDivergencia = error?.response?.status === 409 || (typeof detail === 'string' && detail.includes('divergência de saldo')) || (detail && typeof detail === 'object' && String(detail.message).includes('divergência de saldo'));
+      if (isDivergencia) {
+        setCanForceDivergencia(true);
+      }
       if (detail && typeof detail === 'object') {
         const message = detail?.message || 'Erro ao confirmar importação.';
         const divergenciaDepois = (detail?.divergencia_saldo_ofx_depois || detail?.divergencia_saldo_ofx) as DivergenciaSaldoOfx | undefined;
@@ -1959,6 +1965,17 @@ export function ImportacaoOfx() {
                 <li key={idx}>{c}</li>
               ))}
             </ul>
+          )}
+          {canForceDivergencia && (
+            <div className="mt-2.5">
+              <button
+                type="button"
+                onClick={() => handleConfirmar(true)}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
+              >
+                Ignorar divergência de saldo e forçar importação
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -3118,7 +3135,7 @@ export function ImportacaoOfx() {
 
               </div>
               <button
-                onClick={handleConfirmar}
+                onClick={() => handleConfirmar(false)}
                 disabled={confirming || !resultado || resultado.lancamentos.length === 0}
                 className="flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
               >

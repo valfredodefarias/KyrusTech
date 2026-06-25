@@ -98,6 +98,16 @@ const DRE_DISPLAY_GROUPS: Array<{ key: DreDisplayGroupKey; label: string; tone: 
 
 const MONTH_SHORT = ['jan.', 'fev.', 'mar.', 'abr.', 'mai.', 'jun.', 'jul.', 'ago.', 'set.', 'out.', 'nov.', 'dez.'];
 
+const EXCLUDED_DRE_GROUPS = new Set([
+  'NAO_OPERACIONAL',
+  'NAO OPERACIONAL',
+  'NAO OPERACIONAL / FORA DA DRE',
+  'NAO OP.',
+  'FORA_DRE',
+  'FORA DRE',
+  'FORA DA DRE',
+]);
+
 const moneyFormatter = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
   currency: 'BRL',
@@ -463,7 +473,11 @@ export function Dre() {
   }, [entidades]);
 
   const dre = useMemo(() => {
-    const relevantes = categorias.filter((conta) => isReceita(conta.tipo) || isDespesa(conta.tipo));
+    const relevantes = categorias.filter((conta) => {
+      if (!isReceita(conta.tipo) && !isDespesa(conta.tipo)) return false;
+      const grupo = String(conta.dre_grupo || '').trim().toUpperCase();
+      return !EXCLUDED_DRE_GROUPS.has(grupo);
+    });
     const categoriasOperacionais = buildOperationalCategoriaIds(relevantes);
 
     const contaPorId = new Map<number, PlanoConta>();
@@ -537,7 +551,7 @@ export function Dre() {
       const conta = contaPorId.get(contaId);
       if (!conta) return;
       const dreGrupo = resolverDreGrupo(contaId);
-      if (dreGrupo === 'NAO_OPERACIONAL') return;
+      if (EXCLUDED_DRE_GROUPS.has(dreGrupo)) return;
       const value = resolveLancamentoValue(lancamento, somentePagos);
       const values = valoresDiretos.get(contaId) || Array.from({ length: 12 }, () => 0);
       values[monthIndex] += value;
@@ -974,6 +988,171 @@ export function Dre() {
     void runSpotlight();
   }, [loading, error, searchParams, setSearchParams]);
 
+  const exportToXlsx = async () => {
+    try {
+      const ExcelJS = (await import('exceljs')).default;
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('DRE');
+
+      // Define columns
+      sheet.columns = [
+        { header: 'Conta', key: 'conta', width: 45 },
+        { header: 'Total', key: 'total', width: 18 },
+        ...monthLabels.map((lbl, idx) => ({ header: lbl, key: `m_${idx}`, width: 15 }))
+      ];
+
+      // Format header row
+      const headerRow = sheet.getRow(1);
+      headerRow.height = 25;
+      headerRow.eachCell((cell, colNumber) => {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF000000' } // Black
+        };
+        cell.font = {
+          color: { argb: 'FFFFFFFF' }, // White
+          bold: true,
+          size: 11
+        };
+        if (colNumber === 1) {
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        } else {
+          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        }
+      });
+
+      const getColorsForTone = (tone: string) => {
+        const groupColors: Record<string, string> = {
+          emerald: 'FFE6F4EA', // soft green
+          amber: 'FFFEF7E0',   // soft yellow
+          orange: 'FFFFF3E0',  // soft orange
+          rose: 'FFFCE8E6',    // soft rose/red
+          teal: 'FFE0F7FA',    // soft teal/cyan
+          fuchsia: 'FFF3E5F5', // soft fuchsia/purple
+        };
+        const parentColors: Record<string, string> = {
+          emerald: 'FFF4FBF7',
+          amber: 'FFFFFDF0',
+          orange: 'FFFFF9F2',
+          rose: 'FFFFF5F5',
+          teal: 'FFF2FDFD',
+          fuchsia: 'FFFBF7FC',
+        };
+        return {
+          group: groupColors[tone] || 'FFF1F5F9',
+          parent: parentColors[tone] || 'FFFFFFFF'
+        };
+      };
+
+      const addExportRow = (
+        contaName: string,
+        total: number | null,
+        monthly: (number | null)[],
+        options?: { isGroupHeader?: boolean; isSummary?: boolean; isPercentage?: boolean; indent?: number; bgColor?: string; isParentCategory?: boolean }
+      ) => {
+        const rowValues = [
+          options?.indent ? '   '.repeat(options.indent) + contaName : contaName,
+          total,
+          ...monthly
+        ];
+        const row = sheet.addRow(rowValues);
+        row.height = 20;
+
+        const numCols = 2 + monthLabels.length;
+        for (let colNumber = 1; colNumber <= numCols; colNumber++) {
+          const cell = row.getCell(colNumber);
+
+          if (options?.isGroupHeader) {
+            cell.font = { bold: true, size: 11, color: { argb: 'FF000000' } };
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: options.bgColor || 'FFF1F5F9' }
+            };
+          } else if (options?.isParentCategory) {
+            cell.font = { bold: true, size: 10, color: { argb: 'FF1E293B' } }; // slate-800
+            if (options.bgColor) {
+              cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: options.bgColor }
+              };
+            }
+          } else if (options?.isSummary) {
+            cell.font = { bold: true, size: 11 };
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFE2E8F0' } // Soft gray
+            };
+          } else {
+            cell.font = { size: 10, color: { argb: 'FF334155' } }; // slate-700
+          }
+
+          if (colNumber === 1) {
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          } else {
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          }
+
+          if (colNumber > 1) {
+            if (cell.value !== null && cell.value !== undefined && cell.value !== '') {
+              if (options?.isPercentage) {
+                cell.numFmt = '0.0%';
+              } else {
+                cell.numFmt = '"R$"#,##0';
+              }
+            }
+          }
+        }
+
+        return row;
+      };
+
+      DRE_DISPLAY_GROUPS.forEach((group) => {
+        const groupRows = dre.groupedRows[group.key] || [];
+        const groupMonthly = dre.groupedMonthly[group.key] || Array.from({ length: 12 }, () => 0);
+        const groupTotal = sumValues(groupMonthly);
+
+        const colors = getColorsForTone(group.tone);
+
+        // 1. Add group header row
+        addExportRow(group.label, groupTotal, groupMonthly, { isGroupHeader: true, bgColor: colors.group });
+
+        // 2. Add row for each item in the group
+        groupRows.forEach((row) => {
+          const displayName = row.codigo ? `${row.codigo} ${row.nome}` : row.nome;
+          addExportRow(displayName, row.total, row.monthly, {
+            indent: row.depth + 1,
+            isParentCategory: row.hasChildren,
+            bgColor: row.hasChildren ? colors.parent : undefined
+          });
+        });
+      });
+
+      addExportRow('Receita líquida', dre.receitaLiquidaTotal, dre.receitaLiquidaMonthly, { isSummary: true });
+      addExportRow('Margem de contribuição', dre.margemContribuicaoTotal, dre.margemContribuicaoMonthly, { isSummary: true });
+      addExportRow('Resultado operacional', dre.resultadoOperacionalTotal, dre.resultadoOperacionalMonthly, { isSummary: true });
+      addExportRow('Resultado final', dre.resultadoFinalTotal, dre.resultadoFinalMonthly, { isSummary: true });
+      addExportRow('% MC', dre.percentualMcTotal, dre.percentualMcMonthly, { isSummary: true, isPercentage: true });
+      addExportRow('Lucratividade operacional', dre.lucratividadeOperacionalTotal, dre.lucratividadeOperacionalMonthly, { isSummary: true, isPercentage: true });
+      addExportRow('Lucratividade final', dre.lucratividadeFinalTotal, dre.lucratividadeFinalMonthly, { isSummary: true, isPercentage: true });
+      addExportRow('Ponto de equilíbrio', dre.pontoEquilibrioTotal, dre.pontoEquilibrioMonthly, { isSummary: true });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `DRE_${ano}.xlsx`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Erro ao exportar DRE:', e);
+    }
+  };
+
   const pageBg = isDark
     ? 'bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.10),transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_48%,#111827_100%)] text-slate-100'
     : 'bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-900';
@@ -988,12 +1167,9 @@ export function Dre() {
     <div className={`min-h-full ${pageBg}`}>
       <div className="w-full space-y-6">
         <section className={`rounded-none border px-4 py-4 shadow-[0_25px_70px_-60px_rgba(15,23,42,0.45)] md:px-6 ${isDark ? 'border-slate-800 bg-slate-950/70' : 'border-slate-200 bg-white'}`}>
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className={`text-[11px] font-black uppercase tracking-[0.3em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Demonstrativo</p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">DRE</h1>
-              <p className={`mt-2 text-sm font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Clique em qualquer valor da tabela para abrir um popup com os lançamentos da categoria e do mês selecionado.</p>
-              <p className={`mt-1 text-xs font-semibold ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>KPIs filtrados por: {selectedMonth === null ? 'Ano inteiro' : monthLabels[selectedMonth]}</p>
+              <h1 className="text-3xl font-black tracking-tight md:text-4xl">DRE</h1>
             </div>
 
             <div className="flex flex-col gap-3 md:flex-row md:items-center">
@@ -1069,6 +1245,17 @@ export function Dre() {
                   className={`mt-2 w-44 rounded-xl border px-3 py-2 text-sm font-black transition ${somentePagos ? 'border-emerald-600 bg-emerald-600 text-white' : isDark ? 'border-slate-600 bg-slate-800 text-slate-200' : 'border-slate-300 bg-white text-slate-700'}`}
                 >
                   {somentePagos ? 'Data pagamento' : 'Competencia'}
+                </button>
+              </div>
+
+              <div className={`rounded-lg border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
+                <label className={`block text-[10px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Exportar</label>
+                <button
+                  type="button"
+                  onClick={exportToXlsx}
+                  className="mt-2 w-full md:w-32 rounded-xl border border-blue-600 bg-blue-600 px-3 py-2 text-sm font-black text-white hover:bg-blue-500 hover:border-blue-500 transition shadow-sm"
+                >
+                  XLSX
                 </button>
               </div>
             </div>

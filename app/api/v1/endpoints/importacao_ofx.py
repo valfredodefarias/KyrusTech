@@ -2917,24 +2917,34 @@ def desconciliar_lancamento(
     ).all()
 
     if not baixas:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Este lançamento não possui conciliações ativas."
-        )
+        if lancamento.conciliado:
+            lancamento.conciliado = False
+            lancamento.data_pagamento = None
+            lancamento.valor_pago = Decimal("0.00")
+            lancamento.valor_juros = Decimal("0.00")
+            lancamento.valor_multa = Decimal("0.00")
+            lancamento.valor_desconto = Decimal("0.00")
+            lancamento.status = "EM ABERTO"
+            db.add(lancamento)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Este lançamento não possui conciliações ativas."
+            )
+    else:
+        for baixa in baixas:
+            baixa.is_deleted = True
+            db.add(baixa)
+            
+            # Se houver MovimentoOFX vinculado, reabri-lo
+            if baixa.movimento_ofx_id:
+                mov = db.get(MovimentoOFX, baixa.movimento_ofx_id)
+                if mov and int(mov.empresa_id) == int(empresa_id):
+                    mov.status = "ABERTO"
+                    db.add(mov)
 
-    for baixa in baixas:
-        baixa.is_deleted = True
-        db.add(baixa)
-        
-        # Se houver MovimentoOFX vinculado, reabri-lo
-        if baixa.movimento_ofx_id:
-            mov = db.get(MovimentoOFX, baixa.movimento_ofx_id)
-            if mov and int(mov.empresa_id) == int(empresa_id):
-                mov.status = "ABERTO"
-                db.add(mov)
-
-    db.flush()
-    atualizar_lancamento_apos_baixas(db, lancamento_id)
+        db.flush()
+        atualizar_lancamento_apos_baixas(db, lancamento_id)
     db.commit()
 
     return {"sucesso": True, "mensagem": "Lançamento desconciliado com sucesso."}

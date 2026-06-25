@@ -542,7 +542,7 @@ export function Lancamentos({
       const hoje = getTodayLocalYmd();
       const amanha = getTomorrowLocalYmd();
       const pago = isLancamentoPago(l);
-      if (filtroRapido === 'HOJE' && l.data_vencimento !== hoje) return false;
+      if (filtroRapido === 'HOJE' && (l.data_vencimento !== hoje || pago)) return false;
       if (filtroRapido === 'AMANHA' && l.data_vencimento !== amanha) return false;
       if (filtroRapido === 'IPP' && !l.ipp) return false;
       if (filtroRapido === 'ATRASADO' && !isLancamentoAtrasado(l)) return false;

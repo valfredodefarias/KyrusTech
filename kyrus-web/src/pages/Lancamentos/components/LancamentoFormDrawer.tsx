@@ -613,7 +613,7 @@ export const LancamentoFormDrawer = ({
       const next = { ...prev, data_vencimento: value };
       const prevCompetencia = formatCompetencia(prev.data_vencimento);
       const nextCompetencia = formatCompetencia(value);
-      if (autoCompetenciaRef.current || !prev.competencia || prev.competencia === prevCompetencia) {
+      if (!isEditing && (autoCompetenciaRef.current || !prev.competencia || prev.competencia === prevCompetencia)) {
         next.competencia = nextCompetencia;
         autoCompetenciaRef.current = true;
       }
@@ -1219,6 +1219,11 @@ export const LancamentoFormDrawer = ({
                         valor_pago: '',
                         is_parcelado: false,
                         anexos: [],
+                        conciliado: false,
+                        import_hash: null,
+                        movimento_uid: null,
+                        referencia_externa: null,
+                        ofx_bank_id: null,
                       }));
                       setFilesToUpload(null);
                     }}

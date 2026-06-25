@@ -1335,10 +1335,33 @@ export function ImportacaoOfx() {
                 valor_alocado: Math.abs(lanc.valor),
                 tipo_baixa: 'PRINCIPAL',
               }];
+              setLancamentosEditados((prev) =>
+                prev.map((item) =>
+                  item.linha_arquivo === lanc.linha_arquivo
+                    ? {
+                        ...item,
+                        lancamento_previsto_id: novoId,
+                        sugestao_acao: 'BAIXAR_PREVISTO',
+                        alocacoes: [{
+                          lancamento_id: novoId,
+                          valor_alocado: Math.abs(lanc.valor),
+                          tipo_baixa: 'PRINCIPAL',
+                        }],
+                      }
+                    : item
+                )
+              );
             } catch (err: any) {
               const errMsg = err?.response?.data?.detail || err.message || 'Erro ao criar lançamento';
               erros.push(`Erro no movimento "${lanc.descricao}": ${errMsg}`);
               lanc.sugestao_acao = 'DESCARTAR';
+              setLancamentosEditados((prev) =>
+                prev.map((item) =>
+                  item.linha_arquivo === lanc.linha_arquivo
+                    ? { ...item, sugestao_acao: 'DESCARTAR' }
+                    : item
+                )
+              );
             }
           }
         }
@@ -1552,11 +1575,12 @@ export function ImportacaoOfx() {
           valor_previsto: lanc.lancamento_previsto_resumo.valor_previsto,
         });
       } else if (sugestaoOriginal === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_resumo) {
+        const relatedIds = lanc.lancamentos_atrasados_ids || [];
         lanc.lancamentos_atrasados_resumo.forEach((atr) => {
-          if (atr.id && lanc.lancamentos_atrasados_ids?.includes(atr.id)) {
+          if (atr.id && relatedIds.includes(atr.id)) {
             initialAlocacoes.push({
               lancamento_id: atr.id,
-              valor_alocado: atr.valor_previsto,
+              valor_alocado: relatedIds.length === 1 ? Math.abs(lanc.valor) : atr.valor_previsto,
               tipo_baixa: 'PRINCIPAL',
               descricao: atr.descricao,
               interessado: atr.interessado,
@@ -2323,11 +2347,12 @@ export function ImportacaoOfx() {
                               valor_previsto: lanc.lancamento_previsto_resumo?.valor_previsto,
                             }];
                           } else if (lanc.sugestao_acao === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_relacionados) {
-                            displayedAlocs = lanc.lancamentos_atrasados_relacionados.map((id) => {
+                            const relatedIds = lanc.lancamentos_atrasados_relacionados;
+                            displayedAlocs = relatedIds.map((id) => {
                               const res = lanc.lancamentos_atrasados_resumo?.find((r) => r.id === id);
                               return {
                                 lancamento_id: id,
-                                valor_alocado: res?.valor_previsto ?? Math.abs(lanc.valor),
+                                valor_alocado: relatedIds.length === 1 ? Math.abs(lanc.valor) : (res?.valor_previsto ?? Math.abs(lanc.valor)),
                                 tipo_baixa: 'PRINCIPAL',
                                 descricao: res?.descricao,
                                 interessado: res?.interessado,
@@ -2438,15 +2463,19 @@ export function ImportacaoOfx() {
 
                                 {displayedAlocs.length === 1 && (() => {
                                   const aloc = displayedAlocs[0];
-                                  if (aloc.valor_alocado > (aloc.valor_previsto || 0) && aloc.decisao_excedido !== 'MANTER') {
+                                  const diff = Number((aloc.valor_alocado - (aloc.valor_previsto || 0)).toFixed(2));
+                                  if (diff !== 0 && aloc.decisao_excedido !== 'MANTER') {
+                                    const isExcedido = diff > 0;
                                     return (
                                       <div className="p-4 rounded-2xl border border-amber-200 bg-amber-50/40 dark:border-amber-900/30 dark:bg-amber-950/10 space-y-3">
                                         <div className="flex items-start gap-2.5">
                                           <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
                                           <div className="flex-1">
-                                            <h4 className="font-extrabold text-sm text-amber-800 dark:text-amber-300">Valor Alocado Excede o Previsto</h4>
+                                            <h4 className="font-extrabold text-sm text-amber-800 dark:text-amber-300">
+                                              {isExcedido ? 'Valor Alocado Excede o Previsto' : 'Valor Alocado é Menor que o Previsto'}
+                                            </h4>
                                             <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                                              O valor da movimentação ({formatCurrency(aloc.valor_alocado)}) é maior que o valor previsto original do título ({formatCurrency(aloc.valor_previsto || 0)}). Como deseja ajustar?
+                                              O valor da movimentação ({formatCurrency(aloc.valor_alocado)}) é {isExcedido ? 'maior' : 'menor'} que o valor previsto original do título ({formatCurrency(aloc.valor_previsto || 0)}). Como deseja ajustar?
                                             </p>
                                           </div>
                                         </div>
@@ -2463,7 +2492,7 @@ export function ImportacaoOfx() {
                                             onClick={() => handleManterPrevisto(lanc.linha_arquivo, aloc.lancamento_id)}
                                             className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 dark:bg-slate-950 dark:border-slate-800 dark:hover:bg-slate-900 dark:text-slate-300 transition text-xs font-bold shadow-sm"
                                           >
-                                            Manter previsto e pagar com valor maior (juros/multa)
+                                            {isExcedido ? 'Manter previsto e pagar com valor maior (juros/multa)' : 'Manter previsto e pagar valor menor (parcial)'}
                                           </button>
                                         </div>
                                       </div>

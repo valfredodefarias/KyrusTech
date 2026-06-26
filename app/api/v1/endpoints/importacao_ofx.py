@@ -2446,7 +2446,8 @@ def atualizar_lancamento_apos_baixas(db: Session, lancamento_id: int):
 
 
 class AlocacaoItem(BaseModel):
-    lancamento_id: int
+    lancamento_id: Optional[int] = None
+    lancamento_temp_id: Optional[str] = None
     valor_alocado: Decimal
     tipo_baixa: str = "PRINCIPAL"  # PRINCIPAL, JUROS, MULTA, DESCONTO
 
@@ -2458,6 +2459,7 @@ class ConciliacaoMovimento(BaseModel):
 
 class ConfirmarLancamentosRequest(BaseModel):
     lancamentos: Optional[List[Dict[str, Any]]] = None
+    atualizar_lancamentos: Optional[List[Dict[str, Any]]] = None
     conciliacoes: Optional[List[ConciliacaoMovimento]] = None
     conta_id: Optional[int] = None
     cartao_id: Optional[int] = None
@@ -2534,6 +2536,107 @@ def confirmar_lancamentos(
 
     if not modo_cartao and request.conciliacoes is not None:
         # --- NOVO FLUXO: CONCILIAÇÃO BASEADA EM SETTLEMENT/BAIXA ---
+        temp_id_to_id = {}
+        
+        # 1. Processar atualizações de lançamentos existentes
+        if request.atualizar_lancamentos:
+            for upd in request.atualizar_lancamentos:
+                lanc_id = upd.get("id")
+                if lanc_id:
+                    lanc_existente = db.get(Lancamento, lanc_id)
+                    if lanc_existente and not lanc_existente.is_deleted and int(lanc_existente.empresa_id) == int(empresa_id):
+                        if "valor_previsto" in upd:
+                            lanc_existente.valor_previsto = Decimal(str(upd["valor_previsto"]))
+                        db.add(lanc_existente)
+            db.flush()
+
+        # 2. Criar novos lançamentos solicitados na conciliação
+        if request.lancamentos:
+            from app.services.importacao_bancaria_service import parsear_data
+            for lanc_data in request.lancamentos:
+                try:
+                    # Resolvendo ou criando entidade (interessado) se necessário
+                    entidade_id = lanc_data.get("entidade_id")
+                    if not entidade_id:
+                        nome_entidade_bruto = lanc_data.get("interessado_digitado") or lanc_data.get("interessado_sugerido") or lanc_data.get("razao_social")
+                        if nome_entidade_bruto:
+                            nome_entidade = str(nome_entidade_bruto).strip()
+                            # Limpa CPF/CNPJ se embutido
+                            cpf_cnpj_match = re.search(r"(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})|(\b\d{11,14}\b)", nome_entidade)
+                            cpf_cnpj_val = None
+                            if cpf_cnpj_match:
+                                cpf_cnpj_val = re.sub(r"\D", "", cpf_cnpj_match.group(0))
+                                nome_entidade = re.sub(r"(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})|(\b\d{11,14}\b)", "", nome_entidade).strip()
+                            nome_entidade = re.sub(r"\s+", " ", nome_entidade).strip()
+                            if nome_entidade:
+                                entidade_existente = db.exec(
+                                    select(Entidade).where(
+                                        Entidade.empresa_id == empresa_id,
+                                        func.lower(Entidade.nome) == func.lower(nome_entidade)
+                                    )
+                                ).first()
+                                if entidade_existente:
+                                    entidade_id = entidade_existente.id
+                                else:
+                                    nova_entidade = Entidade(
+                                        nome=nome_entidade,
+                                        tipo="AMBOS",
+                                        tipo_pessoa="PJ" if (cpf_cnpj_val and len(cpf_cnpj_val) == 14) else "PF",
+                                        cpf_cnpj=cpf_cnpj_val,
+                                        status="ATIVO",
+                                        empresa_id=empresa_id
+                                    )
+                                    db.add(nova_entidade)
+                                    db.flush()
+                                    entidade_id = nova_entidade.id
+
+                    import_hash = lanc_data.get("import_hash") or None
+                    temp_id = lanc_data.get("temp_id")
+
+                    lanc_existente = None
+                    if import_hash:
+                        lanc_existente = _buscar_lancamento_por_import_hash(db, empresa_id, import_hash)
+
+                    if lanc_existente:
+                        logger.info(f"[OFX] Lancamento com import_hash '{import_hash}' ja existe. Reusando ID {lanc_existente.id}.")
+                        if temp_id:
+                            temp_id_to_id[str(temp_id)] = lanc_existente.id
+                        continue
+
+                    data_compra_base = parsear_data(lanc_data.get("data") or "") or date.today()
+                    data_vencimento = parsear_data(lanc_data["data_vencimento"]) if lanc_data.get("data_vencimento") else data_compra_base
+
+                    novo_lancamento = Lancamento(
+                        descricao=str(lanc_data["descricao"]),
+                        tipo=str(lanc_data["tipo"]),
+                        status="PENDENTE",
+                        origem=str(lanc_data.get("origem") or "OFX"),
+                        valor_previsto=Decimal(str(lanc_data.get("valor_previsto") or lanc_data["valor"])),
+                        valor_pago=Decimal("0.00"),
+                        data_vencimento=data_vencimento,
+                        data_competencia=data_compra_base,
+                        empresa_id=empresa_id,
+                        plano_contas_id=int(lanc_data.get("plano_contas_id") or 1),
+                        entidade_id=int(entidade_id) if entidade_id else None,
+                        conta_id=conta_resolvida_id or request.conta_id,
+                        centro_custo_id=centro_custo_resolvido,
+                        import_hash=import_hash,
+                        conciliado=False,
+                    )
+                    db.add(novo_lancamento)
+                    db.flush()
+
+                    if temp_id:
+                        temp_id_to_id[str(temp_id)] = novo_lancamento.id
+
+                    lancamentos_criados += 1
+                except Exception as exc:
+                    logger.error(f"Erro ao confirmar lancamento no fluxo novo: {exc}")
+                    db.rollback()
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Erro ao criar lançamento '{lanc_data.get('descricao')}': {exc}"
+                    )
         for conc in request.conciliacoes:
             try:
                 movimento = db.exec(
@@ -2569,25 +2672,35 @@ def confirmar_lancamentos(
                             detail=f"Tipo de baixa inválido: {aloc.tipo_baixa}"
                         )
 
-                if abs(soma_alocacoes - movimento.valor) > Decimal("0.01"):
+                if abs(soma_alocacoes - abs(movimento.valor)) > Decimal("0.01"):
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail={
-                            "message": f"Divergência matemática detectada: a soma das alocações (R$ {soma_alocacoes}) difere do valor do movimento bancário (R$ {movimento.valor}).",
+                            "message": f"Divergência matemática detectada: a soma das alocações (R$ {soma_alocacoes}) difere do valor do movimento bancário (R$ {abs(movimento.valor)}).",
                             "movimento_id": movimento.id,
                         }
                     )
 
                 for aloc in conc.alocacoes:
-                    lancamento = db.get(Lancamento, aloc.lancamento_id)
+                    aloc_lanc_id = aloc.lancamento_id
+                    if not aloc_lanc_id and aloc.lancamento_temp_id:
+                        aloc_lanc_id = temp_id_to_id.get(str(aloc.lancamento_temp_id))
+
+                    if not aloc_lanc_id:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Allocation missing launch ID and temp ID lookup failed."
+                        )
+
+                    lancamento = db.get(Lancamento, aloc_lanc_id)
                     if not lancamento or lancamento.is_deleted or int(lancamento.empresa_id) != int(empresa_id):
                         raise HTTPException(
                             status_code=status.HTTP_404_NOT_FOUND,
-                            detail=f"Lançamento ID {aloc.lancamento_id} não encontrado."
+                            detail=f"Lançamento ID {aloc_lanc_id} não encontrado."
                         )
 
                     nova_baixa = Baixa(
-                        lancamento_id=aloc.lancamento_id,
+                        lancamento_id=aloc_lanc_id,
                         movimento_ofx_id=movimento.id,
                         valor_pago=aloc.valor_alocado,
                         data_baixa=movimento.data,
@@ -2838,7 +2951,7 @@ def confirmar_lancamentos(
             abs_divergencia_antes = abs(Decimal(str((divergencia_saldo_ofx_antes or {}).get("diferenca") or "0")))
             abs_divergencia_depois = abs(Decimal(str((divergencia_saldo_ofx or {}).get("diferenca") or "0")))
             if not request.ignorar_divergencia and abs_divergencia_depois > abs_divergencia_antes + Decimal("0.01"):
-                mensagem_erro = "Importação OFX cancelada: a divergência de saldo aumentou após a conciliação. O sistema bloqueou para evitar inclusões indevidas."
+                mensagem_erro = "Aviso: a divergência de saldo aumentou após a conciliação."
                 try:
                     deletados = db.exec(
                         select(Lancamento).where(
@@ -2855,15 +2968,14 @@ def confirmar_lancamentos(
                         mensagem_erro += f" Lançamento(s) excluído(s) recentemente nesta conta: {', '.join(linhas_deletadas)}."
                 except Exception as ex_diag:
                     logger.error("[OFX] Erro ao buscar diagnóstico de saldos: {}", ex_diag)
-
-                db.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail={
-                        "message": mensagem_erro,
-                        "divergencia_saldo_ofx_antes": divergencia_saldo_ofx_antes,
-                        "divergencia_saldo_ofx_depois": divergencia_saldo_ofx,
-                    },
+                
+                logger.warning(
+                    "[OFX] {} conta_id={} empresa_id={} antes={} depois={}",
+                    mensagem_erro,
+                    conta_resolvida_id,
+                    empresa_id,
+                    divergencia_saldo_ofx_antes,
+                    divergencia_saldo_ofx,
                 )
     except HTTPException:
         raise

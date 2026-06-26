@@ -58,6 +58,7 @@ interface LancamentoFormDrawerProps {
   isCaixaMode?: boolean;
   lancamentos?: Lancamento[];
   prefilledData?: Partial<any>;
+  onEntityCreated?: (entity: any) => void;
 }
 
 export const LancamentoFormDrawer = ({
@@ -79,6 +80,7 @@ export const LancamentoFormDrawer = ({
   isCaixaMode = false,
   lancamentos,
   prefilledData,
+  onEntityCreated,
 }: LancamentoFormDrawerProps) => {
   // --- ESTADOS INTERNOS ---
   const [formData, setFormData] = useState<any>({
@@ -160,16 +162,25 @@ export const LancamentoFormDrawer = ({
 
   // --- LOOKUPS INTERNOS ---
   const [localCategorias, setLocalCategorias] = useState<any[]>([]);
-  const [localEntidades, setLocalEntidades] = useState<any[]>([]);
+  const [localEntidades, setLocalEntidades] = useState<any[]>(entidadesProp || []);
   const [localContas, setLocalContas] = useState<any[]>([]);
   const [localCartoes, setLocalCartoes] = useState<any[]>([]);
   const [localCentros, setLocalCentros] = useState<any[]>([]);
 
+  useEffect(() => {
+    if (entidadesProp) {
+      setLocalEntidades(entidadesProp);
+    }
+  }, [entidadesProp]);
+
   const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
+  const fetchEntidades = useLookupStore((state) => state.fetchEntidades);
+  const setEntidadesCache = useLookupStore((state) => state.setEntidades);
+  const setEntidadesLookupCache = useLookupStore((state) => state.setEntidadesLookup);
 
   const categorias = categoriasProp || localCategorias;
-  const entidades = entidadesProp || localEntidades;
+  const entidades = localEntidades;
   const contas = contasProp || localContas;
   const cartoes = cartoesProp || localCartoes;
   const centros = centrosProp || localCentros;
@@ -1871,8 +1882,26 @@ export const LancamentoFormDrawer = ({
         showEntityDrawer={showEntityDrawer}
         onClose={() => setShowEntityDrawer(false)}
         onSuccess={(newEntity) => {
-          setLocalEntidades((prev) => [...prev, newEntity]);
+          setLocalEntidades((prev) => {
+            if (prev.some((e) => e.id === newEntity.id)) return prev;
+            return [...prev, newEntity];
+          });
           setFormData((prev: any) => ({ ...prev, entidade_id: String(newEntity.id) }));
+          if (onEntityCreated) {
+            onEntityCreated(newEntity);
+          }
+          // Update Zustand lookup store caches immediately
+          const currentEntidades = useLookupStore.getState().entidades;
+          if (!currentEntidades.some((e) => e.id === newEntity.id)) {
+            setEntidadesCache([...currentEntidades, newEntity]);
+          }
+          const currentLookup = useLookupStore.getState().entidadesLookup;
+          if (!currentLookup.some((e) => e.id === newEntity.id)) {
+            setEntidadesLookupCache([...currentLookup, newEntity]);
+          }
+          // Background silent sync
+          void fetchEntidades(true).catch(() => {});
+          void fetchEntidadesLookup(true).catch(() => {});
         }}
         pushToast={pushToast}
       />

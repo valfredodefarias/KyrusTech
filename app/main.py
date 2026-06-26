@@ -326,7 +326,7 @@ def _register_rate_limit_event(*, key: str, now: float, window_seconds: int) -> 
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    if request.method == "OPTIONS":
+    if request.method == "OPTIONS" or os.getenv("TESTING") == "1":
         return await call_next(request)
 
     rule = _rate_limit_for_path(request.url.path)

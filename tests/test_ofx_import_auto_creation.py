@@ -545,3 +545,222 @@ def test_ofx_multiple_atrasados_only_preselects_best_match(client: TestClient, s
         finally:
             app.dependency_overrides.clear()
 
+def test_ofx_transactional_import_creation_and_rollback(client: TestClient, session: Session, setup_test_db):
+    # Authentication overrides
+    def mock_get_current_user():
+        return setup_test_db["usuario"]
+
+    def mock_get_empresa_id_from_user():
+        return 1
+
+    app_dependency_overrides = {
+        get_current_user: mock_get_current_user,
+        get_current_active_user: mock_get_current_user,
+        get_empresa_id_from_user: mock_get_empresa_id_from_user
+    }
+    
+    app.dependency_overrides.update(app_dependency_overrides)
+    
+    with patch("app.api.deps.has_permission", return_value=True):
+        try:
+            # 1. First let's create a fake OFX movement in the DB so we can try to reconcile it.
+            from app.models.movimento_ofx import MovimentoOFX
+            mov = MovimentoOFX(
+                id=999,
+                descricao="MOVIMENTO TESTE TRANSACAO",
+                data=date(2026, 6, 13),
+                valor=Decimal("500.00"),
+                tipo="RECEITA",
+                status="PENDENTE",
+                empresa_id=1,
+                conta_id=1,
+                import_hash="hash_teste_mov_1"
+            )
+            session.add(mov)
+            session.commit()
+            
+            # Let's verify that a rollback happens when there is a math discrepancy.
+            # We pass a new launch under lancamentos payload, but in conciliacoes we pass an alocacao with a DIFFERENT value.
+            payload = {
+                "conta_id": 1,
+                "modo_importacao": "CONTA",
+                "ignorar_divergencia": False,
+                "lancamentos": [
+                    {
+                        "temp_id": "temp-1",
+                        "data": "2026-06-13",
+                        "descricao": "LANÇAMENTO ATOMICO TESTE",
+                        "valor": 500.00,
+                        "tipo": "RECEITA",
+                        "origem": "OFX",
+                        "linha_arquivo": 1,
+                        "plano_contas_id": 10,
+                    }
+                ],
+                "conciliacoes": [
+                    {
+                        "movimento_ofx_id": 999,
+                        "alocacoes": [
+                            {
+                                "lancamento_temp_id": "temp-1",
+                                "valor_alocado": 500.10,  # 500.10 != 500.00 -> math discrepancy!
+                                "tipo_baixa": "PRINCIPAL"
+                            }
+                        ]
+                    }
+                ]
+            }
+
+            response = client.post("/api/v1/importacao/confirmar-lancamentos", json=payload)
+            assert response.status_code == 400
+            
+            session.expire_all()
+            # Verify the launch was NOT created/persisted in the database
+            lanc = session.exec(select(Lancamento).where(Lancamento.descricao == "LANÇAMENTO ATOMICO TESTE")).first()
+            assert lanc is None
+            
+            # Verify the movement is still pending
+            mov_db = session.get(MovimentoOFX, 999)
+            assert mov_db.status == "PENDENTE"
+
+            # 2. Now let's test a successful transactional import!
+            payload["conciliacoes"][0]["alocacoes"][0]["valor_alocado"] = 500.00 # exact match!
+            
+            response2 = client.post("/api/v1/importacao/confirmar-lancamentos", json=payload)
+            assert response2.status_code == 200
+            res_json = response2.json()
+            assert res_json["sucesso"] is True
+            assert res_json["lancamentos_criados"] == 1
+            
+            session.expire_all()
+            # Verify it was successfully created and reconciled!
+            lanc = session.exec(select(Lancamento).where(Lancamento.descricao == "LANÇAMENTO ATOMICO TESTE")).first()
+            assert lanc is not None
+            assert lanc.conciliado is True
+            
+            mov_db = session.get(MovimentoOFX, 999)
+            assert mov_db.status == "CONCILIADO"
+
+        finally:
+            app.dependency_overrides.clear()
+
+
+def test_ofx_import_duplicate_hash_and_divergence_non_blocking(client: TestClient, session: Session, setup_test_db):
+    # Authentication overrides
+    def mock_get_current_user():
+        return setup_test_db["usuario"]
+
+    def mock_get_empresa_id_from_user():
+        return 1
+
+    app_dependency_overrides = {
+        get_current_user: mock_get_current_user,
+        get_current_active_user: mock_get_current_user,
+        get_empresa_id_from_user: mock_get_empresa_id_from_user
+    }
+    
+    app.dependency_overrides.update(app_dependency_overrides)
+    
+    with patch("app.api.deps.has_permission", return_value=True):
+        try:
+            # 1. Create a pre-existing launch with import_hash "duplicate_hash_123"
+            pre_existente = Lancamento(
+                descricao="LANÇAMENTO DUPLICADO ANTERIOR",
+                valor_previsto=Decimal("150.00"),
+                valor_pago=Decimal("0.00"),
+                data_vencimento=date(2026, 6, 13),
+                data_competencia=date(2026, 6, 13),
+                tipo="DESPESA",
+                status="PENDENTE",
+                empresa_id=1,
+                conta_id=1,
+                plano_contas_id=10,
+                import_hash="duplicate_hash_123",
+                is_deleted=False
+            )
+            session.add(pre_existente)
+            
+            # Create a bank movement
+            from app.models.movimento_ofx import MovimentoOFX
+            mov = MovimentoOFX(
+                id=888,
+                descricao="MOVIMENTO DUPLICADO OFX",
+                data=date(2026, 6, 13),
+                valor=Decimal("-150.00"),
+                tipo="DESPESA",
+                status="PENDENTE",
+                empresa_id=1,
+                conta_id=1,
+                import_hash="duplicate_hash_123"
+            )
+            session.add(mov)
+            session.commit()
+            
+            # Now we send a payload that proposes creating a launch with the same import_hash "duplicate_hash_123".
+            # It also specifies a starting balance divergence of:
+            # - Bank balance is 1000.00 (from request.saldo_ofx)
+            # - System balance before is 1000.00 (saldo_inicial = 1000.00, no other paid launches yet).
+            # - So initial divergence is 0.00.
+            # - We are conciliated/importing an expense of 150.00.
+            # - After import, the system balance will be 850.00.
+            # - So divergence after is 1000.00 - 850.00 = 150.00.
+            # - Since 150.00 > 0.00 + 0.01, absolute divergence increased.
+            # But since this check is warning-only now, the import should still succeed!
+            
+            payload = {
+                "conta_id": 1,
+                "modo_importacao": "CONTA",
+                "ignorar_divergencia": False,
+                "saldo_ofx": 1000.00,
+                "saldo_ofx_data": "2026-06-13",
+                "lancamentos": [
+                    {
+                        "temp_id": "temp-dup-1",
+                        "data": "2026-06-13",
+                        "descricao": "LANÇAMENTO NOVO DUPLICADO",
+                        "valor": 150.00,
+                        "tipo": "DESPESA",
+                        "origem": "OFX",
+                        "linha_arquivo": 1,
+                        "plano_contas_id": 10,
+                        "import_hash": "duplicate_hash_123"
+                    }
+                ],
+                "conciliacoes": [
+                    {
+                        "movimento_ofx_id": 888,
+                        "alocacoes": [
+                            {
+                                "lancamento_temp_id": "temp-dup-1",
+                                "valor_alocado": 150.00,
+                                "tipo_baixa": "PRINCIPAL"
+                            }
+                        ]
+                    }
+                ]
+            }
+            
+            response = client.post("/api/v1/importacao/confirmar-lancamentos", json=payload)
+            assert response.status_code == 200
+            res_json = response.json()
+            assert res_json["sucesso"] is True
+            assert res_json["lancamentos_criados"] == 0 # None created because we reused!
+            assert res_json["lancamentos_atualizados"] == 1 # Reconciled
+            
+            session.expire_all()
+            # Verify no new launch with the name "LANÇAMENTO NOVO DUPLICADO" was created
+            novo_lanc = session.exec(select(Lancamento).where(Lancamento.descricao == "LANÇAMENTO NOVO DUPLICADO")).first()
+            assert novo_lanc is None
+            
+            # Verify the pre-existing launch was updated to PAGO/conciliado
+            pre_db = session.get(Lancamento, pre_existente.id)
+            assert pre_db.conciliado is True
+            assert pre_db.status == "PAGO"
+            assert pre_db.valor_pago == Decimal("150.00")
+            
+            # Verify the movement is conciliated
+            mov_db = session.get(MovimentoOFX, 888)
+            assert mov_db.status == "CONCILIADO"
+            
+        finally:
+            app.dependency_overrides.clear()

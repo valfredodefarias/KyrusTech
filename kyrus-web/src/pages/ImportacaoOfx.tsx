@@ -193,7 +193,8 @@ interface LancamentoImportado {
 }
 
 interface AlocacaoItemUI {
-  lancamento_id: number;
+  lancamento_id?: number;
+  lancamento_temp_id?: string;
   valor_alocado: number;
   tipo_baixa: 'PRINCIPAL' | 'JUROS' | 'MULTA' | 'DESCONTO';
   descricao?: string;
@@ -328,6 +329,39 @@ function getSugestaoInicial(lanc: LancamentoImportado): NonNullable<LancamentoIm
   return 'CRIAR_NOVO';
 }
 
+function getAlocacoesOrDefault(item: LancamentoEditado): AlocacaoItemUI[] {
+  if (item.alocacoes && item.alocacoes.length > 0) {
+    return item.alocacoes;
+  }
+  if (item.sugestao_acao === 'BAIXAR_PREVISTO' && item.lancamento_previsto_id) {
+    return [{
+      lancamento_id: item.lancamento_previsto_id,
+      valor_alocado: Math.abs(item.valor),
+      tipo_baixa: 'PRINCIPAL',
+      descricao: item.lancamento_previsto_resumo?.descricao || undefined,
+      interessado: item.lancamento_previsto_resumo?.interessado || undefined,
+      data_vencimento: item.lancamento_previsto_resumo?.data_vencimento || '',
+      valor_previsto: item.lancamento_previsto_resumo?.valor_previsto || 0,
+    }];
+  }
+  if (item.sugestao_acao === 'RELACIONAR_ATRASADOS' && item.lancamentos_atrasados_relacionados) {
+    const relatedIds = item.lancamentos_atrasados_relacionados;
+    return relatedIds.map((id) => {
+      const res = item.lancamentos_atrasados_resumo?.find((r) => r.id === id);
+      return {
+        lancamento_id: id,
+        valor_alocado: relatedIds.length === 1 ? Math.abs(item.valor) : (res?.valor_previsto ?? Math.abs(item.valor)),
+        tipo_baixa: 'PRINCIPAL',
+        descricao: res?.descricao || undefined,
+        interessado: res?.interessado || undefined,
+        data_vencimento: res?.data_vencimento || '',
+        valor_previsto: res?.valor_previsto || 0,
+      };
+    });
+  }
+  return [];
+}
+
 type SearchableOption = {
   id: number;
   label: string;
@@ -455,7 +489,6 @@ export function ImportacaoOfx() {
   const [resultado, setResultado] = useState<ProcessarArquivoResponse | null>(null);
   const [lancamentosEditados, setLancamentosEditados] = useState<LancamentoEditado[]>([]);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
-  const [canForceDivergencia, setCanForceDivergencia] = useState(false);
   const [linhaEditandoDescricao, setLinhaEditandoDescricao] = useState<number | null>(null);
   const [descricaoTemporaria, setDescricaoTemporaria] = useState('');
   const [categorias, setCategorias] = useState<CategoriaItem[]>([]);
@@ -664,58 +697,50 @@ export function ImportacaoOfx() {
     scrollCardIntoView(linhaArquivo);
   };
 
-  const handleAjustarVencimento = async (linhaArquivo: number, lancamentoId: number, novoValor: number) => {
-    try {
-      setLoading(true);
-      await api.put(`/lancamentos/${lancamentoId}`, { valor_previsto: novoValor });
-      
-      setLancamentosEditados((prev) =>
-        prev.map((item) => {
-          if (item.linha_arquivo === linhaArquivo && item.alocacoes) {
-            const nextAlocs = item.alocacoes.map((a) => {
-              if (a.lancamento_id === lancamentoId) {
-                return { ...a, valor_previsto: novoValor };
-              }
-              return a;
-            });
-            let nextPrevistoResumo = item.lancamento_previsto_resumo;
-            if (item.lancamento_previsto_id === lancamentoId && nextPrevistoResumo) {
-              nextPrevistoResumo = { ...nextPrevistoResumo, valor_previsto: novoValor };
+  const handleAjustarVencimento = (linhaArquivo: number, lancamentoId: number, novoValor: number) => {
+    setLancamentosEditados((prev) =>
+      prev.map((item) => {
+        if (item.linha_arquivo === linhaArquivo) {
+          const currentAlocs = getAlocacoesOrDefault(item);
+          const nextAlocs = currentAlocs.map((a) => {
+            if (a.lancamento_id === lancamentoId) {
+              return { ...a, valor_previsto: novoValor };
             }
-            let nextAtrasadosResumo = item.lancamentos_atrasados_resumo;
-            if (nextAtrasadosResumo) {
-              nextAtrasadosResumo = nextAtrasadosResumo.map((r) => {
-                if (r.id === lancamentoId) {
-                  return { ...r, valor_previsto: novoValor };
-                }
-                return r;
-              });
-            }
-            return {
-              ...item,
-              alocacoes: nextAlocs,
-              lancamento_previsto_resumo: nextPrevistoResumo,
-              lancamentos_atrasados_resumo: nextAtrasadosResumo,
-            };
+            return a;
+          });
+          let nextPrevistoResumo = item.lancamento_previsto_resumo;
+          if (item.lancamento_previsto_id === lancamentoId && nextPrevistoResumo) {
+            nextPrevistoResumo = { ...nextPrevistoResumo, valor_previsto: novoValor };
           }
-          return item;
-        })
-      );
-      setFeedback({ type: 'success', message: 'Valor previsto do lançamento ajustado com sucesso no banco de dados!' });
-    } catch (err: any) {
-      console.error('Erro ao ajustar valor previsto do lançamento', err);
-      const errMsg = err?.response?.data?.detail || err?.message || 'Erro ao atualizar';
-      setFeedback({ type: 'error', message: `Erro ao ajustar valor previsto: ${errMsg}` });
-    } finally {
-      setLoading(false);
-    }
+          let nextAtrasadosResumo = item.lancamentos_atrasados_resumo;
+          if (nextAtrasadosResumo) {
+            nextAtrasadosResumo = nextAtrasadosResumo.map((r) => {
+              if (r.id === lancamentoId) {
+                return { ...r, valor_previsto: novoValor };
+              }
+              return r;
+            });
+          }
+          return {
+            ...item,
+            alocacoes: nextAlocs,
+            lancamento_previsto_resumo: nextPrevistoResumo,
+            lancamentos_atrasados_resumo: nextAtrasadosResumo,
+          };
+        }
+        return item;
+      })
+    );
+    setFeedback({ type: 'success', message: 'Ajuste de valor previsto agendado! Será salvo ao confirmar a importação.' });
+    scrollCardIntoView(linhaArquivo);
   };
 
   const handleManterPrevisto = (linhaArquivo: number, lancamentoId: number) => {
     setLancamentosEditados((prev) =>
       prev.map((item) => {
-        if (item.linha_arquivo === linhaArquivo && item.alocacoes) {
-          const nextAlocs = item.alocacoes.map((a) => {
+        if (item.linha_arquivo === linhaArquivo) {
+          const currentAlocs = getAlocacoesOrDefault(item);
+          const nextAlocs = currentAlocs.map((a) => {
             if (a.lancamento_id === lancamentoId) {
               return { ...a, decisao_excedido: 'MANTER' as const };
             }
@@ -813,56 +838,57 @@ export function ImportacaoOfx() {
         const updated = res.data;
         setLancamentosEditados((prev) =>
           prev.map((item) => {
-            if (item.alocacoes) {
-              const hasAloc = item.alocacoes.some((a) => a.lancamento_id === editedId);
-              if (hasAloc) {
-                const nextAlocs = item.alocacoes.map((a) => {
-                  if (a.lancamento_id === editedId) {
-                    return {
-                      ...a,
-                      descricao: updated.descricao,
-                      interessado: updated.entidade?.nome || null,
-                      data_vencimento: updated.data_vencimento,
-                      valor_previsto: updated.valor_previsto,
-                    };
-                  }
-                  return a;
-                });
-                
-                let nextPrevistoResumo = item.lancamento_previsto_resumo;
-                if (item.lancamento_previsto_id === editedId && nextPrevistoResumo) {
-                  nextPrevistoResumo = {
-                    ...nextPrevistoResumo,
+            const hasAloc = item.alocacoes?.some((a) => a.lancamento_id === editedId) ||
+                            (item.lancamento_previsto_id === editedId) ||
+                            (item.lancamentos_atrasados_relacionados?.includes(editedId));
+            if (hasAloc) {
+              const currentAlocs = getAlocacoesOrDefault(item);
+              const nextAlocs = currentAlocs.map((a) => {
+                if (a.lancamento_id === editedId) {
+                  return {
+                    ...a,
                     descricao: updated.descricao,
                     interessado: updated.entidade?.nome || null,
                     data_vencimento: updated.data_vencimento,
                     valor_previsto: updated.valor_previsto,
                   };
                 }
-                
-                let nextAtrasadosResumo = item.lancamentos_atrasados_resumo;
-                if (nextAtrasadosResumo) {
-                  nextAtrasadosResumo = nextAtrasadosResumo.map((r) => {
-                    if (r.id === editedId) {
-                      return {
-                        ...r,
-                        descricao: updated.descricao,
-                        interessado: updated.entidade?.nome || null,
-                        data_vencimento: updated.data_vencimento,
-                        valor_previsto: updated.valor_previsto,
-                      };
-                    }
-                    return r;
-                  });
-                }
-
-                return {
-                  ...item,
-                  alocacoes: nextAlocs,
-                  lancamento_previsto_resumo: nextPrevistoResumo,
-                  lancamentos_atrasados_resumo: nextAtrasadosResumo,
+                return a;
+              });
+              
+              let nextPrevistoResumo = item.lancamento_previsto_resumo;
+              if (item.lancamento_previsto_id === editedId && nextPrevistoResumo) {
+                nextPrevistoResumo = {
+                  ...nextPrevistoResumo,
+                  descricao: updated.descricao,
+                  interessado: updated.entidade?.nome || null,
+                  data_vencimento: updated.data_vencimento,
+                  valor_previsto: updated.valor_previsto,
                 };
               }
+              
+              let nextAtrasadosResumo = item.lancamentos_atrasados_resumo;
+              if (nextAtrasadosResumo) {
+                nextAtrasadosResumo = nextAtrasadosResumo.map((r) => {
+                  if (r.id === editedId) {
+                    return {
+                      ...r,
+                      descricao: updated.descricao,
+                      interessado: updated.entidade?.nome || null,
+                      data_vencimento: updated.data_vencimento,
+                      valor_previsto: updated.valor_previsto,
+                    };
+                  }
+                  return r;
+                });
+              }
+
+              return {
+                ...item,
+                alocacoes: nextAlocs,
+                lancamento_previsto_resumo: nextPrevistoResumo,
+                lancamentos_atrasados_resumo: nextAtrasadosResumo,
+              };
             }
             return item;
           })
@@ -1263,7 +1289,7 @@ export function ImportacaoOfx() {
     }
   };
 
-  const handleConfirmar = async (forceIgnore = false) => {
+  const handleConfirmar = async () => {
     if (confirming) return;
     if (!resultado || resultado.lancamentos.length === 0) {
       setFeedback({ type: 'warning', message: 'Nenhum lançamento disponível para confirmar.' });
@@ -1280,16 +1306,20 @@ export function ImportacaoOfx() {
     setConfirming(true);
     setConfirmProgress(null);
     setFeedback(null);
-    setCanForceDivergencia(false);
     try {
       let criados = 0;
       let atualizados = 0;
       const erros: string[] = [];
 
       if (modoImportacao === 'CONTA') {
-        // First, resolve all CRIAR_NOVO launches by POSTing them to the backend.
-        const listCopy = [...lancamentosEditados];
+        const listCopy = lancamentosEditados.map((item) => ({
+          ...item,
+          alocacoes: item.alocacoes ? item.alocacoes.map((a) => ({ ...a })) : undefined,
+        }));
+        const lancamentosParaCriar: any[] = [];
+        const atualizarLancamentos: any[] = [];
 
+        // 1. Resolve entities and prepare new launches / updates
         for (let idx = 0; idx < listCopy.length; idx++) {
           const lanc = listCopy[idx];
           if (lanc.sugestao_acao === 'DESCARTAR' || lanc.sugestao_acao === 'IGNORAR_DUPLICATA') {
@@ -1310,69 +1340,58 @@ export function ImportacaoOfx() {
                 await reloadEntidadesLookup();
               }
 
+              const tempId = `new-${lanc.linha_arquivo}`;
               const newLaunchPayload = {
+                temp_id: tempId,
                 descricao: lanc.descricao,
                 tipo: lanc.tipo,
                 status: 'PENDENTE',
                 origem: 'OFX',
+                valor: Math.abs(lanc.valor),
                 valor_previsto: Math.abs(lanc.valor),
-                valor_pago: 0,
+                data: lanc.data,
                 data_vencimento: lanc.data,
-                data_competencia: lanc.data,
                 plano_contas_id: lanc.plano_contas_id || 1,
                 entidade_id: entId || null,
                 conta_id: Number(contaId),
                 centro_custo_id: centroCustoPadraoBusca,
-                conciliado: false,
+                import_hash: lanc.import_hash || null,
               };
 
-              const launchRes = await api.post('/lancamentos/', newLaunchPayload);
-              const novoId = launchRes.data.id;
-              criados += 1;
+              lancamentosParaCriar.push(newLaunchPayload);
 
-              lanc.lancamento_previsto_id = novoId;
+              lanc.lancamento_previsto_id = undefined;
               lanc.sugestao_acao = 'BAIXAR_PREVISTO';
               lanc.alocacoes = [{
-                lancamento_id: novoId,
+                lancamento_temp_id: tempId,
                 valor_alocado: Math.abs(lanc.valor),
                 tipo_baixa: 'PRINCIPAL',
               }];
-              setLancamentosEditados((prev) =>
-                prev.map((item) =>
-                  item.linha_arquivo === lanc.linha_arquivo
-                    ? {
-                        ...item,
-                        lancamento_previsto_id: novoId,
-                        sugestao_acao: 'BAIXAR_PREVISTO',
-                        alocacoes: [{
-                          lancamento_id: novoId,
-                          valor_alocado: Math.abs(lanc.valor),
-                          tipo_baixa: 'PRINCIPAL',
-                        }],
-                      }
-                    : item
-                )
-              );
             } catch (err: any) {
-              const errMsg = err?.response?.data?.detail || err.message || 'Erro ao criar lançamento';
+              const errMsg = err?.response?.data?.detail || err.message || 'Erro ao preparar lançamento';
               erros.push(`Erro no movimento "${lanc.descricao}": ${errMsg}`);
               lanc.sugestao_acao = 'DESCARTAR';
-              setLancamentosEditados((prev) =>
-                prev.map((item) =>
-                  item.linha_arquivo === lanc.linha_arquivo
-                    ? { ...item, sugestao_acao: 'DESCARTAR' }
-                    : item
-                )
-              );
             }
+          } else {
+            // Track updates for existing launches in this conc
+            const alocs = lanc.alocacoes || [];
+            alocs.forEach((aloc) => {
+              if (aloc.lancamento_id && aloc.valor_previsto !== undefined) {
+                atualizarLancamentos.push({
+                  id: aloc.lancamento_id,
+                  valor_previsto: aloc.valor_previsto,
+                });
+              }
+            });
           }
         }
 
-        // Now, compile all conciliacoes
+        // 2. Compile conciliacoes
         const conciliacoesList: {
           movimento_ofx_id: number;
           alocacoes: {
-            lancamento_id: number;
+            lancamento_id?: number;
+            lancamento_temp_id?: string;
             valor_alocado: number;
             tipo_baixa: 'PRINCIPAL' | 'JUROS' | 'MULTA' | 'DESCONTO';
           }[];
@@ -1396,7 +1415,7 @@ export function ImportacaoOfx() {
                 const res = lanc.lancamentos_atrasados_resumo?.find((r) => r.id === id);
                 return {
                   lancamento_id: id,
-                  valor_alocado: res?.valor_previsto ?? Math.abs(lanc.valor),
+                  valor_alocado: lanc.lancamentos_atrasados_relacionados.length === 1 ? Math.abs(lanc.valor) : (res?.valor_previsto ?? Math.abs(lanc.valor)),
                   tipo_baixa: 'PRINCIPAL' as const,
                 };
               });
@@ -1408,6 +1427,7 @@ export function ImportacaoOfx() {
               movimento_ofx_id: lanc.movimento_ofx_id,
               alocacoes: alocs.map((a) => ({
                 lancamento_id: a.lancamento_id,
+                lancamento_temp_id: a.lancamento_temp_id,
                 valor_alocado: Number(a.valor_alocado),
                 tipo_baixa: a.tipo_baixa,
               })),
@@ -1416,7 +1436,7 @@ export function ImportacaoOfx() {
         });
 
         if (conciliacoesList.length === 0 && erros.length > 0) {
-          throw new Error(`Falha ao criar lançamentos: ${erros.join(' | ')}`);
+          throw new Error(`Falha ao conciliar lançamentos: ${erros.join(' | ')}`);
         }
 
         const chunks = chunkArray(conciliacoesList, OFX_CONFIRM_CHUNK_SIZE);
@@ -1428,15 +1448,18 @@ export function ImportacaoOfx() {
           const chunk = chunks[i];
 
           const payload = {
+            lancamentos: i === 0 ? lancamentosParaCriar : [],
+            atualizar_lancamentos: i === 0 ? atualizarLancamentos : [],
             conciliacoes: chunk,
             conta_id: Number(contaId),
             modo_importacao: 'CONTA',
-            ignorar_divergencia: forceIgnore,
+            ignorar_divergencia: false,
             saldo_ofx: resultado?.saldo_ofx ?? null,
             saldo_ofx_data: resultado?.saldo_ofx_data ?? null,
           };
 
           const { data } = await api.post<ConfirmarLancamentosResponse>('/importacao/confirmar-lancamentos', payload);
+          criados += Number(data?.lancamentos_criados || 0);
           atualizados += Number(data?.lancamentos_atualizados || 0);
           const errosChunk = Array.isArray(data?.erros) ? data.erros.filter(Boolean) : [];
           if (errosChunk.length > 0) {
@@ -1477,7 +1500,7 @@ export function ImportacaoOfx() {
             }),
             cartao_id: Number(cartaoId),
             modo_importacao: 'CARTAO',
-            ignorar_divergencia: forceIgnore,
+            ignorar_divergencia: false,
           };
 
           const { data } = await api.post<ConfirmarLancamentosResponse>('/importacao/confirmar-lancamentos', payload);
@@ -1522,10 +1545,6 @@ export function ImportacaoOfx() {
       setTimeout(() => navigate(destinoPosImportacao), 900);
     } catch (error: any) {
       const detail = error?.response?.data?.detail;
-      const isDivergencia = error?.response?.status === 409 || (typeof detail === 'string' && detail.includes('divergência de saldo')) || (detail && typeof detail === 'object' && String(detail.message).includes('divergência de saldo'));
-      if (isDivergencia) {
-        setCanForceDivergencia(true);
-      }
       if (detail && typeof detail === 'object') {
         const message = detail?.message || 'Erro ao confirmar importação.';
         const divergenciaDepois = (detail?.divergencia_saldo_ofx_depois || detail?.divergencia_saldo_ofx) as DivergenciaSaldoOfx | undefined;
@@ -1541,7 +1560,9 @@ export function ImportacaoOfx() {
           setFeedback({ type: 'error', message, conflitos: Array.isArray(conflitos) ? conflitos : undefined });
         }
       } else {
-        setFeedback({ type: 'error', message: error.message || detail || 'Erro ao confirmar importação.' });
+        const detailMsg = typeof detail === 'string' ? detail : null;
+        const fallbackMsg = error.response?.data?.message || error.message || 'Erro ao confirmar importação.';
+        setFeedback({ type: 'error', message: detailMsg || fallbackMsg });
       }
     } finally {
       setConfirming(false);
@@ -1965,17 +1986,6 @@ export function ImportacaoOfx() {
                 <li key={idx}>{c}</li>
               ))}
             </ul>
-          )}
-          {canForceDivergencia && (
-            <div className="mt-2.5">
-              <button
-                type="button"
-                onClick={() => handleConfirmar(true)}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
-              >
-                Ignorar divergência de saldo e forçar importação
-              </button>
-            </div>
           )}
         </div>
       )}
@@ -2453,14 +2463,14 @@ export function ImportacaoOfx() {
                                           type="number"
                                           step="0.01"
                                           value={aloc.valor_alocado}
-                                          onChange={(e) => handleUpdateAloc(aloc.lancamento_id, { valor_alocado: Number(e.target.value) })}
+                                          onChange={(e) => handleUpdateAloc(aloc.lancamento_id!, { valor_alocado: Number(e.target.value) })}
                                           className="w-28 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                                         />
                                       </div>
                                       
                                       <button
                                         type="button"
-                                        onClick={() => handleEditarLancamentoExistente(lanc.linha_arquivo, aloc.lancamento_id)}
+                                        onClick={() => handleEditarLancamentoExistente(lanc.linha_arquivo, aloc.lancamento_id!)}
                                         className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition mr-1"
                                         title="Editar lançamento"
                                       >
@@ -2468,7 +2478,7 @@ export function ImportacaoOfx() {
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => handleRemoveAloc(aloc.lancamento_id)}
+                                        onClick={() => handleRemoveAloc(aloc.lancamento_id!)}
                                         className="rounded-xl p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition"
                                         title="Remover alocação"
                                       >
@@ -2499,14 +2509,14 @@ export function ImportacaoOfx() {
                                         <div className="flex flex-wrap gap-2 pt-1">
                                           <button
                                             type="button"
-                                            onClick={() => handleAjustarVencimento(lanc.linha_arquivo, aloc.lancamento_id, aloc.valor_alocado)}
+                                            onClick={() => handleAjustarVencimento(lanc.linha_arquivo, aloc.lancamento_id!, aloc.valor_alocado)}
                                             className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-[0.98] transition text-xs font-bold text-white shadow-sm"
                                           >
                                             Ajustar valor do lançamento para {formatCurrency(aloc.valor_alocado)}
                                           </button>
                                           <button
                                             type="button"
-                                            onClick={() => handleManterPrevisto(lanc.linha_arquivo, aloc.lancamento_id)}
+                                            onClick={() => handleManterPrevisto(lanc.linha_arquivo, aloc.lancamento_id!)}
                                             className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 dark:bg-slate-950 dark:border-slate-800 dark:hover:bg-slate-900 dark:text-slate-300 transition text-xs font-bold shadow-sm"
                                           >
                                             {isExcedido ? 'Manter previsto e pagar com valor maior (juros/multa)' : 'Manter previsto e pagar valor menor (parcial)'}
@@ -3135,7 +3145,7 @@ export function ImportacaoOfx() {
 
               </div>
               <button
-                onClick={() => handleConfirmar(false)}
+                onClick={() => handleConfirmar()}
                 disabled={confirming || !resultado || resultado.lancamentos.length === 0}
                 className="flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
               >

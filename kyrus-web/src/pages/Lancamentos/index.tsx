@@ -1178,6 +1178,12 @@ export function Lancamentos({
         cartoes={cartoes}
         centros={centros}
         pushToast={pushToast}
+        onEntityCreated={(newEntity) => {
+          setEntidades((prev) => {
+            if (prev.some((e) => e.id === newEntity.id)) return prev;
+            return [...prev, newEntity];
+          });
+        }}
       />
 
       {isBoletimEmbed && !isContasExtratoEmbed && !showDrawer && (

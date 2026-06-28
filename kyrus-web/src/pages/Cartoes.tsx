@@ -166,11 +166,11 @@ export function Cartoes() {
     };
 
     const getLancamentoFaturaMonthKey = (lancamento: Pick<Lancamento, 'competencia' | 'data_vencimento' | 'data_competencia'>, cartao?: Cartao | null) => {
-        const competenciaKey = parseCompetenciaMonthKey(lancamento.competencia);
-        if (competenciaKey) return competenciaKey;
-
         const vencimento = parseDateOnly(lancamento.data_vencimento);
         if (vencimento) return getMonthKey(vencimento);
+
+        const competenciaKey = parseCompetenciaMonthKey(lancamento.competencia);
+        if (competenciaKey) return competenciaKey;
 
         const dataCompetencia = parseDateOnly(lancamento.data_competencia);
         if (dataCompetencia) return getMonthKey(dataCompetencia);

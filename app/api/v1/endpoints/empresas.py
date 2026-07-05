@@ -179,7 +179,7 @@ def read_endpoint(
     return empresa
 
 
-@router.post("/{empresa_id}/resetar-base", dependencies=[Depends(require_permission("empresa:reset_base"))])
+@router.post("/{empresa_id}/resetar-base", dependencies=[Depends(require_permission("empresa:reset_base"))], include_in_schema=False)
 def reset_company_financial_base(
     *,
     db: Session = Depends(get_db),

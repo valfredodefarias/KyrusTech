@@ -19,8 +19,6 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
-
-import { useAssistentePage } from '../components/AssistentePageContext';
 import { BankAvatar } from '../components/BrandAvatar';
 import { api, normalizeListResponse } from '../services/api';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
@@ -1149,32 +1147,7 @@ export function ImportacaoOfx() {
 
 
 
-  const assistenteConfig = useMemo(() => ({
-    tela: 'geral' as const,
-    titulo: 'Assistente KyrusTECH',
-    contexto: {
-      pagina: 'importacao_ofx',
-      destino_importacao: modoImportacao,
-      conta_selecionada: contaSelecionada ? `${contaSelecionada.nome}${contaSelecionada.banco ? ` (${contaSelecionada.banco})` : ''}` : null,
-      cartao_selecionado: cartaoSelecionado ? `${cartaoSelecionado.nome_cartao}${cartaoSelecionado.bandeira ? ` (${cartaoSelecionado.bandeira})` : ''}` : null,
-      resumo_importacao_ofx: resultado ? {
-        total_processado: resultado.total_processado,
-        duplicatas: resultado.duplicatas_encontradas,
-        previstos: resultado.lancamentos_previstos_encontrados,
-        atrasados: resultado.lancamentos_atrasados_encontrados,
-        conciliaveis: resumo.conciliaveis,
-        novos: resumo.novos,
-      } : null,
-      instrucao_analise: 'Explique a importacao OFX como um operador financeiro senior. Destaque movimentos que podem baixar previstos, atrasados que merecem vinculacao e o que ainda precisa de classificacao antes da confirmacao.',
-    },
-    sugestoes: [
-      'Quais movimentos deste OFX devem baixar previstos agora?',
-      'Onde existem atrasos relevantes que merecem conciliação manual?',
-      'O que ainda precisa de classificação antes de confirmar?',
-    ],
-  }), [modoImportacao, contaSelecionada, cartaoSelecionado, resultado, resumo.conciliaveis, resumo.novos]);
 
-  useAssistentePage(assistenteConfig);
 
   const reloadEntidadesLookup = async () => {
     try {

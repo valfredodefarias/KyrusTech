@@ -1814,7 +1814,7 @@ export function Contas() {
                                 </div>
 
                                 <div className="opacity-0 group-hover:opacity-100 transition flex gap-1">
-                                  {c.tipo !== 'CAIXA' && (
+                                  {c.tipo !== 'CAIXA' && (c.tipo_integracao === 'ASAAS' || c.banco?.toUpperCase() === 'ASAAS') && (
                                     <button
                                       onClick={(event) => {
                                         event.stopPropagation();

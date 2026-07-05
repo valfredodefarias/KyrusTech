@@ -5,7 +5,8 @@ import { BrandAvatar, CARD_BRAND_OPTIONS, inferCardBrand } from '../components/B
 import { CurrencyInput } from '../components/CurrencyInput';
 import { 
   Plus, RefreshCw, Edit2, X, Check, Loader2, 
-        ChevronLeft, ChevronRight, CheckCircle2, Building2
+        ChevronLeft, ChevronRight, CheckCircle2, Building2,
+        AlertCircle, Info
 } from 'lucide-react';
 
 // --- INTERFACES ---
@@ -42,6 +43,11 @@ interface CartaoResumo {
 
 interface CentroCusto { id: number; nome?: string; descricao?: string; }
 interface Conta { id: number; nome?: string; descricao?: string; }
+interface ToastItem {
+  id: number;
+  type: 'success' | 'error' | 'info';
+  message: string;
+}
 
 // --- COMPONENTE INPUT ---
 const InputDark = (props: any) => (
@@ -77,6 +83,16 @@ export function Cartoes() {
     const [cartoesResumo, setCartoesResumo] = useState<CartaoResumo[]>([]);
   const [centros, setCentros] = useState<CentroCusto[]>([]);
   const [contas, setContas] = useState<Conta[]>([]);
+
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  const pushToast = (type: ToastItem['type'], message: string) => {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts((prev) => [...prev, { id, type, message }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 3500);
+  };
 
   const [selectedCartaoId, setSelectedCartaoId] = useState<number | null>(null);
   const [mesFatura, setMesFatura] = useState(new Date());
@@ -404,7 +420,7 @@ export function Cartoes() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    if (!formData.nome_cartao || !formData.limite_total) return alert("Preencha Nome e Limite.");
+    if (!formData.nome_cartao || !formData.limite_total) return pushToast('error', "Preencha Nome e Limite.");
     
     setSaving(true);
     try {
@@ -426,6 +442,7 @@ export function Cartoes() {
         }
 
         setShowDrawer(false);
+        pushToast('success', 'Cartão salvo com sucesso!');
         // Force reload bypass ref
         autoFaturaRef.current = null;
         dataFetchedRef.current = false; 
@@ -433,7 +450,7 @@ export function Cartoes() {
         dataFetchedRef.current = true;
     } catch(e: any) { 
         console.error("Erro no save:", e);
-        alert("Erro ao salvar.");
+        pushToast('error', "Erro ao salvar o cartão.");
     } finally { 
         setSaving(false); 
     }
@@ -453,11 +470,16 @@ export function Cartoes() {
         });
         
         setShowPayModal(false);
+        pushToast('success', 'Fatura paga com sucesso!');
         dataFetchedRef.current = false;
                 await carregarDados();
                 await handleReloadCurrentInvoice();
         dataFetchedRef.current = true;
-    } catch(e) { alert("Erro ao pagar fatura"); } finally { setSaving(false); }
+    } catch(e) { 
+        pushToast('error', "Erro ao pagar fatura."); 
+    } finally { 
+        setSaving(false); 
+    }
   }
 
   const CardVisual = ({ dados, previewMode = false }: any) => {
@@ -517,6 +539,20 @@ export function Cartoes() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 overflow-y-auto custom-scrollbar">
+      {/* Toast notifications */}
+      <div className="fixed right-4 top-4 z-[9999] flex flex-col gap-2">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`flex items-center gap-2 rounded-xl px-4 py-3 text-xs font-bold text-white shadow-xl animate-slide-in-right ${
+              t.type === 'success' ? 'bg-emerald-600' : t.type === 'error' ? 'bg-rose-600' : 'bg-blue-600'
+            }`}
+          >
+            {t.type === 'error' ? <AlertCircle className="h-4 w-4" /> : <Info className="h-4 w-4" />}
+            {t.message}
+          </div>
+        ))}
+      </div>
     <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 sticky top-0 z-20 shadow-md">
         <div>
             <h2 className="text-xl font-bold text-slate-800 dark:text-white">Cartões de Crédito</h2>
@@ -606,7 +642,7 @@ export function Cartoes() {
                     </div>
                 </div>
 
-                <div className="max-h-125 overflow-y-auto custom-scrollbar overflow-x-auto">
+                <div className="overflow-x-auto">
                     <table className="w-full text-left">
                         <thead className="bg-slate-50 dark:bg-slate-900/50 text-xs font-bold text-slate-400 uppercase sticky top-0 border-b border-slate-200 dark:border-slate-700">
                             <tr>
@@ -645,10 +681,10 @@ export function Cartoes() {
       {showDrawer && (
         <div className="fixed inset-0 z-50 flex justify-end">
             <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setShowDrawer(false)}></div>
-            <div className="relative w-full max-w-md bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-700">
-                <div className="px-6 py-4 border-b border-slate-700 flex justify-between items-center bg-slate-800">
-                    <h2 className="text-lg font-bold text-white">{isEditing ? 'Editar Cartão' : 'Novo Cartão'}</h2>
-                    <button onClick={() => setShowDrawer(false)} className="p-2 hover:bg-slate-700 rounded-full text-slate-400"><X className="w-5 h-5"/></button>
+            <div className="relative w-full max-w-md bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white">
+                <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
+                    <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing ? 'Editar Cartão' : 'Novo Cartão'}</h2>
+                    <button onClick={() => setShowDrawer(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-500 dark:text-slate-400"><X className="w-5 h-5"/></button>
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
@@ -659,15 +695,15 @@ export function Cartoes() {
                     <div className="space-y-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Centro de Custo</label>
-                                <select className="w-full p-2.5 rounded-lg border border-slate-600 bg-slate-800 text-white text-sm outline-none focus:border-blue-500" value={formData.centro_custo_id} onChange={e => setFormData({...formData, centro_custo_id: e.target.value})}>
+                                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Centro de Custo</label>
+                                <select className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:border-blue-500" value={formData.centro_custo_id} onChange={e => setFormData({...formData, centro_custo_id: e.target.value})}>
                                     <option value="">Selecione...</option>
                                     {centros.map(c => <option key={c.id} value={c.id}>{c.nome || c.descricao}</option>)}
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Conta Padrão</label>
-                                <select className="w-full p-2.5 rounded-lg border border-slate-600 bg-slate-800 text-white text-sm outline-none focus:border-blue-500" value={formData.conta_id} onChange={e => setFormData({...formData, conta_id: e.target.value})}>
+                                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Conta Padrão</label>
+                                <select className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:border-blue-500" value={formData.conta_id} onChange={e => setFormData({...formData, conta_id: e.target.value})}>
                                     <option value="">Perguntar ao pagar</option>
                                     {contas.map(c => <option key={c.id} value={c.id}>{c.nome || c.descricao}</option>)}
                                 </select>
@@ -676,7 +712,7 @@ export function Cartoes() {
 
                         <InputDark label="Nome do Cartão" placeholder="Ex: Nubank Platinum" value={formData.nome_cartao} onChange={(e:any) => setFormData({...formData, nome_cartao: e.target.value})} />
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Bandeira</label>
+                            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Bandeira</label>
                             <div className="grid grid-cols-2 gap-2">
                                 {CARD_BRAND_OPTIONS.map((option: (typeof CARD_BRAND_OPTIONS)[number]) => {
                                     const selected = formData.bandeira === option.value;
@@ -685,7 +721,7 @@ export function Cartoes() {
                                             key={option.value}
                                             type="button"
                                             onClick={() => setFormData({ ...formData, bandeira: option.value })}
-                                            className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${selected ? 'border-white/40 bg-white/10 text-white' : 'border-slate-700 bg-slate-800/70 text-slate-300 hover:border-slate-500'}`}
+                                            className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${selected ? 'border-blue-500 dark:border-white/40 bg-blue-50 dark:bg-white/10 text-blue-600 dark:text-white' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500'}`}
                                         >
                                             <BrandAvatar visual={option.visual} size="sm" />
                                             <span className="text-sm font-semibold">{option.label}</span>
@@ -693,7 +729,7 @@ export function Cartoes() {
                                     );
                                 })}
                             </div>
-                            <button type="button" onClick={() => setFormData({ ...formData, bandeira: '' })} className="mt-2 text-xs font-semibold text-slate-400 hover:text-white transition">
+                            <button type="button" onClick={() => setFormData({ ...formData, bandeira: '' })} className="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition">
                                 Limpar bandeira selecionada
                             </button>
                         </div>
@@ -701,19 +737,19 @@ export function Cartoes() {
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-xs font-bold text-purple-400 uppercase mb-1">Dia Fechamento</label>
-                                <input type="number" min="1" max="31" className="w-full p-3 text-center rounded-lg border border-purple-900/50 bg-purple-900/20 text-purple-400 font-bold outline-none focus:border-purple-500" value={formData.dia_fechamento} onChange={e => setFormData({...formData, dia_fechamento: e.target.value})} placeholder="01" />
+                                <label className="block text-xs font-bold text-purple-500 dark:text-purple-400 uppercase mb-1">Dia Fechamento</label>
+                                <input type="number" min="1" max="31" className="w-full p-3 text-center rounded-lg border border-purple-300 dark:border-purple-900/50 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 font-bold outline-none focus:border-purple-500" value={formData.dia_fechamento} onChange={e => setFormData({...formData, dia_fechamento: e.target.value})} placeholder="01" />
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-red-400 uppercase mb-1">Dia Vencimento</label>
-                                <input type="number" min="1" max="31" className="w-full p-3 text-center rounded-lg border border-red-900/50 bg-red-900/20 text-red-400 font-bold outline-none focus:border-red-500" value={formData.dia_vencimento} onChange={e => setFormData({...formData, dia_vencimento: e.target.value})} placeholder="10" />
+                                <label className="block text-xs font-bold text-red-500 dark:text-red-400 uppercase mb-1">Dia Vencimento</label>
+                                <input type="number" min="1" max="31" className="w-full p-3 text-center rounded-lg border border-red-300 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold outline-none focus:border-red-500" value={formData.dia_vencimento} onChange={e => setFormData({...formData, dia_vencimento: e.target.value})} placeholder="10" />
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div className="p-4 border-t border-slate-700 bg-slate-800 flex justify-end gap-3">
-                    <button onClick={() => setShowDrawer(false)} className="px-5 py-2.5 rounded-lg text-slate-400 font-bold hover:bg-slate-700 transition">Cancelar</button>
+                <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex justify-end gap-3">
+                    <button onClick={() => setShowDrawer(false)} className="px-5 py-2.5 rounded-lg text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition">Cancelar</button>
                     <button onClick={handleSave} disabled={saving} className="px-8 py-2.5 rounded-lg text-white font-bold shadow-lg flex items-center gap-2 hover:brightness-110 disabled:opacity-50" style={{ backgroundColor: primaryColor }}>
                         {saving ? <Loader2 className="animate-spin w-4 h-4"/> : <Check className="w-4 h-4"/>} Salvar
                     </button>
@@ -725,19 +761,19 @@ export function Cartoes() {
       {showPayModal && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setShowPayModal(false)}></div>
-            <div className="relative bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in-95 border border-slate-700">
-                <h3 className="font-bold text-lg mb-4 text-white">Confirmar Pagamento</h3>
+            <div className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in-95 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white">
+                <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white">Confirmar Pagamento</h3>
                 
-                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 mb-4 text-center">
-                    <p className="text-xs font-bold text-slate-500 uppercase">Total a Pagar</p>
+                <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-lg border border-slate-200 dark:border-slate-700 mb-4 text-center">
+                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Total a Pagar</p>
                     <p className="text-3xl font-black text-emerald-500 mt-1">{BRL.format(faturaAtual.pendente)}</p>
                 </div>
 
                 <div className="space-y-4">
                     <InputDark label="Data do Pagamento" type="date" value={payData.data} onChange={(e:any) => setPayData({...payData, data: e.target.value})} />
                     <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Sair da Conta</label>
-                        <select className="w-full p-3 rounded-lg border border-slate-600 bg-slate-700 text-white outline-none focus:border-blue-500" value={payData.conta_id} onChange={e => setPayData({...payData, conta_id: e.target.value})}>
+                        <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Sair da Conta</label>
+                        <select className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none focus:border-blue-500" value={payData.conta_id} onChange={e => setPayData({...payData, conta_id: e.target.value})}>
                             <option value="">Selecione...</option>
                             {contas.map(c => <option key={c.id} value={c.id}>{c.nome || c.descricao}</option>)}
                         </select>
@@ -745,7 +781,7 @@ export function Cartoes() {
                 </div>
 
                 <div className="flex gap-2 mt-6">
-                    <button onClick={() => setShowPayModal(false)} className="flex-1 py-3 text-slate-400 font-bold hover:bg-slate-700 rounded-lg transition">Cancelar</button>
+                    <button onClick={() => setShowPayModal(false)} className="flex-1 py-3 text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition">Cancelar</button>
                     <button onClick={handlePayInvoice} className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-500 shadow-lg transition">Confirmar</button>
                 </div>
             </div>

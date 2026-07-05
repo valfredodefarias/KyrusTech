@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { AlertTriangle, Clock3, LogOut, Menu, Moon, RefreshCw, Sun } from 'lucide-react';
-import { AiAssistente } from './AiAssistente';
-import { AssistentePageProvider, useAssistentePageContext } from './AssistentePageContext';
 import { Sidebar, MobileSidebar } from './Sidebar';
 import { api, toPublicAssetUrl } from '../services/api';
 import { useAuthStore, type AuthUser } from '../store/authStore';
@@ -16,68 +14,6 @@ interface EmpresaInfo {
 
 interface ConsultorContextoResponse {
   empresa_atual: EmpresaInfo;
-}
-
-function resolveAssistenteDefaults(pathname: string) {
-  if (pathname.startsWith('/boletim')) {
-    return {
-      tela: 'dashboard' as const,
-      titulo: 'Assistente KyrusTECH',
-      sugestoes: [
-        'Resuma o que este boletim mostra de forma objetiva.',
-        'Quais movimentos exigem atenção imediata nesta semana?',
-        'O que mais está pressionando o caixa agora?',
-      ],
-      contexto: {
-        pagina: 'boletim',
-        modo_consultoria: 'financeira_empresarial',
-      },
-    };
-  }
-
-  if (pathname.startsWith('/dre')) {
-    return {
-      tela: 'dashboard' as const,
-      titulo: 'Assistente KyrusTECH',
-      sugestoes: [
-        'Resuma a DRE deste mês em linguagem de gestão.',
-        'Quais despesas mais comprimem minha margem?',
-        'Quais ações posso tomar para melhorar o resultado no próximo mês?',
-      ],
-      contexto: {
-        pagina: 'dre',
-        modo_consultoria: 'financeira_empresarial',
-      },
-    };
-  }
-
-  if (pathname.startsWith('/lancamentos')) {
-    return {
-      tela: 'lancamentos' as const,
-      titulo: 'Assistente KyrusTECH',
-      sugestoes: [
-        'O que os lancamentos desta tela mostram?',
-        'Leia este comprovante e monte uma previa revisavel.',
-        'Quais acoes melhoram meu caixa no curto prazo?',
-      ],
-      contexto: {
-        pagina: 'lancamentos',
-      },
-    };
-  }
-
-  return {
-    tela: 'geral' as const,
-    titulo: 'Assistente KyrusTECH',
-    sugestoes: [
-      'Explique esta pagina de forma objetiva.',
-      'Quais riscos e oportunidades voce enxerga aqui?',
-      'O que devo fazer primeiro para melhorar o resultado?',
-    ],
-    contexto: {
-      pagina: pathname.replace(/^\//, '') || 'home',
-    },
-  };
 }
 
 function getInitials(text: string) {
@@ -99,7 +35,6 @@ function resolveUserName(user: AuthUser | null) {
 
 function LayoutShell() {
   const location = useLocation();
-  const { config: pageAssistenteConfig } = useAssistentePageContext();
   const logout = useAuthStore((state) => state.logout);
   const storedUser = useAuthStore((state) => state.user);
   const sessionExpiresAt = useAuthStore((state) => state.sessionExpiresAt);
@@ -116,20 +51,6 @@ function LayoutShell() {
     const params = new URLSearchParams(location.search);
     return params.get('embed_boletim') === '1';
   }, [location.search]);
-  const assistenteDefaults = useMemo(() => resolveAssistenteDefaults(location.pathname), [location.pathname]);
-  const assistenteTriggerPlacement = location.pathname.startsWith('/boletim') ? 'left' as const : 'right' as const;
-  const assistenteConfig = useMemo(() => ({
-    tela: pageAssistenteConfig.tela ?? assistenteDefaults.tela,
-    titulo: pageAssistenteConfig.titulo ?? assistenteDefaults.titulo,
-    sugestoes: pageAssistenteConfig.sugestoes ?? assistenteDefaults.sugestoes,
-    lookups: pageAssistenteConfig.lookups,
-    contexto: {
-      ...assistenteDefaults.contexto,
-      ...(pageAssistenteConfig.contexto ?? {}),
-      rota_atual: location.pathname,
-    },
-  }), [assistenteDefaults, location.pathname, pageAssistenteConfig]);
-  const showAssistente = false;
 
   const sessionExpiresAtMs = useMemo(() => {
     if (!sessionExpiresAt) return null;
@@ -420,24 +341,10 @@ function LayoutShell() {
           </main>
         </div>
       </div>
-      {showAssistente ? (
-        <AiAssistente
-          tela={assistenteConfig.tela}
-          contexto={assistenteConfig.contexto}
-          titulo={assistenteConfig.titulo}
-          sugestoes={assistenteConfig.sugestoes}
-          lookups={assistenteConfig.lookups}
-          triggerPlacement={assistenteTriggerPlacement}
-        />
-      ) : null}
     </div>
   );
 }
 
 export function Layout() {
-  return (
-    <AssistentePageProvider>
-      <LayoutShell />
-    </AssistentePageProvider>
-  );
+  return <LayoutShell />;
 }

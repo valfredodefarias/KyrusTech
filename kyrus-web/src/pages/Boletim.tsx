@@ -1,4 +1,4 @@
-import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Banknote,
@@ -8,6 +8,10 @@ import {
   Rows3,
   ShoppingCart,
   Sparkles,
+  TrendingDown,
+  TrendingUp,
+  ExternalLink,
+  Activity,
 } from 'lucide-react';
 
 
@@ -488,54 +492,7 @@ function ViewToggle({ current, onChange, isDark }: { current: ViewMode; onChange
   );
 }
 
-function SoftMetricGrid({
-  title,
-  accent,
-  metrics,
-  isDark,
-  onMetricClick,
-  activeMetric,
-}: {
-  title: string;
-  accent: 'rose' | 'cyan';
-  metrics: Array<{ key: string; label: string; value: number }>;
-  isDark: boolean;
-  onMetricClick?: (metricKey: string) => void;
-  activeMetric?: string | null;
-}) {
-  const toneClass = accent === 'rose'
-    ? isDark ? 'from-rose-500/18 via-rose-500/6 to-transparent border-rose-400/25' : 'from-rose-100 via-white to-white border-rose-200'
-    : isDark ? 'from-sky-500/18 via-sky-500/6 to-transparent border-sky-400/25' : 'from-sky-100 via-white to-white border-sky-200';
-  const titleClass = accent === 'rose' ? isDark ? 'text-rose-200' : 'text-rose-700' : isDark ? 'text-sky-200' : 'text-sky-700';
-  const valueClass = accent === 'rose'
-    ? isDark ? 'text-rose-300' : 'text-rose-600'
-    : isDark ? 'text-emerald-300' : 'text-emerald-600';
 
-  return (
-    <section className={`rounded-xl border bg-linear-to-br px-4 py-4 ${toneClass}`}>
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className={`text-sm font-black uppercase tracking-[0.18em] ${titleClass}`}>{title}</h2>
-        <div className={`h-2.5 w-2.5 rounded-full ${accent === 'rose' ? 'bg-rose-400' : 'bg-sky-400'}`} />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        {metrics.map((metric) => {
-          const isActive = activeMetric === metric.key;
-          return (
-          <button
-            key={metric.key}
-            type="button"
-            onClick={() => onMetricClick?.(metric.key)}
-            className={`rounded-lg border px-4 py-4 text-left transition ${isActive ? isDark ? 'border-amber-300/55 bg-amber-300/12' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035]' : 'border-slate-200 bg-white/85'} ${onMetricClick ? 'cursor-pointer' : 'cursor-default'}`}
-          >
-            <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{metric.label}</div>
-            <div className={`mt-2 whitespace-nowrap text-2xl font-black tracking-tight ${valueClass}`}>{formatCurrency(metric.value)}</div>
-          </button>
-        );
-        })}
-      </div>
-    </section>
-  );
-}
 
 function FilterPill({ active, label, onClick, isDark }: { active: boolean; label: string; onClick: () => void; isDark: boolean }) {
   return (
@@ -652,7 +609,7 @@ export function Boletim() {
   const [auditPanel, setAuditPanel] = useState<AuditPanelState | null>(null);
   const [activeAuditMetricKey, setActiveAuditMetricKey] = useState<string | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
-  const [auditPanelWidth, setAuditPanelWidth] = useState(420);
+  const [auditPanelWidth, setAuditPanelWidth] = useState(() => Math.round(window.innerWidth * 0.75));
   const auditResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const initialLoadDoneRef = useRef(false);
   const referenceYear = useMemo(() => {
@@ -693,8 +650,8 @@ export function Boletim() {
   }, []);
 
   useEffect(() => {
-    const initial = Math.round(window.innerWidth / 3);
-    setAuditPanelWidth(Math.max(320, Math.min(Math.round(window.innerWidth * 0.7), initial)));
+    const initial = Math.round(window.innerWidth * 0.75);
+    setAuditPanelWidth(Math.max(320, Math.min(Math.round(window.innerWidth * 0.9), initial)));
   }, []);
 
   useEffect(() => {
@@ -702,7 +659,7 @@ export function Boletim() {
       const state = auditResizeRef.current;
       if (!state) return;
       const delta = event.clientX - state.startX;
-      const maxWidth = Math.round(window.innerWidth * 0.7);
+      const maxWidth = Math.round(window.innerWidth * 0.9);
       const nextWidth = Math.max(320, Math.min(maxWidth, state.startWidth + delta));
       setAuditPanelWidth(nextWidth);
     };
@@ -1010,8 +967,34 @@ export function Boletim() {
       resultadoFinalMonthly,
       tableRows,
       situacao,
+      todayIso,
+      tomorrowIso,
     };
   }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter, referenceDate]);
+
+  const groupedRows = useMemo(() => {
+    if (auditPanel?.mode !== 'LANCAMENTOS' || !auditPanel.rows) return { groups: {}, sortedDates: [] };
+    const groups: { [date: string]: NormalizedRow[] } = {};
+    auditPanel.rows.forEach((row) => {
+      const dateStr = row.dataVencimento || 'Sem data';
+      if (!groups[dateStr]) groups[dateStr] = [];
+      groups[dateStr].push(row);
+    });
+    const sortedDates = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+    return { groups, sortedDates };
+  }, [auditPanel?.mode, auditPanel?.rows]);
+
+  const groupedMovimentos = useMemo(() => {
+    if (auditPanel?.mode !== 'EXTRATO_BANCO' || !auditPanel.extrato?.movimentos) return { groups: {}, sortedDates: [] };
+    const groups: { [date: string]: ContaSaldoMovimento[] } = {};
+    auditPanel.extrato.movimentos.forEach((m) => {
+      const dateStr = m.data_pagamento || m.data_vencimento || 'Sem data';
+      if (!groups[dateStr]) groups[dateStr] = [];
+      groups[dateStr].push(m);
+    });
+    const sortedDates = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+    return { groups, sortedDates };
+  }, [auditPanel?.mode, auditPanel?.extrato?.movimentos]);
 
   function openAuditRows(title: string, subtitle: string, rows: NormalizedRow[]) {
     setAuditPanel({ mode: 'LANCAMENTOS', title, subtitle, rows });
@@ -1970,7 +1953,7 @@ export function Boletim() {
         ) : null}
 
         {viewMode === 'executivo' ? (
-          <section className="grid gap-3 xl:grid-cols-[minmax(0,1.65fr)_420px] xl:items-start">
+          <section className="grid gap-4 xl:grid-cols-2 xl:items-start">
             {auditPanel ? (
               <div className="fixed inset-0 z-50">
                 <button
@@ -2003,35 +1986,53 @@ export function Boletim() {
                           <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
                             <tr>
                               <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Vencimento</th>
-                              <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
                               <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
                               <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
+                              <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
                               <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Status</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {(auditPanel.rows || []).length === 0 ? (
+                            {groupedRows.sortedDates.length === 0 ? (
                               <tr>
                                 <td colSpan={5} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
                               </tr>
-                            ) : (auditPanel.rows || []).map((row) => (
-                              <tr
-                                key={`audit-row-${row.rowKey}`}
-                                onClick={(event) => openLancamentoEdicao(row.id, event)}
-                                className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
-                                title="Abrir edição do lançamento"
-                              >
-                                <td className="px-3 py-2.5 font-medium whitespace-nowrap">{formatDate(row.dataVencimento)}</td>
-                                <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrencyDetailed(row.valor)}</td>
-                                <td className="px-3 py-2.5">{row.interessado}</td>
-                                <td className="max-w-56 truncate px-3 py-2.5" title={row.descricao}>{row.descricao}</td>
-                                <td className="px-3 py-2.5">
-                                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${row.statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : row.statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                                    {row.statusLabel}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
+                            ) : (
+                              groupedRows.sortedDates.map((dateStr) => {
+                                const groupRows = groupedRows.groups[dateStr];
+                                const dayTotal = groupRows.reduce((sum, r) => sum + r.valor, 0);
+                                return (
+                                  <Fragment key={dateStr}>
+                                    <tr className="bg-slate-100/70 dark:bg-slate-800/60 select-none">
+                                      <td colSpan={5} className="px-3 py-2 border-t border-b border-slate-200/50 dark:border-slate-800">
+                                        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                          <span>Dia {formatDate(dateStr)}</span>
+                                          <span>Total do Dia: <span className={getValueTone(dayTotal, isDark)}>{formatCurrencyDetailed(dayTotal)}</span></span>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                    {groupRows.map((row) => (
+                                      <tr
+                                        key={`audit-row-${row.rowKey}`}
+                                        onClick={(event) => openLancamentoEdicao(row.id, event)}
+                                        className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
+                                        title="Abrir edição do lançamento"
+                                      >
+                                        <td className="px-3 py-2.5 font-medium whitespace-nowrap text-slate-400 dark:text-slate-500"></td>
+                                        <td className="px-3 py-2.5">{row.interessado}</td>
+                                        <td className="max-w-56 truncate px-3 py-2.5" title={row.descricao}>{row.descricao}</td>
+                                        <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrencyDetailed(row.valor)}</td>
+                                        <td className="px-3 py-2.5">
+                                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${row.statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : row.statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                                            {row.statusLabel}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </Fragment>
+                                );
+                              })
+                            )}
                           </tbody>
                         </table>
                       </div>
@@ -2053,21 +2054,39 @@ export function Boletim() {
                               </tr>
                             </thead>
                             <tbody>
-                              {auditPanel.extrato.movimentos.length === 0 ? (
+                              {groupedMovimentos.sortedDates.length === 0 ? (
                                 <tr>
                                   <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem movimentos para este banco.</td>
                                 </tr>
-                              ) : auditPanel.extrato.movimentos.map((movimento) => {
-                                const signed = Number(movimento.valor_entrada || 0) > 0 ? Number(movimento.valor_entrada || 0) : Number(movimento.valor_saida || 0) > 0 ? -Number(movimento.valor_saida || 0) : 0;
-                                return (
-                                  <tr key={`extrato-${movimento.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
-                                    <td className="px-3 py-2.5">{formatDate(movimento.data_pagamento || movimento.data_vencimento)}</td>
-                                    <td className="max-w-50 truncate px-3 py-2.5" title={movimento.descricao}>{movimento.descricao}</td>
-                                    <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(signed, isDark)}`}>{formatCurrencyDetailed(signed)}</td>
-                                    <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(Number(movimento.saldo_apos_movimento || 0), isDark)}`}>{formatCurrencyDetailed(Number(movimento.saldo_apos_movimento || 0))}</td>
-                                  </tr>
-                                );
-                              })}
+                              ) : (
+                                groupedMovimentos.sortedDates.map((dateStr) => {
+                                  const groupMovs = groupedMovimentos.groups[dateStr];
+                                  const dayNet = groupMovs.reduce((sum, m) => sum + (Number(m.valor_entrada || 0) > 0 ? Number(m.valor_entrada || 0) : -Number(m.valor_saida || 0)), 0);
+                                  return (
+                                    <Fragment key={dateStr}>
+                                      <tr className="bg-slate-100/70 dark:bg-slate-800/60 select-none">
+                                        <td colSpan={4} className="px-3 py-2 border-t border-b border-slate-200/50 dark:border-slate-800">
+                                          <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                            <span>Dia {formatDate(dateStr)}</span>
+                                            <span>Movimentação do Dia: <span className={getValueTone(dayNet, isDark)}>{dayNet > 0 ? '+' : ''}{formatCurrencyDetailed(dayNet)}</span></span>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                      {groupMovs.map((movimento) => {
+                                        const signed = Number(movimento.valor_entrada || 0) > 0 ? Number(movimento.valor_entrada || 0) : Number(movimento.valor_saida || 0) > 0 ? -Number(movimento.valor_saida || 0) : 0;
+                                        return (
+                                          <tr key={`extrato-${movimento.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
+                                            <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500"></td>
+                                            <td className="max-w-50 truncate px-3 py-2.5" title={movimento.descricao}>{movimento.descricao}</td>
+                                            <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(signed, isDark)}`}>{formatCurrencyDetailed(signed)}</td>
+                                            <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(Number(movimento.saldo_apos_movimento || 0), isDark)}`}>{formatCurrencyDetailed(Number(movimento.saldo_apos_movimento || 0))}</td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </Fragment>
+                                  );
+                                })
+                              )}
                             </tbody>
                           </table>
                         ) : null}
@@ -2096,134 +2115,192 @@ export function Boletim() {
               centros={centrosCusto}
             />
 
-            <div className="grid gap-3">
-              <div className="grid gap-3 xl:grid-cols-2">
-                <SoftMetricGrid
-                  title="Contas a pagar"
-                  accent="rose"
-                  isDark={isDark}
-                  activeMetric={activeAuditMetricKey?.startsWith('pagar') ? activeAuditMetricKey : null}
-                  onMetricClick={handleKpiAuditClick}
-                  metrics={[
-                    { key: 'pagar_hoje', label: 'Para hoje', value: dashboard.pagar.hoje },
-                    { key: 'pagar_amanha', label: 'Para amanhã', value: dashboard.pagar.amanha },
-                    { key: 'pagar_atrasadas', label: 'Atrasadas', value: dashboard.pagar.atrasadas },
-                    { key: 'pagar_em_aberto', label: 'Em aberto no mês', value: dashboard.pagar.emAberto },
-                    { key: 'pagar_mes', label: 'Do mês', value: dashboard.pagarNoMes },
-                    { key: 'pagar_pagas_mes', label: 'Pagas no mês', value: dashboard.pagarPagasNoMes },
-                  ]}
-                />
-
-                <SoftMetricGrid
-                  title="Contas a receber"
-                  accent="cyan"
-                  isDark={isDark}
-                  activeMetric={activeAuditMetricKey?.startsWith('receber') ? activeAuditMetricKey : null}
-                  onMetricClick={handleKpiAuditClick}
-                  metrics={[
-                    { key: 'receber_hoje', label: 'Para hoje', value: dashboard.receber.hoje },
-                    { key: 'receber_amanha', label: 'Para amanhã', value: dashboard.receber.amanha },
-                    { key: 'receber_atrasadas', label: 'Atrasadas', value: dashboard.receber.atrasadas },
-                    { key: 'receber_em_aberto', label: 'Em aberto no mês', value: dashboard.receber.emAberto },
-                    { key: 'receber_mes', label: 'Do mês', value: dashboard.receberNoMes },
-                    { key: 'receber_recebidas_mes', label: 'Recebidas no mês', value: dashboard.receberRecebidasNoMes },
-                  ]}
-                />
-              </div>
-
-              <section className={`rounded-2xl border px-4 py-3 ${shellClass}`}>
-                <div className={`mb-3 border-b pb-2 text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'border-white/10 text-white/75' : 'border-slate-200 text-slate-700'}`}>
-                  Resultado do mês
+            {/* Coluna 1 */}
+            <div className="space-y-4">
+              {/* Card Contas a Pagar */}
+              <div className={`rounded-2xl border bg-white dark:bg-slate-900 shadow-xs overflow-hidden ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-rose-50/10 dark:bg-rose-500/5">
+                  <div className="flex items-center gap-2 font-bold text-sm uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                    <TrendingDown className="h-4 w-4" />
+                    <span>Contas a Pagar</span>
+                  </div>
                 </div>
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {[
-                    { key: 'resultado_operacional', label: 'Resultado operacional', value: dashboard.resultadoOperacionalMes },
-                    { key: 'resultado_final', label: 'Resultado final', value: dashboard.resultadoFinalMes },
-                  ].map((metric) => {
-                    const isActive = activeAuditMetricKey === metric.key;
-                    return (
-                      <button
-                        key={metric.key}
-                        type="button"
-                        onClick={() => handleKpiAuditClick(metric.key)}
-                        className={`rounded-2xl border px-4 py-4 text-left transition hover:-translate-y-0.5 ${isActive ? isDark ? 'border-amber-300/55 bg-amber-300/12' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.035]' : 'border-slate-200 bg-white/85'}`}
-                      >
-                        <div className={`text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{metric.label}</div>
-                        <div className={`mt-2 whitespace-nowrap text-2xl font-black tracking-tight ${getValueTone(metric.value, isDark)}`}>{formatCurrency(metric.value)}</div>
-                      </button>
-                    );
-                  })}
+                    { key: 'pagar_hoje', label: 'Para hoje', subLabel: formatDate(dashboard.todayIso), value: dashboard.pagar.hoje },
+                    { key: 'pagar_amanha', label: 'Para amanhã', subLabel: formatDate(dashboard.tomorrowIso), value: dashboard.pagar.amanha },
+                    { key: 'pagar_em_aberto', label: 'A vencer no mês', value: dashboard.pagar.emAberto },
+                    { key: 'pagar_pagas_mes', label: 'Pagas no mês', value: dashboard.pagarPagasNoMes },
+                    { key: 'pagar_mes', label: 'Total com vencto no mês', value: dashboard.pagarNoMes },
+                    { key: 'pagar_atrasadas', label: 'Atrasadas', value: dashboard.pagar.atrasadas, isAlert: dashboard.pagar.atrasadas > 0 },
+                  ].map((row) => (
+                    <div
+                      key={row.key}
+                      onClick={() => handleKpiAuditClick(row.key)}
+                      className="px-4 py-3.5 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group"
+                    >
+                      <span className="text-slate-600 dark:text-slate-300 font-medium">
+                        {row.label}
+                        {row.subLabel && (
+                          <span className="text-slate-400 dark:text-slate-500 text-xs ml-2 font-normal">
+                            {row.subLabel}
+                          </span>
+                        )}
+                      </span>
+                      <div className="flex items-center gap-1.5 font-semibold">
+                        <span className={row.isAlert ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-slate-700 dark:text-slate-200'}>
+                          {formatCurrency(row.value)}
+                        </span>
+                        <ExternalLink className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 group-hover:text-slate-400 dark:group-hover:text-slate-500 transition" />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </section>
-
-            </div>
-
-            <section className={`rounded-2xl border px-4 py-4 ${shellClass}`}>
-              <div className="mb-5 flex items-center justify-between gap-3">
-                <div>
-                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Bancos</div>
-                  <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{dashboard.banks.length} conta(s) exibidas</div>
-                </div>
-                <Landmark className={`h-5 w-5 ${isDark ? 'text-amber-200' : 'text-amber-700'}`} />
               </div>
 
-              <div className={`mb-4 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${isDark ? 'border-amber-300/30 bg-amber-400/10' : 'border-amber-200 bg-amber-50'}`}>
-                <div className={`text-[11px] font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Saldo disponível</div>
-                <div className={`whitespace-nowrap text-2xl font-black tracking-tight ${getValueTone(dashboard.saldoDisponivel, isDark)}`}>{formatCurrency(dashboard.saldoDisponivel)}</div>
-              </div>
-
-              <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                <div className="max-h-[56vh] overflow-y-auto custom-scrollbar">
-                  <table className="w-full text-left text-sm">
-                    <thead className={isDark ? 'sticky top-0 z-10 bg-slate-900 text-white/60' : 'sticky top-0 z-10 bg-slate-50 text-slate-500'}>
-                      <tr>
-                        <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.14em]">Banco</th>
-                        <th className="px-4 py-3 text-right text-[10px] font-black uppercase tracking-[0.14em]">Saldo</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dashboard.banks.length === 0 ? (
-                        <tr>
-                          <td colSpan={2} className={`px-4 py-10 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>
-                            Nenhum banco ativo para exibir.
-                          </td>
-                        </tr>
-                      ) : dashboard.banks.map((conta) => {
+              {/* Card Saldo de Contas Bancárias */}
+              <div className={`rounded-2xl border bg-white dark:bg-slate-900 shadow-xs overflow-hidden ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-blue-50/10 dark:bg-blue-500/5">
+                  <div className="flex items-center gap-2 font-bold text-sm uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                    <Landmark className="h-4 w-4" />
+                    <span>Saldo de Contas Bancárias</span>
+                  </div>
+                  <div className={`font-black text-sm ${getValueTone(dashboard.saldoDisponivel, isDark)}`}>
+                    {formatCurrency(dashboard.saldoDisponivel)}
+                  </div>
+                </div>
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {dashboard.banks.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-sm font-semibold text-slate-400 dark:text-slate-500">
+                      Nenhuma conta bancária ativa encontrada.
+                    </div>
+                  ) : (
+                    dashboard.banks.map((conta) => {
                       const logo = getFullLogoUrl(conta.logo_url || null);
                       const foraDoDisponivel = conta.conta_como_disponibilidade === false;
                       const activeBank = auditPanel?.mode === 'EXTRATO_BANCO' && auditPanel.conta?.id === conta.id;
                       const contaDisplayName = resolveContaDisplayName(conta);
                       return (
-                        <tr key={conta.id} className={foraDoDisponivel ? isDark ? 'border-t border-amber-300/12 bg-amber-300/5 text-white' : 'border-t border-amber-100 bg-amber-50/60 text-slate-800' : isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
-                          <td className="px-4 py-3">
-                            <button type="button" onClick={() => handleBankAuditClick(conta)} className={`flex w-full items-center gap-2 rounded-xl px-1 py-1 text-left transition ${activeBank ? isDark ? 'bg-amber-300/12' : 'bg-amber-100/70' : ''}`}>
-                              <div className={`flex h-9 w-9 items-center justify-center overflow-hidden rounded-2xl ${logo ? '' : conta.tipo === 'CAIXA' ? (isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600') : (isDark ? 'bg-white/8 text-white/55' : 'bg-slate-100 text-slate-400')}`}>
-                                {logo ? (
-                                  <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={contaDisplayName} integrationType={conta.tipo} size="sm" className="h-9 w-9" imageClassName="rounded-2xl" fallbackClassName="rounded-2xl border-0 shadow-none" />
-                                ) : conta.tipo === 'CAIXA' ? (
-                                  <Banknote className="h-4 w-4" />
-                                ) : (
-                                  <Landmark className="h-4 w-4" />
-                                )}
-                              </div>
-                              <div>
-                                <div>{contaDisplayName}</div>
-                                {foraDoDisponivel ? (
-                                  <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Nao soma no saldo disponivel</div>
-                                ) : null}
-                              </div>
-                            </button>
-                          </td>
-                          <td className={`px-4 py-3 text-right font-semibold ${getValueTone(Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0), isDark)} whitespace-nowrap`}>{formatCurrency(Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0))}</td>
-                        </tr>
+                        <div
+                          key={conta.id}
+                          onClick={() => handleBankAuditClick(conta)}
+                          className={`px-4 py-3 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group ${activeBank ? 'bg-blue-50/30 dark:bg-blue-950/10' : ''}`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className={`flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-100 dark:border-slate-800 ${logo ? '' : conta.tipo === 'CAIXA' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-slate-100 text-slate-400 dark:bg-white/5 dark:text-white/55'}`}>
+                              {logo ? (
+                                <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={contaDisplayName} integrationType={conta.tipo} size="sm" className="h-8 w-8" imageClassName="rounded-lg" fallbackClassName="rounded-lg border-0 shadow-none" />
+                              ) : conta.tipo === 'CAIXA' ? (
+                                <Banknote className="h-4 w-4" />
+                              ) : (
+                                <Landmark className="h-4 w-4" />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-medium text-slate-700 dark:text-slate-200 truncate">{contaDisplayName}</div>
+                              {foraDoDisponivel && (
+                                <div className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider mt-0.5">Não soma no disponível</div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 font-semibold">
+                            <span className={getValueTone(conta.saldo, isDark)}>
+                              {formatCurrency(conta.saldo)}
+                            </span>
+                            <ExternalLink className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 group-hover:text-slate-400 dark:group-hover:text-slate-500 transition" />
+                          </div>
+                        </div>
                       );
-                      })}
-                    </tbody>
-                  </table>
+                    })
+                  )}
                 </div>
               </div>
-            </section>
+            </div>
 
+            {/* Coluna 2 */}
+            <div className="space-y-4">
+              {/* Card Contas a Receber */}
+              <div className={`rounded-2xl border bg-white dark:bg-slate-900 shadow-xs overflow-hidden ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-emerald-50/10 dark:bg-emerald-500/5">
+                  <div className="flex items-center gap-2 font-bold text-sm uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                    <TrendingUp className="h-4 w-4" />
+                    <span>Contas a Receber</span>
+                  </div>
+                </div>
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {[
+                    { key: 'receber_hoje', label: 'Para hoje', subLabel: formatDate(dashboard.todayIso), value: dashboard.receber.hoje },
+                    { key: 'receber_amanha', label: 'Para amanhã', subLabel: formatDate(dashboard.tomorrowIso), value: dashboard.receber.amanha },
+                    { key: 'receber_em_aberto', label: 'A vencer no mês', value: dashboard.receber.emAberto },
+                    { key: 'receber_recebidas_mes', label: 'Recebidas no mês', value: dashboard.receberRecebidasNoMes },
+                    { key: 'receber_mes', label: 'Total com vencto no mês', value: dashboard.receberNoMes },
+                    { key: 'receber_atrasadas', label: 'Atrasadas', value: dashboard.receber.atrasadas, isAlert: dashboard.receber.atrasadas > 0 },
+                  ].map((row) => (
+                    <div
+                      key={row.key}
+                      onClick={() => handleKpiAuditClick(row.key)}
+                      className="px-4 py-3.5 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group"
+                    >
+                      <span className="text-slate-600 dark:text-slate-300 font-medium">
+                        {row.label}
+                        {row.subLabel && (
+                          <span className="text-slate-400 dark:text-slate-500 text-xs ml-2 font-normal">
+                            {row.subLabel}
+                          </span>
+                        )}
+                      </span>
+                      <div className="flex items-center gap-1.5 font-semibold">
+                        <span className={row.isAlert ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-slate-700 dark:text-slate-200'}>
+                          {formatCurrency(row.value)}
+                        </span>
+                        <ExternalLink className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 group-hover:text-slate-400 dark:group-hover:text-slate-500 transition" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Card Resultados Financeiros */}
+              <div className={`rounded-2xl border bg-white dark:bg-slate-900 shadow-xs overflow-hidden ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-violet-50/10 dark:bg-violet-500/5">
+                  <div className="flex items-center gap-2 font-bold text-sm uppercase tracking-wider text-violet-600 dark:text-violet-400">
+                    <Activity className="h-4 w-4" />
+                    <span>Resultados Financeiros</span>
+                  </div>
+                </div>
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {[
+                    { key: 'receber_recebidas_mes', label: 'Receitas recebidas no mês', value: dashboard.receberRecebidasNoMes, tone: 'text-emerald-600 dark:text-emerald-400' },
+                    { key: 'receber_em_aberto', label: 'Receitas pendentes', value: Math.max(0, dashboard.receberNoMes - dashboard.receberRecebidasNoMes), tone: 'text-slate-500 dark:text-slate-400 font-medium' },
+                    { key: 'pagar_pagas_mes', label: 'Despesas pagas no mês', value: dashboard.pagarPagasNoMes, tone: 'text-rose-600 dark:text-rose-400' },
+                    { key: 'pagar_em_aberto', label: 'Despesas pendentes', value: Math.max(0, dashboard.pagarNoMes - dashboard.pagarPagasNoMes), tone: 'text-slate-500 dark:text-slate-400 font-medium' },
+                    { key: 'resultado_operacional', label: 'Resultado operacional', value: dashboard.receberRecebidasNoMes - dashboard.pagarPagasNoMes, isResult: true },
+                    { key: 'resultado_final', label: 'Resultado final', value: dashboard.resultadoFinalMes, isResult: true },
+                  ].map((row) => {
+                    const valTone = row.isResult
+                      ? row.value >= 0 ? 'text-emerald-600 dark:text-emerald-400 font-black' : 'text-rose-600 dark:text-rose-400 font-black'
+                      : row.tone;
+                    return (
+                      <div
+                        key={row.key}
+                        onClick={() => handleKpiAuditClick(row.key)}
+                        className="px-4 py-3.5 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group"
+                      >
+                        <span className="text-slate-600 dark:text-slate-300 font-medium">
+                          {row.label}
+                        </span>
+                        <div className="flex items-center gap-1.5 font-semibold">
+                          <span className={valTone}>
+                            {row.value >= 0 && row.isResult ? '+' : ''}{formatCurrency(row.value)}
+                          </span>
+                          <ExternalLink className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 group-hover:text-slate-400 dark:group-hover:text-slate-500 transition" />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </section>
         ) : viewMode === 'pay-receive' ? (
           <section className="space-y-3">

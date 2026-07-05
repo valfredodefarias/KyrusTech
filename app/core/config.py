@@ -77,6 +77,9 @@ class Settings(BaseSettings):
         if self.ENVIRONMENT.lower() != "production":
             return self
 
+        if self.SECRET_KEY == "change-me-in-production-env":
+            raise ValueError("SECRET_KEY deve ser alterada da chave padrão em ambiente de produção!")
+
         self.BACKEND_CORS_ORIGINS = self._normalized_cors_origins()
 
         return self

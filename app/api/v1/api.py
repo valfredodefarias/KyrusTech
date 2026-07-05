@@ -16,7 +16,6 @@ from app.api.v1.endpoints import (
     importacao_ofx,
     importacao_nfe,
     auditoria,
-    ai_assistente,
     dre,
     bank_presets,
     orcamentos,
@@ -42,11 +41,11 @@ api_router.include_router(entidades.router, prefix="/entidades", tags=["Entidade
 api_router.include_router(cartoes.router, prefix="/cartoes", tags=["Cartões de Crédito"])
 api_router.include_router(lancamentos.router, prefix="/lancamentos", tags=["Lançamentos"])
 api_router.include_router(centro_custo.router, prefix="/centro-custo", tags=["Centros de Custo"])
-api_router.include_router(auditoria.router, prefix="/auditoria", tags=["Auditoria"])
+api_router.include_router(auditoria.router, prefix="/auditoria", tags=["Auditoria"], include_in_schema=False)
 api_router.include_router(orcamentos.router, prefix="/orcamentos", tags=["Planejamento Orçamentário"])
 
 # --- Módulos Administrativos ---
-api_router.include_router(consultor.router, prefix="/consultor", tags=["Consultor Interno"])
+api_router.include_router(consultor.router, prefix="/consultor", tags=["Consultor Interno"], include_in_schema=False)
 
 # --- Integrações ---
 api_router.include_router(integracao_bancaria.router, prefix="/integracoes-bancarias", tags=["Integrações"])
@@ -59,7 +58,7 @@ api_router.include_router(importacao_ofx.router, prefix="/importacao", tags=["Im
 api_router.include_router(importacao_nfe.router, prefix="/importacao", tags=["Importação NF-e"])
 
 # --- RBAC ---
-api_router.include_router(rbac.router, prefix="/rbac", tags=["RBAC"])
+api_router.include_router(rbac.router, prefix="/rbac", tags=["RBAC"], include_in_schema=False)
 
 # --- PDV ---
 api_router.include_router(pdv.router, prefix="/pdv", tags=["PDV"])
@@ -71,6 +70,5 @@ api_router.include_router(compras.router, prefix="/compras", tags=["Compras"])
 api_router.include_router(comissoes.router, prefix="/comissoes", tags=["Comissões"])
 api_router.include_router(comissao_config.router, prefix="/comissoes/config", tags=["Configurações de Comissões"])
 
-# --- IA ---
-api_router.include_router(ai_assistente.router, prefix="/ai", tags=["Assistente IA"])
+# --- DRE ---
 api_router.include_router(dre.router, prefix="/dre", tags=["DRE"])

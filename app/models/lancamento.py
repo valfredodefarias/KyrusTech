@@ -42,7 +42,7 @@ class Lancamento(AuditMixin, SQLModel, table=True):
 
     # --- Datas ---
     data_vencimento: datetime.date = Field(index=True)
-    data_pagamento: Optional[datetime.date] = None 
+    data_pagamento: Optional[datetime.date] = Field(default=None, index=True) 
     data_competencia: datetime.date = Field(index=True)
     competencia: Optional[str] = Field(default=None, index=True)
     

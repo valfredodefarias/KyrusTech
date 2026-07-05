@@ -1,7 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, fetchLancamentosPaged, normalizeListResponse } from '../../services/api';
-import { useAssistentePage } from '../../components/AssistentePageContext';
 import { useLookupStore } from '../../store/lookupStore';
 import { useAuthStore } from '../../store/authStore';
 import { buildOperationalCategoriaIds } from '../../utils/planoContas';
@@ -674,77 +673,7 @@ export function Lancamentos({
     return { grouped: { groups, sortedDates }, kpis: { r, d, s: r - d } };
   }, [filteredList, categorias, entidades, listaSort]);
 
-  const aiContexto = useMemo(() => {
-    return {
-      mesReferencia: mesAtual.toISOString().slice(0, 7),
-      filtros: {
-        texto: filtroTexto,
-        centroCusto: centroCustoFiltro || null,
-        possuiCentroCusto: filtrosAvancados.centroCustoPresenca,
-        filtroRapido,
-        tipo: filtrosAvancados.tipo,
-        dataModo: filtrosAvancados.dataModo,
-        dataInicio: filtrosAvancados.dataInicio || null,
-        dataFim: filtrosAvancados.dataFim || null,
-        contasSelecionadas: Array.from(filtrosAvancados.contaIds),
-        categoriasSelecionadas: Array.from(filtrosAvancados.categoriaIds),
-      },
-      metricas: {
-        totalFiltrado: filteredList.length,
-        totalDiasComLancamento: grouped.sortedDates.length,
-        receitas: kpis.r,
-        despesas: kpis.d,
-        saldo: kpis.s,
-      },
-      lookups: {
-        categorias: categorias.slice(0, 200).map((c: any) => ({ id: c.id, nome: c.nome, tipo: c.tipo })),
-        contas: contas.slice(0, 120).map((c: any) => ({ id: c.id, nome: c.nome })),
-        centros: centros.slice(0, 120).map((c: any) => ({ id: c.id, nome: c.nome })),
-        entidades: entidades.slice(0, 200).map((e: any) => ({ id: e.id, nome: e.nome })),
-        cartoes: cartoes.slice(0, 120).map((c: any) => ({ id: c.id, nome: c.nome_cartao })),
-      },
-      extratoContaAtivaId: contaExtratoAtivaId,
-    };
-  }, [
-    mesAtual,
-    filtroTexto,
-    centroCustoFiltro,
-    filtroRapido,
-    filtrosAvancados,
-    filteredList.length,
-    grouped.sortedDates.length,
-    kpis,
-    categorias,
-    contas,
-    centros,
-    entidades,
-    cartoes,
-    contaExtratoAtivaId,
-  ]);
 
-  const assistenteConfig = useMemo(
-    () => ({
-      tela: 'lancamentos' as const,
-      titulo: 'Assistente KyrusTECH',
-      contexto: aiContexto,
-      lookups: {
-        categorias: categorias.slice(0, 200).map((item: any) => ({ id: item.id, nome: item.nome, tipo: item.tipo })),
-        contas: contas.slice(0, 120).map((item: any) => ({ id: item.id, nome: item.nome })),
-        centros: centros.slice(0, 120).map((item: any) => ({ id: item.id, nome: item.nome })),
-        entidades: entidades.slice(0, 200).map((item: any) => ({ id: item.id, nome: item.nome })),
-        cartoes: cartoes.slice(0, 120).map((item: any) => ({ id: item.id, nome: item.nome_cartao })),
-      },
-      sugestoes: [
-        'O que os lancamentos desta tela mostram?',
-        'Como reduzir pendencias e atrasos?',
-        'Leia este comprovante e sugira a classificacao.',
-        'Qual filtro usar para investigar melhor o resultado?',
-      ],
-    }),
-    [aiContexto, categorias, contas, centros, entidades, cartoes]
-  );
-
-  useAssistentePage(assistenteConfig);
 
   // --- ACTIONS ---
 

@@ -11,7 +11,7 @@ from threading import Event, Lock
 from pathlib import Path
 from subprocess import run
 from zoneinfo import ZoneInfo
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -168,6 +168,7 @@ def _apply_legacy_schema_compatibility() -> None:
         "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS fds_proximo_dia_util BOOLEAN DEFAULT TRUE",
         "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS modo_parcelamento VARCHAR DEFAULT 'PRO_RATA'",
         "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS taxa_antecipacao NUMERIC(5,2) DEFAULT 0.00",
+        "CREATE INDEX IF NOT EXISTS ix_lancamentos_data_pagamento ON lancamentos (data_pagamento)",
     ]
 
     with engine.begin() as connection:
@@ -185,13 +186,16 @@ def _apply_legacy_schema_compatibility() -> None:
     IdempotencyLog.__table__.create(bind=engine, checkfirst=True)
 
 
+is_production = settings.ENVIRONMENT.lower() == "production"
+
 # --- INICIALIZAR APLICAÇÃO ---
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="API Backend do Kyrus ERP",
     version="1.0.0",
     docs_url=None,
-    redoc_url=None
+    redoc_url=None,
+    openapi_url=None if is_production else "/openapi.json"
 )
 
 from app.api.deps import IdempotencyCompletedException
@@ -405,6 +409,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # --- ENDPOINTS PRINCIPAIS ---
 @app.get("/docs", include_in_schema=False)
 async def custom_redoc_html():
+    if settings.ENVIRONMENT.lower() == "production":
+        raise HTTPException(status_code=404, detail="Not Found")
     html_content = """
     <!DOCTYPE html>
     <html>
@@ -492,6 +498,8 @@ async def custom_redoc_html():
 
 @app.get("/swagger", include_in_schema=False)
 async def custom_swagger_ui():
+    if settings.ENVIRONMENT.lower() == "production":
+        raise HTTPException(status_code=404, detail="Not Found")
     return get_swagger_ui_html(
         openapi_url=app.openapi_url,
         title=app.title + " - Interactive API",
@@ -503,12 +511,13 @@ async def custom_swagger_ui():
 @app.get("/", tags=["Root"])
 async def read_root():
     """Endpoint raiz da API"""
+    is_prod = settings.ENVIRONMENT.lower() == "production"
     return {
         "message": f"Bem-vindo à API do {settings.PROJECT_NAME}",
         "environment": settings.ENVIRONMENT,
-        "docs": "/docs",
-        "swagger": "/swagger",
-        "openapi": "/openapi.json"
+        "docs": None if is_prod else "/docs",
+        "swagger": None if is_prod else "/swagger",
+        "openapi": None if is_prod else "/openapi.json"
     }
 
 @app.get("/health", tags=["Health"])

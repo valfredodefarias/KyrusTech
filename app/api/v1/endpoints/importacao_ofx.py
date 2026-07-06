@@ -2300,7 +2300,10 @@ def _compute_cartao_vencimento(data_compra: date, cartao: Cartao) -> date:
     ultimo_dia = (next_month - timedelta(days=1)).day
     dia = min(vencimento, ultimo_dia)
 
-    return date(base_year, month, dia)
+    computed_date = date(base_year, month, dia)
+    while computed_date.weekday() >= 5:
+        computed_date += timedelta(days=1)
+    return computed_date
 
 
 def _buscar_lancamento_por_import_hash(db: Session, empresa_id: int, import_hash: Optional[str]) -> Optional[Lancamento]:

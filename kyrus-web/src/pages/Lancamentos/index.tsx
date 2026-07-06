@@ -764,6 +764,72 @@ export function Lancamentos({
 
 
 
+  if (isContasExtratoEmbed) {
+    return (
+      <>
+        <LancamentoFormDrawer
+          showDrawer={showDrawer}
+          editarId={selectedEditarId}
+          contaId={selectedContaId}
+          cartaoId={selectedCartaoId}
+          onClose={() => {
+            setShowDrawer(false);
+            setSelectedContaId(null);
+            setSelectedCartaoId(null);
+            onRequestCloseEmbed?.();
+          }}
+          onSaveSuccess={async () => {
+            onRequestCloseEmbed?.();
+          }}
+          isBoletimEmbed={isBoletimEmbed}
+          embedFullscreenDrawer={embedFullscreenDrawer}
+          drawerPanelClassName={drawerPanelClassName}
+          categorias={categorias}
+          entidades={entidades}
+          contas={contas}
+          cartoes={cartoes}
+          centros={centros}
+          pushToast={pushToast}
+          onEntityCreated={(newEntity) => {
+            setEntidades((prev) => {
+              if (prev.some((e) => e.id === newEntity.id)) return prev;
+              return [...prev, newEntity];
+            });
+          }}
+        />
+
+        {toasts.length > 0 && (
+          <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 max-w-sm">
+            {toasts.map((toast) => (
+              <div
+                key={toast.id}
+                className={`px-4 py-3 rounded-xl shadow-xl border text-sm font-semibold flex items-center gap-2 ${
+                  toast.type === 'success'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-300'
+                    : toast.type === 'error'
+                      ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/30 dark:border-red-800 dark:text-red-300'
+                      : 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-300'
+                }`}
+              >
+                {toast.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : toast.type === 'error' ? (
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                ) : (
+                  <Info className="w-4 h-4 shrink-0" />
+                )}
+                <span className="flex-1">{toast.message}</span>
+                <button onClick={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))} className="opacity-70 hover:opacity-100">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
     <div
       className={`flex h-full text-slate-800 dark:text-slate-100 overflow-hidden relative ${

@@ -117,6 +117,17 @@ interface HealthResponse {
   server_datetime?: string;
 }
 
+interface IntegracaoBancaria {
+  id: number;
+  nome: string;
+  tipo: string;
+  ambiente: string;
+  conta_id?: number | null;
+  centro_custo_id?: number | null;
+  data_inicio_sincronizacao?: string | null;
+  token_configurado?: boolean;
+}
+
 function resolveCentroCustoId(currentValue: number | null, centros: CentroCustoResumo[]): number | null {
   if (currentValue !== null && centros.some((centro) => centro.id === currentValue)) {
     return currentValue;
@@ -146,6 +157,7 @@ interface NormalizedRow {
   interessado: string;
   contaId?: number | null;
   contaNome: string;
+  centroCustoId?: number | null;
 }
 
 type AuditPanelMode = 'LANCAMENTOS' | 'EXTRATO_BANCO';
@@ -579,6 +591,7 @@ export function Boletim() {
   };
 
   const openLancamentoEdicao = (lancamentoId: number, event?: ReactMouseEvent<HTMLElement>) => {
+    if (lancamentoId <= 0) return;
     const destino = buildLancamentosDestino(lancamentoId, false);
     if (event?.metaKey || event?.ctrlKey) {
       navigate(destino);
@@ -595,6 +608,8 @@ export function Boletim() {
   const [categorias, setCategorias] = useState<PlanoContaResumo[]>([]);
   const [entidades, setEntidades] = useState<EntidadeResumo[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
+  const [asaasRows, setAsaasRows] = useState<NormalizedRow[]>([]);
+  const [asaasLoading, setAsaasLoading] = useState(false);
   const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('executivo');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
@@ -741,6 +756,124 @@ export function Boletim() {
         if (failures.length > 0) {
           setLoadError('Parte dos dados do boletim nao pôde ser carregada. A tela continuou com o que estava disponível.');
         }
+
+        async function fetchAsaasBackground() {
+          if (active) {
+            setAsaasLoading(true);
+          }
+          try {
+            const integracoesRes = await api.get<IntegracaoBancaria[]>('/integracoes-bancarias/');
+            const activeIntegracoes = normalizeListResponse<IntegracaoBancaria>(integracoesRes.data);
+            const asaasIntegracoes = activeIntegracoes.filter(item => String(item.tipo || '').toUpperCase() === 'ASAAS');
+
+            if (asaasIntegracoes.length > 0) {
+              const parsedReference = parseDateOnly(referenceDate);
+              const fallbackDate = parseDateOnly(getBusinessTodayIso()) || new Date();
+              const now = parsedReference
+                ? new Date(parsedReference.getFullYear(), parsedReference.getMonth(), parsedReference.getDate())
+                : fallbackDate;
+              const todayIso = toIsoDate(now);
+              const tomorrow = new Date(now);
+              tomorrow.setDate(now.getDate() + 1);
+              const tomorrowIso = toIsoDate(tomorrow);
+
+              const cobrancasPromises = asaasIntegracoes.map(async (integracao) => {
+                try {
+                  const response = await api.get<{
+                    abertas: any[];
+                    atrasadas: any[];
+                    recebidas: any[];
+                  }>(`/integracoes-bancarias/${integracao.id}/asaas/contas-receber`);
+
+                  const { abertas, atrasadas } = response.data;
+                  const rows: NormalizedRow[] = [];
+
+                  const processCharge = (charge: any, isAtrasada: boolean) => {
+                    const val = Number(charge.value || 0);
+                    const dueDateStr = charge.dueDate || '';
+                    const due = parseDateOnly(dueDateStr);
+
+                    let statusKey: StatusFilter = 'EM_ABERTO';
+                    let statusLabel = 'A vencer';
+
+                    if (isAtrasada || (dueDateStr && dueDateStr < todayIso)) {
+                      statusKey = 'ATRASADO';
+                      statusLabel = 'Atrasado';
+                    } else if (dueDateStr === todayIso) {
+                      statusKey = 'HOJE';
+                      statusLabel = 'Hoje';
+                    } else if (dueDateStr === tomorrowIso) {
+                      statusKey = 'AMANHA';
+                      statusLabel = 'Amanhã';
+                    }
+
+                    const dueMonth = due ? due.getMonth() : -1;
+                    const dueDay = due ? due.getDate() : -1;
+
+                    const asaasDesc = charge.description || '';
+                    const asaasIdStr = charge.id || '';
+                    const rowDesc = asaasDesc ? `[Asaas] ${asaasDesc}` : `[Asaas] Cobrança ${asaasIdStr}`;
+
+                    let customerInfo = 'Cliente Asaas';
+                    if (charge.customerName) {
+                      customerInfo = charge.customerName;
+                    } else if (charge.customer) {
+                      if (typeof charge.customer === 'object') {
+                        customerInfo = charge.customer.name || charge.customer.company || charge.customer.email || 'Cliente Asaas';
+                      } else {
+                        customerInfo = `Cliente Asaas (${charge.customer})`;
+                      }
+                    }
+
+                    return {
+                      rowKey: `asaas-charge-${asaasIdStr}`,
+                      id: -Number(asaasIdStr.replace(/[^0-9]/g, '')) || -9999,
+                      descricao: rowDesc,
+                      flowType: 'RECEBIMENTO' as const,
+                      statusKey,
+                      statusLabel,
+                      dataVencimento: dueDateStr,
+                      monthIndex: dueMonth,
+                      dayOfMonth: dueDay,
+                      valor: val,
+                      valorAbsoluto: Math.abs(val),
+                      interessado: customerInfo,
+                      contaId: integracao.conta_id || null,
+                      contaNome: integracao.nome || 'Asaas',
+                      centroCustoId: integracao.centro_custo_id || null,
+                    } as NormalizedRow;
+                  };
+
+                  (abertas || []).forEach((c: any) => rows.push(processCharge(c, false)));
+                  (atrasadas || []).forEach((c: any) => rows.push(processCharge(c, true)));
+
+                  return rows;
+                } catch (err) {
+                  console.error(`Erro ao carregar cobrancas da integracao Asaas ${integracao.id}`, err);
+                  return [];
+                }
+              });
+
+              const results = await Promise.all(cobrancasPromises);
+              const loadedAsaasRows = results.flat();
+              if (active) {
+                setAsaasRows(loadedAsaasRows);
+              }
+            } else {
+              if (active) {
+                setAsaasRows([]);
+              }
+            }
+          } catch (err) {
+            console.error("Erro ao listar integracoes para o boletim", err);
+          } finally {
+            if (active) {
+              setAsaasLoading(false);
+            }
+          }
+        }
+
+        void fetchAsaasBackground();
       } catch (error) {
         console.error('Erro ao carregar boletim', error);
         if (active) {
@@ -766,7 +899,8 @@ export function Boletim() {
         clearInterval(intervalId);
       }
     };
-  }, [referenceYear, refreshCount]);
+  }, [referenceYear, refreshCount, referenceDate]);
+
 
   const dashboard = useMemo(() => {
     const parsedReference = parseDateOnly(referenceDate);
@@ -791,63 +925,6 @@ export function Boletim() {
     const saldoDisponivel = bankBalances
       .filter((conta) => conta.conta_como_disponibilidade !== false)
       .reduce((acc, conta) => acc + conta.saldo, 0);
-
-    const baseRows = lancamentos
-      .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
-      .map((item) => {
-        const due = parseDateOnly(item.data_vencimento);
-        const flowType: FlowFilter = isReceita(item.tipo) ? 'RECEBIMENTO' : 'PAGAMENTO';
-        const statusKey = getStatusKey(item, todayIso, tomorrowIso);
-        const hasPaidValue = item.valor_pago !== null && item.valor_pago !== undefined && Number(item.valor_pago) > 0;
-        const baseValue = Number(statusKey === 'PAGO' && hasPaidValue ? item.valor_pago : item.valor_previsto ?? item.valor_pago ?? 0);
-        const signedValue = flowType === 'RECEBIMENTO' ? baseValue : baseValue * -1;
-        const rawId = Number(item.id);
-        const safeId = Number.isFinite(rawId) ? rawId : -1;
-        return {
-          rowKey: `${buildLancamentoFingerprint(item)}|cc:${Number(item.centro_custo_id || 0)}|conta:${Number(item.conta_id || 0)}`,
-          id: safeId,
-          descricao: item.descricao,
-          flowType,
-          statusKey,
-          statusLabel: getStatusLabel(statusKey),
-          dataVencimento: item.data_vencimento,
-          monthIndex: due ? due.getMonth() : -1,
-          dayOfMonth: due ? due.getDate() : -1,
-          valor: signedValue,
-          valorAbsoluto: Math.abs(signedValue),
-          interessado: resolveLancamentoInteressado(item, entityMap),
-          contaId: item.conta_id,
-          contaNome: resolveContaDisplayName(contaMap.get(Number(item.conta_id))),
-        } satisfies NormalizedRow;
-      })
-      .filter((item) => item.monthIndex >= 0 && item.dayOfMonth >= 0);
-
-    const activeRows = applyFilters(baseRows, {
-      flowType: flowFilter,
-      status: statusFilter,
-      monthIndex: selectedMonthIndex,
-      dayOfMonth: selectedDayOfMonth,
-      fallbackMonthIndex,
-    });
-
-    const payableRows = baseRows.filter((item) => item.flowType === 'PAGAMENTO');
-    const receivableRows = baseRows.filter((item) => item.flowType === 'RECEBIMENTO');
-    const sumValues = (rows: NormalizedRow[]) => rows.reduce((acc, item) => acc + item.valorAbsoluto, 0);
-
-    const buildExecutiveMetrics = (rows: NormalizedRow[]) => ({
-      hoje: sumValues(rows.filter((item) => item.statusKey === 'HOJE' && item.monthIndex === effectiveMonthIndex)),
-      amanha: sumValues(rows.filter((item) => item.statusKey === 'AMANHA')),
-      atrasadas: sumValues(rows.filter((item) => item.statusKey === 'ATRASADO')),
-      emAberto: sumValues(rows.filter((item) => item.statusKey === 'EM_ABERTO' && item.monthIndex === effectiveMonthIndex)),
-    });
-
-    const pagar = buildExecutiveMetrics(payableRows);
-    const receber = buildExecutiveMetrics(receivableRows);
-    const pagarNoMes = sumValues(payableRows.filter((item) => item.monthIndex === effectiveMonthIndex));
-    const receberNoMes = sumValues(receivableRows.filter((item) => item.monthIndex === effectiveMonthIndex));
-    const pagarPagasNoMes = sumValues(payableRows.filter((item) => item.monthIndex === effectiveMonthIndex && item.statusKey === 'PAGO'));
-    const receberRecebidasNoMes = sumValues(receivableRows.filter((item) => item.monthIndex === effectiveMonthIndex && item.statusKey === 'PAGO'));
-
     const relevantes = categorias.filter((conta) => isReceita(conta.tipo) || isDespesa(conta.tipo));
     const contaPorId = new Map<number, PlanoContaResumo>();
     relevantes.forEach((conta) => contaPorId.set(conta.id, conta));
@@ -882,6 +959,80 @@ export function Boletim() {
       if (conta && isReceita(conta.tipo)) return 'RECEITA_BRUTA';
       return classificarHeuristicaLegada(contaId);
     };
+
+    const EXCLUDED_BOLETIM_DRE_GROUPS = new Set([
+      'FORA_DRE',
+      'FORA DRE',
+      'FORA DA DRE',
+    ]);
+
+    const baseRows = [
+      ...lancamentos
+        .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
+        .filter((item) => {
+          const contaId = Number(item.plano_contas_id);
+          if (!contaPorId.has(contaId)) return false;
+          const dreGrupo = resolverDreGrupo(contaId);
+          if (EXCLUDED_BOLETIM_DRE_GROUPS.has(dreGrupo)) return false;
+          return true;
+        })
+        .map((item) => {
+          const due = parseDateOnly(item.data_vencimento);
+          const flowType: FlowFilter = isReceita(item.tipo) ? 'RECEBIMENTO' : 'PAGAMENTO';
+          const statusKey = getStatusKey(item, todayIso, tomorrowIso);
+          const hasPaidValue = item.valor_pago !== null && item.valor_pago !== undefined && Number(item.valor_pago) > 0;
+          const baseValue = Number(statusKey === 'PAGO' && hasPaidValue ? item.valor_pago : item.valor_previsto ?? item.valor_pago ?? 0);
+          const signedValue = flowType === 'RECEBIMENTO' ? baseValue : baseValue * -1;
+          const rawId = Number(item.id);
+          const safeId = Number.isFinite(rawId) ? rawId : -1;
+          return {
+            rowKey: `${buildLancamentoFingerprint(item)}|cc:${Number(item.centro_custo_id || 0)}|conta:${Number(item.conta_id || 0)}`,
+            id: safeId,
+            descricao: item.descricao,
+            flowType,
+            statusKey,
+            statusLabel: getStatusLabel(statusKey),
+            dataVencimento: item.data_vencimento,
+            monthIndex: due ? due.getMonth() : -1,
+            dayOfMonth: due ? due.getDate() : -1,
+            valor: signedValue,
+            valorAbsoluto: Math.abs(signedValue),
+            interessado: resolveLancamentoInteressado(item, entityMap),
+            contaId: item.conta_id,
+            contaNome: resolveContaDisplayName(contaMap.get(Number(item.conta_id))),
+          } satisfies NormalizedRow;
+        })
+        .filter((item) => item.monthIndex >= 0 && item.dayOfMonth >= 0),
+      ...asaasRows.filter((item) => selectedCentroCustoId === null || Number(item.centroCustoId) === selectedCentroCustoId)
+    ];
+
+    const activeRows = applyFilters(baseRows, {
+      flowType: flowFilter,
+      status: statusFilter,
+      monthIndex: selectedMonthIndex,
+      dayOfMonth: selectedDayOfMonth,
+      fallbackMonthIndex,
+    });
+
+    const payableRows = baseRows.filter((item) => item.flowType === 'PAGAMENTO');
+    const receivableRows = baseRows.filter((item) => item.flowType === 'RECEBIMENTO');
+    const sumValues = (rows: NormalizedRow[]) => rows.reduce((acc, item) => acc + item.valorAbsoluto, 0);
+
+    const buildExecutiveMetrics = (rows: NormalizedRow[]) => ({
+      hoje: sumValues(rows.filter((item) => item.statusKey === 'HOJE' && item.monthIndex === effectiveMonthIndex)),
+      amanha: sumValues(rows.filter((item) => item.statusKey === 'AMANHA')),
+      atrasadas: sumValues(rows.filter((item) => item.statusKey === 'ATRASADO')),
+      emAberto: sumValues(rows.filter((item) => item.statusKey === 'EM_ABERTO' && item.monthIndex === effectiveMonthIndex)),
+    });
+
+    const pagar = buildExecutiveMetrics(payableRows);
+    const receber = buildExecutiveMetrics(receivableRows);
+    const pagarNoMes = sumValues(payableRows.filter((item) => item.monthIndex === effectiveMonthIndex));
+    const receberNoMes = sumValues(receivableRows.filter((item) => item.monthIndex === effectiveMonthIndex));
+    const pagarPagasNoMes = sumValues(payableRows.filter((item) => item.monthIndex === effectiveMonthIndex && item.statusKey === 'PAGO'));
+    const receberRecebidasNoMes = sumValues(receivableRows.filter((item) => item.monthIndex === effectiveMonthIndex && item.statusKey === 'PAGO'));
+
+
 
     const receitaMonthly = Array.from({ length: 12 }, () => 0);
     const deducoesMonthly = Array.from({ length: 12 }, () => 0);
@@ -970,7 +1121,7 @@ export function Boletim() {
       todayIso,
       tomorrowIso,
     };
-  }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter, referenceDate]);
+  }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter, referenceDate, asaasRows]);
 
   const groupedRows = useMemo(() => {
     if (auditPanel?.mode !== 'LANCAMENTOS' || !auditPanel.rows) return { groups: {}, sortedDates: [] };
@@ -2014,13 +2165,24 @@ export function Boletim() {
                                     {groupRows.map((row) => (
                                       <tr
                                         key={`audit-row-${row.rowKey}`}
-                                        onClick={(event) => openLancamentoEdicao(row.id, event)}
-                                        className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
-                                        title="Abrir edição do lançamento"
+                                        onClick={(event) => {
+                                          if (row.id > 0) openLancamentoEdicao(row.id, event);
+                                        }}
+                                        className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} ${row.id > 0 ? 'cursor-pointer' : 'cursor-default'} transition`}
+                                        title={row.id > 0 ? "Abrir edição do lançamento" : undefined}
                                       >
                                         <td className="px-3 py-2.5 font-medium whitespace-nowrap text-slate-400 dark:text-slate-500"></td>
                                         <td className="px-3 py-2.5">{row.interessado}</td>
-                                        <td className="max-w-56 truncate px-3 py-2.5" title={row.descricao}>{row.descricao}</td>
+                                        <td className="max-w-56 truncate px-3 py-2.5" title={row.descricao}>
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="truncate">{row.descricao}</span>
+                                            {row.id <= 0 && (
+                                              <span className="shrink-0 inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-400/20">
+                                                Asaas
+                                              </span>
+                                            )}
+                                          </div>
+                                        </td>
                                         <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrencyDetailed(row.valor)}</td>
                                         <td className="px-3 py-2.5">
                                           <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${row.statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : row.statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
@@ -2225,6 +2387,11 @@ export function Boletim() {
                   <div className="flex items-center gap-2 font-bold text-sm uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                     <TrendingUp className="h-4 w-4" />
                     <span>Contas a Receber</span>
+                    {asaasLoading && (
+                      <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-medium text-blue-500 animate-pulse lowercase tracking-normal normal-case">
+                        (sincronizando Asaas...)
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -2388,7 +2555,16 @@ export function Boletim() {
                             <tr key={row.rowKey} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
                               <td className="px-4 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
                               <td className="px-4 py-2.5 font-semibold">{row.interessado}</td>
-                              <td className="max-w-85 truncate px-4 py-2.5" title={row.descricao}>{row.descricao}</td>
+                              <td className="max-w-85 truncate px-4 py-2.5" title={row.descricao}>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="truncate">{row.descricao}</span>
+                                  {row.id <= 0 && (
+                                    <span className="shrink-0 inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-400/20">
+                                      Asaas
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
                               <td className="px-4 py-2.5">
                                 <span
                                   title={row.flowType === 'RECEBIMENTO' ? 'Recebimento' : 'Pagamento'}

@@ -1220,7 +1220,7 @@ def listar_assinaturas_asaas(
 @router.get("/{integracao_id}/asaas/contas-receber")
 def listar_contas_receber_asaas(
     integracao_id: int,
-    limit: int = 50,
+    limit: int = 100,
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
@@ -1230,9 +1230,62 @@ def listar_contas_receber_asaas(
     if integracao.tipo.upper() != "ASAAS":
         raise HTTPException(status_code=400, detail="Esta integração não é do tipo Asaas")
 
-    abertas = buscar_cobrancas_asaas(db, integracao=integracao, status="PENDING", limit=limit)
-    atrasadas = buscar_cobrancas_asaas(db, integracao=integracao, status="OVERDUE", limit=limit)
-    recebidas = buscar_cobrancas_asaas(db, integracao=integracao, status="RECEIVED", limit=limit)
+    # Busca as cobranças abertas e atrasadas em paralelo
+    from concurrent.futures import ThreadPoolExecutor
+
+    def fetch_charges_by_status(status: str):
+        try:
+            return buscar_cobrancas_asaas(db, integracao=integracao, status=status, limit=limit)
+        except Exception as e:
+            logger.error(f"Erro ao buscar cobrancas status={status} para integracao {integracao_id}: {e}")
+            return []
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {
+            "abertas": executor.submit(fetch_charges_by_status, "PENDING"),
+            "atrasadas": executor.submit(fetch_charges_by_status, "OVERDUE"),
+        }
+        abertas = futures["abertas"].result()
+        atrasadas = futures["atrasadas"].result()
+        recebidas = []
+
+    # Resolve os nomes dos clientes das faturas abertas e atrasadas em paralelo
+    from app.services.integracao_asaas import _fetch_asaas_customer_name, get_token_decrypted
+    
+    access_token = None
+    try:
+        access_token = get_token_decrypted(db, integracao=integracao)
+    except Exception:
+        pass
+
+    customer_name_cache = {}
+    unique_customer_ids = {cobranca.get("customer") for cobranca in abertas + atrasadas if cobranca.get("customer")}
+
+    # Busca os detalhes dos clientes em paralelo usando um ThreadPoolExecutor
+    def fetch_customer_worker(cust_id: str):
+        try:
+            name = _fetch_asaas_customer_name(
+                integracao=integracao,
+                access_token=access_token,
+                customer_id=cust_id,
+                customer_name_cache=customer_name_cache
+            )
+            return cust_id, name
+        except Exception:
+            return cust_id, None
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        parallel_results = list(executor.map(fetch_customer_worker, unique_customer_ids))
+
+    for cust_id, name in parallel_results:
+        if name:
+            customer_name_cache[cust_id] = name
+
+    for cobranca in abertas + atrasadas:
+        customer_id = cobranca.get("customer")
+        if customer_id and customer_name_cache.get(customer_id):
+            cobranca["customerName"] = customer_name_cache[customer_id]
+
     return {
         "abertas": abertas,
         "atrasadas": atrasadas,

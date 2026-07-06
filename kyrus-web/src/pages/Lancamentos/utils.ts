@@ -225,5 +225,6 @@ export const computeCartaoVencimento = (purchaseDate?: string, cartaoId?: string
     return `${dy}-${dm}-${dd}`;
   };
 
-  return formatDateYMD(new Date(y, monthIndex, day));
+  const baseDueDate = formatDateYMD(new Date(y, monthIndex, day));
+  return toNextBusinessDay(baseDueDate);
 };

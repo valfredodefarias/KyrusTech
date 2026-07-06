@@ -212,7 +212,11 @@ export function Cartoes() {
         const monthIndex = (m - 1) + dueOffset;
         const daysInMonth = new Date(y, monthIndex + 1, 0).getDate();
         const day = Math.min(venc, daysInMonth);
-        return formatDateYMD(new Date(y, monthIndex, day));
+        const computedDate = new Date(y, monthIndex, day);
+        while (computedDate.getDay() === 0 || computedDate.getDay() === 6) {
+            computedDate.setDate(computedDate.getDate() + 1);
+        }
+        return formatDateYMD(computedDate);
     };
 
     const getCurrentInvoiceDueDate = (cartao: Cartao, baseDate: Date) => {
@@ -226,7 +230,11 @@ export function Cartoes() {
         const monthIndex = m + dueOffset;
         const daysInMonth = new Date(y, monthIndex + 1, 0).getDate();
         const day = Math.min(venc, daysInMonth);
-        return new Date(y, monthIndex, day);
+        const computedDate = new Date(y, monthIndex, day);
+        while (computedDate.getDay() === 0 || computedDate.getDay() === 6) {
+            computedDate.setDate(computedDate.getDate() + 1);
+        }
+        return computedDate;
     };
 
   useEffect(() => {
@@ -376,6 +384,9 @@ export function Cartoes() {
     const mes = mesFatura.getMonth();
     const diaVenc = cartao.dia_vencimento > 28 ? 28 : (cartao.dia_vencimento || 10);
     const vencimento = new Date(ano, mes, diaVenc);
+    while (vencimento.getDay() === 0 || vencimento.getDay() === 6) {
+        vencimento.setDate(vencimento.getDate() + 1);
+    }
     const strMes = getMonthKey(vencimento); 
     
     const itens = lancamentos.filter((l) => l.cartao_id === cartao.id && getLancamentoFaturaMonthKey(l, cartao) === strMes);

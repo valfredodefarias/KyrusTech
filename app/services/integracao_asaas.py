@@ -200,6 +200,9 @@ def _is_generic_asaas_entity_name(name: Optional[str]) -> bool:
     return "ASAAS" in normalized
 
 
+_asaas_customer_name_persistent_cache: Dict[str, Optional[str]] = {}
+
+
 def _fetch_asaas_customer_name(
     *,
     integracao: IntegracaoBancaria,
@@ -212,6 +215,11 @@ def _fetch_asaas_customer_name(
 
     if customer_id in customer_name_cache:
         return customer_name_cache[customer_id]
+
+    if customer_id in _asaas_customer_name_persistent_cache:
+        val = _asaas_customer_name_persistent_cache[customer_id]
+        customer_name_cache[customer_id] = val
+        return val
 
     if not access_token:
         customer_name_cache[customer_id] = None
@@ -247,6 +255,7 @@ def _fetch_asaas_customer_name(
     ).strip()
     resolved = candidate or None
     customer_name_cache[customer_id] = resolved
+    _asaas_customer_name_persistent_cache[customer_id] = resolved
     return resolved
 
 
@@ -522,6 +531,11 @@ def _fetch_paginated_asaas_data(
             items = []
 
         all_items.extend(items)
+
+        if len(all_items) >= page_limit:
+            all_items = all_items[:page_limit]
+            break
+
         has_more = bool(payload.get("hasMore"))
 
         if not has_more or not items:

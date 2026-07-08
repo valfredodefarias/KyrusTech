@@ -2854,6 +2854,9 @@ def confirmar_lancamentos(
                                     lanc_existente.entidade_id = int(lanc_data["entidade_id"])
                                 if conta_resolvida:
                                     lanc_existente.conta_id = conta_resolvida.id
+                                if import_hash:
+                                    lanc_existente.import_hash = import_hash
+                                    lanc_existente.movimento_uid = import_hash
                                 db.add(lanc_existente)
                                 lancamentos_atualizados += 1
                             else:
@@ -2873,6 +2876,7 @@ def confirmar_lancamentos(
                                     conta_id=conta_resolvida.id if conta_resolvida else lanc_existente.conta_id,
                                     centro_custo_id=lanc_existente.centro_custo_id,
                                     import_hash=import_hash or None,
+                                    movimento_uid=import_hash or None,
                                     conciliado=True,
                                     id_parcelamento=parcel_id,
                                 )
@@ -2890,6 +2894,9 @@ def confirmar_lancamentos(
                                 lanc_existente.entidade_id = int(lanc_data["entidade_id"])
                             if conta_resolvida:
                                 lanc_existente.conta_id = conta_resolvida.id
+                            if import_hash:
+                                lanc_existente.import_hash = import_hash
+                                lanc_existente.movimento_uid = import_hash
                             db.add(lanc_existente)
                             lancamentos_atualizados += 1
                             continue

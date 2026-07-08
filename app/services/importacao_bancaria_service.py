@@ -179,8 +179,14 @@ def _status_aberto_clause() -> tuple[str, ...]:
 def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None, cartao_id: Optional[int] = None) -> str:
     movimento_uid = _normalizar_texto(lancamento.get("movimento_uid"))
     referencia_externa = _normalizar_texto(lancamento.get("referencia_externa"))
-    linha_arquivo = lancamento.get("linha_arquivo")
     ofx_bank_id = _normalizar_texto(lancamento.get("ofx_bank_id"))
+
+    # Estabilização: referências geradas via fallback (sem fitid do banco) devem ser desconsideradas do hash
+    eh_fallback = False
+    if movimento_uid:
+        movimento_uid_clean = movimento_uid.strip().lower()
+        if movimento_uid_clean.startswith("fallback:") or movimento_uid_clean.startswith("fallback-"):
+            eh_fallback = True
 
     payload = {
         "origem": lancamento.get("origem"),
@@ -191,16 +197,15 @@ def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None, cartao_i
         "descricao": _normalizar_texto(lancamento.get("descricao")),
         "razao_social": _normalizar_texto(lancamento.get("razao_social")),
         "cpf_cnpj": _limpar_cpf_cnpj(lancamento.get("cpf_cnpj")),
-        "referencia_externa": referencia_externa,
-        "movimento_uid": movimento_uid if movimento_uid and not movimento_uid.startswith("fallback:") else None,
+        "referencia_externa": None if eh_fallback else referencia_externa,
+        "movimento_uid": None if eh_fallback else movimento_uid,
         "ofx_bank_id": ofx_bank_id,
         "conta_id": conta_id or lancamento.get("conta_id"),
         "cartao_id": cartao_id or lancamento.get("cartao_id"),
     }
-    if linha_arquivo not in (None, ""):
-        payload["linha_arquivo"] = str(linha_arquivo)
     payload_str = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload_str.encode("utf-8")).hexdigest()
+
 
 
 def verificar_duplicata(

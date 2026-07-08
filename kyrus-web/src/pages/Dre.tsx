@@ -1,4 +1,5 @@
 import { type MouseEvent as ReactMouseEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarDays, Sigma, TrendingDown, TrendingUp } from 'lucide-react';
 
@@ -188,6 +189,13 @@ function hasAnyValue(values: number[]) {
 
 function buildMonthLabels(ano: number) {
   return MONTH_SHORT.map((label) => `${label}/${ano}`);
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return '';
+  const parts = value.split('-');
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}`;
+  return value;
 }
 
 function normalizeText(value?: string | null) {
@@ -471,6 +479,18 @@ export function Dre() {
   const entidadeNomePorId = useMemo(() => {
     return new Map(entidades.map((entidade) => [entidade.id, entidade.nome_fantasia || entidade.nome || 'Sem interessado']));
   }, [entidades]);
+
+  const groupedAuditRows = useMemo(() => {
+    if (!auditPanel || !auditPanel.rows) return { groups: {}, sortedDates: [] };
+    const groups: { [date: string]: LancamentoResumo[] } = {};
+    auditPanel.rows.forEach((row) => {
+      const dateStr = resolveCompetenciaDate(row, somentePagos) || row.data_vencimento || 'Sem data';
+      if (!groups[dateStr]) groups[dateStr] = [];
+      groups[dateStr].push(row);
+    });
+    const sortedDates = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+    return { groups, sortedDates };
+  }, [auditPanel, somentePagos]);
 
   const dre = useMemo(() => {
     const relevantes = categorias.filter((conta) => {
@@ -1157,107 +1177,98 @@ export function Dre() {
     ? 'bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.10),transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_48%,#111827_100%)] text-slate-100'
     : 'bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-900';
   const selectedMonthSoftClass = isDark
-    ? 'bg-amber-300/20 !text-amber-50 ring-1 ring-inset ring-amber-200/40'
-    : 'bg-amber-200/45 !text-slate-900 ring-1 ring-inset ring-amber-400/45';
+    ? 'bg-orange-500/10 !text-orange-50 ring-1 ring-inset ring-orange-500/20'
+    : 'bg-orange-500/10 !text-slate-900 ring-1 ring-inset ring-orange-400/20';
   const selectedMonthHeaderClass = isDark
-    ? 'border-amber-200/50 bg-amber-300/20 !text-amber-50'
-    : 'border-amber-300/70 bg-amber-200/50 !text-slate-900';
+    ? 'border-orange-500/30 bg-[#2d120a] !text-orange-200'
+    : 'border-orange-500/20 bg-[#fed7aa] !text-slate-900';
+
+  const portalContainer = document.getElementById('layout-header-actions');
 
   return (
     <div className={`min-h-full ${pageBg}`}>
       <div className="w-full space-y-6">
+        {portalContainer && createPortal(
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <input
+              type="number"
+              min={2000}
+              max={2100}
+              value={ano}
+              onChange={(event) => {
+                setAno(Number(event.target.value) || currentYear);
+                setSelectedMonth(currentMonth);
+              }}
+              title="Ano"
+              className="h-9 w-16 sm:w-20 rounded-md border border-slate-200 bg-white px-1 sm:px-2 text-xs sm:text-sm font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-white outline-none focus:border-blue-500 transition"
+            />
+            
+            <select
+              value={selectedMonth === null ? 'ALL' : String(selectedMonth)}
+              onChange={(event) => {
+                setSelectedMonth(event.target.value === 'ALL' ? null : Number(event.target.value));
+              }}
+              title="Mês"
+              className="h-9 w-24 sm:w-28 rounded-md border border-slate-200 bg-white px-1 sm:px-2 text-xs sm:text-sm font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-white outline-none focus:border-blue-500 transition"
+            >
+              <option value="ALL">Ano todo</option>
+              {monthLabels.map((label, index) => (
+                <option key={`month-select-${label}`} value={index}>{label}</option>
+              ))}
+            </select>
+
+            <select
+              value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
+              onChange={(event) => {
+                setSelectedCentroCustoId(event.target.value === 'ALL' ? 'ALL' : Number(event.target.value));
+                setSelectedMonth(currentMonth);
+              }}
+              title="Centro de custo"
+              className="h-9 w-32 sm:w-40 rounded-md border border-slate-200 bg-white px-1 sm:px-2 text-xs sm:text-sm font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-white outline-none focus:border-blue-500 transition"
+            >
+              <option value="ALL">Todos CCs</option>
+              {centrosCusto.map((centro) => (
+                <option key={centro.id} value={centro.id}>
+                  {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              onClick={async () => {
+                const nextOnlyPaid = !somentePagos;
+                if (!nextOnlyPaid && !loadedAllLancamentosRef.current) {
+                  try {
+                    await fetchFullYearLancamentos();
+                  } catch {
+                    return;
+                  }
+                }
+                setSomentePagos(nextOnlyPaid);
+                setSelectedMonth(currentMonth);
+              }}
+              className={`h-9 rounded-md border px-2 sm:px-3 text-xs font-bold transition shadow-xs ${somentePagos ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-white'}`}
+            >
+              <span className="hidden sm:inline">{somentePagos ? 'Data pagamento' : 'Competência'}</span>
+              <span className="sm:hidden">{somentePagos ? 'Pagto' : 'Comp.'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={exportToXlsx}
+              className="h-9 rounded-md border border-blue-600 bg-blue-600 px-2 sm:px-3 text-xs font-bold text-white hover:bg-blue-500 transition shadow-sm"
+            >
+              XLSX
+            </button>
+          </div>,
+          portalContainer
+        )}
+
         <section className={`rounded-none border px-4 py-4 shadow-[0_25px_70px_-60px_rgba(15,23,42,0.45)] md:px-6 ${isDark ? 'border-slate-800 bg-slate-950/70' : 'border-slate-200 bg-white'}`}>
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-3xl font-black tracking-tight md:text-4xl">DRE</h1>
-            </div>
-
-            <div className="flex flex-col gap-3 md:flex-row md:items-center">
-              <div className={`rounded-lg border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
-                <label className={`block text-[10px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Ano</label>
-                <div className="mt-2 flex items-center gap-3">
-                  <CalendarDays className={`h-4 w-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`} />
-                  <input
-                    type="number"
-                    min={2000}
-                    max={2100}
-                    value={ano}
-                    onChange={(event) => {
-                      setAno(Number(event.target.value) || currentYear);
-                      setSelectedMonth(currentMonth);
-                    }}
-                    className={`w-28 border-none bg-transparent p-0 text-lg font-black outline-none ${isDark ? 'text-white' : 'text-slate-900'}`}
-                  />
-                </div>
-              </div>
-
-              <div className={`rounded-lg border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
-                <label className={`block text-[10px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Mes</label>
-                <select
-                  value={selectedMonth === null ? 'ALL' : String(selectedMonth)}
-                  onChange={(event) => {
-                    setSelectedMonth(event.target.value === 'ALL' ? null : Number(event.target.value));
-                  }}
-                  className="mt-2 w-32 rounded-xl border border-slate-300 bg-white p-2.5 text-sm font-bold text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                >
-                  <option value="ALL">Ano inteiro</option>
-                  {monthLabels.map((label, index) => (
-                    <option key={`month-select-${label}`} value={index}>{label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className={`rounded-lg border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
-                <label className={`block text-[10px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Centro de custo</label>
-                <select
-                  value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
-                  onChange={(event) => {
-                    setSelectedCentroCustoId(event.target.value === 'ALL' ? 'ALL' : Number(event.target.value));
-                    setSelectedMonth(currentMonth);
-                  }}
-                  className="mt-2 w-64 rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                >
-                  <option value="ALL">Todos os centros de custo</option>
-                  {centrosCusto.map((centro) => (
-                    <option key={centro.id} value={centro.id}>
-                      {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className={`rounded-lg border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
-                <label className={`block text-[10px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Lançamentos</label>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const nextOnlyPaid = !somentePagos;
-                    if (!nextOnlyPaid && !loadedAllLancamentosRef.current) {
-                      try {
-                        await fetchFullYearLancamentos();
-                      } catch {
-                        return;
-                      }
-                    }
-                    setSomentePagos(nextOnlyPaid);
-                    setSelectedMonth(currentMonth);
-                  }}
-                  className={`mt-2 w-44 rounded-xl border px-3 py-2 text-sm font-black transition ${somentePagos ? 'border-emerald-600 bg-emerald-600 text-white' : isDark ? 'border-slate-600 bg-slate-800 text-slate-200' : 'border-slate-300 bg-white text-slate-700'}`}
-                >
-                  {somentePagos ? 'Data pagamento' : 'Competencia'}
-                </button>
-              </div>
-
-              <div className={`rounded-lg border px-4 py-3 ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
-                <label className={`block text-[10px] font-black uppercase tracking-[0.24em] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Exportar</label>
-                <button
-                  type="button"
-                  onClick={exportToXlsx}
-                  className="mt-2 w-full md:w-32 rounded-xl border border-blue-600 bg-blue-600 px-3 py-2 text-sm font-black text-white hover:bg-blue-500 hover:border-blue-500 transition shadow-sm"
-                >
-                  XLSX
-                </button>
-              </div>
             </div>
           </div>
         </section>
@@ -1349,7 +1360,7 @@ export function Dre() {
                           <td
                             key={`${group.key}-total-${index}`}
                             onClick={() => openGroupAudit(group.label, groupRows.map((row) => row.id), index)}
-                            className={`cursor-pointer border-b border-r px-4 py-3 text-right font-bold last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : `text-white ${rowTone}`}`}
+                            className={`cursor-pointer border-b border-r px-4 py-3 text-right font-bold last:border-r-0 ${selectedMonth === index ? `${rowTone} text-white ring-2 ring-inset ring-white/60` : `text-white ${rowTone}`}`}
                           >
                             {renderMoneyCell(value, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}
                           </td>
@@ -1390,7 +1401,7 @@ export function Dre() {
                               <td
                                 key={`${group.key}-value-${row.id}-${index}`}
                                 onClick={() => openContaAudit(row.id, index)}
-                                className={`cursor-pointer border-b border-r px-4 py-3 text-right transition last:border-r-0 ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? `font-bold ${parentRowClass}` : isDark ? 'font-medium text-slate-200' : 'font-medium text-slate-700'} ${selectedMonth === index ? `${selectedMonthSoftClass} font-black` : ''}`}
+                                className={`cursor-pointer border-b border-r px-4 py-3 text-right transition last:border-r-0 ${isDark ? 'border-slate-800' : 'border-slate-200'} ${row.hasChildren ? `font-bold ${parentRowClass} ${selectedMonth === index ? 'ring-2 ring-inset ring-orange-500/40 dark:ring-orange-400/50' : ''}` : isDark ? 'font-medium text-slate-200' : 'font-medium text-slate-700'} ${selectedMonth === index && !row.hasChildren ? `${selectedMonthSoftClass} font-black` : ''}`}
                               >
                                 {renderMoneyCell(value, row.tipoCategoria === 'RECEITA' ? 'receita' : 'despesa')}
                               </td>
@@ -1424,7 +1435,7 @@ export function Dre() {
                     <td
                       key={`receita-liquida-${index}`}
                       onClick={() => openResultadoAudit('Receita líquida', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id)], index)}
-                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : `bg-emerald-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}
+                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 bg-emerald-500/10 ${isDark ? 'text-white' : 'text-slate-900'} ${selectedMonth === index ? 'ring-2 ring-inset ring-orange-500/40 dark:ring-orange-400/50' : ''}`}
                     >
                       {renderMoneyCell(value, 'resultado')}
                     </td>
@@ -1444,7 +1455,7 @@ export function Dre() {
                     <td
                       key={`mc-${index}`}
                       onClick={() => openResultadoAudit('Margem de contribuição', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id)], index)}
-                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${selectedMonth === index ? selectedMonthSoftClass : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'} ${selectedMonth === index ? 'ring-2 ring-inset ring-white/60' : ''}`}
                     >
                       {renderMoneyCell(value, 'resultado')}
                     </td>
@@ -1466,7 +1477,7 @@ export function Dre() {
                       key={`resultado-operacional-${index}`}
                       id={`dre-resultado-operacional-valor-mes-${index}`}
                       onClick={() => openResultadoAudit('Resultado operacional', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id)], index)}
-                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${(flashCellId === `dre-resultado-operacional-valor-mes-${index}` && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${selectedMonth === index ? selectedMonthSoftClass : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${(flashCellId === `dre-resultado-operacional-valor-mes-${index}` && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'} ${selectedMonth === index ? 'ring-2 ring-inset ring-white/60' : ''}`}
                     >
                       {renderMoneyCell(value, 'resultado')}
                     </td>
@@ -1488,7 +1499,7 @@ export function Dre() {
                       key={`resultado-final-${index}`}
                       id={`dre-resultado-final-valor-mes-${index}`}
                       onClick={() => openResultadoAudit('Resultado final', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id), ...dre.groupedRows.DESPESAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.RECEITAS_NAO_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.DESPESAS_NAO_OPERACIONAIS.map((row) => row.id)], index)}
-                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${(flashCellId === `dre-resultado-final-valor-mes-${index}` && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${selectedMonth === index ? selectedMonthSoftClass : value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'}`}
+                      className={`cursor-pointer border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] ${(flashCellId === `dre-resultado-final-valor-mes-${index}` && flashOn) ? 'ring-4 ring-inset ring-amber-300' : ''} ${value >= 0 ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'} ${selectedMonth === index ? 'ring-2 ring-inset ring-white/60' : ''}`}
                     >
                       {renderMoneyCell(value, 'resultado')}
                     </td>
@@ -1500,7 +1511,7 @@ export function Dre() {
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">% MC</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(dre.percentualMcTotal)}</td>
                   {dre.percentualMcMonthly.map((value, index) => (
-                    <td key={`pmc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
+                    <td key={`pmc-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'} ${selectedMonth === index ? 'ring-2 ring-inset ring-orange-500/40 dark:ring-orange-400/50' : ''}`}>{renderPercentCell(value)}</td>
                   ))}
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
@@ -1509,7 +1520,7 @@ export function Dre() {
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Lucratividade operacional</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(dre.lucratividadeOperacionalTotal)}</td>
                   {dre.lucratividadeOperacionalMonthly.map((value, index) => (
-                    <td key={`lucr-op-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
+                    <td key={`lucr-op-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'} ${selectedMonth === index ? 'ring-2 ring-inset ring-orange-500/40 dark:ring-orange-400/50' : ''}`}>{renderPercentCell(value)}</td>
                   ))}
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
@@ -1518,7 +1529,7 @@ export function Dre() {
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Lucratividade final</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderPercentCell(dre.lucratividadeFinalTotal)}</td>
                   {dre.lucratividadeFinalMonthly.map((value, index) => (
-                    <td key={`lucr-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : `bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderPercentCell(value)}</td>
+                    <td key={`lucr-final-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 bg-cyan-500/10 ${isDark ? 'text-white' : 'text-slate-900'} ${selectedMonth === index ? 'ring-2 ring-inset ring-orange-500/40 dark:ring-orange-400/50' : ''}`}>{renderPercentCell(value)}</td>
                   ))}
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
@@ -1527,7 +1538,7 @@ export function Dre() {
                   <td className="sticky left-0 z-10 border-r border-slate-800 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white">Ponto de equilíbrio</td>
                   <td className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black bg-fuchsia-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}>{renderOptionalMoney(dre.pontoEquilibrioTotal, 'resultado')}</td>
                   {dre.pontoEquilibrioMonthly.map((value, index) => (
-                    <td key={`pe-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 ${selectedMonth === index ? selectedMonthSoftClass : `bg-fuchsia-500/10 ${isDark ? 'text-white' : 'text-slate-900'}`}`}>{renderOptionalMoney(value, 'resultado')}</td>
+                    <td key={`pe-${index}`} className={`border-r border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 bg-fuchsia-500/10 ${isDark ? 'text-white' : 'text-slate-900'} ${selectedMonth === index ? 'ring-2 ring-inset ring-orange-500/40 dark:ring-orange-400/50' : ''}`}>{renderOptionalMoney(value, 'resultado')}</td>
                   ))}
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
@@ -1581,33 +1592,51 @@ export function Dre() {
                         <tr>
                           <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Carregando detalhes de banco e interessado...</td>
                         </tr>
-                      ) : auditPanel.rows.map((item) => {
-                        const interessadoNome = entidadeNomePorId.get(Number(item.entidade_id)) || 'Sem interessado';
-                        const valor = resolveLancamentoValue(item, somentePagos);
-                        const valorClass = valor >= 0
-                          ? (isDark ? 'text-emerald-300' : 'text-emerald-600')
-                          : (isDark ? 'text-rose-300' : 'text-rose-600');
-                        const statusLabel = String(item.status || '').trim() || (isLancamentoPago(item) ? 'PAGO' : 'EM ABERTO');
-                        const statusKey = statusLabel.toUpperCase();
+                      ) : (
+                        groupedAuditRows.sortedDates.map((dateStr) => {
+                          const groupRows = groupedAuditRows.groups[dateStr];
+                          const dayTotal = groupRows.reduce((sum, r) => sum + resolveLancamentoValue(r, somentePagos), 0);
+                          return (
+                            <Fragment key={dateStr}>
+                              <tr className="bg-slate-100/70 dark:bg-slate-800/60 select-none">
+                                <td colSpan={4} className="px-3 py-2 border-t border-b border-slate-200/50 dark:border-slate-800">
+                                  <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                    <span>Dia {formatDate(dateStr)}</span>
+                                    <span>Total do Dia: <span className={dayTotal >= 0 ? (isDark ? 'text-emerald-300' : 'text-emerald-600') : (isDark ? 'text-rose-300' : 'text-rose-600')}>{moneyDetailFormatter.format(Math.abs(dayTotal))}</span></span>
+                                  </div>
+                                </td>
+                              </tr>
+                              {groupRows.map((item) => {
+                                const interessadoNome = entidadeNomePorId.get(Number(item.entidade_id)) || 'Sem interessado';
+                                const valor = resolveLancamentoValue(item, somentePagos);
+                                const valorClass = valor >= 0
+                                  ? (isDark ? 'text-emerald-300' : 'text-emerald-600')
+                                  : (isDark ? 'text-rose-300' : 'text-rose-600');
+                                const statusLabel = String(item.status || '').trim() || (isLancamentoPago(item) ? 'PAGO' : 'EM ABERTO');
+                                const statusKey = statusLabel.toUpperCase();
 
-                        return (
-                          <tr
-                            key={item.id}
-                            onClick={(event) => openLancamentoEdicao(item.id, event)}
-                            className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
-                            title="Abrir edição do lançamento"
-                          >
-                            <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${valorClass}`}>{moneyDetailFormatter.format(Math.abs(valor))}</td>
-                            <td className="px-3 py-2.5">{interessadoNome}</td>
-                            <td className="max-w-72 truncate px-3 py-2.5" title={item.descricao}>{item.descricao}</td>
-                            <td className="px-3 py-2.5">
-                              <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                                {statusLabel}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                                return (
+                                  <tr
+                                    key={item.id}
+                                    onClick={(event) => openLancamentoEdicao(item.id, event)}
+                                    className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
+                                    title="Abrir edição do lançamento"
+                                  >
+                                    <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${valorClass}`}>{moneyDetailFormatter.format(Math.abs(valor))}</td>
+                                    <td className="px-3 py-2.5">{interessadoNome}</td>
+                                    <td className="max-w-72 truncate px-3 py-2.5" title={item.descricao}>{item.descricao}</td>
+                                    <td className="px-3 py-2.5">
+                                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                                        {statusLabel}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </Fragment>
+                          );
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>

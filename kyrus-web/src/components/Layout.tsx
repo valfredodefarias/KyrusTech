@@ -258,6 +258,8 @@ function LayoutShell() {
             </div>
 
             <div className="flex items-center gap-2">
+              <div id="layout-header-actions" className="flex items-center gap-2"></div>
+
               <button
                 onClick={toggleTheme}
                 className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"

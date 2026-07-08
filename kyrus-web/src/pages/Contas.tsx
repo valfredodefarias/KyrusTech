@@ -226,13 +226,6 @@ function endOfYear(date: Date) {
   return new Date(date.getFullYear(), 11, 31, 23, 59, 59, 999);
 }
 
-function getDateInputValue(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
 function parseDateInput(value: string) {
   if (!value) return null;
   const parsed = new Date(`${value}T00:00:00`);
@@ -284,7 +277,6 @@ export function Contas() {
 
   // Dados do Extrato
   const [extratoLoading, setExtratoLoading] = useState(false);
-  const [contaExtratoNome, setContaExtratoNome] = useState('');
   const [extratoContaId, setExtratoContaId] = useState<number | null>(null);
   const [extratoConta, setExtratoConta] = useState<Conta | null>(null);
   const [extratoLancamentos, setExtratoLancamentos] = useState<LancamentoItem[]>([]);
@@ -293,7 +285,23 @@ export function Contas() {
   const [extratoPeriodoFiltro, setExtratoPeriodoFiltro] = useState<ExtratoPeriodoFiltro>('MES');
   const [extratoPeriodoInicio, setExtratoPeriodoInicio] = useState<string>('');
   const [extratoPeriodoFim, setExtratoPeriodoFim] = useState<string>('');
+  const [localPeriodoInicio, setLocalPeriodoInicio] = useState<string>('');
+  const [localPeriodoFim, setLocalPeriodoFim] = useState<string>('');
   const [extratoSelecionados, setExtratoSelecionados] = useState<number[]>([]);
+
+  useEffect(() => {
+    if (extratoPeriodoFiltro !== 'PERSONALIZADO') {
+      setExtratoPeriodoInicio('');
+      setExtratoPeriodoFim('');
+      setLocalPeriodoInicio('');
+      setLocalPeriodoFim('');
+    }
+  }, [extratoPeriodoFiltro]);
+
+  function handleBuscarPeriodo() {
+    setExtratoPeriodoInicio(localPeriodoInicio);
+    setExtratoPeriodoFim(localPeriodoFim);
+  }
   const [extratoFaturasExpandidas, setExtratoFaturasExpandidas] = useState<Record<string, boolean>>({});
   const [excluindoSelecionados, setExcluindoSelecionados] = useState(false);
   const [extratoDeleteModalOpen, setExtratoDeleteModalOpen] = useState(false);
@@ -732,13 +740,9 @@ export function Contas() {
     const contasAtualizadas = await carregarDados();
     const contaAtualizada = contasAtualizadas.find((conta) => conta.id === contaId) || null;
     setExtratoConta(contaAtualizada);
-    if (contaAtualizada) {
-      setContaExtratoNome(contaAtualizada.nome);
-    }
   }
 
   async function handleVerExtrato(conta: Conta) {
-    setContaExtratoNome(conta.nome);
     setExtratoContaId(conta.id);
     setExtratoConta(conta);
     setExtratoOpen(true);
@@ -746,6 +750,8 @@ export function Contas() {
     setExtratoPeriodoFiltro('MES');
     setExtratoPeriodoInicio('');
     setExtratoPeriodoFim('');
+    setLocalPeriodoInicio('');
+    setLocalPeriodoFim('');
     setExtratoLancamentos([]);
     if (categorias.length === 0) {
       await carregarCategorias();
@@ -761,6 +767,8 @@ export function Contas() {
     setExtratoPeriodoFiltro('MES');
     setExtratoPeriodoInicio('');
     setExtratoPeriodoFim('');
+    setLocalPeriodoInicio('');
+    setLocalPeriodoFim('');
     setExtratoSelecionados([]);
     setExtratoFaturasExpandidas({});
     setExpandedLotes({});
@@ -768,7 +776,6 @@ export function Contas() {
     setLoteVisivel({});
     setExtratoConta(null);
     setExtratoContaId(null);
-    setContaExtratoNome('');
   }
 
   function toggleExtratoSelecionado(id: number) {
@@ -931,6 +938,9 @@ export function Contas() {
       rangeStart = startOfYear(now);
       rangeEnd = endOfYear(now);
     } else if (extratoPeriodoFiltro === 'PERSONALIZADO') {
+      if (!extratoPeriodoInicio && !extratoPeriodoFim) {
+        return [];
+      }
       rangeStart = extratoPeriodoInicio ? startOfDay(parseDateInput(extratoPeriodoInicio) || now) : null;
       rangeEnd = extratoPeriodoFim ? endOfDay(parseDateInput(extratoPeriodoFim) || now) : null;
     }
@@ -1116,6 +1126,22 @@ export function Contas() {
     });
   }, [extratoLancamentosFiltrados]);
 
+  const extratoAgrupadoPorDia = useMemo(() => {
+    const groups: { [dateStr: string]: typeof extratoAgrupado } = {};
+    extratoAgrupado.forEach((row) => {
+      const dateStr = row.type === 'invoice' 
+        ? row.group.dataBase 
+        : row.type === 'split' 
+          ? row.group.dataBase 
+          : getExtratoBaseDate(row.item);
+      const key = dateStr || 'Sem data';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(row);
+    });
+    const sortedDates = Object.keys(groups).sort((a, b) => b.localeCompare(a));
+    return { groups, sortedDates };
+  }, [extratoAgrupado]);
+
   const getIcon = (tipo: string) => {
     switch(tipo) {
       case 'CAIXA': return Banknote;
@@ -1187,7 +1213,17 @@ export function Contas() {
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm z-20 gap-4">
         <div className="flex flex-col gap-1.5">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-xl font-bold tracking-tight text-slate-800 dark:text-white">Contas Bancárias</h2>
+            <h2 className="text-xl font-bold tracking-tight text-slate-800 dark:text-white">
+              {(() => {
+                if (!extratoOpen || !extratoConta) return 'Contas Bancárias';
+                const accName = extratoConta.nome;
+                const bankName = extratoConta.banco || '';
+                if (bankName && !accName.toLowerCase().includes(bankName.toLowerCase())) {
+                  return `Contas Bancárias | ${accName} (${bankName})`;
+                }
+                return `Contas Bancárias | ${accName}`;
+              })()}
+            </h2>
             {!extratoOpen ? (
               <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-900">
                 <Landmark className="h-4 w-4 text-slate-500 dark:text-slate-300" />
@@ -1196,7 +1232,9 @@ export function Contas() {
               </div>
             ) : null}
           </div>
-          <p className="text-sm text-slate-400">Caixas, Bancos e Investimentos</p>
+          <p className="text-sm text-slate-400">
+            {extratoOpen && extratoConta ? 'Movimentos conciliados e fluxo financeiro da conta' : 'Caixas, Bancos e Investimentos'}
+          </p>
           {!extratoOpen && filterCentroId ? (
             <p className="text-[10px] font-bold" style={{ color: primaryColor }}>* Filtrado por Centro de Custo</p>
           ) : null}
@@ -1258,49 +1296,41 @@ export function Contas() {
       </header>
 
       {/* ÁREA DE CONTEÚDO */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-6 pb-32">
+      <div className={`flex-1 overflow-y-auto custom-scrollbar ${extratoOpen ? 'p-3 sm:p-4 space-y-3.5 pb-24' : 'p-4 sm:p-6 space-y-6 pb-32'}`}>
         
         {extratoOpen ? (
-          <div className="space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <div>
-                <h3 className="text-xl font-bold text-slate-800 dark:text-white">Extrato - {contaExtratoNome}</h3>
-                <p className="text-xs text-slate-400">Movimentos que realmente entram no cálculo do saldo desta conta.</p>
-              </div>
-            </div>
-
+          <div className="space-y-3.5">
             {extratoSaldoDetalhe && (
               <>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-                  <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Saldo do banco</p>
-                    <p className={`mt-2 text-xl font-black ${extratoSaldoBanco >= 0 ? 'text-slate-800 dark:text-white' : 'text-rose-600 dark:text-rose-300'}`}>{BRL.format(extratoSaldoBanco)}</p>
-                    <p className="mt-1 text-[11px] text-slate-400">Esse valor nao muda com os filtros.</p>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                    <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">Saldo do banco</p>
+                    <p className={`mt-1.5 text-lg font-black ${extratoSaldoBanco >= 0 ? 'text-slate-800 dark:text-white' : 'text-rose-600 dark:text-rose-300'}`}>{BRL.format(extratoSaldoBanco)}</p>
                   </div>
-                  <div className="rounded-xl border border-emerald-200 bg-white p-4 shadow-sm dark:border-emerald-900 dark:bg-slate-800">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Entradas filtradas</p>
-                    <p className="mt-2 text-xl font-black text-emerald-600 dark:text-emerald-300">{BRL.format(Number(extratoResumoFiltrado.entradas || 0))}</p>
+                  <div className="rounded-xl border border-emerald-200 bg-white p-3 shadow-sm dark:border-emerald-950 dark:bg-slate-800">
+                    <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">Entradas filtradas</p>
+                    <p className="mt-1.5 text-lg font-black text-emerald-600 dark:text-emerald-300">{BRL.format(Number(extratoResumoFiltrado.entradas || 0))}</p>
                   </div>
-                  <div className="rounded-xl border border-rose-200 bg-white p-4 shadow-sm dark:border-rose-900 dark:bg-slate-800">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Saidas filtradas</p>
-                    <p className="mt-2 text-xl font-black text-rose-600 dark:text-rose-300">{BRL.format(Number(extratoResumoFiltrado.saidas || 0))}</p>
+                  <div className="rounded-xl border border-rose-200 bg-white p-3 shadow-sm dark:border-rose-950 dark:bg-slate-800">
+                    <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">Saídas filtradas</p>
+                    <p className="mt-1.5 text-lg font-black text-rose-600 dark:text-rose-300">{BRL.format(Number(extratoResumoFiltrado.saidas || 0))}</p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Movimentos no filtro</p>
-                    <p className="mt-2 text-xl font-black text-slate-800 dark:text-white">{extratoResumoFiltrado.quantidade}</p>
-                    <p className="mt-1 text-[11px] text-slate-400">De {extratoSaldoDetalhe.quantidade_movimentos} movimento(s) que influenciam o saldo.</p>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                    <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">Movimentos no filtro</p>
+                    <p className="mt-1.5 text-lg font-black text-slate-800 dark:text-white">
+                      {extratoResumoFiltrado.quantidade} <span className="text-[11px] font-normal text-slate-400">/ {extratoSaldoDetalhe.quantidade_movimentos}</span>
+                    </p>
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="space-y-3">
-                    <p className="text-sm font-bold text-slate-700 dark:text-slate-100">Tudo abaixo entra no saldo atual desta conta.</p>
-                    <p className="text-xs text-slate-400">Os filtros mudam apenas a visualizacao das entradas e saidas. O saldo do banco permanece o saldo real da conta.</p>
-                    <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                  <div className="flex flex-wrap items-center gap-4">
+                    {/* Filtro de Tipo */}
+                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/50 p-1 rounded-xl">
                       {([
                         { id: 'TODOS', label: 'Tudo' },
                         { id: 'ENTRADAS', label: 'Entradas' },
-                        { id: 'SAIDAS', label: 'Saidas' },
+                        { id: 'SAIDAS', label: 'Saídas' },
                       ] as Array<{ id: ExtratoTipoFiltro; label: string }>).map((option) => {
                         const active = extratoTipoFiltro === option.id;
                         return (
@@ -1308,7 +1338,7 @@ export function Contas() {
                             key={option.id}
                             type="button"
                             onClick={() => setExtratoTipoFiltro(option.id)}
-                            className={`rounded-xl px-3 py-2 text-sm font-bold transition ${active ? 'text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                            className={`rounded-lg px-2.5 py-1 text-xs font-bold transition ${active ? 'text-white shadow-sm' : 'text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-white'}`}
                             style={active ? { backgroundColor: primaryColor } : undefined}
                           >
                             {option.label}
@@ -1316,13 +1346,15 @@ export function Contas() {
                         );
                       })}
                     </div>
-                    <div className="flex flex-wrap gap-2">
+
+                    {/* Filtro de Período */}
+                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/50 p-1 rounded-xl">
                       {([
                         { id: 'DIA', label: 'Dia' },
                         { id: 'SEMANA', label: 'Semana' },
-                        { id: 'MES', label: 'Mes' },
+                        { id: 'MES', label: 'Mês' },
                         { id: 'ANO', label: 'Ano' },
-                        { id: 'PERSONALIZADO', label: 'Periodo' },
+                        { id: 'PERSONALIZADO', label: 'Período' },
                       ] as Array<{ id: ExtratoPeriodoFiltro; label: string }>).map((option) => {
                         const active = extratoPeriodoFiltro === option.id;
                         return (
@@ -1330,7 +1362,7 @@ export function Contas() {
                             key={option.id}
                             type="button"
                             onClick={() => setExtratoPeriodoFiltro(option.id)}
-                            className={`rounded-xl px-3 py-2 text-sm font-bold transition ${active ? 'text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                            className={`rounded-lg px-2.5 py-1 text-xs font-bold transition ${active ? 'text-white shadow-sm' : 'text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-white'}`}
                             style={active ? { backgroundColor: primaryColor } : undefined}
                           >
                             {option.label}
@@ -1338,36 +1370,47 @@ export function Contas() {
                         );
                       })}
                     </div>
+
+                    {/* Inputs de Data Personalizada */}
                     {extratoPeriodoFiltro === 'PERSONALIZADO' && (
-                      <div className="flex flex-col gap-2 sm:flex-row">
+                      <div className="flex items-center gap-1.5">
                         <input
                           type="date"
-                          value={extratoPeriodoInicio}
-                          onChange={(event) => setExtratoPeriodoInicio(event.target.value)}
-                          max={extratoPeriodoFim || undefined}
-                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:ring-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                          value={localPeriodoInicio}
+                          onChange={(event) => setLocalPeriodoInicio(event.target.value)}
+                          max={localPeriodoFim || undefined}
+                          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none transition focus:ring-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                           style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
-                          placeholder={getDateInputValue(new Date())}
                         />
+                        <span className="text-slate-400 text-xs">até</span>
                         <input
                           type="date"
-                          value={extratoPeriodoFim}
-                          onChange={(event) => setExtratoPeriodoFim(event.target.value)}
-                          min={extratoPeriodoInicio || undefined}
-                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:ring-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                          value={localPeriodoFim}
+                          onChange={(event) => setLocalPeriodoFim(event.target.value)}
+                          min={localPeriodoInicio || undefined}
+                          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none transition focus:ring-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                           style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
-                          placeholder={getDateInputValue(new Date())}
                         />
+                        <button
+                          type="button"
+                          onClick={handleBuscarPeriodo}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold text-white transition hover:brightness-95 active:scale-95 shadow-sm"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          Buscar
+                        </button>
                       </div>
                     )}
                   </div>
-                  <div className="flex flex-wrap gap-2">
+
+                  {/* Ações / Apagar selecionados */}
+                  <div className="flex items-center gap-2">
                     <button
                       onClick={handleExcluirSelecionadosExtrato}
                       disabled={extratoSelecionados.length === 0 || excluindoSelecionados}
-                      className="px-4 py-2 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-2"
+                      className="px-3 py-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40 flex items-center gap-1.5 transition"
                     >
-                      {excluindoSelecionados ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      {excluindoSelecionados ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                       Apagar selecionados ({extratoSelecionados.length})
                     </button>
                   </div>
@@ -1396,286 +1439,313 @@ export function Contas() {
                     {extratoLoading ? (
                       <tr><td colSpan={10} className="p-6 text-center text-slate-400">Carregando...</td></tr>
                     ) : extratoAgrupado.length === 0 ? (
-                      <tr><td colSpan={10} className="p-6 text-center text-slate-400 italic">Nenhum movimento encontrado para os filtros selecionados.</td></tr>
+                      <tr>
+                        <td colSpan={10} className="p-6 text-center text-slate-400 italic">
+                          {extratoPeriodoFiltro === 'PERSONALIZADO' && !extratoPeriodoInicio && !extratoPeriodoFim
+                            ? 'Selecione um período acima e clique em "Buscar" para filtrar os lançamentos.'
+                            : 'Nenhum movimento encontrado para os filtros selecionados.'}
+                        </td>
+                      </tr>
                     ) : (
-                      extratoAgrupado.map((row) => {
-                        if (row.type === 'invoice') {
-                          const isExpanded = !!extratoFaturasExpandidas[row.group.key];
-                          const competenciaLabel = row.group.competencia
-                            ? new Date(`${row.group.competencia}-01T00:00:00`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-                            : '-';
+                      extratoAgrupadoPorDia.sortedDates.map((dateStr) => {
+                        const groupRows = extratoAgrupadoPorDia.groups[dateStr];
+                        const dayTotal = groupRows.reduce((sum, row) => {
+                          if (row.type === 'invoice') {
+                            return sum - Math.abs(row.group.totalSaida);
+                          } else if (row.type === 'split') {
+                            return sum + (row.group.totalEntrada - row.group.totalSaida);
+                          } else {
+                            const val = getExtratoSignedValue(row.item.valor_entrada, row.item.valor_saida);
+                            return sum + val;
+                          }
+                        }, 0);
 
-                          return (
-                            <React.Fragment key={row.group.key}>
-                              <tr className="bg-slate-50/80 dark:bg-slate-800/60">
-                                <td className="p-3 align-top">
-                                  <span className="inline-flex min-w-7 items-center justify-center rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-200">
-                                    {row.group.itens.length}
-                                  </span>
-                                </td>
-                                <td className="p-3 font-mono text-xs text-slate-500 align-top">
-                                  {formatDateLike(row.group.dataBase)}
-                                </td>
-                                <td className="p-3 align-top">
-                                  <button
-                                    onClick={() => toggleExtratoFatura(row.group.key)}
-                                    className="flex items-start gap-3 text-left"
-                                  >
-                                    <ChevronDown className={`mt-0.5 h-4 w-4 text-slate-400 transition ${isExpanded ? 'rotate-180' : ''}`} />
-                                    <div>
-                                      <div className="font-semibold text-slate-800 dark:text-slate-100">Fatura {row.group.cartaoNome}</div>
-                                      <div className="text-xs text-slate-500">{row.group.itens.length} lançamento(s) • {competenciaLabel}</div>
-                                    </div>
-                                  </button>
-                                </td>
-                                <td className="p-3 text-slate-400 align-top">-</td>
-                                <td className="p-3 text-slate-500 align-top">Cartão de crédito</td>
-                                <td className="p-3 text-slate-500 align-top">FATURA</td>
-                                <td className="p-3 align-top">
-                                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
-                                    AGRUPADO
-                                  </span>
-                                </td>
-                                <td className="p-3 text-right font-bold text-rose-600 align-top whitespace-nowrap">{formatSignedCurrency(-Math.abs(row.group.totalSaida))}</td>
-                                <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(row.group.saldoApos)}</td>
-                                <td className="p-3" />
-                              </tr>
-
-                              {isExpanded && row.group.itens.map((l) => (
-                                <tr key={l.id} className="bg-white dark:bg-slate-800/20 hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                                  <td className="p-3 pl-10">
-                                    <input
-                                      type="checkbox"
-                                      checked={extratoSelecionados.includes(l.id)}
-                                      onChange={() => toggleExtratoSelecionado(l.id)}
-                                      className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
-                                    />
-                                  </td>
-                                  <td className="p-3 font-mono text-xs text-slate-500">
-                                    {formatDateLike(l.data_pagamento || l.data_vencimento)}
-                                  </td>
-                                  <td className="p-3 font-medium text-slate-700 dark:text-slate-200">
-                                    <div>{l.descricao}</div>
-                                    <div className="text-xs text-slate-400">{l.numero_parcela ? `${l.numero_parcela}a parcela` : 'À vista'}</div>
-                                  </td>
-                                  <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
-                                  <td className="p-3 text-slate-500">{getCategoriaLabel(l)}</td>
-                                  <td className="p-3 text-slate-500">{l.origem || '-'}</td>
-                                  <td className="p-3">
-                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                      {l.status}
-                                    </span>
-                                  </td>
-                                  <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                                  <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
-                                  <td className="p-3 text-right">
-                                    <div className="flex items-center justify-end gap-2">
-                                      {!isTransferencia(l) && (
-                                        <button
-                                          onClick={() => handleAbrirLancamentoModal(l)}
-                                          className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
-                                        >
-                                          <Edit2 className="w-4 h-4" />
-                                        </button>
-                                      )}
-                                      <button
-                                        onClick={() => handleExcluirLancamento(l.id)}
-                                        className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
-                            </React.Fragment>
-                          );
-                        }
-
-                        if (row.type === 'split') {
-                          const isExpanded = !!extratoFaturasExpandidas[row.group.key];
-                          const totalMovimento = row.group.totalEntrada - row.group.totalSaida;
-
-                          return (
-                            <React.Fragment key={row.group.key}>
-                              <tr className="bg-slate-50/80 dark:bg-slate-800/60">
-                                <td className="p-3 align-top">
-                                  <span className="inline-flex min-w-7 items-center justify-center rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-200">
-                                    {row.group.itens.length}
-                                  </span>
-                                </td>
-                                <td className="p-3 font-mono text-xs text-slate-500 align-top">
-                                  {formatDateLike(row.group.dataBase)}
-                                </td>
-                                <td className="p-3 align-top" colSpan={4}>
-                                  <button
-                                    onClick={() => toggleExtratoFatura(row.group.key)}
-                                    className="flex items-start gap-3 text-left"
-                                  >
-                                    <ChevronDown className={`mt-0.5 h-4 w-4 text-slate-400 transition ${isExpanded ? 'rotate-180' : ''}`} />
-                                    <div>
-                                      <div className="font-semibold text-slate-800 dark:text-slate-100">{row.group.descricao}</div>
-                                      <div className="text-xs text-slate-500">
-                                        {row.group.itens.length} lançamento(s) {row.group.key.startsWith('hash-') ? 'agrupado(s)' : 'rateado(s)'}
-                                      </div>
-                                    </div>
-                                  </button>
-                                </td>
-                                <td className="p-3 align-top">
-                                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
-                                    {row.group.key.startsWith('hash-') ? 'AGRUPADO' : 'RATEADO'}
-                                  </span>
-                                </td>
-                                <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${totalMovimento >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                  {formatSignedCurrency(totalMovimento)}
-                                </td>
-                                <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(row.group.saldoApos)}</td>
-                                <td className="p-3" />
-                              </tr>
-
-                              {isExpanded && row.group.itens.map((l) => (
-                                <tr key={l.id} className="bg-white dark:bg-slate-800/20 hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                                  <td className="p-3 pl-10">
-                                    <input
-                                      type="checkbox"
-                                      checked={extratoSelecionados.includes(l.id)}
-                                      onChange={() => toggleExtratoSelecionado(l.id)}
-                                      className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
-                                    />
-                                  </td>
-                                  <td className="p-3 font-mono text-xs text-slate-500">
-                                    {formatDateLike(l.data_pagamento || l.data_vencimento)}
-                                  </td>
-                                  <td className="p-3 font-medium text-slate-700 dark:text-slate-200">
-                                    <div>{l.descricao}</div>
-                                  </td>
-                                  <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
-                                  <td className="p-3 text-slate-500">{getCategoriaLabel(l)}</td>
-                                  <td className="p-3 text-slate-500">{l.origem || '-'}</td>
-                                  <td className="p-3">
-                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                      {l.status}
-                                    </span>
-                                  </td>
-                                  <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                                  <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
-                                  <td className="p-3 text-right">
-                                    <div className="flex items-center justify-end gap-2">
-                                      {!isTransferencia(l) && (
-                                        <button
-                                          onClick={() => handleAbrirLancamentoModal(l)}
-                                          className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
-                                        >
-                                          <Edit2 className="w-4 h-4" />
-                                        </button>
-                                      )}
-                                      <button
-                                        onClick={() => handleExcluirLancamento(l.id)}
-                                        className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
-                            </React.Fragment>
-                          );
-                        }
-
-
-                        const l = row.item;
-                        const hasLoteDetails = !!l.has_lote_card;
                         return (
-                          <React.Fragment key={l.id}>
-                            <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                              <td className="p-3">
-                                <input
-                                  type="checkbox"
-                                  checked={extratoSelecionados.includes(l.id)}
-                                  onChange={() => toggleExtratoSelecionado(l.id)}
-                                  className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
-                                />
-                              </td>
-                              <td className="p-3 font-mono text-xs text-slate-500">
-                                {formatDateLike(l.data_pagamento || l.data_vencimento)}
-                              </td>
-                              <td className="p-3 font-medium text-slate-700 dark:text-slate-200">
-                                <div className="flex items-center gap-2">
-                                  {hasLoteDetails && (
-                                    <button
-                                      onClick={() => toggleLoteExpand(l.id)}
-                                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition"
-                                      title="Ver detalhes das vendas conciliadas neste repasse"
-                                    >
-                                      {lotesLoading[l.id] ? (
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
-                                      ) : (
-                                        <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${loteVisivel[l.id] ? 'rotate-180' : ''}`} />
-                                      )}
-                                    </button>
-                                  )}
-                                  <span>{l.descricao}</span>
-                                </div>
-                              </td>
-                              <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
-                              <td className="p-3 text-slate-500">{getCategoriaLabel(l)}</td>
-                              <td className="p-3 text-slate-500">{l.origem || '-'}</td>
-                              <td className="p-3">
-                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                  {l.status}
-                                </span>
-                              </td>
-                              <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                              <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
-                              <td className="p-3 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  {!isTransferencia(l) && (
-                                    <button
-                                      onClick={() => handleAbrirLancamentoModal(l)}
-                                      className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
-                                    >
-                                      <Edit2 className="w-4 h-4" />
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={() => handleExcluirLancamento(l.id)}
-                                    className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
+                          <React.Fragment key={dateStr}>
+                            <tr className="bg-slate-100/70 dark:bg-slate-800/60 select-none">
+                              <td colSpan={10} className="px-3 py-1.5 border-t border-b border-slate-200/50 dark:border-slate-800/80">
+                                <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  <span>Dia {formatDateLike(dateStr)}</span>
+                                  <span>Movimentação do Dia: <span className={dayTotal >= 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold'}>{formatSignedCurrency(dayTotal)}</span></span>
                                 </div>
                               </td>
                             </tr>
-                            {loteVisivel[l.id] && expandedLotes[l.id] && (
-                              <>
-                                <tr className="bg-slate-50/50 dark:bg-slate-800/30 text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                  <td className="p-2 pl-12" colSpan={3}>Vendas Conciliadas</td>
-                                  <td className="p-2 text-right">Valor Bruto</td>
-                                  <td className="p-2 text-right">Taxa</td>
-                                  <td className="p-2 text-right">Valor Líquido</td>
-                                  <td className="p-2" colSpan={4}></td>
-                                </tr>
-                                {expandedLotes[l.id].itens?.map((item: any) => (
-                                  <tr key={item.id} className="bg-slate-50/20 dark:bg-slate-800/10 text-xs text-slate-600 dark:text-slate-450 border-l-2 border-blue-500">
-                                    <td className="p-2"></td>
-                                    <td className="p-2 font-mono text-slate-400 dark:text-slate-500">{item.data_venda ? new Date(item.data_venda + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}</td>
-                                    <td className="p-2 font-medium">{item.descricao_venda || 'Venda de Cartão'}</td>
-                                    <td className="p-2 text-right font-mono">{BRL.format(Number(item.valor_bruto))}</td>
-                                    <td className="p-2 text-right font-mono text-rose-500">-{BRL.format(Number(item.valor_taxa))}</td>
-                                    <td className="p-2 text-right font-mono text-emerald-600 font-bold">{BRL.format(Number(item.valor_liquido))}</td>
-                                    <td className="p-2" colSpan={4}></td>
+                            {groupRows.map((row) => {
+                              if (row.type === 'invoice') {
+                                const isExpanded = !!extratoFaturasExpandidas[row.group.key];
+                                const competenciaLabel = row.group.competencia
+                                  ? new Date(`${row.group.competencia}-01T00:00:00`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+                                  : '-';
+
+                                return (
+                                  <React.Fragment key={row.group.key}>
+                                    <tr className="bg-slate-50/80 dark:bg-slate-800/60">
+                                      <td className="p-3 align-top">
+                                        <span className="inline-flex min-w-7 items-center justify-center rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                                          {row.group.itens.length}
+                                        </span>
+                                      </td>
+                                      <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
+                                      <td className="p-3 align-top">
+                                        <button
+                                          onClick={() => toggleExtratoFatura(row.group.key)}
+                                          className="flex items-start gap-3 text-left"
+                                        >
+                                          <ChevronDown className={`mt-0.5 h-4 w-4 text-slate-400 transition ${isExpanded ? 'rotate-180' : ''}`} />
+                                          <div>
+                                            <div className="font-semibold text-slate-800 dark:text-slate-100">Fatura {row.group.cartaoNome}</div>
+                                            <div className="text-xs text-slate-500">{row.group.itens.length} lançamento(s) • {competenciaLabel}</div>
+                                          </div>
+                                        </button>
+                                      </td>
+                                      <td className="p-3 text-slate-400 align-top">-</td>
+                                      <td className="p-3 text-slate-500 align-top">Cartão de crédito</td>
+                                      <td className="p-3 text-slate-500 align-top">FATURA</td>
+                                      <td className="p-3 align-top">
+                                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                                          AGRUPADO
+                                        </span>
+                                      </td>
+                                      <td className="p-3 text-right font-bold text-rose-600 align-top whitespace-nowrap">{formatSignedCurrency(-Math.abs(row.group.totalSaida))}</td>
+                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(row.group.saldoApos)}</td>
+                                      <td className="p-3" />
+                                    </tr>
+
+                                    {isExpanded && row.group.itens.map((l) => (
+                                      <tr key={l.id} className="bg-amber-50/20 dark:bg-amber-950/10 border-l-[3px] border-amber-500 hover:bg-amber-50/30 dark:hover:bg-amber-950/20 transition-colors">
+                                        <td className="p-3 pl-10">
+                                          <input
+                                            type="checkbox"
+                                            checked={extratoSelecionados.includes(l.id)}
+                                            onChange={() => toggleExtratoSelecionado(l.id)}
+                                            className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                                          />
+                                        </td>
+                                        <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
+                                        <td className="p-3 font-medium text-slate-700 dark:text-slate-200 pl-4">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-amber-500 font-mono text-xs select-none">↳</span>
+                                            <div>{l.descricao}</div>
+                                          </div>
+                                          <div className="text-[10px] text-slate-400 pl-3.5 font-normal">{l.numero_parcela ? `${l.numero_parcela}ª parcela` : 'À vista'}</div>
+                                        </td>
+                                        <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
+                                        <td className="p-3 text-slate-500">{getCategoriaLabel(l)}</td>
+                                        <td className="p-3 text-slate-500">{l.origem || '-'}</td>
+                                        <td className="p-3">
+                                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                            {l.status}
+                                          </span>
+                                        </td>
+                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
+                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                        <td className="p-3 text-right">
+                                          <div className="flex items-center justify-end gap-2">
+                                            {!isTransferencia(l) && (
+                                              <button
+                                                onClick={() => handleAbrirLancamentoModal(l)}
+                                                className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                              >
+                                                <Edit2 className="w-4 h-4" />
+                                              </button>
+                                            )}
+                                            <button
+                                              onClick={() => handleExcluirLancamento(l.id)}
+                                              className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </React.Fragment>
+                                );
+                              }
+
+                              if (row.type === 'split') {
+                                const isExpanded = !!extratoFaturasExpandidas[row.group.key];
+                                const totalMovimento = row.group.totalEntrada - row.group.totalSaida;
+
+                                return (
+                                  <React.Fragment key={row.group.key}>
+                                    <tr className="bg-slate-50/80 dark:bg-slate-800/60">
+                                      <td className="p-3 align-top">
+                                        <span className="inline-flex min-w-7 items-center justify-center rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                                          {row.group.itens.length}
+                                        </span>
+                                      </td>
+                                      <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
+                                      <td className="p-3 align-top" colSpan={4}>
+                                        <button
+                                          onClick={() => toggleExtratoFatura(row.group.key)}
+                                          className="flex items-start gap-3 text-left"
+                                        >
+                                          <ChevronDown className={`mt-0.5 h-4 w-4 text-slate-400 transition ${isExpanded ? 'rotate-180' : ''}`} />
+                                          <div>
+                                            <div className="font-semibold text-slate-800 dark:text-slate-100">{row.group.descricao}</div>
+                                            <div className="text-xs text-slate-500">
+                                              {row.group.itens.length} lançamento(s) {row.group.key.startsWith('hash-') ? 'agrupado(s)' : 'rateado(s)'}
+                                            </div>
+                                          </div>
+                                        </button>
+                                      </td>
+                                      <td className="p-3 align-top">
+                                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                                          {row.group.key.startsWith('hash-') ? 'AGRUPADO' : 'RATEADO'}
+                                        </span>
+                                      </td>
+                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${totalMovimento >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                        {formatSignedCurrency(totalMovimento)}
+                                      </td>
+                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(row.group.saldoApos)}</td>
+                                      <td className="p-3" />
+                                    </tr>
+
+                                    {isExpanded && row.group.itens.map((l) => (
+                                      <tr key={l.id} className="bg-indigo-50/20 dark:bg-indigo-950/10 border-l-[3px] border-indigo-500 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 transition-colors">
+                                        <td className="p-3 pl-10">
+                                          <input
+                                            type="checkbox"
+                                            checked={extratoSelecionados.includes(l.id)}
+                                            onChange={() => toggleExtratoSelecionado(l.id)}
+                                            className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                                          />
+                                        </td>
+                                        <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
+                                        <td className="p-3 font-medium text-slate-700 dark:text-slate-200 pl-4">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-indigo-500 font-mono text-xs select-none">↳</span>
+                                            <div>{l.descricao}</div>
+                                          </div>
+                                        </td>
+                                        <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
+                                        <td className="p-3 text-slate-500">{getCategoriaLabel(l)}</td>
+                                        <td className="p-3 text-slate-500">{l.origem || '-'}</td>
+                                        <td className="p-3">
+                                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                            {l.status}
+                                          </span>
+                                        </td>
+                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
+                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                        <td className="p-3 text-right">
+                                          <div className="flex items-center justify-end gap-2">
+                                            {!isTransferencia(l) && (
+                                              <button
+                                                onClick={() => handleAbrirLancamentoModal(l)}
+                                                className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                              >
+                                                <Edit2 className="w-4 h-4" />
+                                              </button>
+                                            )}
+                                            <button
+                                              onClick={() => handleExcluirLancamento(l.id)}
+                                              className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </React.Fragment>
+                                );
+                              }
+
+                              const l = row.item;
+                              const hasLoteDetails = !!l.has_lote_card;
+                              return (
+                                <React.Fragment key={l.id}>
+                                  <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                                    <td className="p-3">
+                                      <input
+                                        type="checkbox"
+                                        checked={extratoSelecionados.includes(l.id)}
+                                        onChange={() => toggleExtratoSelecionado(l.id)}
+                                        className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                                      />
+                                    </td>
+                                    <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
+                                    <td className="p-3 font-medium text-slate-700 dark:text-slate-200">
+                                      <div className="flex items-center gap-2">
+                                        {hasLoteDetails && (
+                                          <button
+                                            onClick={() => toggleLoteExpand(l.id)}
+                                            className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition"
+                                            title="Ver detalhes das vendas conciliadas neste repasse"
+                                          >
+                                            {lotesLoading[l.id] ? (
+                                              <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                                            ) : (
+                                              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${loteVisivel[l.id] ? 'rotate-180' : ''}`} />
+                                            )}
+                                          </button>
+                                        )}
+                                        <span>{l.descricao}</span>
+                                      </div>
+                                    </td>
+                                    <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
+                                    <td className="p-3 text-slate-500">{getCategoriaLabel(l)}</td>
+                                    <td className="p-3 text-slate-500">{l.origem || '-'}</td>
+                                    <td className="p-3">
+                                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                        {l.status}
+                                      </span>
+                                    </td>
+                                    <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
+                                    <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                    <td className="p-3 text-right">
+                                      <div className="flex items-center justify-end gap-2">
+                                        {!isTransferencia(l) && (
+                                          <button
+                                            onClick={() => handleAbrirLancamentoModal(l)}
+                                            className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                          >
+                                            <Edit2 className="w-4 h-4" />
+                                          </button>
+                                        )}
+                                        <button
+                                          onClick={() => handleExcluirLancamento(l.id)}
+                                          className="p-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    </td>
                                   </tr>
-                                ))}
-                                <tr className="bg-slate-50/40 dark:bg-slate-800/20 text-xs font-bold text-slate-700 dark:text-slate-350 border-b border-slate-200 dark:border-slate-700 border-l-2 border-blue-500">
-                                  <td className="p-2 pl-12" colSpan={3}>Total do Lote</td>
-                                  <td className="p-2 text-right font-mono">{BRL.format(Number(expandedLotes[l.id].valor_bruto))}</td>
-                                  <td className="p-2 text-right font-mono text-rose-500">-{BRL.format(Number(expandedLotes[l.id].valor_taxa))}</td>
-                                  <td className="p-2 text-right font-mono text-emerald-600">{BRL.format(Number(expandedLotes[l.id].valor_liquido))}</td>
-                                  <td className="p-2" colSpan={4}></td>
-                                </tr>
-                              </>
-                            )}
+                                  {loteVisivel[l.id] && expandedLotes[l.id] && (
+                                    <>
+                                      <tr className="bg-slate-50/50 dark:bg-slate-800/30 text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                        <td className="p-2 pl-12" colSpan={3}>Vendas Conciliadas</td>
+                                        <td className="p-2 text-right">Valor Bruto</td>
+                                        <td className="p-2 text-right">Taxa</td>
+                                        <td className="p-2 text-right">Valor Líquido</td>
+                                        <td className="p-2" colSpan={4}></td>
+                                      </tr>
+                                      {expandedLotes[l.id].itens?.map((item: any) => (
+                                        <tr key={item.id} className="bg-slate-50/20 dark:bg-slate-800/10 text-xs text-slate-600 dark:text-slate-450 border-l-2 border-blue-500">
+                                          <td className="p-2"></td>
+                                          <td className="p-2 font-mono text-slate-400 dark:text-slate-500">{item.data_venda ? new Date(item.data_venda + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}</td>
+                                          <td className="p-2 font-medium">{item.descricao_venda || 'Venda de Cartão'}</td>
+                                          <td className="p-2 text-right font-mono">{BRL.format(Number(item.valor_bruto))}</td>
+                                          <td className="p-2 text-right font-mono text-rose-500">-{BRL.format(Number(item.valor_taxa))}</td>
+                                          <td className="p-2 text-right font-mono text-emerald-600 font-bold">{BRL.format(Number(item.valor_liquido))}</td>
+                                          <td className="p-2" colSpan={4}></td>
+                                        </tr>
+                                      ))}
+                                      <tr className="bg-slate-50/40 dark:bg-slate-800/20 text-xs font-bold text-slate-700 dark:text-slate-350 border-b border-slate-200 dark:border-slate-700 border-l-2 border-blue-500">
+                                        <td className="p-2 pl-12" colSpan={3}>Total do Lote</td>
+                                        <td className="p-2 text-right font-mono">{BRL.format(Number(expandedLotes[l.id].valor_bruto))}</td>
+                                        <td className="p-2 text-right font-mono text-rose-500">-{BRL.format(Number(expandedLotes[l.id].valor_taxa))}</td>
+                                        <td className="p-2 text-right font-mono text-emerald-600">{BRL.format(Number(expandedLotes[l.id].valor_liquido))}</td>
+                                        <td className="p-2" colSpan={4}></td>
+                                      </tr>
+                                    </>
+                                  )}
+                                </React.Fragment>
+                              );
+                            })}
                           </React.Fragment>
                         );
                       })

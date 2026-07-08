@@ -2441,7 +2441,7 @@ export function Boletim() {
                     { key: 'receber_em_aberto', label: 'Receitas pendentes', value: Math.max(0, dashboard.receberNoMes - dashboard.receberRecebidasNoMes), tone: 'text-slate-500 dark:text-slate-400 font-medium' },
                     { key: 'pagar_pagas_mes', label: 'Despesas pagas no mês', value: dashboard.pagarPagasNoMes, tone: 'text-rose-600 dark:text-rose-400' },
                     { key: 'pagar_em_aberto', label: 'Despesas pendentes', value: Math.max(0, dashboard.pagarNoMes - dashboard.pagarPagasNoMes), tone: 'text-slate-500 dark:text-slate-400 font-medium' },
-                    { key: 'resultado_operacional', label: 'Resultado operacional', value: dashboard.receberRecebidasNoMes - dashboard.pagarPagasNoMes, isResult: true },
+                    { key: 'resultado_operacional', label: 'Resultado operacional', value: dashboard.resultadoOperacionalMes, isResult: true },
                     { key: 'resultado_final', label: 'Resultado final', value: dashboard.resultadoFinalMes, isResult: true },
                   ].map((row) => {
                     const valTone = row.isResult

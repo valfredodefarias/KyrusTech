@@ -12,6 +12,7 @@ import {
   TrendingUp,
   ExternalLink,
   Activity,
+  Check,
 } from 'lucide-react';
 
 
@@ -19,7 +20,6 @@ import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
 import { api, getPublicBaseUrl, normalizeListResponse, toPublicAssetUrl } from '../services/api';
-import { buildOperationalCategoriaIds } from '../utils/planoContas';
 
 interface ContaResumo {
   id: number;
@@ -73,6 +73,7 @@ interface ContaSaldoMovimento {
   valor_entrada: number;
   valor_saida: number;
   saldo_apos_movimento?: number | null;
+  conciliado?: boolean;
 }
 
 interface ContaSaldoDetalhe {
@@ -129,17 +130,19 @@ interface IntegracaoBancaria {
 }
 
 function resolveCentroCustoId(currentValue: number | null, centros: CentroCustoResumo[]): number | null {
-  if (currentValue !== null && centros.some((centro) => centro.id === currentValue)) {
+  if (currentValue === null) {
+    return null;
+  }
+  if (centros.some((centro) => centro.id === currentValue)) {
     return currentValue;
   }
-
-  return centros[0]?.id ?? null;
+  return null;
 }
 
 type ViewMode = 'executivo' | 'pay-receive' | 'compras';
 type StatusFilter = 'TODOS' | 'PAGO' | 'EM_ABERTO' | 'ATRASADO' | 'HOJE' | 'AMANHA';
 type FlowFilter = 'ALL' | 'PAGAMENTO' | 'RECEBIMENTO';
-type CompraTipoFilter = 'ALL' | 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO';
+type CompraTipoFilter = 'ALL' | 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | 'A_CLASSIFICAR';
 type CompraChartMode = 'LINHA_SEPARADA' | 'COLUNA_EMPILHADA' | 'COLUNA_SEPARADA';
 
 interface NormalizedRow {
@@ -158,6 +161,8 @@ interface NormalizedRow {
   contaId?: number | null;
   contaNome: string;
   centroCustoId?: number | null;
+  origem?: string | null;
+  isAtrasada?: boolean;
 }
 
 type AuditPanelMode = 'LANCAMENTOS' | 'EXTRATO_BANCO';
@@ -347,6 +352,24 @@ function extractAsaasInterestedFromDescricao(descricao?: string | null) {
   for (const pattern of patterns) {
     const match = text.match(pattern);
     const value = String(match?.[1] || '').trim().replace(/[\s.]+$/, '');
+    if (value) return value;
+  }
+
+  return null;
+}
+
+function extractAsaasIdFromObservacao(observacao?: string | null) {
+  const text = String(observacao || '').trim();
+  if (!text) return null;
+
+  const patterns = [
+    /asaas\s*id\s*:\s*([A-Za-z0-9_\-]+)/i,
+    /\bid\s*:\s*([A-Za-z0-9_\-]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const value = String(match?.[1] || '').trim();
     if (value) return value;
   }
 
@@ -610,6 +633,7 @@ export function Boletim() {
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
   const [asaasRows, setAsaasRows] = useState<NormalizedRow[]>([]);
   const [asaasLoading, setAsaasLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('executivo');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
@@ -767,16 +791,6 @@ export function Boletim() {
             const asaasIntegracoes = activeIntegracoes.filter(item => String(item.tipo || '').toUpperCase() === 'ASAAS');
 
             if (asaasIntegracoes.length > 0) {
-              const parsedReference = parseDateOnly(referenceDate);
-              const fallbackDate = parseDateOnly(getBusinessTodayIso()) || new Date();
-              const now = parsedReference
-                ? new Date(parsedReference.getFullYear(), parsedReference.getMonth(), parsedReference.getDate())
-                : fallbackDate;
-              const todayIso = toIsoDate(now);
-              const tomorrow = new Date(now);
-              tomorrow.setDate(now.getDate() + 1);
-              const tomorrowIso = toIsoDate(tomorrow);
-
               const cobrancasPromises = asaasIntegracoes.map(async (integracao) => {
                 try {
                   const response = await api.get<{
@@ -792,20 +806,6 @@ export function Boletim() {
                     const val = Number(charge.value || 0);
                     const dueDateStr = charge.dueDate || '';
                     const due = parseDateOnly(dueDateStr);
-
-                    let statusKey: StatusFilter = 'EM_ABERTO';
-                    let statusLabel = 'A vencer';
-
-                    if (isAtrasada || (dueDateStr && dueDateStr < todayIso)) {
-                      statusKey = 'ATRASADO';
-                      statusLabel = 'Atrasado';
-                    } else if (dueDateStr === todayIso) {
-                      statusKey = 'HOJE';
-                      statusLabel = 'Hoje';
-                    } else if (dueDateStr === tomorrowIso) {
-                      statusKey = 'AMANHA';
-                      statusLabel = 'Amanhã';
-                    }
 
                     const dueMonth = due ? due.getMonth() : -1;
                     const dueDay = due ? due.getDate() : -1;
@@ -830,8 +830,8 @@ export function Boletim() {
                       id: -Number(asaasIdStr.replace(/[^0-9]/g, '')) || -9999,
                       descricao: rowDesc,
                       flowType: 'RECEBIMENTO' as const,
-                      statusKey,
-                      statusLabel,
+                      statusKey: 'EM_ABERTO' as const,
+                      statusLabel: 'A vencer',
                       dataVencimento: dueDateStr,
                       monthIndex: dueMonth,
                       dayOfMonth: dueDay,
@@ -841,6 +841,8 @@ export function Boletim() {
                       contaId: integracao.conta_id || null,
                       contaNome: integracao.nome || 'Asaas',
                       centroCustoId: integracao.centro_custo_id || null,
+                      origem: 'ASAAS',
+                      isAtrasada,
                     } as NormalizedRow;
                   };
 
@@ -866,6 +868,9 @@ export function Boletim() {
             }
           } catch (err) {
             console.error("Erro ao listar integracoes para o boletim", err);
+            if (active) {
+              setLoadError((prev) => prev ? prev + ' Além disso, falhou a sincronização das cobranças Asaas.' : 'Não foi possível carregar as cobranças Asaas em tempo real.');
+            }
           } finally {
             if (active) {
               setAsaasLoading(false);
@@ -899,7 +904,7 @@ export function Boletim() {
         clearInterval(intervalId);
       }
     };
-  }, [referenceYear, refreshCount, referenceDate]);
+  }, [referenceYear, refreshCount]);
 
 
   const dashboard = useMemo(() => {
@@ -928,7 +933,6 @@ export function Boletim() {
     const relevantes = categorias.filter((conta) => isReceita(conta.tipo) || isDespesa(conta.tipo));
     const contaPorId = new Map<number, PlanoContaResumo>();
     relevantes.forEach((conta) => contaPorId.set(conta.id, conta));
-    const categoriasOperacionais = buildOperationalCategoriaIds(relevantes);
 
     const classificarHeuristicaLegada = (contaId: number): 'DEDUCOES_RECEITA' | 'CUSTOS_VARIAVEIS' | 'DESPESAS_OPERACIONAIS' => {
       const partes: string[] = [];
@@ -966,6 +970,8 @@ export function Boletim() {
       'FORA DA DRE',
     ]);
 
+    const dbAsaasIds = new Set<string>();
+
     const baseRows = [
       ...lancamentos
         .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
@@ -985,6 +991,12 @@ export function Boletim() {
           const signedValue = flowType === 'RECEBIMENTO' ? baseValue : baseValue * -1;
           const rawId = Number(item.id);
           const safeId = Number.isFinite(rawId) ? rawId : -1;
+
+          const asaasId = extractAsaasIdFromObservacao(item.observacao);
+          if (asaasId) {
+            dbAsaasIds.add(asaasId);
+          }
+
           return {
             rowKey: `${buildLancamentoFingerprint(item)}|cc:${Number(item.centro_custo_id || 0)}|conta:${Number(item.conta_id || 0)}`,
             id: safeId,
@@ -1000,10 +1012,42 @@ export function Boletim() {
             interessado: resolveLancamentoInteressado(item, entityMap),
             contaId: item.conta_id,
             contaNome: resolveContaDisplayName(contaMap.get(Number(item.conta_id))),
+            centroCustoId: item.centro_custo_id,
+            origem: item.origem,
           } satisfies NormalizedRow;
         })
         .filter((item) => item.monthIndex >= 0 && item.dayOfMonth >= 0),
-      ...asaasRows.filter((item) => selectedCentroCustoId === null || Number(item.centroCustoId) === selectedCentroCustoId)
+      ...asaasRows
+        .filter((item) => {
+          const parsed = parseDateOnly(item.dataVencimento);
+          return parsed !== null && parsed.getFullYear() === currentYear;
+        })
+        .filter((item) => selectedCentroCustoId === null || Number(item.centroCustoId) === selectedCentroCustoId)
+        .filter((item) => {
+          const asaasId = item.rowKey.replace('asaas-charge-', '');
+          return !dbAsaasIds.has(asaasId);
+        })
+        .map((item) => {
+          let statusKey = 'EM_ABERTO' as StatusFilter;
+          let statusLabel = 'A vencer';
+
+          if (item.isAtrasada || (item.dataVencimento && item.dataVencimento < todayIso)) {
+            statusKey = 'ATRASADO';
+            statusLabel = 'Atrasado';
+          } else if (item.dataVencimento === todayIso) {
+            statusKey = 'HOJE';
+            statusLabel = 'Hoje';
+          } else if (item.dataVencimento === tomorrowIso) {
+            statusKey = 'AMANHA';
+            statusLabel = 'Amanhã';
+          }
+
+          return {
+            ...item,
+            statusKey,
+            statusLabel,
+          };
+        })
     ];
 
     const activeRows = applyFilters(baseRows, {
@@ -1051,7 +1095,7 @@ export function Boletim() {
         const conta = contaPorId.get(contaId);
         if (!conta) return;
         const dreGrupo = resolverDreGrupo(contaId);
-        if (dreGrupo === 'NAO_OPERACIONAL') return;
+        if (dreGrupo === 'NAO_OPERACIONAL' || EXCLUDED_BOLETIM_DRE_GROUPS.has(dreGrupo)) return;
         const value = resolveLancamentoValue(lancamento, true);
 
         if (isReceita(conta.tipo)) {
@@ -1063,7 +1107,7 @@ export function Boletim() {
           if (dreGrupo === 'DEDUCOES_RECEITA') deducoesMonthly[monthIndex] += value;
           else if (dreGrupo === 'CUSTOS_VARIAVEIS') custosVariaveisMonthly[monthIndex] += value;
           else if (dreGrupo === 'OUTRAS_DESPESAS') outrasDespesasMonthly[monthIndex] += value;
-          else if (categoriasOperacionais.has(contaId)) despesaOperacionalCoreMonthly[monthIndex] += value;
+          else despesaOperacionalCoreMonthly[monthIndex] += value;
         }
       });
 
@@ -1090,10 +1134,20 @@ export function Boletim() {
       HOJE: sumValues(situacaoRows.filter((item) => item.statusKey === 'HOJE')),
     };
 
-    const tableRows = [...activeRows].sort((left, right) => {
-      if (left.dataVencimento !== right.dataVencimento) return String(left.dataVencimento).localeCompare(String(right.dataVencimento));
-      return right.valorAbsoluto - left.valorAbsoluto;
-    });
+    const tableRows = [...activeRows]
+      .filter((row) => {
+        if (!searchTerm) return true;
+        const term = normalizeText(searchTerm);
+        return (
+          normalizeText(row.descricao).includes(term) ||
+          normalizeText(row.interessado).includes(term) ||
+          String(row.valorAbsoluto).includes(term)
+        );
+      })
+      .sort((left, right) => {
+        if (left.dataVencimento !== right.dataVencimento) return String(left.dataVencimento).localeCompare(String(right.dataVencimento));
+        return right.valorAbsoluto - left.valorAbsoluto;
+      });
 
     return {
       now,
@@ -1121,7 +1175,7 @@ export function Boletim() {
       todayIso,
       tomorrowIso,
     };
-  }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter, referenceDate, asaasRows]);
+  }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter, referenceDate, asaasRows, searchTerm]);
 
   const groupedRows = useMemo(() => {
     if (auditPanel?.mode !== 'LANCAMENTOS' || !auditPanel.rows) return { groups: {}, sortedDates: [] };
@@ -1421,8 +1475,12 @@ export function Boletim() {
         ];
 
     const resolveFlowBySeriesIndex = (seriesIndex: number): FlowFilter | null => {
-      if (seriesIndex === 0) return 'PAGAMENTO';
-      if (seriesIndex === 1) return 'RECEBIMENTO';
+      if (flowFilter === 'ALL') {
+        if (seriesIndex === 0) return 'PAGAMENTO';
+        if (seriesIndex === 1) return 'RECEBIMENTO';
+      } else {
+        return flowFilter;
+      }
       return null;
     };
 
@@ -1671,7 +1729,7 @@ export function Boletim() {
 
     const purchaseRows = nfeRows
       .map((item) => {
-        const tipoCompra = extractDestinoCompraFromObservacao(item.item.observacao);
+        const tipoCompra = extractDestinoCompraFromObservacao(item.item.observacao) || 'A_CLASSIFICAR';
         const monthIndex = parseDateOnly(item.item.data_competencia || item.item.data_vencimento)?.getMonth() ?? -1;
         const capMonthIndex = parseDateOnly(item.item.data_vencimento)?.getMonth() ?? -1;
         const valor = Number(item.item.valor_previsto || item.item.valor_pago || 0);
@@ -1698,38 +1756,44 @@ export function Boletim() {
       ENCOMENDA: Array.from({ length: 12 }, () => 0),
       ESTOQUE: Array.from({ length: 12 }, () => 0),
       DEMONSTRACAO: Array.from({ length: 12 }, () => 0),
+      A_CLASSIFICAR: Array.from({ length: 12 }, () => 0),
     };
 
     rowsByTipo.forEach((row) => {
       if (!row.tipoCompra) return;
-      monthlyPedidos[row.tipoCompra][row.monthIndex] += row.valor;
+      const key = row.tipoCompra as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | 'A_CLASSIFICAR';
+      monthlyPedidos[key][row.monthIndex] += row.valor;
     });
 
     const monthlyCap = {
       ENCOMENDA: Array.from({ length: 12 }, () => 0),
       ESTOQUE: Array.from({ length: 12 }, () => 0),
       DEMONSTRACAO: Array.from({ length: 12 }, () => 0),
+      A_CLASSIFICAR: Array.from({ length: 12 }, () => 0),
     };
     rowsByTipo.forEach((row) => {
       const idx = Number(row.capMonthIndex);
       if (!Number.isFinite(idx) || idx < 0 || idx > 11) return;
       if (!row.tipoCompra) return;
-      monthlyCap[row.tipoCompra][idx] += row.valor;
+      const key = row.tipoCompra as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | 'A_CLASSIFICAR';
+      monthlyCap[key][idx] += row.valor;
     });
 
     const totalsByTipo = {
       ENCOMENDA: monthlyPedidos.ENCOMENDA.reduce((a, b) => a + b, 0),
       ESTOQUE: monthlyPedidos.ESTOQUE.reduce((a, b) => a + b, 0),
       DEMONSTRACAO: monthlyPedidos.DEMONSTRACAO.reduce((a, b) => a + b, 0),
+      A_CLASSIFICAR: monthlyPedidos.A_CLASSIFICAR.reduce((a, b) => a + b, 0),
     };
 
     const countsByTipo = {
       ENCOMENDA: purchaseRows.filter((r) => r.tipoCompra === 'ENCOMENDA').length,
       ESTOQUE: purchaseRows.filter((r) => r.tipoCompra === 'ESTOQUE').length,
       DEMONSTRACAO: purchaseRows.filter((r) => r.tipoCompra === 'DEMONSTRACAO').length,
+      A_CLASSIFICAR: purchaseRows.filter((r) => r.tipoCompra === 'A_CLASSIFICAR').length,
     };
 
-    const donutSeries = [totalsByTipo.ENCOMENDA, totalsByTipo.ESTOQUE, totalsByTipo.DEMONSTRACAO];
+    const donutSeries = [totalsByTipo.ENCOMENDA, totalsByTipo.ESTOQUE, totalsByTipo.DEMONSTRACAO, totalsByTipo.A_CLASSIFICAR];
 
     const pedidosSeries = [
       {
@@ -1756,9 +1820,17 @@ export function Boletim() {
           fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#a855f7',
         })),
       },
+      {
+        name: 'A Classificar',
+        data: monthlyPedidos.A_CLASSIFICAR.map((value, monthIndex) => ({
+          x: monthLabels[monthIndex],
+          y: value,
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#64748b',
+        })),
+      },
     ];
 
-    const capTotal = monthlyCap.ENCOMENDA.map((value, monthIndex) => value + (monthlyCap.ESTOQUE[monthIndex] || 0));
+    const capTotal = monthlyCap.ENCOMENDA.map((value, monthIndex) => value + (monthlyCap.ESTOQUE[monthIndex] || 0) + (monthlyCap.A_CLASSIFICAR[monthIndex] || 0));
 
     const isCapMixedStacked = compraChartMode === 'COLUNA_EMPILHADA';
     const capSeries = [
@@ -1768,7 +1840,7 @@ export function Boletim() {
         data: monthlyCap.ENCOMENDA.map((value, monthIndex) => ({
           x: monthLabels[monthIndex],
           y: value,
-            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#3b82f6',
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#3b82f6',
         })),
       },
       {
@@ -1777,7 +1849,16 @@ export function Boletim() {
         data: monthlyCap.ESTOQUE.map((value, monthIndex) => ({
           x: monthLabels[monthIndex],
           y: value,
-            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
+        })),
+      },
+      {
+        name: 'CAP A Classificar',
+        ...(isCapMixedStacked ? { type: 'column' } : {}),
+        data: monthlyCap.A_CLASSIFICAR.map((value, monthIndex) => ({
+          x: monthLabels[monthIndex],
+          y: value,
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#64748b',
         })),
       },
       {
@@ -1786,7 +1867,7 @@ export function Boletim() {
         data: capTotal.map((value, monthIndex) => ({
           x: monthLabels[monthIndex],
           y: value,
-            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#f2c94c',
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#f2c94c',
         })),
       },
     ];
@@ -1848,20 +1929,21 @@ export function Boletim() {
           dataPointSelection: (_event: any, _ctx: any, config: any) => {
             const idx = Number(config?.dataPointIndex);
             if (!Number.isFinite(idx) || idx < 0) return;
-            const nextFilter: CompraTipoFilter = idx === 0 ? 'ENCOMENDA' : idx === 1 ? 'ESTOQUE' : 'DEMONSTRACAO';
+            const nextFilter: CompraTipoFilter = idx === 0 ? 'ENCOMENDA' : idx === 1 ? 'ESTOQUE' : idx === 2 ? 'DEMONSTRACAO' : 'A_CLASSIFICAR';
             setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
           },
           legendClick: (_ctx: any, seriesIndex: number) => {
-            const nextFilter: CompraTipoFilter = Number(seriesIndex) === 0 ? 'ENCOMENDA' : Number(seriesIndex) === 1 ? 'ESTOQUE' : 'DEMONSTRACAO';
+            const nextFilter: CompraTipoFilter = Number(seriesIndex) === 0 ? 'ENCOMENDA' : Number(seriesIndex) === 1 ? 'ESTOQUE' : Number(seriesIndex) === 2 ? 'DEMONSTRACAO' : 'A_CLASSIFICAR';
             setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
           },
         },
       },
-      labels: ['Encomenda', 'Estoque', 'Demonstração'],
+      labels: ['Encomenda', 'Estoque', 'Demonstração', 'A Classificar'],
       colors: [
         compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ENCOMENDA' ? (isDark ? '#315ea1' : '#9dbcf1') : '#3b82f6',
         compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ESTOQUE' ? (isDark ? '#0f766e' : '#98e0d8') : '#14b8a6',
         compraTipoFilter !== 'ALL' && compraTipoFilter !== 'DEMONSTRACAO' ? (isDark ? '#5b21b6' : '#c084fc') : '#a855f7',
+        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'A_CLASSIFICAR' ? (isDark ? '#475569' : '#cbd5e1') : '#64748b',
       ],
       dataLabels: { enabled: true, formatter: (value: number) => `${value.toFixed(0)}%` },
       legend: { show: true, position: 'bottom', labels: { colors: labelColor }, itemMargin: { horizontal: 8, vertical: 4 }, onItemClick: { toggleDataSeries: false } },
@@ -1891,8 +1973,8 @@ export function Boletim() {
                 stacked: true,
                 stackType: 'normal',
               },
-              stroke: { width: [0, 0, 3], curve: 'smooth' },
-              markers: { size: [0, 0, 4], hover: { size: 6 } },
+              stroke: { width: [0, 0, 0, 3], curve: 'smooth' },
+              markers: { size: [0, 0, 0, 4], hover: { size: 6 } },
             }
           : {}),
         legend: { ...sharedChartOptions.legend, show: true },
@@ -2052,14 +2134,18 @@ export function Boletim() {
                 ) : null}
               </div>
               <select
-                value={selectedCentroCustoId === null ? '' : String(selectedCentroCustoId)}
+                value={selectedCentroCustoId === null ? 'TODOS' : String(selectedCentroCustoId)}
                 onChange={(event) => {
-                  if (!event.target.value) return;
-                  setSelectedCentroCustoId(Number(event.target.value));
+                  const val = event.target.value;
+                  if (val === 'TODOS') {
+                    setSelectedCentroCustoId(null);
+                  } else {
+                    setSelectedCentroCustoId(Number(val));
+                  }
                 }}
                 className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white md:w-72"
               >
-                <option value="" disabled>Selecione um centro de custo</option>
+                <option value="TODOS">Todos os centros de custo</option>
                 {centrosCusto.map((centro) => (
                   <option key={centro.id} value={centro.id}>
                     {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
@@ -2176,7 +2262,7 @@ export function Boletim() {
                                         <td className="max-w-56 truncate px-3 py-2.5" title={row.descricao}>
                                           <div className="flex items-center gap-1.5">
                                             <span className="truncate">{row.descricao}</span>
-                                            {row.id <= 0 && (
+                                            {(row.id <= 0 || row.origem === 'ASAAS') && (
                                               <span className="shrink-0 inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-400/20">
                                                 Asaas
                                               </span>
@@ -2239,7 +2325,17 @@ export function Boletim() {
                                         return (
                                           <tr key={`extrato-${movimento.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
                                             <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500"></td>
-                                            <td className="max-w-50 truncate px-3 py-2.5" title={movimento.descricao}>{movimento.descricao}</td>
+                                            <td className="max-w-50 px-3 py-2.5">
+                                              <div className="flex items-center gap-1.5 min-w-0">
+                                                <span className="truncate" title={movimento.descricao}>{movimento.descricao}</span>
+                                                {movimento.conciliado && (
+                                                  <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="Lançamento Conciliado com o Banco">
+                                                    <Check className="h-2.5 w-2.5 stroke-[3]" />
+                                                    Conciliado
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </td>
                                             <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(signed, isDark)}`}>{formatCurrencyDetailed(signed)}</td>
                                             <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(Number(movimento.saldo_apos_movimento || 0), isDark)}`}>{formatCurrencyDetailed(Number(movimento.saldo_apos_movimento || 0))}</td>
                                           </tr>
@@ -2523,13 +2619,22 @@ export function Boletim() {
                       <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Indicadores</div>
                       <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Grade rolável para não estourar a tela.</div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <FilterPill active={statusFilter === 'TODOS'} label="Todos" onClick={() => setStatusFilter('TODOS')} isDark={isDark} />
-                      <FilterPill active={statusFilter === 'PAGO'} label="Pago" onClick={() => setStatusFilter('PAGO')} isDark={isDark} />
-                      <FilterPill active={statusFilter === 'EM_ABERTO'} label="Em aberto" onClick={() => setStatusFilter('EM_ABERTO')} isDark={isDark} />
-                      <FilterPill active={statusFilter === 'ATRASADO'} label="Atrasado" onClick={() => setStatusFilter('ATRASADO')} isDark={isDark} />
-                      <FilterPill active={statusFilter === 'AMANHA'} label="Vcto amanha" onClick={() => setStatusFilter('AMANHA')} isDark={isDark} />
-                      <FilterPill active={statusFilter === 'HOJE'} label="Vcto hoje" onClick={() => setStatusFilter('HOJE')} isDark={isDark} />
+                    <div className="flex flex-wrap items-center gap-3">
+                      <input
+                        type="text"
+                        placeholder="Pesquisar..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className={`rounded-lg border px-3 py-1.5 text-xs outline-none transition w-full sm:w-60 ${isDark ? 'border-white/15 bg-slate-950/50 text-white focus:border-amber-300/60' : 'border-slate-300 bg-white text-slate-700 focus:border-blue-500'}`}
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <FilterPill active={statusFilter === 'TODOS'} label="Todos" onClick={() => setStatusFilter('TODOS')} isDark={isDark} />
+                        <FilterPill active={statusFilter === 'PAGO'} label="Pago" onClick={() => setStatusFilter('PAGO')} isDark={isDark} />
+                        <FilterPill active={statusFilter === 'EM_ABERTO'} label="Em aberto" onClick={() => setStatusFilter('EM_ABERTO')} isDark={isDark} />
+                        <FilterPill active={statusFilter === 'ATRASADO'} label="Atrasado" onClick={() => setStatusFilter('ATRASADO')} isDark={isDark} />
+                        <FilterPill active={statusFilter === 'AMANHA'} label="Vcto amanha" onClick={() => setStatusFilter('AMANHA')} isDark={isDark} />
+                        <FilterPill active={statusFilter === 'HOJE'} label="Vcto hoje" onClick={() => setStatusFilter('HOJE')} isDark={isDark} />
+                      </div>
                     </div>
                   </div>
 
@@ -2558,7 +2663,7 @@ export function Boletim() {
                               <td className="max-w-85 truncate px-4 py-2.5" title={row.descricao}>
                                 <div className="flex items-center gap-1.5">
                                   <span className="truncate">{row.descricao}</span>
-                                  {row.id <= 0 && (
+                                  {(row.id <= 0 || row.origem === 'ASAAS') && (
                                     <span className="shrink-0 inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-400/20">
                                       Asaas
                                     </span>

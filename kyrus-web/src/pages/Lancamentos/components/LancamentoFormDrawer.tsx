@@ -382,7 +382,10 @@ export const LancamentoFormDrawer = ({
   };
 
   useEffect(() => {
-    if (!showDrawer) return;
+    if (!showDrawer) {
+      setShowEntityDrawer(false);
+      return;
+    }
 
     if (editarId) {
       setIsEditing(true);
@@ -1878,33 +1881,35 @@ export const LancamentoFormDrawer = ({
           </div>
         </div>
       </div>
-      <QuickEntityDrawer
-        showEntityDrawer={showEntityDrawer}
-        onClose={() => setShowEntityDrawer(false)}
-        onSuccess={(newEntity) => {
-          setLocalEntidades((prev) => {
-            if (prev.some((e) => e.id === newEntity.id)) return prev;
-            return [...prev, newEntity];
-          });
-          setFormData((prev: any) => ({ ...prev, entidade_id: String(newEntity.id) }));
-          if (onEntityCreated) {
-            onEntityCreated(newEntity);
-          }
-          // Update Zustand lookup store caches immediately
-          const currentEntidades = useLookupStore.getState().entidades;
-          if (!currentEntidades.some((e) => e.id === newEntity.id)) {
-            setEntidadesCache([...currentEntidades, newEntity]);
-          }
-          const currentLookup = useLookupStore.getState().entidadesLookup;
-          if (!currentLookup.some((e) => e.id === newEntity.id)) {
-            setEntidadesLookupCache([...currentLookup, newEntity]);
-          }
-          // Background silent sync
-          void fetchEntidades(true).catch(() => {});
-          void fetchEntidadesLookup(true).catch(() => {});
-        }}
-        pushToast={pushToast}
-      />
+      {showEntityDrawer && (
+        <QuickEntityDrawer
+          showEntityDrawer={showEntityDrawer}
+          onClose={() => setShowEntityDrawer(false)}
+          onSuccess={(newEntity) => {
+            setLocalEntidades((prev) => {
+              if (prev.some((e) => e.id === newEntity.id)) return prev;
+              return [...prev, newEntity];
+            });
+            setFormData((prev: any) => ({ ...prev, entidade_id: String(newEntity.id) }));
+            if (onEntityCreated) {
+              onEntityCreated(newEntity);
+            }
+            // Update Zustand lookup store caches immediately
+            const currentEntidades = useLookupStore.getState().entidades;
+            if (!currentEntidades.some((e) => e.id === newEntity.id)) {
+              setEntidadesCache([...currentEntidades, newEntity]);
+            }
+            const currentLookup = useLookupStore.getState().entidadesLookup;
+            if (!currentLookup.some((e) => e.id === newEntity.id)) {
+              setEntidadesLookupCache([...currentLookup, newEntity]);
+            }
+            // Background silent sync
+            void fetchEntidades(true).catch(() => {});
+            void fetchEntidadesLookup(true).catch(() => {});
+          }}
+          pushToast={pushToast}
+        />
+      )}
 
       {confirmModal.show && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">

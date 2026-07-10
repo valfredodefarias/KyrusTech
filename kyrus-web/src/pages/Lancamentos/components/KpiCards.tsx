@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { ChevronDown, TrendingUp, TrendingDown } from 'lucide-react';
 
 interface Kpis {
@@ -11,26 +11,30 @@ interface KpiCardsProps {
   kpis: Kpis;
 }
 
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
 export const KpiCards = ({ kpis }: KpiCardsProps) => {
   const [showResumoKpis, setShowResumoKpis] = useState(false);
-  const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
-  const kpiCards = [
-    {
-      label: 'Receitas',
-      value: BRL.format(kpis.r),
-      tone: 'text-emerald-600 dark:text-emerald-400',
-      bg: 'bg-emerald-500/10 dark:bg-emerald-900/20',
-      icon: TrendingUp,
-    },
-    {
-      label: 'Despesas',
-      value: BRL.format(kpis.d),
-      tone: 'text-red-600 dark:text-red-400',
-      bg: 'bg-red-500/10 dark:bg-red-900/20',
-      icon: TrendingDown,
-    },
-  ];
+  const kpiCards = useMemo(() => {
+    if (!showResumoKpis) return [];
+    return [
+      {
+        label: 'Receitas',
+        value: BRL.format(kpis.r),
+        tone: 'text-emerald-600 dark:text-emerald-400',
+        bg: 'bg-emerald-500/10 dark:bg-emerald-900/20',
+        icon: TrendingUp,
+      },
+      {
+        label: 'Despesas',
+        value: BRL.format(kpis.d),
+        tone: 'text-red-600 dark:text-red-400',
+        bg: 'bg-red-500/10 dark:bg-red-900/20',
+        icon: TrendingDown,
+      },
+    ];
+  }, [showResumoKpis, kpis.r, kpis.d]);
 
   return (
     <div className="px-4 sm:px-6 pt-2 pb-1">

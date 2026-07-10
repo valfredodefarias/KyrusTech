@@ -32,13 +32,13 @@ export const BulkPayModal = ({
   return (
     <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setShowBulkPay(false)}></div>
-      <div className="relative bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-slate-700">
-        <h3 className="font-bold text-lg mb-4 text-white">Baixar selecionados</h3>
+      <div className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-slate-200 dark:border-slate-700">
+        <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white">Baixar selecionados</h3>
         <div className="space-y-4">
           <div>
-            <p className="text-xs font-bold text-slate-400 uppercase mb-2">Conta de pagamento</p>
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Conta de pagamento</p>
             <select
-              className="w-full p-3 rounded-lg border border-slate-600 bg-slate-900 text-white outline-none"
+              className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-white outline-none"
               value={bulkPayData.conta_id}
               onChange={(e) => setBulkPayData((prev) => ({ ...prev, conta_id: e.target.value }))}
             >
@@ -51,8 +51,8 @@ export const BulkPayModal = ({
             </select>
           </div>
           <div>
-            <p className="text-xs font-bold text-slate-400 uppercase mb-2">Data de pagamento</p>
-            <div className="flex flex-col gap-2 text-sm text-white">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Data de pagamento</p>
+            <div className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-300">
               {[
                 { id: 'HOJE', label: 'Hoje' },
                 { id: 'ONTEM', label: 'Ontem' },
@@ -72,7 +72,7 @@ export const BulkPayModal = ({
               {bulkPayData.modoData === 'OUTRO' && (
                 <input
                   type="date"
-                  className="mt-1 p-2 rounded border border-slate-600 bg-slate-900 text-white outline-none"
+                  className="mt-1 p-2 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-white outline-none"
                   value={bulkPayData.data}
                   onChange={(e) => setBulkPayData((prev) => ({ ...prev, data: e.target.value }))}
                 />
@@ -83,7 +83,7 @@ export const BulkPayModal = ({
         <div className="flex gap-2 mt-6">
           <button
             onClick={() => setShowBulkPay(false)}
-            className="flex-1 py-3 text-slate-400 font-bold hover:bg-slate-700 rounded-lg transition"
+            className="flex-1 py-3 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition"
           >
             Cancelar
           </button>

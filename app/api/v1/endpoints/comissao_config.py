@@ -41,7 +41,7 @@ def get_regras(
     """
     Retorna todas as regras de comissão ativas da empresa.
     """
-    empresa_id = 27  # Rosario Belem
+    empresa_id = current_user.empresa_id
     
     query = (
         select(RegraComissao)
@@ -88,7 +88,7 @@ def save_regra(
     Se retroativo for True, a vigência data_inicio é definida como o 1º dia do mês atual.
     Caso contrário, vigência é hoje.
     """
-    empresa_id = 27  # Rosario Belem
+    empresa_id = current_user.empresa_id
     hoje = date.today()
     
     if data.retroativo:
@@ -162,7 +162,7 @@ def get_metas(
     """
     Retorna todos os vendedores ativos da empresa com suas metas para o mês/ano selecionado.
     """
-    empresa_id = 27  # Rosario Belem
+    empresa_id = current_user.empresa_id
     
     # 1. Buscar todos os vendedores ativos da empresa (excluindo consultores e "Loja" legado)
     vendedores = db.exec(
@@ -212,7 +212,7 @@ def save_meta(
     """
     Define ou atualiza a meta de faturamento de um vendedor para um determinado mês/ano.
     """
-    empresa_id = 27  # Rosario Belem
+    empresa_id = current_user.empresa_id
     
     query = (
         select(MetaVendedor)
@@ -260,7 +260,7 @@ def get_metas_ano(
     Retorna a matriz de metas de todos os vendedores para os 12 meses do ano selecionado.
     Exclui o usuário chamado "Loja" da lista de vendedores, conforme regra de negócio.
     """
-    empresa_id = 27  # Rosario Belem
+    empresa_id = current_user.empresa_id
     
     # Buscar vendedores ativos da empresa (excluindo consultores e usuário "Loja" por e-mail)
     vendedores = db.exec(
@@ -315,7 +315,7 @@ def save_metas_batch(
     """
     Salva ou atualiza uma lista de metas de vendedores em lote.
     """
-    empresa_id = 27  # Rosario Belem
+    empresa_id = current_user.empresa_id
     
     for item in data:
         # Buscar se já existe meta configurada

@@ -4,7 +4,7 @@ import json
 from datetime import date
 from decimal import Decimal
 from typing import Dict, List, Any
-from sqlmodel import Session, select
+from sqlmodel import Session, select, or_
 
 from app.models.lancamento import Lancamento
 from app.models.produto import Produto
@@ -24,14 +24,23 @@ class ComissaoService:
         Exclui lançamentos em 'boleto parcelado' ou 'boleto' que estão em aberto.
         Inclui os lançamentos de boleto que foram pagos no mês correspondente.
         """
-        # 1. Buscar todos os lançamentos ativos (is_deleted == False) de receita do vendedor na empresa
+        # 1. Buscar lançamentos ativos de receita do vendedor na empresa filtrados pelo mês/ano alvo
+        import calendar
+        _, last_day = calendar.monthrange(ano, mes)
+        start_date = date(ano, mes, 1)
+        end_date = date(ano, mes, last_day)
+
         query = (
             select(Lancamento)
             .where(
                 Lancamento.empresa_id == empresa_id,
                 Lancamento.created_by_id == vendedor_id,
                 Lancamento.is_deleted == False,
-                Lancamento.tipo == "RECEITA"
+                Lancamento.tipo == "RECEITA",
+                or_(
+                    (Lancamento.data_pagamento >= start_date) & (Lancamento.data_pagamento <= end_date),
+                    (Lancamento.data_competencia >= start_date) & (Lancamento.data_competencia <= end_date)
+                )
             )
         )
         launches = db.exec(query).all()
@@ -205,14 +214,23 @@ class ComissaoService:
                 else:
                     taxa_produtos_global = Decimal("0.01")
         
-        # 3. Buscar todos os lançamentos que geram pagamento de comissão neste mês
+        # 3. Buscar lançamentos que geram pagamento de comissão neste mês (filtrados no banco)
+        import calendar
+        _, last_day = calendar.monthrange(ano, mes)
+        start_date = date(ano, mes, 1)
+        end_date = date(ano, mes, last_day)
+
         query = (
             select(Lancamento)
             .where(
                 Lancamento.empresa_id == empresa_id,
                 Lancamento.created_by_id == vendedor_id,
                 Lancamento.is_deleted == False,
-                Lancamento.tipo == "RECEITA"
+                Lancamento.tipo == "RECEITA",
+                or_(
+                    (Lancamento.data_pagamento >= start_date) & (Lancamento.data_pagamento <= end_date),
+                    (Lancamento.data_competencia >= start_date) & (Lancamento.data_competencia <= end_date)
+                )
             )
         )
         launches = db.exec(query).all()

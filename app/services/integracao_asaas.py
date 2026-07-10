@@ -200,7 +200,9 @@ def _is_generic_asaas_entity_name(name: Optional[str]) -> bool:
     return "ASAAS" in normalized
 
 
-_asaas_customer_name_persistent_cache: Dict[str, Optional[str]] = {}
+import time
+
+_asaas_customer_name_persistent_cache: Dict[str, tuple[Optional[str], float]] = {}
 
 
 def _fetch_asaas_customer_name(
@@ -216,10 +218,12 @@ def _fetch_asaas_customer_name(
     if customer_id in customer_name_cache:
         return customer_name_cache[customer_id]
 
+    now = time.time()
     if customer_id in _asaas_customer_name_persistent_cache:
-        val = _asaas_customer_name_persistent_cache[customer_id]
-        customer_name_cache[customer_id] = val
-        return val
+        val, timestamp = _asaas_customer_name_persistent_cache[customer_id]
+        if now - timestamp < 43200: # 12 horas
+            customer_name_cache[customer_id] = val
+            return val
 
     if not access_token:
         customer_name_cache[customer_id] = None
@@ -255,7 +259,7 @@ def _fetch_asaas_customer_name(
     ).strip()
     resolved = candidate or None
     customer_name_cache[customer_id] = resolved
-    _asaas_customer_name_persistent_cache[customer_id] = resolved
+    _asaas_customer_name_persistent_cache[customer_id] = (resolved, now)
     return resolved
 
 

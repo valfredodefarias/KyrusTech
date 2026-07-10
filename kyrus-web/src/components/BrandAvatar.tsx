@@ -398,7 +398,7 @@ export function BrandAvatar({ visual, size = 'md', className = '' }: BrandAvatar
 
   return (
     <div
-      className={`flex items-center justify-center rounded-2xl border font-black uppercase tracking-[0.18em] overflow-hidden ${SIZE_CLASS[size]} ${className}`}
+      className={`flex items-center justify-center rounded-md border font-black uppercase tracking-[0.18em] overflow-hidden ${SIZE_CLASS[size]} ${className}`}
       style={style}
       title={visual.label}
     >
@@ -455,7 +455,7 @@ export function BankAvatar({
   integrationType,
   size = 'md',
   className = '',
-  imageClassName = 'rounded-2xl',
+  imageClassName = 'rounded-md',
   fallbackClassName = '',
   imageFit = 'cover',
 }: BankAvatarProps) {

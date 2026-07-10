@@ -446,10 +446,52 @@ def delete_conta(
     conta_id: int,
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    db_obj = crud_conta.delete(db=db, id=conta_id, empresa_id=empresa_id)
-    if not db_obj:
+    conta = crud_conta.get_by_id(db=db, id=conta_id, empresa_id=empresa_id)
+    if not conta:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
+
+    # 1. Verificar se existem lançamentos vinculados
+    has_lancamentos = db.exec(
+        select(Lancamento).where(Lancamento.conta_id == conta_id, Lancamento.empresa_id == empresa_id)
+    ).first()
+    if has_lancamentos:
+        raise HTTPException(
+            status_code=400,
+            detail="Não é possível excluir uma conta que possui lançamentos (transações) vinculados."
+        )
+
+    # 2. Verificar se existem cartões vinculados
+    from app.models.cartao import Cartao
+    has_cartoes = db.exec(
+        select(Cartao).where(Cartao.conta_id == conta_id, Cartao.empresa_id == empresa_id)
+    ).first()
+    if has_cartoes:
+        raise HTTPException(
+            status_code=400,
+            detail="Não é possível excluir uma conta que possui cartões de crédito vinculados."
+        )
+
+    # 3. Verificar se existe integração bancária vinculada
+    from app.models.integracao_bancaria import IntegracaoBancaria
+    has_integracao = db.exec(
+        select(IntegracaoBancaria).where(IntegracaoBancaria.conta_id == conta_id, IntegracaoBancaria.empresa_id == empresa_id)
+    ).first()
+    if has_integracao:
+        raise HTTPException(
+            status_code=400,
+            detail="Não é possível excluir uma conta que possui integração bancária ativa. Desative a integração antes."
+        )
+
+    # 4. Limpar os acessos de usuários antes de excluir a conta
+    db.execute(
+        text("DELETE FROM usuario_conta_acesso WHERE conta_id = :conta_id"),
+        {"conta_id": conta_id}
+    )
+    db.commit()
+
+    crud_conta.delete(db=db, id=conta_id, empresa_id=empresa_id)
     return {"ok": True}
+
 
 
 @router.api_route(

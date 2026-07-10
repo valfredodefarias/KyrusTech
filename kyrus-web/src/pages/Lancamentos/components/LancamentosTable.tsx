@@ -7,6 +7,8 @@ import {
   getCategoriaLabel,
 } from '../utils';
 
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
 interface GroupedData {
   groups: Record<string, Lancamento[]>;
   sortedDates: string[];
@@ -23,6 +25,7 @@ interface LancamentosTableProps {
   listaSort: { key: ListaSortKey; direction: ListaSortDirection };
   toggleListaSort: (key: ListaSortKey) => void;
   contaExtratoAtivaId: number | null;
+  savingIppIds: Set<number>;
 }
 
 export const LancamentosTable = ({
@@ -36,8 +39,8 @@ export const LancamentosTable = ({
   listaSort,
   toggleListaSort,
   contaExtratoAtivaId,
+  savingIppIds,
 }: LancamentosTableProps) => {
-  const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
   const getHeaderAriaSort = (key: ListaSortKey): 'none' | 'ascending' | 'descending' => {
     if (listaSort.key !== key) return 'none';
@@ -184,13 +187,13 @@ export const LancamentosTable = ({
                               e.stopPropagation();
                               toggleIpp(l);
                             }}
-                            disabled={transfer || l.conciliado}
+                            disabled={transfer || l.conciliado || savingIppIds.has(l.id)}
                             className={`w-7 h-7 rounded border flex items-center justify-center transition pointer-events-auto ${
                               l.ipp
                                 ? 'bg-purple-600 border-purple-600 text-white'
                                 : 'border-slate-300 dark:border-slate-600 text-slate-500 hover:border-purple-400'
-                            } ${transfer || l.conciliado ? 'cursor-not-allowed opacity-40' : ''}`}
-                            title={l.conciliado ? "Lançamento conciliado" : "Marcar como IPP"}
+                            } ${transfer || l.conciliado || savingIppIds.has(l.id) ? 'cursor-not-allowed opacity-40' : ''}`}
+                            title={l.conciliado ? "Lançamento conciliado" : savingIppIds.has(l.id) ? "Salvando..." : "Marcar como IPP"}
                             aria-pressed={l.ipp}
                           >
                             <Check className="w-3 h-3" />

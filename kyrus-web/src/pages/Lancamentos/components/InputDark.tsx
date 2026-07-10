@@ -1,11 +1,11 @@
 import { CurrencyInput } from '../../../components/CurrencyInput';
 
-export const InputDark = (props: any) => (
+export const InputDark = ({ label, className = '', ...props }: any) => (
   <div className="w-full">
-    {props.label && <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{props.label}</label>}
+    {label && <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{label}</label>}
     <input
       {...props}
-      className={`w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed ${props.className || ''}`}
+      className={`w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
     />
   </div>
 );

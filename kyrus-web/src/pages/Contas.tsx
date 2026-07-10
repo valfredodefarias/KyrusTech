@@ -259,6 +259,8 @@ export function Contas() {
   // Filtros
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCentroId, setFilterCentroId] = useState('');
+  const [extratoSearchTerm, setExtratoSearchTerm] = useState('');
+  const [userSearchTerm, setUserSearchTerm] = useState('');
 
   // Drawers e Modais
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -602,6 +604,7 @@ export function Contas() {
     setLogoPreview('');
     setLogoRemoved(false);
     setFormErrors({});
+    setUserSearchTerm('');
     setDrawerOpen(true);
   }
 
@@ -629,6 +632,7 @@ export function Contas() {
     setLogoFile(null);
     setLogoRemoved(false);
     setFormErrors({});
+    setUserSearchTerm('');
     setDrawerOpen(true);
   }
 
@@ -752,6 +756,7 @@ export function Contas() {
     setExtratoPeriodoFim('');
     setLocalPeriodoInicio('');
     setLocalPeriodoFim('');
+    setExtratoSearchTerm('');
     setExtratoLancamentos([]);
     if (categorias.length === 0) {
       await carregarCategorias();
@@ -769,6 +774,7 @@ export function Contas() {
     setExtratoPeriodoFim('');
     setLocalPeriodoInicio('');
     setLocalPeriodoFim('');
+    setExtratoSearchTerm('');
     setExtratoSelecionados([]);
     setExtratoFaturasExpandidas({});
     setExpandedLotes({});
@@ -956,9 +962,45 @@ export function Contas() {
       if (!movementDate) return false;
       if (rangeStart && movementDate < rangeStart) return false;
       if (rangeEnd && movementDate > rangeEnd) return false;
+
+      if (extratoSearchTerm) {
+        const term = extratoSearchTerm.toLowerCase();
+        const descMatch = String(item.descricao || '').toLowerCase().includes(term);
+        const interessadoMatch = getInteressadoLabel(item).toLowerCase().includes(term);
+        
+        const valEntrada = Number(item.valor_entrada || 0);
+        const valSaida = Number(item.valor_saida || 0);
+        const formatBRL = (val: number) => {
+          if (!val) return '';
+          return BRL.format(val).toLowerCase();
+        };
+        const formatBRLClean = (val: number) => {
+          if (!val) return '';
+          return BRL.format(val).replace('R$', '').trim().toLowerCase();
+        };
+        const valEntradaStr = String(item.valor_entrada || '');
+        const valSaidaStr = String(item.valor_saida || '');
+
+        const valorMatch = valEntradaStr.includes(term) ||
+                           valSaidaStr.includes(term) ||
+                           formatBRL(valEntrada).includes(term) ||
+                           formatBRL(valSaida).includes(term) ||
+                           formatBRLClean(valEntrada).includes(term) ||
+                           formatBRLClean(valSaida).includes(term);
+
+        if (!descMatch && !interessadoMatch && !valorMatch) return false;
+      }
+
       return true;
     });
-  }, [extratoLancamentos, extratoPeriodoFim, extratoPeriodoFiltro, extratoPeriodoInicio, extratoTipoFiltro]);
+  }, [extratoLancamentos, extratoPeriodoFim, extratoPeriodoFiltro, extratoPeriodoInicio, extratoTipoFiltro, extratoSearchTerm]);
+
+  const allSelected = useMemo(() => {
+    return (
+      extratoLancamentosFiltrados.length > 0 &&
+      extratoLancamentosFiltrados.every((item) => extratoSelecionados.includes(item.id))
+    );
+  }, [extratoLancamentosFiltrados, extratoSelecionados]);
 
   const extratoResumoFiltrado = useMemo(() => {
     return extratoLancamentosFiltrados.reduce(
@@ -971,6 +1013,8 @@ export function Contas() {
       { entradas: 0, saidas: 0, quantidade: 0 },
     );
   }, [extratoLancamentosFiltrados]);
+
+  const isFiltered = Boolean(extratoSearchTerm.trim() || extratoTipoFiltro !== 'TODOS');
 
   useEffect(() => {
     const visibleIds = new Set(extratoLancamentosFiltrados.map((item) => item.id));
@@ -1325,6 +1369,29 @@ export function Contas() {
 
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
                   <div className="flex flex-wrap items-center gap-4">
+                    {/* Barra de Pesquisa do Extrato */}
+                    <div className="relative group">
+                      <Search className="absolute left-3 top-2.5 text-slate-400" size={16}
+                        style={{ color: extratoSearchTerm ? primaryColor : undefined }}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Pesquisar extrato..."
+                        value={extratoSearchTerm}
+                        onChange={(e) => setExtratoSearchTerm(e.target.value)}
+                        className="pl-9 pr-8 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none text-xs w-48 sm:w-60 focus:ring-1 transition"
+                        style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                      />
+                      {extratoSearchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setExtratoSearchTerm('')}
+                          className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-250 transition"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
                     {/* Filtro de Tipo */}
                     <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/50 p-1 rounded-xl">
                       {([
@@ -1423,7 +1490,20 @@ export function Contas() {
                 <table className="w-full text-left text-[13px]">
                   <thead className="bg-slate-50 dark:bg-slate-800 text-[10px] font-bold text-slate-500 uppercase">
                     <tr>
-                      <th className="p-3 w-12">Sel.</th>
+                      <th className="p-3 w-12">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={() => {
+                            if (allSelected) {
+                              setExtratoSelecionados([]);
+                            } else {
+                              setExtratoSelecionados(extratoLancamentosFiltrados.map((item) => item.id));
+                            }
+                          }}
+                          className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                        />
+                      </th>
                       <th className="p-3">Data base</th>
                       <th className="p-3">Descrição</th>
                       <th className="p-3">Interessado</th>
@@ -1437,7 +1517,20 @@ export function Contas() {
                   </thead>
                   <tbody className="text-[13px] divide-y divide-slate-100 dark:divide-slate-700">
                     {extratoLoading ? (
-                      <tr><td colSpan={10} className="p-6 text-center text-slate-400">Carregando...</td></tr>
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <tr key={i} className="animate-pulse">
+                          <td className="p-3"><div className="h-4 w-4 bg-slate-200 dark:bg-slate-700 rounded" /></td>
+                          <td className="p-3"><div className="h-4 w-16 bg-slate-200 dark:bg-slate-700 rounded" /></td>
+                          <td className="p-3"><div className="h-4 w-48 bg-slate-200 dark:bg-slate-700 rounded" /></td>
+                          <td className="p-3"><div className="h-4 w-24 bg-slate-200 dark:bg-slate-700 rounded" /></td>
+                          <td className="p-3"><div className="h-4 w-24 bg-slate-200 dark:bg-slate-700 rounded" /></td>
+                          <td className="p-3"><div className="h-4 w-12 bg-slate-200 dark:bg-slate-700 rounded" /></td>
+                          <td className="p-3"><div className="h-4 w-16 bg-slate-200 dark:bg-slate-700 rounded" /></td>
+                          <td className="p-3 text-right"><div className="h-4 w-20 bg-slate-200 dark:bg-slate-700 rounded inline-block" /></td>
+                          <td className="p-3 text-right"><div className="h-4 w-20 bg-slate-200 dark:bg-slate-700 rounded inline-block" /></td>
+                          <td className="p-3 text-right"><div className="h-8 w-16 bg-slate-200 dark:bg-slate-700 rounded inline-block" /></td>
+                        </tr>
+                      ))
                     ) : extratoAgrupado.length === 0 ? (
                       <tr>
                         <td colSpan={10} className="p-6 text-center text-slate-400 italic">
@@ -1507,7 +1600,7 @@ export function Contas() {
                                         </span>
                                       </td>
                                       <td className="p-3 text-right font-bold text-rose-600 align-top whitespace-nowrap">{formatSignedCurrency(-Math.abs(row.group.totalSaida))}</td>
-                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(row.group.saldoApos)}</td>
+                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(row.group.saldoApos)}</td>
                                       <td className="p-3" />
                                     </tr>
 
@@ -1525,7 +1618,15 @@ export function Contas() {
                                         <td className="p-3 font-medium text-slate-700 dark:text-slate-200 pl-4">
                                           <div className="flex items-center gap-1.5">
                                             <span className="text-amber-500 font-mono text-xs select-none">↳</span>
-                                            <div>{l.descricao}</div>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                              <span>{l.descricao}</span>
+                                              {l.conciliado && (
+                                                <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="Lançamento Conciliado com o Banco">
+                                                  <Check className="h-2.5 w-2.5 stroke-[3]" />
+                                                  Conciliado
+                                                </span>
+                                              )}
+                                            </div>
                                           </div>
                                           <div className="text-[10px] text-slate-400 pl-3.5 font-normal">{l.numero_parcela ? `${l.numero_parcela}ª parcela` : 'À vista'}</div>
                                         </td>
@@ -1538,7 +1639,7 @@ export function Contas() {
                                           </span>
                                         </td>
                                         <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
                                         <td className="p-3 text-right">
                                           <div className="flex items-center justify-end gap-2">
                                             {!isTransferencia(l) && (
@@ -1598,7 +1699,7 @@ export function Contas() {
                                       <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${totalMovimento >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                                         {formatSignedCurrency(totalMovimento)}
                                       </td>
-                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(row.group.saldoApos)}</td>
+                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(row.group.saldoApos)}</td>
                                       <td className="p-3" />
                                     </tr>
 
@@ -1616,7 +1717,15 @@ export function Contas() {
                                         <td className="p-3 font-medium text-slate-700 dark:text-slate-200 pl-4">
                                           <div className="flex items-center gap-1.5">
                                             <span className="text-indigo-500 font-mono text-xs select-none">↳</span>
-                                            <div>{l.descricao}</div>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                              <span>{l.descricao}</span>
+                                              {l.conciliado && (
+                                                <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="Lançamento Conciliado com o Banco">
+                                                  <Check className="h-2.5 w-2.5 stroke-[3]" />
+                                                  Conciliado
+                                                </span>
+                                              )}
+                                            </div>
                                           </div>
                                         </td>
                                         <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
@@ -1628,7 +1737,7 @@ export function Contas() {
                                           </span>
                                         </td>
                                         <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
                                         <td className="p-3 text-right">
                                           <div className="flex items-center justify-end gap-2">
                                             {!isTransferencia(l) && (
@@ -1668,7 +1777,7 @@ export function Contas() {
                                     </td>
                                     <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
                                     <td className="p-3 font-medium text-slate-700 dark:text-slate-200">
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex items-center gap-2 flex-wrap">
                                         {hasLoteDetails && (
                                           <button
                                             onClick={() => toggleLoteExpand(l.id)}
@@ -1683,6 +1792,12 @@ export function Contas() {
                                           </button>
                                         )}
                                         <span>{l.descricao}</span>
+                                        {l.conciliado && (
+                                          <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="Lançamento Conciliado com o Banco">
+                                            <Check className="h-2.5 w-2.5 stroke-[3]" />
+                                            Conciliado
+                                          </span>
+                                        )}
                                       </div>
                                     </td>
                                     <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
@@ -1694,7 +1809,7 @@ export function Contas() {
                                       </span>
                                     </td>
                                     <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                                    <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                    <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
                                     <td className="p-3 text-right">
                                       <div className="flex items-center justify-end gap-2">
                                         {!isTransferencia(l) && (
@@ -1766,11 +1881,20 @@ export function Contas() {
                     <input 
                       type="text" 
                       placeholder="Pesquisar conta..." 
-                      className="w-full pl-12 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition shadow-sm focus:ring-2"
+                      className="w-full pl-12 pr-10 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition shadow-sm focus:ring-2"
                       style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
+                    {searchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchTerm('')}
+                        className="absolute right-4 top-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+                      >
+                        <X size={18} />
+                      </button>
+                    )}
                 </div>
 
                 <div className="relative group w-full md:w-64">
@@ -1795,7 +1919,33 @@ export function Contas() {
             </div>
 
             {/* GRID DE CONTAS */}
-            {filteredContas.length === 0 && !loading ? (
+            {loading ? (
+              <div className="space-y-6">
+                <section className="space-y-3">
+                  <div>
+                    <div className="h-4 bg-slate-200 dark:bg-slate-700 w-48 rounded animate-pulse" />
+                    <div className="h-3 bg-slate-200 dark:bg-slate-700 w-64 rounded mt-2 animate-pulse" />
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {[1, 2, 3].map((n) => (
+                      <div key={n} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 space-y-4 animate-pulse">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-slate-200 dark:bg-slate-700" />
+                          <div className="flex-1 space-y-2">
+                            <div className="h-4 bg-slate-200 dark:bg-slate-700 w-2/3 rounded" />
+                            <div className="h-3 bg-slate-200 dark:bg-slate-700 w-1/3 rounded" />
+                          </div>
+                        </div>
+                        <div className="pt-2 border-t border-slate-100 dark:border-slate-700 space-y-2">
+                          <div className="h-3 bg-slate-200 dark:bg-slate-700 w-1/4 rounded" />
+                          <div className="h-6 bg-slate-200 dark:bg-slate-700 w-1/2 rounded" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            ) : filteredContas.length === 0 ? (
                <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
                  {contas.length === 0 ? "Nenhuma conta cadastrada." : "Nenhuma conta encontrada com este filtro."}
                </div>
@@ -1855,7 +2005,7 @@ export function Contas() {
                                   void handleVerExtrato(c);
                                 }
                               }}
-                              className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5 relative group cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              className={`bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5 relative group cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${c.status === 'INATIVO' ? 'opacity-65 grayscale-[35%] bg-slate-50/50 dark:bg-slate-800/40' : ''}`}
                               style={{ '--hover-color': primaryColor } as React.CSSProperties}
                               aria-label={`Abrir extrato da conta ${c.nome}`}
                             >
@@ -1883,7 +2033,7 @@ export function Contas() {
                                   </div>
                                 </div>
 
-                                <div className="opacity-0 group-hover:opacity-100 transition flex gap-1">
+                                <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition flex gap-1">
                                   {c.tipo !== 'CAIXA' && (c.tipo_integracao === 'ASAAS' || c.banco?.toUpperCase() === 'ASAAS') && (
                                     <button
                                       onClick={(event) => {
@@ -1903,8 +2053,19 @@ export function Contas() {
                                     }}
                                     className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded"
                                     style={{ color: primaryColor }}
+                                    title="Editar conta"
                                   >
                                     <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setItemToDelete(c);
+                                    }}
+                                    className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950/20 rounded text-red-500"
+                                    title="Excluir conta"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
                               </div>
@@ -2112,13 +2273,19 @@ export function Contas() {
                   </div>
               </div>
 
+              {form.tipo !== 'CAIXA' && (!form.agencia?.trim() || !form.conta_numero?.trim()) && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 px-3 py-2 rounded-lg leading-snug">
+                  💡 <strong>Recomendação:</strong> Informe a Agência e Conta para garantir que a conciliação automática de arquivos OFX funcione corretamente para este banco.
+                </p>
+              )}
+
               <div className="space-y-2">
                   <label className="block text-xs font-bold uppercase text-slate-500">Logo / Foto do Banco</label>
                   <div className="flex items-center gap-3">
                       <div className="w-18 h-18 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 overflow-hidden flex items-center justify-center text-[10px] text-slate-400 shadow-sm">
                           {hasCustomLogo ? (
                             <img src={getFullLogoUrl(logoPreview || form.logo_url || '') || ''} alt="Logo" className="w-full h-full object-contain bg-white p-2 dark:bg-slate-900" />
-                          ) : form.tipo !== 'CAIXA' ? (
+                          ) : form.tipo === 'CAIXA' ? (
                             <div className="flex h-full w-full items-center justify-center bg-white text-slate-400 dark:bg-slate-900 dark:text-slate-500">
                               <Banknote className="h-8 w-8" />
                             </div>
@@ -2211,32 +2378,67 @@ export function Contas() {
                   {usuarios.length === 0 ? (
                     <p className="text-xs text-slate-400 italic">Nenhum operador/usuário encontrado para vincular.</p>
                   ) : (
-                    <div className="grid gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-1 pt-1">
-                      {usuarios.map((u) => {
-                        const isChecked = (form.allowed_user_ids || []).includes(u.id);
-                        return (
+                    <>
+                      <div className="relative group mb-2">
+                        <Search className="absolute left-3 top-2.5 text-slate-400" size={14}
+                          style={{ color: userSearchTerm ? primaryColor : undefined }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Pesquisar operadores..."
+                          value={userSearchTerm}
+                          onChange={(e) => setUserSearchTerm(e.target.value)}
+                          className="w-full pl-8 pr-8 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none text-xs focus:ring-1 transition"
+                          style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                        />
+                        {userSearchTerm && (
                           <button
-                            key={u.id}
                             type="button"
-                            onClick={() => toggleUserAccess(u.id)}
-                            className={`flex items-center justify-between rounded-xl border p-3 text-left transition ${isChecked ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/20' : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800'}`}
+                            onClick={() => setUserSearchTerm('')}
+                            className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
                           >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-500 uppercase shrink-0">
-                                {u.nome?.slice(0, 2).toUpperCase() || 'OP'}
-                              </div>
-                              <div className="min-w-0">
-                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate leading-tight">{u.nome}</p>
-                                <p className="text-xs text-slate-400 truncate mt-0.5">{u.email}</p>
-                              </div>
-                            </div>
-                            <div className={`h-5 w-5 rounded border flex items-center justify-center transition ${isChecked ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
-                              {isChecked && <Check className="h-3 w-3 stroke-[3]" />}
-                            </div>
+                            <X size={12} />
                           </button>
-                        );
-                      })}
-                    </div>
+                        )}
+                      </div>
+                      <div className="grid gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-1 pt-1">
+                        {(() => {
+                          const filtered = usuarios.filter((u) => {
+                            const name = String(u.nome || '').toLowerCase();
+                            const email = String(u.email || '').toLowerCase();
+                            const term = userSearchTerm.toLowerCase();
+                            return name.includes(term) || email.includes(term);
+                          });
+                          if (filtered.length === 0) {
+                            return <p className="text-xs text-slate-400 italic p-2 text-center">Nenhum operador encontrado com este termo.</p>;
+                          }
+                          return filtered.map((u) => {
+                            const isChecked = (form.allowed_user_ids || []).includes(u.id);
+                            return (
+                              <button
+                                key={u.id}
+                                type="button"
+                                onClick={() => toggleUserAccess(u.id)}
+                                className={`flex items-center justify-between rounded-xl border p-3 text-left transition ${isChecked ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/20' : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800'}`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-500 uppercase shrink-0">
+                                    {u.nome?.slice(0, 2).toUpperCase() || 'OP'}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate leading-tight">{u.nome}</p>
+                                    <p className="text-xs text-slate-400 truncate mt-0.5">{u.email}</p>
+                                  </div>
+                                </div>
+                                <div className={`h-5 w-5 rounded border flex items-center justify-center transition ${isChecked ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
+                                  {isChecked && <Check className="h-3 w-3 stroke-[3]" />}
+                                </div>
+                              </button>
+                            );
+                          });
+                        })()}
+                      </div>
+                    </>
                   )}
                 </div>
               )}
@@ -2255,22 +2457,39 @@ export function Contas() {
               </div>
           </div>
 
-          <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-end gap-3">
-              <button 
-                onClick={() => setDrawerOpen(false)}
-                className="px-5 py-3 rounded-xl text-slate-500 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 text-sm transition"
-              >
-                Cancelar
-              </button>
-              <button 
-                onClick={handleSave}
-                disabled={saving}
-                className="px-8 py-3 rounded-xl text-white font-bold shadow-lg text-sm flex items-center gap-2 active:scale-95 transition disabled:opacity-50 hover:opacity-90"
-                style={{ backgroundColor: primaryColor }}
-              >
-                {saving ? <Loader2 className="animate-spin w-4 h-4"/> : <Check className="w-4 h-4" />} 
-                Salvar
-              </button>
+          <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">
+              {isEditing && editingId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const currentConta = contas.find(c => c.id === editingId);
+                    if (currentConta) {
+                      setItemToDelete(currentConta);
+                      setDrawerOpen(false);
+                    }
+                  }}
+                  className="px-4 py-3 rounded-xl text-red-600 dark:text-red-400 font-bold hover:bg-red-50 dark:hover:bg-red-950/20 text-sm transition flex items-center gap-2"
+                >
+                  <Trash2 className="w-4 h-4" /> Excluir Conta
+                </button>
+              ) : <div />}
+              <div className="flex gap-3">
+                  <button 
+                    onClick={() => setDrawerOpen(false)}
+                    className="px-5 py-3 rounded-xl text-slate-500 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 text-sm transition"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="px-8 py-3 rounded-xl text-white font-bold shadow-lg text-sm flex items-center gap-2 active:scale-95 transition disabled:opacity-50 hover:opacity-90"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    {saving ? <Loader2 className="animate-spin w-4 h-4"/> : <Check className="w-4 h-4" />} 
+                    Salvar
+                  </button>
+              </div>
           </div>
       </div>
 

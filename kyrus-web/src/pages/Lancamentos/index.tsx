@@ -92,8 +92,7 @@ export function Lancamentos({
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
   const [filtrosRailCollapsed] = useState(true);
-  const [headerHeightPx, setHeaderHeightPx] = useState(0);
-  const lancamentosHeaderRef = useRef<HTMLElement | null>(null);
+
   const [listaSort, setListaSort] = useState<{ key: ListaSortKey; direction: ListaSortDirection }>({
     key: 'valor',
     direction: 'desc',
@@ -134,6 +133,7 @@ export function Lancamentos({
   const [selectedContaId, setSelectedContaId] = useState<number | null>(null);
   const [selectedCartaoId, setSelectedCartaoId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savingIppIds, setSavingIppIds] = useState<Set<number>>(new Set());
 
   const [transferData, setTransferData] = useState({
     valor: '',
@@ -184,28 +184,7 @@ export function Lancamentos({
     localStorage.setItem('lancamentos.filtrosRailCollapsed', filtrosRailCollapsed ? '1' : '0');
   }, [filtrosRailCollapsed]);
 
-  useEffect(() => {
-    const headerEl = lancamentosHeaderRef.current;
-    if (!headerEl) return;
 
-    const updateHeaderHeight = () => {
-      setHeaderHeightPx(Math.ceil(headerEl.getBoundingClientRect().height));
-    };
-
-    updateHeaderHeight();
-
-    const observer = new ResizeObserver(() => {
-      updateHeaderHeight();
-    });
-
-    observer.observe(headerEl);
-    window.addEventListener('resize', updateHeaderHeight);
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', updateHeaderHeight);
-    };
-  }, []);
 
   const pushToast = (type: ToastItem['type'], message: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
@@ -423,6 +402,13 @@ export function Lancamentos({
   }
 
   async function toggleIpp(l: Lancamento) {
+    if (savingIppIds.has(l.id)) return;
+    setSavingIppIds((prev) => {
+      const nextSet = new Set(prev);
+      nextSet.add(l.id);
+      return nextSet;
+    });
+
     const next = !l.ipp;
     setLancamentos((prev) => prev.map((item) => (item.id === l.id ? { ...item, ipp: next } : item)));
     try {
@@ -431,6 +417,12 @@ export function Lancamentos({
       console.error(e);
       setLancamentos((prev) => prev.map((item) => (item.id === l.id ? { ...item, ipp: l.ipp } : item)));
       pushToast('error', 'Não foi possível marcar/desmarcar IPP.');
+    } finally {
+      setSavingIppIds((prev) => {
+        const nextSet = new Set(prev);
+        nextSet.delete(l.id);
+        return nextSet;
+      });
     }
   }
 
@@ -905,8 +897,7 @@ export function Lancamentos({
       <div className="min-w-0 flex-1 flex flex-col h-full overflow-hidden">
         {/* 1. TOP HEADER */}
         <header
-          ref={lancamentosHeaderRef}
-          className="fixed top-[66px] left-0 right-0 md:left-[76px] bg-white/95 dark:bg-slate-800/95 backdrop-blur border-b border-slate-200 dark:border-slate-700 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-20 shadow-md"
+          className="sticky top-0 bg-white/95 dark:bg-slate-800/95 backdrop-blur border-b border-slate-200 dark:border-slate-700 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-20 shadow-md"
         >
           <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center">
             <div className="flex flex-wrap items-center gap-3">
@@ -1029,7 +1020,6 @@ export function Lancamentos({
 
         <div
           className="flex min-h-0 flex-1 flex-col"
-          style={{ paddingTop: headerHeightPx > 0 ? `${headerHeightPx}px` : undefined }}
         >
           <div className="px-4 sm:px-6 pt-3 pb-2 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
             <div className="flex gap-2 overflow-x-auto custom-scrollbar">
@@ -1071,6 +1061,7 @@ export function Lancamentos({
             listaSort={listaSort}
             toggleListaSort={toggleListaSort}
             contaExtratoAtivaId={contaExtratoAtivaId}
+            savingIppIds={savingIppIds}
           />
         </div>
       </div>

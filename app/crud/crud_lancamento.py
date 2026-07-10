@@ -53,7 +53,7 @@ def _aplicar_regras_negocio(db: Session, obj_in):
         if not obj_in.valor_pago:
             obj_in.valor_pago = obj_in.valor_previsto
     else:
-        obj_in.status = "PENDENTE"
+        obj_in.status = "EM ABERTO"
         obj_in.valor_pago = 0
     
     return obj_in

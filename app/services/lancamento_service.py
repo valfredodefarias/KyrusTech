@@ -14,6 +14,9 @@ from app.models.anexo_lancamento import AnexoLancamento
 from app.models.plano_contas import PlanoContas 
 from app.models.conta import Conta
 from app.models.empresa import Empresa
+from app.models.entidade import Entidade
+from app.models.cartao import Cartao
+from app.models.centro_custo import CentroCusto
 from app.crud import crud_plano_contas, crud_auto_adjustment_config
 
 # Schemas 
@@ -66,6 +69,32 @@ class LancamentoService:
                 detail=f"Centro de custo é obrigatório para {operation} de lançamento.",
             )
 
+    def _validate_related_entities(self, payload: dict, empresa_id: int) -> None:
+        if payload.get("plano_contas_id"):
+            categoria = self.session.get(PlanoContas, payload["plano_contas_id"])
+            if not categoria or categoria.empresa_id != empresa_id or getattr(categoria, "is_deleted", False):
+                raise HTTPException(status_code=400, detail="Plano de contas inválido ou não pertencente a esta empresa.")
+        
+        if payload.get("conta_id"):
+            conta = self.session.get(Conta, payload["conta_id"])
+            if not conta or conta.empresa_id != empresa_id or getattr(conta, "is_deleted", False):
+                raise HTTPException(status_code=400, detail="Conta bancária inválida ou não pertencente a esta empresa.")
+                
+        if payload.get("entidade_id"):
+            entidade = self.session.get(Entidade, payload["entidade_id"])
+            if not entidade or entidade.empresa_id != empresa_id or getattr(entidade, "is_deleted", False):
+                raise HTTPException(status_code=400, detail="Interessado inválido ou não pertencente a esta empresa.")
+                
+        if payload.get("cartao_id"):
+            cartao = self.session.get(Cartao, payload["cartao_id"])
+            if not cartao or cartao.empresa_id != empresa_id or getattr(cartao, "is_deleted", False):
+                raise HTTPException(status_code=400, detail="Cartão de crédito inválido ou não pertencente a esta empresa.")
+                
+        if payload.get("centro_custo_id"):
+            centro_custo = self.session.get(CentroCusto, payload["centro_custo_id"])
+            if not centro_custo or centro_custo.empresa_id != empresa_id or getattr(centro_custo, "is_deleted", False):
+                raise HTTPException(status_code=400, detail="Centro de custo inválido ou não pertencente a esta empresa.")
+
     def _ensure_id_parcelamento(self, payload: dict) -> None:
         if payload.get("numero_parcela") and not payload.get("id_parcelamento"):
             payload["id_parcelamento"] = str(uuid.uuid4())
@@ -102,7 +131,12 @@ class LancamentoService:
             payload["id_parcelamento"] = grouped_ids[group_key]
 
     def obter_conta_caixa_fisica(self, empresa_id: int) -> int:
-        contas = self.session.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
+        contas = self.session.exec(
+            select(Conta).where(
+                Conta.empresa_id == empresa_id,
+                Conta.is_deleted == False
+            )
+        ).all()
         # 1. Tipo CAIXA e nome contendo "caixa" ou "física"
         for c in contas:
             if c.tipo.upper() == "CAIXA" and "caixa" in c.nome.lower():
@@ -424,6 +458,7 @@ class LancamentoService:
     def create(self, dados: LancamentoCreate, empresa_id: int, user_id: int) -> Lancamento:
         # Converte para dict para ajustar campos opcionais antes de instanciar o modelo
         payload = dados.model_dump()
+        self._validate_related_entities(payload, empresa_id)
         payload.setdefault("previsto", True)
         if not payload.get("data_competencia"):
             payload["data_competencia"] = payload.get("data_vencimento")
@@ -494,6 +529,7 @@ class LancamentoService:
             raise HTTPException(status_code=400, detail="Transferências internas não podem ser editadas.")
         
         dados_dict = dados_atualizacao.dict(exclude_unset=True)
+        self._validate_related_entities(dados_dict, empresa_id)
 
         if db_lancamento.conciliado:
             campos_criticos = {"valor_previsto", "valor_pago", "conta_id", "data_pagamento", "tipo"}

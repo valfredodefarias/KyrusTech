@@ -119,7 +119,15 @@ def read_dre(
 
     categorias_por_id = {int(categoria.id): categoria for categoria in categorias if categoria.id is not None}
     rows = db.exec(
-        select(Lancamento)
+        select(
+            Lancamento.plano_contas_id,
+            Lancamento.tipo,
+            Lancamento.data_competencia,
+            Lancamento.data_vencimento,
+            Lancamento.valor_pago,
+            Lancamento.valor_previsto,
+            Lancamento.data_pagamento,
+        )
         .where(Lancamento.empresa_id == empresa_id)
         .where(Lancamento.is_deleted == False)
         .where(
@@ -148,14 +156,26 @@ def read_dre(
         next_year = cursor.year + 1 if next_month == 13 else cursor.year
         cursor = date(next_year, 1 if next_month == 13 else next_month, 1)
 
-    for lancamento in rows:
-        categoria = categorias_por_id.get(int(lancamento.plano_contas_id or 0))
+    for plano_contas_id, tipo_lan, data_competencia, data_vencimento, valor_pago, valor_previsto, data_pagamento in rows:
+        categoria = categorias_por_id.get(int(plano_contas_id or 0))
         if categoria is None:
             continue
-        competencia = _resolve_competencia(lancamento)
-        valor = _resolve_valor(lancamento)
+
+        grupo_dre = str(categoria.dre_grupo or "").strip().upper()
+        if grupo_dre in ("FORA_DRE", "FORA DRE", "FORA DA DRE"):
+            continue
+
+        competencia = data_competencia or data_vencimento
+        
+        # valor
+        val_pago = Decimal(str(valor_pago or 0))
+        if data_pagamento is not None or val_pago != Decimal("0"):
+            valor = val_pago if val_pago != Decimal("0") else Decimal(str(valor_previsto or 0))
+        else:
+            valor = Decimal(str(valor_previsto or 0))
+
         key = _month_key(competencia)
-        tipo = (categoria.tipo or lancamento.tipo or "").upper()
+        tipo = (categoria.tipo or tipo_lan or "").upper()
 
         if key not in serie_dict:
             continue
@@ -164,7 +184,9 @@ def read_dre(
             serie_dict[key]["receitas"] += valor
             if inicio_mes <= competencia <= fim_mes:
                 receitas_mes += valor
-                if (categoria.id or 0) in categorias_operacionais_ids:
+                if grupo_dre == "OUTRAS_RECEITAS":
+                    pass
+                elif grupo_dre != "NAO_OPERACIONAL":
                     receitas_operacionais_mes += valor
                 categoria_item = categorias_receita.get(categoria.id or 0)
                 if not categoria_item:
@@ -181,7 +203,13 @@ def read_dre(
             serie_dict[key]["despesas"] += valor
             if inicio_mes <= competencia <= fim_mes:
                 despesas_mes += valor
-                if (categoria.id or 0) in categorias_operacionais_ids:
+                if grupo_dre in ("DEDUCOES_RECEITA", "DEDUCOES DE RECEITA", "DEDUCOES"):
+                    pass
+                elif grupo_dre in ("CUSTOS_VARIAVEIS", "CUSTO_VARIAVEL", "CUSTOS"):
+                    pass
+                elif grupo_dre in ("OUTRAS_DESPESAS", "OUTRA_DESPESA"):
+                    pass
+                elif grupo_dre != "NAO_OPERACIONAL":
                     despesas_operacionais_mes += valor
                 categoria_item = categorias_despesa.get(categoria.id or 0)
                 if not categoria_item:

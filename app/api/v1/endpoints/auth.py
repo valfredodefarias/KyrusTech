@@ -90,6 +90,72 @@ def login(
     return _issue_access_token(response, db, subject=user.email, request=request)
 
 
+@router.post("/demo-login", response_model=Token)
+def demo_login(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db)
+):
+    import uuid
+    from app.crud.crud_empresa import create_empresa
+    from app.schemas.empresa import EmpresaCreate
+    from app.crud.crud_usuario import create_user
+    from app.schemas.usuario import UserCreate
+    from app.services.seed_demo_data import seed_demo_data
+    from app.models.user_company_profile import UserCompanyProfile
+    from app.models.access_profile import AccessProfile
+    from sqlmodel import select
+
+    guest_id = uuid.uuid4().hex[:6]
+    
+    # 1. Criar Empresa de demonstração temporária
+    empresa_in = EmpresaCreate(
+        nome_fantasia=f"Demonstração - Convidado #{guest_id}",
+        razao_social=f"DEMO_TEMP_{guest_id}",
+        cnpj=None,
+        cor_primaria="#2563eb" # Azul moderno
+    )
+    empresa = create_empresa(db, empresa_in=empresa_in)
+    
+    # 2. Criar Usuário Convidado com senha aleatória
+    user_in = UserCreate(
+        nome="Convidado",
+        email=f"convidado_{guest_id}@kyrustech.com",
+        password=uuid.uuid4().hex,
+        is_active=True,
+        is_consultor=False,
+        empresa_id=empresa.id
+    )
+    user = create_user(db, user_in=user_in)
+    
+    # 3. Vincular Perfil Administrativo (FULL_ACCESS) para o usuário convidado
+    profile = db.exec(
+        select(AccessProfile).where(
+            AccessProfile.empresa_id == empresa.id,
+            AccessProfile.code == "FULL_ACCESS",
+            AccessProfile.is_deleted == False
+        )
+    ).first()
+    
+    if profile:
+        db.add(
+            UserCompanyProfile(
+                usuario_id=user.id,
+                empresa_id=empresa.id,
+                profile_id=profile.id,
+                is_active=True
+            )
+        )
+        db.commit()
+    
+    # 4. Popular com dados fictícios de demonstração
+    seed_demo_data(db, empresa.id)
+    
+    # 5. Emitir o token de sessão
+    return _issue_access_token(response, db, subject=user.email, request=request)
+
+
+
 @router.get("/session", response_model=Token)
 def session_info(
     access_token: str | None = Cookie(default=None, alias=settings.ACCESS_TOKEN_COOKIE_NAME),

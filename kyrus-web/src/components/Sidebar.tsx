@@ -6,9 +6,10 @@ import {
   Briefcase, X, LineChart, FileText,
   Calculator, Table2, ShoppingBag,
   Banknote, Coins, History, Award,
-  ChevronRight,
+  ChevronRight, Pin,
 } from 'lucide-react';
 import { useAuthStore, type AuthUser } from '../store/authStore';
+import { useTabStore } from '../store/tabStore';
 import { api } from '../services/api';
 
 interface MenuItem {
@@ -40,12 +41,15 @@ interface SidebarPanelProps {
   onNavigate?: () => void;
   showClose?: boolean;
   collapsed?: boolean;
+  isDocked?: boolean;
+  toggleDock?: () => void;
 }
 
-function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
+function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }: SidebarPanelProps) {
   const storedUser = useAuthStore((state) => state.user);
   const [user, setUser] = useState<AuthUser | null>(storedUser);
   const location = useLocation();
+  const { favorites } = useTabStore();
 
   useEffect(() => {
     setUser(storedUser);
@@ -165,7 +169,10 @@ function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
     }));
   };
 
-  const renderNavLink = (item: MenuItem) => {
+  // Filtrar itens estrelados que existem no menu ativo
+  const estreladosItems = menuItemsFiltered.filter((item) => favorites.includes(item.path));
+
+  const renderNavLink = (item: MenuItem, isFavoriteItem = false) => {
     return (
       <NavLink
         key={item.path}
@@ -179,40 +186,36 @@ function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
           }
 
           return {
-            backgroundColor: 'color-mix(in srgb, var(--color-primary, #2563eb) 14%, transparent)',
+            borderLeftColor: collapsed ? 'transparent' : 'var(--color-primary, #2563eb)',
             color: 'var(--color-primary, #2563eb)',
-            borderColor: 'color-mix(in srgb, var(--color-primary, #2563eb) 28%, transparent)',
+            backgroundColor: 'color-mix(in srgb, var(--color-primary, #2563eb) 8%, transparent)',
           };
         }}
         className={({ isActive }) => `
-          grid w-full items-center border px-2 py-2 text-sm font-medium transition-colors duration-150 group
-          ${collapsed ? 'grid-cols-[2.1rem] justify-items-center rounded-lg' : 'grid-cols-[2.1rem_minmax(0,1fr)] rounded-lg'}
+          relative flex w-full items-center py-1.5 transition-colors duration-150 group border-y-0 border-r-0
+          ${collapsed ? 'px-0 border-l-0 justify-center h-9 w-9 rounded-md mx-auto' : 'border-l-2 rounded-r-md pl-3 gap-2.5'}
           ${isActive
-            ? 'shadow-[inset_0_0_0_1px_rgba(148,163,184,0.08)]'
-            : 'border-transparent text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700/70 dark:hover:text-white'}
+            ? 'font-bold'
+            : 'border-transparent text-slate-500 hover:bg-slate-100/60 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/40 dark:hover:text-white'}
         `}
       >
         {({ isActive }) => {
-          const iconStyle = isActive
-            ? {
-                backgroundColor: 'color-mix(in srgb, var(--color-primary, #2563eb) 16%, transparent)',
-                color: 'var(--color-primary, #2563eb)',
-              }
-            : undefined;
-
           return (
             <>
               <span
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors ${collapsed ? 'bg-slate-100/80 dark:bg-slate-800/70' : ''}`}
-                style={iconStyle}
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors ${collapsed && isActive ? 'bg-slate-200/50 dark:bg-slate-800/60' : ''}`}
               >
-                <item.icon
-                  size={16}
-                  strokeWidth={2.2}
-                  className="transition-transform"
-                />
+                {isFavoriteItem ? (
+                  <span className="text-amber-500 text-xs shrink-0 flex items-center justify-center">★</span>
+                ) : (
+                  <item.icon
+                    size={15}
+                    strokeWidth={2}
+                    className="transition-transform group-hover:scale-105"
+                  />
+                )}
               </span>
-              {!collapsed && <span className="truncate">{item.label}</span>}
+              {!collapsed && <span className="truncate text-xs">{item.label}</span>}
             </>
           );
         }}
@@ -221,76 +224,116 @@ function SidebarPanel({ onNavigate, showClose, collapsed }: SidebarPanelProps) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {showClose ? (
-        <div className="flex items-center justify-end px-3 pt-2">
+    <div className="flex h-full min-h-0 flex-col justify-between">
+      <div className="flex-1 flex flex-col min-h-0">
+        {showClose ? (
+          <div className="flex items-center justify-end px-2 pt-2">
+            <button
+              onClick={onNavigate}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
+              aria-label="Fechar menu"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        ) : null}
+
+        <nav className={`custom-scrollbar min-h-0 flex-1 overflow-y-auto ${collapsed ? 'space-y-0.5 px-1 py-2' : 'space-y-1 px-2 py-2'}`}>
+          {/* Itens do grupo Geral */}
+          <div className="space-y-0.5">
+            {geralItems.map((item) => renderNavLink(item))}
+          </div>
+
+          {/* Seção Estrelados */}
+          {!collapsed && estreladosItems.length > 0 && (
+            <div className="pt-2 pb-1 border-t border-slate-100 dark:border-slate-800/40 my-2">
+              <p className="px-3 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500 mb-1.5">Estrelados</p>
+              <div className="space-y-0.5">
+                {estreladosItems.map((item) => renderNavLink(item, true))}
+              </div>
+            </div>
+          )}
+
+          {/* Categorias Colapsáveis */}
+          <div className="pt-1">
+            {categories.map((cat) => {
+              const isExpanded = expandedCategories[cat.id];
+              return (
+                <div key={cat.id} className="space-y-0.5">
+                  <button
+                    onClick={() => toggleCategory(cat.id)}
+                    title={collapsed ? cat.label : undefined}
+                    aria-label={cat.label}
+                    className={`
+                      relative flex w-full items-center py-1.5 transition-colors duration-150 group border-y-0 border-r-0 border-l-2 border-transparent text-slate-500 hover:bg-slate-100/60 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/40 dark:hover:text-white
+                      ${collapsed ? 'px-0 justify-center h-9 w-9 rounded-md mx-auto' : 'rounded-r-md pl-3 gap-2.5'}
+                    `}
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md">
+                      <cat.icon size={15} strokeWidth={2} />
+                    </span>
+                    {!collapsed && (
+                      <>
+                        <span className="text-left truncate font-semibold text-xs flex-1">{cat.label}</span>
+                        <ChevronRight
+                          size={13}
+                          className={`text-slate-400 dark:text-slate-500 transition-transform duration-150 mr-1 ${isExpanded ? 'rotate-90' : ''}`}
+                        />
+                      </>
+                    )}
+                  </button>
+
+                  {/* Subitens */}
+                  {isExpanded && (
+                    <div className={`space-y-0.5 ${collapsed ? '' : 'ml-3 border-l border-slate-200 dark:border-slate-800 pl-2'}`}>
+                      {cat.items.map((item) => renderNavLink(item))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </nav>
+      </div>
+
+      {/* Footer do Menu com Botão de Pino (Docking) */}
+      {!collapsed && !showClose && toggleDock && (
+        <div className="p-2 border-t border-slate-200 dark:border-slate-800/60 bg-slate-100/40 dark:bg-slate-900/30 flex items-center justify-between">
+          <span className="text-[10px] pl-1 font-bold text-slate-400 dark:text-slate-500 tracking-wider">FIXAR MENU</span>
           <button
-            onClick={onNavigate}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
-            aria-label="Fechar menu"
+            onClick={toggleDock}
+            title={isDocked ? "Desafixar menu (flutuante)" : "Fixar menu na tela"}
+            className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors"
           >
-            <X size={17} />
+            <Pin size={12} className={`transition-transform duration-150 ${isDocked ? 'rotate-45 text-blue-500 dark:text-blue-400' : ''}`} />
           </button>
         </div>
-      ) : null}
-
-      <nav className={`custom-scrollbar min-h-0 flex-1 overflow-y-auto ${collapsed ? 'space-y-1 px-2 py-2' : 'space-y-2 px-3 py-2'}`}>
-        {/* Itens do grupo Geral */}
-        <div className="space-y-1">
-          {geralItems.map((item) => renderNavLink(item))}
-        </div>
-
-        {/* Categorias Colapsáveis */}
-        {categories.map((cat) => {
-          const isExpanded = expandedCategories[cat.id];
-          return (
-            <div key={cat.id} className="space-y-1">
-              <button
-                onClick={() => toggleCategory(cat.id)}
-                title={collapsed ? cat.label : undefined}
-                aria-label={cat.label}
-                className={`
-                  grid w-full items-center border px-2 py-2 text-sm font-medium transition-colors duration-150 group border-transparent text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700/70 dark:hover:text-white
-                  ${collapsed ? 'grid-cols-[2.1rem] justify-items-center rounded-lg' : 'grid-cols-[2.1rem_minmax(0,1fr)_auto] rounded-lg'}
-                `}
-              >
-                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors ${collapsed ? 'bg-slate-100/80 dark:bg-slate-800/70' : ''}`}>
-                  <cat.icon size={16} strokeWidth={2.2} />
-                </span>
-                {!collapsed && (
-                  <>
-                    <span className="text-left truncate font-semibold">{cat.label}</span>
-                    <ChevronRight
-                      size={14}
-                      className={`text-slate-400 dark:text-slate-500 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
-                    />
-                  </>
-                )}
-              </button>
-
-              {/* Subitens */}
-              {isExpanded && (
-                <div className={`space-y-1 ${collapsed ? '' : 'ml-4 border-l border-slate-200/80 dark:border-slate-800/80 pl-3'}`}>
-                  {cat.items.map((item) => renderNavLink(item))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </nav>
+      )}
     </div>
   );
 }
 
-export function Sidebar({ collapsed, onMouseEnter, onMouseLeave }: { collapsed: boolean; onMouseEnter?: () => void; onMouseLeave?: () => void; }) {
+export function Sidebar({ 
+  collapsed, 
+  isDocked, 
+  toggleDock, 
+  onMouseEnter, 
+  onMouseLeave 
+}: { 
+  collapsed: boolean; 
+  isDocked: boolean; 
+  toggleDock: () => void; 
+  onMouseEnter?: () => void; 
+  onMouseLeave?: () => void; 
+}) {
   return (
-    <aside className="relative z-40 hidden h-full min-h-0 w-[76px] shrink-0 overflow-visible md:flex">
+    <aside className={`relative z-40 hidden h-full min-h-0 shrink-0 overflow-visible md:flex transition-[width] duration-150 ${isDocked ? (collapsed ? 'w-[60px]' : 'w-[200px]') : 'w-[60px]'}`}>
       <div
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        className={`${collapsed ? 'w-[76px]' : 'w-[232px]'} absolute inset-y-0 left-0 z-30 min-h-0 overflow-hidden border-r border-slate-200/80 bg-slate-50/90 shadow-sm transition-[width] duration-200 dark:border-slate-700/80 dark:bg-slate-900/80`}
+        className={`${collapsed ? 'w-[60px]' : 'w-[200px]'} absolute inset-y-0 left-0 z-30 min-h-0 overflow-hidden border-r border-slate-200 bg-slate-50/70 ${!isDocked && !collapsed ? 'shadow-xl dark:shadow-2xl bg-white dark:bg-[#0d1117] border-r-slate-350 dark:border-r-slate-800' : 'shadow-sm dark:bg-[#0d1117]/60'} transition-[width,box-shadow,background-color] duration-150`}
       >
-        <SidebarPanel collapsed={collapsed} />
+        <SidebarPanel collapsed={collapsed} isDocked={isDocked} toggleDock={toggleDock} />
       </div>
     </aside>
   );
@@ -300,11 +343,11 @@ export function MobileSidebar({ open, onClose }: { open: boolean; onClose: () =>
   return (
     <div className={`fixed inset-0 z-40 md:hidden ${open ? '' : 'pointer-events-none'}`}>
       <div
-        className={`absolute inset-0 bg-slate-900/50 transition-opacity ${open ? 'opacity-100' : 'opacity-0'}`}
+        className={`absolute inset-0 bg-slate-900/40 transition-opacity ${open ? 'opacity-100' : 'opacity-0'}`}
         onClick={onClose}
       />
       <aside
-        className={`absolute left-0 top-0 h-full w-72 border-r border-slate-200 bg-white shadow-xl transition-transform dark:border-slate-700 dark:bg-slate-900 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`absolute left-0 top-0 h-full w-64 border-r border-slate-200 bg-white shadow-xl transition-transform dark:border-slate-700 dark:bg-[#0d1117] ${open ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <SidebarPanel onNavigate={onClose} showClose collapsed={false} />
       </aside>

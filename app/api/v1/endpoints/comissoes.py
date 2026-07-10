@@ -1,6 +1,6 @@
 # app/api/v1/endpoints/comissoes.py
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 from sqlalchemy.orm import selectinload
 from typing import List, Dict, Any
 from datetime import date, datetime
@@ -49,23 +49,25 @@ def obter_meta_vendedor(db: Session, vendedor_id: int, mes: int, ano: int, empre
 
 
 def calcular_faturamento_bruto(db: Session, vendedor_id: int, mes: int, ano: int, empresa_id: int) -> Decimal:
+    import calendar
     from app.models.lancamento import Lancamento
+    _, last_day = calendar.monthrange(ano, mes)
+    start_date = date(ano, mes, 1)
+    end_date = date(ano, mes, last_day)
+
     query = (
-        select(Lancamento)
+        select(func.sum(Lancamento.valor_previsto))
         .where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.created_by_id == vendedor_id,
             Lancamento.is_deleted == False,
             Lancamento.tipo == "RECEITA",
-            Lancamento.data_competencia != None
+            Lancamento.data_competencia >= start_date,
+            Lancamento.data_competencia <= end_date
         )
     )
-    launches = db.exec(query).all()
-    total = Decimal("0.00")
-    for l in launches:
-        if l.data_competencia.month == mes and l.data_competencia.year == ano:
-            total += Decimal(str(l.valor_previsto or 0))
-    return total
+    res = db.exec(query).first()
+    return Decimal(str(res or 0.00))
 
 
 def calcular_dias_uteis(ano: int, mes: int, hoje: date) -> Dict[str, Any]:
@@ -104,7 +106,7 @@ def get_auditoria(
     Retorna o faturamento sumarizado por vendedor para auditoria interna.
     Valores devem bater com o motor legado.
     """
-    empresa_id = 27  # Rosario Belem
+    empresa_id = current_user.empresa_id
     
     # Buscar todos os usuários da empresa que não são consultores
     vendedores = db.exec(
@@ -149,7 +151,7 @@ def get_dashboard(
     Retorna os dados gerenciais completos do dashboard de metas e comissões.
     Cruza as vendas com as dezenas e faz as projeções.
     """
-    empresa_id = 27
+    empresa_id = current_user.empresa_id
     
     # Para o cenário de testes de Junho/2026, fixamos hoje em 21/06/2026.
     hoje_atual = date.today()

@@ -108,7 +108,7 @@ export const TransferModal = ({
             onChange={(e: any) => setTransferData((prev: any) => ({ ...prev, data: e.target.value }))}
           />
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4">
             <div>
               <label className="mb-2 block text-xs font-bold text-slate-400 uppercase">Origem</label>
               <div className="space-y-2 max-h-64 overflow-y-auto pr-1">

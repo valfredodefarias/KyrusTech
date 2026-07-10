@@ -169,6 +169,8 @@ def _apply_legacy_schema_compatibility() -> None:
         "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS modo_parcelamento VARCHAR DEFAULT 'PRO_RATA'",
         "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS taxa_antecipacao NUMERIC(5,2) DEFAULT 0.00",
         "CREATE INDEX IF NOT EXISTS ix_lancamentos_data_pagamento ON lancamentos (data_pagamento)",
+        "CREATE INDEX IF NOT EXISTS idx_lancamentos_fast_bal ON lancamentos (empresa_id, conta_id) WHERE is_deleted = false AND (observacao IS NULL OR (observacao NOT ILIKE '%DestinoCompra DEMONSTRACAO%' AND observacao NOT ILIKE '%\"legacy_id_venda\"%'))",
+        "CREATE INDEX IF NOT EXISTS idx_lancamentos_no_legacy ON lancamentos (empresa_id) WHERE is_deleted = false AND (observacao IS NULL OR (observacao NOT ILIKE '%\"legacy_id_venda\"%'))",
     ]
 
     with engine.begin() as connection:

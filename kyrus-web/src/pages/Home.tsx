@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, toPublicAssetUrl } from '../services/api';
+import { useAuthStore } from '../store/authStore';
+import { useLookupStore } from '../store/lookupStore';
 import { BankAvatar } from '../components/BrandAvatar';
 import {
   Home as HomeIcon,
@@ -82,54 +84,41 @@ function resolveCentroCustoInicial(
 }
 
 export function Home() {
-  const [user, setUser] = useState<UserInfo | null>(null);
-  const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
+  const user = useAuthStore((state) => state.user);
+  const empresa = useAuthStore((state) => state.empresa);
   const [contas, setContas] = useState<ContaResumo[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const fetchContas = useLookupStore((state) => state.fetchContas);
+  const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
+
   useEffect(() => {
+    let active = true;
     async function loadData() {
       try {
-        const resUser = await api.get<UserInfo>('/usuarios/me');
-        setUser(resUser.data);
-
-        let empresaAtual: EmpresaInfo | null = null;
-        if (resUser.data.empresa_id) {
-          try {
-            const resEmpresa = await api.get<EmpresaInfo>(`/empresas/${resUser.data.empresa_id}`);
-            empresaAtual = resEmpresa.data;
-          } catch {
-            empresaAtual = null;
-          }
-        }
-
-        if (!empresaAtual && resUser.data.is_consultor) {
-          const resContexto = await api.get<ConsultorContextoResponse>('/consultor/meu-contexto');
-          empresaAtual = resContexto.data.empresa_atual;
-        }
-
-        setEmpresa(empresaAtual);
-        const [resContas, resCentrosCusto] = await Promise.all([
-          api.get<unknown>('/contas/'),
-          api.get<unknown>('/centro-custo/'),
+        const [contasData, centrosData] = await Promise.all([
+          fetchContas(),
+          fetchCentrosCusto(),
         ]);
 
-        const contasNormalizadas = normalizeContasResponse(resContas.data);
-        const centrosNormalizados = normalizeCentrosCustoResponse(resCentrosCusto.data);
+        if (!active) return;
 
-        setContas(contasNormalizadas);
-        setCentrosCusto(centrosNormalizados);
-        setSelectedCentroCustoId(resolveCentroCustoInicial(centrosNormalizados, contasNormalizadas));
+        setContas(contasData);
+        setCentrosCusto(centrosData);
+        setSelectedCentroCustoId(resolveCentroCustoInicial(centrosData, contasData));
       } catch (error) {
         console.error('Erro ao carregar home:', error);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     }
 
     void loadData();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });

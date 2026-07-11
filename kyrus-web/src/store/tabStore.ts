@@ -55,6 +55,14 @@ export const DEFAULT_TAB: TabItem = {
   visited: true,
 };
 
+// Auxiliar para salvar apenas abas fixadas persistentes
+const savePinnedTabs = (tabs: TabItem[]) => {
+  try {
+    const pinned = tabs.filter((t) => t.pinned);
+    localStorage.setItem('kyrus_pinned_tabs', JSON.stringify(pinned));
+  } catch {}
+};
+
 // Carregar estado inicial
 const getInitialTabs = (): TabItem[] => {
   try {
@@ -73,6 +81,22 @@ const getInitialTabs = (): TabItem[] => {
   } catch (e) {
     console.error('Erro ao ler abas do sessionStorage:', e);
   }
+
+  // Se for nova sessão (sessionStorage vazio), carregar abas fixadas persistentes do localStorage
+  try {
+    const storedPinned = localStorage.getItem('kyrus_pinned_tabs');
+    if (storedPinned) {
+      const pinned = JSON.parse(storedPinned) as TabItem[];
+      if (pinned.length > 0) {
+        const hasHome = pinned.some((t) => t.basePath === '/home');
+        if (!hasHome) {
+          return [DEFAULT_TAB, ...pinned];
+        }
+        return pinned;
+      }
+    }
+  } catch {}
+
   return [DEFAULT_TAB];
 };
 
@@ -117,6 +141,7 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
       set({ tabs: updatedTabs, activeTabPath: path });
       sessionStorage.setItem(SESSION_KEYS.TABS, JSON.stringify(updatedTabs));
       sessionStorage.setItem(SESSION_KEYS.ACTIVE_TAB, path);
+      savePinnedTabs(updatedTabs);
       return;
     }
 
@@ -164,6 +189,7 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
     });
     sessionStorage.setItem(SESSION_KEYS.TABS, JSON.stringify(newTabList));
     sessionStorage.setItem(SESSION_KEYS.ACTIVE_TAB, path);
+    savePinnedTabs(newTabList);
   },
 
   closeTab: (path, force = false) => {
@@ -215,6 +241,7 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
     });
     sessionStorage.setItem(SESSION_KEYS.TABS, JSON.stringify(remainingTabs));
     sessionStorage.setItem(SESSION_KEYS.ACTIVE_TAB, nextActivePath);
+    savePinnedTabs(remainingTabs);
   },
 
   setActiveTab: (path) => {
@@ -244,16 +271,18 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
 
     set({ tabs: reordered });
     sessionStorage.setItem(SESSION_KEYS.TABS, JSON.stringify(reordered));
+    savePinnedTabs(reordered);
   },
 
   toggleFavorite: (path) => {
     const { favorites } = get();
+    const basePath = path.split('?')[0];
     let nextFavorites: string[];
 
-    if (favorites.includes(path)) {
-      nextFavorites = favorites.filter((f) => f !== path);
+    if (favorites.includes(basePath)) {
+      nextFavorites = favorites.filter((f) => f !== basePath);
     } else {
-      nextFavorites = [...favorites, path];
+      nextFavorites = [...favorites, basePath];
     }
 
     set({ favorites: nextFavorites });
@@ -290,12 +319,14 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
 
     set({ tabs: result });
     sessionStorage.setItem(SESSION_KEYS.TABS, JSON.stringify(result));
+    savePinnedTabs(result);
   },
 
   clearSession: () => {
     set({ tabs: [DEFAULT_TAB], activeTabPath: '/home', closedTabsHistory: [] });
     sessionStorage.removeItem(SESSION_KEYS.TABS);
     sessionStorage.removeItem(SESSION_KEYS.ACTIVE_TAB);
+    localStorage.removeItem('kyrus_pinned_tabs');
   },
 
   reopenLastTab: () => {

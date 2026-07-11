@@ -1,8 +1,10 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import axios from 'axios';
 import { useSearchParams } from 'react-router-dom';
 import { api, fetchLancamentosPaged, normalizeListResponse } from '../../services/api';
 import { useLookupStore } from '../../store/lookupStore';
 import { useAuthStore } from '../../store/authStore';
+import { useTransactionStore } from '../../store/transactionStore';
 import { buildOperationalCategoriaIds } from '../../utils/planoContas';
 import {
   Plus,
@@ -61,10 +63,30 @@ export function Lancamentos({
   const isContasExtratoEmbed = isBoletimEmbed && searchParams.get('origem') === 'contas_extrato';
   const embedFullscreenDrawer = isBoletimEmbed && !isContasExtratoEmbed;
   const currentEmpresaId = useAuthStore((state) => state.user?.empresa_id ?? null);
+  const refreshCount = useTransactionStore((state) => state.refreshCount);
 
   // --- DADOS ---
-  const [loading, setLoading] = useState(true);
-  const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
+  const pagedLancamentos = useTransactionStore((state) => state.pagedLancamentos);
+  const pagedCacheKey = useTransactionStore((state) => state.pagedCacheKey);
+  const setPagedLancamentos = useTransactionStore((state) => state.setPagedLancamentos);
+
+  const lancamentos = pagedLancamentos;
+
+  const setLancamentos = useCallback((val: Lancamento[] | ((prev: Lancamento[]) => Lancamento[])) => {
+    const current = useTransactionStore.getState().pagedLancamentos;
+    const next = typeof val === 'function' ? val(current) : val;
+    setPagedLancamentos(useTransactionStore.getState().pagedCacheKey, next);
+  }, [setPagedLancamentos]);
+
+  const [loading, setLoading] = useState(() => {
+    const today = new Date();
+    const ano = today.getFullYear();
+    const mes = today.getMonth() + 1;
+    const ini = new Date(ano, mes - 1, 1).toISOString().split('T')[0];
+    const fim = new Date(ano, mes, 0).toISOString().split('T')[0];
+    const expectedKey = `${currentEmpresaId ?? ''}|${ini}|${fim}|false`;
+    return useTransactionStore.getState().pagedCacheKey !== expectedKey;
+  });
   const [contas, setContas] = useState<any[]>([]);
   const [cartoes, setCartoes] = useState<any[]>([]);
   const [centros, setCentros] = useState<any[]>([]);
@@ -74,7 +96,17 @@ export function Lancamentos({
   // --- UI STATE ---
   const [mesAtual, setMesAtual] = useState(new Date());
   const [filtroTexto, setFiltroTexto] = useState('');
-  const [centroCustoFiltro, setCentroCustoFiltro] = useState<string>('');
+  const globalSelectedCentroCustoId = useLookupStore((state) => state.selectedCentroCustoId);
+  const setSelectedCentroCustoIdGlobally = useLookupStore((state) => state.setSelectedCentroCustoId);
+
+  const centroCustoFiltro = React.useMemo(() => {
+    return globalSelectedCentroCustoId === 'ALL' ? '' : String(globalSelectedCentroCustoId);
+  }, [globalSelectedCentroCustoId]);
+
+  const setCentroCustoFiltro = React.useCallback((val: string | ((prev: string) => string)) => {
+    const computedVal = typeof val === 'function' ? val(globalSelectedCentroCustoId === 'ALL' ? '' : String(globalSelectedCentroCustoId)) : val;
+    setSelectedCentroCustoIdGlobally(computedVal === '' ? 'ALL' : Number(computedVal));
+  }, [globalSelectedCentroCustoId, setSelectedCentroCustoIdGlobally]);
 
   const [filtrosAvancados, setFiltrosAvancados] = useState({
     tipo: 'TODOS' as 'TODOS' | 'RECEITA' | 'DESPESA',
@@ -174,9 +206,6 @@ export function Lancamentos({
 
   const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
-  const invalidateEntidades = useLookupStore((state) => state.invalidateEntidades);
-  const invalidateEntidadesLookup = useLookupStore((state) => state.invalidateEntidadesLookup);
-  const invalidatePlanoContas = useLookupStore((state) => state.invalidatePlanoContas);
 
 
 
@@ -232,7 +261,17 @@ export function Lancamentos({
     } else {
       loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
     }
-  }, [currentEmpresaId, mesAtual, filtrosAvancados.dataInicio, filtrosAvancados.dataFim, filtrosAvancados.dataModo, filtrosAvancados.ocultarVendasCartaoPendentes]);
+  }, [currentEmpresaId, mesAtual, filtrosAvancados.dataInicio, filtrosAvancados.dataFim, filtrosAvancados.dataModo, filtrosAvancados.ocultarVendasCartaoPendentes, refreshCount]);
+
+  useEffect(() => {
+    return () => {
+      setContas([]);
+      setCartoes([]);
+      setCentros([]);
+      setEntidades([]);
+      setCategorias([]);
+    };
+  }, []);
 
   useEffect(() => {
     if (centros.length === 1) {
@@ -339,12 +378,9 @@ export function Lancamentos({
     setLancamentos([]);
     setSelectedIds(new Set());
     setBoletimIdsFiltro(null);
-    invalidateEntidades();
-    invalidateEntidadesLookup();
-    invalidatePlanoContas();
 
     void loadAuxData();
-  }, [currentEmpresaId, invalidateEntidades, invalidateEntidadesLookup, invalidatePlanoContas]);
+  }, [currentEmpresaId]);
 
   async function syncCadastros(options?: { silent?: boolean }) {
     try {
@@ -371,7 +407,13 @@ export function Lancamentos({
 
   async function loadLancamentos(ini?: string, fim?: string, opts?: { force?: boolean; skipFallback?: boolean }) {
     const key = `${currentEmpresaId ?? ''}|${ini || ''}|${fim || ''}|${filtrosAvancados.ocultarVendasCartaoPendentes}`;
-    if (!opts?.force && key === lastLancamentosKeyRef.current && lancamentos.length > 0) return;
+    const isCacheMatch = key === useTransactionStore.getState().pagedCacheKey;
+    const hasCachedItems = useTransactionStore.getState().pagedLancamentos.length > 0;
+
+    if (!opts?.force && key === lastLancamentosKeyRef.current && hasCachedItems) {
+      setLoading(false);
+      return;
+    }
     lastLancamentosKeyRef.current = key;
 
     if (lancamentosAbortRef.current) {
@@ -380,7 +422,15 @@ export function Lancamentos({
     const controller = new AbortController();
     lancamentosAbortRef.current = controller;
 
-    setLoading(true);
+    if (!isCacheMatch || !hasCachedItems || opts?.force) {
+      setLoading(true);
+      if (!isCacheMatch) {
+        setPagedLancamentos(key, []);
+      }
+    } else {
+      setLoading(false);
+    }
+
     try {
       const params: any = {};
       if (ini) params.data_inicio = ini;
@@ -389,9 +439,9 @@ export function Lancamentos({
         params.ocultar_vendas_cartao_pendentes = true;
       }
       const rows = await fetchLancamentosPaged<Lancamento>(params, { pageSize: 1500, signal: controller.signal });
-      setLancamentos(rows);
+      setPagedLancamentos(key, rows);
     } catch (e: any) {
-      if (e?.code === 'ERR_CANCELED') return;
+      if (axios.isCancel(e)) return;
       console.error(e);
     } finally {
       if (lancamentosAbortRef.current === controller) {

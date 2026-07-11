@@ -2,7 +2,11 @@ import { type MouseEvent as ReactMouseEvent, Fragment, useEffect, useMemo, useRe
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarDays, ChevronDown, ChevronRight, Sigma, TrendingDown, TrendingUp } from 'lucide-react';
 
+import axios from 'axios';
 import { api, normalizeListResponse } from '../services/api';
+import { useLookupStore } from '../store/lookupStore';
+import { useTransactionStore } from '../store/transactionStore';
+import type { LancamentoResumo } from '../store/transactionStore';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
 import Chart from 'react-apexcharts';
 
@@ -19,22 +23,7 @@ interface PlanoConta {
   conta_pai_id?: number | null;
 }
 
-interface LancamentoResumo {
-  id: number;
-  descricao: string;
-  tipo: string;
-  status?: string;
-  plano_contas_id?: number | null;
-  conta_id?: number | null;
-  entidade_id?: number | null;
-  centro_custo_id?: number | null;
-  valor_previsto: number;
-  valor_pago?: number | null;
-  data_vencimento: string;
-  data_pagamento?: string | null;
-  data_competencia?: string | null;
-  competencia?: string | null;
-}
+
 
 interface ContaResumo {
   id: number;
@@ -152,7 +141,7 @@ function parseCompetenciaMonthIndex(competencia?: string | null) {
 function isLancamentoPago(lancamento: LancamentoResumo) {
   const status = String(lancamento.status || '').toUpperCase();
   const valorPago = Number(lancamento.valor_pago || 0);
-  return status === 'PAGO' || Boolean(lancamento.data_pagamento) || valorPago !== 0;
+  return status === 'PAGO' || status.startsWith('PARCIAL') || Boolean(lancamento.data_pagamento) || valorPago !== 0;
 }
 
 function resolveCompetenciaDate(lancamento: LancamentoResumo, somentePagos = false) {
@@ -284,31 +273,76 @@ function renderPercentCell(value?: number | null) {
   return <span className="whitespace-nowrap tabular-nums">{percentFormatter.format(value)}</span>;
 }
 
+const EMPTY_ARRAY: any[] = [];
+
 export function Dre() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const currentYear = useMemo(() => new Date().getFullYear(), []);
   const currentMonth = useMemo(() => new Date().getMonth(), []);
   const [ano, setAno] = useState(currentYear);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    const currentYear = new Date().getFullYear();
+    const txCache = useTransactionStore.getState().yearCache[currentYear];
+    const hasCachedTransactions = !!txCache && txCache.length > 0;
+    const hasCachedLookups = useLookupStore.getState().planoLoaded;
+    console.log('[DRE Mount Cache Check]', {
+      currentYear,
+      hasCachedTransactions,
+      hasCachedLookups,
+      txCacheSize: txCache?.length,
+      planoLoaded: useLookupStore.getState().planoLoaded
+    });
+    return !hasCachedTransactions || !hasCachedLookups;
+  });
   const [error, setError] = useState<string | null>(null);
-  const [categorias, setCategorias] = useState<PlanoConta[]>([]);
-  const [lancamentos, setLancamentos] = useState<LancamentoResumo[]>([]);
-  const [contas, setContas] = useState<ContaResumo[]>([]);
-  const [entidades, setEntidades] = useState<EntidadeResumo[]>([]);
-  const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
+
+  const contas = useLookupStore((state) => state.contas);
+  const categorias = useLookupStore((state) => state.planoContas);
+  const entidades = useLookupStore((state) => state.entidadesLookup);
+  const centrosCusto = useLookupStore((state) => state.centrosCusto);
+
+  const allLancamentos = useTransactionStore((state) => state.yearCache[ano] || EMPTY_ARRAY);
+  const [somentePagos, setSomentePagos] = useState(true);
+
+  const lancamentos = useMemo(() => {
+    if (somentePagos) {
+      return allLancamentos.filter(
+        (item) =>
+          item.status === 'PAGO' ||
+          String(item.status).toUpperCase().startsWith('PARCIAL') ||
+          (item.data_pagamento !== null && item.data_pagamento !== undefined && item.data_pagamento !== '') ||
+          (item.valor_pago !== null && item.valor_pago !== undefined && item.valor_pago !== 0)
+      );
+    }
+    return allLancamentos;
+  }, [allLancamentos, somentePagos]);
+
   const [auditMetaLoading, setAuditMetaLoading] = useState(false);
-  const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | 'ALL'>('ALL');
+
+  const fetchContas = useLookupStore((state) => state.fetchContas);
+  const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
+  const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
+  const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
+  const fetchYearTransactions = useTransactionStore((state) => state.fetchYearTransactions);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+  const selectedCentroCustoId = useLookupStore((state) => state.selectedCentroCustoId);
+  const setSelectedCentroCustoId = useLookupStore((state) => state.setSelectedCentroCustoId);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(currentMonth);
   const [hoveredKpi, setHoveredKpi] = useState<string | null>(null);
-  const [somentePagos, setSomentePagos] = useState(true);
   const [auditPanel, setAuditPanel] = useState<DreAuditPanel | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [collapsedAccounts, setCollapsedAccounts] = useState<Record<number, boolean>>({});
   const [showChart, setShowChart] = useState(false);
   const [isLancamentoDrawerOpen, setIsLancamentoDrawerOpen] = useState(false);
   const [editingLancamentoId, setEditingLancamentoId] = useState<number | null>(null);
-  const [refreshCount, setRefreshCount] = useState(0);
+  const refreshCount = useTransactionStore((state) => state.refreshCount);
   const [flashCellId, setFlashCellId] = useState<string | null>(null);
   const [flashOn, setFlashOn] = useState(false);
   const handledSpotlightRef = useRef('');
@@ -317,61 +351,48 @@ export function Dre() {
   const isDark = useIsDarkMode();
   const tableRef = useRef<HTMLTableElement>(null);
 
-  const waitMs = (ms: number) => new Promise<void>((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-
   useEffect(() => {
     let active = true;
 
-    async function fetchLancamentosAno(onlyPaid: boolean) {
-      const inicio = `${ano}-01-01`;
-      const fim = `${ano}-12-31`;
-      const response = await api.get<LancamentoResumo[]>('/lancamentos/', {
-        params: {
-          data_inicio: inicio,
-          data_fim: fim,
-          include_anexos: false,
-          sem_paginacao: true,
-          somente_pagos: onlyPaid,
-        },
-      });
-      return normalizeListResponse<LancamentoResumo>(response.data);
-    }
-
     async function load() {
-      setLoading(true);
+      const hasCachedTransactions = !!useTransactionStore.getState().yearCache[ano];
+      const hasCachedLookups = useLookupStore.getState().planoLoaded;
+      const shouldShowLoader = !hasCachedTransactions || !hasCachedLookups;
+
+      if (shouldShowLoader) {
+        setLoading(true);
+      }
       setError(null);
       try {
-        const [categoriasRes, lancamentosPaid, centrosCustoRes] = await Promise.all([
-          api.get<PlanoConta[]>('/plano-contas/'),
-          fetchLancamentosAno(true),
-          api.get<CentroCustoResumo[]>('/centro-custo/'),
+        await Promise.all([
+          fetchPlanoContas(),
+          fetchCentrosCusto(),
+          fetchYearTransactions(ano),
         ]);
 
-        if (!active) return;
-
-        setCategorias(normalizeListResponse<PlanoConta>(categoriasRes.data));
-        setLancamentos(lancamentosPaid);
-        setCentrosCusto(normalizeListResponse<CentroCustoResumo>(centrosCustoRes.data));
-        setContas([]);
-        setEntidades([]);
-        setSomentePagos(true);
-        auditMetaLoadedRef.current = false;
-        loadedAllLancamentosRef.current = false;
+        if (active) {
+          setSomentePagos(true);
+          auditMetaLoadedRef.current = false;
+          loadedAllLancamentosRef.current = false;
+        }
       } catch (err: any) {
-        if (!active) return;
-        setError(err?.response?.data?.detail || 'Nao foi possivel montar a DRE.');
+        if (axios.isCancel(err)) return;
+        console.error('Erro ao carregar DRE:', err);
+        if (active) {
+          setError(err?.response?.data?.detail || 'Nao foi possivel carregar a DRE.');
+        }
       } finally {
         if (active) setLoading(false);
       }
     }
 
-    load();
+    void load();
     return () => {
       active = false;
     };
   }, [ano, refreshCount]);
+
+
 
   useEffect(() => {
     const tableEl = tableRef.current;
@@ -436,44 +457,22 @@ export function Dre() {
   }, [loading]);
 
   const fetchFullYearLancamentos = async () => {
-    if (loadedAllLancamentosRef.current) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const inicio = `${ano}-01-01`;
-      const fim = `${ano}-12-31`;
-      const response = await api.get<LancamentoResumo[]>('/lancamentos/', {
-        params: {
-          data_inicio: inicio,
-          data_fim: fim,
-          include_anexos: false,
-          sem_paginacao: true,
-          somente_pagos: false,
-        },
-      });
-      setLancamentos(normalizeListResponse<LancamentoResumo>(response.data));
-      loadedAllLancamentosRef.current = true;
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Nao foi possivel carregar os lancamentos completos do ano.');
-      throw err;
-    } finally {
-      setLoading(false);
-    }
+    // Already loaded in useTransactionStore
+    loadedAllLancamentosRef.current = true;
   };
 
   const ensureAuditMetaLoaded = async () => {
     if (auditMetaLoadedRef.current || auditMetaLoading) return;
     setAuditMetaLoading(true);
     try {
-      const [contasRes, entidadesRes] = await Promise.all([
-        api.get<ContaResumo[]>('/contas/'),
-        api.get<EntidadeResumo[]>('/entidades/'),
+      await Promise.all([
+        fetchContas(),
+        fetchEntidadesLookup(),
       ]);
-      setContas(normalizeListResponse<ContaResumo>(contasRes.data));
-      setEntidades(normalizeListResponse<EntidadeResumo>(entidadesRes.data));
       auditMetaLoadedRef.current = true;
-    } catch {
-      // Keep panel usable with fallback labels when metadata fails.
+    } catch (err: any) {
+      if (axios.isCancel(err)) return;
+      console.error('Erro ao carregar lookups de auditoria na DRE:', err);
     } finally {
       setAuditMetaLoading(false);
     }
@@ -573,6 +572,14 @@ export function Dre() {
       return tipoReceita ? 'RECEITAS_OPERACIONAIS' : 'DESPESAS_OPERACIONAIS';
     };
 
+    const cachedDreGrupo = new Map<number, string>();
+    const cachedGrupoExibicao = new Map<number, DreDisplayGroupKey>();
+    
+    relevantes.forEach((conta) => {
+      cachedDreGrupo.set(conta.id, resolverDreGrupo(conta.id));
+      cachedGrupoExibicao.set(conta.id, resolverGrupoExibicao(conta.id));
+    });
+
     lancamentosFiltrados.forEach((lancamento) => {
       const contaId = Number(lancamento.plano_contas_id);
       if (!contaPorId.has(contaId)) return;
@@ -580,7 +587,7 @@ export function Dre() {
       if (monthIndex < 0) return;
       const conta = contaPorId.get(contaId);
       if (!conta) return;
-      const dreGrupo = resolverDreGrupo(contaId);
+      const dreGrupo = cachedDreGrupo.get(contaId) || 'DESPESAS_OPERACIONAIS';
       if (EXCLUDED_DRE_GROUPS.has(dreGrupo)) return;
       const value = resolveLancamentoValue(lancamento, somentePagos);
       const values = valoresDiretos.get(contaId) || Array.from({ length: 12 }, () => 0);
@@ -656,7 +663,7 @@ export function Dre() {
         total: sumValues(totalValues),
         hasChildren: childRows.length > 0,
         isOperationalInherited: inheritedOnly,
-        grupoExibicao: resolverGrupoExibicao(conta.id),
+        grupoExibicao: cachedGrupoExibicao.get(conta.id) || 'DESPESAS_OPERACIONAIS',
         tipoCategoria: isReceita(conta.tipo) ? 'RECEITA' : 'DESPESA',
       };
 
@@ -1082,6 +1089,7 @@ export function Dre() {
       ? (hasMesValido ? `dre-resultado-operacional-valor-mes-${mesNumero}` : 'dre-resultado-operacional-valor-total')
       : (hasMesValido ? `dre-resultado-final-valor-mes-${mesNumero}` : 'dre-resultado-final-valor-total');
 
+    const waitMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
     const runSpotlight = async () => {
       await waitMs(120);
       const el = document.getElementById(targetElementId);
@@ -1829,7 +1837,7 @@ export function Dre() {
           onSaveSuccess={async () => {
             setIsLancamentoDrawerOpen(false);
             setEditingLancamentoId(null);
-            setRefreshCount((prev) => prev + 1);
+            useTransactionStore.getState().incrementRefreshCount();
           }}
           categorias={categorias}
           entidades={entidades}

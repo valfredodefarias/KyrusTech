@@ -41,6 +41,8 @@ def cleanup_old_idempotency_logs(db: Session) -> None:
 
 def run_due_integracoes_sync() -> None:
     now = datetime.utcnow()
+    due_integracoes_data = []
+
     with Session(engine) as db:
         lock_row = db.exec(text(f"SELECT pg_try_advisory_lock({SCHEDULER_LEADER_LOCK_ID})")).first()
         lock_acquired = bool(lock_row[0]) if lock_row else False
@@ -62,42 +64,57 @@ def run_due_integracoes_sync() -> None:
                     ),
                 )
             ).all()
-
-            for integracao in due_integracoes:
-                try:
-                    if str(integracao.tipo or "").upper() == "ASAAS":
-                        logger.info(
-                            "[Scheduler] Sincronizando integração Asaas id={} empresa_id={}",
-                            integracao.id,
-                            integracao.empresa_id,
-                        )
-                        sincronizar_asaas(
-                            db=db,
-                            integracao=integracao,
-                            data_inicio=None,
-                            data_fim=now.date(),
-                        )
-                    elif str(integracao.tipo or "").upper() == "NFSTOCK":
-                        logger.info(
-                            "[Scheduler] Sincronizando integração NFStock id={} empresa_id={}",
-                            integracao.id,
-                            integracao.empresa_id,
-                        )
-                        sincronizar_nfstock(
-                            db=db,
-                            integracao=integracao,
-                            dry_run=False,
-                        )
-                except Exception as exc:
-                    logger.error(
-                        "[Scheduler] Falha ao sincronizar integração id={} tipo={} empresa_id={}: {}",
-                        integracao.id,
-                        integracao.tipo,
-                        integracao.empresa_id,
-                        exc,
-                    )
+            for integ in due_integracoes:
+                due_integracoes_data.append({
+                    "id": integ.id,
+                    "tipo": integ.tipo,
+                    "empresa_id": integ.empresa_id,
+                })
+        except Exception as exc:
+            logger.error(f"[Scheduler] Erro ao carregar integrações devidas: {exc}")
+            return
         finally:
             db.exec(text(f"SELECT pg_advisory_unlock({SCHEDULER_LEADER_LOCK_ID})"))
+
+    for integ_info in due_integracoes_data:
+        with Session(engine) as db_sync:
+            try:
+                integracao = db_sync.get(IntegracaoBancaria, integ_info["id"])
+                if not integracao or not integracao.ativo or integracao.is_deleted:
+                    continue
+
+                tipo_upper = str(integracao.tipo or "").upper()
+                if tipo_upper == "ASAAS":
+                    logger.info(
+                        "[Scheduler] Sincronizando integração Asaas id={} empresa_id={}",
+                        integracao.id,
+                        integracao.empresa_id,
+                    )
+                    sincronizar_asaas(
+                        db=db_sync,
+                        integracao=integracao,
+                        data_inicio=None,
+                        data_fim=now.date(),
+                    )
+                elif tipo_upper == "NFSTOCK":
+                    logger.info(
+                        "[Scheduler] Sincronizando integração NFStock id={} empresa_id={}",
+                        integracao.id,
+                        integracao.empresa_id,
+                    )
+                    sincronizar_nfstock(
+                        db=db_sync,
+                        integracao=integracao,
+                        dry_run=False,
+                    )
+            except Exception as exc:
+                logger.error(
+                    "[Scheduler] Falha ao sincronizar integração id={} tipo={} empresa_id={}: {}",
+                    integ_info["id"],
+                    integ_info["tipo"],
+                    integ_info["empresa_id"],
+                    exc,
+                )
 
 
 async def run_integracao_scheduler(stop_event: Event) -> None:

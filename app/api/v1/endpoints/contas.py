@@ -423,7 +423,17 @@ def update_conta(
     db_obj = crud_conta.get_by_id(db=db, id=conta_id, empresa_id=empresa_id)
     if not db_obj:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
+        
+    old_fields = {
+        "agencia": db_obj.agencia,
+        "conta_numero": db_obj.conta_numero
+    }
+    
     db_obj = crud_conta.update(db=db, db_obj=db_obj, obj_in=conta_in)
+    
+    # Analisar alteração de dados bancários pelo Auditor
+    from app.services.auditor_anomalia_service import AuditorAnomaliaService
+    AuditorAnomaliaService(db).analisar_alteracao_conta(db_obj, old_fields)
     
     if conta_in.allowed_user_ids is not None:
         db.execute(text("DELETE FROM usuario_conta_acesso WHERE conta_id = :conta_id"), {"conta_id": conta_id})

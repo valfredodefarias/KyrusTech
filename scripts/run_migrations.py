@@ -85,6 +85,15 @@ def apply_legacy_schema_compatibility() -> None:
         "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS fds_proximo_dia_util BOOLEAN DEFAULT TRUE",
         "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS modo_parcelamento VARCHAR DEFAULT 'PRO_RATA'",
         "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS taxa_antecipacao NUMERIC(5,2) DEFAULT 0.00",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS undone BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS batch_id VARCHAR",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS is_automatic BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS signature_hash VARCHAR",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS previous_hash VARCHAR",
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_batch_id ON audit_logs (batch_id)",
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_is_automatic ON audit_logs (is_automatic)",
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_signature_hash ON audit_logs (signature_hash)",
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_previous_hash ON audit_logs (previous_hash)"
     ]
 
     for statement in statements:
@@ -106,12 +115,14 @@ def apply_legacy_schema_compatibility() -> None:
     from app.models.user_session import UserSession
     from app.models.regra_comissao import RegraComissao
     from app.models.meta_vendedor import MetaVendedor
+    from app.models.regra_silenciamento_auditor import RegraSilenciamentoAuditor
     RegraCartao.__table__.create(bind=engine, checkfirst=True)
     LoteCartao.__table__.create(bind=engine, checkfirst=True)
     LoteCartaoItem.__table__.create(bind=engine, checkfirst=True)
     UserSession.__table__.create(bind=engine, checkfirst=True)
     RegraComissao.__table__.create(bind=engine, checkfirst=True)
     MetaVendedor.__table__.create(bind=engine, checkfirst=True)
+    RegraSilenciamentoAuditor.__table__.create(bind=engine, checkfirst=True)
 
 
 

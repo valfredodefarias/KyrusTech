@@ -46,30 +46,9 @@ interface SidebarPanelProps {
 }
 
 function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }: SidebarPanelProps) {
-  const storedUser = useAuthStore((state) => state.user);
-  const [user, setUser] = useState<AuthUser | null>(storedUser);
+  const user = useAuthStore((state) => state.user);
   const location = useLocation();
   const { favorites } = useTabStore();
-
-  useEffect(() => {
-    setUser(storedUser);
-  }, [storedUser]);
-
-  useEffect(() => {
-    let active = true;
-
-    api.get<AuthUser>('/usuarios/me')
-      .then(({ data }) => {
-        if (active) {
-          setUser(data);
-        }
-      })
-      .catch(() => undefined);
-
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const isConsultor = Boolean(user?.is_consultor);
   const superConsultor = isSuperConsultor(user);

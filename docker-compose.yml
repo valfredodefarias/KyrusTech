@@ -12,6 +12,7 @@ services:
       - "5432:5432"
     volumes:
       - db_kyrustech_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "work_mem=64MB", "-c", "maintenance_work_mem=128MB", "-c", "effective_cache_size=1.5GB"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -56,6 +57,7 @@ services:
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - DISABLE_SCHEDULER=${DISABLE_SCHEDULER:-0}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
@@ -69,7 +71,7 @@ services:
     depends_on:
       db_kyrustech:
         condition: service_healthy
-    command: /bin/sh -c "python scripts/run_migrations.py ; uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-2}"
+    command: /bin/sh -c "python scripts/run_migrations.py ; uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
   frontend:
     build:

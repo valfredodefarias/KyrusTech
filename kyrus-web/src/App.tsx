@@ -125,7 +125,7 @@ function App() {
     return () => {
       active = false;
     };
-  }, [setAuthenticated, setInitialized, setSessionExpiresAt, setUser]);
+  }, []);
 
   // Rastrear atividade da sessão em background para desconectar imediatamente se outro dispositivo logar
   useEffect(() => {
@@ -134,12 +134,15 @@ function App() {
     }
 
     const interval = setInterval(async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
       try {
         await api.get('/auth/session');
       } catch (err) {
         console.error('Erro de validação em background da sessão:', err);
       }
-    }, 10000); // Executa a cada 10 segundos
+    }, 30000); // Executa a cada 30 segundos
 
     return () => clearInterval(interval);
   }, [authenticated]);

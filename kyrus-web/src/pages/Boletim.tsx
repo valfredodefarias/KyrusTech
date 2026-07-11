@@ -1,4 +1,4 @@
-import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState, Fragment } from 'react';
+import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState, Fragment, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Banknote,
@@ -19,7 +19,12 @@ import {
 import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
+import axios from 'axios';
 import { api, getPublicBaseUrl, normalizeListResponse, toPublicAssetUrl } from '../services/api';
+import { useAuthStore } from '../store/authStore';
+import { useLookupStore } from '../store/lookupStore';
+import { useTransactionStore } from '../store/transactionStore';
+import type { LancamentoResumo, NormalizedRow, StatusFilter, FlowFilter } from '../store/transactionStore';
 
 interface ContaResumo {
   id: number;
@@ -34,25 +39,7 @@ interface ContaResumo {
   conta_como_disponibilidade?: boolean;
 }
 
-interface LancamentoResumo {
-  id: number;
-  descricao: string;
-  tipo: string;
-  status: string;
-  origem?: string | null;
-  observacao?: string | null;
-  id_parcelamento?: string | null;
-  data_vencimento: string;
-  data_pagamento?: string | null;
-  data_competencia?: string | null;
-  competencia?: string | null;
-  valor_previsto: number;
-  valor_pago?: number | null;
-  plano_contas_id?: number | null;
-  conta_id?: number | null;
-  entidade_id?: number | null;
-  centro_custo_id?: number | null;
-}
+
 
 interface PlanoContaResumo {
   id: number;
@@ -140,30 +127,8 @@ function resolveCentroCustoId(currentValue: number | null, centros: CentroCustoR
 }
 
 type ViewMode = 'executivo' | 'pay-receive' | 'compras';
-type StatusFilter = 'TODOS' | 'PAGO' | 'EM_ABERTO' | 'ATRASADO' | 'HOJE' | 'AMANHA';
-type FlowFilter = 'ALL' | 'PAGAMENTO' | 'RECEBIMENTO';
 type CompraTipoFilter = 'ALL' | 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | 'A_CLASSIFICAR';
 type CompraChartMode = 'LINHA_SEPARADA' | 'COLUNA_EMPILHADA' | 'COLUNA_SEPARADA';
-
-interface NormalizedRow {
-  rowKey: string;
-  id: number;
-  descricao: string;
-  flowType: FlowFilter;
-  statusKey: StatusFilter;
-  statusLabel: string;
-  dataVencimento: string;
-  monthIndex: number;
-  dayOfMonth: number;
-  valor: number;
-  valorAbsoluto: number;
-  interessado: string;
-  contaId?: number | null;
-  contaNome: string;
-  centroCustoId?: number | null;
-  origem?: string | null;
-  isAtrasada?: boolean;
-}
 
 type AuditPanelMode = 'LANCAMENTOS' | 'EXTRATO_BANCO';
 
@@ -176,7 +141,7 @@ interface AuditPanelState {
   extrato?: ContaSaldoDetalhe;
 }
 
-const BOLETIM_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
+
 
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -468,11 +433,17 @@ function resolveLancamentoValue(lancamento: LancamentoResumo, somentePagos = fal
 
 function isPago(itemOrStatus?: Pick<LancamentoResumo, 'status' | 'data_pagamento' | 'valor_pago'> | string | null) {
   if (typeof itemOrStatus === 'string' || itemOrStatus == null) {
-    return normalizeText(itemOrStatus) === 'pago';
+    const s = normalizeText(itemOrStatus);
+    return s === 'pago' || s.startsWith('parcial');
   }
 
   const normalizedStatus = normalizeText(itemOrStatus.status);
-  if (normalizedStatus === 'pago' || normalizedStatus === 'quitado' || normalizedStatus === 'liquidado') {
+  if (
+    normalizedStatus === 'pago' ||
+    normalizedStatus === 'quitado' ||
+    normalizedStatus === 'liquidado' ||
+    normalizedStatus.startsWith('parcial')
+  ) {
     return true;
   }
 
@@ -583,12 +554,21 @@ function applyFilters(
   });
 }
 
+const EMPTY_ARRAY: any[] = [];
+
 export function Boletim() {
   const navigate = useNavigate();
 
+  const [referenceDate, setReferenceDate] = useState(() => getBusinessTodayIso());
+  const referenceYear = useMemo(() => {
+    const parsedReference = parseDateOnly(referenceDate);
+    const fallbackDate = parseDateOnly(getBusinessTodayIso()) || new Date();
+    return (parsedReference || fallbackDate).getFullYear();
+  }, [referenceDate]);
+
   const [isLancamentoDrawerOpen, setIsLancamentoDrawerOpen] = useState(false);
   const [editingLancamentoId, setEditingLancamentoId] = useState<number | null>(null);
-  const [refreshCount, setRefreshCount] = useState(0);
+  const refreshCount = useTransactionStore((state) => state.refreshCount);
 
   const buildLancamentosDestino = (lancamentoId: number, includeEmbed: boolean) => {
     const params = new URLSearchParams();
@@ -623,18 +603,42 @@ export function Boletim() {
     setEditingLancamentoId(lancamentoId);
     setIsLancamentoDrawerOpen(true);
   };
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    const initialYear = (parseDateOnly(getBusinessTodayIso()) || new Date()).getFullYear();
+    const txCache = useTransactionStore.getState().yearCache[initialYear];
+    const hasCachedTransactions = !!txCache && txCache.length > 0;
+    const hasCachedLookups = useLookupStore.getState().contasLoaded && useLookupStore.getState().planoLoaded;
+    console.log('[Boletim Mount Cache Check]', {
+      initialYear,
+      hasCachedTransactions,
+      hasCachedLookups,
+      txCacheSize: txCache?.length,
+      contasLoaded: useLookupStore.getState().contasLoaded,
+      planoLoaded: useLookupStore.getState().planoLoaded
+    });
+    return !hasCachedTransactions || !hasCachedLookups;
+  });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [contas, setContas] = useState<ContaResumo[]>([]);
-  const [lancamentos, setLancamentos] = useState<LancamentoResumo[]>([]);
-  const [categorias, setCategorias] = useState<PlanoContaResumo[]>([]);
-  const [entidades, setEntidades] = useState<EntidadeResumo[]>([]);
-  const [centrosCusto, setCentrosCusto] = useState<CentroCustoResumo[]>([]);
-  const [asaasRows, setAsaasRows] = useState<NormalizedRow[]>([]);
-  const [asaasLoading, setAsaasLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
+  const empresa = useAuthStore((state) => state.empresa);
+  const setEmpresa = useAuthStore((state) => state.setEmpresa);
+
+  const contas = useLookupStore((state) => state.contas);
+  const categorias = useLookupStore((state) => state.planoContas);
+  const entidades = useLookupStore((state) => state.entidadesLookup);
+  const centrosCusto = useLookupStore((state) => state.centrosCusto);
+
+  const lancamentos = useTransactionStore((state) => state.yearCache[referenceYear] || EMPTY_ARRAY);
+  const asaasRows = useTransactionStore((state) => state.asaasCache[referenceYear] || EMPTY_ARRAY);
+  const asaasLoading = useTransactionStore((state) => state.loadingAsaas[referenceYear] || false);
+
+  const fetchContas = useLookupStore((state) => state.fetchContas);
+  const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
+  const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
+  const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
+  const fetchYearTransactions = useTransactionStore((state) => state.fetchYearTransactions);
+  const fetchAsaasRows = useTransactionStore((state) => state.fetchAsaasRows);
   const [viewMode, setViewMode] = useState<ViewMode>('executivo');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
   const [flowFilter, setFlowFilter] = useState<FlowFilter>('ALL');
@@ -643,19 +647,22 @@ export function Boletim() {
   const [compraTipoFilter, setCompraTipoFilter] = useState<CompraTipoFilter>('ALL');
   const [selectedCompraMonthIndex, setSelectedCompraMonthIndex] = useState<number | null>(null);
   const [compraChartMode, setCompraChartMode] = useState<CompraChartMode>('LINHA_SEPARADA');
-  const [referenceDate, setReferenceDate] = useState(() => getBusinessTodayIso());
-  const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<number | null>(null);
+  const globalSelectedCentroCustoId = useLookupStore((state) => state.selectedCentroCustoId);
+  const setSelectedCentroCustoIdGlobally = useLookupStore((state) => state.setSelectedCentroCustoId);
+  const selectedCentroCustoId = useMemo(() => {
+    return globalSelectedCentroCustoId === 'ALL' ? null : globalSelectedCentroCustoId;
+  }, [globalSelectedCentroCustoId]);
+  const setSelectedCentroCustoId = useCallback((id: number | null | ((prev: number | null) => number | null)) => {
+    const computedVal = typeof id === 'function' ? id(globalSelectedCentroCustoId === 'ALL' ? null : globalSelectedCentroCustoId) : id;
+    setSelectedCentroCustoIdGlobally(computedVal === null ? 'ALL' : computedVal);
+  }, [globalSelectedCentroCustoId, setSelectedCentroCustoIdGlobally]);
   const [auditPanel, setAuditPanel] = useState<AuditPanelState | null>(null);
   const [activeAuditMetricKey, setActiveAuditMetricKey] = useState<string | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditPanelWidth, setAuditPanelWidth] = useState(() => Math.round(window.innerWidth * 0.75));
   const auditResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const initialLoadDoneRef = useRef(false);
-  const referenceYear = useMemo(() => {
-    const parsedReference = parseDateOnly(referenceDate);
-    const fallbackDate = parseDateOnly(getBusinessTodayIso()) || new Date();
-    return (parsedReference || fallbackDate).getFullYear();
-  }, [referenceDate]);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const isDark = useIsDarkMode();
 
   useEffect(() => {
@@ -726,163 +733,43 @@ export function Boletim() {
 
   useEffect(() => {
     let active = true;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
 
-    async function loadData() {
-      const isInitialLoad = !initialLoadDoneRef.current;
-      if (isInitialLoad) {
-        setLoading(true);
-      } else {
+    async function loadData(force = false) {
+      const hasCachedTransactions = !!useTransactionStore.getState().yearCache[referenceYear];
+      const hasCachedLookups = useLookupStore.getState().contasLoaded && useLookupStore.getState().planoLoaded;
+      const shouldShowLoader = !hasCachedTransactions || !hasCachedLookups;
+
+      if (force) {
         setIsRefreshing(true);
+      } else if (shouldShowLoader) {
+        setLoading(true);
       }
       setLoadError(null);
       try {
-        const yearStart = `${referenceYear}-01-01`;
-        const yearEnd = `${referenceYear}-12-31`;
-
-        const userRes = await api.get<UserInfo>('/usuarios/me');
-
-        let empresaAtual: EmpresaInfo | null = null;
-        if (userRes.data.empresa_id) {
-          try {
-            const empresaRes = await api.get<EmpresaInfo>(`/empresas/${userRes.data.empresa_id}`);
-            empresaAtual = empresaRes.data;
-          } catch {
-            empresaAtual = null;
-          }
-        }
-
-        if (!empresaAtual && userRes.data.is_consultor) {
-          const contextoRes = await api.get<ConsultorContextoResponse>('/consultor/meu-contexto');
-          empresaAtual = contextoRes.data.empresa_atual;
-        }
-
-        const [contasRes, lancamentosRes, categoriasRes, entidadesRes, centrosCustoRes] = await Promise.allSettled([
-          api.get<ContaResumo[]>('/contas/'),
-          api.get<LancamentoResumo[]>('/lancamentos/', { params: { data_inicio: yearStart, data_fim: yearEnd, include_anexos: false, incluir_demonstracoes: true, minimized: true, sem_paginacao: true } }).then(res => res.data),
-          api.get<PlanoContaResumo[]>('/plano-contas/'),
-          api.get<EntidadeResumo[]>('/entidades/lookup'),
-          api.get<CentroCustoResumo[]>('/centro-custo/'),
+        await Promise.all([
+          fetchContas(force),
+          fetchPlanoContas(force),
+          fetchEntidadesLookup(force),
+          fetchCentrosCusto(force),
+          fetchYearTransactions(referenceYear, force),
         ]);
 
-        if (!active) return;
-
-        setEmpresa(empresaAtual);
-        setContas(contasRes.status === 'fulfilled' ? normalizeListResponse<ContaResumo>(contasRes.value.data) : []);
-        setLancamentos(lancamentosRes.status === 'fulfilled' ? dedupeLancamentos(Array.isArray(lancamentosRes.value) ? lancamentosRes.value : []) : []);
-        setCategorias(categoriasRes.status === 'fulfilled' ? normalizeListResponse<PlanoContaResumo>(categoriasRes.value.data) : []);
-        setEntidades(entidadesRes.status === 'fulfilled' ? normalizeListResponse<EntidadeResumo>(entidadesRes.value.data) : []);
-        const centrosCustoNormalizados = centrosCustoRes.status === 'fulfilled' ? normalizeListResponse<CentroCustoResumo>(centrosCustoRes.value.data) : [];
-        setCentrosCusto(centrosCustoNormalizados);
-        setSelectedCentroCustoId((currentValue) => resolveCentroCustoId(currentValue, centrosCustoNormalizados));
-
-        const failures = [contasRes, lancamentosRes, categoriasRes, entidadesRes, centrosCustoRes].filter((result) => result.status === 'rejected');
-        if (failures.length > 0) {
-          setLoadError('Parte dos dados do boletim nao pôde ser carregada. A tela continuou com o que estava disponível.');
-        }
-
-        async function fetchAsaasBackground() {
-          if (active) {
-            setAsaasLoading(true);
-          }
-          try {
-            const integracoesRes = await api.get<IntegracaoBancaria[]>('/integracoes-bancarias/');
-            const activeIntegracoes = normalizeListResponse<IntegracaoBancaria>(integracoesRes.data);
-            const asaasIntegracoes = activeIntegracoes.filter(item => String(item.tipo || '').toUpperCase() === 'ASAAS');
-
-            if (asaasIntegracoes.length > 0) {
-              const cobrancasPromises = asaasIntegracoes.map(async (integracao) => {
-                try {
-                  const response = await api.get<{
-                    abertas: any[];
-                    atrasadas: any[];
-                    recebidas: any[];
-                  }>(`/integracoes-bancarias/${integracao.id}/asaas/contas-receber`);
-
-                  const { abertas, atrasadas } = response.data;
-                  const rows: NormalizedRow[] = [];
-
-                  const processCharge = (charge: any, isAtrasada: boolean) => {
-                    const val = Number(charge.value || 0);
-                    const dueDateStr = charge.dueDate || '';
-                    const due = parseDateOnly(dueDateStr);
-
-                    const dueMonth = due ? due.getMonth() : -1;
-                    const dueDay = due ? due.getDate() : -1;
-
-                    const asaasDesc = charge.description || '';
-                    const asaasIdStr = charge.id || '';
-                    const rowDesc = asaasDesc ? `[Asaas] ${asaasDesc}` : `[Asaas] Cobrança ${asaasIdStr}`;
-
-                    let customerInfo = 'Cliente Asaas';
-                    if (charge.customerName) {
-                      customerInfo = charge.customerName;
-                    } else if (charge.customer) {
-                      if (typeof charge.customer === 'object') {
-                        customerInfo = charge.customer.name || charge.customer.company || charge.customer.email || 'Cliente Asaas';
-                      } else {
-                        customerInfo = `Cliente Asaas (${charge.customer})`;
-                      }
-                    }
-
-                    return {
-                      rowKey: `asaas-charge-${asaasIdStr}`,
-                      id: -Number(asaasIdStr.replace(/[^0-9]/g, '')) || -9999,
-                      descricao: rowDesc,
-                      flowType: 'RECEBIMENTO' as const,
-                      statusKey: 'EM_ABERTO' as const,
-                      statusLabel: 'A vencer',
-                      dataVencimento: dueDateStr,
-                      monthIndex: dueMonth,
-                      dayOfMonth: dueDay,
-                      valor: val,
-                      valorAbsoluto: Math.abs(val),
-                      interessado: customerInfo,
-                      contaId: integracao.conta_id || null,
-                      contaNome: integracao.nome || 'Asaas',
-                      centroCustoId: integracao.centro_custo_id || null,
-                      origem: 'ASAAS',
-                      isAtrasada,
-                    } as NormalizedRow;
-                  };
-
-                  (abertas || []).forEach((c: any) => rows.push(processCharge(c, false)));
-                  (atrasadas || []).forEach((c: any) => rows.push(processCharge(c, true)));
-
-                  return rows;
-                } catch (err) {
-                  console.error(`Erro ao carregar cobrancas da integracao Asaas ${integracao.id}`, err);
-                  return [];
-                }
-              });
-
-              const results = await Promise.all(cobrancasPromises);
-              const loadedAsaasRows = results.flat();
-              if (active) {
-                setAsaasRows(loadedAsaasRows);
-              }
-            } else {
-              if (active) {
-                setAsaasRows([]);
-              }
-            }
-          } catch (err) {
-            console.error("Erro ao listar integracoes para o boletim", err);
-            if (active) {
-              setLoadError((prev) => prev ? prev + ' Além disso, falhou a sincronização das cobranças Asaas.' : 'Não foi possível carregar as cobranças Asaas em tempo real.');
-            }
-          } finally {
-            if (active) {
-              setAsaasLoading(false);
-            }
-          }
-        }
-
-        void fetchAsaasBackground();
-      } catch (error) {
-        console.error('Erro ao carregar boletim', error);
         if (active) {
-          setLoadError('Nao foi possivel carregar o boletim financeiro.');
+          setSelectedCentroCustoId((currentValue: number | null) =>
+            resolveCentroCustoId(currentValue, useLookupStore.getState().centrosCusto)
+          );
+        }
+
+        void fetchAsaasRows(referenceYear, force).catch((err) => {
+          if (!axios.isCancel(err)) {
+            console.error('Erro ao carregar cobranças Asaas:', err);
+          }
+        });
+      } catch (err: any) {
+        if (axios.isCancel(err)) return;
+        console.error('Erro ao carregar dados do boletim:', err);
+        if (active) {
+          setLoadError('Parte dos dados do boletim nao pôde ser carregada.');
         }
       } finally {
         if (active) {
@@ -893,18 +780,14 @@ export function Boletim() {
       }
     }
 
-    loadData();
-    intervalId = setInterval(() => {
-      void loadData();
-    }, BOLETIM_REFRESH_INTERVAL_MS);
+    void loadData(false);
 
     return () => {
       active = false;
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
     };
   }, [referenceYear, refreshCount]);
+
+
 
 
   const dashboard = useMemo(() => {
@@ -2064,7 +1947,31 @@ export function Boletim() {
   const companyName = empresa?.nome_fantasia || 'Sua Empresa';
 
   if (loading && !initialLoadDoneRef.current) {
-    return <div className="p-10 text-center text-slate-400">Carregando boletim...</div>;
+    return (
+      <div className={`p-8 space-y-6 ${isDark ? 'bg-[#0d1117] text-white' : 'bg-slate-50'}`}>
+        {/* Skeleton Header */}
+        <div className="flex items-center gap-4 animate-pulse">
+          <div className="w-16 h-16 rounded-lg bg-slate-300 dark:bg-slate-700" />
+          <div className="space-y-2">
+            <div className="w-48 h-6 rounded bg-slate-300 dark:bg-slate-700" />
+            <div className="w-32 h-4 rounded bg-slate-300 dark:bg-slate-700" />
+          </div>
+        </div>
+        {/* Skeleton Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-pulse">
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <div key={idx} className="h-28 rounded-xl bg-slate-300 dark:bg-slate-700 p-4 space-y-3">
+              <div className="w-20 h-4 rounded bg-slate-200 dark:bg-slate-600" />
+              <div className="w-32 h-8 rounded bg-slate-200 dark:bg-slate-600" />
+            </div>
+          ))}
+        </div>
+        {/* Skeleton Main Chart */}
+        <div className="h-96 rounded-xl bg-slate-300 dark:bg-slate-700 animate-pulse flex items-center justify-center">
+          <div className="text-slate-400 dark:text-slate-500 font-bold">Carregando dados financeiros...</div>
+        </div>
+      </div>
+    );
   }
 
   const pageClass = isDark
@@ -2365,7 +2272,7 @@ export function Boletim() {
               onSaveSuccess={async () => {
                 setIsLancamentoDrawerOpen(false);
                 setEditingLancamentoId(null);
-                setRefreshCount((prev) => prev + 1);
+                useTransactionStore.getState().incrementRefreshCount();
               }}
               categorias={categorias}
               entidades={entidades}

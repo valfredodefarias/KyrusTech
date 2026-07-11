@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BankAvatar } from '../components/BrandAvatar';
 import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
+import { useAuthStore } from '../store/authStore';
 import { useBankPresetStore, type BankPreset } from '../store/bankPresetStore';
 import { PlanoContasManager } from './Importacao';
 import type { ItemSistema } from './Importacao';
@@ -282,7 +283,8 @@ export function Consultor() {
   const [usuarios, setUsuarios] = useState<UsuarioItem[]>([]);
   const [loadingUsuarios, setLoadingUsuarios] = useState(false);
 
-  const [currentUser, setCurrentUser] = useState<{ id: number; email: string; consultor_role: string; empresa_id?: number | null } | null>(null);
+  const storeUser = useAuthStore((state) => state.user);
+  const currentUser = storeUser;
 
   // States Formulários
   const [newUser, setNewUser] = useState<NovoUsuario>({
@@ -325,50 +327,15 @@ export function Consultor() {
 
   useEffect(() => {
     carregarEmpresas();
-    verificarSuperConsultor();
-  }, []);
-
-  useEffect(() => {
-    const canManageSeedTemplates = currentUser?.email?.trim().toLowerCase() === 'cirocaue12@gmail.com';
-    if (!isSuperConsultor || !canManageSeedTemplates || activeTab !== 'planos-padrao') return;
-    carregarTemplatePlanoContas(templateTipoPessoa);
-    carregarAutoAdjustmentConfig(templateTipoPessoa);
-  }, [activeTab, isSuperConsultor, templateTipoPessoa, currentUser?.email]);
-
-  useEffect(() => {
-    if (!isSuperConsultor) return;
-    if (selectedEmpresaAutoAdjustId) return;
-    if (!empresas.length) return;
-    setSelectedEmpresaAutoAdjustId(Number(empresas[0].id));
-  }, [isSuperConsultor, empresas, selectedEmpresaAutoAdjustId]);
-
-  useEffect(() => {
-    const canManageSeedTemplates = currentUser?.email?.trim().toLowerCase() === 'cirocaue12@gmail.com';
-    if (!isSuperConsultor || !canManageSeedTemplates || activeTab !== 'planos-padrao') return;
-    if (!selectedEmpresaAutoAdjustId) return;
-    carregarAutoAdjustmentEmpresaConfig(selectedEmpresaAutoAdjustId);
-    carregarPlanoContasEmpresaOpcoes(selectedEmpresaAutoAdjustId);
-  }, [activeTab, isSuperConsultor, currentUser?.email, selectedEmpresaAutoAdjustId]);
-
-  useEffect(() => {
-    if (!isSuperConsultor || activeTab !== 'bancos') return;
-    void carregarBankPresets();
-  }, [activeTab, isSuperConsultor]);
-
-  async function verificarSuperConsultor() {
-    try {
-      const res = await api.get('/usuarios/me');
-      const isSuper = res.data.consultor_role === 'SUPER_CONSULTOR';
-      setCurrentUser({ id: res.data.id, email: res.data.email, consultor_role: res.data.consultor_role, empresa_id: res.data.empresa_id ?? null });
+    if (currentUser) {
+      const isSuper = currentUser.consultor_role === 'SUPER_CONSULTOR';
       setIsSuperConsultor(isSuper);
       if (isSuper) {
         carregarConsultores();
         carregarUsuarios();
       }
-    } catch (error) {
-      console.error("Erro ao verificar role do usuário", error);
     }
-  }
+  }, [currentUser]);
 
   async function carregarConsultores() {
     try {

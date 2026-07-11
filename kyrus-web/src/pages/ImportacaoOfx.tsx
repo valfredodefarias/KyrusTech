@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import axios from 'axios';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -187,7 +188,7 @@ interface LancamentoImportado {
   lancamento_previsto_resumo?: RelacionamentoResumo | null;
   lancamentos_atrasados_resumo?: RelacionamentoResumo[];
   duplicata_resumo?: DuplicataResumo | null;
-  movimento_ofx_id?: number | null;
+  movimento_id?: number | null;
 }
 
 interface AlocacaoItemUI {
@@ -526,7 +527,6 @@ export function ImportacaoOfx() {
   } | null>(null);
 
   const [limiteResultados, setLimiteResultados] = useState(15);
-
   const [formDrawerConfig, setFormDrawerConfig] = useState<{
     show: boolean;
     prefilledData?: any;
@@ -534,6 +534,19 @@ export function ImportacaoOfx() {
     linhaArquivo?: number;
     diffVal?: number;
   }>({ show: false });
+
+  useEffect(() => {
+    return () => {
+      setContas([]);
+      setCartoes([]);
+      setCentrosCusto([]);
+      setResultado(null);
+      setLancamentosEditados([]);
+      setCategorias([]);
+      setEntidades([]);
+      setSugestoes({});
+    };
+  }, []);
 
   const scrollCardIntoView = (linhaArquivo: number) => {
     setTimeout(() => {
@@ -1060,7 +1073,7 @@ export function ImportacaoOfx() {
         const [catsRes, entRes, lancRes] = await Promise.all([
           api.get<CategoriaItem[]>('/plano-contas/'),
           api.get<EntidadeItem[]>('/entidades/lookup'),
-          api.get<any[]>('/lancamentos/?limit=5000'),
+          api.get<any[]>('/lancamentos/?limit=5000&minimized=true'),
         ]);
         setCategorias(normalizeListResponse<CategoriaItem>(catsRes.data));
         setEntidades(normalizeListResponse<EntidadeItem>(entRes.data));
@@ -1249,12 +1262,17 @@ export function ImportacaoOfx() {
       const { data } = await api.post<ProcessarArquivoResponse>(
         '/importacao/ofx/upload',
         fd,
-        { headers: { 'Content-Type': 'multipart/form-data' }, params }
+        {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          params,
+          timeout: 120000 // 2 minutes timeout for processing OFX
+        }
       );
       setResultado(data);
       await reloadEntidadesLookup();
       setFeedback({ type: 'success', message: 'Arquivo OFX processado com sucesso.' });
     } catch (error: any) {
+      if (axios.isCancel(error)) return;
       setResultado(null);
       setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao processar arquivo.' });
     } finally {
@@ -1361,7 +1379,7 @@ export function ImportacaoOfx() {
 
         // 2. Compile conciliacoes
         const conciliacoesList: {
-          movimento_ofx_id: number;
+          movimento_id: number;
           alocacoes: {
             lancamento_id?: number;
             lancamento_temp_id?: string;
@@ -1395,9 +1413,9 @@ export function ImportacaoOfx() {
             }
           }
 
-          if (lanc.movimento_ofx_id) {
+          if (lanc.movimento_id) {
             conciliacoesList.push({
-              movimento_ofx_id: lanc.movimento_ofx_id,
+              movimento_id: lanc.movimento_id,
               alocacoes: alocs.map((a) => ({
                 lancamento_id: a.lancamento_id,
                 lancamento_temp_id: a.lancamento_temp_id,
@@ -2316,12 +2334,28 @@ export function ImportacaoOfx() {
                   </div>
 
                   {lanc.duplicata_resumo && (
-                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
-                      <p className="font-bold text-slate-800 dark:text-white">Já existe um lançamento equivalente para esta conta.</p>
-                      <p className="mt-1">{lanc.duplicata_resumo.descricao}</p>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{lanc.duplicata_resumo.motivo || 'Movimento repetido.'}</p>
+                    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/40 p-4 text-sm text-slate-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-slate-300">
+                      <div className="flex items-start gap-2.5">
+                        <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-bold text-slate-800 dark:text-white">Alerta de Duplicidade / Auditoria</p>
+                            <span className="px-1.5 py-0.5 text-[9px] font-black tracking-wider uppercase rounded bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                              Auditor de Anomalias
+                            </span>
+                          </div>
+                          <p className="mt-1 text-slate-600 dark:text-slate-300 text-xs">
+                            Já existe um lançamento equivalente para esta conta. Nosso motor de auditoria de segurança detectou um possível movimento duplicado.
+                          </p>
+                          <div className="mt-2.5 pl-3 border-l-2 border-amber-300 dark:border-amber-700 text-xs">
+                            <p className="font-semibold text-slate-700 dark:text-slate-200">{lanc.duplicata_resumo.descricao}</p>
+                            <p className="text-slate-500 dark:text-slate-400 mt-0.5">{lanc.duplicata_resumo.motivo || 'Movimento repetido.'}</p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
+
 
 
 

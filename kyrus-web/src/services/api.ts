@@ -88,16 +88,39 @@ export function toPublicAssetUrl(url?: string | null) {
   return null;
 }
 
+type ApiMutationCallback = (url: string, response?: any) => void;
+const mutationCallbacks: ApiMutationCallback[] = [];
+
+export function onApiMutation(callback: ApiMutationCallback) {
+  mutationCallbacks.push(callback);
+  return () => {
+    const index = mutationCallbacks.indexOf(callback);
+    if (index !== -1) mutationCallbacks.splice(index, 1);
+  };
+}
+
+function notifyMutation(url: string, response?: any) {
+  mutationCallbacks.forEach((cb) => {
+    try {
+      cb(url, response);
+    } catch (e) {
+      console.error('Error in api mutation listener:', e);
+    }
+  });
+}
+
 export const api = axios.create({
   baseURL: baseURL,
   withCredentials: true,
+  timeout: 30000, // 30 seconds default timeout
 });
 
 api.interceptors.request.use(
   (config) => {
-    const user = useAuthStore.getState().user;
-    if (user && user.empresa_id) {
-      config.headers['X-Company-ID'] = String(user.empresa_id);
+    const authState = useAuthStore.getState();
+    const companyId = authState.empresa?.id ?? authState.user?.empresa_id;
+    if (companyId) {
+      config.headers['X-Company-ID'] = String(companyId);
     }
     return config;
   },
@@ -161,7 +184,14 @@ export async function fetchLancamentosPaged<T = any>(
 }
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const method = String(response.config.method || '').toUpperCase();
+    const url = String(response.config.url || '');
+    if (['POST', 'PUT', 'DELETE'].includes(method)) {
+      notifyMutation(url, response);
+    }
+    return response;
+  },
   (error) => {
     const status = error?.response?.status;
     const detail = String(error?.response?.data?.detail || error?.message || '').toLowerCase();

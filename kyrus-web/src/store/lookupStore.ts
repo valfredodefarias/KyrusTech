@@ -1,49 +1,106 @@
 import { create } from 'zustand';
-import { api, normalizeListResponse } from '../services/api';
+import { api, normalizeListResponse, onApiMutation } from '../services/api';
+import { useAuthStore } from './authStore';
+import { useTransactionStore } from './transactionStore';
 
 interface LookupState {
   entidades: any[];
   entidadesLookup: any[];
   planoContas: any[];
+  contas: any[];
+  centrosCusto: any[];
+  selectedCentroCustoId: number | 'ALL';
+  setSelectedCentroCustoId: (id: number | 'ALL') => void;
   entidadesLoaded: boolean;
   entidadesLookupLoaded: boolean;
   planoLoaded: boolean;
+  contasLoaded: boolean;
+  centrosLoaded: boolean;
   loadingEntidades: boolean;
   loadingEntidadesLookup: boolean;
   loadingPlano: boolean;
+  loadingContas: boolean;
+  loadingCentros: boolean;
   fetchEntidades: (force?: boolean) => Promise<any[]>;
   fetchEntidadesLookup: (force?: boolean) => Promise<any[]>;
   fetchPlanoContas: (force?: boolean) => Promise<any[]>;
+  fetchContas: (force?: boolean) => Promise<any[]>;
+  fetchCentrosCusto: (force?: boolean) => Promise<any[]>;
   setEntidades: (entidades: any[]) => void;
   setEntidadesLookup: (entidades: any[]) => void;
   setPlanoContas: (planoContas: any[]) => void;
+  setContas: (contas: any[]) => void;
+  setCentrosCusto: (centrosCusto: any[]) => void;
   invalidateEntidades: () => void;
   invalidateEntidadesLookup: () => void;
   invalidatePlanoContas: () => void;
+  invalidateContas: () => void;
+  invalidateCentrosCusto: () => void;
+  adjustAccountBalance: (contaId: number, amount: number) => void;
+  clearStore: () => void;
 }
 
 let entidadesPromise: Promise<any[]> | null = null;
 let entidadesLookupPromise: Promise<any[]> | null = null;
 let planoPromise: Promise<any[]> | null = null;
+let contasPromise: Promise<any[]> | null = null;
+let centrosPromise: Promise<any[]> | null = null;
 
-export const useLookupStore = create<LookupState>((set, get) => ({
-  entidades: [],
-  entidadesLookup: [],
+const lookupControllers: Record<string, AbortController | null> = {
+  entidades: null,
+  entidadesLookup: null,
+  planoContas: null,
+  contas: null,
+  centrosCusto: null,
+};
+
+export const useLookupStore = create<LookupState>((set, get) => {
+  // Guard multitenant security: clear lookups completely when company ID changes or user logs out
+  let lastLookupCompanyId = useAuthStore.getState().empresa?.id ?? useAuthStore.getState().user?.empresa_id;
+
+  useAuthStore.subscribe((state) => {
+    const currentCompanyId = state.empresa?.id ?? state.user?.empresa_id;
+    if (currentCompanyId !== lastLookupCompanyId) {
+      lastLookupCompanyId = currentCompanyId;
+      get().clearStore();
+    }
+  });
+
+  return {
+    selectedCentroCustoId: 'ALL',
+    setSelectedCentroCustoId: (id) => set({ selectedCentroCustoId: id }),
+    entidades: [],
+    entidadesLookup: [],
   planoContas: [],
+  contas: [],
+  centrosCusto: [],
   entidadesLoaded: false,
   entidadesLookupLoaded: false,
   planoLoaded: false,
+  contasLoaded: false,
+  centrosLoaded: false,
   loadingEntidades: false,
   loadingEntidadesLookup: false,
   loadingPlano: false,
+  loadingContas: false,
+  loadingCentros: false,
 
   fetchEntidades: async (force = false) => {
     const state = get();
     if (!force && state.entidadesLoaded) return state.entidades;
+    
+    if (force && lookupControllers.entidades) {
+      lookupControllers.entidades.abort();
+      entidadesPromise = null;
+    }
+    
     if (entidadesPromise) return entidadesPromise;
 
     set({ loadingEntidades: true });
-    entidadesPromise = api.get('/entidades/')
+    const controller = new AbortController();
+    lookupControllers.entidades = controller;
+
+    entidadesPromise = api.get('/entidades/', { signal: controller.signal })
       .then((res) => {
         const data = normalizeListResponse<any>(res.data);
         set({ entidades: data, entidadesLoaded: true, loadingEntidades: false });
@@ -53,7 +110,10 @@ export const useLookupStore = create<LookupState>((set, get) => ({
         set({ loadingEntidades: false });
         throw err;
       })
-      .finally(() => { entidadesPromise = null; });
+      .finally(() => {
+        entidadesPromise = null;
+        lookupControllers.entidades = null;
+      });
 
     return entidadesPromise;
   },
@@ -61,10 +121,19 @@ export const useLookupStore = create<LookupState>((set, get) => ({
   fetchEntidadesLookup: async (force = false) => {
     const state = get();
     if (!force && state.entidadesLookupLoaded) return state.entidadesLookup;
+
+    if (force && lookupControllers.entidadesLookup) {
+      lookupControllers.entidadesLookup.abort();
+      entidadesLookupPromise = null;
+    }
+
     if (entidadesLookupPromise) return entidadesLookupPromise;
 
     set({ loadingEntidadesLookup: true });
-    entidadesLookupPromise = api.get('/entidades/lookup')
+    const controller = new AbortController();
+    lookupControllers.entidadesLookup = controller;
+
+    entidadesLookupPromise = api.get('/entidades/lookup', { signal: controller.signal })
       .then((res) => {
         const data = normalizeListResponse<any>(res.data);
         set({ entidadesLookup: data, entidadesLookupLoaded: true, loadingEntidadesLookup: false });
@@ -74,7 +143,10 @@ export const useLookupStore = create<LookupState>((set, get) => ({
         set({ loadingEntidadesLookup: false });
         throw err;
       })
-      .finally(() => { entidadesLookupPromise = null; });
+      .finally(() => {
+        entidadesLookupPromise = null;
+        lookupControllers.entidadesLookup = null;
+      });
 
     return entidadesLookupPromise;
   },
@@ -82,10 +154,19 @@ export const useLookupStore = create<LookupState>((set, get) => ({
   fetchPlanoContas: async (force = false) => {
     const state = get();
     if (!force && state.planoLoaded) return state.planoContas;
+
+    if (force && lookupControllers.planoContas) {
+      lookupControllers.planoContas.abort();
+      planoPromise = null;
+    }
+
     if (planoPromise) return planoPromise;
 
     set({ loadingPlano: true });
-    planoPromise = api.get('/plano-contas/')
+    const controller = new AbortController();
+    lookupControllers.planoContas = controller;
+
+    planoPromise = api.get('/plano-contas/', { signal: controller.signal })
       .then((res) => {
         const data = normalizeListResponse<any>(res.data);
         set({ planoContas: data, planoLoaded: true, loadingPlano: false });
@@ -95,15 +176,184 @@ export const useLookupStore = create<LookupState>((set, get) => ({
         set({ loadingPlano: false });
         throw err;
       })
-      .finally(() => { planoPromise = null; });
+      .finally(() => {
+        planoPromise = null;
+        lookupControllers.planoContas = null;
+      });
 
     return planoPromise;
   },
 
+  fetchContas: async (force = false) => {
+    const state = get();
+    if (!force && state.contasLoaded) return state.contas;
+
+    if (force && lookupControllers.contas) {
+      lookupControllers.contas.abort();
+      contasPromise = null;
+    }
+
+    if (contasPromise) return contasPromise;
+
+    set({ loadingContas: true });
+    const controller = new AbortController();
+    lookupControllers.contas = controller;
+
+    contasPromise = api.get('/contas/', { signal: controller.signal })
+      .then((res) => {
+        const data = normalizeListResponse<any>(res.data);
+        set({ contas: data, contasLoaded: true, loadingContas: false });
+        return data;
+      })
+      .catch((err) => {
+        set({ loadingContas: false });
+        throw err;
+      })
+      .finally(() => {
+        contasPromise = null;
+        lookupControllers.contas = null;
+      });
+
+    return contasPromise;
+  },
+
+  fetchCentrosCusto: async (force = false) => {
+    const state = get();
+    if (!force && state.centrosLoaded) return state.centrosCusto;
+
+    if (force && lookupControllers.centrosCusto) {
+      lookupControllers.centrosCusto.abort();
+      centrosPromise = null;
+    }
+
+    if (centrosPromise) return centrosPromise;
+
+    set({ loadingCentros: true });
+    const controller = new AbortController();
+    lookupControllers.centrosCusto = controller;
+
+    centrosPromise = api.get('/centro-custo/', { signal: controller.signal })
+      .then((res) => {
+        const data = normalizeListResponse<any>(res.data);
+        set({ centrosCusto: data, centrosLoaded: true, loadingCentros: false });
+        return data;
+      })
+      .catch((err) => {
+        set({ loadingCentros: false });
+        throw err;
+      })
+      .finally(() => {
+        centrosPromise = null;
+        lookupControllers.centrosCusto = null;
+      });
+
+    return centrosPromise;
+  },
+
   setEntidades: (entidades) => set({ entidades, entidadesLoaded: true }),
-  setEntidadesLookup: (entidades) => set({ entidadesLookup: entidades, entidadesLookupLoaded: true }),
+  setEntidadesLookup: (entidadesLookup) => set({ entidadesLookup, entidadesLookupLoaded: true }),
   setPlanoContas: (planoContas) => set({ planoContas, planoLoaded: true }),
-  invalidateEntidades: () => set({ entidadesLoaded: false }),
-  invalidateEntidadesLookup: () => set({ entidadesLookupLoaded: false }),
-  invalidatePlanoContas: () => set({ planoLoaded: false }),
-}));
+  setContas: (contas) => set({ contas, contasLoaded: true }),
+  setCentrosCusto: (centrosCusto) => set({ centrosCusto, centrosLoaded: true }),
+
+  invalidateEntidades: () => {
+    if (lookupControllers.entidades) lookupControllers.entidades.abort();
+    entidadesPromise = null;
+    set({ entidades: [], entidadesLoaded: false });
+  },
+
+  invalidateEntidadesLookup: () => {
+    if (lookupControllers.entidadesLookup) lookupControllers.entidadesLookup.abort();
+    entidadesLookupPromise = null;
+    set({ entidadesLookup: [], entidadesLookupLoaded: false });
+  },
+
+  invalidatePlanoContas: () => {
+    if (lookupControllers.planoContas) lookupControllers.planoContas.abort();
+    planoPromise = null;
+    set({ planoContas: [], planoLoaded: false });
+  },
+
+  invalidateContas: () => {
+    if (lookupControllers.contas) lookupControllers.contas.abort();
+    contasPromise = null;
+    set({ contas: [], contasLoaded: false });
+  },
+
+  invalidateCentrosCusto: () => {
+    if (lookupControllers.centrosCusto) lookupControllers.centrosCusto.abort();
+    centrosPromise = null;
+    set({ centrosCusto: [], centrosLoaded: false });
+  },
+
+  adjustAccountBalance: (contaId: number, amount: number) => {
+    set((state) => {
+      const updatedContas = state.contas.map((c) => {
+        if (c.id === contaId) {
+          const currentSaldo = Number(c.saldo_atual || 0);
+          return { ...c, saldo_atual: currentSaldo + amount };
+        }
+        return c;
+      });
+      return { contas: updatedContas };
+    });
+  },
+
+  clearStore: () => {
+    // Abort all active requests
+    Object.values(lookupControllers).forEach((ctrl) => ctrl?.abort());
+    entidadesPromise = null;
+    entidadesLookupPromise = null;
+    planoPromise = null;
+    contasPromise = null;
+    centrosPromise = null;
+
+    set({
+      selectedCentroCustoId: 'ALL',
+      entidades: [],
+      entidadesLookup: [],
+      planoContas: [],
+      contas: [],
+      centrosCusto: [],
+      entidadesLoaded: false,
+      entidadesLookupLoaded: false,
+      planoLoaded: false,
+      contasLoaded: false,
+      centrosLoaded: false,
+      loadingEntidades: false,
+      loadingEntidadesLookup: false,
+      loadingPlano: false,
+      loadingContas: false,
+      loadingCentros: false,
+    });
+  }
+  };
+});
+
+// Listen to successful mutations to selectively invalidate lookups and notify transactions view
+onApiMutation((url) => {
+  const store = useLookupStore.getState();
+  let hasChanges = false;
+  if (url.includes('/entidades')) {
+    store.invalidateEntidades();
+    store.invalidateEntidadesLookup();
+    hasChanges = true;
+  }
+  if (url.includes('/plano-contas')) {
+    store.invalidatePlanoContas();
+    hasChanges = true;
+  }
+  if (url.includes('/contas')) {
+    store.invalidateContas();
+    hasChanges = true;
+  }
+  if (url.includes('/centro-custo')) {
+    store.invalidateCentrosCusto();
+    hasChanges = true;
+  }
+
+  // Propagate lookup invalidations to refresh transactions views/dropdowns
+  if (hasChanges) {
+    useTransactionStore.getState().incrementRefreshCount();
+  }
+});

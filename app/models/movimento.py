@@ -14,8 +14,8 @@ if TYPE_CHECKING:
     from .baixa import Baixa
 
 
-class MovimentoOFX(AuditMixin, SQLModel, table=True):
-    __tablename__ = "movimentos_ofx"
+class Movimento(AuditMixin, SQLModel, table=True):
+    __tablename__ = "movimentos"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     descricao: str = Field(index=True)
@@ -24,6 +24,7 @@ class MovimentoOFX(AuditMixin, SQLModel, table=True):
     data: datetime.date = Field(index=True)
     import_hash: str = Field(index=True, unique=True)
     status: str = Field(default="ABERTO", index=True)  # ABERTO, CONCILIADO
+    origem: str = Field(default="OFX", index=True)      # MANUAL, OFX, OPEN_FINANCE, CARTAO
 
     empresa_id: int = Field(foreign_key="empresas.id", index=True)
     conta_id: int = Field(foreign_key="contas.id", index=True)
@@ -34,8 +35,7 @@ class MovimentoOFX(AuditMixin, SQLModel, table=True):
     baixas: list["Baixa"] = Relationship(
         sa_relationship=relationship(
             "Baixa",
-            back_populates="movimento_ofx",
+            back_populates="movimento",
             cascade="all, delete-orphan"
         )
     )
-

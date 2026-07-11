@@ -211,8 +211,10 @@ async def idempotency_completed_handler(request: Request, exc: IdempotencyComple
 @app.on_event("startup")
 def startup_event() -> None:
     global SCHEDULER_TASK
+    from app.core.cache import register_cache_listeners
+    register_cache_listeners()
     _run_startup_migrations()
-    if os.getenv("TESTING") != "1":
+    if os.getenv("TESTING") != "1" and os.getenv("DISABLE_SCHEDULER") != "1":
         _ensure_rbac_defaults()
         SCHEDULER_STOP_EVENT.clear()
         SCHEDULER_TASK = asyncio.create_task(run_integracao_scheduler(SCHEDULER_STOP_EVENT))
@@ -404,6 +406,34 @@ async def audit_context_middleware(request: Request, call_next):
     finally:
         clear_audit_context()
     return response
+
+
+@app.middleware("http")
+async def log_requests_immediately(request: Request, call_next):
+    log_line = f"==> REQUEST START: {request.method} {request.url.path}\n"
+    try:
+        with open("/app/app/request_log.txt", "a") as f:
+            f.write(log_line)
+    except Exception:
+        pass
+
+    try:
+        response = await call_next(request)
+        end_line = f"<== REQUEST END: {request.method} {request.url.path} - {response.status_code}\n"
+        try:
+            with open("/app/app/request_log.txt", "a") as f:
+                f.write(end_line)
+        except Exception:
+            pass
+        return response
+    except Exception as e:
+        err_line = f"==! REQUEST EXCEPTION: {request.method} {request.url.path} - {e}\n"
+        try:
+            with open("/app/app/request_log.txt", "a") as f:
+                f.write(err_line)
+        except Exception:
+            pass
+        raise e
 
 # --- SERVIR ARQUIVOS ESTÁTICOS ---
 app.mount("/static", StaticFiles(directory="static"), name="static")

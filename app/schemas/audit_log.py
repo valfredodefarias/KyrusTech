@@ -13,7 +13,9 @@ class AuditLogItem(SQLModel):
     user_email: Optional[str] = None
     undone: bool = False
     is_undoable: bool = False
+    batch_id: Optional[str] = None
     created_at: datetime
+
 
 class AuditLogList(SQLModel):
     items: List[AuditLogItem]

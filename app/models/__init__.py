@@ -30,11 +30,14 @@ from app.models.usuario_conta_acesso import UsuarioContaAcesso
 from app.models.regra_cartao import RegraCartao
 from app.models.lote_cartao import LoteCartao
 from app.models.lote_cartao_item import LoteCartaoItem
-from app.models.movimento_ofx import MovimentoOFX
+from app.models.movimento import Movimento
 from app.models.baixa import Baixa
 from app.models.user_session import UserSession
 from app.models.idempotency_log import IdempotencyLog
 from app.models.regra_comissao import RegraComissao
 from app.models.meta_vendedor import MetaVendedor
+from app.models.alerta_anomalia import AlertaAnomalia
+from app.models.regra_silenciamento_auditor import RegraSilenciamentoAuditor
+
 
 

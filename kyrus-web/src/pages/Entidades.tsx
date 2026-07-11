@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
+import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
 import { 
   Plus, Search, Edit2, Trash2, X, Check, Users, Truck, Briefcase, Loader2, AlertCircle
@@ -140,8 +141,10 @@ export function Entidades() {
   const [total, setTotal] = useState(0);
   
   // Dados de Contexto (Empresa/Usuário)
-  const [empresaId, setEmpresaId] = useState<number>(0);
-  const [primaryColor, setPrimaryColor] = useState('#2563eb');
+  const storeUser = useAuthStore((state) => state.user);
+  const storeEmpresa = useAuthStore((state) => state.empresa);
+  const empresaId = storeUser?.empresa_id || 0;
+  const primaryColor = storeEmpresa?.cor_primaria || '#2563eb';
   
   // Modal & Form
   const [showModal, setShowModal] = useState(false);
@@ -188,23 +191,12 @@ export function Entidades() {
   async function carregarContexto() {
     setLoading(true);
     try {
-      // 1. Identificar Usuário e Empresa
-      const { data: user } = await api.get<UserInfo>('/usuarios/me');
-      setEmpresaId(user.empresa_id);
-
-      if (user.empresa_id) {
-        // 2. Aplicar Tema da Empresa
-        const { data: emp } = await api.get<EmpresaInfo>(`/empresas/${user.empresa_id}`);
-        if (emp.cor_primaria) {
-          setPrimaryColor(emp.cor_primaria);
-          // Injeta variável CSS para uso no Tailwind (ex: focus rings)
-          document.documentElement.style.setProperty('--tw-ring-color', emp.cor_primaria);
-        }
+      if (storeEmpresa?.cor_primaria) {
+        // Injeta variável CSS para uso no Tailwind (ex: focus rings)
+        document.documentElement.style.setProperty('--tw-ring-color', storeEmpresa.cor_primaria);
       }
-      
-      // 3. Carregar Lista de Entidades
+      // Carregar Lista de Entidades
       await carregarLista(0, pageSize, searchTerm);
-      
     } catch (e) { 
       console.error("Falha na inicialização:", e);
     } finally { 

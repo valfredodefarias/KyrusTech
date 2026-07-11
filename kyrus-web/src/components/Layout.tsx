@@ -8,15 +8,10 @@ import {
 import * as Icons from 'lucide-react';
 import { Sidebar, MobileSidebar } from './Sidebar';
 import { api, toPublicAssetUrl } from '../services/api';
-import { useAuthStore, type AuthUser } from '../store/authStore';
+import { useAuthStore, type AuthUser, type EmpresaInfo } from '../store/authStore';
 import { useTabStore, type TabItem, DEFAULT_TAB } from '../store/tabStore';
-
-interface EmpresaInfo {
-  id?: number;
-  nome_fantasia: string;
-  logo_url?: string | null;
-  cor_primaria?: string;
-}
+import { useLookupStore } from '../store/lookupStore';
+import { useTransactionStore } from '../store/transactionStore';
 
 interface ConsultorContextoResponse {
   empresa_atual: EmpresaInfo;
@@ -192,7 +187,8 @@ function LayoutShell() {
   });
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('theme') as 'dark' | 'light') || 'light');
   const [headerUser, setHeaderUser] = useState<AuthUser | null>(storedUser);
-  const [empresa, setEmpresa] = useState<EmpresaInfo | null>(null);
+  const empresa = useAuthStore((state) => state.empresa);
+  const setEmpresa = useAuthStore((state) => state.setEmpresa);
   const [now, setNow] = useState(() => Date.now());
   const [renewingSession, setRenewingSession] = useState(false);
   
@@ -216,16 +212,42 @@ function LayoutShell() {
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
 
+  const mainContentRef = useRef<HTMLElement>(null);
+  const [closedToastInfo, setClosedToastInfo] = useState<{ path: string; label: string } | null>(null);
+  const [dragOverTabIndex, setDragOverTabIndex] = useState<number | null>(null);
+
+  // Controlar o sumiço automático do toast de desfazer:
+  useEffect(() => {
+    if (closedToastInfo) {
+      const timer = setTimeout(() => setClosedToastInfo(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [closedToastInfo]);
+
   const handleCloseTab = useCallback((path: string, force = false) => {
+    const tabToClose = tabs.find((t) => t.path === path || t.basePath === path.split('?')[0]);
+    if (!tabToClose) return;
+
+    const label = tabToClose.label;
     const isActive = path === activeTabPath || path.split('?')[0] === activeTabPath.split('?')[0];
+    
     closeTab(path, force);
+    
     if (isActive) {
       setTimeout(() => {
         const nextActivePath = useTabStore.getState().activeTabPath;
         navigate(nextActivePath);
       }, 0);
     }
-  }, [activeTabPath, closeTab, navigate]);
+
+    // Monitorar se fechou de fato para acionar o toast de Undo
+    setTimeout(() => {
+      const stillExists = useTabStore.getState().tabs.some((t) => t.path === path || t.basePath === path.split('?')[0]);
+      if (!stillExists) {
+        setClosedToastInfo({ path, label });
+      }
+    }, 50);
+  }, [activeTabPath, closeTab, navigate, tabs]);
 
   const isBoletimEmbedMode = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -267,10 +289,44 @@ function LayoutShell() {
   useEffect(() => {
     const activeTab = tabs.find((t) => t.path === activeTabPath || t.basePath === activeTabPath.split('?')[0]);
     if (activeTab) {
-      document.title = `Kyrus ERP - ${activeTab.label}`;
+      const prefix = activeTab.dirty ? '● ' : '';
+      document.title = `${prefix}Kyrus ERP - ${activeTab.label}`;
     } else {
       document.title = 'Kyrus ERP';
     }
+  }, [activeTabPath, tabs]);
+
+  // Redefinir scroll para o topo ao alternar de aba
+  useEffect(() => {
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollTop = 0;
+    }
+  }, [activeTabPath]);
+
+  // Interceptador de clique global na fase de captura para bloquear transições se a aba ativa for dirty
+  useEffect(() => {
+    const handleGlobalClick = (e: MouseEvent) => {
+      const anchor = (e.target as HTMLElement).closest('a');
+      if (anchor) {
+        const href = anchor.getAttribute('href');
+        if (href && href.startsWith('/') && !href.startsWith('//')) {
+          const currentTab = tabs.find((t) => t.path === activeTabPath || t.basePath === activeTabPath.split('?')[0]);
+          if (currentTab && currentTab.dirty && href !== activeTabPath && href.split('?')[0] !== currentTab.basePath) {
+            const confirm = window.confirm(
+              `A aba atual "${currentTab.label}" possui alterações não salvas. Deseja realmente sair e perder o que digitou?`
+            );
+            if (!confirm) {
+              e.preventDefault();
+              e.stopPropagation();
+            } else {
+              useTabStore.getState().setTabDirty(currentTab.basePath, false);
+            }
+          }
+        }
+      }
+    };
+    document.addEventListener('click', handleGlobalClick, true);
+    return () => document.removeEventListener('click', handleGlobalClick, true);
   }, [activeTabPath, tabs]);
 
   // Sincronizar Rota -> Abas
@@ -288,6 +344,33 @@ function LayoutShell() {
       return () => clearTimeout(timer);
     }
   }, [location.pathname, location.search, openTab]);
+
+  // Função de navegação com confirmação de alterações pendentes (programática)
+  const handleNavigateToTab = useCallback((path: string) => {
+    const currentTab = tabs.find((t) => t.path === activeTabPath || t.basePath === activeTabPath.split('?')[0]);
+    if (currentTab && currentTab.dirty && path !== activeTabPath && path.split('?')[0] !== currentTab.basePath) {
+      const confirm = window.confirm(
+        `A aba atual "${currentTab.label}" possui alterações não salvas. Deseja realmente sair e perder o que digitou?`
+      );
+      if (!confirm) return;
+      useTabStore.getState().setTabDirty(currentTab.basePath, false);
+    }
+    navigate(path);
+    setActiveTab(path);
+  }, [activeTabPath, tabs, navigate, setActiveTab]);
+
+  // Wrapper seguro para atualizar abas
+  const handleSoftRefresh = useCallback((basePath: string) => {
+    const tab = tabs.find((t) => t.basePath === basePath);
+    if (tab && tab.dirty) {
+      const confirm = window.confirm(
+        `A aba "${tab.label}" possui alterações não salvas. Deseja realmente recarregar e perder o que digitou?`
+      );
+      if (!confirm) return;
+    }
+    useTabStore.getState().setTabDirty(basePath, false);
+    triggerRefresh(basePath);
+  }, [tabs, triggerRefresh]);
 
 
 
@@ -420,10 +503,36 @@ function LayoutShell() {
         activeEl.tagName === 'TEXTAREA' || 
         activeEl.getAttribute('contenteditable') === 'true'
       );
+
+      // ESC: Fechar modais abertos
+      if (e.key === 'Escape') {
+        if (showHelpModal) {
+          e.preventDefault();
+          setShowHelpModal(false);
+        }
+        if (showSearchModal) {
+          e.preventDefault();
+          setShowSearchModal(false);
+        }
+      }
+
       if (e.key === '?' && !isInputFocused) {
         e.preventDefault();
         setShowHelpModal((prev) => !prev);
         return;
+      }
+
+      // Alt + 1 a 9 / 0: Alternar para abas específicas
+      if (e.altKey && !e.shiftKey && !e.ctrlKey && !isInputFocused) {
+        const num = parseInt(e.key, 10);
+        if (!isNaN(num)) {
+          e.preventDefault();
+          const targetIdx = num === 0 ? tabs.length - 1 : num - 1;
+          const targetTab = tabs[targetIdx];
+          if (targetTab) {
+            handleNavigateToTab(targetTab.path);
+          }
+        }
       }
 
       // Atalhos baseados na tecla Alt
@@ -472,8 +581,7 @@ function LayoutShell() {
             const nextIdx = (activeIdx - 1 + tabs.length) % tabs.length;
             const nextTab = tabs[nextIdx];
             if (nextTab) {
-              navigate(nextTab.path);
-              setActiveTab(nextTab.path);
+              handleNavigateToTab(nextTab.path);
             }
           }
         }
@@ -485,8 +593,7 @@ function LayoutShell() {
             const nextIdx = (activeIdx + 1) % tabs.length;
             const nextTab = tabs[nextIdx];
             if (nextTab) {
-              navigate(nextTab.path);
-              setActiveTab(nextTab.path);
+              handleNavigateToTab(nextTab.path);
             }
           }
         }
@@ -594,6 +701,15 @@ function LayoutShell() {
   }, [searchQuery, searchResults]);
 
   const handleOpenSearchPage = (path: string) => {
+    const currentTab = tabs.find((t) => t.path === activeTabPath || t.basePath === activeTabPath.split('?')[0]);
+    if (currentTab && currentTab.dirty && path !== activeTabPath && path.split('?')[0] !== currentTab.basePath) {
+      const confirm = window.confirm(
+        `A aba atual "${currentTab.label}" possui alterações não salvas. Deseja realmente sair e perder o que digitou?`
+      );
+      if (!confirm) return;
+      useTabStore.getState().setTabDirty(currentTab.basePath, false);
+    }
+
     setShowSearchModal(false);
     
     // Salvar recente no localStorage
@@ -605,6 +721,7 @@ function LayoutShell() {
     } catch {}
 
     navigate(path);
+    setActiveTab(path);
   };
 
   const handleClearRecents = () => {
@@ -780,9 +897,24 @@ function LayoutShell() {
   const handleLogout = () => {
     api.post('/auth/logout').catch(() => undefined).finally(() => {
       clearSession();
+      useLookupStore.getState().clearStore();
+      useTransactionStore.getState().clearCache();
       logout();
       window.location.href = '/login';
     });
+  };
+
+  const handleHeaderSoftRefresh = () => {
+    useTransactionStore.getState().invalidate();
+    const lookup = useLookupStore.getState();
+    lookup.invalidateEntidades();
+    lookup.invalidateEntidadesLookup();
+    lookup.invalidatePlanoContas();
+    lookup.invalidateContas();
+    lookup.invalidateCentrosCusto();
+    
+    const activeTab = tabs.find((t) => t.path === activeTabPath || t.basePath === activeTabPath.split('?')[0]) || DEFAULT_TAB;
+    handleSoftRefresh(activeTab.basePath);
   };
 
   const handleRenewSession = async () => {
@@ -825,6 +957,7 @@ function LayoutShell() {
   // Menu de Contexto (Right Click)
   const handleContextMenu = (e: React.MouseEvent, path: string) => {
     e.preventDefault();
+    e.stopPropagation();
     const menuWidth = 170;
     const menuHeight = 220;
     
@@ -844,7 +977,13 @@ function LayoutShell() {
   useEffect(() => {
     const closeMenu = () => setActiveContextMenu(null);
     document.addEventListener('click', closeMenu);
-    return () => document.removeEventListener('click', closeMenu);
+    document.addEventListener('contextmenu', closeMenu);
+    window.addEventListener('blur', closeMenu);
+    return () => {
+      document.removeEventListener('click', closeMenu);
+      document.removeEventListener('contextmenu', closeMenu);
+      window.removeEventListener('blur', closeMenu);
+    };
   }, []);
 
   const handlePinTab = (path: string) => {
@@ -991,6 +1130,15 @@ function LayoutShell() {
 
             <div className="flex items-center gap-2">
               <button
+                onClick={() => { setShowSearchModal(true); setSearchQuery(''); setSelectedSearchIdx(0); }}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 md:hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1117]"
+                title="Buscar página"
+                aria-label="Buscar página"
+              >
+                <Search size={14} />
+              </button>
+
+              <button
                 onClick={toggleTheme}
                 className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-[#0d1117] dark:text-slate-350 dark:hover:bg-slate-900"
                 title={themeLabel}
@@ -998,6 +1146,16 @@ function LayoutShell() {
               >
                 {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
                 <span className="hidden lg:inline">{themeLabel}</span>
+              </button>
+
+              <button
+                onClick={handleHeaderSoftRefresh}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-[#0d1117] dark:text-slate-350 dark:hover:bg-slate-900"
+                title="Sincronizar dados (Soft Refresh)"
+                aria-label="Sincronizar dados (Soft Refresh)"
+              >
+                <RefreshCw size={13} />
+                <span className="hidden lg:inline">Sincronizar</span>
               </button>
 
               <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1 dark:border-slate-800 dark:bg-[#0d1117]">
@@ -1080,17 +1238,34 @@ function LayoutShell() {
                     draggable
                     onDragStart={(e) => handleDragStart(e, idx, tab.path)}
                     onDragEnd={handleDragEnd}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => handleDrop(e, idx)}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragOverTabIndex(idx);
+                    }}
+                    onDragLeave={() => {
+                      setDragOverTabIndex(null);
+                    }}
+                    onDrop={(e) => {
+                      handleDrop(e, idx);
+                      setDragOverTabIndex(null);
+                    }}
                     onContextMenu={(e) => handleContextMenu(e, tab.path)}
-                    onClick={() => { navigate(tab.path); setActiveTab(tab.path); }}
+                    onClick={() => {
+                      if (tab.path === activeTabPath) {
+                        if (mainContentRef.current) {
+                          mainContentRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
+                      } else {
+                        handleNavigateToTab(tab.path);
+                      }
+                    }}
                     onAuxClick={(e) => {
                       if (e.button === 1) { // Middle click
                         e.preventDefault();
                         handleCloseTab(tab.path);
                       }
                     }}
-                    onDoubleClick={() => triggerRefresh(tab.basePath)}
+                    onDoubleClick={() => handleSoftRefresh(tab.basePath)}
                     data-active={isActive ? 'true' : 'false'}
                     className={`
                       group relative flex h-[31px] items-center gap-2 px-3 border border-b-0 cursor-pointer text-xs transition-all select-none rounded-t-md font-medium border-slate-200 dark:border-slate-850/80 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none focus-visible:ring-blue-500
@@ -1098,6 +1273,7 @@ function LayoutShell() {
                         ? 'bg-white dark:bg-[#0d1117] text-slate-850 dark:text-white font-bold border-slate-200 dark:border-slate-850 border-t-2 z-10' 
                         : 'bg-slate-100/50 hover:bg-white/40 dark:bg-slate-900/30 dark:hover:bg-slate-900/60 text-slate-500 dark:text-slate-400'}
                       ${isGhost ? 'opacity-40 border-dashed border-slate-350 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50' : ''}
+                      ${dragOverTabIndex === idx ? 'border-r-2 border-r-blue-500' : ''}
                     `}
                     tabIndex={0}
                     style={isActive ? { borderTopColor: empresa?.cor_primaria || '#2563eb' } : undefined}
@@ -1173,15 +1349,15 @@ function LayoutShell() {
               {/* Botão de Favorito Star */}
               <button
                 onClick={() => toggleFavorite(activeTabPath)}
-                className={`p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 ${favorites.includes(activeTabPath) ? 'text-amber-500' : 'text-slate-400'}`}
-                title={favorites.includes(activeTabPath) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+                className={`p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 ${favorites.includes(activeTabPath.split('?')[0]) ? 'text-amber-500' : 'text-slate-400'}`}
+                title={favorites.includes(activeTabPath.split('?')[0]) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
               >
-                <Star size={13} fill={favorites.includes(activeTabPath) ? 'currentColor' : 'none'} />
+                <Star size={13} fill={favorites.includes(activeTabPath.split('?')[0]) ? 'currentColor' : 'none'} />
               </button>
 
               {/* Botão de Refresh */}
               <button
-                onClick={() => triggerRefresh(activeTabItem.basePath)}
+                onClick={() => handleSoftRefresh(activeTabItem.basePath)}
                 className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800"
                 title="Recarregar tela da aba (Soft Refresh)"
               >
@@ -1195,8 +1371,8 @@ function LayoutShell() {
         {isTabNavigating && (
           <div className="w-full h-[1.5px] bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0">
             <div 
-              className="h-full bg-blue-500 transition-all duration-300 animate-pulse"
-              style={{ width: '70%', backgroundColor: empresa?.cor_primaria || '#2563eb' }}
+              className="h-full bg-blue-500 animate-progress-bar"
+              style={{ backgroundColor: empresa?.cor_primaria || '#2563eb' }}
             />
           </div>
         )}
@@ -1254,8 +1430,14 @@ function LayoutShell() {
           <MobileSidebar open={mobileOpen} onClose={() => setMobileOpen(false)} />
           
           {/* Espaçamento Flush (padding 0) */}
-          <main className="min-w-0 flex-1 overflow-y-auto p-0">
-            <div key={activeTabItem.path} className="min-h-full w-full animate-tab-content">
+          <main ref={mainContentRef} className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-0 flex flex-col">
+            {!online && (
+              <div className="shrink-0 bg-rose-500/10 border-b border-rose-500/20 text-rose-700 dark:text-rose-450 px-4 py-1.5 text-[10px] font-semibold text-center flex justify-center items-center gap-2 animate-in slide-in-from-top-1 duration-200">
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping shrink-0" />
+                <span>Modo Offline: Você está desconectado da internet. A sincronização de dados e novas ações estão temporariamente suspensas.</span>
+              </div>
+            )}
+            <div key={activeTabItem.path} className="min-h-full w-full animate-tab-content flex-1 flex flex-col">
               {/* RENDERIZADOR CONDICIONAL DE ABA COM ERROR BOUNDARY E CHAVE DE SOFT REFRESH */}
               {!online && !activeTabItem.visited ? (
                 <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh] bg-white dark:bg-[#0d1117] rounded-md m-6 border border-dashed border-slate-200 dark:border-slate-800">
@@ -1281,6 +1463,13 @@ function LayoutShell() {
             style={{ top: activeContextMenu.y, left: activeContextMenu.x }}
           >
             <button
+              onClick={() => handleCloseTab(activeContextMenu.path)}
+              className="flex w-full px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-left gap-2 items-center justify-between"
+            >
+              <span className="flex items-center gap-2"><X size={11} /> <span>Fechar Aba</span></span>
+              <kbd className="text-[9px] text-slate-400 bg-slate-100 dark:bg-slate-800 px-1 rounded">Alt W</kbd>
+            </button>
+            <button
               onClick={() => handlePinTab(activeContextMenu.path)}
               className="flex w-full px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-left gap-2 items-center justify-between"
             >
@@ -1291,7 +1480,14 @@ function LayoutShell() {
               onClick={() => toggleFavorite(activeContextMenu.path)}
               className="flex w-full px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-left gap-2 items-center justify-between"
             >
-              <span className="flex items-center gap-2"><Star size={11} /> <span>Favoritar</span></span>
+              <span className="flex items-center gap-2">
+                <Star
+                  size={11}
+                  fill={favorites.includes(activeContextMenu.path.split('?')[0]) ? 'currentColor' : 'none'}
+                  className={favorites.includes(activeContextMenu.path.split('?')[0]) ? 'text-amber-500' : ''}
+                />
+                <span>{favorites.includes(activeContextMenu.path.split('?')[0]) ? 'Remover Favorito' : 'Favoritar'}</span>
+              </span>
               <kbd className="text-[9px] text-slate-400 bg-slate-100 dark:bg-slate-800 px-1 rounded">Alt S</kbd>
             </button>
             <button
@@ -1383,6 +1579,14 @@ function LayoutShell() {
                 <div className="flex justify-between items-center">
                   <span>Fechar todas as abas</span>
                   <kbd className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">Alt + Shift + W</kbd>
+                </div>
+                <div className="flex justify-between items-center text-blue-500 font-bold dark:text-blue-400">
+                  <span>Alternar para aba 1 a 9 / Última</span>
+                  <kbd className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">Alt + 1...9 / 0</kbd>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span>Fechar modal / paleta de busca</span>
+                  <kbd className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">ESC</kbd>
                 </div>
                 <div className="flex justify-between items-center">
                   <span>Abrir este painel de ajuda</span>
@@ -1608,8 +1812,7 @@ function LayoutShell() {
                     <div
                       key={tab.path}
                       onClick={() => {
-                        navigate(tab.path);
-                        setActiveTab(tab.path);
+                        handleNavigateToTab(tab.path);
                         setMobileTabsOpen(false);
                       }}
                       className={`
@@ -1655,6 +1858,21 @@ function LayoutShell() {
           <div className="fixed bottom-4 right-4 z-50 bg-slate-900 text-white dark:bg-slate-800 text-xs font-semibold px-4 py-2.5 rounded-md shadow-lg flex items-center gap-2 animate-tab-fade border border-slate-200 dark:border-slate-700">
             <AlertTriangle size={14} className="text-amber-500 shrink-0" />
             <span>Aba "{prunedToastName}" arquivada para liberação de memória (limite de 12 abas).</span>
+          </div>
+        )}
+
+        {closedToastInfo && (
+          <div className="fixed bottom-4 right-4 z-50 bg-slate-900 text-white dark:bg-slate-800 text-xs font-semibold px-4 py-2.5 rounded-md shadow-lg flex items-center justify-between gap-3 animate-tab-fade border border-slate-200 dark:border-slate-700">
+            <span className="truncate">Aba "{closedToastInfo.label}" fechada.</span>
+            <button
+              onClick={() => {
+                useTabStore.getState().reopenLastTab();
+                setClosedToastInfo(null);
+              }}
+              className="text-blue-400 hover:text-blue-300 font-bold underline ml-2 cursor-pointer"
+            >
+              Desfazer
+            </button>
           </div>
         )}
 

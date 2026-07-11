@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { StateStorage } from 'zustand/middleware';
 import { api } from '../services/api';
+import { useAuthStore } from './authStore';
 
 // Custom IndexedDB Storage Driver
 const dbName = 'kyrus-pdv-db';
@@ -91,6 +92,7 @@ export interface Sale {
   centroCustoNome?: string;
   itensNomes?: string;
   dataHoraLocal?: string; // ISO String
+  empresa_id?: number;
 }
 
 interface PosState {
@@ -118,10 +120,14 @@ export const usePosStore = create<PosState>()(
               return v.toString(16);
             });
 
+        const authState = useAuthStore.getState();
+        const companyId = authState.empresa?.id ?? authState.user?.empresa_id;
+
         const newSale: Sale = {
           ...saleData,
           idempotency_key,
-          dataHoraLocal: new Date().toISOString()
+          dataHoraLocal: new Date().toISOString(),
+          empresa_id: companyId ? Number(companyId) : undefined
         };
 
         set((state) => ({
@@ -145,6 +151,13 @@ export const usePosStore = create<PosState>()(
 
         for (const sale of queue) {
           try {
+            const syncHeaders: Record<string, string> = {
+              'X-Idempotency-Key': sale.idempotency_key,
+            };
+            if (sale.empresa_id) {
+              syncHeaders['X-Company-ID'] = String(sale.empresa_id);
+            }
+
             // Envia a venda ao backend
             const response = await api.post('/pdv/vendas', {
               entidade_id: sale.entidade_id,
@@ -159,9 +172,7 @@ export const usePosStore = create<PosState>()(
               observacao: sale.observacao,
               comprovante_urls: sale.comprovante_urls || []
             }, {
-              headers: {
-                'X-Idempotency-Key': sale.idempotency_key,
-              },
+              headers: syncHeaders,
             });
 
             const createdSale = response.data;
@@ -181,10 +192,15 @@ export const usePosStore = create<PosState>()(
                 formDataUpload.append('files', blob, fileData.name);
               }
 
+              const uploadHeaders: Record<string, string> = {
+                'Content-Type': 'multipart/form-data',
+              };
+              if (sale.empresa_id) {
+                uploadHeaders['X-Company-ID'] = String(sale.empresa_id);
+              }
+
               await api.post(`/pdv/vendas/${targetUuid}/comprovante`, formDataUpload, {
-                headers: {
-                  'Content-Type': 'multipart/form-data',
-                },
+                headers: uploadHeaders,
               });
             }
           } catch (error: any) {

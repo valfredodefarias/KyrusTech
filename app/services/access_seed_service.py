@@ -100,6 +100,10 @@ TEMPLATE_PROFILE_CODES: dict[str, dict[str, Any]] = {
         "name": "Template - Vendedor",
         "description": "Template para vendedores com acesso ao PDV e metas",
     },
+    "TEMPLATE_AUDITOR": {
+        "name": "Template - Auditor",
+        "description": "Template com acesso total de leitura (Read-only)",
+    },
 }
 
 
@@ -162,6 +166,26 @@ def _template_permission_codes() -> dict[str, set[str]]:
     boletim_codes = {"page:home:view", "page:boletim:view", "page:dre:view", "auditoria:view"}
     home_codes = {"page:home:view"}
     vendedor_codes = {"page:home:view", "page:caixa:view", PdvPermission.PDV_SER_VENDEDOR.value}
+    auditor_codes = {
+        "page:home:view",
+        "page:boletim:view",
+        "page:dre:view",
+        "page:lancamentos:view",
+        "page:contas:view",
+        "page:cartoes:view",
+        "page:caixa:view",
+        "page:entidades:view",
+        "page:centro_custo:view",
+        "page:importacao:view",
+        "page:importacao_entidades:view",
+        "page:importacao_ofx:view",
+        "page:importacao_nfe:view",
+        "page:configuracoes:view",
+        "page:auditoria:view",
+        "plano_contas:view",
+        "integracoes:view",
+        "auditoria:view"
+    }
 
     return {
         "TEMPLATE_FULL_ACCESS": {item["code"] for item in PERMISSION_CATALOG if item["code"] != "empresa:reset_base"},
@@ -169,6 +193,7 @@ def _template_permission_codes() -> dict[str, set[str]]:
         "TEMPLATE_BOLETIM": boletim_codes,
         "TEMPLATE_HOME": home_codes,
         "TEMPLATE_VENDEDOR": vendedor_codes,
+        "TEMPLATE_AUDITOR": auditor_codes,
     }
 
 

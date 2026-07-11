@@ -33,6 +33,7 @@ from app.models.centro_custo import CentroCusto
 from app.models.entidade import Entidade
 from app.models.anexo_lancamento import AnexoLancamento
 from app.models.import_job import ImportJob
+from app.core.network import get_client_ip
 
 # Dependências de Usuário e Empresa
 from app.api.deps import get_current_user, get_empresa_id_from_user, require_permission
@@ -1564,20 +1565,79 @@ def listar_lancamentos(
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """Lista lançamentos com paginação."""
+    logger.info(f"[listar_lancamentos] Chamado para empresa_id={empresa_id} minimized={minimized} sem_paginacao={sem_paginacao}")
     safe_limit = max(1, min(limit, 10000))
     safe_skip = max(skip, 0)
 
-    # Always load the related `entidade` for export/usage; load anexos only when requested.
+    cache_key = None
     if minimized:
-        load_options = [noload(cast(Any, Lancamento.entidade)), noload(cast(Any, Lancamento.anexos))]
+        from app.core.cache import IS_TESTING
+        if not IS_TESTING:
+            import hashlib
+            import time
+            key_parts = [
+                str(skip), str(limit),
+                str(data_inicio), str(data_fim),
+                str(conta_id), str(cartao_id),
+                str(include_anexos), str(sem_paginacao),
+                str(somente_pagos), str(tipo),
+                str(origem), str(status),
+                str(conciliado), str(ocultar_vendas_cartao_pendentes),
+                str(incluir_demonstracoes), str(incluir_importacao_legada)
+            ]
+            cache_key = hashlib.md5(":".join(key_parts).encode("utf-8")).hexdigest()
+            from app.core.cache import get_transaction_cache
+            cached_json = get_transaction_cache(empresa_id, cache_key)
+            if cached_json is not None:
+                return Response(content=cached_json, media_type="application/json")
+
+    if minimized:
+        from sqlalchemy import func, cast as sa_cast, Float
+        
+        is_sqlite = False
+        try:
+            is_sqlite = db.bind.dialect.name == "sqlite"
+        except Exception:
+            pass
+
+        if is_sqlite:
+            date_venc = func.strftime('%Y-%m-%d', Lancamento.data_vencimento).label("data_vencimento")
+            date_pag = func.strftime('%Y-%m-%d', Lancamento.data_pagamento).label("data_pagamento")
+            date_comp = func.strftime('%Y-%m-%d', Lancamento.data_competencia).label("data_competencia")
+        else:
+            date_venc = func.to_char(Lancamento.data_vencimento, 'YYYY-MM-DD').label("data_vencimento")
+            date_pag = func.to_char(Lancamento.data_pagamento, 'YYYY-MM-DD').label("data_pagamento")
+            date_comp = func.to_char(Lancamento.data_competencia, 'YYYY-MM-DD').label("data_competencia")
+
+        query = select(
+            Lancamento.id,
+            Lancamento.descricao,
+            Lancamento.tipo,
+            Lancamento.status,
+            Lancamento.origem,
+            Lancamento.observacao,
+            Lancamento.id_parcelamento,
+            date_venc,
+            date_pag,
+            date_comp,
+            Lancamento.competencia,
+            sa_cast(Lancamento.valor_previsto, Float).label("valor_previsto"),
+            sa_cast(Lancamento.valor_pago, Float).label("valor_pago"),
+            Lancamento.plano_contas_id,
+            Lancamento.conta_id,
+            Lancamento.entidade_id,
+            Lancamento.centro_custo_id,
+        ).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False
+        )
     else:
         load_options = [selectinload(cast(Any, Lancamento.entidade))]
         load_options.append(selectinload(cast(Any, Lancamento.anexos)) if include_anexos else noload(cast(Any, Lancamento.anexos)))
-
-    query = select(Lancamento).options(*load_options).where(
-        Lancamento.empresa_id == empresa_id,
-        Lancamento.is_deleted == False
-    )
+        query = select(Lancamento).options(*load_options).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False
+        )
 
     if not incluir_demonstracoes:
         query = query.where(
@@ -1651,29 +1711,36 @@ def listar_lancamentos(
         query = query.offset(safe_skip).limit(safe_limit)
 
     results = db.exec(query).all()
+    logger.info(f"[listar_lancamentos] Query executada. Linhas retornadas: {len(results)}")
     if minimized:
         minimized_data = []
-        for item in results:
+        for row in results:
             minimized_data.append({
-                "id": item.id,
-                "descricao": item.descricao,
-                "tipo": item.tipo,
-                "status": item.status,
-                "origem": item.origem,
-                "observacao": item.observacao,
-                "id_parcelamento": item.id_parcelamento,
-                "data_vencimento": item.data_vencimento.isoformat() if item.data_vencimento else None,
-                "data_pagamento": item.data_pagamento.isoformat() if item.data_pagamento else None,
-                "data_competencia": item.data_competencia.isoformat() if item.data_competencia else None,
-                "competencia": item.competencia,
-                "valor_previsto": float(item.valor_previsto) if item.valor_previsto is not None else 0.0,
-                "valor_pago": float(item.valor_pago) if item.valor_pago is not None else 0.0,
-                "plano_contas_id": item.plano_contas_id,
-                "conta_id": item.conta_id,
-                "entidade_id": item.entidade_id,
-                "centro_custo_id": item.centro_custo_id,
+                "id": row.id,
+                "descricao": row.descricao,
+                "tipo": row.tipo,
+                "status": row.status,
+                "origem": row.origem,
+                "observacao": row.observacao,
+                "id_parcelamento": row.id_parcelamento,
+                "data_vencimento": row.data_vencimento,
+                "data_pagamento": row.data_pagamento,
+                "data_competencia": row.data_competencia,
+                "competencia": row.competencia,
+                "valor_previsto": row.valor_previsto or 0.0,
+                "valor_pago": row.valor_pago or 0.0,
+                "plano_contas_id": row.plano_contas_id,
+                "conta_id": row.conta_id,
+                "entidade_id": row.entidade_id,
+                "centro_custo_id": row.centro_custo_id,
             })
-        return JSONResponse(content=minimized_data)
+        import json
+        json_content = json.dumps(minimized_data)
+        from app.core.cache import IS_TESTING
+        if not IS_TESTING and cache_key:
+            from app.core.cache import set_transaction_cache
+            set_transaction_cache(empresa_id, cache_key, json_content)
+        return Response(content=json_content, media_type="application/json")
 
     if not include_anexos:
         for item in results:

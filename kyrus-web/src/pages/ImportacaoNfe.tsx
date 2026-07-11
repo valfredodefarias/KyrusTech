@@ -751,7 +751,7 @@ export function ImportacaoNfe() {
       setLoadingFornecedores(true);
       setErroFornecedores(null);
       try {
-        const { data } = await api.get<EntidadeFornecedorOption[]>('/entidades/');
+        const { data } = await api.get<EntidadeFornecedorOption[]>('/entidades/lookup');
         if (!ativo) return;
 
         const fornecedoresFiltrados = normalizeListResponse<EntidadeFornecedorOption>(data)

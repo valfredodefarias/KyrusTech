@@ -78,18 +78,19 @@ class LancamentoUpdate(SQLModel):
     numero_parcela: Optional[int] = None
     id_parcelamento: Optional[str] = None
 
-class MovimentoOFXRead(SQLModel):
+class MovimentoRead(SQLModel):
     id: int
     descricao: str
     valor: Decimal
     data: date
+    origem: str
 
 class BaixaRead(SQLModel):
     id: int
     valor_pago: Decimal
     data_baixa: date
     tipo_baixa: str
-    movimento_ofx: Optional[MovimentoOFXRead] = None
+    movimento: Optional[MovimentoRead] = None
 
 # --- READ ---
 class LancamentoRead(LancamentoBase, AuditReadMixin):

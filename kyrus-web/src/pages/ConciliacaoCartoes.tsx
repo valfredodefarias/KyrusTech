@@ -369,7 +369,7 @@ export function ConciliacaoCartoes() {
         api.get('/pdv/regras-cartao'),
         api.get('/contas/', { params: { include_saldo: false } }),
         api.get('/plano-contas/'),
-        api.get('/entidades/'),
+        api.get('/entidades/lookup'),
         api.get('/usuarios/vendedores')
       ]);
 

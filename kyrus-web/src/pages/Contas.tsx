@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
+import { useAuthStore } from '../store/authStore';
 import { BankAvatar } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
@@ -254,7 +255,8 @@ export function Contas() {
   const [categorias, setCategorias] = useState<PlanoContas[]>([]);
   
   // Tema Personalizado
-  const [primaryColor, setPrimaryColor] = useState('#2563eb'); // Azul padrão (fallback)
+  const empresa = useAuthStore((state) => state.empresa);
+  const primaryColor = empresa?.cor_primaria || '#2563eb';
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState('');
@@ -479,7 +481,6 @@ export function Contas() {
 
   useEffect(() => {
     carregarDados();
-    carregarTema();
     carregarUsuarios();
   }, []);
 
@@ -533,24 +534,7 @@ export function Contas() {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  // --- TEMA DINÂMICO ---
-  async function carregarTema() {
-    try {
-      // 1. Pega ID da empresa do usuário logado
-      const { data: user } = await api.get<UserData>('/usuarios/me');
-      if (user.empresa_id) {
-        // 2. Pega a cor da empresa
-        const { data: emp } = await api.get<EmpresaData>(`/empresas/${user.empresa_id}`);
-        if (emp.cor_primaria) {
-          setPrimaryColor(emp.cor_primaria);
-          // 3. Injeta a variável CSS para que o Tailwind (bg-[var(--color-primary)]) funcione
-          document.documentElement.style.setProperty('--color-primary', emp.cor_primaria);
-        }
-      }
-    } catch (error) {
-      console.error("Erro ao carregar tema", error);
-    }
-  }
+
 
   async function carregarDados() {
     setLoading(true);

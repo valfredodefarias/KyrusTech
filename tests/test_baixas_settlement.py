@@ -14,7 +14,7 @@ from app.models.conta import Conta
 from app.models.centro_custo import CentroCusto
 from app.models.plano_contas import PlanoContas
 from app.models.lancamento import Lancamento
-from app.models.movimento_ofx import MovimentoOFX
+from app.models.movimento import Movimento
 from app.models.baixa import Baixa
 
 @pytest.fixture(name="setup_baixas_db")
@@ -134,8 +134,8 @@ def test_conciliation_one_to_many(client: TestClient, session: Session, setup_ba
             session.add_all([p1, p2])
             session.flush()
 
-            # Create the MovimentoOFX
-            mov = MovimentoOFX(
+            # Create the Movimento
+            mov = Movimento(
                 descricao="DEPOSITO LOTE CLIENTE",
                 valor=Decimal("2500.00"),
                 tipo="RECEITA",
@@ -155,7 +155,7 @@ def test_conciliation_one_to_many(client: TestClient, session: Session, setup_ba
                 "ignorar_divergencia": True,
                 "conciliacoes": [
                     {
-                        "movimento_ofx_id": mov.id,
+                        "movimento_id": mov.id,
                         "alocacoes": [
                             {"lancamento_id": p1.id, "valor_alocado": 1500.00, "tipo_baixa": "PRINCIPAL"},
                             {"lancamento_id": p2.id, "valor_alocado": 1000.00, "tipo_baixa": "PRINCIPAL"}
@@ -182,7 +182,7 @@ def test_conciliation_one_to_many(client: TestClient, session: Session, setup_ba
             assert p2.conciliado is True
 
             # Verify baixas were created
-            baixas = session.exec(select(Baixa).where(Baixa.movimento_ofx_id == mov.id)).all()
+            baixas = session.exec(select(Baixa).where(Baixa.movimento_id == mov.id)).all()
             assert len(baixas) == 2
             assert {b.lancamento_id for b in baixas} == {p1.id, p2.id}
             assert sum(b.valor_pago for b in baixas) == Decimal("2500.00")
@@ -229,7 +229,7 @@ def test_conciliation_many_to_one_partial(client: TestClient, session: Session, 
             session.flush()
 
             # Create two separate bank movements of 1500.00 each
-            mov1 = MovimentoOFX(
+            mov1 = Movimento(
                 descricao="PIX PARCELA 1",
                 valor=Decimal("1500.00"),
                 tipo="RECEITA",
@@ -239,7 +239,7 @@ def test_conciliation_many_to_one_partial(client: TestClient, session: Session, 
                 empresa_id=1,
                 conta_id=1
             )
-            mov2 = MovimentoOFX(
+            mov2 = Movimento(
                 descricao="PIX PARCELA 2",
                 valor=Decimal("1500.00"),
                 tipo="RECEITA",
@@ -259,7 +259,7 @@ def test_conciliation_many_to_one_partial(client: TestClient, session: Session, 
                 "ignorar_divergencia": True,
                 "conciliacoes": [
                     {
-                        "movimento_ofx_id": mov1.id,
+                        "movimento_id": mov1.id,
                         "alocacoes": [
                             {"lancamento_id": p.id, "valor_alocado": 1500.00, "tipo_baixa": "PRINCIPAL"}
                         ]
@@ -283,7 +283,7 @@ def test_conciliation_many_to_one_partial(client: TestClient, session: Session, 
                 "ignorar_divergencia": True,
                 "conciliacoes": [
                     {
-                        "movimento_ofx_id": mov2.id,
+                        "movimento_id": mov2.id,
                         "alocacoes": [
                             {"lancamento_id": p.id, "valor_alocado": 1500.00, "tipo_baixa": "PRINCIPAL"}
                         ]
@@ -342,7 +342,7 @@ def test_gold_lock_validation_error(client: TestClient, session: Session, setup_
             session.add(p)
             session.flush()
 
-            mov = MovimentoOFX(
+            mov = Movimento(
                 descricao="TARIFA BANCARIA",
                 valor=Decimal("99.90"),  # Mismatch by 10 cents
                 tipo="DESPESA",
@@ -361,7 +361,7 @@ def test_gold_lock_validation_error(client: TestClient, session: Session, setup_
                 "ignorar_divergencia": True,
                 "conciliacoes": [
                     {
-                        "movimento_ofx_id": mov.id,
+                        "movimento_id": mov.id,
                         "alocacoes": [
                             {"lancamento_id": p.id, "valor_alocado": 100.00, "tipo_baixa": "PRINCIPAL"}
                         ]
@@ -415,7 +415,7 @@ def test_conciliation_lock_and_unconciliate(client: TestClient, session: Session
             session.flush()
 
             # Create a movement
-            mov = MovimentoOFX(
+            mov = Movimento(
                 descricao="DIVERSOS NET COM",
                 valor=Decimal("-150.00"),
                 tipo="DESPESA",
@@ -432,7 +432,7 @@ def test_conciliation_lock_and_unconciliate(client: TestClient, session: Session
             baixa = Baixa(
                 empresa_id=1,
                 lancamento_id=l.id,
-                movimento_ofx_id=mov.id,
+                movimento_id=mov.id,
                 valor_pago=Decimal("150.00"),
                 tipo_baixa="PRINCIPAL",
                 data_baixa=date(2026, 6, 15),

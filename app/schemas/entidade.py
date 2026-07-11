@@ -78,6 +78,7 @@ class EntidadeRead(EntidadeBase, AuditReadMixin):
 class EntidadeLookup(SQLModel):
     id: int
     nome: str
+    nome_fantasia: Optional[str] = None
     tipo: str = "AMBOS"
     tipo_pessoa: str = "PJ"
     cpf_cnpj: Optional[str] = None

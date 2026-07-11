@@ -68,32 +68,21 @@ def _sanitize_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def _ensure_table(db: Session) -> None:
-    bind = db.get_bind()
-    if inspect(bind).has_table("bank_preset_configs"):
-        return
-    SQLModel.metadata.create_all(bind=bind)
-
-
 def _ensure_config(db: Session) -> BankPresetConfig:
-    _ensure_table(db)
     config = db.exec(select(BankPresetConfig).where(BankPresetConfig.config_key == AUTO_ADJUST_CONFIG_KEY)).first()
     if config:
         config.items = _sanitize_payload(config.items if isinstance(config.items, dict) else {})
         db.add(config)
-        db.commit()
-        db.refresh(config)
+        db.flush()
         return config
 
     config = BankPresetConfig(config_key=AUTO_ADJUST_CONFIG_KEY, items=deepcopy(DEFAULT_CONFIG))  # type: ignore[call-arg]
     db.add(config)
-    db.commit()
-    db.refresh(config)
+    db.flush()
     return config
 
 
 def _ensure_company_config(db: Session, *, empresa_id: int, base_defaults: dict[str, Any]) -> BankPresetConfig:
-    _ensure_table(db)
     key = _company_key(empresa_id)
     config = db.exec(select(BankPresetConfig).where(BankPresetConfig.config_key == key)).first()
     sanitized_defaults = {
@@ -107,14 +96,12 @@ def _ensure_company_config(db: Session, *, empresa_id: int, base_defaults: dict[
             "descontos": _normalize_item(current.get("descontos") or {}, sanitized_defaults["descontos"]),
         }
         db.add(config)
-        db.commit()
-        db.refresh(config)
+        db.flush()
         return config
 
     config = BankPresetConfig(config_key=key, items=sanitized_defaults)  # type: ignore[call-arg]
     db.add(config)
-    db.commit()
-    db.refresh(config)
+    db.flush()
     return config
 
 

@@ -30,7 +30,7 @@ from app.models.cartao import Cartao
 from app.models.centro_custo import CentroCusto
 from app.models.entidade import Entidade
 from app.models.plano_contas import PlanoContas
-from app.models.movimento_ofx import MovimentoOFX
+from app.models.movimento import Movimento
 from app.models.baixa import Baixa
 
 
@@ -239,7 +239,7 @@ class LancamentoImportado(BaseModel):
     lancamento_previsto_resumo: Optional[RelacionamentoResumo] = None
     lancamentos_atrasados_resumo: List[RelacionamentoResumo] = Field(default_factory=list)
     duplicata_resumo: Optional[DuplicataResumo] = None
-    movimento_ofx_id: Optional[int] = None
+    movimento_id: Optional[int] = None
 
 
 
@@ -1651,6 +1651,7 @@ def upload_ofx(
     conta_id: Optional[int] = Query(None),
     cartao_id: Optional[int] = Query(None),
     centro_custo_id: Optional[int] = Query(None),
+    forcar_importacao: bool = Query(False),
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
@@ -1695,6 +1696,39 @@ def upload_ofx(
             )
         lancamentos_raw = processar_ofx(conteudo, empresa_id)
         
+        # Validar conta/agência do OFX contra a selecionada
+        if not modo_cartao and conta and lancamentos_raw:
+            primeiro = lancamentos_raw[0]
+            ofx_branch = primeiro.get("ofx_agencia")
+            ofx_acct = primeiro.get("ofx_conta_numero")
+            
+            def clean_num(s):
+                return re.sub(r"\D+", "", str(s or ""))
+
+            target_agencia = clean_num(conta.agencia)
+            target_conta = clean_num(conta.conta_numero)
+            
+            ofx_branch_clean = clean_num(ofx_branch)
+            ofx_acct_clean = clean_num(ofx_acct)
+
+            mismatch_agencia = target_agencia and ofx_branch_clean and target_agencia != ofx_branch_clean
+            mismatch_conta = target_conta and ofx_acct_clean and target_conta != ofx_acct_clean
+
+            if (mismatch_agencia or mismatch_conta) and not forcar_importacao:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "code": "CONTA_DIVERGENTE",
+                        "message": f"O arquivo OFX pertence à agência {ofx_branch or '(N/A)'} e conta {ofx_acct or '(N/A)'}, mas a conta selecionada é {conta.nome} (Ag: {conta.agencia or 'N/A'}, Cc: {conta.conta_numero or 'N/A'}). Deseja continuar mesmo assim?",
+                        "ofx_agencia": ofx_branch,
+                        "ofx_conta": ofx_acct,
+                        "conta_selecionada_nome": conta.nome,
+                        "conta_selecionada_agencia": conta.agencia,
+                        "conta_selecionada_numero": conta.conta_numero
+                    }
+                )
+
+        
         # Calcular gap de datas
         gap_detectado = False
         gap_data_ultimo = None
@@ -1703,9 +1737,9 @@ def upload_ofx(
 
         if not modo_cartao and conta_db_id > 0 and lancamentos_raw:
             ultimo_mov = db.exec(
-                select(MovimentoOFX)
-                .where(MovimentoOFX.conta_id == conta_db_id, MovimentoOFX.empresa_id == empresa_id)
-                .order_by(MovimentoOFX.data.desc(), MovimentoOFX.id.desc())
+                select(Movimento)
+                .where(Movimento.conta_id == conta_db_id, Movimento.empresa_id == empresa_id)
+                .order_by(Movimento.data.desc(), Movimento.id.desc())
             ).first()
             if ultimo_mov:
                 datas_arquivo = [l["data"] for l in lancamentos_raw if l.get("data")]
@@ -1832,33 +1866,49 @@ def upload_ofx(
             )
             lanc_raw["import_hash"] = hash_item
 
-            # Persistir MovimentoOFX no banco de dados se não existir
-            existing_mov = db.exec(
-                select(MovimentoOFX).where(
-                    MovimentoOFX.empresa_id == empresa_id,
-                    MovimentoOFX.import_hash == hash_item
+        # Otimização N+1: Buscar todos os movimentos existentes em lote
+        hashes = [l["import_hash"] for l in lancamentos_raw if l.get("import_hash")]
+        existing_movs = {}
+        if hashes:
+            movs_db = db.exec(
+                select(Movimento).where(
+                    Movimento.empresa_id == empresa_id,
+                    Movimento.import_hash.in_(hashes)
                 )
-            ).first()
+            ).all()
+            existing_movs = {m.import_hash: m for m in movs_db}
+
+        # Segunda passada para persistência
+        from app.services.auditor_anomalia_service import AuditorAnomaliaService
+        auditor = AuditorAnomaliaService(db)
+        for lanc_raw in lancamentos_raw:
+            hash_item = lanc_raw["import_hash"]
+            existing_mov = existing_movs.get(hash_item)
             
             if not existing_mov:
                 from app.services.importacao_bancaria_service import parsear_data
                 data_mov = parsear_data(lanc_raw["data_pagamento"]) if lanc_raw.get("data_pagamento") else parsear_data(lanc_raw.get("data") or "")
-                existing_mov = MovimentoOFX(
+                existing_mov = Movimento(
                     descricao=lanc_raw["descricao"],
                     valor=Decimal(str(lanc_raw["valor"])),
                     tipo=lanc_raw["tipo"],
                     data=data_mov or date.today(),
                     import_hash=hash_item,
                     status="ABERTO",
+                    origem="OFX" if not modo_cartao else "CARTAO",
                     empresa_id=empresa_id,
                     conta_id=conta_db_id,
                 )
                 db.add(existing_mov)
                 db.flush()
+                # Atualiza o cache local para caso haja hashes duplicados dentro do próprio arquivo
+                existing_movs[hash_item] = existing_mov
+                auditor.analisar_movimento(existing_mov)
             
-            lanc_raw["movimento_ofx_id"] = existing_mov.id
+            lanc_raw["movimento_id"] = existing_mov.id
 
         db.commit()
+
 
 
         duplicatas_por_hash = _carregar_duplicatas_por_hash(
@@ -2037,16 +2087,16 @@ def upload_ofx(
 
                 import_hash_atual = str(lanc_raw.get("import_hash") or "")
                 duplicata = None
-                mov_ofx = db.exec(
-                    select(MovimentoOFX).where(
-                        MovimentoOFX.empresa_id == empresa_id,
-                        MovimentoOFX.import_hash == import_hash_atual
+                mov = db.exec(
+                    select(Movimento).where(
+                        Movimento.empresa_id == empresa_id,
+                        Movimento.import_hash == import_hash_atual
                     )
                 ).first()
-                if mov_ofx and mov_ofx.status == "CONCILIADO":
+                if mov and mov.status == "CONCILIADO":
                     baixa_rel = db.exec(
                         select(Baixa).where(
-                            Baixa.movimento_ofx_id == mov_ofx.id,
+                            Baixa.movimento_id == mov.id,
                             Baixa.is_deleted == False
                         )
                     ).first()
@@ -2179,12 +2229,15 @@ def upload_ofx(
 
         
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Erro ao processar OFX: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Erro ao processar arquivo: {str(e)}"
         )
+
 
 
 def _resolver_conta_e_centro(
@@ -2456,7 +2509,7 @@ class AlocacaoItem(BaseModel):
 
 
 class ConciliacaoMovimento(BaseModel):
-    movimento_ofx_id: int
+    movimento_id: int
     alocacoes: List[AlocacaoItem]
 
 
@@ -2471,6 +2524,8 @@ class ConfirmarLancamentosRequest(BaseModel):
     ignorar_divergencia: bool = False
     saldo_ofx: Optional[Decimal] = None
     saldo_ofx_data: Optional[date] = None
+    filename: Optional[str] = None
+
 
 
 @router.post(
@@ -2482,7 +2537,18 @@ def confirmar_lancamentos(
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
+    import uuid
+    from app.core.audit_context import set_audit_batch_id
+    
+    filename_str = request.filename or "extrato.ofx"
+    clean_filename = filename_str.replace(":", "_").replace("/", "_")
+    now_str = datetime.utcnow().strftime("%d/%m/%Y %H:%M")
+    batch_id = f"OFX:{clean_filename}:{now_str}:{uuid.uuid4().hex[:6]}"
+    
+    set_audit_batch_id(batch_id)
+
     lancamentos_criados = 0
+
     lancamentos_atualizados = 0
     erros: List[str] = []
     
@@ -2643,13 +2709,13 @@ def confirmar_lancamentos(
         for conc in request.conciliacoes:
             try:
                 movimento = db.exec(
-                    select(MovimentoOFX)
-                    .where(MovimentoOFX.id == conc.movimento_ofx_id, MovimentoOFX.empresa_id == empresa_id)
+                    select(Movimento)
+                    .where(Movimento.id == conc.movimento_id, Movimento.empresa_id == empresa_id)
                     .with_for_update()
                 ).first()
 
                 if not movimento:
-                    erros.append(f"Movimento bancário ID {conc.movimento_ofx_id} não encontrado.")
+                    erros.append(f"Movimento bancário ID {conc.movimento_id} não encontrado.")
                     continue
 
                 if movimento.status == "CONCILIADO":
@@ -2704,7 +2770,7 @@ def confirmar_lancamentos(
 
                     nova_baixa = Baixa(
                         lancamento_id=aloc_lanc_id,
-                        movimento_ofx_id=movimento.id,
+                        movimento_id=movimento.id,
                         valor_pago=aloc.valor_alocado,
                         data_baixa=movimento.data,
                         tipo_baixa=aloc.tipo_baixa,
@@ -3003,6 +3069,8 @@ def confirmar_lancamentos(
     )
 
 
+    from app.core.audit_context import set_audit_batch_id
+    set_audit_batch_id(None)
     return {
         "sucesso": True,
         "lancamentos_criados": lancamentos_criados,
@@ -3011,6 +3079,7 @@ def confirmar_lancamentos(
         "divergencia_saldo_ofx_antes": divergencia_saldo_ofx_antes,
         "divergencia_saldo_ofx": divergencia_saldo_ofx,
     }
+
 
 
 @router.post(
@@ -3058,12 +3127,15 @@ def desconciliar_lancamento(
             baixa.is_deleted = True
             db.add(baixa)
             
-            # Se houver MovimentoOFX vinculado, reabri-lo
-            if baixa.movimento_ofx_id:
-                mov = db.get(MovimentoOFX, baixa.movimento_ofx_id)
+            # Se houver Movimento vinculado, tratar desconciliação
+            if baixa.movimento_id:
+                mov = db.get(Movimento, baixa.movimento_id)
                 if mov and int(mov.empresa_id) == int(empresa_id):
-                    mov.status = "ABERTO"
-                    db.add(mov)
+                    if mov.origem == "MANUAL":
+                        db.delete(mov)
+                    else:
+                        mov.status = "ABERTO"
+                        db.add(mov)
 
         db.flush()
         atualizar_lancamento_apos_baixas(db, lancamento_id)

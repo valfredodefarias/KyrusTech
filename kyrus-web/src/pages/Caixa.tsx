@@ -1,7 +1,9 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
+import axios from 'axios';
 import { api, fetchLancamentosPaged, normalizeListResponse } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
 import { useAuthStore } from '../store/authStore';
+import { useTransactionStore } from '../store/transactionStore';
 import {
   Banknote,
   Plus,
@@ -49,6 +51,7 @@ export function Caixa() {
   }
 
   // --- FILTERS & STATE ---
+  const refreshCount = useTransactionStore((state) => state.refreshCount);
   const [dataInicio, setDataInicio] = useState(getTodayLocalYmd());
   const [dataFim, setDataFim] = useState(getTodayLocalYmd());
   const [loading, setLoading] = useState(true);
@@ -62,6 +65,20 @@ export function Caixa() {
   const [entidades, setEntidades] = useState<any[]>([]);
   const [categorias, setCategorias] = useState<any[]>([]);
   const [dailyLancamentos, setDailyLancamentos] = useState<Lancamento[]>([]);
+
+  const caixaAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      setContas([]);
+      setCartoes([]);
+      setCentros([]);
+      setEntidades([]);
+      setCategorias([]);
+      setDailyLancamentos([]);
+      caixaAbortRef.current?.abort();
+    };
+  }, []);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [empresa, setEmpresa] = useState<any>(null);
 
@@ -73,9 +90,6 @@ export function Caixa() {
 
   const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
-  const invalidateEntidades = useLookupStore((state) => state.invalidateEntidades);
-  const invalidateEntidadesLookup = useLookupStore((state) => state.invalidateEntidadesLookup);
-  const invalidatePlanoContas = useLookupStore((state) => state.invalidatePlanoContas);
 
   // --- FILTER OUT PHYSICAL REGISTERS ---
   const caixasFisicos = useMemo(() => {
@@ -120,7 +134,8 @@ export function Caixa() {
       setEntidades(normalizeListResponse<any>(rE));
       setCategorias(normalizeListResponse<any>(rCat));
       auxLoadedRef.current = true;
-    } catch (e) {
+    } catch (e: any) {
+      if (axios.isCancel(e)) return;
       console.error(e);
       pushToast('error', 'Erro ao carregar dados de suporte.');
     }
@@ -128,6 +143,12 @@ export function Caixa() {
 
   async function loadCaixaData() {
     if (!selectedContaId) return;
+    if (caixaAbortRef.current) {
+      caixaAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    caixaAbortRef.current = controller;
+
     setLoading(true);
     try {
       // Fetch daily transactions for selected cashier
@@ -138,14 +159,18 @@ export function Caixa() {
           data_fim: dataFim,
           somente_pagos: true,
         },
-        { pageSize: 1500 }
+        { pageSize: 1500, signal: controller.signal }
       );
       setDailyLancamentos(rows);
-    } catch (e) {
+    } catch (e: any) {
+      if (axios.isCancel(e)) return;
       console.error(e);
       pushToast('error', 'Erro ao carregar lançamentos do caixa.');
     } finally {
-      setLoading(false);
+      if (caixaAbortRef.current === controller) {
+        caixaAbortRef.current = null;
+        setLoading(false);
+      }
     }
   }
 
@@ -170,18 +195,16 @@ export function Caixa() {
     setContas([]);
     setDailyLancamentos([]);
     setSelectedContaId(null);
-    invalidateEntidades();
-    invalidateEntidadesLookup();
-    invalidatePlanoContas();
     void loadAuxData();
   }, [currentEmpresaId]);
 
-  // Reload caixa data when filters change
+  // Reload caixa data when filters or refreshCount change
   useEffect(() => {
     if (selectedContaId) {
       void loadCaixaData();
+      void refreshSaldos();
     }
-  }, [selectedContaId, dataInicio, dataFim]);
+  }, [selectedContaId, dataInicio, dataFim, refreshCount]);
 
   // Sync bank balances
   const refreshSaldos = async () => {

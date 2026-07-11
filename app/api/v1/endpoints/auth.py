@@ -84,6 +84,28 @@ def login(
     user = crud_usuario.authenticate_user(db, email=form_data.username, password=form_data.password)
     if not user:
         register_login_failure(request=request, email=form_data.username)
+        
+        # Disparar auditor para LOGIN_BRUTE_FORCE
+        from app.services.auditor_anomalia_service import AuditorAnomaliaService
+        from app.core.login_throttle import _client_identifier, _bucket_size
+        import time
+        
+        client_id = _client_identifier(request)
+        now = time.time()
+        attempts = _bucket_size(f"account:{form_data.username.lower().strip()}|{client_id}", now=now)
+        if attempts >= 5:
+            # Buscar a empresa do usuário tentado (se existir) para multitenancy
+            from app.models.usuario import Usuario
+            from sqlmodel import select
+            tentado = db.exec(select(Usuario).where(Usuario.email == form_data.username)).first()
+            empresa_id = tentado.empresa_id if tentado else 1 # fallback para empresa 1
+            
+            AuditorAnomaliaService(db).gerar_alerta_brute_force(
+                email=form_data.username,
+                ip_address=client_id,
+                empresa_id=empresa_id
+            )
+            
         raise HTTPException(status_code=400, detail="Login falhou")
 
     clear_login_failures(request=request, email=form_data.username)

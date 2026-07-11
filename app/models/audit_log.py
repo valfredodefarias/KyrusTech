@@ -24,9 +24,14 @@ class AuditLog(SQLModel, table=True):
     
     undone: bool = Field(default=False, nullable=False)
     
+    batch_id: Optional[str] = Field(default=None, index=True)
+    is_automatic: bool = Field(default=False, index=True)
+    
     # Metadados
     user_id: Optional[int] = Field(default=None, index=True) # Quem fez
     empresa_id: Optional[int] = Field(default=None, index=True) # A qual empresa pertence o registro
     ip_address: Optional[str] = None # Segurança extra
     user_agent: Optional[str] = None # Navegador/Dispositivo
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    signature_hash: Optional[str] = Field(default=None, index=True)
+    previous_hash: Optional[str] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)

@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 const hasPackage = (id: string, pkg: string) => id.includes(`/node_modules/${pkg}/`) || id.includes(`\\node_modules\\${pkg}\\`)
-const localBackendTarget = 'http://localhost'
+const localBackendTarget = 'http://localhost:8000'
 
 export default defineConfig({
   plugins: [react()],
@@ -16,7 +16,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
-    minify: 'terser',
+    minify: 'esbuild',
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {

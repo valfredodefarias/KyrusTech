@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, fetchLancamentosPaged, normalizeListResponse, toPublicAssetUrl } from '../services/api';
+import { useAuthStore, type EmpresaInfo } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
 import { RbacManager } from '../components/RbacManager';
 import { 
@@ -339,21 +340,39 @@ const IntegracaoNfstockCentroCusto = () => {
 
 // --- SUB-COMPONENTE: DADOS DA EMPRESA ---
 const DadosEmpresa = () => {
-  const [empresa, setEmpresa] = useState<Empresa | null>(null);
-  const [user, setUser] = useState<UserInfo | null>(null);
+  const storeUser = useAuthStore((state) => state.user);
+  const storeEmpresa = useAuthStore((state) => state.empresa);
+  const setGlobalEmpresa = useAuthStore((state) => state.setEmpresa);
+
+  const [empresa, setEmpresa] = useState<EmpresaInfo | null>(storeEmpresa);
+  const [user, setUser] = useState<UserInfo | null>(storeUser);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [cor, setCor] = useState('#2563eb');
+  const [cor, setCor] = useState(storeEmpresa?.cor_primaria || '#2563eb');
   const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(storeEmpresa?.logo_url ? toPublicAssetUrl(storeEmpresa.logo_url) : null);
   const [categoriasDespesaNfe, setCategoriasDespesaNfe] = useState<CategoriaNfeConfig[]>([]);
-  const [categoriaNfeFornecedoresId, setCategoriaNfeFornecedoresId] = useState('');
+  const [categoriaNfeFornecedoresId, setCategoriaNfeFornecedoresId] = useState(storeEmpresa?.categoria_nfe_fornecedores_id ? String(storeEmpresa.categoria_nfe_fornecedores_id) : '');
   const [loadingCategoriasNfe, setLoadingCategoriasNfe] = useState(false);
   const invalidatePlanoContas = useLookupStore((state) => state.invalidatePlanoContas);
   const canResetEmpresa = hasPermission(user, COMPANY_RESET_PERMISSION) && user?.email === 'cirocaue12@gmail.com';
 
   useEffect(() => { loadEmpresa(); }, []);
+
+  // Sincroniza com a store caso mude globalmente
+  useEffect(() => {
+    if (storeUser) setUser(storeUser);
+  }, [storeUser]);
+
+  useEffect(() => {
+    if (storeEmpresa) {
+      setEmpresa(storeEmpresa);
+      if (storeEmpresa.cor_primaria) setCor(storeEmpresa.cor_primaria);
+      setCategoriaNfeFornecedoresId(storeEmpresa.categoria_nfe_fornecedores_id ? String(storeEmpresa.categoria_nfe_fornecedores_id) : '');
+      if (storeEmpresa.logo_url) setPreviewUrl(toPublicAssetUrl(storeEmpresa.logo_url));
+    }
+  }, [storeEmpresa]);
 
   // Cria preview local imediato quando o usuário seleciona um arquivo
   useEffect(() => {
@@ -366,38 +385,28 @@ const DadosEmpresa = () => {
 
   async function loadEmpresa() {
     try {
-      const { data: userData } = await api.get<UserInfo & { empresa_id?: number }>('/usuarios/me');
-      setUser(userData);
-      if (userData.empresa_id) {
-        const { data: emp } = await api.get(`/empresas/${userData.empresa_id}`);
-        setEmpresa(emp);
-        if (emp.cor_primaria) setCor(emp.cor_primaria);
-        setCategoriaNfeFornecedoresId(emp.categoria_nfe_fornecedores_id ? String(emp.categoria_nfe_fornecedores_id) : '');
+      setLoadingCategoriasNfe(true);
+      try {
+        const { data: planoContasData } = await api.get('/plano-contas/');
+        const normalized = normalizeListResponse<CategoriaNfeConfig>(planoContasData);
         
-        // Ajusta URL da logo se for relativa (vem do backend)
-        if (emp.logo_url) {
-          setPreviewUrl(toPublicAssetUrl(emp.logo_url));
-        }
-
-        setLoadingCategoriasNfe(true);
-        try {
-          const { data: planoContasData } = await api.get('/plano-contas/');
-          const normalized = normalizeListResponse<CategoriaNfeConfig>(planoContasData);
-          
-          const categoriasDespesa = normalized
-            .filter((item) => String(item.tipo || '').toUpperCase().startsWith('D'))
-            .filter((item) => item.permite_lancamentos !== false)
-            .filter((item) => item.eh_cabecalho !== true)
-            .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
-          setCategoriasDespesaNfe(categoriasDespesa);
-        } catch (error) {
-          console.error(error);
-          setCategoriasDespesaNfe([]);
-        } finally {
-          setLoadingCategoriasNfe(false);
-        }
+        const categoriasDespesa = normalized
+          .filter((item) => String(item.tipo || '').toUpperCase().startsWith('D'))
+          .filter((item) => item.permite_lancamentos !== false)
+          .filter((item) => item.eh_cabecalho !== true)
+          .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+        setCategoriasDespesaNfe(categoriasDespesa);
+      } catch (error) {
+        console.error(error);
+        setCategoriasDespesaNfe([]);
+      } finally {
+        setLoadingCategoriasNfe(false);
       }
-    } catch (e) { console.error(e); } finally { setLoading(false); }
+    } catch (e) { 
+      console.error(e); 
+    } finally { 
+      setLoading(false); 
+    }
   }
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -410,27 +419,30 @@ const DadosEmpresa = () => {
     if (!empresa) return;
     setSaving(true);
     try {
+        let empresaSalva = empresa;
+
         // 1. Upload da Logo (se houve alteração)
         if (logoFile) {
              const fdLogo = new FormData();
              fdLogo.append('file', logoFile); // Campo 'file' deve bater com o backend
-             await api.post(`/empresas/${empresa.id}/logo`, fdLogo);
+             const resLogo = await api.post<EmpresaInfo>(`/empresas/${empresa.id}/logo`, fdLogo);
+             empresaSalva = resLogo.data;
         }
         
         // 2. Atualiza Cor e Dados da Empresa
-        await api.patch(`/empresas/${empresa.id}`, {
+        const resPatch = await api.patch<EmpresaInfo>(`/empresas/${empresa.id}`, {
           cor_primaria: cor,
           categoria_nfe_fornecedores_id: categoriaNfeFornecedoresId ? Number(categoriaNfeFornecedoresId) : null,
         });
+        empresaSalva = resPatch.data;
+
+        // 3. Atualizar store global para propagação automática sem precisar de reload
+        setGlobalEmpresa(empresaSalva);
         
         // Aplica visualmente na hora (sem precisar de refresh para ver a cor)
         document.documentElement.style.setProperty('--color-primary', cor);
         
         alert("Configurações salvas com sucesso!");
-        
-        // Reload suave para propagar a logo nova para o Sidebar
-        window.location.reload(); 
-        
     } catch (e) { 
         console.error(e);
         alert("Erro ao salvar configurações."); 
@@ -507,7 +519,7 @@ const DadosEmpresa = () => {
             <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">{empresa.nome_fantasia}</h2>
             <div className="flex flex-col md:flex-row gap-3 items-center">
                 <p className="text-slate-400 font-mono bg-slate-900/50 px-3 py-1 rounded-lg inline-block border border-slate-700">
-                    {empresa.cnpj}
+                    {(empresa as any).cnpj}
                 </p>
                 <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 text-xs font-bold rounded-full border border-emerald-500/20 flex items-center gap-1">
                     <Check className="w-3 h-3"/> CONTA ATIVA
@@ -520,12 +532,12 @@ const DadosEmpresa = () => {
         <div className="grid grid-cols-1 gap-4 mb-6 md:grid-cols-2">
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Razão Social</label>
-            <input disabled value={empresa.razao_social} className="w-full p-4 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 font-medium cursor-not-allowed opacity-70" />
+            <input disabled value={(empresa as any).razao_social} className="w-full p-4 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 font-medium cursor-not-allowed opacity-70" />
             <p className="text-[10px] text-slate-500 mt-2 flex items-center gap-1"><AlertCircle className="w-3 h-3"/> Dados fiscais são protegidos.</p>
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">CNPJ</label>
-            <input disabled value={empresa.cnpj} className="w-full p-4 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 font-mono cursor-not-allowed opacity-70" />
+            <input disabled value={(empresa as any).cnpj} className="w-full p-4 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 font-mono cursor-not-allowed opacity-70" />
           </div>
         </div>
 
@@ -619,9 +631,17 @@ const DadosEmpresa = () => {
 };
 
 const ConfiguracoesPDV = () => {
-  const [empresa, setEmpresa] = useState<Empresa | null>(null);
+  const storeEmpresa = useAuthStore((state) => state.empresa);
+  const setGlobalEmpresa = useAuthStore((state) => state.setEmpresa);
+  const [empresa, setEmpresa] = useState<EmpresaInfo | null>(storeEmpresa);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (storeEmpresa) {
+      setEmpresa(storeEmpresa);
+    }
+  }, [storeEmpresa]);
   const [categoriasReceita, setCategoriasReceita] = useState<CategoriaNfeConfig[]>([]);
   interface ContaConfig {
     id: number;
@@ -673,22 +693,24 @@ const ConfiguracoesPDV = () => {
   const [newParcelada, setNewParcelada] = useState(false);
   const [newAtiva, setNewAtiva] = useState(true);
 
+  const loadedDataRef = useRef(false);
+
   useEffect(() => {
-    loadData();
-  }, []);
+    if (storeEmpresa && !loadedDataRef.current) {
+      loadData();
+      loadedDataRef.current = true;
+    }
+  }, [storeEmpresa]);
 
   async function loadData() {
     setLoading(true);
     try {
-      const { data: userData } = await api.get<UserInfo & { empresa_id?: number }>('/usuarios/me');
-      if (userData.empresa_id) {
-        const { data: emp } = await api.get(`/empresas/${userData.empresa_id}`);
-        setEmpresa(emp);
-
+      const currentEmpresa = storeEmpresa;
+      if (currentEmpresa) {
         let loadedFormas = [...defaultFormas];
-        if (emp.pdv_config) {
+        if (currentEmpresa.pdv_config) {
           try {
-            const parsed = JSON.parse(emp.pdv_config);
+            const parsed = JSON.parse(currentEmpresa.pdv_config);
             if (parsed.formas_pagamento && Array.isArray(parsed.formas_pagamento)) {
               loadedFormas = parsed.formas_pagamento;
             }
@@ -698,8 +720,8 @@ const ConfiguracoesPDV = () => {
             if (parsed.contas) {
               setPdvConfigContas((prev) => ({ ...prev, ...parsed.contas }));
             }
-            if (parsed.marcar_como_pago) {
-              setPdvConfigMarcarPago((prev) => ({ ...prev, ...parsed.marcar_como_pago }));
+            if (parsed.marcar_como_pago !== undefined) {
+              setPdvConfigMarcarPago(parsed.marcar_como_pago);
             }
           } catch (e) {
             console.error('Erro ao fazer parse de pdv_config', e);
@@ -733,7 +755,7 @@ const ConfiguracoesPDV = () => {
     if (!empresa) return;
     setSaving(true);
     try {
-      await api.patch(`/empresas/${empresa.id}`, {
+      const resPatch = await api.patch<EmpresaInfo>(`/empresas/${empresa.id}`, {
         pdv_config: JSON.stringify({
           formas_pagamento: formasPagamento,
           categorias: pdvConfigCategorias,
@@ -741,6 +763,7 @@ const ConfiguracoesPDV = () => {
           contas: pdvConfigContas
         })
       });
+      setGlobalEmpresa(resPatch.data);
       alert("Configurações do PDV salvas com sucesso!");
     } catch (e) {
       console.error(e);

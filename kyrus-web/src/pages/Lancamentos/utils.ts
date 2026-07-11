@@ -110,13 +110,15 @@ export const resolveAnexoUrl = (rawUrl?: string) => {
 };
 
 export const isLancamentoAtrasado = (l: Lancamento) => {
-  if (String(l.status).toUpperCase() === 'PAGO') return false;
+  const s = String(l.status || '').toUpperCase();
+  if (s === 'PAGO' || s.startsWith('PARCIAL')) return false;
   if (!l.data_vencimento) return false;
   return l.data_vencimento < getTodayLocalYmd();
 };
 
 export const isLancamentoPago = (l: Lancamento) => {
-  if (String(l.status).toUpperCase() === 'PAGO') return true;
+  const s = String(l.status || '').toUpperCase();
+  if (s === 'PAGO' || s.startsWith('PARCIAL')) return true;
   if (Boolean(l.data_pagamento)) return true;
   if (Boolean(l.conciliado)) return true;
   return Number(l.valor_pago || 0) > 0;

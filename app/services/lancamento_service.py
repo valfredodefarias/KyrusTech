@@ -321,139 +321,297 @@ class LancamentoService:
         self.session.add(existing)
 
     def _soft_delete_all_adjustments_for_lancamento(self, *, empresa_id: int, lancamento_id: int, user_id: int) -> None:
-        token_prefix = f"AUTO_AJUSTE:{lancamento_id}:"
-        related = self.session.exec(
-            select(Lancamento).where(
-                Lancamento.empresa_id == empresa_id,
-                Lancamento.is_deleted == False,
-                Lancamento.origem == "AJUSTE_DIFERENCA",
-                Lancamento.observacao.like(f"{token_prefix}%"),
-            )
-        ).all()
-        for item in related:
-            item.is_deleted = True
-            item.deleted_at = datetime.utcnow()
-            item.deleted_by_id = user_id
-            item.updated_by_id = user_id
-            self.session.add(item)
+        from app.core.audit_context import set_audit_automatic
+        set_audit_automatic(True)
+        try:
+            token_prefix = f"AUTO_AJUSTE:{lancamento_id}:"
+            related = self.session.exec(
+                select(Lancamento).where(
+                    Lancamento.empresa_id == empresa_id,
+                    Lancamento.is_deleted == False,
+                    Lancamento.origem == "AJUSTE_DIFERENCA",
+                    Lancamento.observacao.like(f"{token_prefix}%"),
+                )
+            ).all()
+            for item in related:
+                item.is_deleted = True
+                item.deleted_at = datetime.utcnow()
+                item.deleted_by_id = user_id
+                item.updated_by_id = user_id
+                self.session.add(item)
+        finally:
+            set_audit_automatic(False)
 
     def _upsert_auto_adjustment(self, lancamento: Lancamento, *, user_id: int) -> None:
-        if lancamento.id is None:
+        from app.core.audit_context import set_audit_automatic
+        set_audit_automatic(True)
+        try:
+            if lancamento.id is None:
+                return
+            if self._is_transferencia(lancamento):
+                return
+            if str(lancamento.origem or "").upper() == "AJUSTE_DIFERENCA":
+                return
+
+            empresa_tipo = self._get_empresa_tipo_pessoa(int(lancamento.empresa_id))
+            config = crud_auto_adjustment_config.get_for_empresa(
+                self.session,
+                empresa_id=int(lancamento.empresa_id),
+                tipo_pessoa=empresa_tipo,
+            )
+
+            if not lancamento.data_pagamento:
+                self._soft_delete_adjustment(empresa_id=int(lancamento.empresa_id), lancamento_id=int(lancamento.id), kind="juros_multa", user_id=user_id)
+                self._soft_delete_adjustment(empresa_id=int(lancamento.empresa_id), lancamento_id=int(lancamento.id), kind="descontos", user_id=user_id)
+                return
+
+            valor_previsto = Decimal(lancamento.valor_previsto or Decimal("0.00"))
+            valor_pago = Decimal(lancamento.valor_pago or Decimal("0.00"))
+            delta = valor_pago - valor_previsto
+
+            kind: Optional[str] = None
+            amount = Decimal("0.00")
+            tipo_lanc = str(lancamento.tipo or "").upper()
+
+            if tipo_lanc == "DESPESA" and delta > 0:
+                kind = "juros_multa"
+                amount = delta
+            elif tipo_lanc == "RECEITA" and delta < 0:
+                kind = "descontos"
+                amount = abs(delta)
+
+            for extra_kind in ("juros_multa", "descontos"):
+                if extra_kind != kind:
+                    self._soft_delete_adjustment(empresa_id=int(lancamento.empresa_id), lancamento_id=int(lancamento.id), kind=extra_kind, user_id=user_id)
+
+            if not kind or amount <= 0:
+                return
+
+            target_cfg = (config or {}).get(kind) or {}
+            preferred_category_id = int(target_cfg.get("plano_contas_id")) if target_cfg.get("plano_contas_id") is not None else None
+            categoria_nome = str(target_cfg.get("categoria_nome") or ("Juros e Multas" if kind == "juros_multa" else "Descontos Concedidos"))
+            categoria_tipo = str(target_cfg.get("tipo") or "D")
+            categoria_dre = str(target_cfg.get("dre_grupo") or ("OUTRAS_DESPESAS" if kind == "juros_multa" else "DEDUCOES_RECEITA"))
+            categoria_id = self._resolve_adjust_category(
+                empresa_id=int(lancamento.empresa_id),
+                nome=categoria_nome,
+                tipo=categoria_tipo,
+                dre_grupo=categoria_dre,
+                user_id=user_id,
+                preferred_category_id=preferred_category_id,
+            )
+
+            token = self._auto_adjust_token(int(lancamento.id), kind)
+            existing = self._find_adjustment_by_token(empresa_id=int(lancamento.empresa_id), token=token)
+            descricao_kind = "Juros/Multa" if kind == "juros_multa" else "Desconto"
+            base_date = lancamento.data_pagamento or lancamento.data_vencimento
+
+            if existing:
+                existing.descricao = f"Ajuste automatico ({descricao_kind}) - {lancamento.descricao}"
+                existing.tipo = "DESPESA" if categoria_tipo.upper().startswith("D") else "RECEITA"
+                existing.valor_previsto = amount
+                existing.valor_pago = amount
+                existing.valor_juros = amount if kind == "juros_multa" else Decimal("0.00")
+                existing.valor_multa = Decimal("0.00")
+                existing.valor_desconto = amount if kind == "descontos" else Decimal("0.00")
+                existing.status = "PAGO"
+                existing.previsto = True
+                existing.data_pagamento = base_date
+                existing.data_vencimento = base_date
+                existing.data_competencia = base_date
+                existing.competencia = self._format_competencia(base_date)
+                existing.plano_contas_id = categoria_id
+                existing.conta_id = lancamento.conta_id
+                existing.entidade_id = lancamento.entidade_id
+                existing.centro_custo_id = lancamento.centro_custo_id
+                existing.cartao_id = lancamento.cartao_id
+                existing.updated_by_id = user_id
+                existing.is_deleted = False
+                existing.deleted_at = None
+                existing.deleted_by_id = None
+                self.session.add(existing)
+                return
+
+            ajuste = Lancamento(
+                descricao=f"Ajuste automatico ({descricao_kind}) - {lancamento.descricao}",
+                tipo="DESPESA" if categoria_tipo.upper().startswith("D") else "RECEITA",
+                status="PAGO",
+                origem="AJUSTE_DIFERENCA",
+                ipp=False,
+                previsto=True,
+                valor_previsto=amount,
+                valor_pago=amount,
+                valor_juros=amount if kind == "juros_multa" else Decimal("0.00"),
+                valor_multa=Decimal("0.00"),
+                valor_desconto=amount if kind == "descontos" else Decimal("0.00"),
+                data_vencimento=base_date,
+                data_pagamento=base_date,
+                data_competencia=base_date,
+                competencia=self._format_competencia(base_date),
+                observacao=token,
+                conciliado=lancamento.conciliado,
+                empresa_id=lancamento.empresa_id,
+                plano_contas_id=categoria_id,
+                conta_id=lancamento.conta_id,
+                entidade_id=lancamento.entidade_id,
+                cartao_id=lancamento.cartao_id,
+                centro_custo_id=lancamento.centro_custo_id,
+                created_by_id=user_id,
+                updated_by_id=user_id,
+            )
+            self.session.add(ajuste)
+        finally:
+            set_audit_automatic(False)
+
+    def _sincronizar_movimento_manual(self, lancamento: Lancamento, user_id: int) -> None:
+        from app.models.movimento import Movimento
+        from app.models.baixa import Baixa
+        from sqlalchemy import text
+
+        if getattr(lancamento, "is_deleted", False):
+            # Buscar baixas do lançamento (incluindo as deletadas logicamente para limpeza completa)
+            baixas_existentes = self.session.exec(
+                select(Baixa).where(Baixa.lancamento_id == lancamento.id)
+            ).all()
+            for b in baixas_existentes:
+                mov = self.session.get(Movimento, b.movimento_id)
+                if mov and mov.origem == "MANUAL":
+                    self.session.delete(b)
+                    self.session.delete(mov)
+                else:
+                    b.is_deleted = True
+                    self.session.add(b)
+                    if mov:
+                        mov.status = "ABERTO"
+                        self.session.add(mov)
             return
-        if self._is_transferencia(lancamento):
-            return
-        if str(lancamento.origem or "").upper() == "AJUSTE_DIFERENCA":
-            return
 
-        empresa_tipo = self._get_empresa_tipo_pessoa(int(lancamento.empresa_id))
-        config = crud_auto_adjustment_config.get_for_empresa(
-            self.session,
-            empresa_id=int(lancamento.empresa_id),
-            tipo_pessoa=empresa_tipo,
-        )
-
-        if not lancamento.data_pagamento:
-            self._soft_delete_adjustment(empresa_id=int(lancamento.empresa_id), lancamento_id=int(lancamento.id), kind="juros_multa", user_id=user_id)
-            self._soft_delete_adjustment(empresa_id=int(lancamento.empresa_id), lancamento_id=int(lancamento.id), kind="descontos", user_id=user_id)
+        # Se for transferência ou ajuste_diferenca, não sincronizamos movimento manual diretamente
+        if self._is_transferencia(lancamento) or str(lancamento.origem or "").upper() == "AJUSTE_DIFERENCA":
             return
 
-        valor_previsto = Decimal(lancamento.valor_previsto or Decimal("0.00"))
-        valor_pago = Decimal(lancamento.valor_pago or Decimal("0.00"))
-        delta = valor_pago - valor_previsto
-
-        kind: Optional[str] = None
-        amount = Decimal("0.00")
-        tipo_lanc = str(lancamento.tipo or "").upper()
-
-        if tipo_lanc == "DESPESA" and delta > 0:
-            kind = "juros_multa"
-            amount = delta
-        elif tipo_lanc == "RECEITA" and delta < 0:
-            kind = "descontos"
-            amount = abs(delta)
-
-        for extra_kind in ("juros_multa", "descontos"):
-            if extra_kind != kind:
-                self._soft_delete_adjustment(empresa_id=int(lancamento.empresa_id), lancamento_id=int(lancamento.id), kind=extra_kind, user_id=user_id)
-
-        if not kind or amount <= 0:
+        # 1. Se NÃO estiver pago, remover qualquer movimento/baixa manual associado
+        if not lancamento.data_pagamento or lancamento.status != "PAGO":
+            # Buscar baixas do lançamento
+            baixas_existentes = self.session.exec(
+                select(Baixa).where(Baixa.lancamento_id == lancamento.id)
+            ).all()
+            for b in baixas_existentes:
+                mov = self.session.get(Movimento, b.movimento_id)
+                if mov and mov.origem == "MANUAL":
+                    self.session.delete(b)
+                    self.session.delete(mov)
+                else:
+                    b.is_deleted = True
+                    self.session.add(b)
+                    if mov:
+                        mov.status = "ABERTO"
+                        self.session.add(mov)
             return
 
-        target_cfg = (config or {}).get(kind) or {}
-        preferred_category_id = int(target_cfg.get("plano_contas_id")) if target_cfg.get("plano_contas_id") is not None else None
-        categoria_nome = str(target_cfg.get("categoria_nome") or ("Juros e Multas" if kind == "juros_multa" else "Descontos Concedidos"))
-        categoria_tipo = str(target_cfg.get("tipo") or "D")
-        categoria_dre = str(target_cfg.get("dre_grupo") or ("OUTRAS_DESPESAS" if kind == "juros_multa" else "DEDUCOES_RECEITA"))
-        categoria_id = self._resolve_adjust_category(
-            empresa_id=int(lancamento.empresa_id),
-            nome=categoria_nome,
-            tipo=categoria_tipo,
-            dre_grupo=categoria_dre,
-            user_id=user_id,
-            preferred_category_id=preferred_category_id,
-        )
+        # 2. Se ESTIVER pago
+        # Procurar se já existe movimento MANUAL vinculado
+        baixa_manual = self.session.exec(
+            select(Baixa).join(Movimento).where(
+                Baixa.lancamento_id == lancamento.id,
+                Baixa.is_deleted == False,
+                Movimento.origem == "MANUAL"
+            )
+        ).first()
 
-        token = self._auto_adjust_token(int(lancamento.id), kind)
-        existing = self._find_adjustment_by_token(empresa_id=int(lancamento.empresa_id), token=token)
-        descricao_kind = "Juros/Multa" if kind == "juros_multa" else "Desconto"
-        base_date = lancamento.data_pagamento or lancamento.data_vencimento
+        conta_id = lancamento.conta_id or self.obter_conta_caixa_fisica(int(lancamento.empresa_id))
 
-        if existing:
-            existing.descricao = f"Ajuste automatico ({descricao_kind}) - {lancamento.descricao}"
-            existing.tipo = "DESPESA" if categoria_tipo.upper().startswith("D") else "RECEITA"
-            existing.valor_previsto = amount
-            existing.valor_pago = amount
-            existing.valor_juros = amount if kind == "juros_multa" else Decimal("0.00")
-            existing.valor_multa = Decimal("0.00")
-            existing.valor_desconto = amount if kind == "descontos" else Decimal("0.00")
-            existing.status = "PAGO"
-            existing.previsto = True
-            existing.data_pagamento = base_date
-            existing.data_vencimento = base_date
-            existing.data_competencia = base_date
-            existing.competencia = self._format_competencia(base_date)
-            existing.plano_contas_id = categoria_id
-            existing.conta_id = lancamento.conta_id
-            existing.entidade_id = lancamento.entidade_id
-            existing.centro_custo_id = lancamento.centro_custo_id
-            existing.cartao_id = lancamento.cartao_id
-            existing.updated_by_id = user_id
-            existing.is_deleted = False
-            existing.deleted_at = None
-            existing.deleted_by_id = None
-            self.session.add(existing)
-            return
+        if baixa_manual:
+            mov = self.session.get(Movimento, baixa_manual.movimento_id)
+            mov.descricao = f"Pagamento: {lancamento.descricao}"
+            mov.valor = lancamento.valor_pago
+            mov.tipo = lancamento.tipo
+            mov.data = lancamento.data_pagamento
+            mov.conta_id = conta_id
+            self.session.add(mov)
+            # Limpar baixas antigas para recriá-las
+            self.session.execute(
+                text("DELETE FROM baixas WHERE movimento_id = :mov_id"),
+                {"mov_id": mov.id}
+            )
+        else:
+            mov = Movimento(
+                descricao=f"Pagamento: {lancamento.descricao}",
+                valor=lancamento.valor_pago,
+                tipo=lancamento.tipo,
+                data=lancamento.data_pagamento,
+                import_hash=f"manual:{lancamento.id}:{datetime.utcnow().timestamp()}",
+                status="CONCILIADO",
+                origem="MANUAL",
+                empresa_id=lancamento.empresa_id,
+                conta_id=conta_id,
+            )
+            self.session.add(mov)
+            self.session.flush()
 
-        ajuste = Lancamento(
-            descricao=f"Ajuste automatico ({descricao_kind}) - {lancamento.descricao}",
-            tipo="DESPESA" if categoria_tipo.upper().startswith("D") else "RECEITA",
-            status="PAGO",
-            origem="AJUSTE_DIFERENCA",
-            ipp=False,
-            previsto=True,
-            valor_previsto=amount,
-            valor_pago=amount,
-            valor_juros=amount if kind == "juros_multa" else Decimal("0.00"),
-            valor_multa=Decimal("0.00"),
-            valor_desconto=amount if kind == "descontos" else Decimal("0.00"),
-            data_vencimento=base_date,
-            data_pagamento=base_date,
-            data_competencia=base_date,
-            competencia=self._format_competencia(base_date),
-            observacao=token,
-            conciliado=lancamento.conciliado,
-            empresa_id=lancamento.empresa_id,
-            plano_contas_id=categoria_id,
-            conta_id=lancamento.conta_id,
-            entidade_id=lancamento.entidade_id,
-            cartao_id=lancamento.cartao_id,
-            centro_custo_id=lancamento.centro_custo_id,
-            created_by_id=user_id,
-            updated_by_id=user_id,
-        )
-        self.session.add(ajuste)
+        # Recriar/Criar as Baixas
+        token_juros = f"AUTO_AJUSTE:{lancamento.id}:juros_multa"
+        token_desconto = f"AUTO_AJUSTE:{lancamento.id}:descontos"
+        
+        ajuste_juros = self._find_adjustment_by_token(empresa_id=int(lancamento.empresa_id), token=token_juros)
+        ajuste_desconto = self._find_adjustment_by_token(empresa_id=int(lancamento.empresa_id), token=token_desconto)
+
+        if ajuste_juros and not ajuste_juros.is_deleted:
+            # Baixa Principal
+            baixa_principal = Baixa(
+                lancamento_id=lancamento.id,
+                movimento_id=mov.id,
+                valor_pago=lancamento.valor_previsto,
+                data_baixa=lancamento.data_pagamento,
+                tipo_baixa="PRINCIPAL",
+                empresa_id=lancamento.empresa_id,
+            )
+            # Baixa Juros
+            baixa_juros = Baixa(
+                lancamento_id=ajuste_juros.id,
+                movimento_id=mov.id,
+                valor_pago=ajuste_juros.valor_previsto,
+                data_baixa=lancamento.data_pagamento,
+                tipo_baixa="JUROS",
+                empresa_id=lancamento.empresa_id,
+            )
+            self.session.add(baixa_principal)
+            self.session.add(baixa_juros)
+        elif ajuste_desconto and not ajuste_desconto.is_deleted:
+            # Baixa Principal (o valor realmente pago)
+            baixa_principal = Baixa(
+                lancamento_id=lancamento.id,
+                movimento_id=mov.id,
+                valor_pago=lancamento.valor_pago,
+                data_baixa=lancamento.data_pagamento,
+                tipo_baixa="PRINCIPAL",
+                empresa_id=lancamento.empresa_id,
+            )
+            # Baixa Desconto
+            baixa_desconto = Baixa(
+                lancamento_id=ajuste_desconto.id,
+                movimento_id=mov.id,
+                valor_pago=ajuste_desconto.valor_previsto,
+                data_baixa=lancamento.data_pagamento,
+                tipo_baixa="DESCONTO",
+                empresa_id=lancamento.empresa_id,
+            )
+            self.session.add(baixa_principal)
+            self.session.add(baixa_desconto)
+        else:
+            # Baixa única normal
+            baixa_normal = Baixa(
+                lancamento_id=lancamento.id,
+                movimento_id=mov.id,
+                valor_pago=lancamento.valor_pago,
+                data_baixa=lancamento.data_pagamento,
+                tipo_baixa="PRINCIPAL",
+                empresa_id=lancamento.empresa_id,
+            )
+            self.session.add(baixa_normal)
 
     # --- Métodos CRUD Básicos ---
+
 
     def create(self, dados: LancamentoCreate, empresa_id: int, user_id: int) -> Lancamento:
         # Converte para dict para ajustar campos opcionais antes de instanciar o modelo
@@ -486,8 +644,11 @@ class LancamentoService:
         self.session.add(db_lancamento)
         self.session.flush()
         self._upsert_auto_adjustment(db_lancamento, user_id=user_id)
+        self._sincronizar_movimento_manual(db_lancamento, user_id=user_id)
         self.session.commit()
         self.session.refresh(db_lancamento)
+        from app.services.auditor_anomalia_service import AuditorAnomaliaService
+        AuditorAnomaliaService(self.session).analisar_lancamento(db_lancamento)
         return db_lancamento
     def get_by_id(self, lancamento_id: int, empresa_id: int) -> Lancamento:
         query = select(Lancamento).where(
@@ -568,8 +729,11 @@ class LancamentoService:
         self.session.add(db_lancamento)
         self.session.flush()
         self._upsert_auto_adjustment(db_lancamento, user_id=user_id)
+        self._sincronizar_movimento_manual(db_lancamento, user_id=user_id)
         self.session.commit()
         self.session.refresh(db_lancamento)
+        from app.services.auditor_anomalia_service import AuditorAnomaliaService
+        AuditorAnomaliaService(self.session).analisar_lancamento(db_lancamento)
         return db_lancamento
     def delete(self, lancamento_id: int, empresa_id: int, user_id: int, confirmar_exclusao_pagos: bool = False):
         lancamento = self.get_by_id(lancamento_id, empresa_id)
@@ -609,7 +773,57 @@ class LancamentoService:
                     lancamento_id=int(item.id),
                     user_id=user_id,
                 )
+                self._sincronizar_movimento_manual(item, user_id=user_id)
+        from app.services.auditor_anomalia_service import AuditorAnomaliaService
+        auditor = AuditorAnomaliaService(self.session)
+        for item in related:
+            auditor.analisar_exclusao(item)
         self.session.commit()
+
+    def restore(self, lancamento_id: int, empresa_id: int, user_id: int) -> Lancamento:
+        query = select(Lancamento).where(
+            Lancamento.id == lancamento_id,
+            Lancamento.empresa_id == empresa_id
+        )
+        lancamento = self.session.exec(query).first()
+        if not lancamento:
+            raise HTTPException(status_code=404, detail="Lançamento não encontrado.")
+        
+        if not lancamento.is_deleted:
+            return lancamento
+            
+        lancamento.is_deleted = False
+        lancamento.deleted_at = None
+        lancamento.deleted_by_id = None
+        lancamento.updated_by_id = user_id
+        lancamento.updated_at = datetime.utcnow()
+        self.session.add(lancamento)
+        
+        # Restaurar também ajustes automáticos vinculados se existirem
+        token_prefix = f"AUTO_AJUSTE:{lancamento.id}:"
+        related = self.session.exec(
+            select(Lancamento).where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.origem == "AJUSTE_DIFERENCA",
+                Lancamento.observacao.like(f"{token_prefix}%")
+            )
+        ).all()
+        for item in related:
+            item.is_deleted = False
+            item.deleted_at = None
+            item.deleted_by_id = None
+            self.session.add(item)
+            
+        # Sincronizar com movimento manual
+        self._sincronizar_movimento_manual(lancamento, user_id=user_id)
+        
+        # Analisar com o auditor
+        from app.services.auditor_anomalia_service import AuditorAnomaliaService
+        AuditorAnomaliaService(self.session).analisar_lancamento(lancamento)
+        
+        self.session.commit()
+        self.session.refresh(lancamento)
+        return lancamento
 
     # --- Gestão de Anexos ---
     def adicionar_anexo(self, lancamento_id: int, dados_anexo: AnexoCreate, empresa_id: int, user_id: int) -> AnexoLancamento:
@@ -658,9 +872,13 @@ class LancamentoService:
         self.session.flush()
         for obj in novos_objetos:
             self._upsert_auto_adjustment(obj, user_id=user_id)
+            self._sincronizar_movimento_manual(obj, user_id=user_id)
         self.session.commit()
+        from app.services.auditor_anomalia_service import AuditorAnomaliaService
+        auditor = AuditorAnomaliaService(self.session)
         for obj in novos_objetos:
             self.session.refresh(obj)
+            auditor.analisar_lancamento(obj)
         return novos_objetos
     def deletar_em_massa(self, ids: List[int], empresa_id: int, user_id: int, confirmar_exclusao_pagos: bool = False):
         statement = select(Lancamento).where(
@@ -704,6 +922,11 @@ class LancamentoService:
                     lancamento_id=int(lanc.id),
                     user_id=user_id,
                 )
+                self._sincronizar_movimento_manual(lanc, user_id=user_id)
+        from app.services.auditor_anomalia_service import AuditorAnomaliaService
+        auditor = AuditorAnomaliaService(self.session)
+        for lanc in related:
+            auditor.analisar_exclusao(lanc)
         self.session.commit()
 
     def baixar_em_massa(self, ids: List[int], data_pagamento: date, conta_id: Optional[int], empresa_id: int, user_id: int) -> int:

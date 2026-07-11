@@ -564,8 +564,8 @@ def test_ofx_transactional_import_creation_and_rollback(client: TestClient, sess
     with patch("app.api.deps.has_permission", return_value=True):
         try:
             # 1. First let's create a fake OFX movement in the DB so we can try to reconcile it.
-            from app.models.movimento_ofx import MovimentoOFX
-            mov = MovimentoOFX(
+            from app.models.movimento import Movimento
+            mov = Movimento(
                 id=999,
                 descricao="MOVIMENTO TESTE TRANSACAO",
                 data=date(2026, 6, 13),
@@ -599,7 +599,7 @@ def test_ofx_transactional_import_creation_and_rollback(client: TestClient, sess
                 ],
                 "conciliacoes": [
                     {
-                        "movimento_ofx_id": 999,
+                        "movimento_id": 999,
                         "alocacoes": [
                             {
                                 "lancamento_temp_id": "temp-1",
@@ -620,7 +620,7 @@ def test_ofx_transactional_import_creation_and_rollback(client: TestClient, sess
             assert lanc is None
             
             # Verify the movement is still pending
-            mov_db = session.get(MovimentoOFX, 999)
+            mov_db = session.get(Movimento, 999)
             assert mov_db.status == "PENDENTE"
 
             # 2. Now let's test a successful transactional import!
@@ -638,7 +638,7 @@ def test_ofx_transactional_import_creation_and_rollback(client: TestClient, sess
             assert lanc is not None
             assert lanc.conciliado is True
             
-            mov_db = session.get(MovimentoOFX, 999)
+            mov_db = session.get(Movimento, 999)
             assert mov_db.status == "CONCILIADO"
 
         finally:
@@ -681,8 +681,8 @@ def test_ofx_import_duplicate_hash_and_divergence_non_blocking(client: TestClien
             session.add(pre_existente)
             
             # Create a bank movement
-            from app.models.movimento_ofx import MovimentoOFX
-            mov = MovimentoOFX(
+            from app.models.movimento import Movimento
+            mov = Movimento(
                 id=888,
                 descricao="MOVIMENTO DUPLICADO OFX",
                 data=date(2026, 6, 13),
@@ -728,7 +728,7 @@ def test_ofx_import_duplicate_hash_and_divergence_non_blocking(client: TestClien
                 ],
                 "conciliacoes": [
                     {
-                        "movimento_ofx_id": 888,
+                        "movimento_id": 888,
                         "alocacoes": [
                             {
                                 "lancamento_temp_id": "temp-dup-1",
@@ -759,8 +759,73 @@ def test_ofx_import_duplicate_hash_and_divergence_non_blocking(client: TestClien
             assert pre_db.valor_pago == Decimal("150.00")
             
             # Verify the movement is conciliated
-            mov_db = session.get(MovimentoOFX, 888)
+            mov_db = session.get(Movimento, 888)
             assert mov_db.status == "CONCILIADO"
             
         finally:
             app.dependency_overrides.clear()
+
+
+def test_ofx_upload_account_validation_mismatch(client: TestClient, session: Session, setup_test_db):
+    def mock_get_current_user():
+        return setup_test_db["usuario"]
+
+    def mock_get_empresa_id_from_user():
+        return 1
+
+    app_dependency_overrides = {
+        get_current_user: mock_get_current_user,
+        get_current_active_user: mock_get_current_user,
+        get_empresa_id_from_user: mock_get_empresa_id_from_user
+    }
+    app.dependency_overrides.update(app_dependency_overrides)
+
+    # Configurar agência/conta para teste
+    conta = setup_test_db["conta"]
+    conta.agencia = "1234"
+    conta.conta_numero = "56789"
+    session.add(conta)
+    session.commit()
+
+
+    mocked_ofx_rows = [
+        {
+            "data": date(2026, 6, 10),
+            "data_pagamento": "2026-06-10",
+            "data_vencimento": "2026-06-10",
+            "descricao": "TARIFA BANCARIA",
+            "razao_social": "Banco Itaú",
+            "cpf_cnpj": "",
+            "valor": Decimal("10.00"),
+            "tipo": "DESPESA",
+            "origem": "OFX_EXTRATO",
+            "linha_arquivo": 1,
+            "saldo_informativo": False,
+            "ofx_bank_id": "999",
+            "ofx_agencia": "9999",  # Mismatch com conta.agencia = 1234
+            "ofx_conta_numero": "56789"
+        }
+    ]
+
+
+    with patch("app.api.v1.endpoints.importacao_ofx.processar_ofx", return_value=mocked_ofx_rows), \
+         patch("app.api.deps.has_permission", return_value=True):
+        try:
+            # 1. Sem forçar a importação -> deve retornar erro 400 CONTA_DIVERGENTE
+            response = client.post(
+                "/api/v1/importacao/ofx/upload?conta_id=1",
+                files={"arquivo": ("extrato.ofx", b"OFX CONTENT", "application/xml")}
+            )
+            assert response.status_code == 400
+            assert response.json()["detail"]["code"] == "CONTA_DIVERGENTE"
+
+            # 2. Forçando a importação -> deve ter sucesso
+            response2 = client.post(
+                "/api/v1/importacao/ofx/upload?conta_id=1&forcar_importacao=true",
+                files={"arquivo": ("extrato.ofx", b"OFX CONTENT", "application/xml")}
+            )
+            assert response2.status_code == 200
+
+        finally:
+            app.dependency_overrides.clear()
+

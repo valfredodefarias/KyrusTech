@@ -38,6 +38,20 @@ import {
 import { useLookupStore } from '../../../store/lookupStore';
 import { QuickEntityDrawer } from './QuickEntityDrawer';
 
+const ANOMALY_TRANSLATIONS: Record<string, string> = {
+  DUPLICIDADE_OFX: 'Movimento OFX Duplicado',
+  PAGAMENTO_DUPLO: 'Pagamento Duplo Realizado',
+  VALOR_ATIPICO: 'Desvio de Valor Atípico',
+  EXCLUSAO_SUSPEITA: 'Exclusão Suspeita de Lançamento',
+  DESVIO_PLANO_CONTAS: 'Desvio de Plano de Contas',
+  HORARIO_ATIPICO: 'Operação em Horário Atípico',
+  CONTA_DIVERGENTE: 'Divergência de Conta Bancária',
+  LANCAMENTO_SEM_COMPROVANTE: 'Lançamento sem Comprovante',
+  LOGIN_BRUTE_FORCE: 'Força Bruta no Login',
+  ALTERACAO_DADOS_BANCARIOS: 'Alteração de Dados Bancários',
+  SILENCIAMENTO_SUSPEITO: 'Silenciamento Suspeito',
+};
+
 interface LancamentoFormDrawerProps {
   showDrawer: boolean;
   onClose: () => void;
@@ -83,6 +97,7 @@ export const LancamentoFormDrawer = ({
   onEntityCreated,
 }: LancamentoFormDrawerProps) => {
   // --- ESTADOS INTERNOS ---
+  const selectedCentroCustoId = useLookupStore((state) => state.selectedCentroCustoId);
   const [formData, setFormData] = useState<any>({
     id: null,
     descricao: '',
@@ -90,7 +105,7 @@ export const LancamentoFormDrawer = ({
     data_vencimento: '',
     tipo: 'DESPESA',
     plano_contas_id: '',
-    centro_custo_id: '',
+    centro_custo_id: selectedCentroCustoId === 'ALL' ? '' : String(selectedCentroCustoId),
     entidade_id: '',
     conta_id: '',
     cartao_id: '',
@@ -130,6 +145,22 @@ export const LancamentoFormDrawer = ({
   const [showEntityDrawer, setShowEntityDrawer] = useState(false);
   const [showScopeModal, setShowScopeModal] = useState(false);
   const [scopeModalResolver, setScopeModalResolver] = useState<((value: 'ESTA' | 'PROXIMAS' | 'TODAS' | null) => void) | null>(null);
+
+  // --- compliance / auditoria states ---
+  const [activeAlerts, setActiveAlerts] = useState<any[]>([]);
+  const [inlineSilencing, setInlineSilencing] = useState(false);
+
+  useEffect(() => {
+    if (showDrawer && editarId) {
+      api.get('/auditoria/alertas', {
+        params: { objeto_id: editarId, tipo_objeto: 'lancamento', status: 'PENDENTE' }
+      }).then(res => {
+        setActiveAlerts(normalizeListResponse<any>(res.data.items ?? res.data));
+      }).catch(err => console.error(err));
+    } else {
+      setActiveAlerts([]);
+    }
+  }, [showDrawer, editarId]);
 
   const [confirmModal, setConfirmModal] = useState<{
     show: boolean;
@@ -451,7 +482,7 @@ export const LancamentoFormDrawer = ({
         data_vencimento: todayStr,
         tipo: 'DESPESA',
         plano_contas_id: '',
-        centro_custo_id: '',
+        centro_custo_id: selectedCentroCustoId === 'ALL' ? '' : String(selectedCentroCustoId),
         entidade_id: '',
         conta_id: contaId || '',
         cartao_id: cartaoId || '',
@@ -938,6 +969,19 @@ export const LancamentoFormDrawer = ({
           for (let i = 0; i < filesToUpload.length; i++) fd.append('files', filesToUpload[i]);
           await api.post(`/lancamentos/${id}/anexos`, fd);
         }
+
+        // Registrar regra de silenciamento inline se selecionado
+        if (inlineSilencing && formData.plano_contas_id) {
+          try {
+            await api.post('/auditoria/silenciamento', {
+              tipo_anomalia: 'VALOR_ATIPICO',
+              plano_contas_id: Number(formData.plano_contas_id),
+              entidade_id: formData.entidade_id ? Number(formData.entidade_id) : undefined
+            });
+          } catch (ruleErr) {
+            console.error('Erro ao registrar regra de silenciamento inline:', ruleErr);
+          }
+        }
       }
       closeDrawerDirect();
       pushToast('success', isEditing ? 'Lançamento atualizado com sucesso.' : 'Lançamento salvo com sucesso.');
@@ -1274,6 +1318,20 @@ export const LancamentoFormDrawer = ({
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative">
+            {activeAlerts.map(alert => (
+              <div key={alert.id} className="flex items-start gap-3 p-4 rounded-xl border border-rose-200 bg-rose-50/50 dark:border-rose-900/50 dark:bg-rose-950/20 text-xs text-rose-700 dark:text-rose-300 animate-in fade-in duration-300">
+                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                <div className="flex-1 text-left">
+                  <p className="font-bold">
+                    Alerta de Auditoria Pendente: {ANOMALY_TRANSLATIONS[alert.tipo_anomalia] || alert.tipo_anomalia}
+                  </p>
+                  <p className="mt-0.5 text-slate-500 dark:text-slate-400 leading-relaxed">
+                    {alert.descricao}
+                  </p>
+                </div>
+              </div>
+            ))}
+
             {formData.conciliado && (
               <div className="flex items-start gap-3 p-4 rounded-xl border border-blue-200 bg-blue-50/50 dark:border-blue-900/50 dark:bg-blue-950/20 text-xs text-blue-700 dark:text-blue-300 animate-in fade-in duration-300">
                 <Lock className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
@@ -1768,8 +1826,9 @@ export const LancamentoFormDrawer = ({
                 </label>
                 <div className="space-y-2.5">
                   {formData.baixas.map((baixa: any) => {
-                    const mov = baixa.movimento_ofx;
+                    const mov = baixa.movimento;
                     return (
+
                       <div key={baixa.id} className="flex justify-between items-start text-xs border-b border-slate-200 dark:border-slate-700/60 pb-2 last:border-0 last:pb-0">
                         <div>
                           <p className="font-semibold text-slate-700 dark:text-slate-200">
@@ -1859,6 +1918,26 @@ export const LancamentoFormDrawer = ({
                 {filesToUpload && <p className="text-xs text-blue-400 font-bold mt-2">{filesToUpload.length} novos arquivos</p>}
               </div>
             </div>
+
+            {/* INLINE SILENCING CHECKBOX */}
+            {isEditing && (
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={inlineSilencing}
+                    onChange={(e) => setInlineSilencing(e.target.checked)}
+                    className="rounded border-slate-200 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                  />
+                  <span>Ignorar alertas futuros similares</span>
+                </label>
+                {inlineSilencing && (
+                  <p className="text-[10px] text-slate-400 leading-relaxed pl-6 text-left">
+                    Ao marcar esta opção, o sistema criará automaticamente uma regra de silenciamento para a categoria selecionada e este favorecido, evitando alertas de desvio de valor.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
           <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 flex justify-end gap-3">
             <button

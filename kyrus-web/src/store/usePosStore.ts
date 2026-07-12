@@ -85,6 +85,7 @@ export interface Sale {
   observacao: string | null;
   comprovante_urls?: string[];
   comprovanteFiles?: { name: string; type: string; data: string }[]; // Base64 files
+  campos_extras?: Record<string, any> | null;
 
   // Auxiliary fields for local display
   clienteNome?: string;
@@ -170,7 +171,8 @@ export const usePosStore = create<PosState>()(
               rv: sale.rv,
               data_pagamento: sale.data_pagamento,
               observacao: sale.observacao,
-              comprovante_urls: sale.comprovante_urls || []
+              comprovante_urls: sale.comprovante_urls || [],
+              campos_extras: sale.campos_extras || null
             }, {
               headers: syncHeaders,
             });

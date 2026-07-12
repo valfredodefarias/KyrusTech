@@ -68,7 +68,7 @@ html, body, #root {
 
 .kyrus-shell button,
 .kyrus-shell a.button {
-  border-radius: 6px !important;
+  border-radius: 6px;
 }
 
 /* Tabelas Densas Estilo GitHub */

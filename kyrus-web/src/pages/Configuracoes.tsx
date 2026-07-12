@@ -9,7 +9,8 @@ import {
   Palette, Check, AlertCircle, Camera, RefreshCw,
   Download, CalendarRange, Trash2, Users,
   PanelLeftClose, PanelLeftOpen, ShoppingBag, Plus,
-  Shield, Monitor, DollarSign, Percent, RotateCcw
+  Shield, Monitor, DollarSign, Percent, RotateCcw,
+  GripVertical, Sparkles, CheckCircle2
 } from 'lucide-react';
 import { Entidades } from './Entidades';
 
@@ -693,6 +694,39 @@ const ConfiguracoesPDV = () => {
   const [newParcelada, setNewParcelada] = useState(false);
   const [newAtiva, setNewAtiva] = useState(true);
 
+  // Sub-aba ativa (preferences ou custom_fields)
+  const [activeConfigSubTab, setActiveConfigSubTab] = useState<'preferences' | 'custom_fields'>('preferences');
+
+  // Campos personalizados (Metadados Dinâmicos)
+  const [camposPersonalizados, setCamposPersonalizados] = useState<any[]>([]);
+  const [showFieldForm, setShowFieldForm] = useState(false);
+  const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
+  
+  // Editor de campo
+  const [fieldLabel, setFieldLabel] = useState('');
+  const [fieldType, setFieldType] = useState('text');
+  const [fieldRequired, setFieldRequired] = useState(false);
+  const [fieldPlaceholder, setFieldPlaceholder] = useState('');
+  const [fieldOptions, setFieldOptions] = useState('');
+  const [fieldRegex, setFieldRegex] = useState('');
+  const [fieldDependsOnField, setFieldDependsOnField] = useState('');
+  const [fieldDependsOnValue, setFieldDependsOnValue] = useState('');
+  const [fieldPlanoContasId, setFieldPlanoContasId] = useState('');
+  const [fieldHalfWidth, setFieldHalfWidth] = useState(false);
+
+  // Preferências adicionais do PDV
+  const [pdvConfigModoVendaPadrao, setPdvConfigModoVendaPadrao] = useState<'itens' | 'direta'>('itens');
+  const [pdvConfigFormaPagamentoPadrao, setPdvConfigFormaPagamentoPadrao] = useState<string>('dinheiro');
+
+  // Estados Drag & Drop
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [showOrderSavedBadge, setShowOrderSavedBadge] = useState(false);
+
+  // Estados de Simulação do Live Preview
+  const [mockInputValues, setMockInputValues] = useState<Record<string, any>>({});
+  const [simulateErrors, setSimulateErrors] = useState(false);
+
   const loadedDataRef = useRef(false);
 
   useEffect(() => {
@@ -722,6 +756,15 @@ const ConfiguracoesPDV = () => {
             }
             if (parsed.marcar_como_pago !== undefined) {
               setPdvConfigMarcarPago(parsed.marcar_como_pago);
+            }
+            if (parsed.campos_personalizados && Array.isArray(parsed.campos_personalizados)) {
+              setCamposPersonalizados(parsed.campos_personalizados);
+            }
+            if (parsed.modo_venda_padrao) {
+              setPdvConfigModoVendaPadrao(parsed.modo_venda_padrao);
+            }
+            if (parsed.forma_pagamento_padrao) {
+              setPdvConfigFormaPagamentoPadrao(parsed.forma_pagamento_padrao);
             }
           } catch (e) {
             console.error('Erro ao fazer parse de pdv_config', e);
@@ -760,7 +803,10 @@ const ConfiguracoesPDV = () => {
           formas_pagamento: formasPagamento,
           categorias: pdvConfigCategorias,
           marcar_como_pago: pdvConfigMarcarPago,
-          contas: pdvConfigContas
+          contas: pdvConfigContas,
+          campos_personalizados: camposPersonalizados,
+          modo_venda_padrao: pdvConfigModoVendaPadrao,
+          forma_pagamento_padrao: pdvConfigFormaPagamentoPadrao
         })
       });
       setGlobalEmpresa(resPatch.data);
@@ -831,135 +877,571 @@ const ConfiguracoesPDV = () => {
     }
   }
 
+  async function saveFieldsConfigSilently(updatedFields: any[]) {
+    if (!empresa) return;
+    try {
+      setShowOrderSavedBadge(true);
+      const resPatch = await api.patch<EmpresaInfo>(`/empresas/${empresa.id}`, {
+        pdv_config: JSON.stringify({
+          formas_pagamento: formasPagamento,
+          categorias: pdvConfigCategorias,
+          marcar_como_pago: pdvConfigMarcarPago,
+          contas: pdvConfigContas,
+          campos_personalizados: updatedFields,
+          modo_venda_padrao: pdvConfigModoVendaPadrao,
+          forma_pagamento_padrao: pdvConfigFormaPagamentoPadrao
+        })
+      });
+      setGlobalEmpresa(resPatch.data);
+      setTimeout(() => setShowOrderSavedBadge(false), 1500);
+    } catch (e) {
+      console.error(e);
+      setShowOrderSavedBadge(false);
+    }
+  }
+
+  function saveFieldsList(updatedList: any[]) {
+    setCamposPersonalizados(updatedList);
+    saveFieldsConfigSilently(updatedList);
+  }
+
+  function handleSaveField() {
+    if (!fieldLabel.trim()) {
+      alert('Informe a etiqueta do campo.');
+      return;
+    }
+
+    const fieldId = editingFieldId || fieldLabel.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '').trim();
+
+    if (!fieldId) {
+      alert('Nome de etiqueta inválido.');
+      return;
+    }
+
+    const newField = {
+      id: fieldId,
+      label: fieldLabel.trim(),
+      type: fieldType,
+      required: fieldRequired,
+      placeholder: fieldPlaceholder.trim() || undefined,
+      options: (fieldType === 'select' || fieldType === 'select_buttons') ? fieldOptions.split(',').map(o => o.trim()).filter(Boolean) : undefined,
+      regex: fieldRegex.trim() || undefined,
+      depends_on: fieldDependsOnField ? { field: fieldDependsOnField, value: fieldDependsOnValue } : undefined,
+      plano_contas_id: fieldType === 'currency' && fieldPlanoContasId ? Number(fieldPlanoContasId) : undefined,
+      half_width: fieldHalfWidth
+    };
+
+    let updatedList = [];
+    if (editingFieldId) {
+      updatedList = camposPersonalizados.map(f => f.id === editingFieldId ? newField : f);
+    } else {
+      if (camposPersonalizados.some(f => f.id === fieldId)) {
+        alert('Já existe um campo com esta identificação/nome.');
+        return;
+      }
+      updatedList = [...camposPersonalizados, newField];
+    }
+
+    saveFieldsList(updatedList);
+
+    setShowFieldForm(false);
+    setEditingFieldId(null);
+    setFieldLabel('');
+    setFieldType('text');
+    setFieldRequired(false);
+    setFieldPlaceholder('');
+    setFieldOptions('');
+    setFieldRegex('');
+    setFieldDependsOnField('');
+    setFieldDependsOnValue('');
+    setFieldPlanoContasId('');
+    setFieldHalfWidth(false);
+  }
+
+  function handleDeleteField(id: string) {
+    if (confirm('Deseja realmente excluir este campo personalizado? As vendas existentes continuarão com o dado salvo, mas o campo não aparecerá mais no formulário de novas vendas.')) {
+      const updatedList = camposPersonalizados.filter(f => f.id !== id);
+      saveFieldsList(updatedList);
+    }
+  }
+
+  // HTML5 Drag & Drop
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index);
+    e.dataTransfer.setData('text/plain', String(index));
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    setDragOverIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    setDragOverIndex(null);
+    if (draggedIndex === null || draggedIndex === targetIndex) {
+      setDraggedIndex(null);
+      return;
+    }
+
+    const list = [...camposPersonalizados];
+    const draggedItem = list[draggedIndex];
+    list.splice(draggedIndex, 1);
+    list.splice(targetIndex, 0, draggedItem);
+    saveFieldsList(list);
+    setDraggedIndex(null);
+  };
+
   if (loading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>;
   if (!empresa) return <div className="p-10 text-center text-slate-500">Empresa não encontrada.</div>;
 
   return (
     <div className="w-full animate-in fade-in slide-in-from-bottom-4">
       <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-none p-4 sm:p-6 shadow-sm">
-        <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-2">Configurações do PDV (Ponto de Venda)</h2>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 mb-6">Defina o mapeamento contábil, a conta financeira padrão e a liquidação automática das transações por forma de pagamento.</p>
-
-        <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-slate-900 dark:text-white">Mapeamento Contábil e Liquidação Automática</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                Escolha a categoria de receitas do Plano de Contas e decida se o lançamento correspondente deve ser marcado como liquidado (PAGO) na hora da venda, ou se nascerá em aberto.
-              </p>
-            </div>
+        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-4 mb-6">
+          <div>
+            <h2 className="text-2xl font-black text-slate-900 dark:text-white">Configurações do PDV</h2>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 font-medium">Defina formas de pagamento, mapeamento contábil e campos personalizados para vendas.</p>
+          </div>
+          {/* Sub-abas */}
+          <div className="flex gap-2 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl">
             <button
               type="button"
-              onClick={() => setShowAddForm(true)}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2 text-xs font-bold text-white shadow-md transition-colors cursor-pointer shrink-0"
-              style={empresa.cor_primaria ? { backgroundColor: empresa.cor_primaria } : undefined}
+              onClick={() => setActiveConfigSubTab('preferences')}
+              className={`px-4 py-2 text-xs font-bold rounded-lg transition ${activeConfigSubTab === 'preferences' ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
             >
-              <Plus className="w-3.5 h-3.5" />
-              Nova Forma
+              Preferências e Integrações
             </button>
-          </div>
-          
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {formasPagamento.map((item) => (
-              <div key={item.key} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3 shadow-sm relative">
-                <div className="flex items-center justify-between font-bold text-xs uppercase tracking-wider">
-                  <span className="text-slate-900 dark:text-white">{item.label}</span>
-                  {!defaults.includes(item.key) && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemovePaymentMethod(item.key)}
-                      className="text-red-500 hover:text-red-600 p-1 hover:bg-red-50 dark:hover:bg-red-950/20 rounded transition cursor-pointer animate-in fade-in"
-                      title="Excluir Forma de Pagamento"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-                
-                <label className="block">
-                  <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Categoria de Receita</span>
-                  <select
-                    value={pdvConfigCategorias[item.key] || ''}
-                    onChange={(e) => {
-                      setPdvConfigCategorias({
-                        ...pdvConfigCategorias,
-                        [item.key]: e.target.value
-                      });
-                    }}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                  >
-                    <option value="">Automático (Padrão de Receitas)</option>
-                    {categoriasReceita.map((categoria) => (
-                      <option key={categoria.id} value={categoria.id}>{categoria.nome}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="block">
-                  <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Conta Financeira</span>
-                  <select
-                    value={pdvConfigContas[item.key] || ''}
-                    onChange={(e) => {
-                      setPdvConfigContas({
-                        ...pdvConfigContas,
-                        [item.key]: e.target.value
-                      });
-                    }}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                  >
-                    <option value="">Não Associada</option>
-                    {contas.map((c) => (
-                      <option key={c.id} value={c.id}>{c.nome}</option>
-                    ))}
-                  </select>
-                </label>
-                
-                <div className="flex flex-col gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
-                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={pdvConfigMarcarPago[item.key] || false}
-                      onChange={(e) => {
-                        setPdvConfigMarcarPago({
-                          ...pdvConfigMarcarPago,
-                          [item.key]: e.target.checked
-                        });
-                      }}
-                      className="rounded text-blue-500 focus:ring-blue-500"
-                    />
-                    Marcar como Pago na hora
-                  </label>
-
-                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={item.ativa !== false}
-                      onChange={(e) => {
-                        setFormasPagamento(formasPagamento.map((f) => f.key === item.key ? { ...f, ativa: e.target.checked } : f));
-                      }}
-                      className="rounded text-blue-500 focus:ring-blue-500"
-                    />
-                    Ativa no PDV
-                  </label>
-
-                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={item.parcelada || false}
-                      onChange={(e) => {
-                        setFormasPagamento(formasPagamento.map((f) => f.key === item.key ? { ...f, parcelada: e.target.checked } : f));
-                      }}
-                      className="rounded text-blue-500 focus:ring-blue-500"
-                    />
-                    Permite Parcelamento
-                  </label>
-                </div>
-              </div>
-            ))}
+            <button
+              type="button"
+              onClick={() => setActiveConfigSubTab('custom_fields')}
+              className={`px-4 py-2 text-xs font-bold rounded-lg transition ${activeConfigSubTab === 'custom_fields' ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+            >
+              Campos Personalizados
+            </button>
           </div>
         </div>
 
-        {/* MODAL DE CRIAÇÃO */}
+        {activeConfigSubTab === 'custom_fields' ? (
+          /* COLUNAS LADO A LADO */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* PAINEL ESQUERDO: GERENCIADOR */}
+            <div className="lg:col-span-7 space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    Metadados Dinâmicos
+                    {showOrderSavedBadge && (
+                      <span className="text-[10px] bg-emerald-500 text-white font-extrabold px-2 py-0.5 rounded-full animate-pulse">Sincronizado!</span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Gerencie e reordene os campos adicionais do formulário de vendas.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingFieldId(null);
+                    setFieldLabel('');
+                    setFieldType('text');
+                    setFieldRequired(false);
+                    setFieldPlaceholder('');
+                    setFieldOptions('');
+                    setFieldRegex('');
+                    setFieldDependsOnField('');
+                    setFieldDependsOnValue('');
+                    setFieldPlanoContasId('');
+                    setFieldHalfWidth(false);
+                    setShowFieldForm(true);
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2.5 text-xs font-bold text-white shadow-md transition cursor-pointer"
+                  style={empresa.cor_primaria ? { backgroundColor: empresa.cor_primaria } : undefined}
+                >
+                  <Plus className="w-4 h-4" />
+                  Novo Campo
+                </button>
+              </div>
+
+              {/* LISTA DE CAMPOS COM DRAG & DROP */}
+              <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
+                {camposPersonalizados.length === 0 ? (
+                  <div className="p-8 text-center border border-dashed border-slate-200 dark:border-slate-700 rounded-2xl text-slate-400">
+                    <p className="text-sm font-medium">Nenhum campo personalizado cadastrado.</p>
+                    <p className="text-xs mt-1">Crie um campo para começar a preencher dados adicionais no PDV.</p>
+                  </div>
+                ) : (
+                  camposPersonalizados.map((campo, index) => {
+                    const isDragOver = dragOverIndex === index;
+                    return (
+                      <div
+                        key={campo.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, index)}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, index)}
+                        className={`flex items-center justify-between p-3.5 bg-slate-50 hover:bg-slate-100/80 dark:bg-slate-900/60 dark:hover:bg-slate-900/90 border rounded-xl transition shadow-sm ${draggedIndex === index ? 'opacity-40' : ''} ${isDragOver ? 'border-dashed border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200 dark:border-slate-800'}`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-slate-200/50 dark:hover:bg-slate-800">
+                            <GripVertical className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-850 dark:text-white truncate">{campo.label}</p>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px]">
+                              <span className="bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">{campo.type}</span>
+                              {campo.required && <span className="bg-red-500 text-white px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wider">Obrigatório</span>}
+                              {campo.half_width && <span className="bg-blue-500 text-white px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wider">Meia Largura</span>}
+                              {campo.plano_contas_id && <span className="bg-amber-500 text-white px-1.5 py-0.5 rounded font-extrabold uppercase">PC: #{campo.plano_contas_id}</span>}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingFieldId(campo.id);
+                              setFieldLabel(campo.label);
+                              setFieldType(campo.type);
+                              setFieldRequired(campo.required || false);
+                              setFieldPlaceholder(campo.placeholder || '');
+                              setFieldOptions(Array.isArray(campo.options) ? campo.options.join(', ') : '');
+                              setFieldRegex(campo.regex || '');
+                              setFieldDependsOnField(campo.depends_on?.field || '');
+                              setFieldDependsOnValue(campo.depends_on?.value || '');
+                              setFieldPlanoContasId(campo.plano_contas_id ? String(campo.plano_contas_id) : '');
+                              setFieldHalfWidth(campo.half_width || false);
+                              setShowFieldForm(true);
+                            }}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/35 rounded-lg transition font-bold text-xs"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteField(campo.id)}
+                            className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/35 rounded-lg transition"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* PAINEL DIREITO: MAQUETE LIVE PREVIEW */}
+            <div className="lg:col-span-5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-inner">
+              <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <Monitor className="w-4 h-4 text-blue-500 animate-pulse" />
+                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Maquete do PDV (Nova Venda)</h4>
+                </div>
+                <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 dark:text-slate-400 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={simulateErrors}
+                    onChange={(e) => setSimulateErrors(e.target.checked)}
+                    className="rounded text-blue-500 focus:ring-blue-500"
+                  />
+                  Simular Erros
+                </label>
+              </div>
+
+              {/* SIMULADOR DE FORMULÁRIO */}
+              <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-4 shadow-sm">
+                <div className="border-b border-slate-100 dark:border-slate-900 pb-2.5 mb-3 flex items-center gap-2">
+                  <ShoppingBag className="w-4 h-4 text-emerald-500" />
+                  <span className="text-xs font-bold text-slate-400 uppercase">Informações da Venda</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  {camposPersonalizados.length === 0 ? (
+                    <div className="col-span-2 text-center py-6 text-slate-400 text-xs font-medium border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                      Crie campos personalizados para ver a prévia renderizada em tempo real.
+                    </div>
+                  ) : (
+                    camposPersonalizados.map((campo: any) => {
+                      const value = mockInputValues[campo.id] ?? '';
+                      const isHalf = campo.half_width;
+                      const wrapperClass = isHalf ? "col-span-2 sm:col-span-1 space-y-1 animate-in fade-in" : "col-span-2 space-y-1 animate-in fade-in";
+                      
+                      // Check for errors if simulated
+                      const isRequiredEmpty = campo.required && !value;
+                      
+                      let isRegexInvalid = false;
+                      if (campo.regex && value) {
+                        try {
+                          isRegexInvalid = !new RegExp(campo.regex).test(String(value));
+                        } catch (e) {
+                          isRegexInvalid = true;
+                        }
+                      }
+                      
+                      const isError = simulateErrors && (isRequiredEmpty || isRegexInvalid);
+
+                      const handleMockChange = (val: any) => {
+                        setMockInputValues((prev) => ({ ...prev, [campo.id]: val }));
+                      };
+
+                      return (
+                        <div key={campo.id} className={wrapperClass}>
+                          <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1 uppercase tracking-wider">
+                            {campo.label}
+                            {campo.required && <span className="text-rose-500 font-extrabold">*</span>}
+                          </label>
+
+                          {campo.type === 'select_buttons' ? (
+                            <div className="grid grid-cols-3 gap-1.5 pt-1">
+                              {(campo.options || []).map((opt: string) => {
+                                const active = value === opt;
+                                return (
+                                  <button
+                                    key={opt}
+                                    type="button"
+                                    onClick={() => handleMockChange(active ? '' : opt)}
+                                    className={`py-1.5 px-2 text-[10px] font-bold text-center rounded-lg border transition cursor-pointer truncate ${active ? 'bg-blue-500/10 border-blue-500 text-blue-600' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100'}`}
+                                  >
+                                    {opt}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : campo.type === 'select' ? (
+                            <select
+                              value={value}
+                              onChange={(e) => handleMockChange(e.target.value)}
+                              className={`w-full rounded-xl border px-3 py-2 text-xs outline-none transition focus:border-blue-500 ${isError ? 'border-rose-500 bg-rose-50/20 text-rose-700' : 'border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-white'}`}
+                            >
+                              <option value="">Selecione...</option>
+                              {(campo.options || []).map((opt: string) => (
+                                <option key={opt} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          ) : campo.type === 'checkbox' ? (
+                            <div className="pt-1">
+                              <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={!!value}
+                                  onChange={(e) => handleMockChange(e.target.checked)}
+                                  className="rounded text-blue-500 focus:ring-blue-500"
+                                />
+                                {campo.placeholder || 'Marcar opção'}
+                              </label>
+                            </div>
+                          ) : campo.type === 'currency' ? (
+                            <div className="relative">
+                              <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-bold">R$</span>
+                              <input
+                                type="text"
+                                value={value}
+                                onChange={(e) => handleMockChange(formatMonetario(e.target.value))}
+                                placeholder="0,00"
+                                className={`w-full rounded-xl border pl-9 pr-3 py-2 text-xs outline-none transition focus:border-blue-500 ${isError ? 'border-rose-500 bg-rose-50/20 text-rose-700' : 'border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-white'}`}
+                              />
+                            </div>
+                          ) : (
+                            <input
+                              type={campo.type === 'number' ? 'number' : 'text'}
+                              value={value}
+                              onChange={(e) => handleMockChange(e.target.value)}
+                              placeholder={campo.placeholder || ''}
+                              className={`w-full rounded-xl border px-3 py-2 text-xs outline-none transition focus:border-blue-500 ${isError ? 'border-rose-500 bg-rose-50/20 text-rose-700' : 'border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-white'}`}
+                            />
+                          )}
+
+                          {isError && (
+                            <p className="text-[10px] text-rose-500 font-extrabold flex items-center gap-1 mt-0.5 animate-in slide-in-from-top-1">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                              {isRequiredEmpty ? 'Campo obrigatório' : 'Regex inválido'}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Mapeamentos e Preferências */
+          <div className="space-y-6">
+            {/* Modo de venda e Forma de pagamento padrão */}
+            <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-4">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">Preferências Gerais do PDV</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Modo de Venda Padrão</span>
+                  <select
+                    value={pdvConfigModoVendaPadrao}
+                    onChange={(e) => setPdvConfigModoVendaPadrao(e.target.value as 'itens' | 'direta')}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                  >
+                    <option value="itens">Venda por Itens (Lista de produtos)</option>
+                    <option value="direta">Venda Direta (Lançamento de valor único)</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Forma de Pagamento Padrão</span>
+                  <select
+                    value={pdvConfigFormaPagamentoPadrao}
+                    onChange={(e) => setPdvConfigFormaPagamentoPadrao(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                  >
+                    {formasPagamento.map((item) => (
+                      <option key={item.key} value={item.key}>{item.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            {/* Formas de pagamento mapeadas */}
+            <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-white">Mapeamento Contábil e Liquidação Automática</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                    Escolha a categoria de receitas do Plano de Contas e decida se o lançamento correspondente deve ser marcado como liquidado (PAGO) na hora da venda, ou se nascerá em aberto.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(true)}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2.5 text-xs font-bold text-white shadow-md transition-colors cursor-pointer shrink-0"
+                  style={empresa.cor_primaria ? { backgroundColor: empresa.cor_primaria } : undefined}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Nova Forma
+                </button>
+              </div>
+              
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {formasPagamento.map((item) => (
+                  <div key={item.key} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3 shadow-sm relative">
+                    <div className="flex items-center justify-between font-bold text-xs uppercase tracking-wider">
+                      <span className="text-slate-900 dark:text-white">{item.label}</span>
+                      {!defaults.includes(item.key) && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePaymentMethod(item.key)}
+                          className="text-red-500 hover:text-red-650 p-1 hover:bg-red-50 dark:hover:bg-red-950/20 rounded transition cursor-pointer animate-in fade-in font-bold"
+                          title="Excluir Forma de Pagamento"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    
+                    <label className="block">
+                      <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Categoria de Receita</span>
+                      <select
+                        value={pdvConfigCategorias[item.key] || ''}
+                        onChange={(e) => {
+                          setPdvConfigCategorias({
+                            ...pdvConfigCategorias,
+                            [item.key]: e.target.value
+                          });
+                        }}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      >
+                        <option value="">Automático (Padrão de Receitas)</option>
+                        {categoriasReceita.map((categoria) => (
+                          <option key={categoria.id} value={categoria.id}>{categoria.nome}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Conta Financeira</span>
+                      <select
+                        value={pdvConfigContas[item.key] || ''}
+                        onChange={(e) => {
+                          setPdvConfigContas({
+                            ...pdvConfigContas,
+                            [item.key]: e.target.value
+                          });
+                        }}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      >
+                        <option value="">Não Associada</option>
+                        {contas.map((c) => (
+                          <option key={c.id} value={c.id}>{c.nome}</option>
+                        ))}
+                      </select>
+                    </label>
+                    
+                    <div className="flex flex-col gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={pdvConfigMarcarPago[item.key] || false}
+                          onChange={(e) => {
+                            setPdvConfigMarcarPago({
+                              ...pdvConfigMarcarPago,
+                              [item.key]: e.target.checked
+                            });
+                          }}
+                          className="rounded text-blue-500 focus:ring-blue-500"
+                        />
+                        Marcar como Pago na hora
+                      </label>
+
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={item.ativa !== false}
+                          onChange={(e) => {
+                            setFormasPagamento(formasPagamento.map((f) => f.key === item.key ? { ...f, ativa: e.target.checked } : f));
+                          }}
+                          className="rounded text-blue-500 focus:ring-blue-500"
+                        />
+                        Ativa no PDV
+                      </label>
+
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={item.parcelada || false}
+                          onChange={(e) => {
+                            setFormasPagamento(formasPagamento.map((f) => f.key === item.key ? { ...f, parcelada: e.target.checked } : f));
+                          }}
+                          className="rounded text-blue-500 focus:ring-blue-500"
+                        />
+                        Permite Parcelamento
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            {/* BOTÃO SALVAR */}
+            <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+              <button 
+                onClick={handleSave} 
+                disabled={saving} 
+                className="px-7 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold shadow-sm flex items-center gap-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer" 
+                style={empresa.cor_primaria ? { backgroundColor: empresa.cor_primaria } : undefined}
+              >
+                {saving ? <Loader2 className="animate-spin w-5 h-5"/> : <Save className="w-5 h-5"/>} 
+                {saving ? 'Salvando...' : 'Salvar Alterações'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL DE CRIAÇÃO FORMA PAGAMENTO */}
         {showAddForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 text-slate-900 dark:text-white">
@@ -1030,18 +1512,182 @@ const ConfiguracoesPDV = () => {
           </div>
         )}
 
-        {/* BOTÃO SALVAR */}
-        <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-end">
-          <button 
-            onClick={handleSave} 
-            disabled={saving} 
-            className="px-7 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold shadow-sm flex items-center gap-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" 
-            style={empresa.cor_primaria ? { backgroundColor: empresa.cor_primaria } : undefined}
-          >
-            {saving ? <Loader2 className="animate-spin w-5 h-5"/> : <Save className="w-5 h-5"/>} 
-            {saving ? 'Salvando...' : 'Salvar Alterações'}
-          </button>
-        </div>
+        {/* MODAL DE CRIAÇÃO/EDIÇÃO DE CAMPO PERSONALIZADO */}
+        {showFieldForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl max-w-lg w-full shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 text-slate-900 dark:text-white">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                  {editingFieldId ? 'Editar Campo Personalizado' : 'Novo Campo Personalizado'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowFieldForm(false)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl font-bold cursor-pointer"
+                >
+                  &times;
+                </button>
+              </div>
+              
+              <div className="space-y-4 max-h-[450px] overflow-y-auto pr-1 custom-scrollbar">
+                <div className="grid grid-cols-2 gap-4">
+                  <label className="col-span-2 block">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Etiqueta do Campo (Label)</span>
+                    <input
+                      type="text"
+                      value={fieldLabel}
+                      onChange={(e) => setFieldLabel(e.target.value)}
+                      placeholder="Ex: CPF do Cliente, Placa do Veículo"
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                    />
+                  </label>
+
+                  <label className="col-span-2 sm:col-span-1 block">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Tipo de Dado</span>
+                    <select
+                      value={fieldType}
+                      onChange={(e) => setFieldType(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                    >
+                      <option value="text">Texto Simples (text)</option>
+                      <option value="number">Número (number)</option>
+                      <option value="currency">Valor Monetário (currency)</option>
+                      <option value="checkbox">Caixa de Seleção (checkbox)</option>
+                      <option value="select">Lista de Opções (select)</option>
+                      <option value="select_buttons">Botões de Opção Rápida (select_buttons)</option>
+                    </select>
+                  </label>
+
+                  <label className="col-span-2 sm:col-span-1 block">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Placeholder / Texto Auxiliar</span>
+                    <input
+                      type="text"
+                      value={fieldPlaceholder}
+                      onChange={(e) => setFieldPlaceholder(e.target.value)}
+                      placeholder="Ex: 000.000.000-00"
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                    />
+                  </label>
+
+                  {/* Configurações específicas para Select e Select Buttons */}
+                  {(fieldType === 'select' || fieldType === 'select_buttons') && (
+                    <label className="col-span-2 block">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Opções (Separadas por vírgula)</span>
+                      <input
+                        type="text"
+                        value={fieldOptions}
+                        onChange={(e) => setFieldOptions(e.target.value)}
+                        placeholder="Ex: Opção A, Opção B, Opção C"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      />
+                    </label>
+                  )}
+
+                  {/* Configurações de Expressão Regular (Regex) para validação */}
+                  {(fieldType === 'text' || fieldType === 'number') && (
+                    <label className="col-span-2 block">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Validação Regex (Expressão Regular)</span>
+                      <input
+                        type="text"
+                        value={fieldRegex}
+                        onChange={(e) => setFieldRegex(e.target.value)}
+                        placeholder="Ex: ^\d{11}$ para 11 dígitos numéricos"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      />
+                    </label>
+                  )}
+
+                  {/* Configuração de Plano de Contas para tipo Currency */}
+                  {fieldType === 'currency' && (
+                    <label className="col-span-2 block">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Plano de Contas Associado</span>
+                      <select
+                        value={fieldPlanoContasId}
+                        onChange={(e) => setFieldPlanoContasId(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      >
+                        <option value="">Não Associado (Apenas descritivo)</option>
+                        {categoriasReceita.map((cat) => (
+                          <option key={cat.id} value={cat.id}>{cat.nome} (Receita)</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+
+                  {/* Dependência Condicional */}
+                  <div className="col-span-2 grid grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div className="col-span-2 text-xs font-bold text-slate-400 uppercase">Dependência Condicional (Opcional)</div>
+                    <label className="block col-span-2 sm:col-span-1">
+                      <span className="text-[10px] font-bold text-slate-500 block mb-1 uppercase">Depende do Campo</span>
+                      <select
+                        value={fieldDependsOnField}
+                        onChange={(e) => setFieldDependsOnField(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      >
+                        <option value="">Nenhum</option>
+                        {camposPersonalizados.filter(f => f.id !== editingFieldId).map((f) => (
+                          <option key={f.id} value={f.id}>{f.label}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block col-span-2 sm:col-span-1">
+                      <span className="text-[10px] font-bold text-slate-500 block mb-1 uppercase">Quando o Valor for</span>
+                      <input
+                        type="text"
+                        value={fieldDependsOnValue}
+                        onChange={(e) => setFieldDependsOnValue(e.target.value)}
+                        placeholder="Ex: Sim, Balcao"
+                        className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      />
+                    </label>
+                  </div>
+
+                  {/* Checkboxes de Atributos */}
+                  <div className="col-span-2 flex flex-col sm:flex-row gap-4 pt-1">
+                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-650 dark:text-slate-350 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={fieldRequired}
+                        onChange={(e) => setFieldRequired(e.target.checked)}
+                        className="rounded text-blue-500 focus:ring-blue-500"
+                      />
+                      Campo Obrigatório
+                    </label>
+
+                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-655 dark:text-slate-355 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={fieldHalfWidth}
+                        onChange={(e) => setFieldHalfWidth(e.target.checked)}
+                        className="rounded text-blue-500 focus:ring-blue-500"
+                      />
+                      Organizar em Duas Colunas (Meia Largura)
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowFieldForm(false)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveField}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-bold shadow-md transition cursor-pointer"
+                  style={empresa.cor_primaria ? { backgroundColor: empresa.cor_primaria } : undefined}
+                >
+                  Confirmar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2618,3 +3264,17 @@ export function Configuracoes() {
     </div>
   );
 }
+
+const formatMonetario = (val: string | number) => {
+  const cleanVal = typeof val === 'number' ? val.toFixed(2).replace('.', '') : String(val || '').replace(/\D/g, '');
+  if (!cleanVal) return '';
+  const num = parseInt(cleanVal, 10) / 100;
+  return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+};
+
+const parseMonetario = (val: string | number): number => {
+  if (typeof val === 'number') return val;
+  const cleanVal = String(val || '').replace(/\D/g, '');
+  if (!cleanVal) return 0;
+  return parseInt(cleanVal, 10) / 100;
+};

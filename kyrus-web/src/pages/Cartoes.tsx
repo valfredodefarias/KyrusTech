@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { api, normalizeListResponse } from '../services/api';
-import { Lancamentos } from './Lancamentos';
+import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
 import { BrandAvatar, CARD_BRAND_OPTIONS, inferCardBrand } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
 import { 
@@ -42,7 +42,7 @@ interface CartaoResumo {
 }
 
 interface CentroCusto { id: number; nome?: string; descricao?: string; }
-interface Conta { id: number; nome?: string; descricao?: string; }
+interface Conta { id: number; nome?: string; descricao?: string; centro_custo_id?: number | null; status?: string; }
 interface ToastItem {
   id: number;
   type: 'success' | 'error' | 'info';
@@ -75,7 +75,44 @@ const CurrencyInputDark = ({ label, className = '', value, onValueChange, ...pro
 export function Cartoes() {
   // --- TRAVA DE SEGURANÇA CONTRA DUPLA REQUISIÇÃO ---
   const dataFetchedRef = useRef(false);
-    const autoFaturaRef = useRef<number | null>(null);
+  const autoFaturaRef = useRef<number | null>(null);
+
+  // Helper to render bank account dropdown options grouped by branch (Centro de Custo)
+  const renderContaOptions = () => {
+    // Only show active accounts (skip INATIVO)
+    const contasAtivas = contas.filter(c => c.status !== 'INATIVO');
+
+    const groups = centros.map(cc => {
+        const contasDoCc = contasAtivas.filter(c => String(c.centro_custo_id) === String(cc.id));
+        if (contasDoCc.length === 0) return null;
+        return (
+            <optgroup key={cc.id} label={cc.nome || cc.descricao || 'Geral'} className="bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-400 font-bold">
+                {contasDoCc.map(c => (
+                    <option key={c.id} value={c.id} className="bg-white dark:bg-slate-800 text-slate-800 dark:text-white font-normal">
+                        {c.nome || c.descricao}
+                    </option>
+                ))}
+            </optgroup>
+        );
+    }).filter(Boolean);
+
+    const semCc = contasAtivas.filter(c => !c.centro_custo_id || !centros.some(cc => String(cc.id) === String(c.centro_custo_id)));
+    
+    return (
+        <>
+            {groups}
+            {semCc.length > 0 && (
+                <optgroup label="Outras Contas" className="bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-400 font-bold">
+                    {semCc.map(c => (
+                        <option key={c.id} value={c.id} className="bg-white dark:bg-slate-800 text-slate-800 dark:text-white font-normal">
+                            {c.nome || c.descricao}
+                        </option>
+                    ))}
+                </optgroup>
+            )}
+        </>
+    );
+  };
 
   const [loading, setLoading] = useState(true);
   const [cartoes, setCartoes] = useState<Cartao[]>([]);
@@ -255,6 +292,30 @@ export function Cartoes() {
         }
     }, [centros]);
 
+    useEffect(() => {
+        const handleGlobalKeys = (e: KeyboardEvent) => {
+            const activeEl = document.activeElement;
+            if (activeEl && (
+                activeEl.tagName === 'INPUT' || 
+                activeEl.tagName === 'SELECT' || 
+                activeEl.tagName === 'TEXTAREA' || 
+                activeEl.getAttribute('contenteditable') === 'true'
+            )) {
+                return;
+            }
+
+            if ((e.key === 'n' || e.key === 'N') && selectedCartaoId && !showLaunchDrawer && !showDrawer && !showPayModal) {
+                e.preventDefault();
+                setShowLaunchDrawer(true);
+            }
+        };
+
+        window.addEventListener('keydown', handleGlobalKeys);
+        return () => {
+            window.removeEventListener('keydown', handleGlobalKeys);
+        };
+    }, [selectedCartaoId, showLaunchDrawer, showDrawer, showPayModal]);
+
     async function carregarDados() {
     setLoading(true);
     try {
@@ -398,7 +459,7 @@ export function Cartoes() {
 
   function handleOpenCreate() {
     setFormData({ 
-        id: null, nome_cartao: '', bandeira: '', limite_total: '', dia_fechamento: '', dia_vencimento: '', 
+        id: null, nome_cartao: '', bandeira: '', limite_total: '', dia_fechamento: '1', dia_vencimento: '10', 
         centro_custo_id: '', conta_id: '', status: 'ATIVO' 
     });
     setIsEditing(false);
@@ -496,7 +557,7 @@ export function Cartoes() {
   const CardVisual = ({ dados, previewMode = false }: any) => {
     const cc = centros.find(c => String(c.id) === String(dados.centro_custo_id));
     const nomeCC = cc ? (cc.nome || cc.descricao || 'GERAL') : 'GERAL';
-        const brand = inferCardBrand(dados.bandeira, dados.nome_cartao);
+    const brand = inferCardBrand(dados.bandeira, dados.nome_cartao);
     
     const limiteTotal = parseFloat(String(dados.limite_total).replace(',', '.')) || 0;
     let disponivel = limiteTotal;
@@ -509,38 +570,62 @@ export function Cartoes() {
         percentual = limiteTotal > 0 ? (gastos / limiteTotal) * 100 : 0;
     }
 
+    const isSelected = selectedCartaoId === dados.id;
+
     return (
-        <div className={`relative overflow-hidden rounded-xl p-6 text-white shadow-lg transition-all duration-300 ${previewMode ? 'h-48' : 'h-48 cursor-pointer hover:shadow-xl hover:scale-[1.02]'}`}
-             style={{ background: `linear-gradient(135deg, ${brand.accent} 0%, #0f172a 100%)` }}>
+        <div className={`relative overflow-hidden rounded-xl p-5 text-white shadow-lg transition-all duration-300 ${previewMode ? 'h-48' : 'h-48 cursor-pointer hover:shadow-2xl hover:scale-[1.03]'}`}
+             style={{ 
+                 background: `linear-gradient(135deg, ${brand.accent} 0%, #0f172a 100%)`,
+                 boxShadow: !previewMode && isSelected ? `0 10px 25px -5px ${brand.accent}66, 0 0 0 3px ${brand.accent}` : undefined
+             }}>
             
             <div className="absolute top-0 right-0 -mr-10 -mt-10 w-32 h-32 bg-white opacity-10 rounded-full blur-3xl pointer-events-none"></div>
+            <div className="absolute bottom-0 right-0 w-24 h-24 bg-black opacity-20 rounded-full blur-2xl pointer-events-none"></div>
             
+            {/* Header: Brand Label & Avatar & Contactless */}
             <div className="flex justify-between items-start z-10 relative">
                 <div>
-                    <div className="font-mono text-xs opacity-70 tracking-widest font-bold">{brand.label.toUpperCase()}</div>
-                    <div className="mt-2 text-[10px] bg-white/20 px-2 py-0.5 rounded font-bold uppercase backdrop-blur-sm shadow-sm w-fit">{nomeCC}</div>
+                    <div className="font-mono text-[10px] opacity-80 tracking-widest font-extrabold">{brand.label.toUpperCase()}</div>
+                    <div className="mt-1.5 text-[9px] bg-white/20 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider backdrop-blur-sm shadow-sm w-fit border border-white/10">{nomeCC}</div>
                 </div>
-                <BrandAvatar visual={brand} size="sm" className="border-white/20 bg-white/90" />
+                <div className="flex items-center gap-2">
+                    <svg className="w-4 h-4 opacity-50 text-white rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M5 17a8 8 0 0 1 0-10M9 19a12 12 0 0 1 0-14M13 21a16 16 0 0 1 0-18" strokeLinecap="round"/>
+                    </svg>
+                    <BrandAvatar visual={brand} size="sm" className="border-white/20 bg-white/90 shadow-sm" />
+                </div>
             </div>
 
-            <div className="mt-4 z-10 relative">
-                <div className="text-[10px] uppercase opacity-70 mb-1">Nome do Cartão</div>
-                <div className="font-bold text-xl tracking-wide truncate">{dados.nome_cartao || 'NOVO CARTÃO'}</div>
+            {/* Middle: EMV Chip & Card Holder/Name */}
+            <div className="mt-3 flex items-center justify-between z-10 relative">
+                {/* Chip EMV */}
+                <div className="w-8 h-6 bg-gradient-to-br from-yellow-300 via-amber-400 to-yellow-600 rounded-md relative overflow-hidden shadow-inner border border-yellow-200/50">
+                    <div className="absolute top-1/2 left-0 w-full h-[0.5px] bg-black/20"></div>
+                    <div className="absolute left-1/2 top-0 w-[0.5px] h-full bg-black/20"></div>
+                    <div className="absolute inset-1 rounded-sm border border-black/10"></div>
+                </div>
+                <div className="font-mono text-xs opacity-65 tracking-widest">•••• •••• •••• {dados.id ? String(dados.id).padStart(4, '0') : '0000'}</div>
             </div>
 
-            <div className="mt-auto pt-4 flex justify-between items-end z-10 relative">
+            <div className="mt-2.5 z-10 relative">
+                <div className="text-[9px] uppercase opacity-60 tracking-wider">Nome do Cartão</div>
+                <div className="font-bold text-lg tracking-wide truncate">{dados.nome_cartao || 'NOVO CARTÃO'}</div>
+            </div>
+
+            {/* Footer: Balances */}
+            <div className="mt-auto pt-2.5 flex justify-between items-end z-10 relative">
                 <div>
-                    <div className="text-[10px] uppercase opacity-70">Disponível</div>
-                    <div className="font-bold font-mono text-lg">{BRL.format(disponivel)}</div>
+                    <div className="text-[9px] uppercase opacity-60 tracking-wider">Disponível</div>
+                    <div className="font-extrabold font-mono text-base">{BRL.format(disponivel)}</div>
                 </div>
                 <div className="text-right">
-                    <div className="text-[10px] uppercase opacity-70">Vence Dia</div>
-                    <div className="font-bold font-mono text-xl">{dados.dia_vencimento || '--'}</div>
+                    <div className="text-[9px] uppercase opacity-60 tracking-wider">Vence Dia</div>
+                    <div className="font-extrabold font-mono text-lg text-emerald-300">{dados.dia_vencimento || '--'}</div>
                 </div>
             </div>
 
             {!previewMode && (
-                <div className="absolute bottom-0 left-0 w-full h-1.5 bg-black/30">
+                <div className="absolute bottom-0 left-0 w-full h-1.5 bg-black/35">
                     <div className="h-full bg-white transition-all duration-1000 ease-out shadow-[0_0_10px_white]" style={{ width: `${Math.min(percentual, 100)}%` }}></div>
                 </div>
             )}
@@ -588,66 +673,99 @@ export function Cartoes() {
                 <div className="col-span-full py-12 text-center text-slate-500 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl">Nenhum cartão encontrado. Clique em "Novo" para criar.</div>
             )}
             {filteredCartoes.map(c => (
-                <div key={c.id} className={`rounded-xl transition relative ${selectedCartaoId === c.id ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900' : ''}`}>
-                    <button className="block w-full text-left" onClick={() => setSelectedCartaoId(c.id)}>
+                <div key={c.id} className="relative">
+                    <button className="block w-full text-left outline-none focus:outline-none" onClick={() => setSelectedCartaoId(c.id)}>
                         <CardVisual dados={c} />
                     </button>
-                    {selectedCartaoId === c.id && <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-4 h-4 bg-white dark:bg-slate-800 rotate-45 border-b border-r border-slate-200 dark:border-slate-700 z-0"></div>}
+                    {selectedCartaoId === c.id && <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-4 h-4 bg-white dark:bg-slate-800 rotate-45 border-b border-r border-slate-200 dark:border-slate-700 z-10"></div>}
                 </div>
             ))}
         </div>
 
         {selectedCartaoId && (
             <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden animate-in slide-in-from-top-4 fade-in duration-300">
-                <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex flex-col md:flex-row justify-between items-center gap-4">
-                    <div className="flex items-center gap-4">
-                        <button onClick={() => handleChangeInvoiceMonth(-1)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"><ChevronLeft className="w-6 h-6"/></button>
-                        <div className="text-center min-w-45">
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Fatura de</p>
-                            <h3 className="text-2xl font-black text-slate-800 dark:text-white capitalize">{faturaAtual.vencimento?.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) || mesFatura.toLocaleDateString('pt-BR', { month: 'long' })}</h3>
+                <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
+                    {/* Month selector & Status */}
+                    <div className="flex items-center gap-3">
+                        <button onClick={() => handleChangeInvoiceMonth(-1)} className="p-2.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"><ChevronLeft className="w-5 h-5"/></button>
+                        <div className="text-center min-w-[180px] px-2">
+                            <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">Fatura de</p>
+                            <h3 className="text-xl font-black text-slate-800 dark:text-white capitalize">{faturaAtual.vencimento?.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) || mesFatura.toLocaleDateString('pt-BR', { month: 'long' })}</h3>
+                            <div className="mt-1">
+                                {faturaAtual.itens.length === 0 ? (
+                                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">Sem Despesas</span>
+                                ) : faturaAtual.pendente === 0 ? (
+                                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-emerald-100 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900">Totalmente Paga</span>
+                                ) : (
+                                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-amber-100 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900">Aberta / Pendente</span>
+                                )}
+                            </div>
                         </div>
-                        <button onClick={() => handleChangeInvoiceMonth(1)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"><ChevronRight className="w-6 h-6"/></button>
+                        <button onClick={() => handleChangeInvoiceMonth(1)} className="p-2.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"><ChevronRight className="w-5 h-5"/></button>
                     </div>
                     
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700/50 w-full">
-                        <div className="text-right">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase">Total da Fatura</p>
-                            <p className="text-2xl font-black text-slate-800 dark:text-white">{lancamentosLoading ? 'Carregando...' : BRL.format(faturaAtual.total)}</p>
-                            <p className="text-xs text-slate-500 mt-0.5">{lancamentosLoading ? 'Atualizando lançamentos do cartão...' : `Vence dia ${faturaAtual.vencimento?.toLocaleDateString('pt-BR', {day:'numeric', month:'short'}) || '--'}`}</p>
+                    {/* Financial Metrics Row */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 w-full xl:w-auto flex-1">
+                        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-sm flex flex-col justify-center">
+                            <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Total Consumido</p>
+                            <p className="text-lg font-black text-slate-800 dark:text-white mt-0.5">
+                                {lancamentosLoading ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" /> : BRL.format(faturaAtual.total)}
+                            </p>
                         </div>
+
+                        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-sm flex flex-col justify-center">
+                            <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Vencimento da Fatura</p>
+                            <p className="text-sm font-bold text-slate-600 dark:text-slate-300 mt-1">
+                                {faturaAtual.vencimento ? faturaAtual.vencimento.toLocaleDateString('pt-BR', {day:'numeric', month:'short', year:'numeric'}) : '--'}
+                            </p>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-sm flex flex-col justify-center">
+                            <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">A Pagar / Pendente</p>
+                            <p className={`text-lg font-black mt-0.5 ${faturaAtual.pendente > 0 ? 'text-amber-500 dark:text-amber-400' : 'text-emerald-500'}`}>
+                                {lancamentosLoading ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" /> : BRL.format(faturaAtual.pendente)}
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Actions Menu */}
+                    <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto justify-end">
                         <button
                             onClick={() => {
                                 const cartao = cartoes.find((item) => item.id === selectedCartaoId);
                                 if (cartao) handleOpenEdit(cartao);
                             }}
-                            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700"
+                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700"
                         >
-                            <Edit2 className="w-4 h-4" />
-                            Editar dados do cartão
+                            <Edit2 className="w-3.5 h-3.5" />
+                            Editar Cartão
                         </button>
-                                                <button
-                                                                            onClick={() => {
-                                                        if (!selectedCartaoId) return;
-                                                        setShowLaunchDrawer(true);
-                                                                            }}
-                                                    className="bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-white px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 shadow flex items-center gap-2 transition"
-                                                >
-                                                    <Plus className="w-4 h-4" /> Novo lançamento
-                                                </button>
+
+                        <button
+                            onClick={() => {
+                                if (!selectedCartaoId) return;
+                                setShowLaunchDrawer(true);
+                            }}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700"
+                        >
+                            <Plus className="w-3.5 h-3.5" />
+                            Novo Lançamento
+                        </button>
+
                         {faturaAtual.pendente > 0 && (
-                            <button onClick={() => {
-                                const cartao = cartoes.find(c => c.id === selectedCartaoId);
-                                setPayData({ 
-                                    data: new Date().toISOString().split('T')[0], 
-                                    conta_id: cartao?.conta_id ? String(cartao.conta_id) : '' 
-                                });
-                                setShowPayModal(true);
-                            }} className="bg-emerald-600 hover:bg-emerald-500 text-white pl-4 pr-5 py-2.5 rounded-lg shadow-lg flex items-center gap-3 transition transform active:scale-95">
-                                <div className="bg-white/20 p-1.5 rounded"><CheckCircle2 className="w-5 h-5"/></div>
-                                <div className="text-left">
-                                    <p className="text-[10px] font-bold uppercase opacity-90 leading-none mb-0.5">Pagar Fatura</p>
-                                    <p className="text-sm font-bold">{BRL.format(faturaAtual.pendente)}</p>
-                                </div>
+                            <button 
+                                onClick={() => {
+                                    const cartao = cartoes.find(c => c.id === selectedCartaoId);
+                                    setPayData({
+                                        data: new Date().toISOString().split('T')[0],
+                                        conta_id: cartao?.conta_id ? String(cartao.conta_id) : ''
+                                    });
+                                    setShowPayModal(true);
+                                }} 
+                                className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl shadow-lg flex items-center justify-center gap-2 transition transform active:scale-95 text-xs font-bold"
+                            >
+                                <CheckCircle2 className="w-4 h-4"/>
+                                Pagar Fatura
                             </button>
                         )}
                     </div>
@@ -671,14 +789,23 @@ export function Cartoes() {
                                 <tr><td colSpan={5} className="p-10 text-center text-slate-500">Nenhuma despesa nesta fatura.</td></tr>
                             ) : (
                                 faturaAtual.itens.map(l => (
-                                    <tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition">
-                                                                                <td className="px-6 py-4 font-mono text-slate-500 text-xs">
-                                                                                    {(parseDateOnly(l.data_competencia || l.data_vencimento) || new Date()).toLocaleDateString('pt-BR')}
-                                                                                </td>
-                                        <td className="px-6 py-4 font-medium text-slate-800 dark:text-white">{l.descricao}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-500">{l.numero_parcela || 'À vista'}</td>
-                                        <td className="px-6 py-4 text-right font-bold text-slate-700 dark:text-slate-200">{BRL.format(l.valor_previsto)}</td>
-                                        <td className="px-6 py-4 text-center"><span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${l.status==='PAGO'?'bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900':'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600'}`}>{l.status}</span></td>
+                                    <tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition">
+                                        <td className="px-6 py-4 font-mono text-slate-500 text-xs">
+                                            {(parseDateOnly(l.data_competencia || l.data_vencimento) || new Date()).toLocaleDateString('pt-BR')}
+                                        </td>
+                                        <td className="px-6 py-4 font-semibold text-slate-800 dark:text-white">{l.descricao}</td>
+                                        <td className="px-6 py-4 text-xs text-slate-400 dark:text-slate-500 font-medium">{l.numero_parcela || 'À vista'}</td>
+                                        <td className="px-6 py-4 text-right font-mono font-bold text-slate-800 dark:text-slate-100">{BRL.format(l.valor_previsto)}</td>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                                l.status === 'PAGO' 
+                                                    ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50' 
+                                                    : 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200/50 dark:border-amber-900/50'
+                                            }`}>
+                                                <span className={`h-1.5 w-1.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+                                                {l.status}
+                                            </span>
+                                        </td>
                                     </tr>
                                 ))
                             )}
@@ -716,7 +843,7 @@ export function Cartoes() {
                                 <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Conta Padrão</label>
                                 <select className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:border-blue-500" value={formData.conta_id} onChange={e => setFormData({...formData, conta_id: e.target.value})}>
                                     <option value="">Perguntar ao pagar</option>
-                                    {contas.map(c => <option key={c.id} value={c.id}>{c.nome || c.descricao}</option>)}
+                                    {renderContaOptions()}
                                 </select>
                             </div>
                         </div>
@@ -749,11 +876,27 @@ export function Cartoes() {
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-xs font-bold text-purple-500 dark:text-purple-400 uppercase mb-1">Dia Fechamento</label>
-                                <input type="number" min="1" max="31" className="w-full p-3 text-center rounded-lg border border-purple-300 dark:border-purple-900/50 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 font-bold outline-none focus:border-purple-500" value={formData.dia_fechamento} onChange={e => setFormData({...formData, dia_fechamento: e.target.value})} placeholder="01" />
+                                <select 
+                                    className="w-full p-3 text-center rounded-lg border border-purple-300 dark:border-purple-900/50 bg-purple-50 dark:bg-slate-800 text-purple-700 dark:text-purple-400 font-bold outline-none focus:border-purple-500" 
+                                    value={formData.dia_fechamento} 
+                                    onChange={e => setFormData({...formData, dia_fechamento: e.target.value})}
+                                >
+                                    {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                                        <option key={day} value={day} className="bg-white dark:bg-slate-800 text-slate-800 dark:text-white">Dia {day}</option>
+                                    ))}
+                                </select>
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-red-500 dark:text-red-400 uppercase mb-1">Dia Vencimento</label>
-                                <input type="number" min="1" max="31" className="w-full p-3 text-center rounded-lg border border-red-300 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold outline-none focus:border-red-500" value={formData.dia_vencimento} onChange={e => setFormData({...formData, dia_vencimento: e.target.value})} placeholder="10" />
+                                <select 
+                                    className="w-full p-3 text-center rounded-lg border border-red-300 dark:border-red-900/50 bg-red-50 dark:bg-slate-800 text-red-700 dark:text-red-400 font-bold outline-none focus:border-red-500" 
+                                    value={formData.dia_vencimento} 
+                                    onChange={e => setFormData({...formData, dia_vencimento: e.target.value})}
+                                >
+                                    {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                                        <option key={day} value={day} className="bg-white dark:bg-slate-800 text-slate-800 dark:text-white">Dia {day}</option>
+                                    ))}
+                                </select>
                             </div>
                         </div>
                     </div>
@@ -786,7 +929,7 @@ export function Cartoes() {
                         <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Sair da Conta</label>
                         <select className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none focus:border-blue-500" value={payData.conta_id} onChange={e => setPayData({...payData, conta_id: e.target.value})}>
                             <option value="">Selecione...</option>
-                            {contas.map(c => <option key={c.id} value={c.id}>{c.nome || c.descricao}</option>)}
+                            {renderContaOptions()}
                         </select>
                     </div>
                 </div>
@@ -799,21 +942,27 @@ export function Cartoes() {
         </div>
       )}
 
-            {showLaunchDrawer && launchDrawerSearchParams && (
-                <div className="fixed inset-0 z-70 overflow-hidden">
-                    <Lancamentos
-                        forcedSearchParams={launchDrawerSearchParams}
-                        drawerPanelClassName="w-[30vw] min-w-[360px] max-w-[30vw]"
-                        onRequestCloseEmbed={() => {
-                            dataFetchedRef.current = false;
-                            void (async () => {
-                                setShowLaunchDrawer(false);
-                                await carregarDados();
-                                await handleReloadCurrentInvoice();
-                            })();
-                        }}
-                    />
-                </div>
+            {showLaunchDrawer && (
+                <LancamentoFormDrawer
+                    showDrawer={showLaunchDrawer}
+                    onClose={() => setShowLaunchDrawer(false)}
+                    cartaoId={selectedCartaoId}
+                    prefilledData={(() => {
+                        const cartao = cartoes.find(c => c.id === selectedCartaoId);
+                        return cartao ? {
+                            centro_custo_id: cartao.centro_custo_id ? String(cartao.centro_custo_id) : '',
+                            conta_id: cartao.conta_id ? String(cartao.conta_id) : ''
+                        } : undefined;
+                    })()}
+                    onSaveSuccess={async () => {
+                        setShowLaunchDrawer(false);
+                        dataFetchedRef.current = false;
+                        await carregarDados();
+                        await handleReloadCurrentInvoice();
+                        dataFetchedRef.current = true;
+                    }}
+                    pushToast={pushToast}
+                />
             )}
     </div>
   );

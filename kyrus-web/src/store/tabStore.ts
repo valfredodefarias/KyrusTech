@@ -326,7 +326,6 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
     set({ tabs: [DEFAULT_TAB], activeTabPath: '/home', closedTabsHistory: [] });
     sessionStorage.removeItem(SESSION_KEYS.TABS);
     sessionStorage.removeItem(SESSION_KEYS.ACTIVE_TAB);
-    localStorage.removeItem('kyrus_pinned_tabs');
   },
 
   reopenLastTab: () => {

@@ -741,4 +741,64 @@ def seed_demo_data(db: Session, empresa_id: int):
             # Silently catch to avoid crashing the whole seed if there's any local parameter validation issue
             pass
 
+    # 9. Inserir lançamentos fictícios de demonstração do iFood
+    try:
+        from app.models.pdv_ifood_lancamento import PdvIfoodLancamento
+        
+        # Gerar dados para os últimos 10 dias
+        for offset in range(1, 11):
+            dia_venda = hoje - datetime.timedelta(days=offset)
+            
+            faturamento_dia = Decimal(f"{random.randint(1500, 8000)}.{random.randint(10, 99)}")
+            num_transacoes = random.randint(3, 7)
+            restante = faturamento_dia
+            
+            formas = ["debito_ifood", "pix_ifood", "credito_vista", "carteira_digital"]
+            
+            for t_idx in range(num_transacoes):
+                if t_idx == num_transacoes - 1:
+                    valor_bruto = restante
+                else:
+                    valor_bruto = (restante / Decimal(str(num_transacoes - t_idx)) * Decimal(str(random.uniform(0.7, 1.3)))).quantize(Decimal("0.01"))
+                    restante -= valor_bruto
+                
+                if valor_bruto <= 0:
+                    continue
+                    
+                forma = random.choice(formas)
+                taxa = Decimal("0.12")
+                valor_liquido = (valor_bruto * (Decimal("1.00") - taxa)).quantize(Decimal("0.01"))
+                
+                prazo = 1 if forma == "pix_ifood" else 7
+                dia_recebimento = dia_venda + datetime.timedelta(days=prazo)
+                
+                hora_random = f"{random.randint(11, 23):02d}:{random.randint(0, 59):02d}:{random.randint(0, 59):02d}"
+                
+                despesas = []
+                if random.random() < 0.3:
+                    despesas.append("cupom_descontos")
+                if random.random() < 0.2:
+                    despesas.append("motoboy_ifood")
+                
+                despesas_str = ",".join(despesas) if despesas else None
+                
+                t_ifood = PdvIfoodLancamento(
+                    empresa_id=empresa_id,
+                    forma_recebimento=forma,
+                    valor_bruto=valor_bruto,
+                    valor_liquido=valor_liquido,
+                    data_venda=dia_venda,
+                    hora_venda=hora_random,
+                    data_recebimento_ajustada=dia_recebimento,
+                    despesas_extras_str=despesas_str,
+                    status_conciliado=False,
+                    created_by_id=user.id,
+                    updated_by_id=user.id,
+                    created_at=datetime.datetime.utcnow(),
+                    updated_at=datetime.datetime.utcnow()
+                )
+                db.add(t_ifood)
+    except Exception:
+        pass
+
     db.commit()

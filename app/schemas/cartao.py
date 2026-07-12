@@ -12,7 +12,7 @@ class CartaoBase(SQLModel):
     limite_total: Decimal = Decimal("0.00") # <--- RENOMEADO PARA IGUALAR AO BANCO
     dia_fechamento: int
     dia_vencimento: int
-    conta_pagamento_id: Optional[int] = None
+    conta_id: Optional[int] = None
     empresa_id: int
     centro_custo_id: Optional[int] = None
 
@@ -27,7 +27,7 @@ class CartaoUpdate(SQLModel):
     limite_total: Optional[Decimal] = None # <--- RENOMEADO
     dia_fechamento: Optional[int] = None
     dia_vencimento: Optional[int] = None
-    conta_pagamento_id: Optional[int] = None
+    conta_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
 
 # --- READ ---

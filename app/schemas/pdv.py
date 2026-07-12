@@ -2,7 +2,7 @@
 from __future__ import annotations
 from datetime import date
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from sqlmodel import SQLModel
 
 
@@ -26,6 +26,9 @@ class PdvVendaItemRead(SQLModel):
     observacao_texto: Optional[str] = None
     itens_detalhe: Optional[list] = None
     pagamentos_detalhe: Optional[list] = None
+    campos_extras: Optional[Dict[str, Any]] = None
+    alertas: Optional[List[str]] = None
+    is_direct_sale: Optional[bool] = False
 
 
 class PdvVendaGrupoRead(SQLModel):
@@ -95,6 +98,7 @@ class PdvVendaItemCreate(SQLModel):
     quantidade: int
     desconto: Optional[Decimal] = Decimal("0.00")
     preco_unitario: Optional[Decimal] = None
+    nome_customizado: Optional[str] = None
 
 
 class PdvVendaPagamento(SQLModel):
@@ -119,6 +123,9 @@ class PdvVendaCreate(SQLModel):
     cliente: Optional[str] = None  # mantido para compatibilidade
     observacao: Optional[str] = None
     comprovante_urls: Optional[List[str]] = None
+    campos_extras: Optional[Dict[str, Any]] = None
+    import_hash: Optional[str] = None
+    is_direct_sale: Optional[bool] = False
 
 
 # --- Schemas de Regras de Cartão ---
@@ -201,3 +208,41 @@ class LoteCartaoCreate(SQLModel):
     conta_destino_id: int
     lancamento_deposito_id: Optional[int] = None
     lancamento_ids: List[int]
+
+
+class CustomFieldConfig(SQLModel):
+    id: str
+    label: str
+    type: str  # 'text', 'number', 'currency', 'select', 'select_buttons', 'checkbox', 'date'
+    required: bool
+    order: int
+    is_active: bool = True
+    options: Optional[List[str]] = None
+    defaultValue: Optional[Any] = None
+    depends_on: Optional[Dict[str, Any]] = None
+    validation_regex: Optional[str] = None
+    input_mask: Optional[str] = None
+    role: Optional[str] = None  # 'seller', 'client', 'cost_center', 'none'
+    planoContasId: Optional[int] = None
+
+
+class PdvConfigSchema(SQLModel):
+    marcar_como_pago: Optional[Dict[str, bool]] = {}
+    active_apps: Optional[List[str]] = []
+    ifood_comissao_taxa: Optional[float] = 12.0
+    ifood_merchant_name: Optional[str] = ""
+    centro_custo_padrao_id: Optional[int] = None
+    centro_custo_flexivel: Optional[bool] = False
+    
+    ifood_centro_custo_padrao_id: Optional[int] = None
+    ifood_centro_custo_flexivel: Optional[bool] = False
+    pdv_centro_custo_padrao_id: Optional[int] = None
+    pdv_centro_custo_flexivel: Optional[bool] = False
+    
+    ifood_conta_padrao_id: Optional[int] = None
+    pdv_conta_padrao_id: Optional[int] = None
+
+
+class PdvIfoodConsolidarIn(SQLModel):
+    data_venda: date
+    conta_id: int

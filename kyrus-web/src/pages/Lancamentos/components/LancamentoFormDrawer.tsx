@@ -38,6 +38,20 @@ import {
 import { useLookupStore } from '../../../store/lookupStore';
 import { QuickEntityDrawer } from './QuickEntityDrawer';
 
+function formatExpressionCentsFirst(input: string): string {
+  if (!input) return '';
+  const tokens = input.split(/([+\-*/()])/g);
+  const formattedTokens = tokens.map((token) => {
+    const digits = token.replace(/\D/g, '');
+    if (digits.length > 0) {
+      const num = parseFloat(digits) / 100;
+      return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    return token;
+  });
+  return formattedTokens.join('');
+}
+
 const ANOMALY_TRANSLATIONS: Record<string, string> = {
   DUPLICIDADE_OFX: 'Movimento OFX Duplicado',
   PAGAMENTO_DUPLO: 'Pagamento Duplo Realizado',
@@ -135,6 +149,71 @@ export const LancamentoFormDrawer = ({
     plano_contas_id: '',
     data_vencimento: '',
   });
+
+  const [amountText, setAmountText] = useState('');
+  const [paidAmountText, setPaidAmountText] = useState('');
+
+  useEffect(() => {
+    if (formData.valor_previsto !== undefined) {
+      const num = Number(formData.valor_previsto);
+      if (Number.isFinite(num) && num > 0) {
+        setAmountText(num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      } else {
+        setAmountText(String(formData.valor_previsto || ''));
+      }
+    }
+  }, [formData.valor_previsto]);
+
+  useEffect(() => {
+    if (formData.valor_pago !== undefined) {
+      const num = Number(formData.valor_pago);
+      if (Number.isFinite(num) && num > 0) {
+        setPaidAmountText(num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      } else {
+        setPaidAmountText(String(formData.valor_pago || ''));
+      }
+    }
+  }, [formData.valor_pago]);
+
+  const handleAmountBlur = () => {
+    if (!amountText) {
+      handleValorPrevistoChange('');
+      return;
+    }
+    const cleanExpr = amountText.replace(/\./g, '').replace(/,/g, '.');
+    if (/^[0-9+\-*/().\s]+$/.test(cleanExpr)) {
+      try {
+        const result = Function(`"use strict"; return (${cleanExpr})`)();
+        if (Number.isFinite(result) && result >= 0) {
+          const formatted = result.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          setAmountText(formatted);
+          handleValorPrevistoChange(String(result.toFixed(2)));
+        }
+      } catch (err) {
+        console.error("Invalid math expression", err);
+      }
+    }
+  };
+
+  const handlePaidAmountBlur = () => {
+    if (!paidAmountText) {
+      handleValorPagoChange('');
+      return;
+    }
+    const cleanExpr = paidAmountText.replace(/\./g, '').replace(/,/g, '.');
+    if (/^[0-9+\-*/().\s]+$/.test(cleanExpr)) {
+      try {
+        const result = Function(`"use strict"; return (${cleanExpr})`)();
+        if (Number.isFinite(result) && result >= 0) {
+          const formatted = result.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          setPaidAmountText(formatted);
+          handleValorPagoChange(String(result.toFixed(2)));
+        }
+      } catch (err) {
+        console.error("Invalid math expression", err);
+      }
+    }
+  };
 
   const [parcelasSerie, setParcelasSerie] = useState<Lancamento[]>([]);
   const [parcelasSerieLoading, setParcelasSerieLoading] = useState(false);
@@ -514,6 +593,24 @@ export const LancamentoFormDrawer = ({
       setShowParcelasSeriePanel(false);
     }
   }, [showDrawer, editarId, contaId, cartaoId, prefilledData]);
+
+  useEffect(() => {
+    if (!showDrawer) return;
+
+    const handleGlobalKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        void handleSave();
+      } else if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, [showDrawer, formData, handleSave, onClose]);
 
   useEffect(() => {
     if (!editarId && !formData.id && !formData.centro_custo_id) {
@@ -1393,13 +1490,23 @@ export const LancamentoFormDrawer = ({
                 value={formData.data_vencimento}
                 onChange={(e: any) => handleVencimentoChange(e.target.value)}
               />
-              <CurrencyInputDark
-                label="Valor (R$)"
-                className="font-bold text-lg text-blue-400"
-                disabled={formData.conciliado}
-                value={formData.valor_previsto}
-                onValueChange={(value: string) => handleValorPrevistoChange(value)}
-              />
+              <div className="w-full">
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Valor (R$)</label>
+                <input
+                  type="text"
+                  disabled={formData.conciliado}
+                  value={amountText}
+                  onChange={(e) => {
+                    const rawVal = e.target.value;
+                    const cleanExpr = rawVal.replace(/\./g, '').replace(/,/g, '');
+                    const formatted = formatExpressionCentsFirst(cleanExpr);
+                    setAmountText(formatted);
+                  }}
+                  onBlur={handleAmountBlur}
+                  placeholder="0,00 ou 150+300"
+                  className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 font-bold text-lg text-blue-400"
+                />
+              </div>
             </div>
 
             {/* PARCELAMENTO */}
@@ -1640,13 +1747,23 @@ export const LancamentoFormDrawer = ({
                       value={formData.data_pagamento}
                       onChange={(e: any) => handleDataPagamentoChange(e.target.value)}
                     />
-                    <CurrencyInputDark
-                      label="Valor Pago (R$)"
-                      className="text-emerald-400 font-bold"
-                      disabled={formData.conciliado}
-                      value={formData.valor_pago}
-                      onValueChange={(value: string) => handleValorPagoChange(value)}
-                    />
+                    <div className="w-full">
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Valor Pago (R$)</label>
+                      <input
+                        type="text"
+                        disabled={formData.conciliado}
+                        value={paidAmountText}
+                        onChange={(e) => {
+                          const rawVal = e.target.value;
+                          const cleanExpr = rawVal.replace(/\./g, '').replace(/,/g, '');
+                          const formatted = formatExpressionCentsFirst(cleanExpr);
+                          setPaidAmountText(formatted);
+                        }}
+                        onBlur={handlePaidAmountBlur}
+                        placeholder="0,00 ou 150+300"
+                        className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 text-emerald-400 font-bold"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

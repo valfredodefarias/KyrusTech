@@ -38,6 +38,10 @@ from app.models.regra_comissao import RegraComissao
 from app.models.meta_vendedor import MetaVendedor
 from app.models.alerta_anomalia import AlertaAnomalia
 from app.models.regra_silenciamento_auditor import RegraSilenciamentoAuditor
+from app.models.pdv_ifood_lancamento import PdvIfoodLancamento
+from app.models.pdv_venda import PdvVenda
+from app.models.pdv_venda_item import PdvVendaItem
+from app.models.pdv_movimentacao import PdvMovimentacao
 
 
 

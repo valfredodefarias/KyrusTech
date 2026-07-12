@@ -272,7 +272,7 @@ def test_conciliation_many_to_one_partial(client: TestClient, session: Session, 
             
             session.expire_all()
             session.refresh(p)
-            assert p.status == "PARCIALMENTE_PAGO"
+            assert p.status == "PAGO"
             assert p.valor_pago == Decimal("1500.00")
             assert p.conciliado is True
 

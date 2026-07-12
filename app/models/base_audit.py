@@ -2,8 +2,13 @@ from __future__ import annotations
 
 # app/models/base_audit.py
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlmodel import Field, SQLModel
+
+
+def utcnow() -> datetime:
+    """Retorna datetime UTC naive moderno para evitar deprecacoes."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class AuditMixin(SQLModel):
@@ -11,8 +16,8 @@ class AuditMixin(SQLModel):
     Mixin para adicionar campos de auditoria e Soft Delete automaticamente
     em qualquer tabela que herdar desta classe.
     """
-    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
-    updated_at: datetime = Field(default_factory=datetime.utcnow, sa_column_kwargs={"onupdate": datetime.utcnow})
+    created_at: datetime = Field(default_factory=utcnow, nullable=False)
+    updated_at: datetime = Field(default_factory=utcnow, sa_column_kwargs={"onupdate": utcnow})
     
     # Rastreabilidade de Usuário
     created_by_id: Optional[int] = Field(default=None, description="ID do usuário que criou")
@@ -26,5 +31,5 @@ class AuditMixin(SQLModel):
     def soft_delete(self, user_id: int):
         """Método helper para realizar a exclusão lógica"""
         self.is_deleted = True
-        self.deleted_at = datetime.utcnow()
+        self.deleted_at = utcnow()
         self.deleted_by_id = user_id

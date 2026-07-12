@@ -125,6 +125,7 @@ export function ConciliacaoCartoes() {
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date(2026, 5, 1)); // Default to June 2026
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [expandedBrands, setExpandedBrands] = useState<Record<string, boolean>>({});
 
   // Lists from DB
   const [regras, setRegras] = useState<RegraCartao[]>([]);
@@ -485,6 +486,7 @@ export function ConciliacaoCartoes() {
 
   // Auto-scroll to details panel when selectedDay changes
   useEffect(() => {
+    setExpandedBrands({});
     if (selectedDay) {
       setTimeout(() => {
         detailsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -574,17 +576,23 @@ export function ConciliacaoCartoes() {
 
       const payload = {
         descricao: recebivelForm.descricao,
-        valor_previsto: Number(recebivelForm.valor_bruto),
+        valor_bruto: Number(recebivelForm.valor_bruto),
+        valor_taxa: Number(recebivelForm.cartao_taxa_valor),
+        valor_liquido: Number(recebivelForm.valor_liquido),
+        bandeira: recebivelForm.bandeira,
+        tipo_pagamento: recebivelForm.tipo_pagamento,
+        rv: recebivelForm.rv,
+        data_venda: recebivelForm.data_venda,
+        vendedor_id: recebivelForm.vendedor_id ? Number(recebivelForm.vendedor_id) : null,
+        
         // If status changes to PAGO, set valor_pago and data_pagamento
         valor_pago: recebivelForm.status === 'PAGO' ? Number(recebivelForm.valor_bruto) : 0,
         data_pagamento: recebivelForm.status === 'PAGO' ? (lancamentoAtual.data_pagamento || new Date().toISOString().split('T')[0]) : null,
         data_vencimento: recebivelForm.data_vencimento,
-        data_competencia: recebivelForm.data_venda,
         conta_id: recebivelForm.conta_id ? Number(recebivelForm.conta_id) : null,
         plano_contas_id: recebivelForm.plano_contas_id ? Number(recebivelForm.plano_contas_id) : null,
         entidade_id: recebivelForm.entidade_id ? Number(recebivelForm.entidade_id) : null,
-        status: recebivelForm.status,
-        observacao: JSON.stringify(updatedMeta)
+        status: recebivelForm.status
       };
 
       await api.put(`/lancamentos/${recebivelForm.id}`, payload);
@@ -601,10 +609,20 @@ export function ConciliacaoCartoes() {
 
   const handleDeleteRecebivel = async () => {
     if (!recebivelForm.id) return;
-    if (!confirm('Deseja realmente excluir este recebível?')) return;
+    
+    let confirmMsg = 'Deseja realmente excluir este recebível?';
+    let url = `/lancamentos/${recebivelForm.id}`;
+    
+    if (recebivelForm.status === 'PAGO') {
+      confirmMsg = '⚠️ ATENÇÃO: Este recebível já está marcado como PAGO! A exclusão de lançamentos pagos pode alterar o saldo das suas contas bancárias. Tem certeza de que deseja continuar?';
+      url += '?confirmar_exclusao_pagos=true';
+    }
+    
+    if (!confirm(confirmMsg)) return;
+    
     setSaving(true);
     try {
-      await api.delete(`/lancamentos/${recebivelForm.id}`);
+      await api.delete(url);
       setShowEditRecebivelDrawer(false);
       await fetchAgenda();
       alert('Recebível excluído com sucesso!');
@@ -1136,6 +1154,7 @@ export function ConciliacaoCartoes() {
                   <option value="ELO">ELO</option>
                   <option value="AMEX">AMEX</option>
                   <option value="HIPERCARD">HIPERCARD</option>
+                  <option value="IFOOD">IFOOD</option>
                 </select>
 
                 <select
@@ -1402,72 +1421,157 @@ export function ConciliacaoCartoes() {
                       </button>
                     </div>
 
-                    {/* List of items on selectedDay */}
-                    {filteredAgenda.filter(r => r.data_vencimento === selectedDay).length === 0 ? (
-                      <p className="text-xs text-slate-400 text-center py-6">Nenhum recebível previsto para este dia.</p>
-                    ) : (
-                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {filteredAgenda.filter(r => r.data_vencimento === selectedDay).map(item => {
-                          const brandObj = inferCardBrand(item.bandeira);
-                          return (
-                            <div key={item.id} onClick={() => handleOpenEditRecebivel(item)} className="py-3.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 cursor-pointer px-2 rounded-xl transition">
-                              <div className="flex items-center gap-3 min-w-0 flex-1">
-                                <BrandAvatar visual={brandObj} size="sm" className="shrink-0" />
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-bold text-slate-900 dark:text-white text-xs truncate">{item.descricao}</span>
-                                    <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono shrink-0">{item.rv}</span>
+                    {/* List of items on selectedDay grouped by brand */}
+                    {(() => {
+                      const dayItems = filteredAgenda.filter(r => r.data_vencimento === selectedDay);
+                      if (dayItems.length === 0) {
+                        return <p className="text-xs text-slate-400 text-center py-6">Nenhum recebível previsto para este dia.</p>;
+                      }
+                      
+                      // Group items by brand
+                      const groups: Record<string, {
+                        bandeira: string;
+                        items: typeof filteredAgenda;
+                        bruto: number;
+                        taxa: number;
+                        liquido: number;
+                        status: string;
+                      }> = {};
+                      
+                      dayItems.forEach(item => {
+                        const brand = (item.bandeira || 'OUTROS').toUpperCase();
+                        if (!groups[brand]) {
+                          groups[brand] = {
+                            bandeira: brand,
+                            items: [],
+                            bruto: 0,
+                            taxa: 0,
+                            liquido: 0,
+                            status: item.status
+                          };
+                        }
+                        groups[brand].items.push(item);
+                        groups[brand].bruto += Number(item.valor_bruto);
+                        groups[brand].taxa += Number(item.valor_taxa);
+                        groups[brand].liquido += Number(item.valor_liquido);
+                        if (item.status !== 'PAGO') {
+                          groups[brand].status = 'A RECEBER';
+                        }
+                      });
+                      
+                      const groupedList = Object.values(groups).sort((a, b) => a.bandeira.localeCompare(b.bandeira));
+                      
+                      return (
+                        <div className="space-y-3">
+                          {groupedList.map(group => {
+                            const brandObj = inferCardBrand(group.bandeira);
+                            const isExpanded = !!expandedBrands[group.bandeira];
+                            
+                            return (
+                              <div key={group.bandeira} className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm bg-slate-50/30 dark:bg-slate-900/40">
+                                {/* Group Header */}
+                                <div 
+                                  onClick={() => setExpandedBrands(prev => ({ ...prev, [group.bandeira]: !prev[group.bandeira] }))}
+                                  className="p-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 cursor-pointer hover:bg-slate-150/60 dark:hover:bg-slate-800/40 transition select-none"
+                                >
+                                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                                    <BrandAvatar visual={brandObj} size="sm" className="shrink-0" />
+                                    <div className="min-w-0">
+                                      <span className="font-extrabold text-slate-950 dark:text-white text-xs block uppercase tracking-wider">{group.bandeira}</span>
+                                      <span className="text-[10px] text-slate-400 font-semibold">{group.items.length} {group.items.length === 1 ? 'recebível' : 'recebíveis'}</span>
+                                    </div>
                                   </div>
-                                  <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 flex-wrap">
-                                    <span>Venda: {formatSafeDate(item.data_venda)}</span>
-                                    <span>•</span>
-                                    <span>Forma: {formatTipoPagamento(item.tipo_pagamento)}</span>
-                                    {item.numero_parcela && (
-                                      <>
-                                        <span>•</span>
-                                        <span>Parcela {item.numero_parcela}/{item.total_parcelas}</span>
-                                      </>
-                                    )}
-                                    {item.vendedor && (
-                                      <>
-                                        <span>•</span>
-                                        <span>Vendedor: <b className="text-slate-600 dark:text-slate-350 font-semibold">{item.vendedor}</b></span>
-                                      </>
-                                    )}
-                                    {item.cliente && (
-                                      <>
-                                        <span>•</span>
-                                        <span>Cliente: <b className="text-slate-600 dark:text-slate-355 font-semibold">{item.cliente}</b></span>
-                                      </>
-                                    )}
+                                  
+                                  <div className="flex items-center gap-5 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2.5 md:pt-0 border-slate-100 dark:border-slate-800">
+                                    <div className="text-right">
+                                      <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Total Bruto</span>
+                                      <span className="font-mono text-xs font-semibold text-slate-500">{BRL.format(group.bruto)}</span>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Total Taxa</span>
+                                      <span className="font-mono text-xs font-semibold text-rose-500">-{BRL.format(group.taxa)}</span>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Total Líquido</span>
+                                      <span className="font-mono text-xs font-black text-slate-900 dark:text-white">{BRL.format(group.liquido)}</span>
+                                    </div>
+                                    <div className="text-center w-20">
+                                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${group.status === 'PAGO' ? 'bg-emerald-100 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900' : 'bg-amber-100 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900'}`}>
+                                        {group.status}
+                                      </span>
+                                    </div>
+                                    {/* Chevron Icon */}
+                                    <svg className={`h-4 w-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                                    </svg>
                                   </div>
                                 </div>
+                                
+                                {/* Group Items (Sub-list) */}
+                                {isExpanded && (
+                                  <div className="bg-white dark:bg-slate-900/60 border-t border-slate-100 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 pl-3 pr-2">
+                                    {group.items.map(item => (
+                                      <div 
+                                        key={item.id} 
+                                        onClick={() => handleOpenEditRecebivel(item)} 
+                                        className="py-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 cursor-pointer rounded-lg transition px-2 my-1"
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="font-bold text-slate-850 dark:text-slate-200 text-[11px]">{item.descricao}</span>
+                                            <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono shrink-0">{item.rv}</span>
+                                          </div>
+                                          <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 flex-wrap">
+                                            <span>Venda: {formatSafeDate(item.data_venda)}</span>
+                                            <span>•</span>
+                                            <span>Forma: {formatTipoPagamento(item.tipo_pagamento)}</span>
+                                            {item.numero_parcela && (
+                                              <>
+                                                <span>•</span>
+                                                <span>Parcela {item.numero_parcela}/{item.total_parcelas}</span>
+                                              </>
+                                            )}
+                                            {item.vendedor && (
+                                              <>
+                                                <span>•</span>
+                                                <span>Vendedor: <b className="text-slate-500 dark:text-slate-400 font-semibold">{item.vendedor}</b></span>
+                                              </>
+                                            )}
+                                            {item.cliente && (
+                                              <>
+                                                <span>•</span>
+                                                <span>Cliente: <b className="text-slate-500 dark:text-slate-400 font-semibold">{item.cliente}</b></span>
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+                                        
+                                        <div className="flex items-center gap-5 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-slate-100 dark:border-slate-850">
+                                          <div className="text-right flex items-center justify-end w-16">
+                                            <span className="font-mono text-[11px] text-slate-500">{BRL.format(item.valor_bruto)}</span>
+                                          </div>
+                                          <div className="text-right flex items-center justify-end w-16">
+                                            <span className="font-mono text-[11px] text-rose-500">-{BRL.format(item.valor_taxa)}</span>
+                                          </div>
+                                          <div className="text-right flex items-center justify-end w-16">
+                                            <span className="font-mono text-[11px] font-bold text-slate-900 dark:text-white">{BRL.format(item.valor_liquido)}</span>
+                                          </div>
+                                          <div className="text-center w-20">
+                                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase border ${item.status === 'PAGO' ? 'bg-emerald-50 dark:bg-emerald-950/10 text-emerald-600 dark:text-emerald-450 border-emerald-100 dark:border-emerald-950' : 'bg-amber-50 dark:bg-amber-950/10 text-amber-600 dark:text-amber-450 border-amber-100 dark:border-amber-950'}`}>
+                                              {item.status}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-
-                              <div className="flex items-center gap-5 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2.5 md:pt-0 border-slate-100 dark:border-slate-800">
-                                <div className="text-right">
-                                  <span className="text-[9px] font-bold text-slate-400 block uppercase">Bruto</span>
-                                  <span className="font-mono text-xs text-slate-500">{BRL.format(item.valor_bruto)}</span>
-                                </div>
-                                <div className="text-right">
-                                  <span className="text-[9px] font-bold text-slate-400 block uppercase">Taxa</span>
-                                  <span className="font-mono text-xs text-rose-500">-{BRL.format(item.valor_taxa)}</span>
-                                </div>
-                                <div className="text-right">
-                                  <span className="text-[9px] font-bold text-slate-400 block uppercase">Líquido</span>
-                                  <span className="font-mono text-xs font-black text-slate-900 dark:text-white">{BRL.format(item.valor_liquido)}</span>
-                                </div>
-                                <div className="text-center w-20">
-                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${item.status === 'PAGO' ? 'bg-emerald-100 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900' : 'bg-amber-100 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900'}`}>
-                                    {item.status}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -1635,6 +1739,7 @@ export function ConciliacaoCartoes() {
                                   <option value="AMEX">AMEX</option>
                                   <option value="HIPERCARD">HIPERCARD</option>
                                   <option value="CABAL">CABAL</option>
+                                  <option value="IFOOD">IFOOD</option>
                                 </select>
                               </div>
                               <div>
@@ -2036,7 +2141,7 @@ export function ConciliacaoCartoes() {
                       <div>
                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Bandeira</label>
                         <div className="grid grid-cols-4 gap-2">
-                          {['VISA', 'MASTERCARD', 'ELO', 'AMEX', 'HIPERCARD', 'CABAL', 'PIX'].map(bName => {
+                          {['VISA', 'MASTERCARD', 'ELO', 'AMEX', 'HIPERCARD', 'CABAL', 'PIX', 'IFOOD'].map(bName => {
                             const visual = inferCardBrand(bName);
                             const isSelected = groupedRegraForm.bandeira.toUpperCase() === bName;
                             return (
@@ -2368,6 +2473,7 @@ export function ConciliacaoCartoes() {
                           <option value="ELO">ELO</option>
                           <option value="AMEX">AMEX</option>
                           <option value="HIPERCARD">HIPERCARD</option>
+                          <option value="IFOOD">IFOOD</option>
                           <option value="OUTROS">OUTROS</option>
                         </select>
                       </div>

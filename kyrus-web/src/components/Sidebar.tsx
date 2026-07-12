@@ -6,7 +6,7 @@ import {
   Briefcase, X, LineChart, FileText,
   Calculator, Table2, ShoppingBag,
   Banknote, Coins, History, Award,
-  ChevronRight, Pin,
+  ChevronRight, Pin, Package, Puzzle, Utensils
 } from 'lucide-react';
 import { useAuthStore, type AuthUser } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
@@ -50,6 +50,32 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
   const location = useLocation();
   const { favorites } = useTabStore();
 
+  const [activeApps, setActiveApps] = useState<string[]>([]);
+
+  const fetchActiveApps = async () => {
+    try {
+      const response = await api.get('/pdv/config');
+      if (response.data && Array.isArray(response.data.active_apps)) {
+        setActiveApps(response.data.active_apps);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar aplicativos ativos:', err);
+    }
+  };
+
+  useEffect(() => {
+    void fetchActiveApps();
+
+    const handleAppsChange = () => {
+      void fetchActiveApps();
+    };
+
+    window.addEventListener('active-apps-changed', handleAppsChange);
+    return () => {
+      window.removeEventListener('active-apps-changed', handleAppsChange);
+    };
+  }, []);
+
   const isConsultor = Boolean(user?.is_consultor);
   const superConsultor = isSuperConsultor(user);
   const permissions = user?.permissions || [];
@@ -84,6 +110,13 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
       ],
     },
     {
+      icon: Package,
+      label: 'Produtos e Estoque',
+      path: '/produtos',
+      category: 'vendas',
+      requiredPermissions: ['PDV_VER_TODAS_VENDAS', 'PDV_SER_VENDEDOR'],
+    },
+    {
       icon: FileText,
       label: 'Importação NF-e',
       path: '/importacao_nfe',
@@ -94,14 +127,43 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     // Administração
     { icon: History, label: 'Auditoria', path: '/auditoria', category: 'admin', requiredPermissions: ['page:auditoria:view'] },
     { icon: Settings, label: 'Configurações', path: '/config', category: 'admin', requiredPermissions: ['page:configuracoes:view'] },
+    { icon: Puzzle, label: 'Aplicativos', path: '/apps', category: 'admin', requiredPermissions: ['page:home:view'] },
   ];
 
   const menuItems = [...baseMenuItems];
   if (isConsultor) {
     menuItems.unshift({ icon: Briefcase, label: 'Área do Consultor', path: '/consultor', category: 'geral', requiredPermissions: ['page:consultor:view'] });
   }
+  
+  // Filter baseMenuItems based on activeApps status
+  let finalMenuItems = menuItems.filter((item) => {
+    if (item.path === '/pdv' || item.path === '/produtos') {
+      return activeApps.includes('pdv_estoque');
+    }
+    return true;
+  });
 
-  const menuItemsFiltered = menuItems.filter((item) => {
+  if (activeApps.includes('ifood')) {
+    finalMenuItems.push({
+      icon: Utensils,
+      label: 'iFood PDV',
+      path: '/apps/ifood',
+      category: 'vendas',
+      requiredPermissions: ['page:home:view'],
+    });
+  }
+
+  if (activeApps.includes('movimentacao_pdv')) {
+    finalMenuItems.push({
+      icon: Calculator,
+      label: 'Movimentação PDV',
+      path: '/apps/movimentacao-pdv',
+      category: 'vendas',
+      requiredPermissions: ['page:home:view'],
+    });
+  }
+
+  const menuItemsFiltered = finalMenuItems.filter((item) => {
     if (item.path === '/pdv' && superConsultor) {
       return true;
     }
@@ -136,10 +198,33 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     const path = location.pathname;
     return {
       financeiro: ['/lancamentos', '/caixa', '/contas', '/cartoes', '/conciliacao-cartoes', '/dre', '/orcamentos', '/budget', '/comissoes'].some(p => path.startsWith(p)),
-      vendas: ['/pdv', '/importacao_nfe'].some(p => path.startsWith(p)),
-      admin: ['/auditoria', '/config'].some(p => path.startsWith(p)),
+      vendas: ['/pdv', '/importacao_nfe', '/produtos', '/apps/ifood'].some(p => path.startsWith(p)),
+      admin: ['/auditoria', '/config', '/apps'].some(p => {
+        if (path.startsWith('/apps/ifood')) return false;
+        return path.startsWith(p);
+      }),
     };
   });
+
+  useEffect(() => {
+    if (collapsed) {
+      setExpandedCategories({
+        financeiro: false,
+        vendas: false,
+        admin: false,
+      });
+    } else {
+      const path = location.pathname;
+      setExpandedCategories({
+        financeiro: ['/lancamentos', '/caixa', '/contas', '/cartoes', '/conciliacao-cartoes', '/dre', '/orcamentos', '/budget', '/comissoes'].some(p => path.startsWith(p)),
+        vendas: ['/pdv', '/importacao_nfe', '/produtos', '/apps/ifood'].some(p => path.startsWith(p)),
+        admin: ['/auditoria', '/config', '/apps'].some(p => {
+          if (path.startsWith('/apps/ifood')) return false;
+          return path.startsWith(p);
+        }),
+      });
+    }
+  }, [collapsed, location.pathname]);
 
   const toggleCategory = (catId: string) => {
     setExpandedCategories((prev) => ({

@@ -13,6 +13,7 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   ArrowRightLeft,
   Layers,
   Info,
@@ -119,7 +120,10 @@ export function Lancamentos({
     dataFim: '',
     ocultarVendasCartaoPendentes: true,
   });
-  const [filtroRapido, setFiltroRapido] = useState<string | null>(null);
+  const [filtroRapidoTipo, setFiltroRapidoTipo] = useState<'TODOS' | 'RECEITA' | 'DESPESA'>('TODOS');
+  const [filtroRapidoStatus, setFiltroRapidoStatus] = useState<'TODOS' | 'PAGO' | 'NAO_PAGO'>('TODOS');
+  const [filtroRapidoPrazo, setFiltroRapidoPrazo] = useState<'TODOS' | 'HOJE' | 'AMANHA' | 'ATRASADO' | 'EM_ABERTO'>('TODOS');
+  const [filtroRapidoIpp, setFiltroRapidoIpp] = useState<boolean>(false);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
@@ -166,6 +170,9 @@ export function Lancamentos({
   const [selectedCartaoId, setSelectedCartaoId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [savingIppIds, setSavingIppIds] = useState<Set<number>>(new Set());
+  
+  const [showResumoKpis, setShowResumoKpis] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [transferData, setTransferData] = useState({
     valor: '',
@@ -272,6 +279,8 @@ export function Lancamentos({
       setCategorias([]);
     };
   }, []);
+
+
 
   useEffect(() => {
     if (centros.length === 1) {
@@ -579,17 +588,27 @@ export function Lancamentos({
         if (!isLancamentoPago(l)) return false;
       }
 
-      // 3. Filtros Rápidos
+      // 3. Filtros Rápidos Combinados
       const hoje = getTodayLocalYmd();
       const amanha = getTomorrowLocalYmd();
       const pago = isLancamentoPago(l);
-      if (filtroRapido === 'HOJE' && (l.data_vencimento !== hoje || pago)) return false;
-      if (filtroRapido === 'AMANHA' && l.data_vencimento !== amanha) return false;
-      if (filtroRapido === 'IPP' && !l.ipp) return false;
-      if (filtroRapido === 'ATRASADO' && !isLancamentoAtrasado(l)) return false;
-      if (filtroRapido === 'PAGO' && !pago) return false;
-      if (filtroRapido === 'NAO_PAGO' && pago) return false;
-      if (filtroRapido === 'EM_ABERTO' && (pago || isLancamentoAtrasado(l))) return false;
+
+      // Tipo (Entradas / Saídas)
+      if (filtroRapidoTipo === 'RECEITA' && l.tipo !== 'RECEITA') return false;
+      if (filtroRapidoTipo === 'DESPESA' && l.tipo !== 'DESPESA') return false;
+
+      // Status (Pagos / Não Pagos)
+      if (filtroRapidoStatus === 'PAGO' && !pago) return false;
+      if (filtroRapidoStatus === 'NAO_PAGO' && pago) return false;
+
+      // Prazo (Hoje / Amanhã / Atrasados / Em Aberto)
+      if (filtroRapidoPrazo === 'HOJE' && (l.data_vencimento !== hoje || pago)) return false;
+      if (filtroRapidoPrazo === 'AMANHA' && l.data_vencimento !== amanha) return false;
+      if (filtroRapidoPrazo === 'ATRASADO' && !isLancamentoAtrasado(l)) return false;
+      if (filtroRapidoPrazo === 'EM_ABERTO' && (pago || isLancamentoAtrasado(l))) return false;
+
+      // IPP
+      if (filtroRapidoIpp && !l.ipp) return false;
 
       // 4. Filtros Avançados
       if (filtrosAvancados.tipo !== 'TODOS' && l.tipo !== filtrosAvancados.tipo) return false;
@@ -615,7 +634,10 @@ export function Lancamentos({
     boletimIdsFiltro,
     filtroTexto,
     centroCustoFiltro,
-    filtroRapido,
+    filtroRapidoTipo,
+    filtroRapidoStatus,
+    filtroRapidoPrazo,
+    filtroRapidoIpp,
     filtrosAvancados,
     contaExtratoAtivaId,
     categorias,
@@ -753,7 +775,10 @@ export function Lancamentos({
     });
     setFiltroTexto('');
     setCentroCustoFiltro('');
-    setFiltroRapido(null);
+    setFiltroRapidoTipo('TODOS');
+    setFiltroRapidoStatus('TODOS');
+    setFiltroRapidoPrazo('TODOS');
+    setFiltroRapidoIpp(false);
     setContaExtratoAtivaId(null);
     setMesAtual(new Date());
   };
@@ -790,12 +815,14 @@ export function Lancamentos({
     { id: 'NAO_PAGO', label: 'Não pagos', icon: ChevronRight },
     { id: 'IPP', label: 'IPP', icon: ChevronRight },
     { id: 'EM_ABERTO', label: 'Em Aberto', icon: ChevronRight },
+    { id: 'ENTRADAS', label: 'Entradas', icon: ChevronRight },
+    { id: 'SAIDAS', label: 'Saídas', icon: ChevronRight },
   ];
 
   const filtrosAtivosCount = [
     filtroTexto ? 1 : 0,
     centroCustoFiltro ? 1 : 0,
-    filtroRapido ? 1 : 0,
+    (filtroRapidoTipo !== 'TODOS' || filtroRapidoStatus !== 'TODOS' || filtroRapidoPrazo !== 'TODOS' || filtroRapidoIpp) ? 1 : 0,
     filtrosAvancados.tipo !== 'TODOS' ? 1 : 0,
     filtrosAvancados.centroCustoPresenca !== 'TODOS' ? 1 : 0,
     filtrosAvancados.dataInicio || filtrosAvancados.dataFim ? 1 : 0,
@@ -804,7 +831,169 @@ export function Lancamentos({
     contaExtratoAtivaId !== null ? 1 : 0,
   ].filter(Boolean).length;
 
+  // Focus search input on page load
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInputRef.current) {
+        searchInputRef.current.focus();
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, []);
 
+  useEffect(() => {
+    const handleGlobalKeys = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInputActive = activeEl && (
+          activeEl.tagName === 'INPUT' || 
+          activeEl.tagName === 'SELECT' || 
+          activeEl.tagName === 'TEXTAREA' || 
+          activeEl.getAttribute('contenteditable') === 'true'
+      );
+
+      // 1. Esc key closes modals
+      if (e.key === 'Escape') {
+        if (showDrawer) {
+          e.preventDefault();
+          setShowDrawer(false);
+          setSelectedContaId(null);
+          setSelectedCartaoId(null);
+          onRequestCloseEmbed?.();
+        } else if (showTransfer) {
+          e.preventDefault();
+          setShowTransfer(false);
+        } else if (showBulkPay) {
+          e.preventDefault();
+          setShowBulkPay(false);
+        } else if (showBulkDelete) {
+          e.preventDefault();
+          setShowBulkDelete(false);
+        }
+        return;
+      }
+
+      if (isInputActive) return;
+
+      // 2. Tecla N para novo
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        openDrawer();
+      }
+      
+      // 3. Tecla / para buscar
+      else if (e.key === '/') {
+        e.preventDefault();
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+          searchInputRef.current.select();
+        }
+      }
+
+
+
+      // 5. PageUp / PageDown para trocar mês
+      else if (e.key === 'PageUp') {
+        e.preventDefault();
+        setMesAtual((prev) => {
+          const d = new Date(prev.getTime());
+          d.setMonth(d.getMonth() - 1);
+          return d;
+        });
+      } else if (e.key === 'PageDown') {
+        e.preventDefault();
+        setMesAtual((prev) => {
+          const d = new Date(prev.getTime());
+          d.setMonth(d.getMonth() + 1);
+          return d;
+        });
+      }
+
+      // 6. Ctrl + A para selecionar tudo visível, Ctrl + Shift + A para desmarcar tudo
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          setSelectedIds(new Set());
+        } else {
+          const visibleIds = filteredList.filter(l => !l.conciliado).map(l => l.id);
+          setSelectedIds(new Set(visibleIds));
+        }
+      }
+
+      // 7. P para pagar lote e Delete/D para excluir lote
+      else if (selectedIds.size > 0) {
+        if (e.key === 'p' || e.key === 'P') {
+          e.preventDefault();
+          setShowBulkPay(true);
+        } else if (e.key === 'Delete' || e.key === 'd' || e.key === 'D') {
+          e.preventDefault();
+          openBulkDelete();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeys);
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeys);
+    };
+  }, [
+    showDrawer,
+    showTransfer,
+    showBulkPay,
+    showBulkDelete,
+    quickFilterOptions,
+    filteredList,
+    selectedIds,
+    onRequestCloseEmbed,
+  ]);
+
+  const handleQuickFilterClick = (id: string | null) => {
+    if (id === null) {
+      setFiltroRapidoTipo('TODOS');
+      setFiltroRapidoStatus('TODOS');
+      setFiltroRapidoPrazo('TODOS');
+      setFiltroRapidoIpp(false);
+      return;
+    }
+
+    if (id === 'HOJE' || id === 'AMANHA' || id === 'ATRASADO' || id === 'EM_ABERTO') {
+      setFiltroRapidoPrazo((prev) => (prev === id ? 'TODOS' : (id as any)));
+    } else if (id === 'PAGO' || id === 'NAO_PAGO') {
+      setFiltroRapidoStatus((prev) => (prev === id ? 'TODOS' : (id as any)));
+    } else if (id === 'ENTRADAS') {
+      setFiltroRapidoTipo((prev) => (prev === 'RECEITA' ? 'TODOS' : 'RECEITA'));
+    } else if (id === 'SAIDAS') {
+      setFiltroRapidoTipo((prev) => (prev === 'DESPESA' ? 'TODOS' : 'DESPESA'));
+    } else if (id === 'IPP') {
+      setFiltroRapidoIpp((prev) => !prev);
+    }
+  };
+
+  const isQuickFilterActive = (id: string | null) => {
+    if (id === null) {
+      return (
+        filtroRapidoTipo === 'TODOS' &&
+        filtroRapidoStatus === 'TODOS' &&
+        filtroRapidoPrazo === 'TODOS' &&
+        !filtroRapidoIpp
+      );
+    }
+    if (id === 'HOJE' || id === 'AMANHA' || id === 'ATRASADO' || id === 'EM_ABERTO') {
+      return filtroRapidoPrazo === id;
+    }
+    if (id === 'PAGO' || id === 'NAO_PAGO') {
+      return filtroRapidoStatus === id;
+    }
+    if (id === 'ENTRADAS') {
+      return filtroRapidoTipo === 'RECEITA';
+    }
+    if (id === 'SAIDAS') {
+      return filtroRapidoTipo === 'DESPESA';
+    }
+    if (id === 'IPP') {
+      return filtroRapidoIpp;
+    }
+    return false;
+  };
 
   if (isContasExtratoEmbed) {
     return (
@@ -832,6 +1021,7 @@ export function Lancamentos({
           cartoes={cartoes}
           centros={centros}
           pushToast={pushToast}
+          lancamentos={lancamentos}
           onEntityCreated={(newEntity) => {
             setEntidades((prev) => {
               if (prev.some((e) => e.id === newEntity.id)) return prev;
@@ -905,9 +1095,9 @@ export function Lancamentos({
             <div className="flex flex-1 flex-col items-center gap-3 px-3 py-4">
               <button
                 type="button"
-                onClick={() => setFiltroRapido((prev) => (prev === 'ATRASADO' ? null : 'ATRASADO'))}
+                onClick={() => handleQuickFilterClick('ATRASADO')}
                 className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition ${
-                  filtroRapido === 'ATRASADO'
+                  isQuickFilterActive('ATRASADO')
                     ? 'border-red-500 bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-300'
                     : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
                 }`}
@@ -917,9 +1107,9 @@ export function Lancamentos({
               </button>
               <button
                 type="button"
-                onClick={() => setFiltroRapido((prev) => (prev === 'EM_ABERTO' ? null : 'EM_ABERTO'))}
+                onClick={() => handleQuickFilterClick('EM_ABERTO')}
                 className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition ${
-                  filtroRapido === 'EM_ABERTO'
+                  isQuickFilterActive('EM_ABERTO')
                     ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300'
                     : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
                 }`}
@@ -986,6 +1176,7 @@ export function Lancamentos({
             <div className="relative hidden min-w-0 flex-1 lg:block lg:max-w-xl">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
+                ref={searchInputRef}
                 type="text"
                 placeholder="Buscar descrição, data, categoria, interessado ou valor"
                 className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
@@ -999,6 +1190,7 @@ export function Lancamentos({
             <div className="relative flex-1">
               <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
               <input
+                ref={searchInputRef}
                 type="text"
                 placeholder="Pesquisar descrição, data, categoria, interessado ou valor"
                 className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition"
@@ -1076,9 +1268,9 @@ export function Lancamentos({
               {quickFilterOptions.map((f) => (
                 <button
                   key={String(f.id)}
-                  onClick={() => setFiltroRapido(f.id as any)}
+                  onClick={() => handleQuickFilterClick(f.id as string | null)}
                   className={`px-3 py-1.5 rounded-full text-xs font-bold border transition flex items-center gap-1.5 whitespace-nowrap ${
-                    filtroRapido === f.id
+                    isQuickFilterActive(f.id as string | null)
                       ? 'bg-blue-600 text-white border-blue-500 shadow-md'
                       : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
@@ -1096,9 +1288,20 @@ export function Lancamentos({
                 </button>
               )}
             </div>
+
+            <div className="shrink-0 flex items-center">
+              <button
+                type="button"
+                onClick={() => setShowResumoKpis((prev) => !prev)}
+                className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-bold transition whitespace-nowrap ${showResumoKpis ? 'border-blue-600 bg-blue-600 text-white shadow-md' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'}`}
+              >
+                <ChevronDown className={`h-4 w-4 transition-transform ${showResumoKpis ? 'rotate-180' : ''}`} />
+                KPI de receitas e despesas
+              </button>
+            </div>
           </div>
 
-          <KpiCards kpis={kpis} />
+          <KpiCards kpis={kpis} showResumoKpis={showResumoKpis} />
 
           <LancamentosTable
             grouped={grouped}
@@ -1112,6 +1315,7 @@ export function Lancamentos({
             toggleListaSort={toggleListaSort}
             contaExtratoAtivaId={contaExtratoAtivaId}
             savingIppIds={savingIppIds}
+            filtroTexto={filtroTexto}
           />
         </div>
       </div>
@@ -1128,8 +1332,8 @@ export function Lancamentos({
         setShowFiltrosSidebar={setShowFiltrosSidebar}
         filtrosAvancados={filtrosAvancados}
         setFiltrosAvancados={setFiltrosAvancados}
-        filtroRapido={filtroRapido}
-        setFiltroRapido={setFiltroRapido}
+        isQuickFilterActive={isQuickFilterActive}
+        handleQuickFilterClick={handleQuickFilterClick}
         resetFiltros={resetFiltros}
         categorias={categorias}
         contas={contas}
@@ -1214,6 +1418,7 @@ export function Lancamentos({
         cartoes={cartoes}
         centros={centros}
         pushToast={pushToast}
+        lancamentos={lancamentos}
         onEntityCreated={(newEntity) => {
           setEntidades((prev) => {
             if (prev.some((e) => e.id === newEntity.id)) return prev;

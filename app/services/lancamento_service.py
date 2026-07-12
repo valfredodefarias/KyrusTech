@@ -690,6 +690,44 @@ class LancamentoService:
             raise HTTPException(status_code=400, detail="Transferências internas não podem ser editadas.")
         
         dados_dict = dados_atualizacao.dict(exclude_unset=True)
+        
+        # Process and extract card metadata fields
+        card_fields = {}
+        for field in ["valor_bruto", "valor_taxa", "valor_liquido", "bandeira", "tipo_pagamento", "rv", "data_venda", "vendedor_id"]:
+            if field in dados_dict:
+                card_fields[field] = dados_dict.pop(field)
+
+        if card_fields:
+            import json
+            meta = {}
+            if db_lancamento.observacao and db_lancamento.observacao.strip().startswith("{") and db_lancamento.observacao.strip().endswith("}"):
+                try:
+                    meta = json.loads(db_lancamento.observacao)
+                except Exception:
+                    meta = {}
+            
+            if "valor_bruto" in card_fields:
+                val_bruto = card_fields["valor_bruto"]
+                dados_dict["valor_previsto"] = val_bruto
+            if "valor_taxa" in card_fields:
+                meta["cartao_taxa_valor"] = float(card_fields["valor_taxa"]) if card_fields["valor_taxa"] is not None else 0.0
+            if "valor_liquido" in card_fields:
+                meta["cartao_liquido_previsto"] = float(card_fields["valor_liquido"]) if card_fields["valor_liquido"] is not None else 0.0
+            if "bandeira" in card_fields:
+                meta["bandeira"] = card_fields["bandeira"].upper() if card_fields["bandeira"] else "OUTROS"
+            if "tipo_pagamento" in card_fields:
+                meta["tipo_pagamento"] = card_fields["tipo_pagamento"]
+            if "rv" in card_fields:
+                meta["rv"] = card_fields["rv"]
+            if "data_venda" in card_fields:
+                dt_venda = card_fields["data_venda"]
+                meta["data_venda"] = dt_venda.isoformat() if hasattr(dt_venda, "isoformat") else str(dt_venda)
+                dados_dict["data_competencia"] = dt_venda
+            if "vendedor_id" in card_fields:
+                meta["vendedor_id"] = int(card_fields["vendedor_id"]) if card_fields["vendedor_id"] is not None else None
+
+            db_lancamento.observacao = json.dumps(meta, ensure_ascii=False)
+
         self._validate_related_entities(dados_dict, empresa_id)
 
         if db_lancamento.conciliado:

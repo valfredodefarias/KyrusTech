@@ -11,6 +11,7 @@ from threading import Event, Lock
 from pathlib import Path
 from subprocess import run
 from zoneinfo import ZoneInfo
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -188,6 +189,29 @@ def _apply_legacy_schema_compatibility() -> None:
     IdempotencyLog.__table__.create(bind=engine, checkfirst=True)
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global SCHEDULER_TASK
+    from app.core.cache import register_cache_listeners
+    register_cache_listeners()
+    _run_startup_migrations()
+    if os.getenv("TESTING") != "1" and os.getenv("DISABLE_SCHEDULER") != "1":
+        _ensure_rbac_defaults()
+        SCHEDULER_STOP_EVENT.clear()
+        SCHEDULER_TASK = asyncio.create_task(run_integracao_scheduler(SCHEDULER_STOP_EVENT))
+    
+    yield
+    
+    SCHEDULER_STOP_EVENT.set()
+    if SCHEDULER_TASK is not None:
+        try:
+            await SCHEDULER_TASK
+        except Exception as exc:
+            logger.warning(f"Falha ao finalizar scheduler de integração: {exc}")
+        finally:
+            SCHEDULER_TASK = None
+
+
 is_production = settings.ENVIRONMENT.lower() == "production"
 
 # --- INICIALIZAR APLICAÇÃO ---
@@ -197,7 +221,8 @@ app = FastAPI(
     version="1.0.0",
     docs_url=None,
     redoc_url=None,
-    openapi_url=None if is_production else "/openapi.json"
+    openapi_url=None if is_production else "/openapi.json",
+    lifespan=lifespan
 )
 
 from app.api.deps import IdempotencyCompletedException
@@ -205,32 +230,6 @@ from app.api.deps import IdempotencyCompletedException
 @app.exception_handler(IdempotencyCompletedException)
 async def idempotency_completed_handler(request: Request, exc: IdempotencyCompletedException):
     return JSONResponse(content=exc.response_body, status_code=200)
-
-
-
-@app.on_event("startup")
-def startup_event() -> None:
-    global SCHEDULER_TASK
-    from app.core.cache import register_cache_listeners
-    register_cache_listeners()
-    _run_startup_migrations()
-    if os.getenv("TESTING") != "1" and os.getenv("DISABLE_SCHEDULER") != "1":
-        _ensure_rbac_defaults()
-        SCHEDULER_STOP_EVENT.clear()
-        SCHEDULER_TASK = asyncio.create_task(run_integracao_scheduler(SCHEDULER_STOP_EVENT))
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    global SCHEDULER_TASK
-    SCHEDULER_STOP_EVENT.set()
-    if SCHEDULER_TASK is not None:
-        try:
-            await SCHEDULER_TASK
-        except Exception as exc:
-            logger.warning(f"Falha ao finalizar scheduler de integração: {exc}")
-        finally:
-            SCHEDULER_TASK = None
 
 # --- CONFIGURAÇÃO DE CORS ---
 # Converte CORS origins para lista se for string "*"
@@ -411,8 +410,9 @@ async def audit_context_middleware(request: Request, call_next):
 @app.middleware("http")
 async def log_requests_immediately(request: Request, call_next):
     log_line = f"==> REQUEST START: {request.method} {request.url.path}\n"
+    log_file_path = ROOT_DIR / "app" / "request_log.txt"
     try:
-        with open("/app/app/request_log.txt", "a") as f:
+        with open(log_file_path, "a") as f:
             f.write(log_line)
     except Exception:
         pass
@@ -421,7 +421,7 @@ async def log_requests_immediately(request: Request, call_next):
         response = await call_next(request)
         end_line = f"<== REQUEST END: {request.method} {request.url.path} - {response.status_code}\n"
         try:
-            with open("/app/app/request_log.txt", "a") as f:
+            with open(log_file_path, "a") as f:
                 f.write(end_line)
         except Exception:
             pass
@@ -429,7 +429,7 @@ async def log_requests_immediately(request: Request, call_next):
     except Exception as e:
         err_line = f"==! REQUEST EXCEPTION: {request.method} {request.url.path} - {e}\n"
         try:
-            with open("/app/app/request_log.txt", "a") as f:
+            with open(log_file_path, "a") as f:
                 f.write(err_line)
         except Exception:
             pass

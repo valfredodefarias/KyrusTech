@@ -222,6 +222,15 @@ const CARD_BRANDS: BrandMatcher[] = [
     text: '#115e59',
     aliases: ['pix'],
   },
+  {
+    key: 'ifood',
+    label: 'iFood',
+    shortLabel: 'IF',
+    accent: '#ea1d2c',
+    background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
+    text: '#b91c1c',
+    aliases: ['ifood'],
+  },
 ];
 
 function normalizeText(value?: string | null) {

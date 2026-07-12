@@ -94,6 +94,9 @@ def _build_update_changes(obj: Any) -> Dict[str, Any]:
 
 @event.listens_for(OrmSession, "before_flush")
 def collect_audit_changes(session: OrmSession, flush_context, instances) -> None:  # type: ignore[no-untyped-def]
+    import os
+    if os.getenv("DISABLE_AUDIT") == "1":
+        return
     if session.info.get("audit_in_progress"):
         return
 
@@ -242,5 +245,9 @@ def process_pending_audit_hashes() -> None:
 def trigger_hash_processing(session: OrmSession) -> None:
     """
     Aciona o processamento assíncrono das assinaturas após o commit da transação.
+    Silencia em ambiente de testes para evitar conexões paralelas ao banco real.
     """
+    import os
+    if os.getenv("DISABLE_AUDIT") == "1" or os.getenv("TESTING") == "1":
+        return
     _hash_executor.submit(process_pending_audit_hashes)

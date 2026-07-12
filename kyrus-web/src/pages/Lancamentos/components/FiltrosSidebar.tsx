@@ -18,8 +18,8 @@ interface FiltrosSidebarProps {
     ocultarVendasCartaoPendentes: boolean;
   };
   setFiltrosAvancados: React.Dispatch<React.SetStateAction<any>>;
-  filtroRapido: string | null;
-  setFiltroRapido: React.Dispatch<React.SetStateAction<string | null>>;
+  isQuickFilterActive: (id: string | null) => boolean;
+  handleQuickFilterClick: (id: string | null) => void;
   resetFiltros: () => void;
   categorias: any[];
   contas: any[];
@@ -35,8 +35,8 @@ export const FiltrosSidebar = ({
   setShowFiltrosSidebar,
   filtrosAvancados,
   setFiltrosAvancados,
-  filtroRapido,
-  setFiltroRapido,
+  isQuickFilterActive,
+  handleQuickFilterClick,
   resetFiltros,
   categorias,
   contas,
@@ -61,6 +61,8 @@ export const FiltrosSidebar = ({
     { id: 'NAO_PAGO', label: 'Não pagos', icon: Layers },
     { id: 'IPP', label: 'IPP', icon: LayoutGrid },
     { id: 'EM_ABERTO', label: 'Em Aberto', icon: Layers },
+    { id: 'ENTRADAS', label: 'Entradas', icon: CheckCircle2 },
+    { id: 'SAIDAS', label: 'Saídas', icon: AlertCircle },
   ];
 
   return (
@@ -128,8 +130,8 @@ export const FiltrosSidebar = ({
               {quickFilterOptions.map((f) => (
                 <button
                   key={String(f.id)}
-                  onClick={() => setFiltroRapido((prev) => (prev === f.id ? null : (f.id as string | null)))}
-                  className={`py-2 px-2 rounded-lg text-xs font-bold border transition ${f.id === null ? 'col-span-2' : ''} ${filtroRapido === f.id ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                  onClick={() => handleQuickFilterClick(f.id as string | null)}
+                  className={`py-2 px-2 rounded-lg text-xs font-bold border transition ${f.id === null ? 'col-span-2' : ''} ${isQuickFilterActive(f.id as string | null) ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
                 >
                   {f.icon && <f.icon className="w-3 h-3" />}
                   {f.label}

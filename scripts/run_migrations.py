@@ -188,16 +188,15 @@ def run_migrations():
 
         print("Executando migrations do Alembic...")
         
-        result = run(
-            [sys.executable, "-m", "alembic", "upgrade", "heads"],
-            cwd=str(ROOT_DIR),
-            capture_output=True,
-            text=True
-        )
+        from alembic.config import Config
+        from alembic import command
+
+        alembic_cfg = Config(str(ROOT_DIR / "alembic.ini"))
+        alembic_cfg.set_main_option("script_location", str(ROOT_DIR / "alembic"))
         
-        if result.returncode == 0:
+        try:
+            command.upgrade(alembic_cfg, "heads")
             print("Migrations executadas com sucesso!")
-            print(result.stdout)
             print("Aplicando patch de compatibilidade de schema...")
             apply_legacy_schema_compatibility()
             ensure_integracoes_scheduler_schema()
@@ -210,9 +209,9 @@ def run_migrations():
                 f"Vinculos: {stats.get('user_assignments_created', 0)}"
             )
             return True
-        else:
+        except Exception as exc:
             print("Erro ao executar migrations:")
-            print(result.stderr)
+            print(exc)
             print("Aplicando patch de compatibilidade de schema...")
             apply_legacy_schema_compatibility()
             stats = ensure_rbac_defaults()

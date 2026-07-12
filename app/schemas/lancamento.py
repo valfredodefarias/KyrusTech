@@ -77,6 +77,16 @@ class LancamentoUpdate(SQLModel):
     conciliado: Optional[bool] = None
     numero_parcela: Optional[int] = None
     id_parcelamento: Optional[str] = None
+    
+    # Campos de cartao/PDV extras para recebíveis
+    valor_bruto: Optional[Decimal] = None
+    valor_taxa: Optional[Decimal] = None
+    valor_liquido: Optional[Decimal] = None
+    bandeira: Optional[str] = None
+    tipo_pagamento: Optional[str] = None
+    rv: Optional[str] = None
+    data_venda: Optional[date] = None
+    vendedor_id: Optional[int] = None
 
 class MovimentoRead(SQLModel):
     id: int

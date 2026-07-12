@@ -321,52 +321,6 @@ export function Home() {
   );
 }
 
-
-
-function normalizeContasResponse(data: unknown): ContaResumo[] {
-  if (Array.isArray(data)) {
-    return data as ContaResumo[];
-  }
-
-  if (data && typeof data === 'object') {
-    const payload = data as {
-      data?: unknown;
-      items?: unknown;
-      results?: unknown;
-      contas?: unknown;
-    };
-
-    const candidate = payload.data ?? payload.items ?? payload.results ?? payload.contas;
-    if (Array.isArray(candidate)) {
-      return candidate as ContaResumo[];
-    }
-  }
-
-  return [];
-}
-
-function normalizeCentrosCustoResponse(data: unknown): CentroCustoResumo[] {
-  if (Array.isArray(data)) {
-    return data as CentroCustoResumo[];
-  }
-
-  if (data && typeof data === 'object') {
-    const payload = data as {
-      data?: unknown;
-      items?: unknown;
-      results?: unknown;
-      centros_custo?: unknown;
-    };
-
-    const candidate = payload.data ?? payload.items ?? payload.results ?? payload.centros_custo;
-    if (Array.isArray(candidate)) {
-      return candidate as CentroCustoResumo[];
-    }
-  }
-
-  return [];
-}
-
 function HeroMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-slate-200 bg-white dark:border-slate-800 dark:bg-[#0d1117] px-3.5 py-2.5">

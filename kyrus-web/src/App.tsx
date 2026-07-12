@@ -1,11 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Suspense, lazy, useEffect } from 'react';
+import { Suspense, lazy, useEffect, useMemo } from 'react';
 import type { JSX } from 'react';
 
 // Components & Store
 import { Layout } from './components/Layout';
 import { api } from './services/api';
-import { useAuthStore } from './store/authStore';
+import { useAuthStore, type AuthUser } from './store/authStore';
+import { useTabStore } from './store/tabStore';
 import { TabSyncGuard } from './components/TabSyncGuard';
 
 const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
@@ -31,6 +32,165 @@ const ComissoesDashboard = lazy(() => import('./pages/ComissoesDashboard').then(
 const IntegracaoAsaas = lazy(() => import('./pages/IntegracaoAsaas').then((module) => ({ default: module.IntegracaoAsaas })));
 const ImportacaoOfx = lazy(() => import('./pages/ImportacaoOfx').then((module) => ({ default: module.ImportacaoOfx })));
 const ImportacaoNfe = lazy(() => import('./pages/ImportacaoNfe').then((module) => ({ default: module.ImportacaoNfe })));
+const ImportacaoPDV = lazy(() => import('./pages/ImportacaoPDV'));
+const Produtos = lazy(() => import('./pages/Produtos'));
+const Apps = lazy(() => import('./pages/Apps').then((module) => ({ default: module.Apps })));
+const MovimentacaoPDV = lazy(() => import('./pages/MovimentacaoPDV').then((module) => ({ default: module.MovimentacaoPDV })));
+
+const PAGE_PERMISSIONS: Record<string, string[]> = {
+  '/apps': ['page:home:view'],
+  '/apps/:tab': ['page:home:view'],
+  '/apps/movimentacao-pdv': ['page:home:view'],
+  '/produtos': ['PDV_VER_TODAS_VENDAS', 'PDV_SER_VENDEDOR'],
+  '/home': ['page:home:view'],
+  '/boletim': ['page:boletim:view'],
+  '/contas': ['page:contas:view'],
+  '/lancamentos': ['page:lancamentos:view'],
+  '/caixa': ['page:caixa:view'],
+  '/cartoes': ['page:cartoes:view'],
+  '/conciliacao-cartoes': ['page:cartoes:view'],
+  '/orcamentos': ['page:dre:view'],
+  '/budget': ['page:dre:view'],
+  '/dre': ['page:dre:view'],
+  '/comissoes': ['page:boletim:view'],
+  '/consultor': ['page:consultor:view'],
+  '/auditoria': ['page:auditoria:view'],
+  '/config': ['page:configuracoes:view'],
+  '/importacao': ['page:importacao:view'],
+  '/importacao_nfe': ['page:importacao_nfe:view', 'page:importacao:view'],
+  '/importacao_ofx': ['page:importacao_ofx:view'],
+  '/importacao_interessados': ['page:importacao_entidades:view'],
+  '/integracoes/asaas': ['page:integracoes:view'],
+  '/pdv': [
+    'PDV_VER_TODAS_VENDAS',
+    'PDV_SER_VENDEDOR',
+    'PDV_REALIZAR_SANGRIA',
+    'PDV_CANCELAR_VENDA',
+    'PDV_CONCEDER_DESCONTO',
+  ],
+  '/pdv/fechamento': [
+    'PDV_VER_TODAS_VENDAS',
+    'PDV_SER_VENDEDOR',
+    'PDV_REALIZAR_SANGRIA',
+    'PDV_CANCELAR_VENDA',
+    'PDV_CONCEDER_DESCONTO',
+  ],
+  '/pdv/importar': [
+    'PDV_VER_TODAS_VENDAS',
+    'PDV_SER_VENDEDOR',
+    'PDV_REALIZAR_SANGRIA',
+    'PDV_CANCELAR_VENDA',
+    'PDV_CONCEDER_DESCONTO',
+  ],
+};
+
+const PAGE_LABELS: Record<string, string> = {
+  '/home': 'Visão Geral',
+  '/boletim': 'Boletim',
+  '/dre': 'DRE',
+  '/consultor': 'Área do Consultor',
+  '/lancamentos': 'Lançamentos',
+  '/contas': 'Contas Bancárias',
+  '/orcamentos': 'Orçamentos',
+  '/budget': 'Budget',
+  '/cartoes': 'Cartões',
+  '/conciliacao-cartoes': 'Conciliadora de Cartões',
+  '/pdv': 'PDV',
+  '/pdv/importar': 'Importação PDV',
+  '/caixa': 'Caixa',
+  '/config': 'Configurações',
+  '/importacao_ofx': 'Importação OFX',
+  '/importacao_nfe': 'Importação NF-e',
+  '/auditoria': 'Auditoria',
+  '/comissoes': 'Comissões e Metas',
+};
+
+const PAGE_ICONS: Record<string, string> = {
+  '/home': 'Home',
+  '/boletim': 'BarChart2',
+  '/dre': 'LineChart',
+  '/consultor': 'Briefcase',
+  '/lancamentos': 'PlusCircle',
+  '/contas': 'Landmark',
+  '/orcamentos': 'Calculator',
+  '/budget': 'Table2',
+  '/cartoes': 'CreditCard',
+  '/conciliacao-cartoes': 'Coins',
+  '/pdv': 'ShoppingBag',
+  '/pdv/importar': 'FileSpreadsheet',
+  '/caixa': 'Banknote',
+  '/config': 'Settings',
+  '/importacao_ofx': 'Landmark',
+  '/importacao_nfe': 'FileText',
+  '/auditoria': 'History',
+  '/comissoes': 'Award',
+};
+
+export function hasPathPermission(path: string, user: AuthUser | null): boolean {
+  if (!user) return false;
+  const permissions = user.permissions || [];
+  if (permissions.includes('*')) return true;
+  
+  const basePath = path.split('?')[0];
+  const required = PAGE_PERMISSIONS[basePath];
+  if (!required) return true;
+  
+  return required.some((p) => permissions.includes(p));
+}
+
+function PdvEstoqueRoute({ children }: { children: React.ReactNode }) {
+  const empresa = useAuthStore((state) => state.empresa);
+  
+  const activeApps = useMemo(() => {
+    if (!empresa?.pdv_config) return [];
+    try {
+      const config = JSON.parse(empresa.pdv_config);
+      return config.active_apps || [];
+    } catch {
+      return [];
+    }
+  }, [empresa]);
+
+  if (!activeApps.includes('pdv_estoque')) {
+    return <Navigate to="/apps" replace />;
+  }
+  return <>{children}</>;
+}
+
+export function getFirstAllowedPath(user: AuthUser | null): string {
+  if (!user) return "/login";
+  const permissions = user.permissions || [];
+  if (permissions.includes('*')) return "/home";
+  
+  const order = [
+    '/home',
+    '/boletim',
+    '/lancamentos',
+    '/contas',
+    '/caixa',
+    '/cartoes',
+    '/pdv',
+    '/dre',
+    '/importacao',
+    '/config',
+    '/consultor',
+    '/auditoria'
+  ];
+  
+  for (const path of order) {
+    if (hasPathPermission(path, user)) {
+      return path;
+    }
+  }
+  
+  for (const path of Object.keys(PAGE_PERMISSIONS)) {
+    if (hasPathPermission(path, user)) {
+      return path;
+    }
+  }
+  
+  return "/login";
+}
 
 const RouteFallback = () => (
   <div className="flex min-h-[40vh] items-center justify-center px-6 text-sm font-semibold text-slate-500 dark:text-slate-300">
@@ -70,13 +230,14 @@ function ProtectedRoute({ children, requiredPermissions }: { children: JSX.Eleme
     requiredPermissions.some((p) => permissions.includes(p));
 
   if (!hasPermission) {
-    return <Navigate to="/home" replace />;
+    return <Navigate to={getFirstAllowedPath(user)} replace />;
   }
 
   return children;
 }
 
 function App() {
+  const user = useAuthStore((state) => state.user);
   const initialized = useAuthStore((state) => state.initialized);
   const authenticated = useAuthStore((state) => state.authenticated);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
@@ -84,6 +245,33 @@ function App() {
   const setInitialized = useAuthStore((state) => state.setInitialized);
   const setUser = useAuthStore((state) => state.setUser);
   const setSessionExpiresAt = useAuthStore((state) => state.setSessionExpiresAt);
+
+  useEffect(() => {
+    if (user) {
+      const { tabs, activeTabPath } = useTabStore.getState();
+      const filteredTabs = tabs.filter(t => hasPathPermission(t.path, user));
+      
+      if (filteredTabs.length === 0) {
+        const fallback = getFirstAllowedPath(user);
+        const nextTabs = [{
+          path: fallback,
+          basePath: fallback.split('?')[0],
+          label: PAGE_LABELS[fallback] || 'Visão Geral',
+          iconName: PAGE_ICONS[fallback] || 'Home',
+          pinned: true,
+          dirty: false,
+          visited: true
+        }];
+        useTabStore.setState({ tabs: nextTabs, activeTabPath: fallback });
+      } else {
+        let nextActive = activeTabPath;
+        if (!hasPathPermission(activeTabPath, user)) {
+          nextActive = filteredTabs[0].path;
+        }
+        useTabStore.setState({ tabs: filteredTabs, activeTabPath: nextActive });
+      }
+    }
+  }, [user]);
 
   type SessionInfo = {
     expires_in_minutes: number;
@@ -156,7 +344,7 @@ function App() {
               path="/"
               element={
                 initialized
-                  ? <Navigate to={isAuthenticated ? "/home" : "/login"} replace />
+                  ? <Navigate to={isAuthenticated ? getFirstAllowedPath(user) : "/login"} replace />
                   : <RouteFallback />
               }
             />
@@ -177,35 +365,70 @@ function App() {
               <Route
                 path="/pdv"
                 element={
-                  <ProtectedRoute
-                    requiredPermissions={[
-                      'PDV_VER_TODAS_VENDAS',
-                      'PDV_SER_VENDEDOR',
-                      'PDV_REALIZAR_SANGRIA',
-                      'PDV_CANCELAR_VENDA',
-                      'PDV_CONCEDER_DESCONTO',
-                    ]}
-                  >
-                    <Pdv />
-                  </ProtectedRoute>
+                  <PdvEstoqueRoute>
+                    <ProtectedRoute
+                      requiredPermissions={[
+                        'PDV_VER_TODAS_VENDAS',
+                        'PDV_SER_VENDEDOR',
+                        'PDV_REALIZAR_SANGRIA',
+                        'PDV_CANCELAR_VENDA',
+                        'PDV_CONCEDER_DESCONTO',
+                      ]}
+                    >
+                      <Pdv />
+                    </ProtectedRoute>
+                  </PdvEstoqueRoute>
                 }
               />
               <Route
                 path="/pdv/fechamento"
                 element={
-                  <ProtectedRoute
-                    requiredPermissions={[
-                      'PDV_VER_TODAS_VENDAS',
-                      'PDV_SER_VENDEDOR',
-                      'PDV_REALIZAR_SANGRIA',
-                      'PDV_CANCELAR_VENDA',
-                      'PDV_CONCEDER_DESCONTO',
-                    ]}
-                  >
-                    <PdvFechamento />
-                  </ProtectedRoute>
+                  <PdvEstoqueRoute>
+                    <ProtectedRoute
+                      requiredPermissions={[
+                        'PDV_VER_TODAS_VENDAS',
+                        'PDV_SER_VENDEDOR',
+                        'PDV_REALIZAR_SANGRIA',
+                        'PDV_CANCELAR_VENDA',
+                        'PDV_CONCEDER_DESCONTO',
+                      ]}
+                    >
+                      <PdvFechamento />
+                    </ProtectedRoute>
+                  </PdvEstoqueRoute>
                 }
               />
+              <Route
+                path="/pdv/importar"
+                element={
+                  <PdvEstoqueRoute>
+                    <ProtectedRoute
+                      requiredPermissions={[
+                        'PDV_VER_TODAS_VENDAS',
+                        'PDV_SER_VENDEDOR',
+                        'PDV_REALIZAR_SANGRIA',
+                        'PDV_CANCELAR_VENDA',
+                        'PDV_CONCEDER_DESCONTO',
+                      ]}
+                    >
+                      <ImportacaoPDV />
+                    </ProtectedRoute>
+                  </PdvEstoqueRoute>
+                }
+              />
+              <Route
+                path="/produtos"
+                element={
+                  <PdvEstoqueRoute>
+                    <ProtectedRoute requiredPermissions={['PDV_VER_TODAS_VENDAS', 'PDV_SER_VENDEDOR']}>
+                      <Produtos />
+                    </ProtectedRoute>
+                  </PdvEstoqueRoute>
+                }
+              />
+              <Route path="/apps" element={<ProtectedRoute requiredPermissions={['page:home:view']}><Apps /></ProtectedRoute>} />
+              <Route path="/apps/movimentacao-pdv" element={<ProtectedRoute requiredPermissions={['page:home:view']}><MovimentacaoPDV /></ProtectedRoute>} />
+              <Route path="/apps/:tab" element={<ProtectedRoute requiredPermissions={['page:home:view']}><Apps /></ProtectedRoute>} />
               <Route path="/caixa" element={<ProtectedRoute requiredPermissions={['page:caixa:view']}><Caixa /></ProtectedRoute>} />
               <Route path="/centro-custo" element={<ProtectedRoute requiredPermissions={['page:centro_custo:view']}><CentroCusto /></ProtectedRoute>} />
               <Route path="/config" element={<ProtectedRoute requiredPermissions={['page:configuracoes:view']}><Configuracoes /></ProtectedRoute>} />

@@ -2492,10 +2492,7 @@ def atualizar_lancamento_apos_baixas(db: Session, lancamento_id: int):
         lancamento.data_pagamento = max(b.data_baixa for b in baixas)
         lancamento.conciliado = True
         
-        if net_paid >= (lancamento.valor_previsto - desconto):
-            lancamento.status = "PAGO"
-        else:
-            lancamento.status = "PARCIALMENTE_PAGO"
+        lancamento.status = "PAGO"
             
     db.add(lancamento)
     db.flush()

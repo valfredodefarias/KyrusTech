@@ -2,7 +2,6 @@
 .env
 .env.local
 .env.*.local
-.gitignore
 # Python
 __pycache__/
 *.py[cod]
@@ -79,7 +78,6 @@ alembic/versions/*
 !alembic/versions/.gitkeep
 alembic/versions/__pycache__/
 .env
-.gitignore
 
 # Temporary and local data files
 *.csv

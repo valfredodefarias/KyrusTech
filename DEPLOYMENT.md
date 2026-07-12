@@ -2,8 +2,7 @@
 
 Referências de infraestrutura:
 
-- Resumo operacional (1 página): [INFRAESTRUTURA_EXECUTIVA.md](INFRAESTRUTURA_EXECUTIVA.md)
-- Documento completo: [INFRAESTRUTURA.md](INFRAESTRUTURA.md)
+- Manual de Arquitetura e Infraestrutura completo: [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ## 📋 Pré-requisitos
 

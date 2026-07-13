@@ -23,9 +23,10 @@ from app.enums import PdvPermission
 OPERATOR_PERMISSION_CODES = [
     "page:home:view",          # Home page
     "page:caixa:view",         # PDV Front of house / Cash register view
-    "page:importacao:view",    # Integration page (to view/sync Movimentação PDV & iFood)
-    "integracoes:view",        # View integrations
-    "integracoes:sync",        # Allow syncing integrations
+    "page:importacao:view",    # Import page (Movimentação PDV)
+    "page:integracoes:view",   # iFood / Integrations page (sidebar link)
+    "integracoes:view",        # View integrations detail
+    "integracoes:sync",        # Allow syncing/pulling from iFood
     PdvPermission.PDV_SER_VENDEDOR.value,         # Appears as seller
     PdvPermission.PDV_VER_TODAS_VENDAS.value,     # View dashboard for cashier
     PdvPermission.PDV_REALIZAR_SANGRIA.value,     # Cash withdrawal (sangria)

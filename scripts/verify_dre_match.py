@@ -2,7 +2,7 @@
 import sys
 import os
 import openpyxl
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from sqlmodel import Session, select, func
 
@@ -75,86 +75,83 @@ def main():
     sit_idx = headers.index("Situação")
     cc_idx = headers.index("Centro de Custo") if "Centro de Custo" in headers else 12
 
-    # July 2024 spreadsheet sums
-    sheet_receitas = Decimal("0.00")
-    sheet_despesas = Decimal("0.00")
+    # 2026 monthly breakdowns
+    for month in range(1, 13):
+        # Spreadsheet sums
+        sheet_receitas = Decimal("0.00")
+        sheet_despesas = Decimal("0.00")
 
-    print(f"Total de linhas na planilha: {len(rows)}")
-    print("Primeiras 5 datas:")
-    for row in rows[1:6]:
-        print(f"  Data Pagto: {row[pag_idx]} | Centro de Custo: {row[cc_idx]} | Situação: {row[sit_idx]} (tipo: {type(row[sit_idx])})")
+        for row in rows[1:]:
+            if not any(row):
+                continue
+            row_cc = clean_str(row[cc_idx]) if cc_idx < len(row) else ""
+            if row_cc.lower() != "umarizal":
+                continue
+            sit = clean_str(row[sit_idx])
+            if sit.lower() != "pago":
+                continue
+            
+            dt_val = row[pag_idx]
+            dt = parse_date(dt_val)
+            if not dt:
+                continue
 
-    matching_count = 0
-    for row in rows[1:]:
-        if not any(row):
-            continue
-        row_cc = clean_str(row[cc_idx]) if cc_idx < len(row) else ""
-        if row_cc.lower() != "umarizal":
-            continue
-        sit = clean_str(row[sit_idx])
-        if sit.lower() != "pago":
-            continue
-            
-        dt_val = row[pag_idx]
-        dt = parse_date(dt_val)
-        if not dt:
-            continue
-            
-        matching_count += 1
-        if matching_count <= 5:
-            print(f"Row {matching_count}: date={dt}, val={row[real_idx]}, tipo={row[tipo_idx]}, class={row[headers.index('Classificação')]}")
+            if dt.year == 2026 and dt.month == month:
+                val = parse_decimal(row[real_idx])
+                tipo = clean_str(row[tipo_idx]).lower()
+                
+                if tipo == "recebimento":
+                    sheet_receitas += abs(val)
+                else:
+                    sheet_despesas += abs(val)
 
-        if dt.year == 2024 and dt.month == 7:
-            val = parse_decimal(row[real_idx])
-            tipo = clean_str(row[tipo_idx]).lower()
-            
-            if tipo == "recebimento":
-                sheet_receitas += abs(val)
-            else:
-                sheet_despesas += abs(val)
+        # Database sums
+        db_receitas = db.exec(
+            select(func.sum(Lancamento.valor_pago))
+            .where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.tipo == "RECEITA",
+                Lancamento.status == "PAGO",
+                Lancamento.origem == "WEB",
+                Lancamento.data_pagamento >= date(2026, month, 1),
+                Lancamento.data_pagamento <= (date(2026, month+1, 1) - timedelta(days=1) if month < 12 else date(2026, 12, 31)),
+                Lancamento.is_deleted == False
+            )
+        ).first() or Decimal("0.00")
+
+        db_despesas = db.exec(
+            select(func.sum(Lancamento.valor_pago))
+            .where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.tipo == "DESPESA",
+                Lancamento.status == "PAGO",
+                Lancamento.origem == "WEB",
+                Lancamento.data_pagamento >= date(2026, month, 1),
+                Lancamento.data_pagamento <= (date(2026, month+1, 1) - timedelta(days=1) if month < 12 else date(2026, 12, 31)),
+                Lancamento.is_deleted == False
+            )
+        ).first() or Decimal("0.00")
+
+        # Skip months with absolutely zero data on both sides
+        if sheet_receitas == 0 and sheet_despesas == 0 and db_receitas == 0 and db_despesas == 0:
+            continue
+
+        print(f"\n--- COMPARAÇÃO DRE: MÊS {month:02d}/2026 ---")
+        print(f"Receitas Planilha: R$ {sheet_receitas:,.2f} | Kyrus Banco: R$ {db_receitas:,.2f} | Dif: R$ {sheet_receitas - db_receitas:,.2f}")
+        print(f"Despesas Planilha:  R$ {sheet_despesas:,.2f} | Kyrus Banco: R$ {db_despesas:,.2f} | Dif: R$ {sheet_despesas - db_despesas:,.2f}")
+        
+        sheet_net = sheet_receitas - sheet_despesas
+        db_net = db_receitas - db_despesas
+        print(f"Resultado Líquido Planilha: R$ {sheet_net:,.2f} | Kyrus Banco: R$ {db_net:,.2f} | Dif: R$ {sheet_net - db_net:,.2f}")
+
+        if abs(sheet_net - db_net) < Decimal("0.01"):
+            print(f"✅ Mes {month:02d}/2026 em perfeito alinhamento!")
+        else:
+            print(f"❌ Mes {month:02d}/2026 possui divergências!")
 
     wb.close()
 
-    # July 2024 database sums (excluding PDV origin to match only Tb_Financeira first)
-    db_receitas = db.exec(
-        select(func.sum(Lancamento.valor_pago))
-        .where(
-            Lancamento.empresa_id == empresa_id,
-            Lancamento.tipo == "RECEITA",
-            Lancamento.status == "PAGO",
-            Lancamento.origem == "WEB",
-            Lancamento.data_pagamento >= date(2024, 7, 1),
-            Lancamento.data_pagamento <= date(2024, 7, 31),
-            Lancamento.is_deleted == False
-        )
-    ).first() or Decimal("0.00")
 
-    db_despesas = db.exec(
-        select(func.sum(Lancamento.valor_pago))
-        .where(
-            Lancamento.empresa_id == empresa_id,
-            Lancamento.tipo == "DESPESA",
-            Lancamento.status == "PAGO",
-            Lancamento.origem == "WEB",
-            Lancamento.data_pagamento >= date(2024, 7, 1),
-            Lancamento.data_pagamento <= date(2024, 7, 31),
-            Lancamento.is_deleted == False
-        )
-    ).first() or Decimal("0.00")
-
-    print("\n--- COMPARAÇÃO DRE: JULHO DE 2024 ---")
-    print(f"Receitas Planilha: R$ {sheet_receitas:,.2f} | Kyrus Banco: R$ {db_receitas:,.2f} | Dif: R$ {sheet_receitas - db_receitas:,.2f}")
-    print(f"Despesas Planilha:  R$ {sheet_despesas:,.2f} | Kyrus Banco: R$ {db_despesas:,.2f} | Dif: R$ {sheet_despesas - db_despesas:,.2f}")
-    
-    # Net profit comparison
-    sheet_net = sheet_receitas - sheet_despesas
-    db_net = db_receitas - db_despesas
-    print(f"Resultado Líquido Planilha: R$ {sheet_net:,.2f} | Kyrus Banco: R$ {db_net:,.2f} | Dif: R$ {sheet_net - db_net:,.2f}")
-
-    if abs(sheet_net - db_net) < Decimal("0.01"):
-        print("\n✅ SUCESSO! A DRE do Kyrus ERP bate 100% com os dados consolidados da planilha original!")
-    else:
-        print("\n❌ AVISO: Há discrepâncias entre os totais.")
 
 if __name__ == "__main__":
     main()

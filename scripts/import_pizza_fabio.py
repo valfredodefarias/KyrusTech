@@ -336,6 +336,13 @@ def import_unit(
                     if not dry_run:
                         db.add(user)
                         db.flush()
+                else:
+                    if is_c and not user.is_consultor:
+                        user.is_consultor = True
+                        user.consultor_role = "SUPER_CONSULTOR"
+                        if not dry_run:
+                            db.add(user)
+                            db.flush()
                 user_map[username] = user.id
                 user_map[email] = user.id
         print(f"Imported Usuários: {len(user_map)} entries.")

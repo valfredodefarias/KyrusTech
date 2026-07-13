@@ -330,7 +330,7 @@ def import_unit(
                         hashed_password=default_hashed_pwd,
                         is_active=True,
                         is_consultor=is_c,
-                        consultor_role="SUPER_CONSULTOR" if is_c else "USUARIO_NORMAL",
+                        consultor_role="CONSULTOR" if is_c else "USUARIO_NORMAL",
                         empresa_id=empresa_id
                     )
                     if not dry_run:
@@ -339,7 +339,7 @@ def import_unit(
                 else:
                     if is_c and not user.is_consultor:
                         user.is_consultor = True
-                        user.consultor_role = "SUPER_CONSULTOR"
+                        user.consultor_role = "CONSULTOR"
                         if not dry_run:
                             db.add(user)
                             db.flush()

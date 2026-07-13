@@ -401,7 +401,8 @@ export function Apps() {
     customTaxa: number, 
     merchantName: string, 
     ifoodCcId: number | '', 
-    ifoodCcFlex: boolean
+    ifoodCcFlex: boolean,
+    ifoodAccId: number | ''
   ) => {
     try {
       const nextActiveApps = active 
@@ -420,7 +421,7 @@ export function Apps() {
         pdv_centro_custo_padrao_id: pdvCentroCustoPadraoId === '' ? null : pdvCentroCustoPadraoId,
         pdv_centro_custo_flexivel: pdvCentroCustoFlexivel,
         pdv_conta_padrao_id: pdvContaPadraoId === '' ? null : pdvContaPadraoId,
-        ifood_conta_padrao_id: ifoodContaPadraoId === '' ? null : ifoodContaPadraoId
+        ifood_conta_padrao_id: ifoodAccId === '' ? null : ifoodAccId
       });
 
       if (response.data) {
@@ -728,6 +729,7 @@ export function Apps() {
                             setSettingsMerchantName(ifoodMerchantName);
                             setSettingsIfoodCentroCustoPadraoId(ifoodCentroCustoPadraoId);
                             setSettingsIfoodCentroCustoFlexivel(ifoodCentroCustoFlexivel);
+                            setSettingsIfoodContaPadraoId(ifoodContaPadraoId);
                             setShowSettingsModal(true);
                           }}
                           className="p-1.5 bg-white hover:bg-slate-55 dark:bg-slate-800 dark:hover:bg-slate-750 border border-slate-250 dark:border-slate-700 text-slate-650 dark:text-slate-350 transition rounded-none cursor-pointer"
@@ -899,6 +901,7 @@ export function Apps() {
                   setSettingsMerchantName(ifoodMerchantName);
                   setSettingsIfoodCentroCustoPadraoId(ifoodCentroCustoPadraoId);
                   setSettingsIfoodCentroCustoFlexivel(ifoodCentroCustoFlexivel);
+                  setSettingsIfoodContaPadraoId(ifoodContaPadraoId);
                   setShowSettingsModal(true);
                 }}
                 className="bg-rose-500 hover:bg-rose-600 text-white font-bold text-sm px-6 py-3 rounded-xl shadow-md transition duration-200 hover:-translate-y-0.5 border-none cursor-pointer"
@@ -944,6 +947,7 @@ export function Apps() {
                     setSettingsMerchantName(ifoodMerchantName);
                     setSettingsIfoodCentroCustoPadraoId(ifoodCentroCustoPadraoId);
                     setSettingsIfoodCentroCustoFlexivel(ifoodCentroCustoFlexivel);
+                    setSettingsIfoodContaPadraoId(ifoodContaPadraoId);
                     setShowSettingsModal(true);
                   }}
                   className="flex items-center gap-2 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 px-4 py-2.5 rounded-xl text-sm font-bold border border-slate-200 dark:border-slate-800 transition duration-200 cursor-pointer"
@@ -1568,6 +1572,21 @@ export function Apps() {
                   }`} />
                 </button>
               </div>
+
+              {/* Conta / Caixa de Registro Padrão */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-450 uppercase tracking-wider">Conta / Caixa de Registro Padrão</label>
+                <select
+                  value={settingsIfoodContaPadraoId}
+                  onChange={(e) => setSettingsIfoodContaPadraoId(e.target.value ? Number(e.target.value) : '')}
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
+                >
+                  <option value="">Sem conta padrão</option>
+                  {contas.map((c) => (
+                    <option key={c.id} value={c.id}>{c.nome}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2.5 pt-2">
@@ -1587,7 +1606,8 @@ export function Apps() {
                     rate, 
                     settingsMerchantName, 
                     settingsIfoodCentroCustoPadraoId, 
-                    settingsIfoodCentroCustoFlexivel
+                    settingsIfoodCentroCustoFlexivel,
+                    settingsIfoodContaPadraoId
                   );
                 }}
                 className="px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-rose-500 hover:bg-rose-600 transition shadow-sm border-none cursor-pointer"

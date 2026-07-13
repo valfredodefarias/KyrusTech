@@ -810,6 +810,17 @@ def import_unit(
                         ]
                     }
 
+                    # Resolve correct child category for PDV sale instead of fallback
+                    sale_pc_id = plano_fallback_id
+                    if "dinheiro" in tipo_pag:
+                        sale_pc_id = next((v for k, v in pc_map.items() if k.startswith("01.01")), plano_fallback_id)
+                    elif "debito" in tipo_pag:
+                        sale_pc_id = next((v for k, v in pc_map.items() if k.startswith("01.03")), plano_fallback_id)
+                    elif "credito" in tipo_pag:
+                        sale_pc_id = next((v for k, v in pc_map.items() if k.startswith("01.02")), plano_fallback_id)
+                    elif "pix" in tipo_pag:
+                        sale_pc_id = next((v for k, v in pc_map.items() if k.startswith("01.05")), None) or next((v for k, v in pc_map.items() if k.startswith("01.04")), plano_fallback_id)
+
                     # Handle installments split
                     if num_parcelas > 1 and tipo_pag == "cartao_credito_parcelado":
                         valor_parcela = (val_cheio / num_parcelas).quantize(Decimal("0.01"))
@@ -847,7 +858,7 @@ def import_unit(
                                 data_pagamento=None,
                                 data_competencia=dt if dt else date.today(),
                                 empresa_id=empresa_id,
-                                plano_contas_id=plano_fallback_id,
+                                plano_contas_id=sale_pc_id,
                                 conta_id=conta_id,
                                 entidade_id=default_client_id,
                                 centro_custo_id=centro_id,
@@ -897,7 +908,7 @@ def import_unit(
                             data_pagamento=dt if is_paid else None,
                             data_competencia=dt if dt else date.today(),
                             empresa_id=empresa_id,
-                            plano_contas_id=plano_fallback_id,
+                            plano_contas_id=sale_pc_id,
                             conta_id=conta_id,
                             entidade_id=default_client_id,
                             centro_custo_id=centro_id,

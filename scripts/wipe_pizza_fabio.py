@@ -120,8 +120,14 @@ def main():
 
     # --- EXECUTE in a single transaction via engine.begin() ---
     print("\nExecutando delecoes...")
+    import time
+    t0 = time.time()
     try:
-        with engine.begin() as conn:  # auto-commit on exit, auto-rollback on exception
+        with engine.begin() as conn:
+            # Desabilita verificacao de FK durante o delete - muito mais rapido
+            # Seguro pois mantemos a ordem manual e eh tudo na mesma transacao
+            conn.execute(text("SET session_replication_role = replica"))
+
             for table, where in DELETIONS:
                 try:
                     sql = f"DELETE FROM {table} WHERE {where}"
@@ -132,7 +138,11 @@ def main():
                     print(f"  [ERRO] {table}: {e}")
                     raise  # re-raise to trigger rollback
 
-        print("\n[OK] Limpeza concluida com sucesso!")
+            # Restaura verificacao de FK
+            conn.execute(text("SET session_replication_role = DEFAULT"))
+
+        elapsed = time.time() - t0
+        print(f"\n[OK] Limpeza concluida em {elapsed:.1f}s!")
         print("\nProximos passos:")
         print("  1. docker compose exec backend python scripts/run_production_import.py")
         print("  2. docker compose exec backend python scripts/create_operators.py")

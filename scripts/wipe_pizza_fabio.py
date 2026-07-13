@@ -85,19 +85,19 @@ def main():
     print(f"Empresas: {EMPRESA_IDS}")
     print("=" * 60)
 
+    # --- Show counts (read-only connection) ---
+    print("\nContagem atual:")
+    key_tables = [
+        ("lancamentos",       "empresa_id = ANY('{35,37,39,40}')"),
+        ("pdv_vendas",        "empresa_id = ANY('{35,37,39,40}')"),
+        ("pdv_movimentacoes", "empresa_id = ANY('{35,37,39,40}')"),
+        ("contas",            "empresa_id = ANY('{35,37,39,40}')"),
+        ("plano_contas",      "empresa_id = ANY('{35,37,39,40}')"),
+        ("entidades",         "empresa_id = ANY('{35,37,39,40}')"),
+        ("usuarios",          "empresa_id = ANY('{35,37,39,40}') AND is_consultor = FALSE"),
+    ]
+    total = 0
     with engine.connect() as conn:
-        # --- DRY RUN: show counts ---
-        print("\nContagem atual:")
-        key_tables = [
-            ("lancamentos",       "empresa_id = ANY('{35,37,39,40}')"),
-            ("pdv_vendas",        "empresa_id = ANY('{35,37,39,40}')"),
-            ("pdv_movimentacoes", "empresa_id = ANY('{35,37,39,40}')"),
-            ("contas",            "empresa_id = ANY('{35,37,39,40}')"),
-            ("plano_contas",      "empresa_id = ANY('{35,37,39,40}')"),
-            ("entidades",         "empresa_id = ANY('{35,37,39,40}')"),
-            ("usuarios",          "empresa_id = ANY('{35,37,39,40}') AND is_consultor = FALSE"),
-        ]
-        total = 0
         for table, where in key_tables:
             try:
                 result = conn.execute(text(f"SELECT COUNT(*) FROM {table} WHERE {where}"))
@@ -106,22 +106,22 @@ def main():
                 total += count
             except Exception as e:
                 print(f"  {table}: ERRO - {e}")
-        print(f"\n  TOTAL estimado: {total:,} registros")
+    print(f"\n  TOTAL estimado: {total:,} registros")
 
-        if DRY_RUN:
-            print("\n[DRY RUN] Nenhuma alteracao feita.")
-            print("Rode sem --dry-run para executar.")
-            return
+    if DRY_RUN:
+        print("\n[DRY RUN] Nenhuma alteracao feita.")
+        print("Rode sem --dry-run para executar.")
+        return
 
-        confirm = input("\nDigite SIM para confirmar a exclusao: ")
-        if confirm.strip().upper() != "SIM":
-            print("Cancelado.")
-            return
+    confirm = input("\nDigite SIM para confirmar a exclusao: ")
+    if confirm.strip().upper() != "SIM":
+        print("Cancelado.")
+        return
 
-        # --- EXECUTE ---
-        print("\nExecutando delecoes...")
-        trans = conn.begin()
-        try:
+    # --- EXECUTE in a single transaction via engine.begin() ---
+    print("\nExecutando delecoes...")
+    try:
+        with engine.begin() as conn:  # auto-commit on exit, auto-rollback on exception
             for table, where in DELETIONS:
                 try:
                     sql = f"DELETE FROM {table} WHERE {where}"
@@ -130,18 +130,17 @@ def main():
                         print(f"  [{result.rowcount:>7,}] {table}")
                 except Exception as e:
                     print(f"  [ERRO] {table}: {e}")
+                    raise  # re-raise to trigger rollback
 
-            trans.commit()
-            print("\n[OK] Limpeza concluida com sucesso!")
-            print("\nProximos passos:")
-            print("  1. cp backups/fabio/*.xlsx scripts/")
-            print("  2. docker compose exec backend python scripts/run_production_import.py")
-            print("  3. docker compose exec backend python scripts/create_operators.py")
+        print("\n[OK] Limpeza concluida com sucesso!")
+        print("\nProximos passos:")
+        print("  1. docker compose exec backend python scripts/run_production_import.py")
+        print("  2. docker compose exec backend python scripts/create_operators.py")
 
-        except Exception as e:
-            trans.rollback()
-            print(f"\n[ERRO CRITICO] Rollback executado: {e}")
-            raise
+    except Exception as e:
+        print(f"\n[ERRO CRITICO] Rollback executado: {e}")
+        raise
+
 
 if __name__ == "__main__":
     main()

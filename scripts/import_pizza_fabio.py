@@ -319,6 +319,9 @@ def import_unit(
                 if not username or not email:
                     continue
                 
+                func_val = clean_str(row[func_idx]).lower() if func_idx < len(row) else ""
+                is_c = "master" in func_val or "consultor" in func_val
+                
                 user = db.exec(select(Usuario).where(Usuario.email == email)).first()
                 if not user:
                     user = Usuario(
@@ -326,7 +329,8 @@ def import_unit(
                         email=email,
                         hashed_password=default_hashed_pwd,
                         is_active=True,
-                        is_consultor=False,
+                        is_consultor=is_c,
+                        consultor_role="SUPER_CONSULTOR" if is_c else "USUARIO_NORMAL",
                         empresa_id=empresa_id
                     )
                     if not dry_run:

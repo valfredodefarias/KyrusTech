@@ -23,6 +23,7 @@ from app.models.dashboard_view_config import DashboardViewConfig
 from app.models.pdv_venda import PdvVenda
 from app.models.pdv_venda_item import PdvVendaItem
 from app.models.pdv_movimentacao import PdvMovimentacao
+from app.models.consultor_empresa import ConsultorEmpresa
 from app.core.security import get_password_hash
 
 def clean_str(val):
@@ -343,6 +344,22 @@ def import_unit(
                         if not dry_run:
                             db.add(user)
                             db.flush()
+                
+                # Link consultant to this company
+                if is_c and not dry_run:
+                    link = db.exec(
+                        select(ConsultorEmpresa)
+                        .where(ConsultorEmpresa.usuario_id == user.id, ConsultorEmpresa.empresa_id == empresa_id)
+                    ).first()
+                    if not link:
+                        link = ConsultorEmpresa(
+                            usuario_id=user.id,
+                            empresa_id=empresa_id,
+                            ativo=True
+                        )
+                        db.add(link)
+                        db.flush()
+                
                 user_map[username] = user.id
                 user_map[email] = user.id
         print(f"Imported Usuários: {len(user_map)} entries.")

@@ -143,15 +143,21 @@ export function Apps() {
     }
   };
 
+  const activeCompany = useAuthStore((state) => state.empresa);
+  const user = useAuthStore((state) => state.user);
+  const empresaId = activeCompany?.id ?? user?.empresa_id;
+
   const centrosCusto = useLookupStore((state) => state.centrosCusto);
   const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
 
-  // Load configs on mount
+  // Load configs on mount or company change
   useEffect(() => {
-    void fetchConfig();
-    void fetchContas();
-    void fetchCentrosCusto();
-  }, []);
+    if (empresaId) {
+      void fetchConfig();
+      void fetchContas();
+      void fetchCentrosCusto();
+    }
+  }, [empresaId]);
 
   // Sync route and check for deactivation fallback
   useEffect(() => {

@@ -1011,6 +1011,20 @@ def import_unit(
             rec_idx   = next((i for i, h in enumerate(headers)
                               if h in ["Data Recebimento", "Dt Recto Ajustado", "Data Recto"]), None)
 
+            # Pre-load existing iFood legacy IDs to avoid duplicates on re-runs
+            existing_ifood_ids: set = set()
+            if not dry_run:
+                raw_ids = db.exec(
+                    select(PdvIfoodLancamento.despesas_extras_str)
+                    .where(
+                        PdvIfoodLancamento.empresa_id == empresa_id,
+                        PdvIfoodLancamento.despesas_extras_str != None
+                    )
+                ).all()
+                existing_ifood_ids = {
+                    s.replace("legacy_id:", "") for s in raw_ids if s and s.startswith("legacy_id:")
+                }
+
             batch_ifood = []
 
             for row in rows[1:]:
@@ -1018,6 +1032,11 @@ def import_unit(
                     continue
                 ifood_id = clean_str(row[id_idx]) if id_idx < len(row) else ""
                 if not ifood_id:
+                    continue
+
+                # Skip already-imported iFood records
+                if ifood_id in existing_ifood_ids:
+                    ifood_skipped_count += 1
                     continue
 
                 dt_venda = parse_date(row[dt_idx]) if dt_idx < len(row) else None
@@ -1035,8 +1054,6 @@ def import_unit(
                 st        = "Pago"  # sem coluna Status nas planilhas atuais
 
                 if not dry_run:
-                    # Look up in database using a bulk query is not trivial, but since iFood is smaller (~20k rows)
-                    # we can still run bulk inserts
                     ifood_tx = PdvIfoodLancamento(
                         empresa_id=empresa_id,
                         forma_recebimento=forma_r,
@@ -1049,7 +1066,8 @@ def import_unit(
                         despesas_extras_str=f"legacy_id:{ifood_id}"
                     )
                     batch_ifood.append(ifood_tx)
-                    ifood_count += 1
+                    existing_ifood_ids.add(ifood_id)  # prevent in-batch dupes
+                ifood_count += 1
             
             if not dry_run and batch_ifood:
                 for chunk_idx in range(0, len(batch_ifood), 5000):
@@ -1330,20 +1348,12 @@ def import_unit(
                     status="CONCILIADO",
                 )
                 db.add(lote)
-                db.flush()
                 cartoes_count += 1
-
-                for item_data in itens:
-                    item = LoteCartaoItem(
-                        lote_cartao_id=lote.id,
-                        lancamento_id=0,  # sem link direto (importação legacy)
-                        valor_bruto=item_data["val_bruto"],
-                        valor_taxa=item_data["val_taxa"],
-                        valor_liquido=item_data["val_liq"],
-                    )
-                    db.add(item)
             db.flush()
-        print(f"Imported Tb_Cartoes: {cartoes_count} lotes de cartão.")
+            # Nota: LoteCartaoItem requer lancamento_id (FK obrigatorio).
+            # Os itens individuais serao vinculados apos conciliacao manual ou automatica.
+        print(f"Imported Tb_Cartoes: {cartoes_count} lotes de cartao.")
+
 
     if not dry_run:
         # Mathematical reverse calculation of starting balance (saldo_inicial) for each account

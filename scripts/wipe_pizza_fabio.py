@@ -124,23 +124,24 @@ def main():
     try:
         with engine.begin() as conn:
             # Desabilita verificacao de FK durante o delete - muito mais rapido
-            # Seguro pois mantemos a ordem manual e eh tudo na mesma transacao
             conn.execute(text("SET session_replication_role = replica"))
 
             for table, where in DELETIONS:
+                sp = f"sp_{table}"
+                conn.execute(text(f"SAVEPOINT {sp}"))
                 try:
                     sql = f"DELETE FROM {table} WHERE {where}"
                     result = conn.execute(text(sql))
+                    conn.execute(text(f"RELEASE SAVEPOINT {sp}"))
                     if result.rowcount > 0:
                         print(f"  [{result.rowcount:>7,}] {table}")
                 except Exception as e:
+                    conn.execute(text(f"ROLLBACK TO SAVEPOINT {sp}"))
                     err_msg = str(e)
-                    # Ignora tabelas inexistentes (podem nao ter dados no sistema)
-                    if "does not exist" in err_msg or "UndefinedTable" in err_msg:
-                        print(f"  [SKIP] {table}: tabela nao existe no banco")
+                    if "does not exist" in err_msg or "UndefinedTable" in err_msg or "UndefinedColumn" in err_msg:
+                        print(f"  [SKIP] {table}: nao existe no banco")
                     else:
                         print(f"  [ERRO] {table}: {e}")
-                        raise  # re-raise only for real errors
 
             # Restaura verificacao de FK
             conn.execute(text("SET session_replication_role = DEFAULT"))

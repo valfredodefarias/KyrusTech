@@ -123,7 +123,7 @@ export function Apps() {
   // Fetch bank accounts
   const fetchContas = async () => {
     try {
-      const response = await api.get('/contas');
+      const response = await api.get('/contas/');
       setContas(normalizeListResponse(response.data));
     } catch (err) {
       console.error('Erro ao buscar contas:', err);

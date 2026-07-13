@@ -103,6 +103,7 @@ def import_unit(
     file_path: str,
     company_name: str,
     filter_center_of_cost=None,
+    financeiro_filter=None,  # None=usa mesmo CC do filter_center_of_cost, ""=sem filtro, "SKIP"=pula Financeiro
     dry_run=False
 ):
     print(f"\n==================================================")
@@ -1095,7 +1096,17 @@ def import_unit(
     fin_count = 0
     fin_skipped_count = 0
     
-    if "Tb_Financeira" in wb.sheetnames:
+    # --- Tb_Financeira ---
+    # financeiro_filter controla o CC usado no Financeiro independentemente do filter_center_of_cost:
+    #   None  → usa o mesmo filter_center_of_cost
+    #   ""    → sem filtro de CC (importa tudo)
+    #   "SKIP"→ pula Financeiro inteiro
+    effective_fin_cc = filter_center_of_cost if financeiro_filter is None else (None if financeiro_filter == "" else financeiro_filter)
+    if financeiro_filter == "SKIP":
+        fin_count = 0
+        fin_skipped_count = 0
+        print("Tb_Financeira: ignorado (lançamentos financeiros vêm de outro arquivo para esta empresa)")
+    elif "Tb_Financeira" in wb.sheetnames:
         sheet = wb["Tb_Financeira"]
         rows = list(sheet.iter_rows(values_only=True))
         if len(rows) > 1:
@@ -1122,7 +1133,7 @@ def import_unit(
                 if not any(row):
                     continue
                 row_cc = clean_str(row[cc_idx]) if cc_idx < len(row) else ""
-                if filter_center_of_cost and row_cc.lower() != filter_center_of_cost.lower():
+                if effective_fin_cc and row_cc.lower() != effective_fin_cc.lower():
                     continue
                 
                 fin_id = clean_str(row[id_idx]) if id_idx < len(row) else ""
@@ -1165,7 +1176,7 @@ def import_unit(
                     continue
 
                 row_cc = clean_str(row[cc_idx]) if cc_idx < len(row) else ""
-                if filter_center_of_cost and row_cc.lower() != filter_center_of_cost.lower():
+                if effective_fin_cc and row_cc.lower() != effective_fin_cc.lower():
                     continue
 
                 fin_id = clean_str(row[id_idx]) if id_idx < len(row) else ""
@@ -1533,6 +1544,7 @@ def import_all_data(
         file_path=path_umarizal,
         company_name="Pizza Fábio Umarizal",
         filter_center_of_cost="Umarizal",
+        financeiro_filter="",  # importa TODO Financeiro do arquivo (CC=Marco no legado = bug do sistema antigo)
         dry_run=dry_run
     )
     results.append(res_uma)
@@ -1544,6 +1556,7 @@ def import_all_data(
         file_path=path_umarizal,
         company_name="Pizza Fábio Marco - Salão",
         filter_center_of_cost="Marco",
+        financeiro_filter="SKIP",  # Financeiro da Umarizal pertence à Umarizal; Marco pega só do seu arquivo
         dry_run=dry_run
     )
     results.append(res_m_sal_hist)

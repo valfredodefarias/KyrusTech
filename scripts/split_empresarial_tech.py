@@ -217,8 +217,16 @@ def split_empresarial_tech():
             
         # Clean any cross-company PlanoContas leak
         res_pc_clean = db.execute(
-            text("UPDATE lancamentos SET plano_contas_id = NULL WHERE empresa_id = :new_emp_id AND (plano_contas_id NOT IN (:new_pc_ids) OR plano_contas_id IS NULL)"),
-            {"new_emp_id": new_emp_id, "new_pc_ids": tuple(plano_map.values()) if plano_map else (-1,)}
+            text("""
+                UPDATE lancamentos 
+                SET plano_contas_id = NULL 
+                WHERE empresa_id = :new_emp_id 
+                  AND plano_contas_id IS NOT NULL 
+                  AND plano_contas_id NOT IN (
+                      SELECT id FROM plano_contas WHERE empresa_id = :new_emp_id
+                  )
+            """),
+            {"new_emp_id": new_emp_id}
         )
         print(f"  - Limpos {res_pc_clean.rowcount} vínculos residuais de categorias.")
         
@@ -232,8 +240,16 @@ def split_empresarial_tech():
             
         # Clean any cross-company Entity leak
         res_ent_clean = db.execute(
-            text("UPDATE lancamentos SET entidade_id = NULL WHERE empresa_id = :new_emp_id AND (entidade_id NOT IN (:new_ent_ids) OR entidade_id IS NULL)"),
-            {"new_emp_id": new_emp_id, "new_ent_ids": tuple(entity_map.values()) if entity_map else (-1,)}
+            text("""
+                UPDATE lancamentos 
+                SET entidade_id = NULL 
+                WHERE empresa_id = :new_emp_id 
+                  AND entidade_id IS NOT NULL 
+                  AND entidade_id NOT IN (
+                      SELECT id FROM entidades WHERE empresa_id = :new_emp_id
+                  )
+            """),
+            {"new_emp_id": new_emp_id}
         )
         print(f"  - Limpos {res_ent_clean.rowcount} vínculos residuais de entidades.")
         

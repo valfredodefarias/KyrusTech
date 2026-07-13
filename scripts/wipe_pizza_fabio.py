@@ -37,9 +37,8 @@ DELETIONS = [
 
     # Cards / conciliation
     ("lote_cartao_itens",
-     "lote_id IN (SELECT id FROM lotes_cartao WHERE empresa_id = ANY('{35,37,39,40}'))"),
+     "lote_cartao_id IN (SELECT id FROM lotes_cartao WHERE empresa_id = ANY('{35,37,39,40}'))"),
     ("lotes_cartao",         "empresa_id = ANY('{35,37,39,40}')"),
-    ("cartoes",              "empresa_id = ANY('{35,37,39,40}')"),
 
     # Integrations
     ("mapeamentos_categoria",
@@ -135,8 +134,13 @@ def main():
                     if result.rowcount > 0:
                         print(f"  [{result.rowcount:>7,}] {table}")
                 except Exception as e:
-                    print(f"  [ERRO] {table}: {e}")
-                    raise  # re-raise to trigger rollback
+                    err_msg = str(e)
+                    # Ignora tabelas inexistentes (podem nao ter dados no sistema)
+                    if "does not exist" in err_msg or "UndefinedTable" in err_msg:
+                        print(f"  [SKIP] {table}: tabela nao existe no banco")
+                    else:
+                        print(f"  [ERRO] {table}: {e}")
+                        raise  # re-raise only for real errors
 
             # Restaura verificacao de FK
             conn.execute(text("SET session_replication_role = DEFAULT"))

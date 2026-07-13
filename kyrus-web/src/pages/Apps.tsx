@@ -74,6 +74,7 @@ export function Apps() {
 
   // Edit transaction state
   const [editingTransaction, setEditingTransaction] = useState<iFoodTransaction | null>(null);
+  const [showDateConfig, setShowDateConfig] = useState(false);
 
   // Toast feedback state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -393,6 +394,7 @@ export function Apps() {
     setFormDataVenda(tx.data_venda);
     setFormDataRecebimento(tx.data_recebimento_ajustada);
     setFormHoraVenda(tx.hora_venda);
+    setShowDateConfig(false);
     setShowDrawer(true);
   };
 
@@ -967,6 +969,7 @@ export function Apps() {
                     if (selectedDate) {
                       setFormDataVenda(selectedDate);
                     }
+                    setShowDateConfig(false);
                     setShowDrawer(true);
                   }}
                   className="flex items-center gap-2 bg-rose-500 hover:bg-rose-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition duration-200 shadow-sm cursor-pointer border-none shrink-0"
@@ -1403,47 +1406,58 @@ export function Apps() {
                 </div>
               </div>
 
-              {/* Dates & Times Grid */}
-              <div className="grid grid-cols-2 gap-4">
-                
-                {/* Data Venda */}
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Data da Venda *</label>
-                  <input
-                    type="date"
-                    value={formDataVenda}
-                    onChange={(e) => setFormDataVenda(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs text-slate-700 outline-none transition focus:border-rose-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white font-mono"
-                    required
-                  />
-                </div>
+              {/* Collapsible advanced date configurations */}
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDateConfig(!showDateConfig)}
+                  className="text-xs font-bold text-slate-500 hover:text-rose-500 transition flex items-center gap-1 cursor-pointer border-none bg-transparent"
+                >
+                  <span>{showDateConfig ? 'Ocultar configurações de data' : 'Ajustar data/hora manualmente...'}</span>
+                </button>
 
-                {/* Hora Venda */}
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hora da Venda</label>
-                  <input
-                    type="text"
-                    placeholder="00:00:00"
-                    value={formHoraVenda}
-                    onChange={(e) => setFormHoraVenda(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs text-slate-700 outline-none transition focus:border-rose-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white font-mono"
-                  />
-                </div>
+                {showDateConfig && (
+                  <div className="grid grid-cols-2 gap-4 mt-3 p-4 bg-slate-50 dark:bg-slate-950 border border-slate-150 dark:border-slate-850 rounded-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+                    {/* Data Venda */}
+                    <div className="space-y-1">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Data da Venda *</label>
+                      <input
+                        type="date"
+                        value={formDataVenda}
+                        onChange={(e) => setFormDataVenda(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs text-slate-700 outline-none transition focus:border-rose-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white font-mono"
+                        required
+                      />
+                    </div>
 
-                {/* Data Recebimento Ajustada */}
-                <div className="col-span-2 space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Data Estimada de Recebimento (Ajustada) *</label>
-                  <input
-                    type="date"
-                    value={formDataRecebimento}
-                    readOnly
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-500 outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 font-mono font-bold cursor-not-allowed"
-                    required
-                  />
-                  <span className="text-[10px] text-slate-400 mt-1 block">
-                    Calculado automaticamente baseando-se nas regras de payout do iFood (+7 dias rolando para a quarta-feira seguinte).
-                  </span>
-                </div>
+                    {/* Hora Venda */}
+                    <div className="space-y-1">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hora da Venda</label>
+                      <input
+                        type="text"
+                        placeholder="00:00:00"
+                        value={formHoraVenda}
+                        onChange={(e) => setFormHoraVenda(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs text-slate-700 outline-none transition focus:border-rose-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white font-mono"
+                      />
+                    </div>
+
+                    {/* Data Recebimento Ajustada */}
+                    <div className="col-span-2 space-y-1">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Data Estimada de Recebimento (Ajustada) *</label>
+                      <input
+                        type="date"
+                        value={formDataRecebimento}
+                        readOnly
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-500 outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 font-mono font-bold cursor-not-allowed"
+                        required
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">
+                        Calculado automaticamente baseando-se nas regras de payout do iFood (+7 dias rolando para a quarta-feira seguinte).
+                      </span>
+                    </div>
+                  </div>
+                )}
 
               </div>
 

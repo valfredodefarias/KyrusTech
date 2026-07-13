@@ -105,7 +105,7 @@ def main():
                 else:
                     sheet_despesas += abs(val)
 
-        # Database sums
+        # Database sums (excluding auto-generated sangrias)
         db_receitas = db.exec(
             select(func.sum(Lancamento.valor_pago))
             .where(
@@ -113,6 +113,7 @@ def main():
                 Lancamento.tipo == "RECEITA",
                 Lancamento.status == "PAGO",
                 Lancamento.origem == "WEB",
+                Lancamento.import_hash.not_like("sangria-%"),
                 Lancamento.data_pagamento >= date(2026, month, 1),
                 Lancamento.data_pagamento <= (date(2026, month+1, 1) - timedelta(days=1) if month < 12 else date(2026, 12, 31)),
                 Lancamento.is_deleted == False
@@ -126,6 +127,7 @@ def main():
                 Lancamento.tipo == "DESPESA",
                 Lancamento.status == "PAGO",
                 Lancamento.origem == "WEB",
+                Lancamento.import_hash.not_like("sangria-%"),
                 Lancamento.data_pagamento >= date(2026, month, 1),
                 Lancamento.data_pagamento <= (date(2026, month+1, 1) - timedelta(days=1) if month < 12 else date(2026, 12, 31)),
                 Lancamento.is_deleted == False

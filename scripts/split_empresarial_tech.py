@@ -1,7 +1,7 @@
 # scripts/split_empresarial_tech.py
 import sys
 from pathlib import Path
-from sqlmodel import Session, select, text
+from sqlmodel import Session, select, text, col
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
@@ -36,7 +36,7 @@ def split_empresarial_tech():
             select(CentroCusto)
             .where(
                 CentroCusto.empresa_id == parent_emp_id,
-                CentroCusto.nome.like("%Empresarial%")
+                col(CentroCusto.nome).ilike("%empresarial%")
             )
         ).first()
         

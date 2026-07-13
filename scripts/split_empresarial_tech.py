@@ -182,7 +182,63 @@ def split_empresarial_tech():
         db.flush()
         print(f"Lançamentos migrados com sucesso: {migrated_tx_count}")
         
-        # 9. Link new company to all super consultores and consultores of the parent company
+        # 9. Migrate Cartao (Corporate credit cards)
+        print("\nMigrando Cartões Corporativos...")
+        cartoes = db.exec(select(Cartao).where(Cartao.empresa_id == parent_company.id, Cartao.centro_custo_id == cc_id)).all()
+        for cartao in cartoes:
+            cartao.empresa_id = new_emp_id
+            db.add(cartao)
+            print(f"  - Cartão movido: '{cartao.nome}' (ID: {cartao.id})")
+        db.flush()
+
+        # 10. Migrate IntegracaoBancaria (API configurations)
+        print("\nMigrando Integrações Bancárias...")
+        integracoes = db.exec(
+            select(IntegracaoBancaria)
+            .where(
+                IntegracaoBancaria.empresa_id == parent_company.id,
+                (IntegracaoBancaria.centro_custo_id == cc_id) | (IntegracaoBancaria.conta_id.in_(conta_ids))
+            )
+        ).all()
+        for integ in integracoes:
+            integ.empresa_id = new_emp_id
+            db.add(integ)
+            print(f"  - Integração Bancária movida (ID: {integ.id}, Tipo: {integ.tipo_provedor})")
+        db.flush()
+
+        # 11. Migrate RegraComissao
+        print("\nMigrando Regras de Comissão...")
+        comissoes = db.exec(select(RegraComissao).where(RegraComissao.empresa_id == parent_company.id, RegraComissao.centro_custo_id == cc_id)).all()
+        for com in comissoes:
+            com.empresa_id = new_emp_id
+            db.add(com)
+            print(f"  - Regra de Comissão movida (ID: {com.id})")
+        db.flush()
+
+        # 12. Migrate RegraCartao
+        print("\nMigrando Regras de Cartão...")
+        regras_cartao = db.exec(select(RegraCartao).where(RegraCartao.empresa_id == parent_company.id, RegraCartao.centro_custo_id == cc_id)).all()
+        for rc in regras_cartao:
+            rc.empresa_id = new_emp_id
+            db.add(rc)
+            print(f"  - Regra de Cartão movida (ID: {rc.id})")
+        db.flush()
+
+        # 13. Migrate PdvVenda & PdvMovimentacao (operational sales)
+        print("\nMigrando Vendas e Movimentações de PDV...")
+        pdv_sales = db.exec(select(PdvVenda).where(PdvVenda.empresa_id == parent_company.id, PdvVenda.centro_custo_id == cc_id)).all()
+        for sale in pdv_sales:
+            sale.empresa_id = new_emp_id
+            db.add(sale)
+        db.flush()
+        
+        pdv_movs = db.exec(select(PdvMovimentacao).where(PdvMovimentacao.empresa_id == parent_company.id, PdvMovimentacao.centro_custo_id == cc_id)).all()
+        for mov in pdv_movs:
+            mov.empresa_id = new_emp_id
+            db.add(mov)
+        db.flush()
+        
+        # 14. Link new company to all super consultores and consultores of the parent company
         print("\nConfigurando acessos para consultores...")
         consultor_links = db.exec(
             select(ConsultorEmpresa)
@@ -211,6 +267,11 @@ def split_empresarial_tech():
         print(f"  - Contas bancárias movidas: {len(conta_ids)}")
         print(f"  - Lançamentos migrados: {migrated_tx_count}")
         print(f"  - Entidades migradas: {len(entity_map)}")
+        print(f"  - Cartões corporativos migrados: {len(cartoes)}")
+        print(f"  - Integrações bancárias migradas: {len(integracoes)}")
+        print(f"  - Regras de Comissão migradas: {len(comissoes)}")
+        print(f"  - Regras de Cartão migradas: {len(regras_cartao)}")
+        print(f"  - Vendas PDV migradas: {len(pdv_sales)}")
         
     except Exception as e:
         print(f"\n[ERRO] Ocorreu uma falha durante a migração: {e}")

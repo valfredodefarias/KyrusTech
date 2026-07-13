@@ -1185,7 +1185,12 @@ def import_unit(
                 interessado = clean_str(row[int_idx]) if int_idx < len(row) else ""
 
                 # Pula entradas auto-geradas pelo PDV (já importadas via Tb_Movimentacao)
-                # para evitar dupla contagem de receitas
+                # Banco pode ser 'PDV', 'Caixa PDV Umarizal', 'Caixa PDV Marco', etc.
+                # Só pula RECEBIMENTOS (receitas PDV = duplicata); mantém PAGAMENTOS (despesas pagas da caixa)
+                if "pdv" in bank_name.lower() and tipo_f.lower() == "recebimento":
+                    fin_skipped_count += 1
+                    continue
+                # Retrocompat: pula banco exatamente 'PDV' (qualquer tipo, como era antes para Ananindeua/Marco)
                 if bank_name.upper() == "PDV":
                     fin_skipped_count += 1
                     continue
@@ -1255,12 +1260,12 @@ def import_unit(
                     lanc = Lancamento(
                         descricao=desc or f"Importação {class_f}",
                         tipo="RECEITA" if tipo_f.lower() == "recebimento" else "DESPESA",
-                        status=sit.upper() if sit else "EM ABERTO",
+                        status="PAGO" if sit.lower() == "pago" else "EM ABERTO",
                         origem="WEB",
                         valor_previsto=val_prev,
-                        valor_pago=val_real if sit.upper() == "PAGO" else Decimal("0.00"),
+                        valor_pago=val_real if sit.lower() == "pago" else Decimal("0.00"),
                         data_vencimento=dt_vcto if dt_vcto else date.today(),
-                        data_pagamento=dt_pag if sit.upper() == "PAGO" else None,
+                        data_pagamento=dt_pag if sit.lower() == "pago" else None,
                         data_competencia=dt_pag if dt_pag else (dt_vcto if dt_vcto else date.today()),
                         id_parcelamento=id_parc,
                         observacao=f"Importação Financeiro - Legado ID {fin_id}",

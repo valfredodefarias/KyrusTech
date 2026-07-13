@@ -34,9 +34,9 @@ OPERATOR_PERMISSION_CODES = [
 ]
 
 def generate_nice_password(company_keyword: str, index: int) -> str:
-    # Generates a strong but readable password: Fabio<Keyword><Index>*
+    # Generates a strong but readable password: Fabio<Keyword><Index>
     clean_keyword = company_keyword.replace(" ", "").replace("-", "").capitalize()
-    return f"Fabio{clean_keyword}{index}*"
+    return f"Fabio{clean_keyword}{index}"
 
 def main():
     db = Session(engine)

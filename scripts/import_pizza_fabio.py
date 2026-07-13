@@ -1183,6 +1183,7 @@ def import_unit(
                                 conta_id=source_conta_id,
                                 entidade_id=ent_id,
                                 empresa_id=empresa_id,
+                                centro_custo_id=centro_id,
                                 transferencia_grupo_id=group_id
                             )
                             batch_fin.append(sangria)
@@ -1206,6 +1207,7 @@ def import_unit(
                         conta_id=conta_id,
                         entidade_id=ent_id,
                         empresa_id=empresa_id,
+                        centro_custo_id=centro_id,
                         transferencia_grupo_id=group_id
                     )
                     batch_fin.append(lanc)

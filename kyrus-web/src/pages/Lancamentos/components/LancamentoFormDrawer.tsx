@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Copy,
@@ -1244,7 +1245,7 @@ export const LancamentoFormDrawer = ({
 
   if (!showDrawer) return null;
 
-  return (
+  const drawerElement = (
     <div
       className={`${
         embedFullscreenDrawer
@@ -2228,4 +2229,10 @@ export const LancamentoFormDrawer = ({
       )}
     </div>
   );
+
+  if (embedFullscreenDrawer) {
+    return drawerElement;
+  }
+
+  return createPortal(drawerElement, document.body);
 };

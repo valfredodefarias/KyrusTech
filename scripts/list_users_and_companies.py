@@ -1,4 +1,9 @@
 # scripts/list_users_and_companies.py
+import sys
+from pathlib import Path
+ROOT_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT_DIR))
+
 from sqlmodel import Session, select
 from app.db.session import engine
 from app.models.empresa import Empresa

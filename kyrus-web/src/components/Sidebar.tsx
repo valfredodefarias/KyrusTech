@@ -74,7 +74,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     return () => {
       window.removeEventListener('active-apps-changed', handleAppsChange);
     };
-  }, []);
+  }, [user?.empresa_id]);
 
   const isConsultor = Boolean(user?.is_consultor);
   const superConsultor = isSuperConsultor(user);

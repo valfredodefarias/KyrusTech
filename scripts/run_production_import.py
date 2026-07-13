@@ -8,18 +8,27 @@ os.environ["DISABLE_AUDIT"] = "1"
 # Add root dir to sys path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from app.core.config import settings
 from app.db.session import Session, engine
 from scripts.import_pizza_fabio import import_all_data
 
 def run_backup():
     print("=== Disparando Backup Automático (pg_dump) ===")
     os.makedirs("backups", exist_ok=True)
+    
+    server = settings.POSTGRES_SERVER
+    user = settings.POSTGRES_USER
+    password = settings.POSTGRES_PASSWORD
+    db_name = settings.POSTGRES_DB
+    port = str(settings.POSTGRES_PORT)
+    
     # Execute pg_dump within the backend network pointing to the 'db' host
     cmd = [
         "pg_dump",
-        "-h", "db_kyrustech",
-        "-U", "kyrus_user",
-        "-d", "kyrus_erp",
+        "-h", server,
+        "-p", port,
+        "-U", user,
+        "-d", db_name,
         "-F", "c",
         "-b",
         "-v",
@@ -27,7 +36,7 @@ def run_backup():
     ]
     # Set PGPASSWORD environment variable
     env = os.environ.copy()
-    env["PGPASSWORD"] = "kyrus_pass"
+    env["PGPASSWORD"] = password
     
     try:
         result = subprocess.run(cmd, env=env, check=True, capture_output=True, text=True)

@@ -1398,7 +1398,7 @@ def import_all_data(
     res_m_sal = import_unit(
         db=db,
         file_path=path_umarizal,
-        company_name="Pizza Fábio Marco",
+        company_name="Pizza Fábio Marco - Salão",
         filter_center_of_cost="Marco",
         dry_run=dry_run
     )
@@ -1418,7 +1418,7 @@ def import_all_data(
     res_m_del = import_unit(
         db=db,
         file_path=path_ifood_marco,
-        company_name="Pizza Fábio Marco",
+        company_name="Pizza Fábio Marco - Delivery",
         filter_center_of_cost=None,
         dry_run=dry_run
     )

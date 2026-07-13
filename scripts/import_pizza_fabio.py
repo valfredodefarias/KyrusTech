@@ -750,7 +750,7 @@ def import_unit(
 
                 if not dry_run:
                     # Create operational PdvVenda
-                    venda_uuid = f"legacy-pdv-{pdv_id}"
+                    venda_uuid = f"legacy-pdv-{empresa_id}-{pdv_id}"
                     venda_op = PdvVenda(
                         id=venda_uuid,
                         empresa_id=empresa_id,
@@ -900,7 +900,7 @@ def import_unit(
                                 previsto=True,
                                 conciliado=False,
                                 numero_parcela=i,
-                                id_parcelamento=f"legacy-pdv-{pdv_id}",
+                                id_parcelamento=f"legacy-pdv-{empresa_id}-{pdv_id}",
                                 import_hash=import_hash if i == 1 else f"{import_hash}-p{i}",
                                 created_at=datetime.utcnow(),
                                 updated_at=datetime.utcnow()
@@ -949,7 +949,7 @@ def import_unit(
                             ipp=False,
                             previsto=True,
                             conciliado=False,
-                            id_parcelamento=f"legacy-pdv-{pdv_id}",
+                            id_parcelamento=f"legacy-pdv-{empresa_id}-{pdv_id}",
                             import_hash=import_hash,
                             created_at=datetime.utcnow(),
                             updated_at=datetime.utcnow()

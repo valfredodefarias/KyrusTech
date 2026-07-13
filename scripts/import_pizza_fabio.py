@@ -24,6 +24,8 @@ from app.models.pdv_venda import PdvVenda
 from app.models.pdv_venda_item import PdvVendaItem
 from app.models.pdv_movimentacao import PdvMovimentacao
 from app.models.consultor_empresa import ConsultorEmpresa
+from app.models.lote_cartao import LoteCartao
+from app.models.lote_cartao_item import LoteCartaoItem
 from app.core.security import get_password_hash
 
 def clean_str(val):
@@ -993,14 +995,21 @@ def import_unit(
         rows = list(sheet.iter_rows(values_only=True))
         if len(rows) > 1:
             headers = [clean_str(h) for h in rows[0]]
-            id_idx = headers.index("Id_Ifood") if "Id_Ifood" in headers else 0
-            dt_idx = headers.index("Data") if "Data" in headers else 1
-            hr_idx = headers.index("Hora") if "Hora" in headers else 2
-            forma_idx = headers.index("Forma Pagto") if "Forma Pagto" in headers else 3
-            bruto_idx = headers.index("Valor Bruto") if "Valor Bruto" in headers else 4
-            liq_idx = headers.index("Valor Líquido") if "Valor Líquido" in headers else 5
-            status_idx = headers.index("Status") if "Status" in headers else 6
-            rec_idx = headers.index("Data Recebimento") if "Data Recebimento" in headers else 7
+            id_idx    = headers.index("Id_Ifood") if "Id_Ifood" in headers else 0
+            dt_idx    = headers.index("Data") if "Data" in headers else 1
+            hr_idx    = headers.index("Hora") if "Hora" in headers else 2
+            forma_idx = headers.index("Forma Pagto") if "Forma Pagto" in headers else 4
+            # Valor bruto: planilhas antigas usam 'Valor Bruto', novas usam 'Valor'
+            bruto_idx = next((i for i, h in enumerate(headers)
+                              if h in ["Valor Bruto", "Valor"]), 5)
+            # Valor líquido: planilhas novas usam 'Valor Liquido Total' ou 'Valor Líq Ifood'
+            liq_idx   = next((i for i, h in enumerate(headers)
+                              if h in ["Valor Líquido", "Valor Liquido Total", "Valor Líq Ifood"]), bruto_idx)
+            # Taxa em R$: 'R$ Tx Ifood'
+            taxa_r_idx = next((i for i, h in enumerate(headers) if h == "R$ Tx Ifood"), None)
+            # Data recebimento ajustada: planilhas novas usam 'Dt Recto Ajustado' ou 'Data Recto'
+            rec_idx   = next((i for i, h in enumerate(headers)
+                              if h in ["Data Recebimento", "Dt Recto Ajustado", "Data Recto"]), None)
 
             batch_ifood = []
 
@@ -1018,11 +1027,12 @@ def import_unit(
                 elif not hora_v:
                     hora_v = "18:00:00"
 
-                forma_r = clean_str(row[forma_idx]) if forma_idx < len(row) else ""
+                forma_r   = clean_str(row[forma_idx]) if forma_idx < len(row) else ""
                 val_bruto = parse_decimal(row[bruto_idx]) if bruto_idx < len(row) else Decimal("0.00")
-                val_liq = parse_decimal(row[liq_idx]) if liq_idx < len(row) else Decimal("0.00")
-                st = clean_str(row[status_idx]) if status_idx < len(row) else ""
-                dt_rec = parse_date(row[rec_idx]) if rec_idx < len(row) else None
+                val_liq   = parse_decimal(row[liq_idx])   if liq_idx  < len(row) else val_bruto
+                taxa_r    = parse_decimal(row[taxa_r_idx]) if taxa_r_idx is not None and taxa_r_idx < len(row) else Decimal("0.00")
+                dt_rec    = parse_date(row[rec_idx]) if rec_idx is not None and rec_idx < len(row) else None
+                st        = "Pago"  # sem coluna Status nas planilhas atuais
 
                 if not dry_run:
                     # Look up in database using a bulk query is not trivial, but since iFood is smaller (~20k rows)
@@ -1156,6 +1166,12 @@ def import_unit(
                 id_parc = clean_str(row[parc_idx]) if parc_idx < len(row) else ""
                 interessado = clean_str(row[int_idx]) if int_idx < len(row) else ""
 
+                # Pula entradas auto-geradas pelo PDV (já importadas via Tb_Movimentacao)
+                # para evitar dupla contagem de receitas
+                if bank_name.upper() == "PDV":
+                    fin_skipped_count += 1
+                    continue
+
                 import_hash = f"legacy-{fin_id}"
                 if import_hash in existing_hashes:
                     fin_skipped_count += 1
@@ -1247,6 +1263,87 @@ def import_unit(
                     db.add_all(batch_fin[chunk_idx:chunk_idx+5000])
                     db.flush()
                 print(f"Flushed {len(batch_fin)} fast-path Financeiro Lancamentos.")
+
+    # 12. Import Tb_Cartoes (liquidações de cartão → lotes_cartao)
+    cartoes_count = 0
+    if "Tb_Cartoes" in wb.sheetnames and not dry_run:
+        sheet = wb["Tb_Cartoes"]
+        rows = list(sheet.iter_rows(values_only=True))
+        if len(rows) > 1:
+            headers = [clean_str(h) for h in rows[0]]
+            dt_venda_idx  = headers.index("Data Venda")    if "Data Venda"    in headers else 0
+            forma_idx2    = headers.index("Forma Pagto")   if "Forma Pagto"   in headers else 1
+            band_idx2     = headers.index("Bandeira")      if "Bandeira"      in headers else 2
+            parc_idx2     = headers.index("Parcela")       if "Parcela"       in headers else 3
+            qtde_parc_idx = headers.index("Qtde Parcelas") if "Qtde Parcelas" in headers else 4
+            val_idx2      = headers.index("Valor")         if "Valor"         in headers else 5
+            taxa_pct_idx  = headers.index("% Taxa")        if "% Taxa"        in headers else 6
+            juros_idx     = headers.index("Juros")         if "Juros"         in headers else 7
+            liq_idx2      = next((i for i, h in enumerate(headers)
+                                  if h in ["Valor Liquido", "Valor Líquido"]), None)
+            dt_recto_idx  = next((i for i, h in enumerate(headers)
+                                  if h in ["DataRecbto", "Data Recto Ajustada", "Dt Recto Ajustado"]), None)
+
+            # Resolve primary bank account (first non-PDV, non-CAIXA account)
+            conta_destino_id_cartao = None
+            if stats["accounts"]:
+                for acc_info in stats["accounts"]:
+                    conta_check = db.get(Conta, acc_info["conta_id"])
+                    if conta_check and conta_check.tipo not in ["CAIXA"]:
+                        conta_destino_id_cartao = acc_info["conta_id"]
+                        break
+            if not conta_destino_id_cartao and stats["accounts"]:
+                conta_destino_id_cartao = stats["accounts"][0]["conta_id"]
+
+            # Group by (data_recebimento, bandeira, forma_pagto) → one lote per settlement
+            from collections import defaultdict
+            lote_groups: dict = defaultdict(list)
+            for row in rows[1:]:
+                if not any(row):
+                    continue
+                forma_v  = clean_str(row[forma_idx2])  if forma_idx2  < len(row) else ""
+                band_v   = clean_str(row[band_idx2])   if band_idx2   < len(row) else ""
+                val_v    = parse_decimal(row[val_idx2]) if val_idx2  < len(row) else Decimal("0")
+                juros_v  = parse_decimal(row[juros_idx]) if juros_idx < len(row) else Decimal("0")
+                liq_v    = parse_decimal(row[liq_idx2])  if liq_idx2 is not None and liq_idx2 < len(row) else (val_v - juros_v)
+                dt_rec_v = parse_date(row[dt_recto_idx]) if dt_recto_idx is not None and dt_recto_idx < len(row) else None
+                dt_venda_v = parse_date(row[dt_venda_idx]) if dt_venda_idx < len(row) else None
+                dt_key   = dt_rec_v or dt_venda_v
+                if not dt_key or val_v <= 0:
+                    continue
+                key = (dt_key, band_v, forma_v)
+                lote_groups[key].append({
+                    "val_bruto": val_v, "val_taxa": juros_v, "val_liq": liq_v
+                })
+
+            for (dt_key, band_v, forma_v), itens in lote_groups.items():
+                total_bruto = sum(i["val_bruto"] for i in itens)
+                total_taxa  = sum(i["val_taxa"]  for i in itens)
+                total_liq   = sum(i["val_liq"]   for i in itens)
+                lote = LoteCartao(
+                    empresa_id=empresa_id,
+                    data_pagamento=dt_key,
+                    valor_bruto=total_bruto,
+                    valor_taxa=total_taxa,
+                    valor_liquido=total_liq,
+                    conta_destino_id=conta_destino_id_cartao,
+                    status="CONCILIADO",
+                )
+                db.add(lote)
+                db.flush()
+                cartoes_count += 1
+
+                for item_data in itens:
+                    item = LoteCartaoItem(
+                        lote_cartao_id=lote.id,
+                        lancamento_id=0,  # sem link direto (importação legacy)
+                        valor_bruto=item_data["val_bruto"],
+                        valor_taxa=item_data["val_taxa"],
+                        valor_liquido=item_data["val_liq"],
+                    )
+                    db.add(item)
+            db.flush()
+        print(f"Imported Tb_Cartoes: {cartoes_count} lotes de cartão.")
 
     if not dry_run:
         # Mathematical reverse calculation of starting balance (saldo_inicial) for each account

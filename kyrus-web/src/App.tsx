@@ -38,9 +38,9 @@ const Apps = lazy(() => import('./pages/Apps').then((module) => ({ default: modu
 const MovimentacaoPDV = lazy(() => import('./pages/MovimentacaoPDV').then((module) => ({ default: module.MovimentacaoPDV })));
 
 const PAGE_PERMISSIONS: Record<string, string[]> = {
-  '/apps': ['page:home:view'],
-  '/apps/:tab': ['page:home:view'],
-  '/apps/movimentacao-pdv': ['page:home:view'],
+  '/apps': ['page:configuracoes:view'],
+  '/apps/:tab': ['page:integracoes:view'],
+  '/apps/movimentacao-pdv': ['page:caixa:view'],
   '/produtos': ['PDV_VER_TODAS_VENDAS', 'PDV_SER_VENDEDOR'],
   '/home': ['page:home:view'],
   '/boletim': ['page:boletim:view'],
@@ -426,9 +426,9 @@ function App() {
                   </PdvEstoqueRoute>
                 }
               />
-              <Route path="/apps" element={<ProtectedRoute requiredPermissions={['page:home:view']}><Apps /></ProtectedRoute>} />
-              <Route path="/apps/movimentacao-pdv" element={<ProtectedRoute requiredPermissions={['page:home:view']}><MovimentacaoPDV /></ProtectedRoute>} />
-              <Route path="/apps/:tab" element={<ProtectedRoute requiredPermissions={['page:home:view']}><Apps /></ProtectedRoute>} />
+              <Route path="/apps" element={<ProtectedRoute requiredPermissions={['page:configuracoes:view']}><Apps /></ProtectedRoute>} />
+              <Route path="/apps/movimentacao-pdv" element={<ProtectedRoute requiredPermissions={['page:caixa:view']}><MovimentacaoPDV /></ProtectedRoute>} />
+              <Route path="/apps/:tab" element={<ProtectedRoute requiredPermissions={['page:integracoes:view']}><Apps /></ProtectedRoute>} />
               <Route path="/caixa" element={<ProtectedRoute requiredPermissions={['page:caixa:view']}><Caixa /></ProtectedRoute>} />
               <Route path="/centro-custo" element={<ProtectedRoute requiredPermissions={['page:centro_custo:view']}><CentroCusto /></ProtectedRoute>} />
               <Route path="/config" element={<ProtectedRoute requiredPermissions={['page:configuracoes:view']}><Configuracoes /></ProtectedRoute>} />

@@ -127,7 +127,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     // Administração
     { icon: History, label: 'Auditoria', path: '/auditoria', category: 'admin', requiredPermissions: ['page:auditoria:view'] },
     { icon: Settings, label: 'Configurações', path: '/config', category: 'admin', requiredPermissions: ['page:configuracoes:view'] },
-    { icon: Puzzle, label: 'Aplicativos', path: '/apps', category: 'admin', requiredPermissions: ['page:home:view'] },
+    { icon: Puzzle, label: 'Aplicativos', path: '/apps', category: 'admin', requiredPermissions: ['page:configuracoes:view'] },
   ];
 
   const menuItems = [...baseMenuItems];
@@ -149,7 +149,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
       label: 'iFood PDV',
       path: '/apps/ifood',
       category: 'vendas',
-      requiredPermissions: ['page:home:view'],
+      requiredPermissions: ['page:integracoes:view'],
     });
   }
 
@@ -159,7 +159,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
       label: 'Movimentação PDV',
       path: '/apps/movimentacao-pdv',
       category: 'vendas',
-      requiredPermissions: ['page:home:view'],
+      requiredPermissions: ['page:caixa:view'],
     });
   }
 

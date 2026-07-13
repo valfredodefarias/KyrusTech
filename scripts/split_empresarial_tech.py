@@ -169,12 +169,18 @@ def split_empresarial_tech():
             tx.empresa_id = new_emp_id
             
             # Map plano de contas to new company plano de contas
-            if tx.plano_contas_id in plano_map:
-                tx.plano_contas_id = plano_map[tx.plano_contas_id]
+            if tx.plano_contas_id:
+                if tx.plano_contas_id in plano_map:
+                    tx.plano_contas_id = plano_map[tx.plano_contas_id]
+                else:
+                    tx.plano_contas_id = None
                 
             # Map entity to new company entity
-            if tx.entidade_id in entity_map:
-                tx.entidade_id = entity_map[tx.entidade_id]
+            if tx.entidade_id:
+                if tx.entidade_id in entity_map:
+                    tx.entidade_id = entity_map[tx.entidade_id]
+                else:
+                    tx.entidade_id = None
                 
             db.add(tx)
             migrated_tx_count += 1

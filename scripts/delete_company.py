@@ -15,6 +15,12 @@ from app.models.plano_contas import PlanoContas
 from app.models.centro_custo import CentroCusto
 from app.models.entidade import Entidade
 from app.models.regra_cartao import RegraCartao
+from app.models.regra_comissao import RegraComissao
+from app.models.cartao import Cartao
+from app.models.integracao_bancaria import IntegracaoBancaria
+from app.models.produto import Produto
+from app.models.dashboard_view_config import DashboardViewConfig
+from app.models.user_company_profile import UserCompanyProfile
 from app.models.lancamento import Lancamento
 from app.models.pdv_venda import PdvVenda
 from app.models.pdv_venda_item import PdvVendaItem
@@ -44,8 +50,7 @@ def delete_company_data(company_name: str):
             db.delete(item)
         db.flush()
         
-        # 2. PdvVendaItem
-        # Get all sales of company first
+        # 2. PdvVendaItem (via PdvVenda ID)
         sales = db.exec(select(PdvVenda).where(PdvVenda.empresa_id == empresa_id)).all()
         sale_ids = [s.id for s in sales]
         if sale_ids:
@@ -76,48 +81,90 @@ def delete_company_data(company_name: str):
         db.flush()
         
         # 6. RegraCartao
-        regras = db.exec(select(RegraCartao).where(RegraCartao.empresa_id == empresa_id)).all()
-        print(f"Deletando {len(regras)} regras de cartão (RegraCartao)...")
-        for item in regras:
+        regras_cartao = db.exec(select(RegraCartao).where(RegraCartao.empresa_id == empresa_id)).all()
+        print(f"Deletando {len(regras_cartao)} regras de cartão (RegraCartao)...")
+        for item in regras_cartao:
+            db.delete(item)
+        db.flush()
+
+        # 7. RegraComissao
+        regras_comissao = db.exec(select(RegraComissao).where(RegraComissao.empresa_id == empresa_id)).all()
+        print(f"Deletando {len(regras_comissao)} regras de comissão (RegraComissao)...")
+        for item in regras_comissao:
+            db.delete(item)
+        db.flush()
+
+        # 8. Cartao
+        cartoes = db.exec(select(Cartao).where(Cartao.empresa_id == empresa_id)).all()
+        print(f"Deletando {len(cartoes)} cartões (Cartao)...")
+        for item in cartoes:
+            db.delete(item)
+        db.flush()
+
+        # 9. IntegracaoBancaria
+        integracoes = db.exec(select(IntegracaoBancaria).where(IntegracaoBancaria.empresa_id == empresa_id)).all()
+        print(f"Deletando {len(integracoes)} integrações bancárias (IntegracaoBancaria)...")
+        for item in integracoes:
+            db.delete(item)
+        db.flush()
+
+        # 10. Produto
+        produtos = db.exec(select(Produto).where(Produto.empresa_id == empresa_id)).all()
+        print(f"Deletando {len(produtos)} produtos (Produto)...")
+        for item in produtos:
+            db.delete(item)
+        db.flush()
+
+        # 11. DashboardViewConfig
+        configs = db.exec(select(DashboardViewConfig).where(DashboardViewConfig.empresa_id == empresa_id)).all()
+        print(f"Deletando {len(configs)} configs de dashboard (DashboardViewConfig)...")
+        for item in configs:
             db.delete(item)
         db.flush()
         
-        # 7. Entidade
+        # 12. Entidade
         entidades = db.exec(select(Entidade).where(Entidade.empresa_id == empresa_id)).all()
         print(f"Deletando {len(entidades)} entidades (Clientes/Fornecedores)...")
         for item in entidades:
             db.delete(item)
         db.flush()
         
-        # 8. PlanoContas
+        # 13. PlanoContas
         pcs = db.exec(select(PlanoContas).where(PlanoContas.empresa_id == empresa_id)).all()
         print(f"Deletando {len(pcs)} categorias (PlanoContas)...")
         for item in pcs:
             db.delete(item)
         db.flush()
         
-        # 9. Conta (Bank accounts)
+        # 14. Conta (Bank accounts)
         contas = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
         print(f"Deletando {len(contas)} contas bancárias (Conta)...")
         for item in contas:
             db.delete(item)
         db.flush()
         
-        # 10. CentroCusto
+        # 15. CentroCusto
         ccs = db.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).all()
         print(f"Deletando {len(ccs)} centros de custo (CentroCusto)...")
         for item in ccs:
             db.delete(item)
         db.flush()
         
-        # 11. ConsultorEmpresa
+        # 16. ConsultorEmpresa
         acessos = db.exec(select(ConsultorEmpresa).where(ConsultorEmpresa.empresa_id == empresa_id)).all()
         print(f"Deletando {len(acessos)} vínculos de consultoria...")
         for item in acessos:
             db.delete(item)
         db.flush()
+
+        # 17. UserCompanyProfile
+        profiles = db.exec(select(UserCompanyProfile).where(UserCompanyProfile.empresa_id == empresa_id)).all()
+        print(f"Deletando {len(profiles)} perfis de acesso (UserCompanyProfile)...")
+        for item in profiles:
+            db.delete(item)
+        db.flush()
         
-        # 12. Usuario (only non-consultant users belonging to this company)
+        # 18. Usuario (only non-consultant users belonging to this company)
         users = db.exec(
             select(Usuario)
             .where(Usuario.empresa_id == empresa_id, Usuario.is_consultor == False)
@@ -127,7 +174,7 @@ def delete_company_data(company_name: str):
             db.delete(item)
         db.flush()
         
-        # 13. Empresa (the company itself)
+        # 19. Empresa (the company itself)
         db.delete(company)
         db.commit()
         print(f"\n[OK] Empresa '{company_name}' e todos os seus dados foram deletados com sucesso!")

@@ -120,8 +120,22 @@ def split_empresarial_tech():
                 else:
                     new_ent = Entidade(
                         nome=ent.nome,
-                        documento=ent.documento,
                         tipo=ent.tipo,
+                        tipo_pessoa=ent.tipo_pessoa,
+                        nome_fantasia=ent.nome_fantasia,
+                        cpf_cnpj=ent.cpf_cnpj,
+                        email=ent.email,
+                        telefone=ent.telefone,
+                        celular=ent.celular,
+                        contato_nome=ent.contato_nome,
+                        cep=ent.cep,
+                        logradouro=ent.logradouro,
+                        numero=ent.numero,
+                        complemento=ent.complemento,
+                        bairro=ent.bairro,
+                        cidade=ent.cidade,
+                        uf=ent.uf,
+                        observacoes=ent.observacoes,
                         status=ent.status,
                         empresa_id=new_emp_id
                     )

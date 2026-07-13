@@ -59,6 +59,7 @@ def main():
             path_umarizal="scripts/Base_PizzaFabioUmarizal.xlsx",
             path_ananindeua="scripts/Base_PizzaFabioAnanindeua.xlsx",
             path_ifood_marco="scripts/Base_IFood_PizzaFabioMarco.xlsx",
+            path_marco_salao="scripts/Base_PizzaFabioMarco.xlsx",
             dry_run=False
         )
         print("\nImportação concluída com sucesso no banco oficial!")

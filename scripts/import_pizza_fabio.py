@@ -1410,6 +1410,7 @@ def import_all_data(
     path_umarizal: str,
     path_ananindeua: str,
     path_ifood_marco: str,
+    path_marco_salao: str = "",
     dry_run=False
 ):
     results = []
@@ -1424,15 +1425,28 @@ def import_all_data(
     )
     results.append(res_uma)
 
-    # 2. Pizza Fábio Marco Salão
-    res_m_sal = import_unit(
+    # 2a. Pizza Fábio Marco Salão — histórico compartilhado (período em que Marco
+    #     usava o PDV do Umarizal, filtrado por Centro de Custo = 'Marco')
+    res_m_sal_hist = import_unit(
         db=db,
         file_path=path_umarizal,
         company_name="Pizza Fábio Marco - Salão",
         filter_center_of_cost="Marco",
         dry_run=dry_run
     )
-    results.append(res_m_sal)
+    results.append(res_m_sal_hist)
+
+    # 2b. Pizza Fábio Marco Salão — planilha própria do Marco (Base_PizzaFabioMarco.xlsx)
+    #     IDs completamente diferentes do período compartilhado, sem sobreposição.
+    if path_marco_salao:
+        res_m_sal_own = import_unit(
+            db=db,
+            file_path=path_marco_salao,
+            company_name="Pizza Fábio Marco - Salão",
+            filter_center_of_cost=None,  # arquivo já é exclusivamente Marco
+            dry_run=dry_run
+        )
+        results.append(res_m_sal_own)
 
     # 3. Pizza Fábio Ananindeua
     res_ana = import_unit(

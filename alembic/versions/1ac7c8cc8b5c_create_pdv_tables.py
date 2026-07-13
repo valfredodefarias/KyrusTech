@@ -103,28 +103,29 @@ def upgrade() -> None:
     op.create_index(op.f('ix_pdv_venda_itens_produto_id'), 'pdv_venda_itens', ['produto_id'], unique=False)
     op.create_index(op.f('ix_pdv_venda_itens_venda_id'), 'pdv_venda_itens', ['venda_id'], unique=False)
     op.create_index(op.f('ix_alertas_anomalia_is_deleted'), 'alertas_anomalia', ['is_deleted'], unique=False)
-    try:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    # safe index drop on baixas
+    baixas_indexes = [idx['name'] for idx in inspector.get_indexes('baixas')]
+    if 'ix_baixas_movimento_ofx_id' in baixas_indexes:
         op.drop_index('ix_baixas_movimento_ofx_id', table_name='baixas')
-    except Exception:
-        pass
     op.create_index(op.f('ix_baixas_movimento_id'), 'baixas', ['movimento_id'], unique=False)
-    try:
+
+    # safe index drop on lancamentos
+    lanc_indexes = [idx['name'] for idx in inspector.get_indexes('lancamentos')]
+    if 'idx_lancamentos_emp_pag' in lanc_indexes:
         op.drop_index('idx_lancamentos_emp_pag', table_name='lancamentos')
-    except Exception:
-        pass
-    try:
+    if 'idx_lancamentos_emp_venc' in lanc_indexes:
         op.drop_index('idx_lancamentos_emp_venc', table_name='lancamentos')
-    except Exception:
-        pass
-    try:
+    if 'idx_lancamentos_fast_bal' in lanc_indexes:
         op.drop_index('idx_lancamentos_fast_bal', table_name='lancamentos', postgresql_where='((is_deleted = false) AND ((observacao IS NULL) OR (((observacao)::text !~~* \'%DestinoCompra DEMONSTRACAO%\'::text) AND ((observacao)::text !~~* \'%" legacy_id_venda\\%\'::text))))')
-    except Exception:
-        pass
-    try:
+    if 'idx_lancamentos_no_legacy' in lanc_indexes:
         op.drop_index('idx_lancamentos_no_legacy', table_name='lancamentos', postgresql_where='((is_deleted = false) AND ((observacao IS NULL) OR ((observacao)::text !~~* \'%" legacy_id_venda\\%\'::text)))')
-    except Exception:
-        pass
     op.create_index(op.f('ix_lancamentos_data_pagamento'), 'lancamentos', ['data_pagamento'], unique=False)
+
+    # safe index drop on movimentos
+    mov_indexes = [idx['name'] for idx in inspector.get_indexes('movimentos')]
     for idx_name in [
         'ix_movimentos_ofx_conta_id',
         'ix_movimentos_ofx_data',
@@ -135,10 +136,8 @@ def upgrade() -> None:
         'ix_movimentos_ofx_status',
         'ix_movimentos_ofx_tipo'
     ]:
-        try:
+        if idx_name in mov_indexes:
             op.drop_index(idx_name, table_name='movimentos')
-        except Exception:
-            pass
     op.create_index(op.f('ix_movimentos_conta_id'), 'movimentos', ['conta_id'], unique=False)
     op.create_index(op.f('ix_movimentos_data'), 'movimentos', ['data'], unique=False)
     op.create_index(op.f('ix_movimentos_descricao'), 'movimentos', ['descricao'], unique=False)

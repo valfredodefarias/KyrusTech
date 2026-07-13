@@ -811,7 +811,7 @@ def import_unit(
                         conta_id=conta_id,
                         conciliado=False,
                         venda_id=venda_uuid,
-                        import_hash=f"mov-{import_hash}",
+                        import_hash=f"mov-{empresa_id}-{import_hash}",
                         created_by_id=vendedor_id,
                         updated_by_id=default_user_id,
                         created_at=datetime.utcnow(),

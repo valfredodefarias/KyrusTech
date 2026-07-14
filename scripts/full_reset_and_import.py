@@ -274,6 +274,7 @@ def step_reconciliar(dry_run: bool):
                     continue
 
                 n_candidates = len(candidates)  # salva antes da mutação da lista
+                already_received = lote.data_pagamento is not None and lote.data_pagamento <= date.today()
                 if not dry_run:
                     for lanc in list(candidates):
                         try:
@@ -290,10 +291,14 @@ def step_reconciliar(dry_run: bool):
                             valor_liquido=lanc.valor_previsto - taxa_v,
                         )
                         db.add(item)
-                        lanc.status = "PAGO"
-                        lanc.data_pagamento = lote.data_pagamento
-                        lanc.valor_pago = lanc.valor_previsto
-                        lanc.conta_id = lote.conta_destino_id
+
+                        # Só marca PAGO se o lote já foi liquidado (data <= hoje)
+                        if already_received:
+                            lanc.status = "PAGO"
+                            lanc.data_pagamento = lote.data_pagamento
+                            lanc.valor_pago = lanc.valor_previsto
+                            lanc.conta_id = lote.conta_destino_id
+
                         lanc.conciliado = True
                         lanc.updated_at = datetime.utcnow()
                         db.add(lanc)

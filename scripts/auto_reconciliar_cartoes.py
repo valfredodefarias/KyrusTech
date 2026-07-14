@@ -10,7 +10,7 @@ Uso:
 """
 import sys, json, argparse
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, date
 from collections import defaultdict
 
 sys.path.insert(0, "/app")
@@ -139,6 +139,7 @@ def main():
                     continue
 
                 if not dry_run:
+                    already_received = lote.data_pagamento is not None and lote.data_pagamento <= date.today()
                     for lanc in list(candidates):
                         try:
                             meta = json.loads(lanc.observacao)
@@ -155,10 +156,13 @@ def main():
                         )
                         db.add(item)
 
-                        lanc.status = "PAGO"
-                        lanc.data_pagamento = lote.data_pagamento
-                        lanc.valor_pago = lanc.valor_previsto
-                        lanc.conta_id = lote.conta_destino_id
+                        # Só marca PAGO se o lote já foi liquidado (data <= hoje)
+                        if already_received:
+                            lanc.status = "PAGO"
+                            lanc.data_pagamento = lote.data_pagamento
+                            lanc.valor_pago = lanc.valor_previsto
+                            lanc.conta_id = lote.conta_destino_id
+
                         lanc.conciliado = True
                         lanc.updated_at = datetime.utcnow()
                         db.add(lanc)

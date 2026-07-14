@@ -456,7 +456,7 @@ function App() {
               <Route path="/importacao" element={<ProtectedRoute requiredPermissions={['page:importacao:view']}><Importacao /></ProtectedRoute>} />
               <Route path="/importacao_interessados" element={<ProtectedRoute requiredPermissions={['page:importacao_entidades:view']}><ImportacaoEntidades /></ProtectedRoute>} />
               <Route path="/importacao_ofx" element={<ProtectedRoute requiredPermissions={['page:importacao_ofx:view']}><ImportacaoOfx /></ProtectedRoute>} />
-              <Route path="/importacao_nfe" element={<ProtectedRoute requiredPermissions={['page:importacao_nfe:view', 'page:importacao:view']}><ImportacaoNfe /></ProtectedRoute>} />
+              <Route path="/importacao_nfe" element={<ProtectedRoute requiredPermissions={['page:importacao_nfe:view']}><ImportacaoNfe /></ProtectedRoute>} />
               <Route path="/auditoria" element={<ProtectedRoute requiredPermissions={['page:auditoria:view']}><Auditoria /></ProtectedRoute>} />
               <Route path="/comissoes" element={<ProtectedRoute requiredPermissions={['page:boletim:view']}><ComissoesDashboard /></ProtectedRoute>} />
               <Route path="/integracoes" element={<Navigate to="/integracoes/asaas" replace />} />

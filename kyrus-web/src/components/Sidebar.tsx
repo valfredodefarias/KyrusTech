@@ -121,7 +121,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
       label: 'Importação NF-e',
       path: '/importacao_nfe',
       category: 'vendas',
-      requiredPermissions: ['page:importacao_nfe:view', 'page:importacao:view'],
+      requiredPermissions: ['page:importacao_nfe:view'],
     },
     
     // Administração

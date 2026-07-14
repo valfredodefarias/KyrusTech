@@ -159,7 +159,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
       label: 'Movimentação PDV',
       path: '/apps/movimentacao-pdv',
       category: 'vendas',
-      requiredPermissions: ['page:caixa:view'],
+      requiredPermissions: ['page:importacao:view'],
     });
   }
 

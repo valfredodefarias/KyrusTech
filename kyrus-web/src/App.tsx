@@ -40,7 +40,7 @@ const MovimentacaoPDV = lazy(() => import('./pages/MovimentacaoPDV').then((modul
 const PAGE_PERMISSIONS: Record<string, string[]> = {
   '/apps': ['page:configuracoes:view'],
   '/apps/:tab': ['page:integracoes:view'],
-  '/apps/movimentacao-pdv': ['page:caixa:view'],
+  '/apps/movimentacao-pdv': ['page:importacao:view'],
   '/produtos': ['PDV_VER_TODAS_VENDAS', 'PDV_SER_VENDEDOR'],
   '/home': ['page:home:view'],
   '/boletim': ['page:boletim:view'],
@@ -132,6 +132,21 @@ export function hasPathPermission(path: string, user: AuthUser | null): boolean 
   if (permissions.includes('*')) return true;
   
   const basePath = path.split('?')[0];
+  
+  if (basePath === '/pdv' || basePath === '/produtos' || basePath.startsWith('/pdv/')) {
+    const empresa = useAuthStore.getState().empresa;
+    let activeApps: string[] = [];
+    if (empresa?.pdv_config) {
+      try {
+        const config = JSON.parse(empresa.pdv_config);
+        activeApps = config.active_apps || [];
+      } catch {}
+    }
+    if (!activeApps.includes('pdv_estoque')) {
+      return false;
+    }
+  }
+  
   const required = PAGE_PERMISSIONS[basePath];
   if (!required) return true;
   
@@ -170,6 +185,8 @@ export function getFirstAllowedPath(user: AuthUser | null): string {
     '/caixa',
     '/cartoes',
     '/pdv',
+    '/apps/movimentacao-pdv',
+    '/apps/ifood',
     '/dre',
     '/importacao',
     '/config',
@@ -427,7 +444,7 @@ function App() {
                 }
               />
               <Route path="/apps" element={<ProtectedRoute requiredPermissions={['page:configuracoes:view']}><Apps /></ProtectedRoute>} />
-              <Route path="/apps/movimentacao-pdv" element={<ProtectedRoute requiredPermissions={['page:caixa:view']}><MovimentacaoPDV /></ProtectedRoute>} />
+              <Route path="/apps/movimentacao-pdv" element={<ProtectedRoute requiredPermissions={['page:importacao:view']}><MovimentacaoPDV /></ProtectedRoute>} />
               <Route path="/apps/:tab" element={<ProtectedRoute requiredPermissions={['page:integracoes:view']}><Apps /></ProtectedRoute>} />
               <Route path="/caixa" element={<ProtectedRoute requiredPermissions={['page:caixa:view']}><Caixa /></ProtectedRoute>} />
               <Route path="/centro-custo" element={<ProtectedRoute requiredPermissions={['page:centro_custo:view']}><CentroCusto /></ProtectedRoute>} />

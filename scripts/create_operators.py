@@ -21,8 +21,6 @@ from app.enums import PdvPermission
 
 # Permissions required for an operator to manage PDV and iFood without seeing corporate finance
 OPERATOR_PERMISSION_CODES = [
-    "page:home:view",          # Home page
-    "page:caixa:view",         # PDV Front of house / Cash register view
     "page:importacao:view",    # Import page (Movimentação PDV)
     "page:integracoes:view",   # iFood / Integrations page (sidebar link)
     "integracoes:view",        # View integrations detail
@@ -56,8 +54,7 @@ def main():
         requirements = [
             {"name": "Pizza Fábio Umarizal", "count": 3, "keyword": "Umarizal", "prefix": "op.umarizal"},
             {"name": "Pizza Fábio Ananindeua", "count": 3, "keyword": "Ananindeua", "prefix": "op.ananindeua"},
-            {"name": "Pizza Fábio Marco - Salão", "count": 2, "keyword": "Salao", "prefix": "op.salao"},
-            {"name": "Pizza Fábio Marco - Delivery", "count": 2, "keyword": "Delivery", "prefix": "op.delivery"},
+            {"name": "Pizza Fábio Marco", "count": 2, "keyword": "Marco", "prefix": "op.marco"},
         ]
         
         results = []

@@ -1621,33 +1621,20 @@ def import_all_data(
     results = []
 
     # 1. Pizza Fábio Umarizal
-    # O CC na planilha é o livro da verdade: CC=Umarizal → Umarizal.
-    # Registros com CC=Marco pertencem ao Marco Salão (passo 2a).
+    # Toda a planilha Umarizal é Umarizal, independente do Centro de Custo interno.
+    # O arquivo é o livro da verdade — sem filtro de CC.
     res_uma = import_unit(
         db=db,
         file_path=path_umarizal,
         company_name="Pizza Fábio Umarizal",
-        filter_center_of_cost="Umarizal",
+        filter_center_of_cost=None,
         financeiro_filter="",  # importa TODO Financeiro do arquivo
         dry_run=dry_run
     )
     results.append(res_uma)
 
-    # 2a. Pizza Fábio Marco Salão — histórico compartilhado (período em que Marco
-    #     usava o PDV do Umarizal, filtrado por Centro de Custo = 'Marco').
-    #     O CC na planilha define a empresa: todos os CC=Marco do arquivo Umarizal → Marco Salão.
-    res_m_sal_hist = import_unit(
-        db=db,
-        file_path=path_umarizal,
-        company_name="Pizza Fábio Marco - Salão",
-        filter_center_of_cost="Marco",
-        financeiro_filter="SKIP",  # Financeiro da Umarizal pertence à Umarizal
-        dry_run=dry_run
-    )
-    results.append(res_m_sal_hist)
-
-    # 2b. Pizza Fábio Marco Salão — planilha própria do Marco (Base_PizzaFabioMarco.xlsx)
-    #     IDs completamente diferentes do período compartilhado, sem sobreposição.
+    # 2. Pizza Fábio Marco Salão — planilha própria (Base_PizzaFabioMarco.xlsx)
+    #    Marco tem sua própria planilha. Não importa mais do arquivo Umarizal.
     if path_marco_salao:
         res_m_sal_own = import_unit(
             db=db,

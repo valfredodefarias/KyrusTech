@@ -28,6 +28,8 @@ class LoteCartao(AuditMixin, SQLModel, table=True):
     conta_destino_id: int = Field(foreign_key="contas.id", index=True)
     lancamento_deposito_id: Optional[int] = Field(default=None, foreign_key="lancamentos.id", index=True, nullable=True)
     status: str = Field(default="CONCILIADO", index=True)  # ex: CONCILIADO, PREVISTO
+    bandeira: Optional[str] = Field(default=None, nullable=True)          # ex: MASTERCARD, VISA, ELO, IFOOD
+    forma_pagamento: Optional[str] = Field(default=None, nullable=True)    # ex: Crédito à vista, Débito
 
     # Relacionamentos
     empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa"))

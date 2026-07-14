@@ -1367,6 +1367,8 @@ def import_unit(
                     valor_liquido=total_liq,
                     conta_destino_id=conta_destino_id_cartao,
                     status="CONCILIADO",
+                    bandeira=band_v.upper() if band_v else None,
+                    forma_pagamento=forma_v if forma_v else None,
                 )
                 db.add(lote)
                 cartoes_count += 1

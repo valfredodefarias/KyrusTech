@@ -1416,20 +1416,6 @@ export const LancamentoFormDrawer = ({
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative">
-            {activeAlerts.map(alert => (
-              <div key={alert.id} className="flex items-start gap-3 p-4 rounded-xl border border-rose-200 bg-rose-50/50 dark:border-rose-900/50 dark:bg-rose-950/20 text-xs text-rose-700 dark:text-rose-300 animate-in fade-in duration-300">
-                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                <div className="flex-1 text-left">
-                  <p className="font-bold">
-                    Alerta de Auditoria Pendente: {ANOMALY_TRANSLATIONS[alert.tipo_anomalia] || alert.tipo_anomalia}
-                  </p>
-                  <p className="mt-0.5 text-slate-500 dark:text-slate-400 leading-relaxed">
-                    {alert.descricao}
-                  </p>
-                </div>
-              </div>
-            ))}
-
             {formData.conciliado && (
               <div className="flex items-start gap-3 p-4 rounded-xl border border-blue-200 bg-blue-50/50 dark:border-blue-900/50 dark:bg-blue-950/20 text-xs text-blue-700 dark:text-blue-300 animate-in fade-in duration-300">
                 <Lock className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />

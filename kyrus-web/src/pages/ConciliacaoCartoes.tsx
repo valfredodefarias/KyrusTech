@@ -1335,16 +1335,31 @@ export function ConciliacaoCartoes() {
                       const isSelected = selectedDay === slot.dateStr;
                       const dayItems = filteredAgenda.filter(r => r.data_vencimento === slot.dateStr);
 
-                      // Group day items by brand
-                      const brandGrouped: Record<string, { bruto: number; liquido: number; itens: Recebivel[] }> = {};
+                      // Group day items by brand, then by tipo (debito / credito)
+                      const brandGrouped: Record<string, {
+                        bruto: number;
+                        liquido: number;
+                        itens: Recebivel[];
+                        debito: { bruto: number; liquido: number; count: number };
+                        credito: { bruto: number; liquido: number; count: number };
+                      }> = {};
                       dayItems.forEach(item => {
                         const brand = item.bandeira || 'OUTROS';
                         if (!brandGrouped[brand]) {
-                          brandGrouped[brand] = { bruto: 0, liquido: 0, itens: [] };
+                          brandGrouped[brand] = {
+                            bruto: 0, liquido: 0, itens: [],
+                            debito: { bruto: 0, liquido: 0, count: 0 },
+                            credito: { bruto: 0, liquido: 0, count: 0 }
+                          };
                         }
                         brandGrouped[brand].bruto += Number(item.valor_bruto);
                         brandGrouped[brand].liquido += Number(item.valor_liquido);
                         brandGrouped[brand].itens.push(item);
+                        const isDebito = item.tipo_pagamento === 'cartao_debito';
+                        const bucket = isDebito ? brandGrouped[brand].debito : brandGrouped[brand].credito;
+                        bucket.bruto += Number(item.valor_bruto);
+                        bucket.liquido += Number(item.valor_liquido);
+                        bucket.count += 1;
                       });
 
                       const totalLiquido = Object.keys(brandGrouped).reduce((sum, b) => sum + brandGrouped[b].liquido, 0);
@@ -1367,22 +1382,38 @@ export function ConciliacaoCartoes() {
                             )}
                           </div>
 
-                          {/* Brand Lists */}
-                          <div className="space-y-1 mt-2 overflow-y-auto max-h-[70px] custom-scrollbar">
+                          {/* Brand + Débito/Crédito Lines */}
+                          <div className="space-y-0.5 mt-2 overflow-y-auto max-h-[80px] custom-scrollbar">
                             {Object.keys(brandGrouped).map(brand => {
                               const info = brandGrouped[brand];
                               const brandObj = inferCardBrand(brand);
                               return (
-                                <div
-                                  key={brand}
-                                  className="flex items-center justify-between text-[9px] bg-slate-50/60 dark:bg-slate-800/60 px-1.5 py-0.5 rounded border border-slate-100/50 dark:border-slate-850 font-semibold truncate"
-                                  title={`${info.itens.length} recebível(eis) de ${brand}`}
-                                >
-                                  <div className="flex items-center gap-1 min-w-0">
+                                <div key={brand}>
+                                  {/* Brand label */}
+                                  <div className="flex items-center gap-1 px-1 pt-0.5">
                                     <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: brandObj.accent }}></span>
-                                    <span className="truncate uppercase text-slate-500 dark:text-slate-400">{brand}</span>
+                                    <span className="text-[8px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wide">{brand}</span>
                                   </div>
-                                  <span className="font-mono text-slate-700 dark:text-slate-200 font-bold">{BRL.format(info.liquido)}</span>
+                                  {/* Debito row */}
+                                  {info.debito.count > 0 && (
+                                    <div
+                                      className="flex items-center justify-between text-[8px] bg-blue-50/70 dark:bg-blue-950/20 px-1.5 py-0.5 rounded border border-blue-100/60 dark:border-blue-900/40 font-semibold ml-2"
+                                      title={`${info.debito.count} recebível(eis) de ${brand} - Débito`}
+                                    >
+                                      <span className="text-blue-500 dark:text-blue-400 font-bold">DEB</span>
+                                      <span className="font-mono text-blue-700 dark:text-blue-300 font-bold">{BRL.format(info.debito.liquido)}</span>
+                                    </div>
+                                  )}
+                                  {/* Crédito row */}
+                                  {info.credito.count > 0 && (
+                                    <div
+                                      className="flex items-center justify-between text-[8px] bg-violet-50/70 dark:bg-violet-950/20 px-1.5 py-0.5 rounded border border-violet-100/60 dark:border-violet-900/40 font-semibold ml-2"
+                                      title={`${info.credito.count} recebível(eis) de ${brand} - Crédito`}
+                                    >
+                                      <span className="text-violet-500 dark:text-violet-400 font-bold">CRÉ</span>
+                                      <span className="font-mono text-violet-700 dark:text-violet-300 font-bold">{BRL.format(info.credito.liquido)}</span>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
@@ -1415,7 +1446,7 @@ export function ConciliacaoCartoes() {
                         return <p className="text-xs text-slate-400 text-center py-6">Nenhum recebível previsto para este dia.</p>;
                       }
                       
-                      // Group items by brand
+                      // Group items by brand, then by tipo (debito / credito)
                       const groups: Record<string, {
                         bandeira: string;
                         items: typeof filteredAgenda;
@@ -1423,10 +1454,26 @@ export function ConciliacaoCartoes() {
                         taxa: number;
                         liquido: number;
                         status: string;
+                        subgroups: Record<string, {
+                          label: string;
+                          items: typeof filteredAgenda;
+                          bruto: number;
+                          taxa: number;
+                          liquido: number;
+                        }>;
                       }> = {};
-                      
+
+                      const tipoLabel = (tipo: string) => {
+                        if (tipo === 'cartao_debito') return 'Débito';
+                        if (tipo === 'cartao_credito_vista') return 'Crédito à Vista';
+                        if (tipo === 'cartao_credito_parcelado') return 'Crédito Parcelado';
+                        return tipo;
+                      };
+                      const tipoOrder = ['cartao_debito', 'cartao_credito_vista', 'cartao_credito_parcelado'];
+
                       dayItems.forEach(item => {
                         const brand = (item.bandeira || 'OUTROS').toUpperCase();
+                        const tipo = item.tipo_pagamento || 'OUTROS';
                         if (!groups[brand]) {
                           groups[brand] = {
                             bandeira: brand,
@@ -1434,18 +1481,25 @@ export function ConciliacaoCartoes() {
                             bruto: 0,
                             taxa: 0,
                             liquido: 0,
-                            status: item.status
+                            status: item.status,
+                            subgroups: {}
                           };
                         }
                         groups[brand].items.push(item);
                         groups[brand].bruto += Number(item.valor_bruto);
                         groups[brand].taxa += Number(item.valor_taxa);
                         groups[brand].liquido += Number(item.valor_liquido);
-                        if (item.status !== 'PAGO') {
-                          groups[brand].status = 'A RECEBER';
+                        if (item.status !== 'PAGO') groups[brand].status = 'A RECEBER';
+
+                        if (!groups[brand].subgroups[tipo]) {
+                          groups[brand].subgroups[tipo] = { label: tipoLabel(tipo), items: [], bruto: 0, taxa: 0, liquido: 0 };
                         }
+                        groups[brand].subgroups[tipo].items.push(item);
+                        groups[brand].subgroups[tipo].bruto += Number(item.valor_bruto);
+                        groups[brand].subgroups[tipo].taxa += Number(item.valor_taxa);
+                        groups[brand].subgroups[tipo].liquido += Number(item.valor_liquido);
                       });
-                      
+
                       const groupedList = Object.values(groups).sort((a, b) => a.bandeira.localeCompare(b.bandeira));
                       
                       return (
@@ -1494,63 +1548,99 @@ export function ConciliacaoCartoes() {
                                   </div>
                                 </div>
                                 
-                                {/* Group Items (Sub-list) */}
+                                {/* Group Items (Sub-list) — grouped by Débito / Crédito */}
                                 {isExpanded && (
-                                  <div className="bg-white dark:bg-slate-900/60 border-t border-slate-100 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 pl-3 pr-2">
-                                    {group.items.map(item => (
-                                      <div 
-                                        key={item.id} 
-                                        onClick={() => handleOpenEditRecebivel(item)} 
-                                        className="py-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 cursor-pointer rounded-lg transition px-2 my-1"
-                                      >
-                                        <div className="min-w-0 flex-1">
-                                          <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="font-bold text-slate-850 dark:text-slate-200 text-[11px]">{item.descricao}</span>
-                                            <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono shrink-0">{item.rv}</span>
+                                  <div className="bg-white dark:bg-slate-900/60 border-t border-slate-100 dark:border-slate-800">
+                                    {tipoOrder
+                                      .filter(tipo => !!group.subgroups[tipo])
+                                      .map(tipo => {
+                                        const sub = group.subgroups[tipo];
+                                        const isDebito = tipo === 'cartao_debito';
+                                        const subColor = isDebito
+                                          ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 border-blue-100 dark:border-blue-900/40'
+                                          : 'text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/20 border-violet-100 dark:border-violet-900/40';
+                                        return (
+                                          <div key={tipo} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0">
+                                            {/* Sub-group header: Débito or Crédito */}
+                                            <div className={`flex items-center justify-between px-3 py-1.5 border-b ${subColor} border-opacity-60`}>
+                                              <div className="flex items-center gap-2">
+                                                <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border ${subColor}`}>
+                                                  {isDebito ? 'Débito' : sub.label}
+                                                </span>
+                                                <span className="text-[9px] text-slate-400 font-semibold">{sub.items.length} {sub.items.length === 1 ? 'recebível' : 'recebíveis'}</span>
+                                              </div>
+                                              <div className="flex items-center gap-4">
+                                                <div className="text-right">
+                                                  <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Bruto</span>
+                                                  <span className="font-mono text-[10px] font-semibold text-slate-500">{BRL.format(sub.bruto)}</span>
+                                                </div>
+                                                <div className="text-right">
+                                                  <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Taxa</span>
+                                                  <span className="font-mono text-[10px] font-semibold text-rose-500">-{BRL.format(sub.taxa)}</span>
+                                                </div>
+                                                <div className="text-right">
+                                                  <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Líquido</span>
+                                                  <span className={`font-mono text-[10px] font-black ${isDebito ? 'text-blue-700 dark:text-blue-300' : 'text-violet-700 dark:text-violet-300'}`}>{BRL.format(sub.liquido)}</span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                            {/* Items within sub-group */}
+                                            <div className="divide-y divide-slate-100 dark:divide-slate-800 pl-3 pr-2">
+                                              {sub.items.map(item => (
+                                                <div
+                                                  key={item.id}
+                                                  onClick={() => handleOpenEditRecebivel(item)}
+                                                  className="py-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 cursor-pointer rounded-lg transition px-2 my-1"
+                                                >
+                                                  <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                      <span className="font-bold text-slate-850 dark:text-slate-200 text-[11px]">{item.descricao}</span>
+                                                      <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono shrink-0">{item.rv}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 flex-wrap">
+                                                      <span>Venda: {formatSafeDate(item.data_venda)}</span>
+                                                      {item.numero_parcela && (
+                                                        <>
+                                                          <span>•</span>
+                                                          <span>Parcela {item.numero_parcela}/{item.total_parcelas}</span>
+                                                        </>
+                                                      )}
+                                                      {item.vendedor && (
+                                                        <>
+                                                          <span>•</span>
+                                                          <span>Vendedor: <b className="text-slate-500 dark:text-slate-400 font-semibold">{item.vendedor}</b></span>
+                                                        </>
+                                                      )}
+                                                      {item.cliente && (
+                                                        <>
+                                                          <span>•</span>
+                                                          <span>Cliente: <b className="text-slate-500 dark:text-slate-400 font-semibold">{item.cliente}</b></span>
+                                                        </>
+                                                      )}
+                                                    </div>
+                                                  </div>
+                                                  <div className="flex items-center gap-5 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-slate-100 dark:border-slate-850">
+                                                    <div className="text-right flex items-center justify-end w-16">
+                                                      <span className="font-mono text-[11px] text-slate-500">{BRL.format(item.valor_bruto)}</span>
+                                                    </div>
+                                                    <div className="text-right flex items-center justify-end w-16">
+                                                      <span className="font-mono text-[11px] text-rose-500">-{BRL.format(item.valor_taxa)}</span>
+                                                    </div>
+                                                    <div className="text-right flex items-center justify-end w-16">
+                                                      <span className="font-mono text-[11px] font-bold text-slate-900 dark:text-white">{BRL.format(item.valor_liquido)}</span>
+                                                    </div>
+                                                    <div className="text-center w-20">
+                                                      <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase border ${item.status === 'PAGO' ? 'bg-emerald-50 dark:bg-emerald-950/10 text-emerald-600 dark:text-emerald-450 border-emerald-100 dark:border-emerald-950' : 'bg-amber-50 dark:bg-amber-950/10 text-amber-600 dark:text-amber-450 border-amber-100 dark:border-amber-950'}`}>
+                                                        {item.status}
+                                                      </span>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              ))}
+                                            </div>
                                           </div>
-                                          <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 flex-wrap">
-                                            <span>Venda: {formatSafeDate(item.data_venda)}</span>
-                                            <span>•</span>
-                                            <span>Forma: {formatTipoPagamento(item.tipo_pagamento)}</span>
-                                            {item.numero_parcela && (
-                                              <>
-                                                <span>•</span>
-                                                <span>Parcela {item.numero_parcela}/{item.total_parcelas}</span>
-                                              </>
-                                            )}
-                                            {item.vendedor && (
-                                              <>
-                                                <span>•</span>
-                                                <span>Vendedor: <b className="text-slate-500 dark:text-slate-400 font-semibold">{item.vendedor}</b></span>
-                                              </>
-                                            )}
-                                            {item.cliente && (
-                                              <>
-                                                <span>•</span>
-                                                <span>Cliente: <b className="text-slate-500 dark:text-slate-400 font-semibold">{item.cliente}</b></span>
-                                              </>
-                                            )}
-                                          </div>
-                                        </div>
-                                        
-                                        <div className="flex items-center gap-5 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-slate-100 dark:border-slate-850">
-                                          <div className="text-right flex items-center justify-end w-16">
-                                            <span className="font-mono text-[11px] text-slate-500">{BRL.format(item.valor_bruto)}</span>
-                                          </div>
-                                          <div className="text-right flex items-center justify-end w-16">
-                                            <span className="font-mono text-[11px] text-rose-500">-{BRL.format(item.valor_taxa)}</span>
-                                          </div>
-                                          <div className="text-right flex items-center justify-end w-16">
-                                            <span className="font-mono text-[11px] font-bold text-slate-900 dark:text-white">{BRL.format(item.valor_liquido)}</span>
-                                          </div>
-                                          <div className="text-center w-20">
-                                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase border ${item.status === 'PAGO' ? 'bg-emerald-50 dark:bg-emerald-950/10 text-emerald-600 dark:text-emerald-450 border-emerald-100 dark:border-emerald-950' : 'bg-amber-50 dark:bg-amber-950/10 text-amber-600 dark:text-amber-450 border-amber-100 dark:border-amber-950'}`}>
-                                              {item.status}
-                                            </span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    ))}
+                                        );
+                                      })}
                                   </div>
                                 )}
                               </div>

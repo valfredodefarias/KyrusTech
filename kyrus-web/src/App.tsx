@@ -103,6 +103,8 @@ const PAGE_LABELS: Record<string, string> = {
   '/importacao_nfe': 'Importação NF-e',
   '/auditoria': 'Auditoria',
   '/comissoes': 'Comissões e Metas',
+  '/apps/movimentacao-pdv': 'Movimentação PDV',
+  '/apps/ifood': 'iFood PDV',
 };
 
 const PAGE_ICONS: Record<string, string> = {
@@ -124,6 +126,8 @@ const PAGE_ICONS: Record<string, string> = {
   '/importacao_nfe': 'FileText',
   '/auditoria': 'History',
   '/comissoes': 'Award',
+  '/apps/movimentacao-pdv': 'Calculator',
+  '/apps/ifood': 'Utensils',
 };
 
 export function hasPathPermission(path: string, user: AuthUser | null): boolean {

@@ -899,6 +899,23 @@ class PdvService:
                 if regra.conta_destino_id:
                     conta_id = regra.conta_destino_id
 
+            # Validar se a conta existe para evitar erro de chave estrangeira (ForeignKeyViolation)
+            if conta_id:
+                conta_valida = db.exec(
+                    select(Conta)
+                    .where(Conta.id == conta_id, Conta.empresa_id == empresa_id)
+                ).first()
+                if not conta_valida:
+                    conta_id = None
+
+            # Validar se a categoria existe para evitar erro de chave estrangeira
+            plano_valido = db.exec(
+                select(PlanoContas)
+                .where(PlanoContas.id == plano_id, PlanoContas.empresa_id == empresa_id, PlanoContas.is_deleted == False)
+            ).first()
+            if not plano_valido:
+                plano_id = plano_fallback_id
+
             if is_paid and not conta_id:
                 conta_id = obter_conta_caixa_fisica(db, empresa_id)
 
@@ -1498,6 +1515,23 @@ class PdvService:
                 is_paid = False
                 if regra.conta_destino_id:
                     conta_id = regra.conta_destino_id
+
+            # Validar se a conta existe para evitar erro de chave estrangeira (ForeignKeyViolation)
+            if conta_id:
+                conta_valida = db.exec(
+                    select(Conta)
+                    .where(Conta.id == conta_id, Conta.empresa_id == empresa_id)
+                ).first()
+                if not conta_valida:
+                    conta_id = None
+
+            # Validar se a categoria existe para evitar erro de chave estrangeira
+            plano_valido = db.exec(
+                select(PlanoContas)
+                .where(PlanoContas.id == plano_id, PlanoContas.empresa_id == empresa_id, PlanoContas.is_deleted == False)
+            ).first()
+            if not plano_valido:
+                plano_id = plano_fallback_id
 
             if is_paid and not conta_id:
                 conta_id = obter_conta_caixa_fisica(db, empresa_id)

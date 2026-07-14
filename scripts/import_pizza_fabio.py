@@ -1058,7 +1058,7 @@ def import_unit(
     # 10. Import iFood transactions (Tb_Ifood)
     ifood_count = 0
     ifood_skipped_count = 0
-    if "Tb_Ifood" in wb.sheetnames and filter_center_of_cost != "Marco":
+    if "Tb_Ifood" in wb.sheetnames:
         sheet = wb["Tb_Ifood"]
         rows = list(sheet.iter_rows(values_only=True))
         if len(rows) > 1:

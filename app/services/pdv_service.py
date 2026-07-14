@@ -609,6 +609,8 @@ class PdvService:
         """
         Registra uma nova venda itemizada no PDV, criando os respectivos lançamentos financeiros.
         """
+        hoje_pag = venda_in.data_pagamento or datetime.utcnow().date()
+        
         # 0. Validar e processar campos extras
         campos_extras_validados = PdvService.validar_e_processar_campos_extras(
             db, empresa_id, venda_in.campos_extras, current_user_id
@@ -1155,6 +1157,8 @@ class PdvService:
         """
         Atualiza uma venda existente substituindo seus lançamentos pelos novos informados.
         """
+        hoje_pag = venda_in.data_pagamento or datetime.utcnow().date()
+        
         # 0. Validar e processar campos extras
         campos_extras_validados = PdvService.validar_e_processar_campos_extras(
             db, empresa_id, venda_in.campos_extras, current_user_id

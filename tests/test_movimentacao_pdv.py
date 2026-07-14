@@ -123,6 +123,22 @@ def test_movimentacao_pdv_lifecycle(client: TestClient, session: Session, setup_
         assert m_saida is not None
         assert m_saida.tipo == "SAIDA"
         
+        # 5.5 Create Entrada in Cartao (DEBITO)
+        payload_cartao = {
+            "tipo": "ENTRADA",
+            "descricao": "Venda Teste Cartao",
+            "valor": 200.00,
+            "forma_pagamento": "DEBITO",
+            "bandeira": "VISA",
+            "parcelas": 1,
+            "data": "2026-07-12",
+            "centro_custo_id": cc.id,
+            "conta_id": conta.id
+        }
+        
+        response = client.post("/api/v1/pdv/movimentacoes", json=payload_cartao)
+        assert response.status_code == 200
+        
         # 6. Get List again
         response = client.get("/api/v1/pdv/movimentacoes")
         assert response.status_code == 200

@@ -104,6 +104,8 @@ def import_unit(
     company_name: str,
     filter_center_of_cost=None,
     financeiro_filter=None,  # None=usa mesmo CC do filter_center_of_cost, ""=sem filtro, "SKIP"=pula Financeiro
+    filter_cc_max_date=None,   # Só importa registros com data <= esta data (para filtros históricos)
+    extra_cc_after_date=None,  # Tuple ("Marco", date(2026,3,1)): aceita CC extra a partir dessa data
     dry_run=False
 ):
     print(f"\n==================================================")
@@ -679,11 +681,26 @@ def import_unit(
                     continue
                 
                 row_cc = clean_str(row[cc_idx]) if cc_idx < len(row) else ""
-                if filter_center_of_cost and row_cc.lower() != filter_center_of_cost.lower():
+                row_dt_raw = parse_date(row[dt_idx]) if dt_idx < len(row) else None
+
+                # Filtragem por Centro de Custo com suporte a corte por data
+                if filter_center_of_cost:
+                    cc_match = row_cc.lower() == filter_center_of_cost.lower()
+                    # extra_cc_after_date: aceita outro CC a partir de uma data (bug legado)
+                    if not cc_match and extra_cc_after_date:
+                        extra_cc, extra_from = extra_cc_after_date
+                        if row_cc.lower() == extra_cc.lower() and row_dt_raw and row_dt_raw >= extra_from:
+                            cc_match = True
+                    if not cc_match:
+                        continue
+
+                # filter_cc_max_date: só importa até esta data (período histórico)
+                if filter_cc_max_date and row_dt_raw and row_dt_raw > filter_cc_max_date:
                     continue
 
+                # Se já parseamos dt acima, reutiliza; caso contrário parseia
                 pdv_id = clean_str(row[id_idx]) if id_idx < len(row) else ""
-                dt = parse_date(row[dt_idx]) if dt_idx < len(row) else None
+                dt = row_dt_raw  # já parseado pelo filtro de CC acima
                 tipo_mov = clean_str(row[tipo_idx]) if tipo_idx < len(row) else ""
                 hist = clean_str(row[hist_idx]) if hist_idx < len(row) else ""
                 forma = clean_str(row[forma_idx]) if forma_idx < len(row) else ""
@@ -1546,24 +1563,30 @@ def import_all_data(
     results = []
 
     # 1. Pizza Fábio Umarizal
+    # A partir de Mar/2026 o operador passou a usar CC=Marco por engano na Umarizal.
+    # Por isso aceitamos CC=Marco após 2026-03-01 como dados da Umarizal.
     res_uma = import_unit(
         db=db,
         file_path=path_umarizal,
         company_name="Pizza Fábio Umarizal",
         filter_center_of_cost="Umarizal",
-        financeiro_filter="",  # importa TODO Financeiro do arquivo (CC=Marco no legado = bug do sistema antigo)
+        extra_cc_after_date=("Marco", date(2026, 3, 1)),
+        financeiro_filter="",  # importa TODO Financeiro do arquivo
         dry_run=dry_run
     )
     results.append(res_uma)
 
     # 2a. Pizza Fábio Marco Salão — histórico compartilhado (período em que Marco
-    #     usava o PDV do Umarizal, filtrado por Centro de Custo = 'Marco')
+    #     usava o PDV do Umarizal, filtrado por Centro de Custo = 'Marco').
+    #     Limitado a antes de Mar/2026 — após essa data CC=Marco na planilha Umarizal
+    #     representa dados da própria Umarizal (erro de entrada do operador).
     res_m_sal_hist = import_unit(
         db=db,
         file_path=path_umarizal,
         company_name="Pizza Fábio Marco - Salão",
         filter_center_of_cost="Marco",
-        financeiro_filter="SKIP",  # Financeiro da Umarizal pertence à Umarizal; Marco pega só do seu arquivo
+        filter_cc_max_date=date(2026, 2, 28),  # corte: depois disso é dado da Umarizal
+        financeiro_filter="SKIP",
         dry_run=dry_run
     )
     results.append(res_m_sal_hist)

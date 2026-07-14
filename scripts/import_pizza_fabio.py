@@ -1118,11 +1118,19 @@ def import_unit(
                 val_bruto = parse_decimal(row[bruto_idx]) if bruto_idx < len(row) else Decimal("0.00")
                 taxa_r    = parse_decimal(row[taxa_r_idx]) if taxa_r_idx is not None and taxa_r_idx < len(row) else Decimal("0.00")
                 # Prefere calcular liquido a partir da taxa real (evita #N/A em fórmulas da planilha)
-                # Se taxa=0 (ex: Umarizal sem dados de taxa), usa a coluna Valor Liquido Total
+                # Se taxa=0, tenta usar a coluna Valor Liquido Total
+                # Se ainda bruto=liquido (fórmulas não preenchidas na planilha), usa taxa do TxCartoes
                 if taxa_r > 0:
                     val_liq = val_bruto - taxa_r
                 else:
                     val_liq = parse_decimal(row[liq_idx]) if liq_idx < len(row) else val_bruto
+                    # Fallback: fórmula vazia na planilha (ex: Umarizal registros antigos)
+                    # → aplica taxa configurada no TxCartoes para não deixar bruto = líquido
+                    if val_liq >= val_bruto and val_bruto > 0:
+                        ifood_rule_fb = rules_cache.get(("cartao_credito_vista", "IFOOD"))
+                        if ifood_rule_fb and ifood_rule_fb.taxa_porcentagem > 0:
+                            taxa_calc = (val_bruto * ifood_rule_fb.taxa_porcentagem / 100).quantize(Decimal("0.01"))
+                            val_liq = val_bruto - taxa_calc
                 dt_rec    = parse_date(row[rec_idx]) if rec_idx is not None and rec_idx < len(row) else None
                 st        = "Pago"  # sem coluna Status nas planilhas atuais
 

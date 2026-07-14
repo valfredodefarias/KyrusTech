@@ -525,6 +525,56 @@ def import_unit(
                 rules_cache[(mapped_tipo, mapped_band)] = regra
         print(f"Imported Regras de Cartão: {len(rules_map)} entries.")
 
+    # Regra sintética para iFood: se não veio do TxCartoes, calcula a partir de Tb_Ifood
+    if ("cartao_credito_vista", "IFOOD") not in rules_cache and "Tb_Ifood" in wb.sheetnames:
+        try:
+            ifood_sh = wb["Tb_Ifood"]
+            ifood_rows = list(ifood_sh.iter_rows(values_only=True))
+            if len(ifood_rows) > 1:
+                h = [clean_str(x) for x in ifood_rows[0]]
+                bruto_c = next((i for i, x in enumerate(h) if x in ["Valor Bruto", "Valor"]), None)
+                taxa_c  = next((i for i, x in enumerate(h) if x == "R$ Tx Ifood"), None)
+                dt_c    = h.index("Data") if "Data" in h else None
+                recto_c = next((i for i, x in enumerate(h) if x in ["Dt Recto Ajustado", "Data Recto"]), None)
+                taxas_pct, dias_list = [], []
+                for r in ifood_rows[1:]:
+                    if not any(r): continue
+                    bv = parse_decimal(r[bruto_c]) if bruto_c is not None and bruto_c < len(r) else Decimal("0")
+                    tv = parse_decimal(r[taxa_c])  if taxa_c  is not None and taxa_c  < len(r) else Decimal("0")
+                    if bv > 0 and tv > 0:
+                        taxas_pct.append(float(tv / bv * 100))
+                    if dt_c and recto_c:
+                        dv = parse_date(r[dt_c]   ) if dt_c    < len(r) else None
+                        dr = parse_date(r[recto_c]) if recto_c < len(r) else None
+                        if dv and dr and dr > dv:
+                            dias_list.append((dr - dv).days)
+                avg_taxa = Decimal(str(round(sum(taxas_pct) / len(taxas_pct), 2))) if taxas_pct else Decimal("12.00")
+                avg_dias = round(sum(dias_list) / len(dias_list)) if dias_list else 30
+                print(f"  iFood: taxa média={avg_taxa}%, dias médio={avg_dias} (baseado em {len(taxas_pct)} registros)")
+                if not dry_run:
+                    existing_ifood_rule = db.exec(
+                        select(RegraCartao).where(
+                            RegraCartao.empresa_id == empresa_id,
+                            RegraCartao.bandeira == "IFOOD",
+                            RegraCartao.tipo_pagamento == "cartao_credito_vista"
+                        )
+                    ).first()
+                    if not existing_ifood_rule:
+                        ifood_rule = RegraCartao(
+                            tipo_pagamento="cartao_credito_vista",
+                            bandeira="IFOOD",
+                            taxa_porcentagem=avg_taxa,
+                            dias_payout=avg_dias,
+                            empresa_id=empresa_id,
+                            tipo_prazo="DIAS_CORRIDOS",
+                        )
+                        db.add(ifood_rule)
+                        db.flush()
+                        rules_cache[("cartao_credito_vista", "IFOOD")] = ifood_rule
+                        print(f"  Criada RegraCartao iFood sintética (id={ifood_rule.id})")
+        except Exception as e:
+            print(f"  Aviso: não foi possível criar regra iFood automática: {e}")
+
     # 8. Seed Generic Products
     product_map = {}
     if not dry_run:

@@ -177,6 +177,43 @@ def main():
             total_lotes_matched += matched
             total_lanc_pago += em_pago
 
+        # ── Passo Final: Force-PAGO ─────────────────────────────────────────────
+        # Todo lançamento PDV EM ABERTO com data_vencimento < hoje já foi recebido
+        # (o adquirente paga conforme o prazo acordado). Marca como PAGO.
+        print(f"\n{'[DRY RUN] ' if dry_run else ''}Verificando recebíveis vencidos sem PAGO...")
+        from datetime import date as date_type
+        today = date_type.today()
+
+        empresa_filter_ids = [args.empresa_id] if args.empresa_id else None
+        force_q = (
+            select(Lancamento)
+            .where(
+                Lancamento.origem == "PDV",
+                Lancamento.status == "EM ABERTO",
+                Lancamento.tipo == "RECEITA",
+                Lancamento.data_vencimento < today,
+                Lancamento.is_deleted == False,
+            )
+        )
+        if empresa_filter_ids:
+            force_q = force_q.where(Lancamento.empresa_id.in_(empresa_filter_ids))
+
+        force_list = db.exec(force_q).all()
+        print(f"  Recebíveis vencidos EM ABERTO: {len(force_list):,}")
+
+        if not dry_run:
+            for lanc in force_list:
+                lanc.status = "PAGO"
+                lanc.valor_pago = lanc.valor_previsto
+                lanc.data_pagamento = lanc.data_vencimento
+                lanc.conciliado = True
+                lanc.updated_at = datetime.utcnow()
+                db.add(lanc)
+            db.commit()
+            print(f"  [OK] {len(force_list):,} lançamentos marcados PAGO.")
+        else:
+            print(f"  [DRY RUN] {len(force_list):,} seriam marcados PAGO.")
+
         if not dry_run:
             db.commit()
             print(f"\n[OK] Commit realizado.")
@@ -185,7 +222,8 @@ def main():
 
         print(f"\n=== RESUMO ===")
         print(f"  Lotes conciliados: {total_lotes_matched:,}")
-        print(f"  Lancamentos marcados PAGO: {total_lanc_pago:,}")
+        print(f"  Lancamentos marcados PAGO (lote match): {total_lanc_pago:,}")
+        print(f"  Lancamentos marcados PAGO (vencidos):   {len(force_list):,}")
 
 if __name__ == "__main__":
     main()

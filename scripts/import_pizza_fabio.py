@@ -942,18 +942,20 @@ def import_unit(
                             else:
                                 venc_p = dt + timedelta(days=30 * i) if dt else date.today()
 
+                            # Recebíveis vencidos já foram pagos pelo adquirente
+                            inst_pago = venc_p is not None and venc_p < date.today()
                             l = Lancamento(
                                 descricao=f"Venda RV-{pdv_id} ({i}/{num_parcelas}) - Venda PDV {product_suffix}",
                                 tipo="RECEITA",
-                                status="EM ABERTO",
+                                status="PAGO" if inst_pago else "EM ABERTO",
                                 origem="PDV",
                                 valor_previsto=valor_parcela,
-                                valor_pago=Decimal("0.00"),
+                                valor_pago=valor_parcela if inst_pago else Decimal("0.00"),
                                 valor_juros=Decimal("0.00"),
                                 valor_desconto=Decimal("0.00"),
                                 valor_multa=Decimal("0.00"),
                                 data_vencimento=venc_p,
-                                data_pagamento=None,
+                                data_pagamento=venc_p if inst_pago else None,
                                 data_competencia=dt if dt else date.today(),
                                 empresa_id=empresa_id,
                                 plano_contas_id=sale_pc_id,
@@ -966,7 +968,7 @@ def import_unit(
                                 is_deleted=False,
                                 ipp=False,
                                 previsto=True,
-                                conciliado=False,
+                                conciliado=inst_pago,
                                 numero_parcela=i,
                                 id_parcelamento=f"legacy-pdv-{empresa_id}-{pdv_id}",
                                 import_hash=import_hash if i == 1 else f"{import_hash}-p{i}",
@@ -992,18 +994,20 @@ def import_unit(
                         else:
                             venc_p = dt if dt else date.today()
 
+                        # Recebíveis vencidos já foram pagos pelo adquirente
+                        is_paid_final = is_paid or (not is_paid and venc_p is not None and venc_p < date.today())
                         l = Lancamento(
                             descricao=f"Venda RV-{pdv_id} - Venda PDV {product_suffix}",
                             tipo="RECEITA",
-                            status="PAGO" if is_paid else "EM ABERTO",
+                            status="PAGO" if is_paid_final else "EM ABERTO",
                             origem="PDV",
                             valor_previsto=val_cheio,
-                            valor_pago=val_cheio if is_paid else Decimal("0.00"),
+                            valor_pago=val_cheio if is_paid_final else Decimal("0.00"),
                             valor_juros=Decimal("0.00"),
                             valor_desconto=Decimal("0.00"),
                             valor_multa=Decimal("0.00"),
                             data_vencimento=venc_p,
-                            data_pagamento=dt if is_paid else None,
+                            data_pagamento=dt if is_paid else (venc_p if is_paid_final else None),
                             data_competencia=dt if dt else date.today(),
                             empresa_id=empresa_id,
                             plano_contas_id=sale_pc_id,
@@ -1016,8 +1020,7 @@ def import_unit(
                             is_deleted=False,
                             ipp=False,
                             previsto=True,
-                            conciliado=False,
-                            id_parcelamento=f"legacy-pdv-{empresa_id}-{pdv_id}",
+                            conciliado=is_paid_final,
                             import_hash=import_hash,
                             created_at=datetime.utcnow(),
                             updated_at=datetime.utcnow()

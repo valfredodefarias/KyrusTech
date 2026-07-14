@@ -31,7 +31,7 @@ def cleanup_old_idempotency_logs(db: Session) -> None:
     try:
         cutoff = datetime.utcnow() - timedelta(days=3)
         statement = text("DELETE FROM idempotency_logs WHERE created_at < :cutoff")
-        result = db.exec(statement, {"cutoff": cutoff})
+        result = db.execute(statement, {"cutoff": cutoff})
         db.commit()
         if result.rowcount > 0:
             logger.info("[Scheduler] Limpeza de idempotência: {} registros antigos deletados", result.rowcount)

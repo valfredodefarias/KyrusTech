@@ -273,6 +273,7 @@ def step_reconciliar(dry_run: bool):
                     unmatched += 1
                     continue
 
+                n_candidates = len(candidates)  # salva antes da mutação da lista
                 if not dry_run:
                     for lanc in list(candidates):
                         try:
@@ -302,7 +303,7 @@ def step_reconciliar(dry_run: bool):
                         if lanc in lanc_idx.get(key, []):
                             lanc_idx[key].remove(lanc)
 
-                em_pago += len(candidates)
+                em_pago += n_candidates
                 matched += 1
 
             print(f"    Lotes matched: {matched:,} | Sem match: {unmatched:,}")

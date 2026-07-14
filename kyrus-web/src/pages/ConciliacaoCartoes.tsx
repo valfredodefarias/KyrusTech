@@ -1523,26 +1523,63 @@ export function ConciliacaoCartoes() {
                                     </div>
                                   </div>
                                   
-                                  <div className="flex items-center gap-5 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2.5 md:pt-0 border-slate-100 dark:border-slate-800">
-                                    <div className="text-right">
-                                      <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Total Bruto</span>
-                                      <span className="font-mono text-xs font-semibold text-slate-500">{BRL.format(group.bruto)}</span>
-                                    </div>
-                                    <div className="text-right">
-                                      <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Total Taxa</span>
-                                      <span className="font-mono text-xs font-semibold text-rose-500">-{BRL.format(group.taxa)}</span>
-                                    </div>
-                                    <div className="text-right">
-                                      <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Total Líquido</span>
-                                      <span className="font-mono text-xs font-black text-slate-900 dark:text-white">{BRL.format(group.liquido)}</span>
-                                    </div>
-                                    <div className="text-center w-20">
+                                  <div className="flex items-center gap-4 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2.5 md:pt-0 border-slate-100 dark:border-slate-800 flex-wrap">
+                                    {/* Débito column */}
+                                    {group.subgroups['cartao_debito'] && (() => {
+                                      const deb = group.subgroups['cartao_debito'];
+                                      return (
+                                        <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40 rounded-lg px-2.5 py-1.5">
+                                          <span className="text-[8px] font-black uppercase text-blue-500 dark:text-blue-400 tracking-widest shrink-0">DEB</span>
+                                          <div className="text-right">
+                                            <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Bruto</span>
+                                            <span className="font-mono text-[10px] font-semibold text-slate-500">{BRL.format(deb.bruto)}</span>
+                                          </div>
+                                          <div className="text-right">
+                                            <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Taxa</span>
+                                            <span className="font-mono text-[10px] font-semibold text-rose-500">-{BRL.format(deb.taxa)}</span>
+                                          </div>
+                                          <div className="text-right">
+                                            <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Líquido</span>
+                                            <span className="font-mono text-[10px] font-black text-blue-700 dark:text-blue-300">{BRL.format(deb.liquido)}</span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
+                                    {/* Crédito column (vista + parcelado combined) */}
+                                    {(['cartao_credito_vista', 'cartao_credito_parcelado'].some(t => !!group.subgroups[t])) && (() => {
+                                      const cre = ['cartao_credito_vista', 'cartao_credito_parcelado'].reduce(
+                                        (acc, t) => {
+                                          const sg = group.subgroups[t];
+                                          if (sg) { acc.bruto += sg.bruto; acc.taxa += sg.taxa; acc.liquido += sg.liquido; }
+                                          return acc;
+                                        },
+                                        { bruto: 0, taxa: 0, liquido: 0 }
+                                      );
+                                      return (
+                                        <div className="flex items-center gap-2 bg-violet-50 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900/40 rounded-lg px-2.5 py-1.5">
+                                          <span className="text-[8px] font-black uppercase text-violet-500 dark:text-violet-400 tracking-widest shrink-0">CRÉ</span>
+                                          <div className="text-right">
+                                            <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Bruto</span>
+                                            <span className="font-mono text-[10px] font-semibold text-slate-500">{BRL.format(cre.bruto)}</span>
+                                          </div>
+                                          <div className="text-right">
+                                            <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Taxa</span>
+                                            <span className="font-mono text-[10px] font-semibold text-rose-500">-{BRL.format(cre.taxa)}</span>
+                                          </div>
+                                          <div className="text-right">
+                                            <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Líquido</span>
+                                            <span className="font-mono text-[10px] font-black text-violet-700 dark:text-violet-300">{BRL.format(cre.liquido)}</span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
+                                    <div className="text-center shrink-0">
                                       <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${group.status === 'PAGO' ? 'bg-emerald-100 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900' : 'bg-amber-100 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900'}`}>
                                         {group.status}
                                       </span>
                                     </div>
                                     {/* Chevron Icon */}
-                                    <svg className={`h-4 w-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <svg className={`h-4 w-4 text-slate-400 transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
                                     </svg>
                                   </div>

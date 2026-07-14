@@ -1621,14 +1621,13 @@ def import_all_data(
     results = []
 
     # 1. Pizza Fábio Umarizal
-    # A partir de Mar/2026 o operador passou a usar CC=Marco por engano na Umarizal.
-    # Por isso aceitamos CC=Marco após 2026-03-01 como dados da Umarizal.
+    # O CC na planilha é o livro da verdade: CC=Umarizal → Umarizal.
+    # Registros com CC=Marco pertencem ao Marco Salão (passo 2a).
     res_uma = import_unit(
         db=db,
         file_path=path_umarizal,
         company_name="Pizza Fábio Umarizal",
         filter_center_of_cost="Umarizal",
-        extra_cc_after_date=("Marco", date(2026, 3, 1)),
         financeiro_filter="",  # importa TODO Financeiro do arquivo
         dry_run=dry_run
     )
@@ -1636,15 +1635,13 @@ def import_all_data(
 
     # 2a. Pizza Fábio Marco Salão — histórico compartilhado (período em que Marco
     #     usava o PDV do Umarizal, filtrado por Centro de Custo = 'Marco').
-    #     Limitado a antes de Mar/2026 — após essa data CC=Marco na planilha Umarizal
-    #     representa dados da própria Umarizal (erro de entrada do operador).
+    #     O CC na planilha define a empresa: todos os CC=Marco do arquivo Umarizal → Marco Salão.
     res_m_sal_hist = import_unit(
         db=db,
         file_path=path_umarizal,
         company_name="Pizza Fábio Marco - Salão",
         filter_center_of_cost="Marco",
-        filter_cc_max_date=date(2026, 2, 28),  # corte: depois disso é dado da Umarizal
-        financeiro_filter="SKIP",
+        financeiro_filter="SKIP",  # Financeiro da Umarizal pertence à Umarizal
         dry_run=dry_run
     )
     results.append(res_m_sal_hist)

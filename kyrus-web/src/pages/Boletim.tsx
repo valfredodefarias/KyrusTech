@@ -1,4 +1,5 @@
 import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState, Fragment, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   Banknote,
@@ -2098,8 +2099,8 @@ export function Boletim() {
 
         {viewMode === 'executivo' ? (
           <section className="grid gap-4 xl:grid-cols-2 xl:items-start">
-            {auditPanel ? (
-              <div className="fixed inset-0 z-50">
+            {auditPanel ? createPortal(
+              <div className="fixed inset-0 z-[9999]">
                 <button
                   type="button"
                   className="absolute inset-0 bg-slate-950/55"
@@ -2127,7 +2128,7 @@ export function Boletim() {
                     <div className={`min-h-0 flex-1 overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
                       <div className="h-full overflow-y-auto">
                         <table className="w-full text-sm">
-                          <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
+                          <thead className={`sticky top-0 z-10 ${isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}`}>
                             <tr>
                               <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Vencimento</th>
                               <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
@@ -2200,7 +2201,7 @@ export function Boletim() {
                         ) : null}
                         {!auditLoading && auditPanel.extrato ? (
                           <table className="w-full text-sm">
-                            <thead className={isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}>
+                            <thead className={`sticky top-0 z-10 ${isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}`}>
                               <tr>
                                 <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
                                 <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
@@ -2259,7 +2260,8 @@ export function Boletim() {
                     </div>
                   )}
                 </aside>
-              </div>
+              </div>,
+              document.body
             ) : null}
 
             <LancamentoFormDrawer

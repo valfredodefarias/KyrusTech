@@ -418,26 +418,13 @@ export function ConciliacaoCartoes() {
   const fetchAgenda = async () => {
     setLoading(true);
     try {
-      let start = startDate;
-      let end = endDate;
-      if (!start && !end) {
-        // Fetch a wide window: 18 months back to 3 months forward
-        // to cover all historical imported data and upcoming receivables
-        const year = currentMonth.getFullYear();
-        const month = currentMonth.getMonth();
-        const startFar = new Date(year, month - 18, 1);
-        const endOfNext = new Date(year, month + 2, 0);
-        
-        start = startFar.toISOString().split('T')[0];
-        end = endOfNext.toISOString().split('T')[0];
-      }
-      
-      const res = await api.get('/pdv/recebiveis', {
-        params: {
-          start_date: start,
-          end_date: end
-        }
-      });
+      // Só aplica filtro de data se o usuário selecionou manualmente
+      // Sem filtro: carrega todo o histórico disponível
+      const params: Record<string, string> = {};
+      if (startDate) params.start_date = startDate;
+      if (endDate) params.end_date = endDate;
+
+      const res = await api.get('/pdv/recebiveis', { params });
       setRecebiveis(normalizeListResponse<Recebivel>(res.data));
     } catch (e) {
       console.error('Erro ao carregar recebíveis:', e);

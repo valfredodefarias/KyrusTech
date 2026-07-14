@@ -421,14 +421,14 @@ export function ConciliacaoCartoes() {
       let start = startDate;
       let end = endDate;
       if (!start && !end) {
-        // Fetch a 3-month window centered on currentMonth (previous month, current month, next month)
-        // to cover all calendar padding and adjacent calculations
+        // Fetch a wide window: 18 months back to 3 months forward
+        // to cover all historical imported data and upcoming receivables
         const year = currentMonth.getFullYear();
         const month = currentMonth.getMonth();
-        const startOfPrev = new Date(year, month - 1, 1);
+        const startFar = new Date(year, month - 18, 1);
         const endOfNext = new Date(year, month + 2, 0);
         
-        start = startOfPrev.toISOString().split('T')[0];
+        start = startFar.toISOString().split('T')[0];
         end = endOfNext.toISOString().split('T')[0];
       }
       

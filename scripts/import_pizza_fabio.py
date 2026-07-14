@@ -1049,8 +1049,13 @@ def import_unit(
 
                 forma_r   = clean_str(row[forma_idx]) if forma_idx < len(row) else ""
                 val_bruto = parse_decimal(row[bruto_idx]) if bruto_idx < len(row) else Decimal("0.00")
-                val_liq   = parse_decimal(row[liq_idx])   if liq_idx  < len(row) else val_bruto
                 taxa_r    = parse_decimal(row[taxa_r_idx]) if taxa_r_idx is not None and taxa_r_idx < len(row) else Decimal("0.00")
+                # Prefere calcular liquido a partir da taxa real (evita #N/A em fórmulas da planilha)
+                # Se taxa=0 (ex: Umarizal sem dados de taxa), usa a coluna Valor Liquido Total
+                if taxa_r > 0:
+                    val_liq = val_bruto - taxa_r
+                else:
+                    val_liq = parse_decimal(row[liq_idx]) if liq_idx < len(row) else val_bruto
                 dt_rec    = parse_date(row[rec_idx]) if rec_idx is not None and rec_idx < len(row) else None
                 st        = "Pago"  # sem coluna Status nas planilhas atuais
 

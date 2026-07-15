@@ -2393,9 +2393,36 @@ def criar_sangria_pdv(
     cc_id = config.get("pdv_centro_custo_padrao_id") or config.get("centro_custo_padrao_id")
     if not cc_id:
         cc = db.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).first()
-        cc_id = cc.id if cc else None
+        if not cc:
+            cc = CentroCusto(
+                nome="Matriz",
+                empresa_id=empresa_id,
+                is_active=True
+            )
+            db.add(cc)
+            db.flush()
+        cc_id = cc.id
 
     venda_uuid = str(uuid.uuid4())
+    data_str = sangria_in.data.strftime("%d/%m/%Y")
+    competencia_str = f"{sangria_in.data.month:02d}-{sangria_in.data.year}"
+
+    # Obter ou criar interessado 'Sangria' para a saída (DESPESA)
+    default_supplier = db.exec(
+        select(Entidade).where(
+            Entidade.empresa_id == empresa_id,
+            Entidade.nome == "Sangria"
+        )
+    ).first()
+    if not default_supplier:
+        default_supplier = Entidade(
+            nome="Sangria",
+            tipo="FORNECEDOR",
+            empresa_id=empresa_id,
+            is_active=True
+        )
+        db.add(default_supplier)
+        db.flush()
 
     # 3. Criar Lançamento de Saída no PDV (DESPESA)
     meta_saida = {
@@ -2406,9 +2433,9 @@ def criar_sangria_pdv(
         "sangria_uuid": venda_uuid
     }
     
-    desc_saida = f"Sangria de Caixa - Destino: {conta_destino.nome}"
+    desc_saida = f"Sangria {data_str}"
     if sangria_in.descricao and sangria_in.descricao != "Sangria de Caixa":
-        desc_saida = f"{sangria_in.descricao} (Destino: {conta_destino.nome})"
+        desc_saida = f"{sangria_in.descricao} {data_str}"
         
     l_saida = Lancamento(
         empresa_id=empresa_id,
@@ -2421,7 +2448,9 @@ def criar_sangria_pdv(
         data_vencimento=sangria_in.data,
         data_pagamento=sangria_in.data,
         data_competencia=sangria_in.data,
+        competencia=competencia_str,
         status="PAGO",
+        entidade_id=default_supplier.id,
         centro_custo_id=cc_id,
         id_parcelamento=venda_uuid,
         observacao=json.dumps(meta_saida, ensure_ascii=False)
@@ -2462,9 +2491,9 @@ def criar_sangria_pdv(
         "sangria_uuid": venda_uuid
     }
     
-    desc_entrada = f"Depósito Sangria - Origem: {conta_origem.nome}"
+    desc_entrada = f"Sangria {data_str}"
     if sangria_in.descricao and sangria_in.descricao != "Sangria de Caixa":
-        desc_entrada = f"{sangria_in.descricao} (Origem: {conta_origem.nome})"
+        desc_entrada = f"{sangria_in.descricao} {data_str}"
 
     # Cliente Consumidor default para a receita
     default_client = db.exec(
@@ -2491,6 +2520,7 @@ def criar_sangria_pdv(
         data_vencimento=sangria_in.data,
         data_pagamento=sangria_in.data,
         data_competencia=sangria_in.data,
+        competencia=competencia_str,
         status="PAGO",
         entidade_id=default_client.id,
         centro_custo_id=cc_id,

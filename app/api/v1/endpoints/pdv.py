@@ -2072,12 +2072,12 @@ def criar_movimentacao_pdv(
         if mov_in.forma_pagamento in ["DINHEIRO", "PIX"]:
             pc_receita = db.exec(
                 select(PlanoContas)
-                .where(PlanoContas.empresa_id == empresa_id, PlanoContas.tipo == "RECEITA")
+                .where(PlanoContas.empresa_id == empresa_id, PlanoContas.tipo == "R", PlanoContas.permite_lancamentos == True)
             ).first()
             if not pc_receita:
                 pc_receita = PlanoContas(
                     nome="Receitas de Vendas",
-                    tipo="RECEITA",
+                    tipo="R",
                     empresa_id=empresa_id,
                     permite_lancamentos=True,
                     codigo="1.01.01"
@@ -2226,12 +2226,12 @@ def criar_movimentacao_pdv(
         # É uma SAÍDA (Sangria/Retirada)
         pc_despesa = db.exec(
             select(PlanoContas)
-            .where(PlanoContas.empresa_id == empresa_id, PlanoContas.tipo == "DESPESA")
+            .where(PlanoContas.empresa_id == empresa_id, PlanoContas.tipo == "D", PlanoContas.permite_lancamentos == True)
         ).first()
         if not pc_despesa:
             pc_despesa = PlanoContas(
                 nome="Sangria / Despesas Operacionais",
-                tipo="DESPESA",
+                tipo="D",
                 empresa_id=empresa_id,
                 permite_lancamentos=True,
                 codigo="2.01.01"

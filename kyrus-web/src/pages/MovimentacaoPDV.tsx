@@ -92,6 +92,12 @@ export function MovimentacaoPDV() {
   const [formCentroCustoId, setFormCentroCustoId] = useState('');
   const [formContaId, setFormContaId] = useState('');
 
+  // Sangria State
+  const [showSangriaDrawer, setShowSangriaDrawer] = useState(false);
+  const [sangriaValor, setSangriaValor] = useState('');
+  const [sangriaData, setSangriaData] = useState('');
+  const [sangriaContaDestinoId, setSangriaContaDestinoId] = useState<number | ''>('');
+
   // Dropdowns Lists
   const [centrosCusto, setCentrosCusto] = useState<any[]>([]);
   const [contas, setContas] = useState<any[]>([]);
@@ -438,6 +444,85 @@ export function MovimentacaoPDV() {
     } else {
       setSelectedIds(new Set(filteredEntries.map(m => m.id)));
     }
+    setShowDrawer(true);
+  };
+
+  const handleOpenSangriaDrawer = () => {
+    setSangriaValor('');
+    setSangriaData(selectedDate || new Date().toISOString().split('T')[0]);
+    
+    const sourceAccountId = pdvConfig?.pdv_conta_padrao_id;
+    const validDestinations = contas.filter(c => c.id !== sourceAccountId);
+    
+    const lastUsed = localStorage.getItem('kyrus_last_sangria_destination_id');
+    if (lastUsed && validDestinations.some(c => c.id === Number(lastUsed))) {
+      setSangriaContaDestinoId(Number(lastUsed));
+    } else {
+      const targetFrequency: Record<number, number> = {};
+      filteredEntries.forEach(item => {
+        if (item.tipo === 'SAIDA' && item.descricao.toLowerCase().includes('sangria')) {
+          const match = item.descricao.match(/Destino:\s*(.+)$/i);
+          if (match) {
+            const bankName = match[1].trim().toLowerCase();
+            const matchingConta = validDestinations.find(c => c.nome.toLowerCase().includes(bankName) || bankName.includes(c.nome.toLowerCase()));
+            if (matchingConta) {
+              targetFrequency[matchingConta.id] = (targetFrequency[matchingConta.id] || 0) + 1;
+            }
+          }
+        }
+      });
+      
+      let mostFrequentId: number | '' = '';
+      let maxCount = 0;
+      Object.entries(targetFrequency).forEach(([idStr, count]) => {
+        if (count > maxCount) {
+          maxCount = count;
+          mostFrequentId = Number(idStr);
+        }
+      });
+      
+      if (mostFrequentId !== '') {
+        setSangriaContaDestinoId(mostFrequentId);
+      } else if (validDestinations.length > 0) {
+        setSangriaContaDestinoId(validDestinations[0].id);
+      } else {
+        setSangriaContaDestinoId('');
+      }
+    }
+    setShowSangriaDrawer(true);
+  };
+
+  const handleSaveSangria = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = Number(sangriaValor);
+    if (isNaN(val) || val <= 0) {
+      alert('Informe um valor válido maior que zero.');
+      return;
+    }
+    if (!sangriaContaDestinoId) {
+      alert('Selecione uma conta bancária de destino.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        data: sangriaData,
+        valor: val,
+        conta_destino_id: Number(sangriaContaDestinoId),
+        descricao: 'Sangria de Caixa'
+      };
+      
+      await api.post('/pdv/sangrias', payload);
+      
+      localStorage.setItem('kyrus_last_sangria_destination_id', String(sangriaContaDestinoId));
+      setShowSangriaDrawer(false);
+      await fetchMovimentacoes(currentYearMonth, selectedDate);
+    } catch (err: any) {
+      console.error('Erro ao salvar sangria:', err);
+      alert(err?.response?.data?.detail || 'Erro ao registrar sangria.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // ---------- FORM ----------
@@ -695,6 +780,13 @@ export function MovimentacaoPDV() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={handleOpenSangriaDrawer}
+            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition rounded-none cursor-pointer flex items-center gap-1.5 border-none shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Registrar Sangria</span>
+          </button>
           <button
             onClick={() => handleOpenDrawer('ENTRADA')}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition rounded-none cursor-pointer flex items-center gap-1.5 border-none shadow-sm"
@@ -1328,6 +1420,152 @@ export function MovimentacaoPDV() {
           )}
         </div>
       </div>
+
+      {/* Drawer: Registrar Sangria */}
+      {showSangriaDrawer && (
+        <>
+          <div
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-40 transition-opacity"
+            onClick={() => !saving && setShowSangriaDrawer(false)}
+          />
+          <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 z-50 shadow-2xl flex flex-col animate-in slide-in-from-right duration-250 rounded-none">
+
+            {/* Header */}
+            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/20 dark:bg-slate-950/10">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                  Registrar Sangria do Caixa
+                </h2>
+                <p className="text-slate-500 dark:text-slate-455 text-[11px]">
+                  Retirada de caixa e transferência para conta bancária
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !saving && setShowSangriaDrawer(false)}
+                className="p-1.5 rounded-none border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition text-slate-655 cursor-pointer bg-transparent"
+              >
+                <XIcon className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveSangria} className="flex-1 overflow-y-auto p-6 space-y-5">
+
+              {/* Data da Sangria */}
+              <div className="space-y-1">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Data da Sangria *</label>
+                <div className="relative">
+                  <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="date"
+                    required
+                    disabled={saving}
+                    value={sangriaData}
+                    onChange={(e) => setSangriaData(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 rounded-none border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-rose-500 transition disabled:opacity-50"
+                  />
+                </div>
+              </div>
+
+              {/* Valor */}
+              <div className="space-y-1">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Valor *</label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">R$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    placeholder="0,00"
+                    disabled={saving}
+                    value={sangriaValor}
+                    onChange={(e) => setSangriaValor(e.target.value)}
+                    className="w-full pl-9 pr-4 py-3 rounded-none border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-rose-500 transition disabled:opacity-50 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Saldo de Caixa */}
+              {dailyTotals && (
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-150 dark:border-slate-850 rounded-2xl flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-350">
+                  <span>Dinheiro em Caixa (Hoje):</span>
+                  <span className="font-mono text-emerald-600 dark:text-emerald-450">{BRL.format(dailyTotals.dinheiro.valor)}</span>
+                </div>
+              )}
+
+              {/* Aviso de Saldo Insuficiente */}
+              {dailyTotals && Number(sangriaValor) > dailyTotals.dinheiro.valor && (
+                <div className="p-3.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-250 dark:border-amber-900/50 rounded-2xl flex items-start gap-2.5 text-[11px] font-bold text-amber-800 dark:text-amber-400">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
+                  <span className="leading-relaxed">Atenção: O valor informado é maior que o saldo de dinheiro físico disponível em caixa hoje ({BRL.format(dailyTotals.dinheiro.valor)}).</span>
+                </div>
+              )}
+
+              {/* Conta / Banco de Destino (Botões) */}
+              <div className="space-y-2">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Conta / Banco de Destino *</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {contas.filter(c => c.id !== pdvConfig?.pdv_conta_padrao_id).map((c) => {
+                    const isSelected = sangriaContaDestinoId === c.id;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setSangriaContaDestinoId(c.id)}
+                        className={`p-3.5 border rounded-2xl flex flex-col items-center justify-center transition cursor-pointer text-center select-none ${
+                          isSelected
+                            ? 'bg-rose-50 border-rose-500 text-rose-700 dark:bg-rose-950/20 dark:border-rose-500 dark:text-rose-450 font-black ring-2 ring-rose-500/20'
+                            : 'bg-white border-slate-200 hover:border-slate-350 dark:bg-slate-950 dark:border-slate-800 dark:hover:border-slate-700 text-slate-700 dark:text-slate-300 font-bold'
+                        }`}
+                      >
+                        <span className="text-xs">{c.nome}</span>
+                        {c.banco && <span className="text-[10px] opacity-60 mt-0.5">{c.banco}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                {contas.filter(c => c.id !== pdvConfig?.pdv_conta_padrao_id).length === 0 && (
+                  <p className="text-xs text-rose-500 font-bold">Nenhum banco ou conta cadastrada de destino (excluindo a conta caixa do PDV).</p>
+                )}
+              </div>
+
+            </form>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3 shrink-0 bg-slate-50/20 dark:bg-slate-950/10">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setShowSangriaDrawer(false)}
+                className="px-5 py-2.5 text-xs font-bold text-slate-655 dark:text-slate-455 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer border-none bg-transparent disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={handleSaveSangria}
+                className="px-6 py-2.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition shadow-sm border-none cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {saving ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Registrando...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    <span>Salvar Sangria</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+          </div>
+        </>
+      )}
 
       {/* Drawer: Add/Edit Entry Form */}
       {showDrawer && (

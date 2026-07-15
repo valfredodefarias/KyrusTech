@@ -50,7 +50,8 @@ from app.schemas.pdv import (
     LoteCartaoCreate,
     LoteCartaoItemRead,
     PdvConfigSchema,
-    PdvIfoodConsolidarIn
+    PdvIfoodConsolidarIn,
+    SangriaCreateSchema
 )
 from app.models.pdv_ifood_lancamento import PdvIfoodLancamento
 from app.schemas.ifood import PdvIfoodLancamentoCreate, PdvIfoodLancamentoRead, PdvIfoodLancamentoUpdate
@@ -1606,7 +1607,9 @@ def obter_config_pdv(
         pdv_centro_custo_padrao_id=config_dict.get("pdv_centro_custo_padrao_id"),
         pdv_centro_custo_flexivel=config_dict.get("pdv_centro_custo_flexivel", False),
         ifood_conta_padrao_id=config_dict.get("ifood_conta_padrao_id"),
-        pdv_conta_padrao_id=config_dict.get("pdv_conta_padrao_id")
+        pdv_conta_padrao_id=config_dict.get("pdv_conta_padrao_id"),
+        pdv_sangria_saida_plano_contas_id=config_dict.get("pdv_sangria_saida_plano_contas_id"),
+        pdv_sangria_entrada_plano_contas_id=config_dict.get("pdv_sangria_entrada_plano_contas_id")
     )
 
 
@@ -1657,6 +1660,10 @@ def atualizar_config_pdv(
         config_dict["ifood_conta_padrao_id"] = config_in.ifood_conta_padrao_id
     if config_in.pdv_conta_padrao_id is not None:
         config_dict["pdv_conta_padrao_id"] = config_in.pdv_conta_padrao_id
+    if config_in.pdv_sangria_saida_plano_contas_id is not None:
+        config_dict["pdv_sangria_saida_plano_contas_id"] = config_in.pdv_sangria_saida_plano_contas_id
+    if config_in.pdv_sangria_entrada_plano_contas_id is not None:
+        config_dict["pdv_sangria_entrada_plano_contas_id"] = config_in.pdv_sangria_entrada_plano_contas_id
         
     empresa.pdv_config = json.dumps(config_dict)
     empresa.updated_by_id = current_user.id
@@ -1678,7 +1685,9 @@ def atualizar_config_pdv(
         pdv_centro_custo_padrao_id=config_dict.get("pdv_centro_custo_padrao_id"),
         pdv_centro_custo_flexivel=config_dict.get("pdv_centro_custo_flexivel", False),
         ifood_conta_padrao_id=config_dict.get("ifood_conta_padrao_id"),
-        pdv_conta_padrao_id=config_dict.get("pdv_conta_padrao_id")
+        pdv_conta_padrao_id=config_dict.get("pdv_conta_padrao_id"),
+        pdv_sangria_saida_plano_contas_id=config_dict.get("pdv_sangria_saida_plano_contas_id"),
+        pdv_sangria_entrada_plano_contas_id=config_dict.get("pdv_sangria_entrada_plano_contas_id")
     )
 
 
@@ -2269,6 +2278,212 @@ def criar_movimentacao_pdv(
         db.commit()
         return {"status": "success", "id": l.id}
 
+
+@router.post("/sangrias")
+def criar_sangria_pdv(
+    sangria_in: SangriaCreateSchema,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    current_user: Usuario = Depends(get_current_active_user)
+):
+    """
+    Registra uma sangria de caixa: cria um lançamento de saída (DESPESA) no PDV e 
+    um lançamento de entrada (RECEITA) na conta de destino bancária.
+    """
+    # 1. Obter config do PDV
+    empresa = db.get(Empresa, empresa_id)
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada.")
+    
+    config = {}
+    if empresa.pdv_config:
+        try:
+            config = json.loads(empresa.pdv_config)
+        except:
+            pass
+            
+    pdv_conta_id = config.get("pdv_conta_padrao_id")
+    if not pdv_conta_id:
+        raise HTTPException(
+            status_code=400, 
+            detail="Conta padrão do PDV não configurada nas preferências do Aplicativo."
+        )
+        
+    if pdv_conta_id == sangria_in.conta_destino_id:
+        raise HTTPException(
+            status_code=400,
+            detail="A conta de destino não pode ser a própria conta do PDV."
+        )
+        
+    # Verificar se as contas existem e pertencem à empresa
+    conta_origem = db.exec(
+        select(Conta).where(Conta.id == pdv_conta_id, Conta.empresa_id == empresa_id)
+    ).first()
+    conta_destino = db.exec(
+        select(Conta).where(Conta.id == sangria_in.conta_destino_id, Conta.empresa_id == empresa_id)
+    ).first()
+    
+    if not conta_origem:
+        raise HTTPException(status_code=400, detail="Conta de origem (PDV) não encontrada.")
+    if not conta_destino:
+        raise HTTPException(status_code=400, detail="Conta de destino não encontrada.")
+
+    # 2. Obter categorias (PlanoContas) configuradas
+    saida_pc_id = config.get("pdv_sangria_saida_plano_contas_id")
+    entrada_pc_id = config.get("pdv_sangria_entrada_plano_contas_id")
+    
+    # Fallback para Saída se não configurado
+    if not saida_pc_id:
+        pc_despesa = db.exec(
+            select(PlanoContas).where(PlanoContas.empresa_id == empresa_id, PlanoContas.tipo == "DESPESA")
+        ).first()
+        if not pc_despesa:
+            pc_despesa = PlanoContas(
+                nome="Sangria / Despesas Operacionais",
+                tipo="DESPESA",
+                empresa_id=empresa_id,
+                permite_lancamentos=True,
+                codigo="2.01.01"
+            )
+            db.add(pc_despesa)
+            db.flush()
+        saida_pc_id = pc_despesa.id
+        
+    # Fallback para Entrada se não configurado
+    if not entrada_pc_id:
+        pc_receita = db.exec(
+            select(PlanoContas).where(PlanoContas.empresa_id == empresa_id, PlanoContas.tipo == "RECEITA")
+        ).first()
+        if not pc_receita:
+            pc_receita = PlanoContas(
+                nome="Receitas de Vendas",
+                tipo="RECEITA",
+                empresa_id=empresa_id,
+                permite_lancamentos=True,
+                codigo="1.01.01"
+            )
+            db.add(pc_receita)
+            db.flush()
+        entrada_pc_id = pc_receita.id
+
+    # Resolve Centro de Custo
+    cc_id = config.get("pdv_centro_custo_padrao_id") or config.get("centro_custo_padrao_id")
+    if not cc_id:
+        cc = db.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).first()
+        cc_id = cc.id if cc else None
+
+    venda_uuid = str(uuid.uuid4())
+
+    # 3. Criar Lançamento de Saída no PDV (DESPESA)
+    meta_saida = {
+        "is_movimentacao_pdv": True,
+        "forma_pagamento": "DINHEIRO",
+        "total_parcelas": 1,
+        "is_sangria": True,
+        "sangria_uuid": venda_uuid
+    }
+    
+    desc_saida = f"Sangria de Caixa - Destino: {conta_destino.nome}"
+    if sangria_in.descricao and sangria_in.descricao != "Sangria de Caixa":
+        desc_saida = f"{sangria_in.descricao} (Destino: {conta_destino.nome})"
+        
+    l_saida = Lancamento(
+        empresa_id=empresa_id,
+        conta_id=pdv_conta_id,
+        plano_contas_id=saida_pc_id,
+        tipo="DESPESA",
+        descricao=desc_saida,
+        valor_previsto=sangria_in.valor,
+        valor_pago=sangria_in.valor,
+        data_vencimento=sangria_in.data,
+        data_pagamento=sangria_in.data,
+        data_competencia=sangria_in.data,
+        status="PAGO",
+        centro_custo_id=cc_id,
+        id_parcelamento=venda_uuid,
+        observacao=json.dumps(meta_saida, ensure_ascii=False)
+    )
+    l_saida.created_by_id = current_user.id
+    l_saida.updated_by_id = current_user.id
+    l_saida.created_at = datetime.utcnow()
+    l_saida.updated_at = datetime.utcnow()
+    db.add(l_saida)
+    db.flush()
+
+    # Criar registro na pdv_movimentacoes para a Saída
+    m_op = PdvMovimentacao(
+        id=l_saida.id,
+        empresa_id=empresa_id,
+        tipo="SAIDA",
+        descricao=desc_saida,
+        valor=sangria_in.valor,
+        forma_pagamento="DINHEIRO",
+        bandeira="OUTROS",
+        parcelas=1,
+        data=sangria_in.data,
+        centro_custo_id=cc_id,
+        conta_id=pdv_conta_id,
+        conciliado=False,
+        venda_id=venda_uuid,
+        created_by_id=current_user.id,
+        updated_by_id=current_user.id,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
+    )
+    db.add(m_op)
+
+    # 4. Criar Lançamento de Entrada no Banco Destino (RECEITA)
+    meta_entrada = {
+        "is_sangria_entrada": True,
+        "origem_conta_id": pdv_conta_id,
+        "sangria_uuid": venda_uuid
+    }
+    
+    desc_entrada = f"Depósito Sangria - Origem: {conta_origem.nome}"
+    if sangria_in.descricao and sangria_in.descricao != "Sangria de Caixa":
+        desc_entrada = f"{sangria_in.descricao} (Origem: {conta_origem.nome})"
+
+    # Cliente Consumidor default para a receita
+    default_client = db.exec(
+        select(Entidade).where(Entidade.empresa_id == empresa_id, Entidade.nome == "Cliente Consumidor")
+    ).first()
+    if not default_client:
+        default_client = Entidade(
+            nome="Cliente Consumidor",
+            tipo="CLIENTE",
+            empresa_id=empresa_id,
+            is_active=True
+        )
+        db.add(default_client)
+        db.flush()
+
+    l_entrada = Lancamento(
+        empresa_id=empresa_id,
+        conta_id=sangria_in.conta_destino_id,
+        plano_contas_id=entrada_pc_id,
+        tipo="RECEITA",
+        descricao=desc_entrada,
+        valor_previsto=sangria_in.valor,
+        valor_pago=sangria_in.valor,
+        data_vencimento=sangria_in.data,
+        data_pagamento=sangria_in.data,
+        data_competencia=sangria_in.data,
+        status="PAGO",
+        entidade_id=default_client.id,
+        centro_custo_id=cc_id,
+        id_parcelamento=venda_uuid,
+        observacao=json.dumps(meta_entrada, ensure_ascii=False)
+    )
+    l_entrada.created_by_id = current_user.id
+    l_entrada.updated_by_id = current_user.id
+    l_entrada.created_at = datetime.utcnow()
+    l_entrada.updated_at = datetime.utcnow()
+    db.add(l_entrada)
+    
+    db.commit()
+    return {"status": "success", "saida_id": l_saida.id, "entrada_id": l_entrada.id}
+
+
 @router.delete("/movimentacoes/{id}")
 def deletar_movimentacao_pdv(
     id: int,
@@ -2362,6 +2577,16 @@ def atualizar_movimentacao_pdv(
                 status_code=400,
                 detail="Esta movimentação já foi conciliada e não pode ser editada."
             )
+        if lanc.observacao:
+            try:
+                meta = json.loads(lanc.observacao)
+                if meta.get("is_sangria") or meta.get("is_sangria_entrada"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Sangrias não podem ser editadas diretamente. Por favor, exclua a sangria e registre uma nova."
+                    )
+            except:
+                pass
             
     # Excluir logicamente a antiga movimentação
     m_op.is_deleted = True

@@ -241,6 +241,15 @@ class PdvConfigSchema(SQLModel):
     
     ifood_conta_padrao_id: Optional[int] = None
     pdv_conta_padrao_id: Optional[int] = None
+    pdv_sangria_saida_plano_contas_id: Optional[int] = None
+    pdv_sangria_entrada_plano_contas_id: Optional[int] = None
+
+
+class SangriaCreateSchema(SQLModel):
+    data: date
+    valor: Decimal
+    conta_destino_id: int
+    descricao: Optional[str] = "Sangria de Caixa"
 
 
 class PdvIfoodConsolidarIn(SQLModel):

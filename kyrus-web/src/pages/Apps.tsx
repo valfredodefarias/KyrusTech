@@ -63,6 +63,12 @@ export function Apps() {
   const [settingsPdvContaPadraoId, setSettingsPdvContaPadraoId] = useState<number | ''>('');
   const [settingsIfoodContaPadraoId, setSettingsIfoodContaPadraoId] = useState<number | ''>('');
 
+  // Sangria categories
+  const [pdvSangriaSaidaPlanoContasId, setPdvSangriaSaidaPlanoContasId] = useState<number | ''>('');
+  const [pdvSangriaEntradaPlanoContasId, setPdvSangriaEntradaPlanoContasId] = useState<number | ''>('');
+  const [settingsPdvSangriaSaidaPlanoContasId, setSettingsPdvSangriaSaidaPlanoContasId] = useState<number | ''>('');
+  const [settingsPdvSangriaEntradaPlanoContasId, setSettingsPdvSangriaEntradaPlanoContasId] = useState<number | ''>('');
+
   // Consolidação Financeira
   const [showConsolidateModal, setShowConsolidateModal] = useState(false);
   const [selectedContaId, setSelectedContaId] = useState<number | ''>('');
@@ -115,6 +121,8 @@ export function Apps() {
         setPdvCentroCustoFlexivel(response.data.pdv_centro_custo_flexivel ?? response.data.centro_custo_flexivel ?? false);
         setPdvContaPadraoId(response.data.pdv_conta_padrao_id ?? '');
         setIfoodContaPadraoId(response.data.ifood_conta_padrao_id ?? '');
+        setPdvSangriaSaidaPlanoContasId(response.data.pdv_sangria_saida_plano_contas_id ?? '');
+        setPdvSangriaEntradaPlanoContasId(response.data.pdv_sangria_entrada_plano_contas_id ?? '');
       }
     } catch (err) {
       console.error('Erro ao buscar configurações do PDV:', err);
@@ -150,6 +158,8 @@ export function Apps() {
 
   const centrosCusto = useLookupStore((state) => state.centrosCusto);
   const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
+  const planoContas = useLookupStore((state) => state.planoContas);
+  const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
 
   // Load configs on mount or company change
   useEffect(() => {
@@ -157,6 +167,7 @@ export function Apps() {
       void fetchConfig();
       void fetchContas();
       void fetchCentrosCusto();
+      void fetchPlanoContas();
     }
   }, [empresaId]);
 
@@ -423,7 +434,9 @@ export function Apps() {
         pdv_centro_custo_padrao_id: pdvCentroCustoPadraoId === '' ? null : pdvCentroCustoPadraoId,
         pdv_centro_custo_flexivel: pdvCentroCustoFlexivel,
         pdv_conta_padrao_id: pdvContaPadraoId === '' ? null : pdvContaPadraoId,
-        ifood_conta_padrao_id: ifoodAccId === '' ? null : ifoodAccId
+        ifood_conta_padrao_id: ifoodAccId === '' ? null : ifoodAccId,
+        pdv_sangria_saida_plano_contas_id: pdvSangriaSaidaPlanoContasId === '' ? null : pdvSangriaSaidaPlanoContasId,
+        pdv_sangria_entrada_plano_contas_id: pdvSangriaEntradaPlanoContasId === '' ? null : pdvSangriaEntradaPlanoContasId
       });
 
       if (response.data) {
@@ -453,7 +466,9 @@ export function Apps() {
   const handleSavePdvConfig = async (
     pdvCcId: number | '', 
     pdvCcFlex: boolean,
-    pdvAccId: number | ''
+    pdvAccId: number | '',
+    sangriaSaidaPlanoId?: number | '',
+    sangriaEntradaPlanoId?: number | ''
   ) => {
     try {
       const response = await api.put('/pdv/config', {
@@ -464,6 +479,8 @@ export function Apps() {
         pdv_centro_custo_padrao_id: pdvCcId === '' ? null : pdvCcId,
         pdv_centro_custo_flexivel: pdvCcFlex,
         pdv_conta_padrao_id: pdvAccId === '' ? null : pdvAccId,
+        pdv_sangria_saida_plano_contas_id: sangriaSaidaPlanoId === '' ? null : sangriaSaidaPlanoId,
+        pdv_sangria_entrada_plano_contas_id: sangriaEntradaPlanoId === '' ? null : sangriaEntradaPlanoId,
         ifood_centro_custo_padrao_id: ifoodCentroCustoPadraoId === '' ? null : ifoodCentroCustoPadraoId,
         ifood_centro_custo_flexivel: ifoodCentroCustoFlexivel,
         ifood_conta_padrao_id: ifoodContaPadraoId === '' ? null : ifoodContaPadraoId
@@ -496,7 +513,9 @@ export function Apps() {
         marcar_como_pago: {},
         active_apps: nextActiveApps,
         ifood_comissao_taxa: ifoodTaxa,
-        ifood_merchant_name: ifoodMerchantName
+        ifood_merchant_name: ifoodMerchantName,
+        pdv_sangria_saida_plano_contas_id: pdvSangriaSaidaPlanoContasId === '' ? null : pdvSangriaSaidaPlanoContasId,
+        pdv_sangria_entrada_plano_contas_id: pdvSangriaEntradaPlanoContasId === '' ? null : pdvSangriaEntradaPlanoContasId
       });
 
       if (response.data) {
@@ -653,6 +672,8 @@ export function Apps() {
                             setSettingsPdvCentroCustoPadraoId(pdvCentroCustoPadraoId);
                             setSettingsPdvCentroCustoFlexivel(pdvCentroCustoFlexivel);
                             setSettingsPdvContaPadraoId(pdvContaPadraoId);
+                            setSettingsPdvSangriaSaidaPlanoContasId(pdvSangriaSaidaPlanoContasId);
+                            setSettingsPdvSangriaEntradaPlanoContasId(pdvSangriaEntradaPlanoContasId);
                             setShowPdvSettingsModal(true);
                           }}
                           className="p-1.5 bg-white hover:bg-slate-55 dark:bg-slate-800 dark:hover:bg-slate-750 border border-slate-250 dark:border-slate-700 text-slate-650 dark:text-slate-350 transition rounded-none cursor-pointer"
@@ -1702,6 +1723,36 @@ export function Apps() {
                   ))}
                 </select>
               </div>
+
+              {/* Categoria Padrão Saída (Sangria) */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-450 uppercase tracking-wider">Categoria Padrão Saída (Sangria)</label>
+                <select
+                  value={settingsPdvSangriaSaidaPlanoContasId}
+                  onChange={(e) => setSettingsPdvSangriaSaidaPlanoContasId(e.target.value ? Number(e.target.value) : '')}
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
+                >
+                  <option value="">Sem categoria padrão de saída</option>
+                  {planoContas.filter(pc => pc.tipo === 'DESPESA').map((pc) => (
+                    <option key={pc.id} value={pc.id}>{pc.codigo} - {pc.nome}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Categoria Padrão Entrada (Banco Destino) */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-450 uppercase tracking-wider">Categoria Padrão Entrada (Banco Destino)</label>
+                <select
+                  value={settingsPdvSangriaEntradaPlanoContasId}
+                  onChange={(e) => setSettingsPdvSangriaEntradaPlanoContasId(e.target.value ? Number(e.target.value) : '')}
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
+                >
+                  <option value="">Sem categoria padrão de entrada</option>
+                  {planoContas.filter(pc => pc.tipo === 'RECEITA').map((pc) => (
+                    <option key={pc.id} value={pc.id}>{pc.codigo} - {pc.nome}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2.5 pt-2">
@@ -1718,7 +1769,9 @@ export function Apps() {
                   void handleSavePdvConfig(
                     settingsPdvCentroCustoPadraoId, 
                     settingsPdvCentroCustoFlexivel,
-                    settingsPdvContaPadraoId
+                    settingsPdvContaPadraoId,
+                    settingsPdvSangriaSaidaPlanoContasId,
+                    settingsPdvSangriaEntradaPlanoContasId
                   );
                 }}
                 className="px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition shadow-sm border-none cursor-pointer"

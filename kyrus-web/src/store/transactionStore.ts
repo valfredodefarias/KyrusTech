@@ -48,6 +48,8 @@ export interface NormalizedRow {
   centroCustoId?: number | null;
   origem?: string | null;
   isAtrasada?: boolean;
+  bandeira?: string | null;
+  tipoPagamento?: string | null;
 }
 
 interface IntegracaoBancaria {

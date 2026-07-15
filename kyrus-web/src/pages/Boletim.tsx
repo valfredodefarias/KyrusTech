@@ -881,6 +881,16 @@ export function Boletim() {
             dbAsaasIds.add(asaasId);
           }
 
+          let bandeira: string | null = null;
+          let tipoPagamento: string | null = null;
+          if (item.observacao) {
+            try {
+              const meta = JSON.parse(item.observacao);
+              tipoPagamento = meta.tipo_pagamento || meta.forma_pagamento || null;
+              bandeira = meta.bandeira || null;
+            } catch { /* não é JSON */ }
+          }
+
           return {
             rowKey: `${buildLancamentoFingerprint(item)}|cc:${Number(item.centro_custo_id || 0)}|conta:${Number(item.conta_id || 0)}`,
             id: safeId,
@@ -898,6 +908,8 @@ export function Boletim() {
             contaNome: resolveContaDisplayName(contaMap.get(Number(item.conta_id))),
             centroCustoId: item.centro_custo_id,
             origem: item.origem,
+            bandeira,
+            tipoPagamento,
           } satisfies NormalizedRow;
         })
         .filter((item) => item.monthIndex >= 0 && item.dayOfMonth >= 0),
@@ -2400,8 +2412,86 @@ export function Boletim() {
                   </div>
                 </div>
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {/* Para hoje — com breakdown de bandeira/modalidade de cartão */}
+                  {(() => {
+                    const hojeRows = dashboard.baseRows.filter(
+                      (r) => r.flowType === 'RECEBIMENTO' && r.statusKey === 'HOJE'
+                    );
+                    // Agrupar por bandeira + modalidade
+                    const cardGroups: Record<string, { label: string; value: number; isDebito: boolean }> = {};
+                    let nonCardTotal = 0;
+                    hojeRows.forEach((r) => {
+                      const tp = r.tipoPagamento || '';
+                      if (tp.startsWith('cartao_')) {
+                        const brand = (r.bandeira || 'OUTROS').toUpperCase();
+                        const isDebito = tp === 'cartao_debito';
+                        const mod = isDebito ? 'Débito' : 'Crédito';
+                        const key = `${brand}___${mod}`;
+                        if (!cardGroups[key]) cardGroups[key] = { label: `${brand} ${mod}`, value: 0, isDebito };
+                        cardGroups[key].value += r.valorAbsoluto;
+                      } else {
+                        nonCardTotal += r.valorAbsoluto;
+                      }
+                    });
+                    const cardList = Object.values(cardGroups).sort((a, b) => b.value - a.value);
+                    const hasCards = cardList.length > 0;
+
+                    return (
+                      <div>
+                        <div
+                          onClick={() => handleKpiAuditClick('receber_hoje')}
+                          className="px-4 py-3.5 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group"
+                        >
+                          <span className="text-slate-600 dark:text-slate-300 font-medium">
+                            Para hoje
+                            <span className="text-slate-400 dark:text-slate-500 text-xs ml-2 font-normal">
+                              {formatDate(dashboard.todayIso)}
+                            </span>
+                          </span>
+                          <div className="flex items-center gap-1.5 font-semibold">
+                            <span className="text-slate-700 dark:text-slate-200">{formatCurrency(dashboard.receber.hoje)}</span>
+                            <ExternalLink className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 group-hover:text-slate-400 dark:group-hover:text-slate-500 transition" />
+                          </div>
+                        </div>
+                        {/* Breakdown por bandeira/modalidade */}
+                        {hasCards && (
+                          <div className="px-4 pb-3 -mt-1 space-y-1">
+                            {cardList.map((g) => (
+                              <div key={g.label} className="flex items-center justify-between text-[11px]">
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide border ${
+                                    g.isDebito
+                                      ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
+                                      : 'bg-violet-50 dark:bg-violet-950/30 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800'
+                                  }`}>
+                                    {g.label}
+                                  </span>
+                                </div>
+                                <span className={`font-mono font-semibold ${
+                                  g.isDebito ? 'text-blue-700 dark:text-blue-300' : 'text-violet-700 dark:text-violet-300'
+                                }`}>
+                                  {formatCurrency(g.value)}
+                                </span>
+                              </div>
+                            ))}
+                            {nonCardTotal > 0 && (
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide border bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700">
+                                  Outros (PIX / iFood)
+                                </span>
+                                <span className="font-mono font-semibold text-slate-600 dark:text-slate-300">
+                                  {formatCurrency(nonCardTotal)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Demais linhas do CAR */}
                   {[
-                    { key: 'receber_hoje', label: 'Para hoje', subLabel: formatDate(dashboard.todayIso), value: dashboard.receber.hoje },
                     { key: 'receber_amanha', label: 'Para amanhã', subLabel: formatDate(dashboard.tomorrowIso), value: dashboard.receber.amanha },
                     { key: 'receber_em_aberto', label: 'A vencer no mês', value: dashboard.receber.emAberto },
                     { key: 'receber_recebidas_mes', label: 'Recebidas no mês', value: dashboard.receberRecebidasNoMes },

@@ -1667,9 +1667,15 @@ def atualizar_config_pdv(
         config_dict["ifood_conta_padrao_id"] = config_in.ifood_conta_padrao_id
     if config_in.pdv_conta_padrao_id is not None:
         config_dict["pdv_conta_padrao_id"] = config_in.pdv_conta_padrao_id
-    if config_in.pdv_sangria_saida_plano_contas_id is not None:
+    # Sangria plano de contas: persiste sempre que o campo foi enviado na request
+    # (inclusive null, para permitir limpar a categoria configurada)
+    if "pdv_sangria_saida_plano_contas_id" in (config_in.model_fields_set if hasattr(config_in, "model_fields_set") else config_in.__fields_set__):
         config_dict["pdv_sangria_saida_plano_contas_id"] = config_in.pdv_sangria_saida_plano_contas_id
-    if config_in.pdv_sangria_entrada_plano_contas_id is not None:
+    elif config_in.pdv_sangria_saida_plano_contas_id is not None:
+        config_dict["pdv_sangria_saida_plano_contas_id"] = config_in.pdv_sangria_saida_plano_contas_id
+    if "pdv_sangria_entrada_plano_contas_id" in (config_in.model_fields_set if hasattr(config_in, "model_fields_set") else config_in.__fields_set__):
+        config_dict["pdv_sangria_entrada_plano_contas_id"] = config_in.pdv_sangria_entrada_plano_contas_id
+    elif config_in.pdv_sangria_entrada_plano_contas_id is not None:
         config_dict["pdv_sangria_entrada_plano_contas_id"] = config_in.pdv_sangria_entrada_plano_contas_id
         
     empresa.pdv_config = json.dumps(config_dict)

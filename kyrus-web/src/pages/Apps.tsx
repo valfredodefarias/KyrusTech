@@ -495,6 +495,8 @@ export function Apps() {
         setPdvCentroCustoFlexivel(response.data.pdv_centro_custo_flexivel ?? response.data.centro_custo_flexivel ?? false);
         setPdvContaPadraoId(response.data.pdv_conta_padrao_id ?? '');
         setIfoodContaPadraoId(response.data.ifood_conta_padrao_id ?? '');
+        setPdvSangriaSaidaPlanoContasId(response.data.pdv_sangria_saida_plano_contas_id ?? '');
+        setPdvSangriaEntradaPlanoContasId(response.data.pdv_sangria_entrada_plano_contas_id ?? '');
         showToastMessage('Configurações de Movimentação PDV atualizadas!', 'success');
       }
       setShowPdvSettingsModal(false);

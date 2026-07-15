@@ -2396,8 +2396,7 @@ def criar_sangria_pdv(
         if not cc:
             cc = CentroCusto(
                 nome="Matriz",
-                empresa_id=empresa_id,
-                is_active=True
+                empresa_id=empresa_id
             )
             db.add(cc)
             db.flush()
@@ -2418,8 +2417,7 @@ def criar_sangria_pdv(
         default_supplier = Entidade(
             nome="Sangria",
             tipo="FORNECEDOR",
-            empresa_id=empresa_id,
-            is_active=True
+            empresa_id=empresa_id
         )
         db.add(default_supplier)
         db.flush()
@@ -2503,8 +2501,7 @@ def criar_sangria_pdv(
         default_client = Entidade(
             nome="Cliente Consumidor",
             tipo="CLIENTE",
-            empresa_id=empresa_id,
-            is_active=True
+            empresa_id=empresa_id
         )
         db.add(default_client)
         db.flush()

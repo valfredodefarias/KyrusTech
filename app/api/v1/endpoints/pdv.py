@@ -742,6 +742,13 @@ def atualizar_status_venda_pdv(
     if not launches:
         raise HTTPException(status_code=404, detail="Venda não encontrada.")
 
+    for l in launches:
+        if l.conciliado:
+            raise HTTPException(
+                status_code=400,
+                detail="Esta venda possui parcelas que já foram conciliadas no extrato e o status não pode ser alterado."
+            )
+
     novo_status = status_in.upper()
     if novo_status not in ["REALIZADO", "CANCELADO", "DEVOLVIDO"]:
         raise HTTPException(status_code=400, detail="Status inválido.")

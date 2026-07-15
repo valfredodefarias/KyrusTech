@@ -1174,6 +1174,26 @@ class PdvService:
         """
         Atualiza uma venda existente substituindo seus lançamentos pelos novos informados.
         """
+        # 1. Validar se a venda existe e se está conciliada (deve ser o primeiro passo)
+        launches_antigos = db.exec(
+            select(Lancamento)
+            .where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.origem == "PDV",
+                Lancamento.id_parcelamento == venda_id
+            )
+        ).all()
+        if not launches_antigos:
+            raise HTTPException(status_code=404, detail="Venda não encontrada.")
+            
+        for l in launches_antigos:
+            if l.conciliado:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Esta venda possui parcelas que já foram conciliadas no extrato e não pode ser editada."
+                )
+
         hoje_pag = venda_in.data_pagamento or datetime.utcnow().date()
         
         # 0. Validar e processar campos extras
@@ -1197,19 +1217,6 @@ class PdvService:
                     status_code=400,
                     detail=f"Venda duplicada detectada (import_hash: {venda_in.import_hash})."
                 )
-
-        # 1. Validar se a venda existe
-        launches_antigos = db.exec(
-            select(Lancamento)
-            .where(
-                Lancamento.empresa_id == empresa_id,
-                Lancamento.is_deleted == False,
-                Lancamento.origem == "PDV",
-                Lancamento.id_parcelamento == venda_id
-            )
-        ).all()
-        if not launches_antigos:
-            raise HTTPException(status_code=404, detail="Venda não encontrada.")
 
         # 2. Validar vendedor, cliente e centro de custo
         vendedor = db.get(Usuario, venda_in.vendedor_id)

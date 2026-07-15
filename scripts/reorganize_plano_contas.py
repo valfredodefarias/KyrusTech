@@ -36,7 +36,19 @@ def get_parent_code(code: str) -> str:
 def main():
     print("=== INICIANDO REORGANIZAÇÃO CIRÚRGICA DO PLANO DE CONTAS (PIZZA FÁBIO) ===")
     with Session(engine) as session:
-        for emp_id in [75, 77, 79, 80]:
+        from app.models.empresa import Empresa
+        from sqlmodel import col
+        empresas = session.exec(
+            select(Empresa).where(
+                col(Empresa.nome_fantasia).ilike("%Pizza%Fábio%") |
+                col(Empresa.nome_fantasia).ilike("%Pizza%Fabio%")
+            )
+        ).all()
+        if not empresas:
+            print("ERRO: Nenhuma empresa Pizza Fábio encontrada no banco! Verifique o nome cadastrado.")
+            return
+        print(f"Empresas encontradas: {[(e.id, e.nome_fantasia) for e in empresas]}")
+        for emp_id in [e.id for e in empresas]:
             print(f"\n================ EMPRESA ID: {emp_id} ================")
             pcs = session.exec(select(PlanoContas).where(PlanoContas.empresa_id == emp_id)).all()
             

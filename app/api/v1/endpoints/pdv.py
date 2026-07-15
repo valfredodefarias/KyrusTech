@@ -2474,7 +2474,7 @@ def criar_sangria_pdv(
         centro_custo_id=cc_id,
         conta_id=pdv_conta_id,
         conciliado=False,
-        venda_id=venda_uuid,
+        venda_id=None,
         created_by_id=current_user.id,
         updated_by_id=current_user.id,
         created_at=datetime.utcnow(),

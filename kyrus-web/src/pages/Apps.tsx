@@ -1733,7 +1733,7 @@ export function Apps() {
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
                 >
                   <option value="">Sem categoria padrão de saída</option>
-                  {planoContas.filter(pc => pc.tipo === 'DESPESA').map((pc) => (
+                  {planoContas.filter(pc => (pc.tipo === 'D' || pc.tipo === 'DESPESA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc) => (
                     <option key={pc.id} value={pc.id}>{pc.codigo} - {pc.nome}</option>
                   ))}
                 </select>
@@ -1748,7 +1748,7 @@ export function Apps() {
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
                 >
                   <option value="">Sem categoria padrão de entrada</option>
-                  {planoContas.filter(pc => pc.tipo === 'RECEITA').map((pc) => (
+                  {planoContas.filter(pc => (pc.tipo === 'R' || pc.tipo === 'RECEITA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc) => (
                     <option key={pc.id} value={pc.id}>{pc.codigo} - {pc.nome}</option>
                   ))}
                 </select>

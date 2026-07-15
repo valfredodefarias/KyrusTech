@@ -6,6 +6,11 @@
 #   - Só grava no banco se houver diferença real (dirty check)
 #   - Commit único por empresa (transação rápida)
 #
+import sys
+from pathlib import Path
+ROOT_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT_DIR))
+
 from sqlmodel import Session, select, col
 from app.db.session import engine
 from app.models.plano_contas import PlanoContas

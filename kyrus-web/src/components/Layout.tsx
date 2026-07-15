@@ -102,6 +102,8 @@ const SEARCH_PAGES: SearchPageItem[] = [
   { path: '/importacao_nfe', label: 'Importação NF-e', iconName: 'FileText', category: 'Comercial', tags: ['nota', 'fiscal', 'xml', 'compra'] },
   { path: '/auditoria', label: 'Auditoria', iconName: 'History', category: 'Administração', tags: ['log', 'historico', 'atividades'] },
   { path: '/comissoes', label: 'Comissões e Metas', iconName: 'Award', category: 'Financeiro', tags: ['vendedor', 'comissao', 'premios'] },
+  { path: '/apps/movimentacao-pdv', label: 'Movimentação PDV', iconName: 'Calculator', category: 'Comercial', tags: ['pdv', 'caixa', 'vendas', 'movimentacao'] },
+  { path: '/apps/ifood', label: 'iFood PDV', iconName: 'Utensils', category: 'Comercial', tags: ['ifood', 'vendas', 'delivery', 'integracao'] },
 ];
 
 const MAIN_PAGES: Record<string, { label: string; iconName: string }> = SEARCH_PAGES.reduce((acc, page) => {

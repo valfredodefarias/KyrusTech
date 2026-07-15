@@ -56,6 +56,11 @@ export function Apps() {
   const [showPdvSettingsModal, setShowPdvSettingsModal] = useState(false);
   const [settingsPdvCentroCustoPadraoId, setSettingsPdvCentroCustoPadraoId] = useState<number | ''>('');
   const [settingsPdvCentroCustoFlexivel, setSettingsPdvCentroCustoFlexivel] = useState<boolean>(false);
+  const [pdvConfigMarcadoPago, setPdvConfigMarcadoPago] = useState<Record<string, boolean>>({});
+  const [formasPagamento, setFormasPagamento] = useState<any[]>([]);
+  const [pdvConfigCategorias, setPdvConfigCategorias] = useState<Record<string, string>>({});
+  const [pdvConfigContas, setPdvConfigContas] = useState<Record<string, string>>({});
+  const [settingsPdvCategorias, setSettingsPdvCategorias] = useState<Record<string, string>>({});
   
   // Default accounts configurations
   const [pdvContaPadraoId, setPdvContaPadraoId] = useState<number | ''>('');
@@ -123,6 +128,17 @@ export function Apps() {
         setIfoodContaPadraoId(response.data.ifood_conta_padrao_id ?? '');
         setPdvSangriaSaidaPlanoContasId(response.data.pdv_sangria_saida_plano_contas_id ?? '');
         setPdvSangriaEntradaPlanoContasId(response.data.pdv_sangria_entrada_plano_contas_id ?? '');
+        setPdvConfigMarcadoPago(response.data.marcar_como_pago || {});
+        setFormasPagamento(response.data.formas_pagamento && response.data.formas_pagamento.length > 0 ? response.data.formas_pagamento : [
+          { key: 'dinheiro', label: 'Dinheiro', parcelada: false, ativa: true },
+          { key: 'pix_chave', label: 'PIX (Chave)', parcelada: false, ativa: true },
+          { key: 'pix_qr', label: 'PIX (QR Code)', parcelada: false, ativa: true },
+          { key: 'cartao_credito_vista', label: 'Cartão de Crédito (À Vista)', parcelada: false, ativa: true },
+          { key: 'cartao_credito_parcelado', label: 'Cartão de Crédito (Parcelado)', parcelada: true, ativa: true },
+          { key: 'boleto', label: 'Boleto', parcelada: true, ativa: true }
+        ]);
+        setPdvConfigCategorias(response.data.categorias || {});
+        setPdvConfigContas(response.data.contas || {});
       }
     } catch (err) {
       console.error('Erro ao buscar configurações do PDV:', err);
@@ -472,7 +488,7 @@ export function Apps() {
   ) => {
     try {
       const response = await api.put('/pdv/config', {
-        marcar_como_pago: {},
+        marcar_como_pago: pdvConfigMarcadoPago,
         active_apps: activeApps,
         ifood_comissao_taxa: ifoodTaxa,
         ifood_merchant_name: ifoodMerchantName,
@@ -483,7 +499,10 @@ export function Apps() {
         pdv_sangria_entrada_plano_contas_id: sangriaEntradaPlanoId === '' ? null : sangriaEntradaPlanoId,
         ifood_centro_custo_padrao_id: ifoodCentroCustoPadraoId === '' ? null : ifoodCentroCustoPadraoId,
         ifood_centro_custo_flexivel: ifoodCentroCustoFlexivel,
-        ifood_conta_padrao_id: ifoodContaPadraoId === '' ? null : ifoodContaPadraoId
+        ifood_conta_padrao_id: ifoodContaPadraoId === '' ? null : ifoodContaPadraoId,
+        formas_pagamento: formasPagamento,
+        categorias: settingsPdvCategorias,
+        contas: pdvConfigContas
       });
 
       if (response.data) {
@@ -497,6 +516,7 @@ export function Apps() {
         setIfoodContaPadraoId(response.data.ifood_conta_padrao_id ?? '');
         setPdvSangriaSaidaPlanoContasId(response.data.pdv_sangria_saida_plano_contas_id ?? '');
         setPdvSangriaEntradaPlanoContasId(response.data.pdv_sangria_entrada_plano_contas_id ?? '');
+        setPdvConfigCategorias(response.data.categorias || {});
         showToastMessage('Configurações de Movimentação PDV atualizadas!', 'success');
       }
       setShowPdvSettingsModal(false);
@@ -512,12 +532,15 @@ export function Apps() {
         : activeApps.filter(a => a !== appKey);
 
       const response = await api.put('/pdv/config', {
-        marcar_como_pago: {},
+        marcar_como_pago: pdvConfigMarcadoPago,
         active_apps: nextActiveApps,
         ifood_comissao_taxa: ifoodTaxa,
         ifood_merchant_name: ifoodMerchantName,
         pdv_sangria_saida_plano_contas_id: pdvSangriaSaidaPlanoContasId === '' ? null : pdvSangriaSaidaPlanoContasId,
-        pdv_sangria_entrada_plano_contas_id: pdvSangriaEntradaPlanoContasId === '' ? null : pdvSangriaEntradaPlanoContasId
+        pdv_sangria_entrada_plano_contas_id: pdvSangriaEntradaPlanoContasId === '' ? null : pdvSangriaEntradaPlanoContasId,
+        formas_pagamento: formasPagamento,
+        categorias: pdvConfigCategorias,
+        contas: pdvConfigContas
       });
 
       if (response.data) {
@@ -676,6 +699,7 @@ export function Apps() {
                             setSettingsPdvContaPadraoId(pdvContaPadraoId);
                             setSettingsPdvSangriaSaidaPlanoContasId(pdvSangriaSaidaPlanoContasId);
                             setSettingsPdvSangriaEntradaPlanoContasId(pdvSangriaEntradaPlanoContasId);
+                            setSettingsPdvCategorias({ ...pdvConfigCategorias });
                             setShowPdvSettingsModal(true);
                           }}
                           className="p-1.5 bg-white hover:bg-slate-55 dark:bg-slate-800 dark:hover:bg-slate-750 border border-slate-250 dark:border-slate-700 text-slate-650 dark:text-slate-350 transition rounded-none cursor-pointer"
@@ -1660,7 +1684,7 @@ export function Apps() {
       {showPdvSettingsModal && (
         <>
           <div onClick={() => setShowPdvSettingsModal(false)} className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] animate-in fade-in" />
-          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 z-[210] animate-in zoom-in-95 duration-200 space-y-6">
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 z-[210] animate-in zoom-in-95 duration-200 space-y-6 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-start">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl flex items-center justify-center text-emerald-500 border border-emerald-100 dark:border-emerald-900/40">
@@ -1693,7 +1717,7 @@ export function Apps() {
               </div>
 
               {/* Centro de Custo Flexível toggle */}
-              <div className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-150 dark:border-slate-850 rounded-2xl">
+              <div className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-955 border border-slate-150 dark:border-slate-850 rounded-2xl">
                 <div className="space-y-0.5">
                   <span className="text-xs font-bold text-slate-700 dark:text-slate-350 block">Centro de Custo Flexível</span>
                   <span className="text-[10px] text-slate-450 block">Permite selecionar outras opções nos formulários</span>
@@ -1732,7 +1756,7 @@ export function Apps() {
                 <select
                   value={settingsPdvSangriaSaidaPlanoContasId}
                   onChange={(e) => setSettingsPdvSangriaSaidaPlanoContasId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-955 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
                 >
                   <option value="">Sem categoria padrão de saída</option>
                   {planoContas.filter(pc => (pc.tipo === 'D' || pc.tipo === 'DESPESA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc) => (
@@ -1747,7 +1771,7 @@ export function Apps() {
                 <select
                   value={settingsPdvSangriaEntradaPlanoContasId}
                   onChange={(e) => setSettingsPdvSangriaEntradaPlanoContasId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-955 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
                 >
                   <option value="">Sem categoria padrão de entrada</option>
                   {planoContas.filter(pc => (pc.tipo === 'R' || pc.tipo === 'RECEITA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc) => (
@@ -1755,6 +1779,33 @@ export function Apps() {
                   ))}
                 </select>
               </div>
+
+              {/* Categoria por Forma de Pagamento */}
+              {formasPagamento.length > 0 && (
+                <div className="border-t border-slate-150 dark:border-slate-800 pt-4 space-y-3">
+                  <span className="block text-xs font-bold text-slate-450 uppercase tracking-wider">Categorias por Forma de Pagamento</span>
+                  <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
+                    {formasPagamento.map((forma) => (
+                      <div key={forma.key} className="flex items-center justify-between gap-3 text-xs">
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">{forma.label}</span>
+                        <select
+                          value={settingsPdvCategorias[forma.key] || ''}
+                          onChange={(e) => setSettingsPdvCategorias({
+                            ...settingsPdvCategorias,
+                            [forma.key]: e.target.value
+                          })}
+                          className="w-1/2 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-955 text-xs text-slate-850 dark:text-white outline-none transition focus:border-rose-500 font-bold"
+                        >
+                          <option value="">Automático</option>
+                          {planoContas.filter(pc => (pc.tipo === 'R' || pc.tipo === 'RECEITA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc) => (
+                            <option key={pc.id} value={pc.id}>{pc.nome}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2.5 pt-2">

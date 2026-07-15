@@ -244,6 +244,10 @@ class PdvConfigSchema(SQLModel):
     pdv_sangria_saida_plano_contas_id: Optional[int] = None
     pdv_sangria_entrada_plano_contas_id: Optional[int] = None
 
+    formas_pagamento: Optional[List[Dict[str, Any]]] = None
+    categorias: Optional[Dict[str, str]] = None
+    contas: Optional[Dict[str, str]] = None
+
 
 class SangriaCreateSchema(SQLModel):
     data: date

@@ -1616,7 +1616,10 @@ def obter_config_pdv(
         ifood_conta_padrao_id=config_dict.get("ifood_conta_padrao_id"),
         pdv_conta_padrao_id=config_dict.get("pdv_conta_padrao_id"),
         pdv_sangria_saida_plano_contas_id=config_dict.get("pdv_sangria_saida_plano_contas_id"),
-        pdv_sangria_entrada_plano_contas_id=config_dict.get("pdv_sangria_entrada_plano_contas_id")
+        pdv_sangria_entrada_plano_contas_id=config_dict.get("pdv_sangria_entrada_plano_contas_id"),
+        formas_pagamento=config_dict.get("formas_pagamento", []),
+        categorias=config_dict.get("categorias", {}),
+        contas=config_dict.get("contas", {})
     )
 
 
@@ -1677,6 +1680,13 @@ def atualizar_config_pdv(
         config_dict["pdv_sangria_entrada_plano_contas_id"] = config_in.pdv_sangria_entrada_plano_contas_id
     elif config_in.pdv_sangria_entrada_plano_contas_id is not None:
         config_dict["pdv_sangria_entrada_plano_contas_id"] = config_in.pdv_sangria_entrada_plano_contas_id
+
+    if config_in.formas_pagamento is not None:
+        config_dict["formas_pagamento"] = config_in.formas_pagamento
+    if config_in.categorias is not None:
+        config_dict["categorias"] = config_in.categorias
+    if config_in.contas is not None:
+        config_dict["contas"] = config_in.contas
         
     empresa.pdv_config = json.dumps(config_dict)
     empresa.updated_by_id = current_user.id
@@ -1700,7 +1710,10 @@ def atualizar_config_pdv(
         ifood_conta_padrao_id=config_dict.get("ifood_conta_padrao_id"),
         pdv_conta_padrao_id=config_dict.get("pdv_conta_padrao_id"),
         pdv_sangria_saida_plano_contas_id=config_dict.get("pdv_sangria_saida_plano_contas_id"),
-        pdv_sangria_entrada_plano_contas_id=config_dict.get("pdv_sangria_entrada_plano_contas_id")
+        pdv_sangria_entrada_plano_contas_id=config_dict.get("pdv_sangria_entrada_plano_contas_id"),
+        formas_pagamento=config_dict.get("formas_pagamento", []),
+        categorias=config_dict.get("categorias", {}),
+        contas=config_dict.get("contas", {})
     )
 
 

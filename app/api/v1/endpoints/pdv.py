@@ -2519,7 +2519,7 @@ def criar_sangria_pdv(
         data_competencia=sangria_in.data,
         competencia=competencia_str,
         status="PAGO",
-        entidade_id=default_client.id,
+        entidade_id=default_supplier.id,
         centro_custo_id=cc_id,
         id_parcelamento=venda_uuid,
         observacao=json.dumps(meta_entrada, ensure_ascii=False)

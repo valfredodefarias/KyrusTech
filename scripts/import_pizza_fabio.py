@@ -1332,6 +1332,9 @@ def import_unit(
                     continue
 
                 dt_vcto = parse_date(row[vcto_idx]) if vcto_idx < len(row) else None
+                if not dt_vcto or dt_vcto < date(2026, 7, 16):
+                    fin_skipped_count += 1
+                    continue
                 dt_pag = parse_date(row[pag_idx]) if pag_idx < len(row) else None
                 tipo_f = clean_str(row[tipo_idx]) if tipo_idx < len(row) else ""
                 class_f = clean_str(row[class_idx]) if class_idx < len(row) else ""

@@ -181,14 +181,16 @@ def import_unit(
         if len(rows) > 1:
             headers = [clean_str(h) for h in rows[0]]
             code_idx = headers.index("Classificação") if "Classificação" in headers else 0
-            desc_idx = headers.index("Descrição") if "Descrição" in headers else 1
+            tipo_idx = 1
+            
+            created_pcs = []
             
             for row in rows[1:]:
                 if not any(row):
                     continue
                 code_raw = clean_str(row[code_idx])
-                desc = clean_str(row[desc_idx]) if desc_idx < len(row) else ""
-                if not code_raw or not desc:
+                tipo_col = clean_str(row[tipo_idx]) if tipo_idx < len(row) else ""
+                if not code_raw:
                     continue
                 
                 code_match = re.match(r"^([\d\.]+)\s*(.*)$", code_raw)
@@ -197,9 +199,44 @@ def import_unit(
                     name = code_match.group(2).strip() or code_raw
                 else:
                     code = code_raw
-                    name = desc
+                    name = code_raw
 
-                tipo = "R" if code.startswith("01") else "D"
+                if code == "4.5":
+                    code = "04.05"
+                
+                # Determine properties based on code hierarchy
+                tipo = "D"
+                if code.startswith("01") or code.startswith("05") or code.startswith("07.01") or "saldo positivo" in name.lower():
+                    tipo = "R"
+                
+                prefix = code[:2]
+                dre_grupo = "NAO_OPERACIONAL"
+                if prefix == "01":
+                    dre_grupo = "RECEITA_BRUTA"
+                elif prefix == "02":
+                    dre_grupo = "DEDUCOES_RECEITA"
+                elif prefix == "03":
+                    dre_grupo = "CUSTOS_VARIAVEIS"
+                elif prefix == "04":
+                    dre_grupo = "DESPESAS_OPERACIONAIS"
+                elif prefix == "05":
+                    dre_grupo = "OUTRAS_RECEITAS"
+                elif prefix == "06":
+                    dre_grupo = "OUTRAS_DESPESAS"
+                
+                if code in ["saldo positivo", "saldo negativo"]:
+                    dre_grupo = "NAO_OPERACIONAL"
+
+                eh_cabecalho = (tipo_col == "Erro - Cabeça de Familia") or (code in ["01", "02", "03", "04", "04.01", "04.02", "04.03", "04.04", "04.05", "05", "06", "07"])
+                permite_lancamentos = not eh_cabecalho
+                
+                considerar_nos_resultados = True
+                eh_operacional = True
+                if prefix == "07" or code in ["saldo positivo", "saldo negativo"]:
+                    considerar_nos_resultados = False
+                    eh_operacional = False
+                elif prefix == "05" or prefix == "06":
+                    eh_operacional = False
                 
                 pc = db.exec(
                     select(PlanoContas)
@@ -210,16 +247,44 @@ def import_unit(
                         codigo=code,
                         nome=name,
                         tipo=tipo,
-                        eh_cabecalho=False,
-                        permite_lancamentos=True,
+                        eh_cabecalho=eh_cabecalho,
+                        permite_lancamentos=permite_lancamentos,
+                        dre_grupo=dre_grupo,
+                        considerar_nos_resultados=considerar_nos_resultados,
+                        eh_operacional=eh_operacional,
                         empresa_id=empresa_id
                     )
                     if not dry_run:
                         db.add(pc)
                         db.flush()
+                else:
+                    pc.eh_cabecalho = eh_cabecalho
+                    pc.permite_lancamentos = permite_lancamentos
+                    pc.dre_grupo = dre_grupo
+                    pc.considerar_nos_resultados = considerar_nos_resultados
+                    pc.eh_operacional = eh_operacional
+                    pc.tipo = tipo
+                    if not dry_run:
+                        db.add(pc)
+                        db.flush()
+                        
+                created_pcs.append(pc)
                 pc_map[code] = pc.id
                 pc_map[code_raw] = pc.id
                 pc_map[name.lower()] = pc.id
+
+            # Post-process: establish parent-child links
+            if not dry_run:
+                local_map = {p.codigo: p for p in created_pcs}
+                for p in created_pcs:
+                    parts = p.codigo.split(".")
+                    if len(parts) > 1:
+                        parent_code = ".".join(parts[:-1])
+                        parent_p = local_map.get(parent_code)
+                        if parent_p:
+                            p.conta_pai_id = parent_p.id
+                            db.add(p)
+                db.flush()
         print(f"Imported PlanoContas: {len(pc_map)} entries cached.")
 
     plano_fallback_id = None

@@ -1,18 +1,16 @@
-"""
-Diagnóstico: por que receitas PDV aparecem como Atrasado
-         e por que Vence Hoje está incompleto?
-"""
 import sys, os
 sys.path.insert(0, "/app")
 os.environ["DISABLE_AUDIT"] = "1"
 
-from app.db.session import Session, engine
-from sqlmodel import select, text
-from decimal import Decimal
+from app.db.session import engine
+from sqlalchemy import text
 
 EMPRESA_ID = 35  # Umarizal
 
-with Session(engine) as db:
+def q(conn, sql, params=None):
+    return conn.execute(text(sql), params or {}).all()
+
+with engine.connect() as conn:
     # 1. Contagem por tipo + status
     print("=" * 60)
     print("1. LANÇAMENTOS POR TIPO + STATUS (Umarizal)")

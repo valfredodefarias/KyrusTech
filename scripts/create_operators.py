@@ -54,7 +54,8 @@ def main():
         requirements = [
             {"name": "Pizza Fábio Umarizal", "count": 3, "keyword": "Umarizal", "prefix": "op.umarizal"},
             {"name": "Pizza Fábio Ananindeua", "count": 3, "keyword": "Ananindeua", "prefix": "op.ananindeua"},
-            {"name": "Pizza Fábio Marco", "count": 2, "keyword": "Marco", "prefix": "op.marco"},
+            {"name": "Pizza Fábio Marco - Salão", "count": 2, "keyword": "Salao", "prefix": "op.salao"},
+            {"name": "Pizza Fábio Marco - Delivery", "count": 2, "keyword": "Delivery", "prefix": "op.delivery"},
         ]
         
         results = []
@@ -187,6 +188,51 @@ def main():
                     "senha": password
                 })
                 
+        # Link Delivery operators to Salão company
+        company_salao = db.exec(
+            select(Empresa).where(Empresa.nome_fantasia == "Pizza Fábio Marco - Salão")
+        ).first()
+        company_delivery = db.exec(
+            select(Empresa).where(Empresa.nome_fantasia == "Pizza Fábio Marco - Delivery")
+        ).first()
+        if company_salao and company_delivery:
+            profile_salao = db.exec(
+                select(AccessProfile).where(
+                    AccessProfile.empresa_id == company_salao.id,
+                    AccessProfile.code == "OPERADOR_LOJA",
+                    AccessProfile.is_deleted == False
+                )
+            ).first()
+            if profile_salao:
+                for i in range(1, 3):
+                    email = f"op.delivery{i}@pizzadofabio.com"
+                    user_delivery = db.exec(
+                        select(Usuario).where(Usuario.email == email, Usuario.is_deleted == False)
+                    ).first()
+                    if user_delivery:
+                        link_salao = db.exec(
+                            select(UserCompanyProfile).where(
+                                UserCompanyProfile.usuario_id == user_delivery.id,
+                                UserCompanyProfile.empresa_id == company_salao.id,
+                                UserCompanyProfile.is_deleted == False
+                            )
+                        ).first()
+                        if not link_salao:
+                            link_salao = UserCompanyProfile(
+                                usuario_id=user_delivery.id,
+                                empresa_id=company_salao.id,
+                                profile_id=profile_salao.id,
+                                is_active=True,
+                                created_at=now,
+                                updated_at=now
+                            )
+                            db.add(link_salao)
+                        else:
+                            link_salao.profile_id = profile_salao.id
+                            db.add(link_salao)
+                db.commit()
+                print("  - Vinculados operadores do Delivery à empresa do Salão.")
+
         # Print the Markdown report table
         print("\n\n=== TABELA DE OPERADORES CRIADOS ===")
         print("| Unidade / Empresa | Nome do Operador | E-mail / Login | Senha de Acesso |")

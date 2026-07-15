@@ -168,7 +168,7 @@ def main():
 
                 # --- 5. Pai ---
                 parent_code = get_parent_code(norm_code)
-                parent_pc = code_map.get(parent_code)
+                parent_pc = code_map.get(parent_code) if parent_code else None
                 parent_id = parent_pc.id if parent_pc else None
 
                 # --- Dirty check: só grava se houver diferença real ---

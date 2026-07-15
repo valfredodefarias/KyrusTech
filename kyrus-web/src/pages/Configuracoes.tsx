@@ -655,11 +655,12 @@ const ConfiguracoesPDV = () => {
     { key: 'dinheiro', label: 'Dinheiro', parcelada: false, ativa: true },
     { key: 'pix_chave', label: 'PIX (Chave)', parcelada: false, ativa: true },
     { key: 'pix_qr', label: 'PIX (QR Code)', parcelada: false, ativa: true },
+    { key: 'cartao_debito', label: 'Cartão de Débito', parcelada: false, ativa: true },
     { key: 'cartao_credito_vista', label: 'Cartão de Crédito (À Vista)', parcelada: false, ativa: true },
     { key: 'cartao_credito_parcelado', label: 'Cartão de Crédito (Parcelado)', parcelada: true, ativa: true },
     { key: 'boleto', label: 'Boleto', parcelada: true, ativa: true }
   ];
-  const defaults = ['dinheiro', 'pix_chave', 'pix_qr', 'cartao_credito_vista', 'cartao_credito_parcelado', 'boleto'];
+  const defaults = ['dinheiro', 'pix_chave', 'pix_qr', 'cartao_debito', 'cartao_credito_vista', 'cartao_credito_parcelado', 'boleto'];
 
   const [formasPagamento, setFormasPagamento] = useState<any[]>(defaultFormas);
 
@@ -667,6 +668,7 @@ const ConfiguracoesPDV = () => {
     dinheiro: '',
     pix_chave: '',
     pix_qr: '',
+    cartao_debito: '',
     cartao_credito_vista: '',
     cartao_credito_parcelado: '',
     boleto: ''
@@ -675,6 +677,7 @@ const ConfiguracoesPDV = () => {
     dinheiro: '',
     pix_chave: '',
     pix_qr: '',
+    cartao_debito: '',
     cartao_credito_vista: '',
     cartao_credito_parcelado: '',
     boleto: ''
@@ -683,6 +686,7 @@ const ConfiguracoesPDV = () => {
     dinheiro: true,
     pix_chave: true,
     pix_qr: true,
+    cartao_debito: false,
     cartao_credito_vista: true,
     cartao_credito_parcelado: false,
     boleto: false

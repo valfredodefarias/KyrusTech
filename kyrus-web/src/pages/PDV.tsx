@@ -688,6 +688,7 @@ export function PDV() {
       { key: 'dinheiro', label: 'Dinheiro', parcelada: false, ativa: true },
       { key: 'pix_chave', label: 'PIX (Chave)', parcelada: false, ativa: true },
       { key: 'pix_qr', label: 'PIX (QR Code)', parcelada: false, ativa: true },
+      { key: 'cartao_debito', label: 'Cartão de Débito', parcelada: false, ativa: true },
       { key: 'cartao_credito_vista', label: 'Cartão de Crédito (À Vista)', parcelada: false, ativa: true },
       { key: 'cartao_credito_parcelado', label: 'Cartão de Crédito (Parcelado)', parcelada: true, ativa: true },
       { key: 'boleto', label: 'Boleto', parcelada: true, ativa: true }

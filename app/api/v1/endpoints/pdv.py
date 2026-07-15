@@ -915,7 +915,12 @@ def listar_recebiveis_cartao(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
 ):
-    """Lista todos os recebíveis de cartão previstos/recebidos da empresa (Agenda de Recebíveis)."""
+    """Lista recebíveis de cartão previstos/recebidos da empresa (Agenda de Recebíveis).
+    
+    Otimizado: filtra por tipo_pagamento no SQL via observacao ILIKE para evitar
+    buscar toda a tabela e filtrar em Python.
+    Limita a 2000 registros por segurança.
+    """
     query = (
         select(Lancamento, Usuario, Entidade)
         .join(Usuario, Usuario.id == Lancamento.created_by_id, isouter=True)
@@ -925,11 +930,16 @@ def listar_recebiveis_cartao(
             Lancamento.is_deleted == False,
             Lancamento.tipo == "RECEITA",
             Lancamento.origem == "PDV",
+            # Filtra cartões no SQL (evita fetch de toda a tabela)
+            Lancamento.observacao.ilike('%"cartao_%'),
+            # Exclui legados no SQL
             or_(
                 Lancamento.observacao.is_(None),
                 ~Lancamento.observacao.ilike('%"legacy_id_venda"%')
             )
         )
+        .order_by(Lancamento.data_vencimento.desc(), Lancamento.id.desc())
+        .limit(2000)
     )
     if start_date:
         query = query.where(Lancamento.data_vencimento >= start_date)
@@ -948,7 +958,8 @@ def listar_recebiveis_cartao(
             continue
             
         tipo_pag = meta.get("tipo_pagamento", "")
-        if not (tipo_pag.startswith("cartao_") or "cartao" in tipo_pag):
+        # Validação final leve (ILIKE já filtrou a grande maioria no SQL)
+        if not tipo_pag.startswith("cartao_"):
             continue
             
         status_l = "PAGO" if l.status == "PAGO" else "A RECEBER"
@@ -984,8 +995,8 @@ def listar_recebiveis_cartao(
             "conta_id": l.conta_id,
             "plano_contas_id": l.plano_contas_id
         })
-        
-    recebiveis.sort(key=lambda r: (r["data_vencimento"], r["id"]), reverse=True)
+    
+    # SQL ORDER BY já está aplicado, sem sort Python redundante
     return recebiveis
 
 
@@ -1980,7 +1991,6 @@ def listar_movimentacoes_pdv(
             "conciliado": m.conciliado
         })
         
-    print(f"DEBUG PDV: empresa_id={empresa_id}, mes={mes}, count={len(movimentacoes)}", flush=True)
     return movimentacoes
 
 @router.post("/movimentacoes")

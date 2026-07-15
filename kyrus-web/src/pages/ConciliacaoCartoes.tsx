@@ -1439,245 +1439,191 @@ export function ConciliacaoCartoes() {
                       </button>
                     </div>
 
-                    {/* List of items on selectedDay grouped by brand */}
                     {(() => {
                       const dayItems = filteredAgenda.filter(r => r.data_vencimento === selectedDay);
                       if (dayItems.length === 0) {
                         return <p className="text-xs text-slate-400 text-center py-6">Nenhum recebível previsto para este dia.</p>;
                       }
                       
-                      // Group items by brand, then by tipo (debito / credito)
+                      // Group items by brand + modality (DEBITO / CREDITO)
                       const groups: Record<string, {
+                        key: string;
                         bandeira: string;
+                        modalidade: 'DEBITO' | 'CREDITO';
                         items: typeof filteredAgenda;
                         bruto: number;
                         taxa: number;
                         liquido: number;
                         status: string;
-                        subgroups: Record<string, {
-                          label: string;
-                          items: typeof filteredAgenda;
-                          bruto: number;
-                          taxa: number;
-                          liquido: number;
-                        }>;
                       }> = {};
-
-                      const tipoLabel = (tipo: string) => {
-                        if (tipo === 'cartao_debito') return 'Débito';
-                        if (tipo === 'cartao_credito_vista') return 'Crédito à Vista';
-                        if (tipo === 'cartao_credito_parcelado') return 'Crédito Parcelado';
-                        return tipo;
-                      };
-                      const tipoOrder = ['cartao_debito', 'cartao_credito_vista', 'cartao_credito_parcelado'];
 
                       dayItems.forEach(item => {
                         const brand = (item.bandeira || 'OUTROS').toUpperCase();
-                        const tipo = item.tipo_pagamento || 'OUTROS';
-                        if (!groups[brand]) {
-                          groups[brand] = {
+                        const tipo = item.tipo_pagamento || '';
+                        const modalidade: 'DEBITO' | 'CREDITO' = (tipo === 'cartao_debito') ? 'DEBITO' : 'CREDITO';
+                        const key = `${brand}___${modalidade}`;
+                        
+                        if (!groups[key]) {
+                          groups[key] = {
+                            key,
                             bandeira: brand,
+                            modalidade,
                             items: [],
                             bruto: 0,
                             taxa: 0,
                             liquido: 0,
                             status: item.status,
-                            subgroups: {}
                           };
                         }
-                        groups[brand].items.push(item);
-                        groups[brand].bruto += Number(item.valor_bruto);
-                        groups[brand].taxa += Number(item.valor_taxa);
-                        groups[brand].liquido += Number(item.valor_liquido);
-                        if (item.status !== 'PAGO') groups[brand].status = 'A RECEBER';
-
-                        if (!groups[brand].subgroups[tipo]) {
-                          groups[brand].subgroups[tipo] = { label: tipoLabel(tipo), items: [], bruto: 0, taxa: 0, liquido: 0 };
-                        }
-                        groups[brand].subgroups[tipo].items.push(item);
-                        groups[brand].subgroups[tipo].bruto += Number(item.valor_bruto);
-                        groups[brand].subgroups[tipo].taxa += Number(item.valor_taxa);
-                        groups[brand].subgroups[tipo].liquido += Number(item.valor_liquido);
+                        
+                        groups[key].items.push(item);
+                        groups[key].bruto += Number(item.valor_bruto);
+                        groups[key].taxa += Number(item.valor_taxa);
+                        groups[key].liquido += Number(item.valor_liquido);
+                        if (item.status !== 'PAGO') groups[key].status = 'A RECEBER';
                       });
 
-                      const groupedList = Object.values(groups).sort((a, b) => a.bandeira.localeCompare(b.bandeira));
+                      const groupedList = Object.values(groups).sort((a, b) => {
+                        const comp = a.bandeira.localeCompare(b.bandeira);
+                        if (comp !== 0) return comp;
+                        return a.modalidade.localeCompare(b.modalidade);
+                      });
                       
                       return (
                         <div className="space-y-3">
                           {groupedList.map(group => {
                             const brandObj = inferCardBrand(group.bandeira);
-                            const isExpanded = !!expandedBrands[group.bandeira];
+                            const isExpanded = !!expandedBrands[group.key];
+                            const isDebito = group.modalidade === 'DEBITO';
+
+                            const modalColor = isDebito
+                              ? {
+                                  border: 'border-blue-150 dark:border-blue-900/40',
+                                  badge: 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+                                  liq: 'text-blue-700 dark:text-blue-400'
+                                }
+                              : {
+                                  border: 'border-violet-150 dark:border-violet-900/40',
+                                  badge: 'bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-300 border-violet-200 dark:border-violet-800',
+                                  liq: 'text-violet-700 dark:text-violet-400'
+                                };
                             
                             return (
-                              <div key={group.bandeira} className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm bg-slate-50/30 dark:bg-slate-900/40">
+                              <div key={group.key} className={`border rounded-xl overflow-hidden shadow-sm bg-white dark:bg-slate-900/60 ${modalColor.border}`}>
                                 {/* Group Header */}
                                 <div 
-                                  onClick={() => setExpandedBrands(prev => ({ ...prev, [group.bandeira]: !prev[group.bandeira] }))}
-                                  className="p-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 cursor-pointer hover:bg-slate-150/60 dark:hover:bg-slate-800/40 transition select-none"
+                                  onClick={() => setExpandedBrands(prev => ({ ...prev, [group.key]: !prev[group.key] }))}
+                                  className="p-4 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 transition select-none"
                                 >
-                                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                                    <BrandAvatar visual={brandObj} size="sm" className="shrink-0" />
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <BrandAvatar visual={brandObj} size="md" className="shrink-0" />
                                     <div className="min-w-0">
-                                      <span className="font-extrabold text-slate-950 dark:text-white text-xs block uppercase tracking-wider">{group.bandeira}</span>
-                                      <span className="text-[10px] text-slate-400 font-semibold">{group.items.length} {group.items.length === 1 ? 'recebível' : 'recebíveis'}</span>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-extrabold text-slate-900 dark:text-white text-sm uppercase tracking-wide">
+                                          {group.bandeira}
+                                        </span>
+                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${modalColor.badge}`}>
+                                          {group.modalidade === 'DEBITO' ? 'Débito' : 'Crédito'}
+                                        </span>
+                                      </div>
+                                      <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
+                                        {group.items.length} {group.items.length === 1 ? 'recebível' : 'recebíveis'}
+                                      </span>
                                     </div>
                                   </div>
                                   
-                                  <div className="flex items-center gap-4 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2.5 md:pt-0 border-slate-100 dark:border-slate-800 flex-wrap">
-                                    {/* Débito column */}
-                                    {group.subgroups['cartao_debito'] && (() => {
-                                      const deb = group.subgroups['cartao_debito'];
-                                      return (
-                                        <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40 rounded-lg px-2.5 py-1.5">
-                                          <span className="text-[8px] font-black uppercase text-blue-500 dark:text-blue-400 tracking-widest shrink-0">DEB</span>
-                                          <div className="text-right">
-                                            <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Bruto</span>
-                                            <span className="font-mono text-[10px] font-semibold text-slate-500">{BRL.format(deb.bruto)}</span>
-                                          </div>
-                                          <div className="text-right">
-                                            <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Taxa</span>
-                                            <span className="font-mono text-[10px] font-semibold text-rose-500">-{BRL.format(deb.taxa)}</span>
-                                          </div>
-                                          <div className="text-right">
-                                            <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Líquido</span>
-                                            <span className="font-mono text-[10px] font-black text-blue-700 dark:text-blue-300">{BRL.format(deb.liquido)}</span>
-                                          </div>
-                                        </div>
-                                      );
-                                    })()}
-                                    {/* Crédito column (vista + parcelado combined) */}
-                                    {(['cartao_credito_vista', 'cartao_credito_parcelado'].some(t => !!group.subgroups[t])) && (() => {
-                                      const cre = ['cartao_credito_vista', 'cartao_credito_parcelado'].reduce(
-                                        (acc, t) => {
-                                          const sg = group.subgroups[t];
-                                          if (sg) { acc.bruto += sg.bruto; acc.taxa += sg.taxa; acc.liquido += sg.liquido; }
-                                          return acc;
-                                        },
-                                        { bruto: 0, taxa: 0, liquido: 0 }
-                                      );
-                                      return (
-                                        <div className="flex items-center gap-2 bg-violet-50 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900/40 rounded-lg px-2.5 py-1.5">
-                                          <span className="text-[8px] font-black uppercase text-violet-500 dark:text-violet-400 tracking-widest shrink-0">CRÉ</span>
-                                          <div className="text-right">
-                                            <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Bruto</span>
-                                            <span className="font-mono text-[10px] font-semibold text-slate-500">{BRL.format(cre.bruto)}</span>
-                                          </div>
-                                          <div className="text-right">
-                                            <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Taxa</span>
-                                            <span className="font-mono text-[10px] font-semibold text-rose-500">-{BRL.format(cre.taxa)}</span>
-                                          </div>
-                                          <div className="text-right">
-                                            <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Líquido</span>
-                                            <span className="font-mono text-[10px] font-black text-violet-700 dark:text-violet-300">{BRL.format(cre.liquido)}</span>
-                                          </div>
-                                        </div>
-                                      );
-                                    })()}
-                                    <div className="text-center shrink-0">
-                                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${group.status === 'PAGO' ? 'bg-emerald-100 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900' : 'bg-amber-100 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900'}`}>
-                                        {group.status}
+                                  <div className="flex items-center gap-6 shrink-0 border-t lg:border-t-0 pt-3 lg:pt-0 border-slate-100 dark:border-slate-800 w-full lg:w-auto justify-between lg:justify-end">
+                                    <div className="text-right">
+                                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">Bruto</span>
+                                      <span className="font-mono text-sm font-semibold text-slate-500 dark:text-slate-400">
+                                        {BRL.format(group.bruto)}
                                       </span>
                                     </div>
-                                    {/* Chevron Icon */}
-                                    <svg className={`h-4 w-4 text-slate-400 transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
-                                    </svg>
+                                    
+                                    <div className="text-right">
+                                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">Taxa</span>
+                                      <span className="font-mono text-sm font-semibold text-rose-500">
+                                        -{BRL.format(group.taxa)}
+                                      </span>
+                                    </div>
+                                    
+                                    <div className="text-right pr-2">
+                                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">Líquido</span>
+                                      <span className={`font-mono text-xl font-black ${modalColor.liq}`}>
+                                        {BRL.format(group.liquido)}
+                                      </span>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-2.5 shrink-0">
+                                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${group.status === 'PAGO' ? 'bg-emerald-100 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50' : 'bg-amber-100 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/50'}`}>
+                                        {group.status}
+                                      </span>
+                                      <svg className={`h-4 w-4 text-slate-400 transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                                      </svg>
+                                    </div>
                                   </div>
                                 </div>
                                 
-                                {/* Group Items (Sub-list) — grouped by Débito / Crédito */}
                                 {isExpanded && (
-                                  <div className="bg-white dark:bg-slate-900/60 border-t border-slate-100 dark:border-slate-800">
-                                    {tipoOrder
-                                      .filter(tipo => !!group.subgroups[tipo])
-                                      .map(tipo => {
-                                        const sub = group.subgroups[tipo];
-                                        const isDebito = tipo === 'cartao_debito';
-                                        const subColor = isDebito
-                                          ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 border-blue-100 dark:border-blue-900/40'
-                                          : 'text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/20 border-violet-100 dark:border-violet-900/40';
-                                        return (
-                                          <div key={tipo} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0">
-                                            {/* Sub-group header: Débito or Crédito */}
-                                            <div className={`flex items-center justify-between px-3 py-1.5 border-b ${subColor} border-opacity-60`}>
-                                              <div className="flex items-center gap-2">
-                                                <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border ${subColor}`}>
-                                                  {isDebito ? 'Débito' : sub.label}
-                                                </span>
-                                                <span className="text-[9px] text-slate-400 font-semibold">{sub.items.length} {sub.items.length === 1 ? 'recebível' : 'recebíveis'}</span>
-                                              </div>
-                                              <div className="flex items-center gap-4">
-                                                <div className="text-right">
-                                                  <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Bruto</span>
-                                                  <span className="font-mono text-[10px] font-semibold text-slate-500">{BRL.format(sub.bruto)}</span>
-                                                </div>
-                                                <div className="text-right">
-                                                  <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Taxa</span>
-                                                  <span className="font-mono text-[10px] font-semibold text-rose-500">-{BRL.format(sub.taxa)}</span>
-                                                </div>
-                                                <div className="text-right">
-                                                  <span className="text-[8px] font-extrabold text-slate-400 block uppercase">Líquido</span>
-                                                  <span className={`font-mono text-[10px] font-black ${isDebito ? 'text-blue-700 dark:text-blue-300' : 'text-violet-700 dark:text-violet-300'}`}>{BRL.format(sub.liquido)}</span>
-                                                </div>
-                                              </div>
-                                            </div>
-                                            {/* Items within sub-group */}
-                                            <div className="divide-y divide-slate-100 dark:divide-slate-800 pl-3 pr-2">
-                                              {sub.items.map(item => (
-                                                <div
-                                                  key={item.id}
-                                                  onClick={() => handleOpenEditRecebivel(item)}
-                                                  className="py-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 cursor-pointer rounded-lg transition px-2 my-1"
-                                                >
-                                                  <div className="min-w-0 flex-1">
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                      <span className="font-bold text-slate-850 dark:text-slate-200 text-[11px]">{item.descricao}</span>
-                                                      <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono shrink-0">{item.rv}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 flex-wrap">
-                                                      <span>Venda: {formatSafeDate(item.data_venda)}</span>
-                                                      {item.numero_parcela && (
-                                                        <>
-                                                          <span>•</span>
-                                                          <span>Parcela {item.numero_parcela}/{item.total_parcelas}</span>
-                                                        </>
-                                                      )}
-                                                      {item.vendedor && (
-                                                        <>
-                                                          <span>•</span>
-                                                          <span>Vendedor: <b className="text-slate-500 dark:text-slate-400 font-semibold">{item.vendedor}</b></span>
-                                                        </>
-                                                      )}
-                                                      {item.cliente && (
-                                                        <>
-                                                          <span>•</span>
-                                                          <span>Cliente: <b className="text-slate-500 dark:text-slate-400 font-semibold">{item.cliente}</b></span>
-                                                        </>
-                                                      )}
-                                                    </div>
-                                                  </div>
-                                                  <div className="flex items-center gap-5 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-slate-100 dark:border-slate-850">
-                                                    <div className="text-right flex items-center justify-end w-16">
-                                                      <span className="font-mono text-[11px] text-slate-500">{BRL.format(item.valor_bruto)}</span>
-                                                    </div>
-                                                    <div className="text-right flex items-center justify-end w-16">
-                                                      <span className="font-mono text-[11px] text-rose-500">-{BRL.format(item.valor_taxa)}</span>
-                                                    </div>
-                                                    <div className="text-right flex items-center justify-end w-16">
-                                                      <span className="font-mono text-[11px] font-bold text-slate-900 dark:text-white">{BRL.format(item.valor_liquido)}</span>
-                                                    </div>
-                                                    <div className="text-center w-20">
-                                                      <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase border ${item.status === 'PAGO' ? 'bg-emerald-50 dark:bg-emerald-950/10 text-emerald-600 dark:text-emerald-450 border-emerald-100 dark:border-emerald-950' : 'bg-amber-50 dark:bg-amber-950/10 text-amber-600 dark:text-amber-450 border-amber-100 dark:border-amber-950'}`}>
-                                                        {item.status}
-                                                      </span>
-                                                    </div>
-                                                  </div>
-                                                </div>
-                                              ))}
-                                            </div>
+                                  <div className="bg-slate-50/40 dark:bg-slate-900/20 border-t border-slate-100 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 pl-4 pr-3">
+                                    {group.items.map(item => (
+                                      <div
+                                        key={item.id}
+                                        onClick={() => handleOpenEditRecebivel(item)}
+                                        className="py-3.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-white dark:hover:bg-slate-800/40 cursor-pointer transition px-2 my-1 rounded-lg"
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="font-bold text-slate-850 dark:text-slate-200 text-xs">{item.descricao}</span>
+                                            <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono shrink-0">{item.rv}</span>
+                                            <span className="text-[9px] font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0 font-mono">
+                                              {item.tipo_pagamento === 'cartao_credito_parcelado' ? 'Parcelado' : 'À Vista'}
+                                            </span>
                                           </div>
-                                        );
-                                      })}
+                                          <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 flex-wrap">
+                                            <span>Venda: {formatSafeDate(item.data_venda)}</span>
+                                            {item.numero_parcela && (
+                                              <>
+                                                <span>•</span>
+                                                <span>Parcela {item.numero_parcela}/{item.total_parcelas}</span>
+                                              </>
+                                            )}
+                                            {item.vendedor && (
+                                              <>
+                                                <span>•</span>
+                                                <span>Vendedor: <b className="text-slate-500 dark:text-slate-400 font-semibold">{item.vendedor}</b></span>
+                                              </>
+                                            )}
+                                            {item.cliente && (
+                                              <>
+                                                <span>•</span>
+                                                <span>Cliente: <b className="text-slate-500 dark:text-slate-400 font-semibold">{item.cliente}</b></span>
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-5 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-slate-100 dark:border-slate-855 font-mono text-slate-550">
+                                          <div className="text-right w-20">
+                                            <span className="text-[8px] text-slate-450 uppercase block font-semibold">Bruto</span>
+                                            <span className="text-xs">{BRL.format(item.valor_bruto)}</span>
+                                          </div>
+                                          <div className="text-right w-20">
+                                            <span className="text-[8px] text-slate-450 uppercase block font-semibold">Taxa</span>
+                                            <span className="text-xs text-rose-500">-{BRL.format(item.valor_taxa)}</span>
+                                          </div>
+                                          <div className="text-right w-24">
+                                            <span className="text-[8px] text-slate-450 uppercase block font-semibold">Líquido</span>
+                                            <span className={`text-sm font-black ${modalColor.liq}`}>{BRL.format(item.valor_liquido)}</span>
+                                          </div>
+                                          <div className="text-center w-20 pl-2">
+                                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase border ${item.status === 'PAGO' ? 'bg-emerald-50 dark:bg-emerald-950/10 text-emerald-600 dark:text-emerald-450 border-emerald-100 dark:border-emerald-950' : 'bg-amber-50 dark:bg-amber-950/10 text-amber-600 dark:text-amber-450 border-amber-100 dark:border-amber-950'}`}>
+                                              {item.status}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
                                   </div>
                                 )}
                               </div>

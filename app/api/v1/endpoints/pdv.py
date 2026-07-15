@@ -2063,8 +2063,7 @@ def criar_movimentacao_pdv(
             except Exception:
                 pass
         if not c_id:
-            conta = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).first()
-            c_id = conta.id if conta else None
+            c_id = obter_conta_caixa_fisica(db, empresa_id)
 
     if mov_in.tipo == "ENTRADA":
         # Obter ou criar Cliente Consumidor default se for ENTRADA
@@ -2081,23 +2080,35 @@ def criar_movimentacao_pdv(
             db.add(default_client)
             db.flush()
 
-        # Se for DINHEIRO ou PIX:
-        if mov_in.forma_pagamento in ["DINHEIRO", "PIX"]:
-            pc_receita = db.exec(
-                select(PlanoContas)
-                .where(PlanoContas.empresa_id == empresa_id, PlanoContas.tipo == "R", PlanoContas.permite_lancamentos == True)
-            ).first()
-            if not pc_receita:
-                pc_receita = PlanoContas(
-                    nome="Receitas de Vendas",
-                    tipo="R",
-                    empresa_id=empresa_id,
-                    permite_lancamentos=True,
-                    codigo="1.01.01"
-                )
-                db.add(pc_receita)
-                db.flush()
-            pc_id = pc_receita.id
+        # Se for DINHEIRO:
+        if mov_in.forma_pagamento == "DINHEIRO":
+            pc_id = None
+            empresa = db.get(Empresa, empresa_id)
+            if empresa and empresa.pdv_config:
+                try:
+                    config = json.loads(empresa.pdv_config)
+                    pc_id_str = config.get("categorias", {}).get("dinheiro")
+                    if pc_id_str:
+                        pc_id = int(pc_id_str)
+                except Exception:
+                    pass
+
+            if not pc_id:
+                pc_receita = db.exec(
+                    select(PlanoContas)
+                    .where(PlanoContas.empresa_id == empresa_id, PlanoContas.tipo == "R", PlanoContas.permite_lancamentos == True)
+                ).first()
+                if not pc_receita:
+                    pc_receita = PlanoContas(
+                        nome="Receitas de Vendas",
+                        tipo="R",
+                        empresa_id=empresa_id,
+                        permite_lancamentos=True,
+                        codigo="1.01.01"
+                    )
+                    db.add(pc_receita)
+                    db.flush()
+                pc_id = pc_receita.id
             
             meta = {
                 "is_movimentacao_pdv": True,
@@ -2152,13 +2163,14 @@ def criar_movimentacao_pdv(
             return {"status": "success", "id": l.id}
             
         else:
-            # É pagamento com cartão (DEBITO, CREDITO_AVISTA, CREDITO_PARCELADO)
+            # É pagamento com cartão ou PIX (DEBITO, CREDITO_AVISTA, CREDITO_PARCELADO, PIX)
             from app.schemas.pdv import PdvVendaCreate, PdvVendaItemCreate, PdvVendaPagamento
             
             tipo_pag_map = {
                 "DEBITO": "cartao_debito",
                 "CREDITO_AVISTA": "cartao_credito_vista",
-                "CREDITO_PARCELADO": "cartao_credito_parcelado"
+                "CREDITO_PARCELADO": "cartao_credito_parcelado",
+                "PIX": "pix_chave"
             }
             tipo_pag_backend = tipo_pag_map.get(mov_in.forma_pagamento, "cartao_debito")
             
@@ -2237,21 +2249,31 @@ def criar_movimentacao_pdv(
             
     else:
         # É uma SAÍDA (Sangria/Retirada)
-        pc_despesa = db.exec(
-            select(PlanoContas)
-            .where(PlanoContas.empresa_id == empresa_id, PlanoContas.tipo == "D", PlanoContas.permite_lancamentos == True)
-        ).first()
-        if not pc_despesa:
-            pc_despesa = PlanoContas(
-                nome="Sangria / Despesas Operacionais",
-                tipo="D",
-                empresa_id=empresa_id,
-                permite_lancamentos=True,
-                codigo="2.01.01"
-            )
-            db.add(pc_despesa)
-            db.flush()
-        pc_id = pc_despesa.id
+        pc_id = None
+        empresa = db.get(Empresa, empresa_id)
+        if empresa and empresa.pdv_config:
+            try:
+                config = json.loads(empresa.pdv_config)
+                pc_id = config.get("pdv_sangria_saida_plano_contas_id")
+            except Exception:
+                pass
+
+        if not pc_id:
+            pc_despesa = db.exec(
+                select(PlanoContas)
+                .where(PlanoContas.empresa_id == empresa_id, PlanoContas.tipo == "D", PlanoContas.permite_lancamentos == True)
+            ).first()
+            if not pc_despesa:
+                pc_despesa = PlanoContas(
+                    nome="Sangria / Despesas Operacionais",
+                    tipo="D",
+                    empresa_id=empresa_id,
+                    permite_lancamentos=True,
+                    codigo="2.01.01"
+                )
+                db.add(pc_despesa)
+                db.flush()
+            pc_id = pc_despesa.id
 
         meta = {
             "is_movimentacao_pdv": True,

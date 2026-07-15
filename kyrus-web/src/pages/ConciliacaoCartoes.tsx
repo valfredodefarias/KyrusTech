@@ -1367,7 +1367,11 @@ export function ConciliacaoCartoes() {
                       return (
                         <div
                           key={`${slot.dateStr}-${index}`}
-                          onClick={() => setSelectedDay(slot.dateStr)}
+                          onClick={() => {
+                            setSelectedDay(slot.dateStr);
+                            setStartDate(slot.dateStr);
+                            setEndDate(slot.dateStr);
+                          }}
                           className={`min-h-[110px] p-2.5 flex flex-col justify-between cursor-pointer transition hover:bg-blue-50/20 dark:hover:bg-blue-950/5 ${!slot.isCurrentMonth ? 'bg-slate-50/50 dark:bg-slate-950/20 opacity-40' : ''} ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50/30 dark:bg-blue-950/10' : ''}`}
                         >
                           {/* Day Number and Total Day Value badge */}
@@ -1432,7 +1436,11 @@ export function ConciliacaoCartoes() {
                         Detalhamento de Recebíveis para {formatSafeDate(selectedDay, { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}
                       </h4>
                       <button
-                        onClick={() => setSelectedDay(null)}
+                        onClick={() => {
+                          setSelectedDay(null);
+                          setStartDate('');
+                          setEndDate('');
+                        }}
                         className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold"
                       >
                         Fechar detalhes

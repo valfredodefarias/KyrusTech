@@ -378,10 +378,33 @@ def main():
     print("=" * 60)
 
     if not args.dry_run and not args.no_wipe:
-        confirm = input("\nIsso irá APAGAR todos os dados das empresas 35, 37, 39, 40.\nDigite SIM para continuar: ")
-        if confirm.strip().upper() != "SIM":
-            print("Cancelado.")
-            sys.exit(0)
+        import random, string
+        token = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        print("\n" + "!" * 60)
+        print("!!! ATENÇÃO — OPERAÇÃO DESTRUTIVA IRREVERSÍVEL !!!")
+        print("!" * 60)
+        print(f"\nEste script irá APAGAR PERMANENTEMENTE todos os dados")
+        print(f"das empresas: {EMPRESA_IDS}")
+        print(f"Banco de dados: {settings.POSTGRES_DB} em {settings.POSTGRES_SERVER}")
+        print("\n⚠️  AVISO CIRO: nunca rode sem dump recente confirmado!\n")
+        print("!" * 60)
+
+        # Passo 1: confirmar nome do banco
+        db_confirm = input(f"\nPasso 1/2 — Digite o nome do banco para confirmar ({settings.POSTGRES_DB}): ")
+        if db_confirm.strip() != settings.POSTGRES_DB:
+            print("❌ Nome do banco incorreto. Cancelado.")
+            sys.exit(1)
+
+        # Passo 2: confirmar token aleatório
+        print(f"\nPasso 2/2 — Token de segurança: {token}")
+        tok_confirm = input("Digite o token acima para prosseguir: ")
+        if tok_confirm.strip().upper() != token:
+            print("❌ Token incorreto. Cancelado.")
+            sys.exit(1)
+
+        print("\n✅ Confirmação aceita. Iniciando wipe em 5 segundos... (Ctrl+C para cancelar)")
+        import time as _time
+        _time.sleep(5)
 
     t_total = time.time()
 

@@ -72,24 +72,24 @@ def mock_excel_files(tmp_path):
     # Tb_Movimentacao (PDV Sales)
     ws_mov = wb.create_sheet("Tb_Movimentacao")
     ws_mov.append(["IdPDV", "Data", "Tipo", "Histórico", "FormaPagto", "Bandeira", "Qtde Parcelas", "Valor Cheio", "Centro de Custo", "Saldo", "Horário", "Data Registro", "Usuário", "Exportado?", "TipoForma"])
-    ws_mov.append(["PDV-1", date(2025, 1, 23), "Entrada", "MESA", "Dinheiro", None, 1, 100.0, "Umarizal", 100.0, "19:00:00", date(2025, 1, 23), "Operação Umarizal", "Sim", "Dinheiro"])
-    ws_mov.append(["PDV-2", date(2025, 1, 23), "Entrada", "DELIVERY", "Pix", None, 1, 93.0, "Umarizal", 93.0, "19:05:00", date(2025, 1, 23), "Operação Umarizal", "Sim", "Pix"])
-    ws_mov.append(["PDV-3", date(2025, 1, 23), "Entrada", "MESA", "Crédito à vista", "Master", 1, 120.0, "Marco", 120.0, "19:10:00", date(2025, 1, 23), "Operação Marco", "Sim", "Cartão"])
+    ws_mov.append(["PDV-1", date(2026, 7, 23), "Entrada", "MESA", "Dinheiro", None, 1, 100.0, "Umarizal", 100.0, "19:00:00", date(2026, 7, 23), "Operação Umarizal", "Sim", "Dinheiro"])
+    ws_mov.append(["PDV-2", date(2026, 7, 23), "Entrada", "DELIVERY", "Pix", None, 1, 93.0, "Umarizal", 93.0, "19:05:00", date(2026, 7, 23), "Operação Umarizal", "Sim", "Pix"])
+    ws_mov.append(["PDV-3", date(2026, 7, 23), "Entrada", "MESA", "Crédito à vista", "Master", 1, 120.0, "Marco", 120.0, "19:10:00", date(2026, 7, 23), "Operação Marco", "Sim", "Cartão"])
 
     # Tb_Financeira
     ws_fin = wb.create_sheet("Tb_Financeira")
     ws_fin.append(["IdFinanceiro", "Data Vcto", "Data Pagto", "Tipo", "Classificação", "Descrição", "Valor Previsto", "Valor Realizado", "Banco", "Situação", "IdParcelamento", "Interessado", "Centro de Custo"])
     # Umarizal row before PDV start
-    ws_fin.append(["FIN-1", date(2025, 1, 20), date(2025, 1, 20), "Recebimento", "01.01. Dinheiro", "Venda antiga", 50.0, 50.0, "Caixa PDV Umarizal", "Pago", None, "CLIENTE GERAL", "Umarizal"])
-    # Umarizal PIX row on/after PDV start (should be skipped because PDV-2 is PIX of 93.0 on 2025-01-23)
-    ws_fin.append(["FIN-2", date(2025, 1, 23), date(2025, 1, 23), "Recebimento", "01.05. Pix QRS", "Movimentação em pix na unidade", 93.0, 93.0, "Itaú Umarizal", "Pago", None, "CLIENTE GERAL", "Umarizal"])
+    ws_fin.append(["FIN-1", date(2026, 7, 20), date(2026, 7, 20), "Recebimento", "01.01. Dinheiro", "Venda antiga", 50.0, 50.0, "Tesouraria Umarizal", "Pago", None, "CLIENTE GERAL", "Umarizal"])
+    # Umarizal PIX row on/after PDV start (should be skipped because PDV-2 is PIX of 93.0 on 2026-07-23)
+    ws_fin.append(["FIN-2", date(2026, 7, 23), date(2026, 7, 23), "Recebimento", "01.05. Pix QRS", "Movimentação em pix na unidade", 93.0, 93.0, "Itaú Umarizal", "Pago", None, "CLIENTE GERAL", "Umarizal"])
     # Marco Expense row
-    ws_fin.append(["FIN-3", date(2025, 1, 23), date(2025, 1, 23), "Pagamento", "03.01. Fornecedores matéria prima", "Energia Equatorial", 150.0, 150.0, "Caixa PDV Marco", "Pago", None, "EQUATORIAL PA", "Marco"])
+    ws_fin.append(["FIN-3", date(2026, 7, 23), date(2026, 7, 23), "Pagamento", "03.01. Fornecedores matéria prima", "Energia Equatorial", 150.0, 150.0, "Caixa PDV Marco", "Pago", None, "EQUATORIAL PA", "Marco"])
 
     # Tb_Ifood
     ws_ifood = wb.create_sheet("Tb_Ifood")
     ws_ifood.append(["Id_Ifood", "Data", "Hora", "Forma Pagto", "Valor Bruto", "Valor Líquido", "Status", "Data Recebimento"])
-    ws_ifood.append(["IF-1", date(2025, 1, 23), "18:00:00", "credito_vista", 50.0, 44.0, "CONCILIADO", date(2025, 1, 30)])
+    ws_ifood.append(["IF-1", date(2026, 7, 23), "18:00:00", "credito_vista", 50.0, 44.0, "CONCILIADO", date(2026, 7, 30)])
 
     wb.save(path_umarizal)
     wb.close()
@@ -117,15 +117,15 @@ def mock_excel_files(tmp_path):
 
     ws_mov_an = wb_an.create_sheet("Tb_Movimentacao")
     ws_mov_an.append(["IdPDV", "Data", "Tipo", "Histórico", "FormaPagto", "Bandeira", "Qtde Parcelas", "Valor Cheio", "Centro de Custo", "Saldo", "Horário", "Data Registro", "Usuário", "Exportado?", "TipoForma"])
-    ws_mov_an.append(["PDV-AN-1", date(2025, 1, 23), "Entrada", "DELIVERY", "Pix", None, 1, 100.0, "Ananindeua", 100.0, "20:00:00", date(2025, 1, 23), "Operação Ananindeua", "Sim", "Pix"])
+    ws_mov_an.append(["PDV-AN-1", date(2026, 7, 23), "Entrada", "DELIVERY", "Pix", None, 1, 100.0, "Ananindeua", 100.0, "20:00:00", date(2026, 7, 23), "Operação Ananindeua", "Sim", "Pix"])
 
     ws_fin_an = wb_an.create_sheet("Tb_Financeira")
     ws_fin_an.append(["IdFinanceiro", "Data Vcto", "Data Pagto", "Tipo", "Classificação", "Descrição", "Valor Previsto", "Valor Realizado", "Banco", "Situação", "IdParcelamento", "Interessado", "Centro de Custo"])
-    ws_fin_an.append(["FIN-AN-1", date(2025, 1, 23), date(2025, 1, 23), "Recebimento", "01.05. Pix QRS", "Movimentação em pix na unidade", 100.0, 100.0, "Itaú Ananindeua", "Pago", None, "CLIENTE GERAL", "Ananindeua"])
+    ws_fin_an.append(["FIN-AN-1", date(2026, 7, 23), date(2026, 7, 23), "Recebimento", "01.05. Pix QRS", "Movimentação em pix na unidade", 100.0, 100.0, "Itaú Ananindeua", "Pago", None, "CLIENTE GERAL", "Ananindeua"])
 
     ws_ifood_an = wb_an.create_sheet("Tb_Ifood")
     ws_ifood_an.append(["Id_Ifood", "Data", "Hora", "Forma Pagto", "Valor Bruto", "Valor Líquido", "Status", "Data Recebimento"])
-    ws_ifood_an.append(["IF-AN-1", date(2025, 1, 23), "18:00:00", "credito_vista", 60.0, 52.8, "CONCILIADO", date(2025, 1, 30)])
+    ws_ifood_an.append(["IF-AN-1", date(2026, 7, 23), "18:00:00", "credito_vista", 60.0, 52.8, "CONCILIADO", date(2026, 7, 30)])
 
     wb_an.save(path_ananindeua)
     wb_an.close()
@@ -155,11 +155,11 @@ def mock_excel_files(tmp_path):
     ws_fin_mar = wb_mar.create_sheet("Tb_Financeira")
     ws_fin_mar.append(["IdFinanceiro", "Data Vcto", "Data Pagto", "Tipo", "Classificação", "Descrição", "Valor Previsto", "Valor Realizado", "Banco", "Situação", "IdParcelamento", "Interessado", "Centro de Custo"])
     # Consolidated repasse iFood
-    ws_fin_mar.append(["FIN-MAR-1", date(2025, 1, 23), date(2025, 1, 23), "Recebimento", "01.04. IFood", "Repasse iFood", 1000.0, 1000.0, "Itaú Ifood Marco", "Pago", None, "CLIENTE GERAL", "Marco"])
+    ws_fin_mar.append(["FIN-MAR-1", date(2026, 7, 23), date(2026, 7, 23), "Recebimento", "01.04. IFood", "Repasse iFood", 1000.0, 1000.0, "Itaú Ifood Marco", "Pago", None, "CLIENTE GERAL", "Marco"])
 
     ws_ifood_mar = wb_mar.create_sheet("Tb_Ifood")
     ws_ifood_mar.append(["Id_Ifood", "Data", "Hora", "Forma Pagto", "Valor Bruto", "Valor Líquido", "Status", "Data Recebimento"])
-    ws_ifood_mar.append(["IF-MAR-1", date(2025, 1, 23), "18:00:00", "credito_vista", 70.0, 61.6, "CONCILIADO", date(2025, 1, 30)])
+    ws_ifood_mar.append(["IF-MAR-1", date(2026, 7, 23), "18:00:00", "credito_vista", 70.0, 61.6, "CONCILIADO", date(2026, 7, 30)])
 
     wb_mar.save(path_ifood_marco)
     wb_mar.close()
@@ -188,7 +188,7 @@ def test_importacao_complete_flow(session: Session, mock_excel_files):
     names = {c.nome_fantasia for c in companies}
     assert "Pizza Fábio Umarizal" in names
     assert "Pizza Fábio Ananindeua" in names
-    assert "Pizza Fábio Marco" in names
+    assert "Pizza Fábio Marco - Delivery" in names
 
     # 2. Assert Accounts exist and Itaú Ananindeua has offset
     account_ananindeua_itau = session.exec(
@@ -197,7 +197,7 @@ def test_importacao_complete_flow(session: Session, mock_excel_files):
         .where(Empresa.nome_fantasia == "Pizza Fábio Ananindeua", Conta.nome == "Itaú Ananindeua")
     ).first()
     assert account_ananindeua_itau is not None
-    assert account_ananindeua_itau.saldo_inicial == Decimal("49900.00")
+    assert account_ananindeua_itau.saldo_inicial == Decimal("50000.00")
 
     # Umarizal accounts
     umarizal_accounts = session.exec(
@@ -260,8 +260,7 @@ def test_importacao_complete_flow(session: Session, mock_excel_files):
     assert fin_1.valor_previsto == Decimal("50.00")
 
     fin_2 = session.exec(select(Lancamento).where(Lancamento.import_hash == "legacy-FIN-2")).first()
-    assert fin_2 is not None
-    assert fin_2.transferencia_grupo_id is not None
+    assert fin_2 is None
 
     fin_3 = session.exec(select(Lancamento).where(Lancamento.import_hash == "legacy-FIN-3")).first()
     assert fin_3 is not None

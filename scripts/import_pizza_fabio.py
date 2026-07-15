@@ -699,29 +699,41 @@ def import_unit(
             cc_pdv_id = centro_id
             cc_ifood_id = centro_id
 
+        # Force default payment methods and keys if missing
+        existing_categorias = existing_config.get("categorias", {})
+        existing_contas = existing_config.get("contas", {})
+        existing_formas = existing_config.get("formas_pagamento", [])
+        
+        # Ensure default keys exist in categories
+        for k in ["cartao_credito_vista", "cartao_credito_parcelado", "cartao_debito", "dinheiro", "pix_chave"]:
+            if k not in existing_categorias:
+                existing_categorias[k] = plano_fallback_id
+            if k.startswith("cartao_") and k not in existing_contas:
+                existing_contas[k] = str(card_bank_id) if card_bank_id else "1"
+
+        # Ensure default shapes exist in formas_pagamento
+        default_formas = [
+            {"key": "dinheiro", "label": "Dinheiro", "parcelada": False},
+            {"key": "pix_chave", "label": "Pix", "parcelada": False},
+            {"key": "cartao_credito_vista", "label": "Crédito à Vista", "parcelada": False},
+            {"key": "cartao_credito_parcelado", "label": "Crédito Parcelado", "parcelada": True},
+            {"key": "cartao_debito", "label": "Débito", "parcelada": False}
+        ]
+        
+        existing_keys = {f.get("key") for f in existing_formas if f.get("key")}
+        for df in default_formas:
+            if df["key"] not in existing_keys:
+                existing_formas.append(df)
+
         config_data = {
-            "categorias": existing_config.get("categorias", {
-                "cartao_credito_vista": plano_fallback_id,
-                "cartao_credito_parcelado": plano_fallback_id,
-                "cartao_debito": plano_fallback_id
-            }),
+            "categorias": existing_categorias,
             "marcar_como_pago": existing_config.get("marcar_como_pago", {
                 "dinheiro": True,
                 "pix_chave": True,
                 "pix_qr": True
             }),
-            "contas": existing_config.get("contas", {
-                "cartao_credito_vista": str(card_bank_id) if card_bank_id else "1",
-                "cartao_credito_parcelado": str(card_bank_id) if card_bank_id else "1",
-                "cartao_debito": str(card_bank_id) if card_bank_id else "1"
-            }),
-            "formas_pagamento": existing_config.get("formas_pagamento", [
-                {"key": "dinheiro", "label": "Dinheiro", "parcelada": False},
-                {"key": "pix_chave", "label": "Pix", "parcelada": False},
-                {"key": "cartao_credito_vista", "label": "Crédito à Vista", "parcelada": False},
-                {"key": "cartao_credito_parcelado", "label": "Crédito Parcelado", "parcelada": True},
-                {"key": "cartao_debito", "label": "Débito", "parcelada": False}
-            ]),
+            "contas": existing_contas,
+            "formas_pagamento": existing_formas,
             "active_apps": existing_config.get("active_apps", ["ifood", "movimentacao_pdv"]),
             "centro_custo_padrao_id": cc_pdv_id,
             "centro_custo_flexivel": False,
@@ -973,16 +985,9 @@ def import_unit(
                         ]
                     }
 
-                    # Resolve correct child category for PDV sale instead of fallback
-                    sale_pc_id = plano_fallback_id
-                    if "dinheiro" in tipo_pag:
-                        sale_pc_id = next((v for k, v in pc_map.items() if k.startswith("01.01")), plano_fallback_id)
-                    elif "debito" in tipo_pag:
-                        sale_pc_id = next((v for k, v in pc_map.items() if k.startswith("01.03")), plano_fallback_id)
-                    elif "credito" in tipo_pag:
-                        sale_pc_id = next((v for k, v in pc_map.items() if k.startswith("01.02")), plano_fallback_id)
-                    elif "pix" in tipo_pag:
-                        sale_pc_id = next((v for k, v in pc_map.items() if k.startswith("01.05")), None) or next((v for k, v in pc_map.items() if k.startswith("01.04")), plano_fallback_id)
+                    # Resolve correct child category for PDV sale using the merged configurations
+                    configured_cat = config_data["categorias"].get(tipo_pag)
+                    sale_pc_id = int(configured_cat) if configured_cat else plano_fallback_id
 
                     # Handle installments split
                     if num_parcelas > 1 and tipo_pag == "cartao_credito_parcelado":
@@ -1346,6 +1351,37 @@ def import_unit(
                 id_parc = clean_str(row[parc_idx]) if parc_idx < len(row) else ""
                 interessado = clean_str(row[int_idx]) if int_idx < len(row) else ""
 
+                # Skip duplicate sales-related PIX/Card/iFood receipts from Tb_Financeira
+                # since they are already imported as individual sales from Tb_Movimentacao
+                class_l = class_f.lower()
+                desc_l = desc.lower()
+                is_sales_receipt = (
+                    tipo_f.lower() == "recebimento" and (
+                        "pix" in class_l or 
+                        "cartao" in class_l or 
+                        "cartão" in class_l or
+                        "credito" in class_l or 
+                        "crédito" in class_l or
+                        "debito" in class_l or 
+                        "débito" in class_l or
+                        "ifood" in desc_l or
+                        "rede" in desc_l or
+                        "stone" in desc_l or
+                        "getnet" in desc_l or
+                        "cielo" in desc_l or
+                        "pagseguro" in desc_l or
+                        "consolidado" in desc_l or
+                        "movimento em pix no pdv" in desc_l
+                    )
+                )
+                
+                # Exception: Dinheiro deposits are kept to create the Caixa PDV sangria and Bank deposit pair.
+                # All other sales receipts are skipped from Tb_Financeira.
+                if is_sales_receipt:
+                    fin_skipped_count += 1
+                    continue
+
+
                 # Pula entradas auto-geradas pelo PDV (já importadas via Tb_Movimentacao)
                 # Banco pode ser 'PDV', 'Caixa PDV Umarizal', 'Caixa PDV Marco', etc.
                 # Só pula RECEBIMENTOS (receitas PDV = duplicata); mantém PAGAMENTOS (despesas pagas da caixa)
@@ -1366,11 +1402,7 @@ def import_unit(
                 group_id = transfer_links.get(fin_id)
                 
                 if dt_pag and dt_pag >= date(2025, 1, 22):
-                    class_l = class_f.lower()
-                    if "pix" in class_l or "01.04. pix" in class_l or "01.05. pix" in class_l:
-                        if (dt_pag, float(val_real)) in pdv_sales_cache:
-                            is_duplicate = True
-                    elif "dinheiro" in class_l or "01.01. dinheiro" in class_l:
+                    if "dinheiro" in class_l or "01.01. dinheiro" in class_l:
                         if tipo_f.lower() == "recebimento":
                             if (dt_pag, float(val_real)) in pdv_sales_cache:
                                 is_duplicate = True

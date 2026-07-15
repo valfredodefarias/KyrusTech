@@ -448,7 +448,8 @@ export function MovimentacaoPDV() {
   };
 
   const handleOpenSangriaDrawer = () => {
-    setSangriaValor('');
+    const availableCash = dailyTotals?.dinheiro?.valor ?? 0;
+    setSangriaValor(availableCash > 0 ? String(availableCash) : '');
     setSangriaData(selectedDate || new Date().toISOString().split('T')[0]);
     
     const sourceAccountId = pdvConfig?.pdv_conta_padrao_id;

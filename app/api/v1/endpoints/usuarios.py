@@ -358,7 +358,7 @@ def obter_minhas_empresas(
     from app.enums import ConsultorRole
     
     # 1. Super-usuários ou Super-consultores: acesso total
-    if current_user.is_superuser or (current_user.is_consultor and current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value):
+    if getattr(current_user, "is_superuser", False) or (current_user.is_consultor and current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value):
         empresas = db.exec(select(Empresa).where(Empresa.is_deleted == False, Empresa.is_active == True)).all()
         return [{"id": e.id, "nome_fantasia": e.nome_fantasia, "logo_url": e.logo_url} for e in empresas]
         
@@ -419,7 +419,7 @@ def trocar_empresa_usuario(
     tem_acesso = False
     
     # 1. Super-usuários ou Super-consultores: acesso total
-    if current_user.is_superuser or (current_user.is_consultor and current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value):
+    if getattr(current_user, "is_superuser", False) or (current_user.is_consultor and current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value):
         tem_acesso = True
         
     # 2. Consultores padrão

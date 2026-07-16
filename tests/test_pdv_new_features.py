@@ -277,3 +277,34 @@ def test_pdv_new_features_flow(session: Session, setup_new_features):
   assert venda_op.itens[0].produto_id == 2
   assert venda_op.itens[0].quantidade == Decimal("2.00")
   assert venda_op.itens[0].subtotal == Decimal("5000.00")
+
+def test_pdv_payment_methods_defaults(session: Session, setup_new_features):
+  # Increase credit limit for client ID 2
+  c = session.get(Entidade, 2)
+  c.observacoes = "limite_credito: 5000.00"
+  session.add(c)
+  session.commit()
+
+  # 1. PIX sale should default to EM ABERTO (not PAGO)
+  venda_pix = PdvVendaCreate(
+    entidade_id=2,
+    centro_custo_id=2,
+    vendedor_id=2,
+    desconto=Decimal("0.00"),
+    status="REALIZADO",
+    data_pagamento="2026-07-11",
+    itens=[PdvVendaItemCreate(produto_id=2, quantidade=1, desconto=Decimal("0.00"))],
+    pagamentos=[PdvVendaPagamento(tipo_pagamento="pix_chave", valor=Decimal("2500.00"))],
+    campos_extras={"canal_venda": "Ifood"}
+  )
+  venda_grupo = PdvService.criar_venda(session, venda_pix, empresa_id=2, current_user_id=2)
+  session.commit()
+
+  launches = session.exec(
+    select(Lancamento).where(Lancamento.id_parcelamento == venda_grupo.venda_id_uuid)
+  ).all()
+  assert len(launches) == 1
+  assert launches[0].status == "EM ABERTO"
+  assert launches[0].valor_pago == Decimal("0.00")
+  assert launches[0].data_pagamento is None
+

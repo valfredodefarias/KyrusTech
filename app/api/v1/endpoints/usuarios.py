@@ -341,7 +341,7 @@ def update_usuario(
     return target_user
 
 
-@router.get("/me/empresas", response_model=List[dict])
+@router.get("/me/empresas", response_model=list[dict])
 def obter_minhas_empresas(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_active_user),

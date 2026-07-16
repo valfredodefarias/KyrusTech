@@ -847,6 +847,20 @@ def _buscar_duplicata_historica(
         dia_muito_proximo = diferenca_dias <= 1
         lancamento_baixado = candidato.conciliado or str(candidato.status or "").upper() == "PAGO"
 
+        # Caso especial para iFood e Cartões:
+        # Se o lançamento existente for do iFood ou Cartão, e o movimento OFX também for,
+        # e o valor for idêntico dentro de uma janela de 3 dias, consideramos duplicata
+        # mesmo que a descrição seja diferente (ex: "Repasse iFood" vs "CREDITO IFOOD").
+        is_existente_ifood = (bool(candidato.origem and candidato.origem.upper() == "IFOOD") or "ifood" in candidato.descricao.lower())
+        is_ofx_ifood = "ifood" in lancamento_ofx.get("descricao", "").lower()
+        
+        is_existente_cartao = (bool(candidato.origem and candidato.origem.upper() in ("CARTAO", "LOTE_CARTAO")) or any(t in candidato.descricao.lower() for t in ("cielo", "redecard", "stone", "pagseguro")))
+        is_ofx_cartao = any(t in lancamento_ofx.get("descricao", "").lower() for t in ("cielo", "redecard", "stone", "pagseguro", "adquirente"))
+
+        if valor_exato and diferenca_dias <= 3:
+            if (is_existente_ifood and is_ofx_ifood) or (is_existente_cartao and is_ofx_cartao):
+                return candidato, f"Lançamento de repasse/cartão de mesmo valor identificado nos últimos {diferenca_dias} dias"
+
         # Mesmo dia+valor pode ocorrer em movimentos distintos;
         # exige evidencias adicionais para evitar falso positivo de "ja importado".
         if mesmo_dia_pagamento and valor_exato:

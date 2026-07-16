@@ -756,7 +756,7 @@ class PdvService:
         for p in venda_in.pagamentos:
             is_paid = config_marcar_como_pago.get(
                 p.tipo_pagamento,
-                p.tipo_pagamento in ["dinheiro", "pix_chave", "pix_qr", "cartao_credito_vista"]
+                p.tipo_pagamento in ["dinheiro"]
             )
             regra = obter_regra_cartao(db, empresa_id, p.tipo_pagamento, p.bandeira, venda_in.centro_custo_id)
             if regra:
@@ -889,7 +889,7 @@ class PdvService:
             else:
                 is_paid = config_marcar_como_pago.get(
                     p.tipo_pagamento,
-                    p.tipo_pagamento in ["dinheiro", "pix_chave", "pix_qr", "cartao_credito_vista"]
+                    p.tipo_pagamento in ["dinheiro"]
                 )
 
             # Buscar regra de cartão se houver
@@ -1344,7 +1344,7 @@ class PdvService:
         for p in venda_in.pagamentos:
             is_paid = config_marcar_como_pago.get(
                 p.tipo_pagamento,
-                p.tipo_pagamento in ["dinheiro", "pix_chave", "pix_qr", "cartao_credito_vista"]
+                p.tipo_pagamento in ["dinheiro"]
             )
             regra = obter_regra_cartao(db, empresa_id, p.tipo_pagamento, p.bandeira, venda_in.centro_custo_id)
             if regra:
@@ -1514,7 +1514,7 @@ class PdvService:
             else:
                 is_paid = config_marcar_como_pago.get(
                     p.tipo_pagamento,
-                    p.tipo_pagamento in ["dinheiro", "pix_chave", "pix_qr", "cartao_credito_vista"]
+                    p.tipo_pagamento in ["dinheiro"]
                 )
 
             regra = obter_regra_cartao(db, empresa_id, p.tipo_pagamento, p.bandeira, venda_in.centro_custo_id)

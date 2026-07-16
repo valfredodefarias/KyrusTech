@@ -780,7 +780,7 @@ def atualizar_status_venda_pdv(
             tipo_pag = meta.get("tipo_pagamento", "dinheiro")
             is_paid = config_marcar_como_pago.get(
                 tipo_pag, 
-                tipo_pag in ["dinheiro", "pix_chave", "pix_qr", "cartao_credito_vista"]
+                tipo_pag in ["dinheiro"]
             )
             
             if is_paid:
@@ -1864,15 +1864,12 @@ def consolidar_dia_ifood(
         
     data_recebimento = max(t.data_recebimento_ajustada for t in transacoes)
     
-    hoje = datetime.utcnow().date()
-    if data_recebimento > hoje:
-        status_l = "EM ABERTO"
-        data_pagamento_l = None
-        valor_pago_l = Decimal("0.00")
-    else:
-        status_l = "PAGO"
-        data_pagamento_l = data_recebimento
-        valor_pago_l = total_liquido
+    # Sempre criar consolidados de iFood como EM ABERTO.
+    # Isso evita duplicidade com a conciliação OFX (que trará o repasse real)
+    # e impede alterações indesejadas/antecipadas no saldo da conta corrente real.
+    status_l = "EM ABERTO"
+    data_pagamento_l = None
+    valor_pago_l = Decimal("0.00")
 
     desc = f"Repasse iFood Consolidado - Vendas {consolidar_in.data_venda.strftime('%d/%m/%Y')}"
     

@@ -91,3 +91,6 @@ app/diagnose_erick.py
 app/diagnose_output.txt
 app/diagnose_sellers_output.txt
 static/diagnose_output.txt
+
+# Benchmarks
+scripts/benchmark_*

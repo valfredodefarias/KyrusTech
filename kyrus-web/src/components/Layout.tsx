@@ -199,14 +199,56 @@ function LayoutShell() {
   const [minhasEmpresas, setMinhasEmpresas] = useState<any[]>([]);
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
 
+  // Inicializar contador de acessos para a empresa ativa atual
+  useEffect(() => {
+    if (empresa?.id) {
+      try {
+        const counts = JSON.parse(localStorage.getItem('kyrus_company_access_counts') || '{}');
+        if (!counts[empresa.id]) {
+          counts[empresa.id] = 1;
+          localStorage.setItem('kyrus_company_access_counts', JSON.stringify(counts));
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  }, [empresa]);
+
   const handleTrocarEmpresa = async (empresaId: number) => {
     try {
+      try {
+        const counts = JSON.parse(localStorage.getItem('kyrus_company_access_counts') || '{}');
+        counts[empresaId] = (counts[empresaId] || 0) + 1;
+        localStorage.setItem('kyrus_company_access_counts', JSON.stringify(counts));
+      } catch (e) {
+        console.error("Erro ao salvar contagem de acessos", e);
+      }
+
       await api.post('/usuarios/me/trocar-empresa', { empresa_id: empresaId });
       window.location.reload();
     } catch (err) {
       console.error("Erro ao trocar de empresa", err);
     }
   };
+
+  const sortedEmpresas = useMemo(() => {
+    const getAccessCount = (companyId: number): number => {
+      try {
+        const counts = JSON.parse(localStorage.getItem('kyrus_company_access_counts') || '{}');
+        return Number(counts[companyId]) || 0;
+      } catch {
+        return 0;
+      }
+    };
+    return [...minhasEmpresas].sort((a, b) => {
+      const countA = getAccessCount(a.id);
+      const countB = getAccessCount(b.id);
+      if (countB !== countA) {
+        return countB - countA;
+      }
+      return a.nome_fantasia.localeCompare(b.nome_fantasia);
+    });
+  }, [minhasEmpresas]);
 
   // States Locais para Abas e Usabilidade
   const [showSearchModal, setShowSearchModal] = useState(false);
@@ -1172,7 +1214,7 @@ function LayoutShell() {
                         Selecionar Unidade / Empresa
                       </div>
                       <div className="max-h-60 overflow-y-auto mt-1 space-y-0.5">
-                        {minhasEmpresas.map((emp) => {
+                        {sortedEmpresas.map((emp) => {
                           const isCurrent = emp.id === empresa?.id;
                           return (
                             <button

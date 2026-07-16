@@ -391,7 +391,7 @@ export function Sidebar({
   onMouseLeave?: () => void; 
 }) {
   return (
-    <aside className={`relative z-40 hidden h-full min-h-0 shrink-0 overflow-visible md:flex transition-[width] duration-150 ${isDocked ? (collapsed ? 'w-[60px]' : 'w-[200px]') : 'w-[60px]'}`}>
+    <aside className={`relative z-10 hidden h-full min-h-0 shrink-0 overflow-visible md:flex transition-[width] duration-150 ${isDocked ? (collapsed ? 'w-[60px]' : 'w-[200px]') : 'w-[60px]'}`}>
       <div
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}

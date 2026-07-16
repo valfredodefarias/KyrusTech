@@ -1190,7 +1190,7 @@ function LayoutShell() {
                             >
                               <div className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-350">
                                 {emp.logo_url ? (
-                                  <img src={toPublicAssetUrl(emp.logo_url)} alt={emp.nome_fantasia} className="h-full w-full object-cover" />
+                                  <img src={toPublicAssetUrl(emp.logo_url) || undefined} alt={emp.nome_fantasia} className="h-full w-full object-cover" />
                                 ) : (
                                   <Icons.Building2 size={12} />
                                 )}

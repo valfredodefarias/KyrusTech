@@ -196,6 +196,18 @@ function LayoutShell() {
   const [now, setNow] = useState(() => Date.now());
   const [renewingSession, setRenewingSession] = useState(false);
   
+  const [minhasEmpresas, setMinhasEmpresas] = useState<any[]>([]);
+  const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
+
+  const handleTrocarEmpresa = async (empresaId: number) => {
+    try {
+      await api.post('/usuarios/me/trocar-empresa', { empresa_id: empresaId });
+      window.location.reload();
+    } catch (err) {
+      console.error("Erro ao trocar de empresa", err);
+    }
+  };
+
   // States Locais para Abas e Usabilidade
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
@@ -883,6 +895,25 @@ function LayoutShell() {
     return () => window.removeEventListener('kyrus:sidebar-toggle', handleSidebarCommand as EventListener);
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    async function fetchMinhasEmpresas() {
+      if (!storedUser) return;
+      try {
+        const { data } = await api.get('/usuarios/me/empresas');
+        if (active) {
+          setMinhasEmpresas(data);
+        }
+      } catch (err) {
+        console.error("Erro ao carregar empresas do usuário", err);
+      }
+    }
+    void fetchMinhasEmpresas();
+    return () => {
+      active = false;
+    };
+  }, [storedUser]);
+
   const handleSidebarMouseEnter = () => {
     setSidebarCollapsed((prev) => (prev ? false : prev));
   };
@@ -1096,25 +1127,85 @@ function LayoutShell() {
                 <Menu size={16} />
               </button>
 
-              <div className="flex min-w-0 items-center gap-2">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 text-slate-650 dark:border-slate-850 dark:bg-slate-800 dark:text-slate-100">
-                  {companyLogo ? (
-                    <img src={companyLogo} alt={companyName} className="h-full w-full object-cover" />
-                  ) : (
-                    <span className="text-[10px] font-bold">{getInitials(companyName)}</span>
-                  )}
-                </div>
-
-                <div className="min-w-0 leading-tight">
-                  <div className="flex items-center gap-1.5">
-                    <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{companyName}</p>
-                    <span 
-                      title={online ? 'Sistema Online' : 'Você está offline'} 
-                      className={`h-2 w-2 rounded-full border border-white dark:border-slate-900 shrink-0 transition-colors ${online ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'}`}
-                    />
+              <div className="relative flex min-w-0 items-center gap-2">
+                <button
+                  onClick={() => minhasEmpresas.length > 1 && setShowCompanyDropdown(!showCompanyDropdown)}
+                  disabled={minhasEmpresas.length <= 1}
+                  className={`flex items-center gap-2 text-left rounded-lg p-1 transition ${
+                    minhasEmpresas.length > 1 
+                      ? 'hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer' 
+                      : 'cursor-default'
+                  }`}
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 text-slate-650 dark:border-slate-850 dark:bg-slate-800 dark:text-slate-100">
+                    {companyLogo ? (
+                      <img src={companyLogo} alt={companyName} className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-[10px] font-bold">{getInitials(companyName)}</span>
+                    )}
                   </div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Kyrus ERP</p>
-                </div>
+
+                  <div className="min-w-0 leading-tight">
+                    <div className="flex items-center gap-1">
+                      <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200 max-w-[150px]">{companyName}</p>
+                      {minhasEmpresas.length > 1 && (
+                        <Icons.ChevronDown size={12} className="text-slate-400 shrink-0" />
+                      )}
+                      <span 
+                        title={online ? 'Sistema Online' : 'Você está offline'} 
+                        className={`h-2 w-2 rounded-full border border-white dark:border-slate-900 shrink-0 transition-colors ${online ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'}`}
+                      />
+                    </div>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Kyrus ERP</p>
+                  </div>
+                </button>
+
+                {/* Dropdown de Troca de Empresa */}
+                {showCompanyDropdown && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setShowCompanyDropdown(false)} 
+                    />
+                    <div className="absolute left-0 top-full mt-1.5 w-64 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg dark:border-slate-800 dark:bg-slate-900 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
+                      <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Selecionar Unidade / Empresa
+                      </div>
+                      <div className="max-h-60 overflow-y-auto mt-1 space-y-0.5">
+                        {minhasEmpresas.map((emp) => {
+                          const isCurrent = emp.id === empresa?.id;
+                          return (
+                            <button
+                              key={emp.id}
+                              type="button"
+                              onClick={() => {
+                                setShowCompanyDropdown(false);
+                                if (!isCurrent) handleTrocarEmpresa(emp.id);
+                              }}
+                              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition ${
+                                isCurrent
+                                  ? 'bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white font-bold cursor-default'
+                                  : 'text-slate-655 hover:bg-slate-50 dark:text-slate-350 dark:hover:bg-slate-800/40'
+                              }`}
+                            >
+                              <div className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-350">
+                                {emp.logo_url ? (
+                                  <img src={toPublicAssetUrl(emp.logo_url)} alt={emp.nome_fantasia} className="h-full w-full object-cover" />
+                                ) : (
+                                  <Icons.Building2 size={12} />
+                                )}
+                              </div>
+                              <span className="flex-1 truncate">{emp.nome_fantasia}</span>
+                              {isCurrent && (
+                                <Icons.Check size={12} className="text-emerald-500 shrink-0" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 

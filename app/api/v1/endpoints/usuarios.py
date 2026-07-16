@@ -339,3 +339,134 @@ def update_usuario(
 
     logger.success(f"Usuário ID {usuario_id} atualizado com sucesso por {current_user.email}")
     return target_user
+
+
+@router.get("/me/empresas", response_model=List[dict])
+def obter_minhas_empresas(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+):
+    """
+    Retorna a lista de empresas às quais o usuário atual tem acesso.
+    Para consultores normais, usa ConsultorEmpresa.
+    Para super consultores ou super usuários, retorna todas as empresas ativas.
+    Para usuários comuns (operadores), usa as vinculações em UserCompanyProfile.
+    """
+    from app.models.empresa import Empresa
+    from app.models.user_company_profile import UserCompanyProfile
+    from app.models.consultor_empresa import ConsultorEmpresa
+    from app.enums import ConsultorRole
+    
+    # 1. Super-usuários ou Super-consultores: acesso total
+    if current_user.is_superuser or (current_user.is_consultor and current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value):
+        empresas = db.exec(select(Empresa).where(Empresa.is_deleted == False, Empresa.is_active == True)).all()
+        return [{"id": e.id, "nome_fantasia": e.nome_fantasia, "logo_url": e.logo_url} for e in empresas]
+        
+    # 2. Consultores padrão
+    if current_user.is_consultor:
+        acessos = db.exec(
+            select(ConsultorEmpresa)
+            .where(ConsultorEmpresa.usuario_id == current_user.id, ConsultorEmpresa.ativo == True)
+        ).all()
+        emp_ids = [ac.empresa_id for ac in acessos]
+        if not emp_ids:
+            return []
+        empresas = db.exec(select(Empresa).where(Empresa.id.in_(emp_ids), Empresa.is_deleted == False, Empresa.is_active == True)).all()
+        return [{"id": e.id, "nome_fantasia": e.nome_fantasia, "logo_url": e.logo_url} for e in empresas]
+        
+    # 3. Usuários comuns/operadores
+    profiles = db.exec(
+        select(UserCompanyProfile)
+        .where(
+            UserCompanyProfile.usuario_id == current_user.id,
+            UserCompanyProfile.is_active == True,
+            UserCompanyProfile.is_deleted == False
+        )
+    ).all()
+    emp_ids = [p.empresa_id for p in profiles]
+    # Também inclui a empresa principal do cadastro do usuário
+    if current_user.empresa_id:
+        emp_ids.append(current_user.empresa_id)
+        
+    unique_ids = list(set(emp_ids))
+    if not unique_ids:
+        return []
+        
+    empresas = db.exec(select(Empresa).where(Empresa.id.in_(unique_ids), Empresa.is_deleted == False, Empresa.is_active == True)).all()
+    return [{"id": e.id, "nome_fantasia": e.nome_fantasia, "logo_url": e.logo_url} for e in empresas]
+
+
+@router.post("/me/trocar-empresa", response_model=dict)
+def trocar_empresa_usuario(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+):
+    """
+    Permite a qualquer usuário trocar sua empresa ativa (se tiver permissão de acesso).
+    Atualiza o campo empresa_id na tabela usuarios.
+    """
+    from app.models.empresa import Empresa
+    from app.models.user_company_profile import UserCompanyProfile
+    from app.models.consultor_empresa import ConsultorEmpresa
+    from app.enums import ConsultorRole
+    
+    empresa_id = payload.get("empresa_id")
+    if not empresa_id:
+        raise HTTPException(status_code=400, detail="empresa_id é obrigatório")
+        
+    # Validar se o usuário tem acesso
+    tem_acesso = False
+    
+    # 1. Super-usuários ou Super-consultores: acesso total
+    if current_user.is_superuser or (current_user.is_consultor and current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value):
+        tem_acesso = True
+        
+    # 2. Consultores padrão
+    elif current_user.is_consultor:
+        acesso = db.exec(
+            select(ConsultorEmpresa)
+            .where(
+                ConsultorEmpresa.usuario_id == current_user.id,
+                ConsultorEmpresa.empresa_id == empresa_id,
+                ConsultorEmpresa.ativo == True
+            )
+        ).first()
+        if acesso:
+            tem_acesso = True
+            
+    # 3. Usuários comuns/operadores
+    else:
+        if current_user.empresa_id == empresa_id:
+            tem_acesso = True
+        else:
+            profile = db.exec(
+                select(UserCompanyProfile)
+                .where(
+                    UserCompanyProfile.usuario_id == current_user.id,
+                    UserCompanyProfile.empresa_id == empresa_id,
+                    UserCompanyProfile.is_active == True,
+                    UserCompanyProfile.is_deleted == False
+                )
+            ).first()
+            if profile:
+                tem_acesso = True
+                
+    if not tem_acesso:
+        raise HTTPException(status_code=403, detail="Você não tem acesso a esta empresa")
+        
+    empresa = db.get(Empresa, empresa_id)
+    if not empresa or empresa.is_deleted or not empresa.is_active:
+        raise HTTPException(status_code=404, detail="Empresa não disponível")
+        
+    # Atualiza a empresa_id do usuário na tabela usuarios
+    current_user.empresa_id = empresa_id
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    
+    return {
+        "success": True,
+        "message": f"Empresa alterada para {empresa.nome_fantasia}",
+        "empresa_id": empresa_id
+    }

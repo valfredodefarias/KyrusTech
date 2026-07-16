@@ -114,6 +114,19 @@ def get_empresa_id_from_user(
             else:
                 if current_user.empresa_id == empresa_id:
                     return empresa_id
+                
+                from app.models.user_company_profile import UserCompanyProfile
+                has_profile = session.exec(
+                    select(UserCompanyProfile)
+                    .where(
+                        UserCompanyProfile.usuario_id == current_user.id,
+                        UserCompanyProfile.empresa_id == empresa_id,
+                        UserCompanyProfile.is_active == True,
+                        UserCompanyProfile.is_deleted == False
+                    )
+                ).first()
+                if has_profile:
+                    return empresa_id
 
     # 2. Fallback para o comportamento padrão do banco
     if current_user.is_consultor and current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value:

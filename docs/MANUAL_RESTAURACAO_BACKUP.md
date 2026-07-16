@@ -1,3 +1,6 @@
+[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
+***
+
 # Manual de Restauração de Backup (Dump PostgreSQL) - Kyrus ERP
 
 Este documento descreve o passo a passo detalhado para realizar a restauração de um backup (`.dump`) no banco de dados PostgreSQL do Kyrus ERP, incluindo a resolução de problemas comuns de histórico de migrations (Alembic).

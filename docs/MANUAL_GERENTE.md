@@ -1,3 +1,6 @@
+[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
+***
+
 # Guia de Gerenciamento do Kyrus ERP com Inteligência Artificial
 
 Este manual foi criado para você gerenciar o desenvolvimento do ERP de forma segura e autônoma, sem precisar escrever uma única linha de código. Use este guia como seu livro de regras para interagir com a IA (Antigravity, Cursor, Cline ou similares).

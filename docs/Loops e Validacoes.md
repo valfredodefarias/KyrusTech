@@ -1,3 +1,6 @@
+[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
+***
+
 # 🔄 Loops de Desenvolvimento e Validações
 
 Como "Vibe Coder", o maior risco é delegar tarefas e perder a visibilidade se o sistema continua íntegro ou não. Para resolver isso, estruturamos um **Loop de Desenvolvimento em 5 Etapas** auxiliado por **Validações Automáticas e de Segurança**.
@@ -39,6 +42,9 @@ Se as validações passarem, faça o commit imediato:
 git add .
 git commit -m "feat: endpoint de relatorios adicionado com sucesso"
 ```
+
+### 6️⃣ Autodocumentação de Bugs (Post-Execution)
+Se a alteração envolveu a correção ou identificação de um bug crítico de banco de dados, concorrência, vazamento de memória ou cibersegurança, o agente **deve** atualizar a documentação em [[Bugs e Performance de Banco]] relatando a causa raiz e a solução. Adicionalmente, o agente deve atualizar as respectivas diretrizes e boas práticas nos documentos principais do projeto (como [[Regras de Seguranca]], [[Modelos de Dados]] ou [[Fluxos e Integracoes]]) para evitar reincidências.
 
 ### 🚨 O Gatilho de Rollback (Se tudo der errado)
 Se o agente introduzir um bug, tentar consertar mais de 3 vezes e continuar dando erro: **pare**.

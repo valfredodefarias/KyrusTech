@@ -1,8 +1,11 @@
+[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
+***
+
 # 🚀 Kyrus ERP - Configuração e Deploy
 
 Referências de infraestrutura:
 
-- Manual de Arquitetura e Infraestrutura completo: [ARCHITECTURE.md](ARCHITECTURE.md)
+- Manual de Arquitetura e Infraestrutura completo: [[ARCHITECTURE]]
 
 ## 📋 Pré-requisitos
 

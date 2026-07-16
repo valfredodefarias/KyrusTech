@@ -1,3 +1,6 @@
+[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
+***
+
 # 📘 Manual de Desenvolvimento e Arquitetura - Kyrus ERP
 
 Este documento é a referência única e **contrato principal** para o desenvolvimento do Kyrus ERP. Ele consolida a arquitetura técnica, as diretrizes de design de interface, as topologias de infraestrutura e os **protocolos profissionais por especialidade** para que qualquer alteração siga os mais altos padrões de engenharia de software, análise de dados e cibersegurança do mercado de sistemas corporativos (ERPs).

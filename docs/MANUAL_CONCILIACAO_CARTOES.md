@@ -1,3 +1,6 @@
+[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
+***
+
 # Manual da Conciliadora de Cartões (Kyrus ERP)
 
 Este documento explica em detalhes o funcionamento da **Conciliadora de Cartões**, módulo responsável por prever vencimentos líquidos, controlar taxas de administração/antecipação e conciliar depósitos bancários de adquirentes contra vendas do PDV.

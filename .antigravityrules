@@ -17,6 +17,7 @@ O agente deve operar estritamente sob este ciclo fechado:
 3.  **Execução**: Alterar os arquivos seguindo passos mínimos (um arquivo por vez).
 4.  **Validação**: Testar a alteração executando compilações e testes locais.
 5.  **Commit/Salvar**: Se passar nas validações, instruir o usuário a fazer um `git commit`.
+6.  **Documentação**: Se a tarefa envolveu a descoberta ou correção de um bug crítico (banco, concorrência, vazamento de memória ou cibersegurança), o agente **deve** atualizar o arquivo `/docs/Bugs e Performance de Banco.md` com a causa raiz e a solução, e também atualizar as boas práticas nos documentos principais relevantes (como `/docs/Regras de Seguranca.md`, `/docs/Modelos de Dados.md`, etc.) para evitar que o erro ocorra novamente.
 
 ### 🚨 Gatilho de Rollback e Descarte
 Se a IA introduzir um bug ou erro de compilação e tentar consertá-lo por **3 vezes consecutivas sem sucesso**, ela deve **parar imediatamente**. O agente deve admitir que perdeu a linha de raciocínio e instruir o usuário a rodar `git restore .` e `git clean -df` no terminal para retornar ao último estado seguro do Git, reiniciando o planejamento com uma abordagem diferente.

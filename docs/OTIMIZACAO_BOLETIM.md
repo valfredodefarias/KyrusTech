@@ -1,3 +1,6 @@
+[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
+***
+
 # Otimização do Boletim Financeiro - Kyrus ERP
 
 Este documento detalha o diagnóstico, a arquitetura e os resultados da otimização de performance realizada na página de **Boletim Financeiro**. A mudança resultou em um carregamento significativamente mais rápido e em uma redução expressiva no tráfego de rede.

@@ -1,3 +1,6 @@
+[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
+***
+
 # 🛡️ Regras de Segurança do Kyrus ERP
 
 Este documento lista as diretrizes essenciais de segurança para evitar vazamento de dados, controle de acessos indevidos e brechas de integridade.

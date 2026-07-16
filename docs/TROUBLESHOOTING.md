@@ -1,3 +1,6 @@
+[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
+***
+
 # 🛠️ Guia de Solução de Problemas (Troubleshooting)
 
 Este documento centraliza as soluções para os problemas e erros mais comuns enfrentados no ambiente de desenvolvimento local do Kyrus ERP.

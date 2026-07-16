@@ -1,3 +1,6 @@
+[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
+***
+
 # 🔄 Fluxos e Integrações do Kyrus ERP
 
 Este documento explica os fluxos lógicos e integrações de dados críticas do ERP.

@@ -94,3 +94,19 @@ static/diagnose_output.txt
 
 # Benchmarks
 scripts/benchmark_*
+
+# Local diagnostic and scratch scripts
+scripts/analyze_umarizal_financeiro.py
+scripts/check_centro_custo_col.py
+scripts/check_marco_vs_ifood_overlap.py
+scripts/find_fabio_folder.py
+scripts/find_recent_fabio.py
+scripts/find_subagent_logs.py
+scripts/fix_bandeira_outros.sql
+scripts/inspect_planilhas_fabio.py
+scripts/inspect_visa.py
+scripts/patch_import_rede_sales.py
+scripts/read_console_logs.py
+scripts/scratch_inspect_mov.py
+scripts/search_layout.py
+app/request_log.txt

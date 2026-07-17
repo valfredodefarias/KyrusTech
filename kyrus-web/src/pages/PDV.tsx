@@ -1816,6 +1816,8 @@ export function PDV() {
                 <Plus className="h-4 w-4" />
                 Venda
               </button>
+            </div>
+          </div>
         </section>
 
         {/* Indicadores de Resumo (KPI Cards) */}
@@ -2024,7 +2026,11 @@ export function PDV() {
                       >
                         <X className="w-3.5 h-3.5" />
                         Resetar Filtros
-                                     filteredAndGroupedVendas.map((grupo) => (
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  filteredAndGroupedVendas.map((grupo) => (
                   <section key={String(grupo.data)} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
                     <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
                       <div className="flex items-center gap-2.5">

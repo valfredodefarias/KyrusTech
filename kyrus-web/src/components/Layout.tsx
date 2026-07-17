@@ -177,6 +177,45 @@ function LayoutShell() {
   // Cache de elementos do useOutlet para Keep-Alive de abas
   const [outletCache, setOutletCache] = useState<Record<string, React.ReactNode>>({});
 
+  const logout = useAuthStore((state) => state.logout);
+  const storedUser = useAuthStore((state) => state.user);
+  const sessionExpiresAt = useAuthStore((state) => state.sessionExpiresAt);
+  const setSessionExpiresAt = useAuthStore((state) => state.setSessionExpiresAt);
+  const setUser = useAuthStore((state) => state.setUser);
+  
+  // Abas do Zustand
+  const tabs = useTabStore((state) => state.tabs);
+  const activeTabPath = useTabStore((state) => state.activeTabPath);
+  const openTab = useTabStore((state) => state.openTab);
+  const closeTab = useTabStore((state) => state.closeTab);
+  const setActiveTab = useTabStore((state) => state.setActiveTab);
+  const togglePin = useTabStore((state) => state.togglePin);
+  const toggleFavorite = useTabStore((state) => state.toggleFavorite);
+  const favorites = useTabStore((state) => state.favorites);
+  const refreshCounters = useTabStore((state) => state.refreshCounters);
+  const triggerRefresh = useTabStore((state) => state.triggerRefresh);
+  const reorderTabs = useTabStore((state) => state.reorderTabs);
+  const clearSession = useTabStore((state) => state.clearSession);
+  const online = useTabStore((state) => state.online);
+  const setOnline = useTabStore((state) => state.setOnline);
+  const lastPrunedTabName = useTabStore((state) => state.lastPrunedTabName);
+  const setLastPrunedTabName = useTabStore((state) => state.setLastPrunedTabName);
+
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [isSidebarDocked, setIsSidebarDocked] = useState<boolean>(() => {
+    return localStorage.getItem('kyrus_sidebar_docked') === 'true';
+  });
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('theme') as 'dark' | 'light') || 'light');
+  const [headerUser, setHeaderUser] = useState<AuthUser | null>(storedUser);
+  const empresa = useAuthStore((state) => state.empresa);
+  const setEmpresa = useAuthStore((state) => state.setEmpresa);
+  const [now, setNow] = useState(() => Date.now());
+  const [renewingSession, setRenewingSession] = useState(false);
+  
+  const [minhasEmpresas, setMinhasEmpresas] = useState<any[]>([]);
+  const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
+
   // Atualizar cache de outlets
   useEffect(() => {
     if (outlet && activeTabPath) {
@@ -227,45 +266,6 @@ function LayoutShell() {
       });
     }
   }, [empresa]);
-  
-  const logout = useAuthStore((state) => state.logout);
-  const storedUser = useAuthStore((state) => state.user);
-  const sessionExpiresAt = useAuthStore((state) => state.sessionExpiresAt);
-  const setSessionExpiresAt = useAuthStore((state) => state.setSessionExpiresAt);
-  const setUser = useAuthStore((state) => state.setUser);
-  
-  // Abas do Zustand
-  const tabs = useTabStore((state) => state.tabs);
-  const activeTabPath = useTabStore((state) => state.activeTabPath);
-  const openTab = useTabStore((state) => state.openTab);
-  const closeTab = useTabStore((state) => state.closeTab);
-  const setActiveTab = useTabStore((state) => state.setActiveTab);
-  const togglePin = useTabStore((state) => state.togglePin);
-  const toggleFavorite = useTabStore((state) => state.toggleFavorite);
-  const favorites = useTabStore((state) => state.favorites);
-  const refreshCounters = useTabStore((state) => state.refreshCounters);
-  const triggerRefresh = useTabStore((state) => state.triggerRefresh);
-  const reorderTabs = useTabStore((state) => state.reorderTabs);
-  const clearSession = useTabStore((state) => state.clearSession);
-  const online = useTabStore((state) => state.online);
-  const setOnline = useTabStore((state) => state.setOnline);
-  const lastPrunedTabName = useTabStore((state) => state.lastPrunedTabName);
-  const setLastPrunedTabName = useTabStore((state) => state.setLastPrunedTabName);
-
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const [isSidebarDocked, setIsSidebarDocked] = useState<boolean>(() => {
-    return localStorage.getItem('kyrus_sidebar_docked') === 'true';
-  });
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('theme') as 'dark' | 'light') || 'light');
-  const [headerUser, setHeaderUser] = useState<AuthUser | null>(storedUser);
-  const empresa = useAuthStore((state) => state.empresa);
-  const setEmpresa = useAuthStore((state) => state.setEmpresa);
-  const [now, setNow] = useState(() => Date.now());
-  const [renewingSession, setRenewingSession] = useState(false);
-  
-  const [minhasEmpresas, setMinhasEmpresas] = useState<any[]>([]);
-  const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
 
   // Inicializar contador de acessos para a empresa ativa atual
   useEffect(() => {
@@ -551,7 +551,7 @@ function LayoutShell() {
         // Ignorar campos de busca, filtro ou pesquisa
         const name = String(target.name || '').toLowerCase();
         const id = String(target.id || '').toLowerCase();
-        const placeholder = String(target.placeholder || '').toLowerCase();
+        const placeholder = 'placeholder' in target ? String((target as any).placeholder || '').toLowerCase() : '';
         const className = String(target.className || '').toLowerCase();
         const isSearchOrFilter = 
           name.includes('search') || name.includes('busca') || name.includes('pesquisa') || name.includes('filter') || name.includes('filtro') ||

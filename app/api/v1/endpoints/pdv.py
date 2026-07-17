@@ -682,8 +682,8 @@ def criar_venda_pdv(
         is_consultor=bool(current_user.is_consultor),
         consultor_role=str(current_user.consultor_role or ""),
     )
-    pode_ver_todas = "*" in permissions or PdvPermission.PDV_VER_TODAS_VENDAS.value in permissions
-    if not pode_ver_todas and venda_in.vendedor_id != current_user.id:
+    pode_escolher_vendedor = "*" in permissions or "PDV_REALIZAR_SANGRIA" in permissions or "PDV_CANCELAR_VENDA" in permissions
+    if not pode_escolher_vendedor and venda_in.vendedor_id != current_user.id:
         raise HTTPException(status_code=403, detail="Você não tem permissão para indicar outro vendedor.")
 
     response_data = PdvService.criar_venda(

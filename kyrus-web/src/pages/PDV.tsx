@@ -593,6 +593,9 @@ export function PDV() {
   const addSale = usePosStore((state) => state.addSale);
   const syncPendingSales = usePosStore((state) => state.syncPendingSales);
 
+  const permissions = useAuthStore((state) => state.user?.permissions || []);
+  const podeEscolherVendedor = permissions.includes('*') || permissions.includes('PDV_REALIZAR_SANGRIA') || permissions.includes('PDV_CANCELAR_VENDA');
+
 
 
   // Vendas State
@@ -2513,9 +2516,9 @@ export function PDV() {
               </div>
 
               {/* Vendedores Disponíveis em Botões */}
-              <div>
-                <label className="mb-2 block text-xs font-bold text-slate-400 uppercase tracking-wider">Vendedor Responsável</label>
-                {data?.pode_ver_todas ? (
+              {podeEscolherVendedor && (
+                <div>
+                  <label className="mb-2 block text-xs font-bold text-slate-400 uppercase tracking-wider">Vendedor Responsável</label>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                     {vendedores.map((v) => (
                       <button
@@ -2533,19 +2536,8 @@ export function PDV() {
                       </button>
                     ))}
                   </div>
-                ) : (
-                  <div className="flex">
-                    <button
-                      type="button"
-                      disabled
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border bg-blue-600/10 border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs font-bold"
-                    >
-                      <User className="w-3.5 h-3.5" />
-                      {currentUserName}
-                    </button>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Campos Personalizados Dinâmicos */}
               {customFields.length > 0 && (

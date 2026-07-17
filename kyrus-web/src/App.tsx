@@ -139,15 +139,17 @@ export function hasPathPermission(path: string, user: AuthUser | null): boolean 
   
   if (basePath === '/pdv' || basePath === '/produtos' || basePath.startsWith('/pdv/')) {
     const empresa = useAuthStore.getState().empresa;
-    let activeApps: string[] = [];
-    if (empresa?.pdv_config) {
-      try {
-        const config = JSON.parse(empresa.pdv_config);
-        activeApps = config.active_apps || [];
-      } catch {}
-    }
-    if (!activeApps.includes('pdv_estoque')) {
-      return false;
+    if (empresa) {
+      let activeApps: string[] = [];
+      if (empresa.pdv_config) {
+        try {
+          const config = JSON.parse(empresa.pdv_config);
+          activeApps = config.active_apps || [];
+        } catch {}
+      }
+      if (!activeApps.includes('pdv_estoque')) {
+        return false;
+      }
     }
   }
   
@@ -169,6 +171,10 @@ function PdvEstoqueRoute({ children }: { children: React.ReactNode }) {
       return [];
     }
   }, [empresa]);
+
+  if (!empresa) {
+    return <RouteFallback />;
+  }
 
   if (!activeApps.includes('pdv_estoque')) {
     return <Navigate to="/apps" replace />;

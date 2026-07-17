@@ -68,9 +68,10 @@ def _execute_cleanup(session: Session, cutoff: datetime.datetime, hours_threshol
             profiles_ids = [int(p.id) for p in session.exec(select(AccessProfile).where(AccessProfile.empresa_id == empresa_id)).all() if p.id is not None]
             # Executar deleções na ordem correta para evitar violação de foreign keys:
             
-            # 1. UserSession e AccessProfilePermission e AnexoLancamento
+            # 1. UserSession e AccessProfilePermission e AnexoLancamento e UsuarioContaAcesso
             if users_ids:
                 session.execute(text("DELETE FROM user_sessions WHERE user_id = ANY(:ids)"), {"ids": users_ids})
+                session.execute(text("DELETE FROM usuario_conta_acesso WHERE usuario_id = ANY(:ids)"), {"ids": users_ids})
                 
             if profiles_ids:
                 session.execute(text("DELETE FROM access_profile_permissions WHERE profile_id = ANY(:ids)"), {"ids": profiles_ids})
@@ -78,7 +79,7 @@ def _execute_cleanup(session: Session, cutoff: datetime.datetime, hours_threshol
             session.execute(text("DELETE FROM anexos_lancamento WHERE empresa_id = :id"), {"id": empresa_id})
                 
             # 2. Tabelas de Movimento/Baixa/Lote que dependem de Lancamentos/Contas/Cartoes
-            session.execute(text("DELETE FROM baixas WHERE movimento_id IN (SELECT id FROM movimentos WHERE empresa_id = :id)"), {"id": empresa_id})
+            session.execute(text("DELETE FROM baixas WHERE movimento_id IN (SELECT id FROM movimentos WHERE empresa_id = :id) OR lancamento_id IN (SELECT id FROM lancamentos WHERE empresa_id = :id)"), {"id": empresa_id})
             session.execute(text("DELETE FROM movimentos WHERE empresa_id = :id"), {"id": empresa_id})
             session.execute(text("DELETE FROM lote_cartao_itens WHERE lote_cartao_id IN (SELECT id FROM lotes_cartao WHERE empresa_id = :id)"), {"id": empresa_id})
             session.execute(text("DELETE FROM lotes_cartao WHERE empresa_id = :id"), {"id": empresa_id})
@@ -86,6 +87,7 @@ def _execute_cleanup(session: Session, cutoff: datetime.datetime, hours_threshol
             
             # 3. Tabelas de PDV e Estoque
             session.execute(text("DELETE FROM pdv_movimentacoes WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM pdv_venda_itens WHERE venda_id IN (SELECT id FROM pdv_vendas WHERE empresa_id = :id)"), {"id": empresa_id})
             session.execute(text("DELETE FROM pdv_vendas WHERE empresa_id = :id"), {"id": empresa_id})
             session.execute(text("DELETE FROM movimentacoes_estoque WHERE empresa_id = :id"), {"id": empresa_id})
             session.execute(text("DELETE FROM fornecedor_produto_equivalencias WHERE empresa_id = :id"), {"id": empresa_id})

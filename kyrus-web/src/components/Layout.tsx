@@ -54,6 +54,16 @@ class TabErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
       errMsg.includes('dynamically imported');
 
     if (isChunkError) {
+      const now = Date.now();
+      const lastReload = sessionStorage.getItem('last_chunk_reload');
+      
+      // Se recarregou a menos de 15 segundos, evita o loop de recarregamento infinito
+      if (lastReload && now - Number(lastReload) < 15000) {
+        console.error('[TabErrorBoundary] Loop de recarregamento detectado! Abortando auto-reload para evitar travamento.');
+        return;
+      }
+      
+      sessionStorage.setItem('last_chunk_reload', String(now));
       console.warn('[TabErrorBoundary] ChunkLoadError detectado! Recarregando aplicação para obter versão estável mais recente...');
       window.location.reload();
     }

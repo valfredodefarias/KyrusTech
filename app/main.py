@@ -378,10 +378,19 @@ async def rate_limit_middleware(request: Request, call_next):
             window_seconds,
             max_requests,
         )
-        return JSONResponse(
+        response = JSONResponse(
             status_code=429,
             content={"detail": "Muitas requisições. Tente novamente em instantes."},
         )
+        origin = request.headers.get("origin")
+        if origin:
+            normalized_origin = origin.strip().rstrip("/")
+            if normalized_origin in cors_origins or "*" in cors_origins:
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Credentials"] = "true"
+                response.headers["Access-Control-Allow-Methods"] = "*"
+                response.headers["Access-Control-Allow-Headers"] = "*"
+        return response
 
     response = await call_next(request)
     response.headers.setdefault("X-RateLimit-Limit", str(max_requests))

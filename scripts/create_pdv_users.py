@@ -14,15 +14,17 @@ def create_pdv_exclusive_users():
     empresa_id = 27  # Rosario Belem
     
     with Session(engine) as session:
-        # 1. Encontrar a permissão de Vendedor do PDV
-        permission = session.exec(
-            select(AccessPermission).where(AccessPermission.code == "PDV_SER_VENDEDOR")
-        ).first()
-        if not permission:
-            print("Erro: Permissão 'PDV_SER_VENDEDOR' não encontrada no banco de dados!")
+        # 1. Encontrar as permissões do PDV necessárias
+        perm_codes = ["PDV_SER_VENDEDOR", "PDV_VER_TODAS_VENDAS"]
+        permissions = session.exec(
+            select(AccessPermission).where(AccessPermission.code.in_(perm_codes))
+        ).all()
+        if len(permissions) != len(perm_codes):
+            print(f"Erro: Alguma das permissões {perm_codes} não foi encontrada no banco de dados!")
             return
             
-        print(f"Permissão encontrada: {permission.code} (ID: {permission.id})")
+        perm_ids = {p.id for p in permissions}
+        print(f"Permissões encontradas: {[p.code for p in permissions]}")
         
         # 2. Criar ou obter o perfil "PDV Exclusivo" para a empresa 27
         profile = session.exec(
@@ -37,7 +39,7 @@ def create_pdv_exclusive_users():
                 empresa_id=empresa_id,
                 name="PDV Exclusivo",
                 code="PDV_EXCLUSIVO",
-                description="Acesso exclusivo ao PDV, permitindo apenas vender e ver as próprias vendas",
+                description="Acesso exclusivo ao PDV, permitindo apenas vender e ver as vendas",
                 is_active=True,
                 is_system=False,
                 is_template=False
@@ -49,38 +51,39 @@ def create_pdv_exclusive_users():
         else:
             print(f"Perfil existente encontrado: {profile.name} (ID: {profile.id})")
             
-        # 3. Garantir que o perfil tem APENAS a permissão PDV_SER_VENDEDOR
-        # Remover permissões antigas se existirem
+        # 3. Garantir que o perfil tem APENAS as permissões especificadas
+        # Remover permissões antigas se existirem e não forem as desejadas
         existing_profile_perms = session.exec(
             select(AccessProfilePermission).where(AccessProfilePermission.profile_id == profile.id)
         ).all()
         for ep in existing_profile_perms:
-            if ep.permission_id != permission.id:
+            if ep.permission_id not in perm_ids:
                 session.delete(ep)
         session.commit()
         
-        # Adicionar a permissão se não estiver vinculada
-        link = session.exec(
-            select(AccessProfilePermission).where(
-                AccessProfilePermission.profile_id == profile.id,
-                AccessProfilePermission.permission_id == permission.id
-            )
-        ).first()
-        
-        if not link:
-            link = AccessProfilePermission(
-                profile_id=profile.id,
-                permission_id=permission.id,
-                allowed=True
-            )
-            session.add(link)
-            session.commit()
-            print("Permissão 'PDV_SER_VENDEDOR' vinculada ao perfil.")
-        else:
-            link.allowed = True
-            session.add(link)
-            session.commit()
-            print("Permissão 'PDV_SER_VENDEDOR' já estava vinculada e ativa.")
+        # Adicionar as permissões se não estiverem vinculadas
+        for perm in permissions:
+            link = session.exec(
+                select(AccessProfilePermission).where(
+                    AccessProfilePermission.profile_id == profile.id,
+                    AccessProfilePermission.permission_id == perm.id
+                )
+            ).first()
+            
+            if not link:
+                link = AccessProfilePermission(
+                    profile_id=profile.id,
+                    permission_id=perm.id,
+                    allowed=True
+                )
+                session.add(link)
+                session.commit()
+                print(f"Permissão '{perm.code}' vinculada ao perfil.")
+            else:
+                link.allowed = True
+                session.add(link)
+                session.commit()
+                print(f"Permissão '{perm.code}' já estava vinculada e ativa.")
 
         # 4. Criar ou atualizar os usuários
         users_to_create = [

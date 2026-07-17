@@ -216,19 +216,29 @@ function LayoutShell() {
   const [minhasEmpresas, setMinhasEmpresas] = useState<any[]>([]);
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
 
-  // Sincronizar cache de outlets usando basePath
+  const lastActiveBasePathRef = useRef<string | null>(null);
+  const activeOutletRef = useRef<React.ReactNode>(null);
+
+  // Guardar o outlet ativo no ref a cada renderização para podermos salvar no cache quando mudar de aba
+  if (outlet && activeTabPath) {
+    activeOutletRef.current = outlet;
+  }
+
+  // Salvar no cache de outlets apenas quando mudar de aba (basePath diferente)
   useEffect(() => {
-    if (outlet && activeTabPath) {
+    if (activeTabPath) {
       const activeBasePath = activeTabPath.split('?')[0];
-      setOutletCache((prev) => {
-        if (prev[activeBasePath] === outlet) return prev;
-        return {
+      const lastActiveBasePath = lastActiveBasePathRef.current;
+
+      if (lastActiveBasePath && lastActiveBasePath !== activeBasePath && activeOutletRef.current) {
+        setOutletCache((prev) => ({
           ...prev,
-          [activeBasePath]: outlet,
-        };
-      });
+          [lastActiveBasePath]: activeOutletRef.current,
+        }));
+      }
+      lastActiveBasePathRef.current = activeBasePath;
     }
-  }, [outlet, activeTabPath]);
+  }, [activeTabPath]);
 
   // Remover outlets de abas que foram fechadas (verificando por basePath)
   useEffect(() => {
@@ -1658,38 +1668,38 @@ function LayoutShell() {
               </div>
             )}
             <div className="flex-1 flex flex-col relative min-h-full w-full">
-              {Object.keys(outletCache).length === 0 && outlet && (
-                <div className="min-h-full w-full animate-tab-content flex-1 flex flex-col">
-                  <TabErrorBoundary key={`${activeTabItem.basePath}-${refreshCounters[activeTabItem.basePath] || 0}`} tab={activeTabItem}>
-                    {outlet}
-                  </TabErrorBoundary>
-                </div>
-              )}
-              {Object.entries(outletCache).map(([basePath, element]) => {
-                const isActive = basePath === activeTabPath.split('?')[0];
-                const tabItem = tabs.find((t) => t.basePath === basePath) || DEFAULT_TAB;
-                return (
-                  <div
-                    key={basePath}
-                    style={{ display: isActive ? 'flex' : 'none' }}
-                    className="min-h-full w-full animate-tab-content flex-1 flex flex-col"
-                  >
-                    {!online && !tabItem.visited ? (
-                      <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh] bg-white dark:bg-[#0d1117] rounded-md m-6 border border-dashed border-slate-200 dark:border-slate-800">
-                        <AlertTriangle className="w-12 h-12 text-amber-500 mb-4 animate-pulse" />
-                        <h3 className="text-base font-bold text-slate-850 dark:text-white">Sem Conexão com a Internet</h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 max-w-sm">
-                          Esta página ("{tabItem.label}") ainda não foi carregada. Conecte-se à internet para carregá-la pela primeira vez.
-                        </p>
-                      </div>
-                    ) : (
-                      <TabErrorBoundary key={`${tabItem.basePath}-${refreshCounters[tabItem.basePath] || 0}`} tab={tabItem}>
-                        {element}
-                      </TabErrorBoundary>
-                    )}
-                  </div>
-                );
-              })}
+              {(() => {
+                const activeBasePath = activeTabPath ? activeTabPath.split('?')[0] : '';
+                const basePathsToRender = Array.from(new Set([...Object.keys(outletCache), activeBasePath].filter(Boolean)));
+                
+                return basePathsToRender.map((basePath) => {
+                  const isActive = basePath === activeBasePath;
+                  const element = (isActive ? outlet : null) || outletCache[basePath];
+                  const tabItem = tabs.find((t) => t.basePath === basePath) || DEFAULT_TAB;
+                  
+                  return (
+                    <div
+                      key={basePath}
+                      style={{ display: isActive ? 'flex' : 'none' }}
+                      className="min-h-full w-full animate-tab-content flex-1 flex flex-col"
+                    >
+                      {!online && !tabItem.visited ? (
+                        <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh] bg-white dark:bg-[#0d1117] rounded-md m-6 border border-dashed border-slate-200 dark:border-slate-800">
+                          <AlertTriangle className="w-12 h-12 text-amber-500 mb-4 animate-pulse" />
+                          <h3 className="text-base font-bold text-slate-850 dark:text-white">Sem Conexão com a Internet</h3>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 max-w-sm">
+                            Esta página ("{tabItem.label}") ainda não foi carregada. Conecte-se à internet para carregá-la pela primeira vez.
+                          </p>
+                        </div>
+                      ) : (
+                        <TabErrorBoundary key={`${tabItem.basePath}-${refreshCounters[tabItem.basePath] || 0}`} tab={tabItem}>
+                          {element}
+                        </TabErrorBoundary>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </main>
         </div>

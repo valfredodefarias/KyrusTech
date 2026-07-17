@@ -96,6 +96,11 @@ def create_pdv_exclusive_users():
                 "email": "erikbmaia@gmail.com",
                 "nome": "Erik Maia",
                 "password": "030509"
+            },
+            {
+                "email": "joelmir.15rowdry@gmail.com",
+                "nome": "Joel",
+                "password": "joe222325"
             }
         ]
         

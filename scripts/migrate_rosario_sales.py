@@ -120,7 +120,7 @@ def obter_ou_criar_vendedor(db: Session, nome_vendedor: str, vendedor_cache: dic
         
     nome_lower = nome_vendedor.lower()
     if nome_lower in vendedor_cache:
-        return vendedor_cache[nome_lower]
+        return db.merge(vendedor_cache[nome_lower])
         
     user = db.exec(
         select(Usuario)
@@ -154,7 +154,7 @@ def obter_ou_criar_cliente(db: Session, nome_cliente: str, cliente_cache: dict) 
         
     nome_lower = nome_cliente.lower()
     if nome_lower in cliente_cache:
-        return cliente_cache[nome_lower]
+        return db.merge(cliente_cache[nome_lower])
         
     cliente = db.exec(
         select(Entidade)
@@ -186,7 +186,7 @@ def obter_ou_criar_produto(db: Session, familia: str, sub_familia: str, produto_
     nome_lower = nome_produto.lower()
     
     if nome_lower in produto_cache:
-        return produto_cache[nome_lower]
+        return db.merge(produto_cache[nome_lower])
     
     prod = db.exec(
         select(Produto)

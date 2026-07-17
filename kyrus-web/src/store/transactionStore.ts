@@ -449,11 +449,41 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
 const syncChannel = typeof window !== 'undefined' ? new BroadcastChannel('kyrus-erp-cache') : null;
 if (syncChannel) {
   syncChannel.onmessage = (event) => {
-    if (event.data === 'invalidate') {
-      const store = useTransactionStore.getState();
-      // Keep SWR data, clear timestamps and increment refresh count
+    const store = useTransactionStore.getState();
+    const data = event.data;
+    if (data === 'invalidate') {
       store.invalidate();
       store.incrementRefreshCount();
+    } else if (data && typeof data === 'object') {
+      if (data.type === 'add' && data.tx) {
+        store.addTransactionToCache(data.tx);
+        adjustBalanceForTx(data.tx, 'add');
+        store.incrementRefreshCount();
+      } else if (data.type === 'update' && data.tx) {
+        // Revert old balance
+        const year = parseDateOnly(data.tx.data_vencimento)?.getFullYear();
+        if (year && store.yearCache[year]) {
+          const oldTx = store.yearCache[year].find((t) => t.id === data.tx.id);
+          if (oldTx) {
+            adjustBalanceForTx(oldTx, 'remove');
+          }
+        }
+        store.updateTransactionInCache(data.tx);
+        adjustBalanceForTx(data.tx, 'add');
+        store.incrementRefreshCount();
+      } else if (data.type === 'remove' && data.id) {
+        // Revert balance
+        let oldTx: LancamentoResumo | undefined;
+        for (const year of Object.keys(store.yearCache).map(Number)) {
+          oldTx = store.yearCache[year]?.find((t) => t.id === data.id);
+          if (oldTx) break;
+        }
+        if (oldTx) {
+          adjustBalanceForTx(oldTx, 'remove');
+        }
+        store.removeTransactionFromCache(data.id);
+        store.incrementRefreshCount();
+      }
     }
   };
 }
@@ -466,6 +496,26 @@ if (typeof window !== 'undefined') {
     store.incrementRefreshCount();
     syncChannel?.postMessage('invalidate');
   });
+
+  // Auto-sync on window focus after 30 seconds of inactivity
+  if (typeof document !== 'undefined') {
+    let lastBlurTime = Date.now();
+
+    window.addEventListener('blur', () => {
+      lastBlurTime = Date.now();
+    });
+
+    window.addEventListener('focus', () => {
+      const inactiveSeconds = (Date.now() - lastBlurTime) / 1000;
+      if (inactiveSeconds > 30) {
+        console.log(`[Auto-Sync] Tab focada após ${inactiveSeconds.toFixed(1)}s de inatividade. Atualizando dados...`);
+        const store = useTransactionStore.getState();
+        store.invalidate();
+        store.incrementRefreshCount();
+        syncChannel?.postMessage('invalidate');
+      }
+    });
+  }
 }
 
 // Coordinated background polling manager (runs every 2 minutes when online)
@@ -545,7 +595,7 @@ onApiMutation((url, response) => {
       store.addTransactionToCache(newTx);
       adjustBalanceForTx(newTx, 'add');
       store.incrementRefreshCount();
-      syncChannel?.postMessage('invalidate');
+      syncChannel?.postMessage({ type: 'add', tx: newTx });
       return;
     }
 
@@ -564,7 +614,7 @@ onApiMutation((url, response) => {
       store.updateTransactionInCache(newTx);
       adjustBalanceForTx(newTx, 'add');
       store.incrementRefreshCount();
-      syncChannel?.postMessage('invalidate');
+      syncChannel?.postMessage({ type: 'update', tx: newTx });
       return;
     }
 
@@ -585,7 +635,7 @@ onApiMutation((url, response) => {
 
         store.removeTransactionFromCache(id);
         store.incrementRefreshCount();
-        syncChannel?.postMessage('invalidate');
+        syncChannel?.postMessage({ type: 'remove', id });
         return;
       }
     }

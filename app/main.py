@@ -172,6 +172,8 @@ def _apply_legacy_schema_compatibility() -> None:
         "CREATE INDEX IF NOT EXISTS ix_lancamentos_data_pagamento ON lancamentos (data_pagamento)",
         "CREATE INDEX IF NOT EXISTS idx_lancamentos_fast_bal ON lancamentos (empresa_id, conta_id) WHERE is_deleted = false AND (observacao IS NULL OR (observacao NOT ILIKE '%DestinoCompra DEMONSTRACAO%' AND observacao NOT ILIKE '%\"legacy_id_venda\"%'))",
         "CREATE INDEX IF NOT EXISTS idx_lancamentos_no_legacy ON lancamentos (empresa_id) WHERE is_deleted = false AND (observacao IS NULL OR (observacao NOT ILIKE '%\"legacy_id_venda\"%'))",
+        "CREATE INDEX IF NOT EXISTS idx_lancamentos_venc_perf ON lancamentos (empresa_id, data_vencimento)",
+        "CREATE INDEX IF NOT EXISTS idx_lancamentos_dre_perf ON lancamentos (empresa_id, data_competencia, data_vencimento)",
     ]
 
     with engine.begin() as connection:
@@ -192,6 +194,23 @@ def _apply_legacy_schema_compatibility() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global SCHEDULER_TASK
+    
+    # GC Tuning
+    import gc
+    gc.set_threshold(7000, 10, 10)
+    logger.info("Garbage Collector tuned: threshold set to (7000, 10, 10)")
+
+    # SQLAlchemy Pool Pre-warming
+    if os.getenv("TESTING") != "1":
+        try:
+            logger.info("Pre-warming SQLAlchemy connection pool...")
+            conns = [engine.connect() for _ in range(settings.DATABASE_POOL_SIZE)]
+            for conn in conns:
+                conn.close()
+            logger.success(f"Connection pool pre-warmed with {settings.DATABASE_POOL_SIZE} connections.")
+        except Exception as exc:
+            logger.warning(f"Could not pre-warm connection pool: {exc}")
+
     from app.core.cache import register_cache_listeners
     register_cache_listeners()
     _run_startup_migrations()
@@ -261,6 +280,7 @@ app.add_middleware(
     allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
+    max_age=86400,
 )
 
 # --- COMPRESSÃO DE RESPOSTAS (JSON/HTML/JS/CSS) ---

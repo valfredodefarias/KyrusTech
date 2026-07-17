@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef, Component, type ReactNode, type DragEvent, useCallback } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate, useOutlet } from 'react-router-dom';
 import { 
   AlertTriangle, Clock3, LogOut, Menu, Moon, RefreshCw, Sun, 
   Search, Star, Pin, X, ChevronLeft, ChevronRight, CheckCircle2,
@@ -44,6 +44,19 @@ class TabErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
 
   public componentDidCatch(error: Error, errorInfo: any) {
     console.error('Erro detectado na aba:', error, errorInfo);
+    
+    // Auto-recarregamento para ChunkLoadError
+    const errMsg = String(error?.message || error || '').toLowerCase();
+    const isChunkError = 
+      errMsg.includes('chunk') || 
+      errMsg.includes('loading') || 
+      errMsg.includes('failed to fetch dynamically imported module') ||
+      errMsg.includes('dynamically imported');
+
+    if (isChunkError) {
+      console.warn('[TabErrorBoundary] ChunkLoadError detectado! Recarregando aplicação para obter versão estável mais recente...');
+      window.location.reload();
+    }
   }
 
   public handleReset = () => {
@@ -159,6 +172,61 @@ function highlightText(text: string, query: string) {
 function LayoutShell() {
   const location = useLocation();
   const navigate = useNavigate();
+  const outlet = useOutlet();
+  
+  // Cache de elementos do useOutlet para Keep-Alive de abas
+  const [outletCache, setOutletCache] = useState<Record<string, React.ReactNode>>({});
+
+  // Atualizar cache de outlets
+  useEffect(() => {
+    if (outlet && activeTabPath) {
+      setOutletCache((prev) => {
+        if (prev[activeTabPath] === outlet) return prev;
+        return {
+          ...prev,
+          [activeTabPath]: outlet,
+        };
+      });
+    }
+  }, [outlet, activeTabPath]);
+
+  // Remover outlets de abas que foram fechadas
+  useEffect(() => {
+    setOutletCache((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      const openPaths = tabs.map((t) => t.path);
+      for (const cachedPath in next) {
+        if (!openPaths.includes(cachedPath)) {
+          delete next[cachedPath];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [tabs]);
+
+  // Prefetching de transações do ano e mês correntes em background
+  useEffect(() => {
+    if (empresa?.id) {
+      const currentYear = new Date().getFullYear();
+      useTransactionStore.getState().fetchYearTransactions(currentYear).catch((err) => {
+        console.warn('[Layout] Erro no prefetch de transações do ano:', err);
+      });
+
+      const currentMonthStr = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+      api.get('/lancamentos/', {
+        params: {
+          data_inicio: `${currentMonthStr}-01`,
+          data_fim: `${currentMonthStr}-31`,
+          minimized: true,
+          sem_paginacao: true,
+        }
+      }).catch((err) => {
+        console.warn('[Layout] Erro no prefetch de transações do mês:', err);
+      });
+    }
+  }, [empresa]);
   
   const logout = useAuthStore((state) => state.logout);
   const storedUser = useAuthStore((state) => state.user);
@@ -480,6 +548,20 @@ function LayoutShell() {
     const handleInput = (e: Event) => {
       const target = e.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')) {
+        // Ignorar campos de busca, filtro ou pesquisa
+        const name = String(target.name || '').toLowerCase();
+        const id = String(target.id || '').toLowerCase();
+        const placeholder = String(target.placeholder || '').toLowerCase();
+        const className = String(target.className || '').toLowerCase();
+        const isSearchOrFilter = 
+          name.includes('search') || name.includes('busca') || name.includes('pesquisa') || name.includes('filter') || name.includes('filtro') ||
+          id.includes('search') || id.includes('busca') || id.includes('pesquisa') || id.includes('filter') || id.includes('filtro') ||
+          placeholder.includes('pesquise') || placeholder.includes('buscar') || placeholder.includes('filtro') || placeholder.includes('filtrar') ||
+          className.includes('search') || className.includes('filter') ||
+          target.closest('header') !== null; // ignora qualquer input no cabeçalho
+
+        if (isSearchOrFilter) return;
+
         const basePath = location.pathname;
         if (MAIN_PAGES[basePath]) {
           useTabStore.getState().setTabDirty(basePath, true);
@@ -1574,21 +1656,39 @@ function LayoutShell() {
                 <span>Modo Offline: Você está desconectado da internet. A sincronização de dados e novas ações estão temporariamente suspensas.</span>
               </div>
             )}
-            <div key={activeTabItem.path} className="min-h-full w-full animate-tab-content flex-1 flex flex-col">
-              {/* RENDERIZADOR CONDICIONAL DE ABA COM ERROR BOUNDARY E CHAVE DE SOFT REFRESH */}
-              {!online && !activeTabItem.visited ? (
-                <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh] bg-white dark:bg-[#0d1117] rounded-md m-6 border border-dashed border-slate-200 dark:border-slate-800">
-                  <AlertTriangle className="w-12 h-12 text-amber-500 mb-4 animate-pulse" />
-                  <h3 className="text-base font-bold text-slate-850 dark:text-white">Sem Conexão com a Internet</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 max-w-sm">
-                    Esta página ("{activeTabItem.label}") ainda não foi carregada. Conecte-se à internet para carregá-la pela primeira vez.
-                  </p>
+            <div className="flex-1 flex flex-col relative min-h-full w-full">
+              {Object.keys(outletCache).length === 0 && outlet && (
+                <div className="min-h-full w-full animate-tab-content flex-1 flex flex-col">
+                  <TabErrorBoundary key={`${activeTabItem.basePath}-${refreshCounters[activeTabItem.basePath] || 0}`} tab={activeTabItem}>
+                    {outlet}
+                  </TabErrorBoundary>
                 </div>
-              ) : (
-                <TabErrorBoundary key={`${activeTabItem.basePath}-${refreshCounters[activeTabItem.basePath] || 0}`} tab={activeTabItem}>
-                  <Outlet />
-                </TabErrorBoundary>
               )}
+              {Object.entries(outletCache).map(([path, element]) => {
+                const isActive = path === activeTabPath;
+                const tabItem = tabs.find((t) => t.path === path) || DEFAULT_TAB;
+                return (
+                  <div
+                    key={path}
+                    style={{ display: isActive ? 'flex' : 'none' }}
+                    className="min-h-full w-full animate-tab-content flex-1 flex flex-col"
+                  >
+                    {!online && !tabItem.visited ? (
+                      <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh] bg-white dark:bg-[#0d1117] rounded-md m-6 border border-dashed border-slate-200 dark:border-slate-800">
+                        <AlertTriangle className="w-12 h-12 text-amber-500 mb-4 animate-pulse" />
+                        <h3 className="text-base font-bold text-slate-850 dark:text-white">Sem Conexão com a Internet</h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 max-w-sm">
+                          Esta página ("{tabItem.label}") ainda não foi carregada. Conecte-se à internet para carregá-la pela primeira vez.
+                        </p>
+                      </div>
+                    ) : (
+                      <TabErrorBoundary key={`${tabItem.basePath}-${refreshCounters[tabItem.basePath] || 0}`} tab={tabItem}>
+                        {element}
+                      </TabErrorBoundary>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </main>
         </div>

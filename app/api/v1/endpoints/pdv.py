@@ -135,6 +135,7 @@ def listar_vendas_pdv(
         # Load payment details from launches
         pagamentos_list = []
         comprovante_urls = []
+        campos_extras = {}
         if v_launches:
             # Sort launches to get consistent first launch metadata
             launches_sorted = sorted(v_launches, key=lambda l: l.id or 0)
@@ -146,6 +147,7 @@ def listar_vendas_pdv(
                     comprovante_urls = meta.get("comprovante_urls") or []
                     if meta.get("comprovante_url") and meta.get("comprovante_url") not in comprovante_urls:
                         comprovante_urls.insert(0, meta.get("comprovante_url"))
+                    campos_extras = meta.get("campos_extras") or {}
                 except Exception:
                     pass
         
@@ -183,7 +185,7 @@ def listar_vendas_pdv(
             "comprovante_urls": comprovante_urls,
             "entidade_id": v.entidade_id,
             "centro_custo_id": v.centro_custo_id,
-            "desconto": v.desconto,
+            "desconto": v.valor_desconto,
             "observacao_texto": v.observacao,
             "itens_detalhe": [
                 {
@@ -197,7 +199,7 @@ def listar_vendas_pdv(
                 for it in v.itens
             ],
             "pagamentos_detalhe": pagamentos_list,
-            "campos_extras": {},
+            "campos_extras": campos_extras,
             "is_direct_sale": v.is_direct_sale,
         })
 
@@ -713,6 +715,27 @@ def atualizar_venda_pdv(
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """Atualiza uma venda existente substituindo seus lançamentos pelos novos informados."""
+    from app.models.pdv_venda import PdvVenda
+    venda = db.exec(
+        select(PdvVenda).where(
+            PdvVenda.id == venda_id,
+            PdvVenda.empresa_id == empresa_id
+        )
+    ).first()
+    if not venda:
+        raise HTTPException(status_code=404, detail="Venda não encontrada.")
+
+    permissions = get_effective_permission_codes(
+        db,
+        user_id=int(current_user.id or 0),
+        empresa_id=int(empresa_id),
+        is_consultor=bool(current_user.is_consultor),
+        consultor_role=str(current_user.consultor_role or ""),
+    )
+    pode_ver_todas = "*" in permissions or PdvPermission.PDV_VER_TODAS_VENDAS.value in permissions
+    if not pode_ver_todas and venda.vendedor_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Você não tem permissão para editar vendas de outros vendedores.")
+
     return PdvService.atualizar_venda(
         db=db,
         venda_id=venda_id,
@@ -730,6 +753,20 @@ def atualizar_status_venda_pdv(
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """Atualiza o status de todos os lançamentos que compartilham o mesmo UUID de venda."""
+    novo_status = status_in.upper()
+    if novo_status not in ["REALIZADO", "CANCELADO", "DEVOLVIDO"]:
+        raise HTTPException(status_code=400, detail="Status inválido.")
+
+    if novo_status in ["CANCELADO", "DEVOLVIDO"]:
+        permissions = get_effective_permission_codes(
+            db,
+            user_id=int(current_user.id or 0),
+            empresa_id=int(empresa_id),
+            is_consultor=bool(current_user.is_consultor),
+            consultor_role=str(current_user.consultor_role or ""),
+        )
+        if "*" not in permissions and PdvPermission.PDV_CANCELAR_VENDA.value not in permissions:
+            raise HTTPException(status_code=403, detail="Você não tem permissão para cancelar ou devolver vendas.")
     launches = db.exec(
         select(Lancamento)
         .where(
@@ -1633,6 +1670,15 @@ def atualizar_config_pdv(
     """
     Atualiza as configurações do PDV e a ativação de aplicativos.
     """
+    permissions = get_effective_permission_codes(
+        db,
+        user_id=int(current_user.id or 0),
+        empresa_id=int(empresa_id),
+        is_consultor=bool(current_user.is_consultor),
+        consultor_role=str(current_user.consultor_role or ""),
+    )
+    if "*" not in permissions and "page:configuracoes:view" not in permissions:
+        raise HTTPException(status_code=403, detail="Você não tem permissão para alterar as configurações do PDV.")
     empresa = db.get(Empresa, empresa_id)
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa não encontrada.")
@@ -2335,6 +2381,15 @@ def criar_sangria_pdv(
     Registra uma sangria de caixa: cria um lançamento de saída (DESPESA) no PDV e 
     um lançamento de entrada (RECEITA) na conta de destino bancária.
     """
+    permissions = get_effective_permission_codes(
+        db,
+        user_id=int(current_user.id or 0),
+        empresa_id=int(empresa_id),
+        is_consultor=bool(current_user.is_consultor),
+        consultor_role=str(current_user.consultor_role or ""),
+    )
+    if "*" not in permissions and PdvPermission.PDV_REALIZAR_SANGRIA.value not in permissions:
+        raise HTTPException(status_code=403, detail="Você não tem permissão para realizar sangria de caixa.")
     # 1. Obter config do PDV
     empresa = db.get(Empresa, empresa_id)
     if not empresa:

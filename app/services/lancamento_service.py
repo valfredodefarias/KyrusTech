@@ -486,8 +486,8 @@ class LancamentoService:
                         self.session.add(mov)
             return
 
-        # Se for transferência ou ajuste_diferenca, não sincronizamos movimento manual diretamente
-        if self._is_transferencia(lancamento) or str(lancamento.origem or "").upper() == "AJUSTE_DIFERENCA":
+        # Se for transferência, ajuste_diferenca ou estiver conciliado, não sincronizamos movimento manual diretamente
+        if self._is_transferencia(lancamento) or str(lancamento.origem or "").upper() == "AJUSTE_DIFERENCA" or lancamento.conciliado:
             return
 
         # 1. Se NÃO estiver pago, remover qualquer movimento/baixa manual associado

@@ -160,6 +160,15 @@ export async function fetchLancamentosPaged<T = any>(
   params: Record<string, any> = {},
   options?: { pageSize?: number; maxPages?: number; signal?: AbortSignal }
 ) {
+  // Se sem_paginacao ou minimized estiver ativo, faz apenas uma chamada direta
+  if (params.sem_paginacao || params.minimized) {
+    const response = await api.get<T[]>('/lancamentos/', {
+      params,
+      signal: options?.signal,
+    });
+    return Array.isArray(response.data) ? response.data : [];
+  }
+
   const pageSize = Math.max(1, Math.min(Number(options?.pageSize || 1500), 1500));
   const maxPages = Math.max(1, Number(options?.maxPages || 120));
   let skip = Math.max(0, Number(params.skip || 0));
@@ -192,7 +201,24 @@ api.interceptors.response.use(
     }
     return response;
   },
-  (error) => {
+  async (error) => {
+    const config = error.config;
+    if (config) {
+      const isRetryableError =
+        !error.response ||
+        [502, 503, 504].includes(error.response?.status);
+
+      if (isRetryableError) {
+        config.__retryCount = config.__retryCount || 0;
+        if (config.__retryCount < 3) {
+          config.__retryCount += 1;
+          console.warn(`[API Retry] Requisição falhou. Tentativa ${config.__retryCount} de 3 em 1.5s...`, config.url);
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          return api(config);
+        }
+      }
+    }
+
     const status = error?.response?.status;
     const detail = String(error?.response?.data?.detail || error?.message || '').toLowerCase();
     const authErrorMarkers = [

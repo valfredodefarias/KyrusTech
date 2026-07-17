@@ -123,7 +123,7 @@ export function ConciliacaoCartoes() {
 
   // Calendar view states
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
-  const [currentMonth, setCurrentMonth] = useState<Date>(new Date(2026, 5, 1)); // Default to June 2026
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [expandedBrands, setExpandedBrands] = useState<Record<string, boolean>>({});
 

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { useLookupStore } from '../store/lookupStore';
+import { useTabStore } from '../store/tabStore';
 import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { BankAvatar } from '../components/BrandAvatar';
@@ -250,9 +252,14 @@ export function Contas() {
     }
   ];
   const [loading, setLoading] = useState(true);
+  const [extratoSilentSyncing, setExtratoSilentSyncing] = useState(false);
   const [contas, setContas] = useState<Conta[]>([]);
-  const [centros, setCentros] = useState<CentroCusto[]>([]);
-  const [categorias, setCategorias] = useState<PlanoContas[]>([]);
+  
+  // Lookups do Zustand
+  const centros = useLookupStore((state) => state.centrosCusto);
+  const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
+  const categorias = useLookupStore((state) => state.planoContas);
+  const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
   
   // Tema Personalizado
   const empresa = useAuthStore((state) => state.empresa);
@@ -536,17 +543,15 @@ export function Contas() {
 
 
 
-  async function carregarDados() {
-    setLoading(true);
+  async function carregarDados(silent = false) {
+    if (!silent) setLoading(true);
     try {
-      const [resContas, resCentros] = await Promise.all([
+      const [resContas] = await Promise.all([
         api.get('/contas/'),
-        api.get('/centro-custo/') 
+        fetchCentrosCusto()
       ]);
       const contasNormalizadas = normalizeListResponse<Conta>(resContas.data);
-      const centrosNormalizados = normalizeListResponse<CentroCusto>(resCentros.data);
       setContas(contasNormalizadas);
-      setCentros(centrosNormalizados);
       return contasNormalizadas;
     } catch (error) {
       console.error("Erro ao carregar dados", error);
@@ -558,8 +563,7 @@ export function Contas() {
 
   async function carregarCategorias() {
     try {
-      const { data } = await api.get('/plano-contas/');
-      setCategorias(normalizeListResponse<PlanoContas>(data));
+      await fetchPlanoContas();
     } catch (error) {
       console.error("Erro ao carregar categorias", error);
     }
@@ -672,7 +676,7 @@ export function Contas() {
         await api.post(`/contas/${contaId}/logo`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
       
-      setDrawerOpen(false);
+      handleCloseDrawer();
       setFormErrors({});
       setNotice({ type: 'success', message: isEditing ? 'Conta atualizada com sucesso.' : 'Conta criada com sucesso.' });
       carregarDados();
@@ -697,8 +701,9 @@ export function Contas() {
     }
   }
 
-  async function fetchLancamentosConta(contaId: number) {
-    setExtratoLoading(true);
+  async function fetchLancamentosConta(contaId: number, silent = false) {
+    if (!silent) setExtratoLoading(true);
+    else setExtratoSilentSyncing(true);
     try {
       const { data } = await api.get<ContaSaldoDetalhe>(`/contas/${contaId}/saldo-detalhe`);
       const items = (data?.movimentos || []) as LancamentoItem[];
@@ -720,14 +725,20 @@ export function Contas() {
       setLoteVisivel({});
     } finally {
       setExtratoLoading(false);
+      setExtratoSilentSyncing(false);
     }
   }
 
-  async function refreshExtratoContaContext(contaId: number) {
-    await fetchLancamentosConta(contaId);
-    const contasAtualizadas = await carregarDados();
+  async function refreshExtratoContaContext(contaId: number, silent = false) {
+    await fetchLancamentosConta(contaId, silent);
+    const contasAtualizadas = await carregarDados(silent);
     const contaAtualizada = contasAtualizadas.find((conta) => conta.id === contaId) || null;
     setExtratoConta(contaAtualizada);
+  }
+
+  function handleCloseDrawer() {
+    setDrawerOpen(false);
+    useTabStore.getState().setTabDirty(location.pathname, false);
   }
 
   async function handleVerExtrato(conta: Conta) {
@@ -842,7 +853,7 @@ export function Contas() {
     if (!extratoContaId) return;
 
     try {
-      await refreshExtratoContaContext(extratoContaId);
+      await refreshExtratoContaContext(extratoContaId, true);
     } catch (error) {
       console.error('Erro ao atualizar extrato apos fechar o formulario de lancamento', error);
     }
@@ -874,7 +885,7 @@ export function Contas() {
       }
 
       resetExtratoDeleteFlow();
-      await refreshExtratoContaContext(extratoContaId);
+      await refreshExtratoContaContext(extratoContaId, true);
       setNotice({
         type: 'success',
         message: ids.length === 1 ? 'Lancamento apagado com sucesso.' : 'Lancamentos apagados com sucesso.',
@@ -1279,16 +1290,22 @@ export function Contas() {
           <button 
             onClick={() => {
               if (extratoOpen && extratoContaId) {
-                void fetchLancamentosConta(extratoContaId);
+                void refreshExtratoContaContext(extratoContaId, true);
                 return;
               }
-              void carregarDados();
+              void carregarDados(true);
             }}
-            className="p-2 text-slate-400 transition border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 hover:brightness-95" 
-            style={{ color: loading || extratoLoading ? undefined : primaryColor }}
+            className="p-2 text-slate-400 transition border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 hover:brightness-95 relative" 
+            style={{ color: loading || extratoLoading || extratoSilentSyncing ? undefined : primaryColor }}
             title="Atualizar"
           >
-            <RefreshCw className={`w-5 h-5 ${loading || extratoLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-5 h-5 ${loading || extratoLoading || extratoSilentSyncing ? 'animate-spin' : ''}`} />
+            {extratoSilentSyncing && (
+              <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+              </span>
+            )}
           </button>
           <button
             onClick={() => {
@@ -2095,13 +2112,13 @@ export function Contas() {
       {/* --- DRAWER (MODAL LATERAL) NOVA/EDITAR CONTA --- */}
       <div 
         className={`fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 transition-opacity duration-300 ${drawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
-        onClick={() => setDrawerOpen(false)}
+        onClick={handleCloseDrawer}
       />
       
       <div className={`fixed inset-y-0 right-0 w-full sm:w-[min(50vw,58rem)] bg-white dark:bg-slate-900 z-50 transform transition-transform duration-300 ease-out border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col ${drawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
           <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
-              <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing ? 'Editar Conta' : 'Nova Conta'}</h2>
-              <button onClick={() => setDrawerOpen(false)} className="p-2 bg-slate-200 dark:bg-slate-700 rounded-full hover:opacity-80 transition">
+              <h2 className="text-lg font-bold text-slate-850 dark:text-white">{isEditing ? 'Editar Conta' : 'Nova Conta'}</h2>
+              <button onClick={handleCloseDrawer} className="p-2 bg-slate-200 dark:bg-slate-700 rounded-full hover:opacity-80 transition">
                 <X className="w-5 h-5 text-slate-600 dark:text-slate-300" />
               </button>
           </div>
@@ -2449,7 +2466,7 @@ export function Contas() {
                     const currentConta = contas.find(c => c.id === editingId);
                     if (currentConta) {
                       setItemToDelete(currentConta);
-                      setDrawerOpen(false);
+                      handleCloseDrawer();
                     }
                   }}
                   className="px-4 py-3 rounded-xl text-red-600 dark:text-red-400 font-bold hover:bg-red-50 dark:hover:bg-red-950/20 text-sm transition flex items-center gap-2"
@@ -2459,7 +2476,7 @@ export function Contas() {
               ) : <div />}
               <div className="flex gap-3">
                   <button 
-                    onClick={() => setDrawerOpen(false)}
+                    onClick={handleCloseDrawer}
                     className="px-5 py-3 rounded-xl text-slate-500 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 text-sm transition"
                   >
                     Cancelar

@@ -140,7 +140,7 @@ def test_listar_lancamentos_minimized(client: TestClient, session: Session, setu
             "id", "descricao", "tipo", "status", "origem", "observacao", 
             "id_parcelamento", "data_vencimento", "data_pagamento", 
             "data_competencia", "competencia", "valor_previsto", "valor_pago", 
-            "plano_contas_id", "conta_id", "entidade_id", "centro_custo_id"
+            "plano_contas_id", "conta_id", "entidade_id", "centro_custo_id", "cartao_id"
         }
         actual_keys = set(item_min.keys())
         

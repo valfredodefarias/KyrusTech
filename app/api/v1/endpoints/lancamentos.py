@@ -1627,12 +1627,16 @@ def listar_lancamentos(
             Lancamento.conta_id,
             Lancamento.entidade_id,
             Lancamento.centro_custo_id,
+            Lancamento.cartao_id,
         ).where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.is_deleted == False
         )
     else:
-        load_options = [selectinload(cast(Any, Lancamento.entidade))]
+        load_options = [
+            selectinload(cast(Any, Lancamento.entidade)),
+            selectinload(cast(Any, Lancamento.baixas))
+        ]
         load_options.append(selectinload(cast(Any, Lancamento.anexos)) if include_anexos else noload(cast(Any, Lancamento.anexos)))
         query = select(Lancamento).options(*load_options).where(
             Lancamento.empresa_id == empresa_id,
@@ -1733,6 +1737,7 @@ def listar_lancamentos(
                 "conta_id": row.conta_id,
                 "entidade_id": row.entidade_id,
                 "centro_custo_id": row.centro_custo_id,
+                "cartao_id": row.cartao_id,
             })
         import json
         json_content = json.dumps(minimized_data)

@@ -28,7 +28,7 @@ class Baixa(AuditMixin, SQLModel, table=True):
 
     # Relacionamentos
     empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa", lazy="joined"))
-    lancamento: "Lancamento" = Relationship(sa_relationship=relationship("Lancamento", lazy="joined"))
+    lancamento: "Lancamento" = Relationship(sa_relationship=relationship("Lancamento", back_populates="baixas", lazy="joined"))
     movimento: "Movimento" = Relationship(
         sa_relationship=relationship("Movimento", back_populates="baixas", lazy="joined")
     )

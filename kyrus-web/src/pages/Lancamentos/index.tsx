@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import axios from 'axios';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import { api, fetchLancamentosPaged, normalizeListResponse } from '../../services/api';
 import { useLookupStore } from '../../store/lookupStore';
 import { useAuthStore } from '../../store/authStore';
 import { useTransactionStore } from '../../store/transactionStore';
+import { useTabStore } from '../../store/tabStore';
 import { buildOperationalCategoriaIds } from '../../utils/planoContas';
 import {
   Plus,
@@ -441,7 +442,10 @@ export function Lancamentos({
     }
 
     try {
-      const params: any = {};
+      const params: any = {
+        minimized: true,
+        sem_paginacao: true,
+      };
       if (ini) params.data_inicio = ini;
       if (fim) params.data_fim = fim;
       if (filtrosAvancados.ocultarVendasCartaoPendentes) {
@@ -754,6 +758,16 @@ export function Lancamentos({
     });
   };
 
+  const location = useLocation();
+
+  const handleCloseDrawer = useCallback(() => {
+    setShowDrawer(false);
+    setSelectedContaId(null);
+    setSelectedCartaoId(null);
+    useTabStore.getState().setTabDirty(location.pathname, false);
+    onRequestCloseEmbed?.();
+  }, [location.pathname, onRequestCloseEmbed]);
+
   const openDrawer = (item?: Lancamento, defaultContaId?: number | null, defaultCartaoId?: number | null) => {
     setSelectedEditarId(item?.id || null);
     setSelectedContaId(defaultContaId || null);
@@ -855,10 +869,7 @@ export function Lancamentos({
       if (e.key === 'Escape') {
         if (showDrawer) {
           e.preventDefault();
-          setShowDrawer(false);
-          setSelectedContaId(null);
-          setSelectedCartaoId(null);
-          onRequestCloseEmbed?.();
+          handleCloseDrawer();
         } else if (showTransfer) {
           e.preventDefault();
           setShowTransfer(false);
@@ -1003,12 +1014,7 @@ export function Lancamentos({
           editarId={selectedEditarId}
           contaId={selectedContaId}
           cartaoId={selectedCartaoId}
-          onClose={() => {
-            setShowDrawer(false);
-            setSelectedContaId(null);
-            setSelectedCartaoId(null);
-            onRequestCloseEmbed?.();
-          }}
+          onClose={handleCloseDrawer}
           onSaveSuccess={async () => {
             onRequestCloseEmbed?.();
           }}
@@ -1388,11 +1394,7 @@ export function Lancamentos({
         editarId={selectedEditarId}
         contaId={selectedContaId}
         cartaoId={selectedCartaoId}
-        onClose={() => {
-          setShowDrawer(false);
-          setSelectedContaId(null);
-          setSelectedCartaoId(null);
-        }}
+        onClose={handleCloseDrawer}
         onSaveSuccess={async () => {
           if (filtrosAvancados.dataModo === 'PAGAMENTO' && (filtrosAvancados.dataInicio || filtrosAvancados.dataFim)) {
             await loadLancamentos(undefined, undefined, { force: true, skipFallback: true });

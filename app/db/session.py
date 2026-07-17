@@ -1,8 +1,10 @@
 from typing import Generator
 from fastapi import Request
 from sqlmodel import create_engine, Session, SQLModel
+from sqlalchemy import event
 from app.core.config import settings
 from app.db import audit  # noqa: F401
+from app.core.network import get_client_ip
 
 # Garante que a URL seja uma string
 database_url = str(settings.DATABASE_URL)
@@ -12,10 +14,19 @@ engine = create_engine(
     database_url,
     pool_pre_ping=True,
     echo=False,
-    pool_size=10,
-    max_overflow=10,
+    pool_size=settings.DATABASE_POOL_SIZE,
+    max_overflow=settings.DATABASE_MAX_OVERFLOW,
+    pool_timeout=settings.DATABASE_POOL_TIMEOUT,
     pool_recycle=3600
 )
+
+# Adiciona timeouts defensivos nas conexões do pool
+@event.listens_for(engine, "connect")
+def set_connection_timeouts(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("SET lock_timeout = '5000'")
+    cursor.execute("SET statement_timeout = '8000'")
+    cursor.close()
 
 # Criar todas as tabelas (apenas primeira vez)
 def init_db():
@@ -30,7 +41,6 @@ def get_db(request: Request) -> Generator[Session, None, None]:
     """
     with Session(engine) as session:
         try:
-            from app.core.network import get_client_ip
             client_host = get_client_ip(request)
             user_agent = request.headers.get("user-agent") if request else None
             session.info["audit_ip_address"] = client_host

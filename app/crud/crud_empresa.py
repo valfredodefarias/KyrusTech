@@ -16,7 +16,6 @@ def create_empresa(db: Session, *, empresa_in: EmpresaCreate) -> Empresa:
         seed_plano_contas_padrao(db=db, empresa_id=db_empresa.id, tipo_pessoa=db_empresa.tipo_pessoa)
         ensure_centro_custo_principal(db=db, empresa_id=db_empresa.id)
         db.commit()
-        ensure_rbac_seed(db)
         
     return db_empresa
 

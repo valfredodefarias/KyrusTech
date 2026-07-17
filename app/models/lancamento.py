@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from .cartao import Cartao
     from .centro_custo import CentroCusto
     from .anexo_lancamento import AnexoLancamento
+    from .baixa import Baixa
 
 class Lancamento(AuditMixin, SQLModel, table=True):
     __tablename__ = "lancamentos"
@@ -74,6 +75,9 @@ class Lancamento(AuditMixin, SQLModel, table=True):
     centro_custo: Optional["CentroCusto"] = Relationship(sa_relationship=relationship("CentroCusto", back_populates="lancamentos"))
     anexos: list["AnexoLancamento"] = Relationship(
         sa_relationship=relationship("AnexoLancamento", back_populates="lancamento")
+    )
+    baixas: list["Baixa"] = Relationship(
+        sa_relationship=relationship("Baixa", back_populates="lancamento", cascade="all, delete-orphan")
     )
 
     def calcular_status(self) -> str:

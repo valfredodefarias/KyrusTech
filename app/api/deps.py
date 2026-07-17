@@ -73,11 +73,13 @@ def get_current_user(
                 detail="Sessão ativa em outro dispositivo"
             )
         
-        # Atualizar última atividade
+        # Atualizar última atividade com throttling de 5 minutos (300s)
         from datetime import datetime
-        sess.last_activity_at = datetime.utcnow()
-        session.add(sess)
-        session.commit()
+        now = datetime.utcnow()
+        if not sess.last_activity_at or (now - sess.last_activity_at).total_seconds() > 300:
+            sess.last_activity_at = now
+            session.add(sess)
+            session.commit()
 
     set_audit_user(user.id)
     session.info["audit_user_id"] = user.id

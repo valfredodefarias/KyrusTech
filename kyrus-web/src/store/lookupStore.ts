@@ -330,6 +330,29 @@ export const useLookupStore = create<LookupState>((set, get) => {
   };
 });
 
+// Canal de sincronização de lookups entre abas
+const syncLookupChannel = typeof window !== 'undefined' ? new BroadcastChannel('kyrus-erp-lookup') : null;
+if (syncLookupChannel) {
+  syncLookupChannel.onmessage = (event) => {
+    const store = useLookupStore.getState();
+    const type = event.data;
+    if (type === 'invalidate-entidades') {
+      store.invalidateEntidades();
+      store.invalidateEntidadesLookup();
+      useTransactionStore.getState().incrementRefreshCount();
+    } else if (type === 'invalidate-plano-contas') {
+      store.invalidatePlanoContas();
+      useTransactionStore.getState().incrementRefreshCount();
+    } else if (type === 'invalidate-contas') {
+      store.invalidateContas();
+      useTransactionStore.getState().incrementRefreshCount();
+    } else if (type === 'invalidate-centro-custo') {
+      store.invalidateCentrosCusto();
+      useTransactionStore.getState().incrementRefreshCount();
+    }
+  };
+}
+
 // Listen to successful mutations to selectively invalidate lookups and notify transactions view
 onApiMutation((url) => {
   const store = useLookupStore.getState();
@@ -337,18 +360,22 @@ onApiMutation((url) => {
   if (url.includes('/entidades')) {
     store.invalidateEntidades();
     store.invalidateEntidadesLookup();
+    syncLookupChannel?.postMessage('invalidate-entidades');
     hasChanges = true;
   }
   if (url.includes('/plano-contas')) {
     store.invalidatePlanoContas();
+    syncLookupChannel?.postMessage('invalidate-plano-contas');
     hasChanges = true;
   }
   if (url.includes('/contas')) {
     store.invalidateContas();
+    syncLookupChannel?.postMessage('invalidate-contas');
     hasChanges = true;
   }
   if (url.includes('/centro-custo')) {
     store.invalidateCentrosCusto();
+    syncLookupChannel?.postMessage('invalidate-centro-custo');
     hasChanges = true;
   }
 

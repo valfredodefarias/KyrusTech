@@ -1076,12 +1076,67 @@ export function Boletim() {
 
   const groupedRows = useMemo(() => {
     if (auditPanel?.mode !== 'LANCAMENTOS' || !auditPanel.rows) return { groups: {}, sortedDates: [] };
-    const groups: { [date: string]: NormalizedRow[] } = {};
+    const groups: { [date: string]: any[] } = {};
     auditPanel.rows.forEach((row) => {
       const dateStr = row.dataVencimento || 'Sem data';
       if (!groups[dateStr]) groups[dateStr] = [];
       groups[dateStr].push(row);
     });
+
+    // Summarize card transactions inside each date group
+    Object.keys(groups).forEach((dateStr) => {
+      const rows = groups[dateStr];
+      const nonCardRows: any[] = [];
+      const cardGroups: Record<
+        string,
+        { label: string; value: number; isDebito: boolean; ids: number[]; rows: NormalizedRow[] }
+      > = {};
+
+      rows.forEach((row) => {
+        const tp = row.tipoPagamento || '';
+        if (row.flowType === 'RECEBIMENTO' && tp.startsWith('cartao_')) {
+          const brand = (row.bandeira || 'OUTROS').toUpperCase();
+          const isDebito = tp === 'cartao_debito';
+          const mod = isDebito ? 'DÉBITO' : 'CRÉDITO';
+          const key = `${brand} ${mod}`;
+          if (!cardGroups[key]) {
+            cardGroups[key] = { label: `${brand} ${mod}`, value: 0, isDebito, ids: [], rows: [] };
+          }
+          cardGroups[key].value += row.valorAbsoluto;
+          if (row.id > 0) {
+            cardGroups[key].ids.push(row.id);
+          }
+          cardGroups[key].rows.push(row);
+        } else {
+          nonCardRows.push(row);
+        }
+      });
+
+      const summarizedCardRows = Object.entries(cardGroups).map(([key, g]) => {
+        const firstRow = g.rows[0];
+        const count = g.rows.length;
+        const countLabel = count === 1 ? '1 transação' : `${count} transações`;
+        return {
+          rowKey: `card-summary-${dateStr}-${key}`,
+          id: 0,
+          isCardSummary: true,
+          boletimIds: g.ids,
+          descricao: `${g.label} (${countLabel})`,
+          flowType: 'RECEBIMENTO' as FlowFilter,
+          statusKey: firstRow.statusKey,
+          statusLabel: firstRow.statusLabel,
+          dataVencimento: dateStr,
+          valor: g.value,
+          valorAbsoluto: g.value,
+          interessado: 'Operadoras de Cartão',
+          bandeira: firstRow.bandeira,
+          tipoPagamento: firstRow.tipoPagamento,
+        };
+      });
+
+      groups[dateStr] = [...nonCardRows, ...summarizedCardRows];
+    });
+
     const sortedDates = Object.keys(groups).sort((a, b) => a.localeCompare(b));
     return { groups, sortedDates };
   }, [auditPanel?.mode, auditPanel?.rows]);
@@ -2257,35 +2312,53 @@ export function Boletim() {
                                         </div>
                                       </td>
                                     </tr>
-                                    {groupRows.map((row) => (
-                                      <tr
-                                        key={`audit-row-${row.rowKey}`}
-                                        onClick={(event) => {
-                                          if (row.id > 0) openLancamentoEdicao(row.id, event);
-                                        }}
-                                        className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} ${row.id > 0 ? 'cursor-pointer' : 'cursor-default'} transition`}
-                                        title={row.id > 0 ? "Abrir edição do lançamento" : undefined}
-                                      >
-                                        <td className="px-3 py-2.5 font-medium whitespace-nowrap text-slate-400 dark:text-slate-500"></td>
-                                        <td className="px-3 py-2.5">{row.interessado}</td>
-                                        <td className="max-w-56 truncate px-3 py-2.5" title={row.descricao}>
-                                          <div className="flex items-center gap-1.5">
-                                            <span className="truncate">{row.descricao}</span>
-                                            {(row.id <= 0 || row.origem === 'ASAAS') && (
-                                              <span className="shrink-0 inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-400/20">
-                                                Asaas
-                                              </span>
-                                            )}
-                                          </div>
-                                        </td>
-                                        <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrencyDetailed(row.valor)}</td>
-                                        <td className="px-3 py-2.5">
-                                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${row.statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : row.statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                                            {row.statusLabel}
-                                          </span>
-                                        </td>
-                                      </tr>
-                                    ))}
+                                    {groupRows.map((row) => {
+                                      const isClickable = row.id > 0 || row.isCardSummary;
+                                      return (
+                                        <tr
+                                          key={`audit-row-${row.rowKey}`}
+                                          onClick={(event) => {
+                                            if (row.isCardSummary) {
+                                              setAuditPanel(null);
+                                              setActiveAuditMetricKey(null);
+                                              navigate(`/lancamentos?boletim_ids=${row.boletimIds.join(',')}`);
+                                            } else if (row.id > 0) {
+                                              openLancamentoEdicao(row.id, event);
+                                            }
+                                          }}
+                                          className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} ${isClickable ? 'cursor-pointer' : 'cursor-default'} transition`}
+                                          title={row.isCardSummary ? "Ver lançamentos na listagem" : row.id > 0 ? "Abrir edição do lançamento" : undefined}
+                                        >
+                                          <td className="px-3 py-2.5 font-medium whitespace-nowrap text-slate-400 dark:text-slate-500"></td>
+                                          <td className="px-3 py-2.5">{row.interessado}</td>
+                                          <td className="max-w-56 truncate px-3 py-2.5" title={row.descricao}>
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="truncate">{row.descricao}</span>
+                                              {(row.id <= 0 && !row.isCardSummary || row.origem === 'ASAAS') && (
+                                                <span className="shrink-0 inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-400/20">
+                                                  Asaas
+                                                </span>
+                                              )}
+                                              {row.isCardSummary && (
+                                                <span className={`shrink-0 inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                                                  row.tipoPagamento === 'cartao_debito'
+                                                    ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
+                                                    : 'bg-violet-50 dark:bg-violet-950/30 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800'
+                                                }`}>
+                                                  Cartão
+                                                </span>
+                                              )}
+                                            </div>
+                                          </td>
+                                          <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrencyDetailed(row.valor)}</td>
+                                          <td className="px-3 py-2.5">
+                                            <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${row.statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : row.statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                                              {row.statusLabel}
+                                            </span>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
                                   </Fragment>
                                 );
                               })
@@ -2501,80 +2574,23 @@ export function Boletim() {
                   </div>
                 </div>
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {/* Para hoje — com breakdown de bandeira/modalidade de cartão */}
+                  {/* Para hoje — sem breakdown de cartões na tela principal */}
                   {(() => {
-                    const hojeRows = dashboard.baseRows.filter(
-                      (r) => r.flowType === 'RECEBIMENTO' && r.statusKey === 'HOJE'
-                    );
-                    // Agrupar por bandeira + modalidade
-                    const cardGroups: Record<string, { label: string; value: number; isDebito: boolean }> = {};
-                    let nonCardTotal = 0;
-                    hojeRows.forEach((r) => {
-                      const tp = r.tipoPagamento || '';
-                      if (tp.startsWith('cartao_')) {
-                        const brand = (r.bandeira || 'OUTROS').toUpperCase();
-                        const isDebito = tp === 'cartao_debito';
-                        const mod = isDebito ? 'Débito' : 'Crédito';
-                        const key = `${brand}___${mod}`;
-                        if (!cardGroups[key]) cardGroups[key] = { label: `${brand} ${mod}`, value: 0, isDebito };
-                        cardGroups[key].value += r.valorAbsoluto;
-                      } else {
-                        nonCardTotal += r.valorAbsoluto;
-                      }
-                    });
-                    const cardList = Object.values(cardGroups).sort((a, b) => b.value - a.value);
-                    const hasCards = cardList.length > 0;
-
                     return (
-                      <div>
-                        <div
-                          onClick={() => handleKpiAuditClick('receber_hoje')}
-                          className="px-4 py-3.5 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group"
-                        >
-                          <span className="text-slate-600 dark:text-slate-300 font-medium">
-                            Para hoje
-                            <span className="text-slate-400 dark:text-slate-500 text-xs ml-2 font-normal">
-                              {formatDate(dashboard.todayIso)}
-                            </span>
+                      <div
+                        onClick={() => handleKpiAuditClick('receber_hoje')}
+                        className="px-4 py-3.5 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group"
+                      >
+                        <span className="text-slate-600 dark:text-slate-300 font-medium">
+                          Para hoje
+                          <span className="text-slate-400 dark:text-slate-500 text-xs ml-2 font-normal">
+                            {formatDate(dashboard.todayIso)}
                           </span>
-                          <div className="flex items-center gap-1.5 font-semibold">
-                            <span className="text-slate-700 dark:text-slate-200">{formatCurrency(dashboard.receber.hoje)}</span>
-                            <ExternalLink className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 group-hover:text-slate-400 dark:group-hover:text-slate-500 transition" />
-                          </div>
+                        </span>
+                        <div className="flex items-center gap-1.5 font-semibold">
+                          <span className="text-slate-700 dark:text-slate-200">{formatCurrency(dashboard.receber.hoje)}</span>
+                          <ExternalLink className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 group-hover:text-slate-400 dark:group-hover:text-slate-500 transition" />
                         </div>
-                        {/* Breakdown por bandeira/modalidade */}
-                        {hasCards && (
-                          <div className="px-4 pb-3 -mt-1 space-y-1">
-                            {cardList.map((g) => (
-                              <div key={g.label} className="flex items-center justify-between text-[11px]">
-                                <div className="flex items-center gap-1.5">
-                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide border ${
-                                    g.isDebito
-                                      ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
-                                      : 'bg-violet-50 dark:bg-violet-950/30 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800'
-                                  }`}>
-                                    {g.label}
-                                  </span>
-                                </div>
-                                <span className={`font-mono font-semibold ${
-                                  g.isDebito ? 'text-blue-700 dark:text-blue-300' : 'text-violet-700 dark:text-violet-300'
-                                }`}>
-                                  {formatCurrency(g.value)}
-                                </span>
-                              </div>
-                            ))}
-                            {nonCardTotal > 0 && (
-                              <div className="flex items-center justify-between text-[11px]">
-                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide border bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700">
-                                  Outros (PIX / iFood)
-                                </span>
-                                <span className="font-mono font-semibold text-slate-600 dark:text-slate-300">
-                                  {formatCurrency(nonCardTotal)}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        )}
                       </div>
                     );
                   })()}

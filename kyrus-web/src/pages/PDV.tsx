@@ -2551,7 +2551,7 @@ export function PDV() {
               {customFields.length > 0 && (
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Campos Personalizados</span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
                     {customFields.map((campo: any) => {
                       if (campo.depends_on) {
                         const depVal = camposExtrasForm[campo.depends_on.field];
@@ -2565,8 +2565,11 @@ export function PDV() {
                         setCamposExtrasForm((prev) => ({ ...prev, [campo.id]: val }));
                       };
 
+                      const isHalf = campo.half_width;
+                      const wrapperClass = isHalf ? "col-span-2 sm:col-span-1 space-y-1" : "col-span-2 space-y-1";
+
                       return (
-                        <div key={campo.id} className="space-y-1">
+                        <div key={campo.id} className={wrapperClass}>
                           <label className="text-xs font-bold text-slate-500 dark:text-slate-350 flex items-center gap-1">
                             {campo.label}
                             {campo.required && <span className="text-rose-500">*</span>}
@@ -2580,6 +2583,28 @@ export function PDV() {
                               placeholder={campo.placeholder || ''}
                               className="w-full rounded-xl border border-slate-350 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white"
                             />
+                          )}
+
+                          {campo.type === 'select_buttons' && (
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                              {(campo.options || []).map((opt: string) => {
+                                const active = value === opt;
+                                return (
+                                  <button
+                                    key={opt}
+                                    type="button"
+                                    onClick={() => handleChange(active ? '' : opt)}
+                                    className={`flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                                      active
+                                        ? 'bg-blue-600 border-blue-600 text-white shadow-md'
+                                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300'
+                                    }`}
+                                  >
+                                    {opt}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           )}
 
                           {campo.type === 'select' && (

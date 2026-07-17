@@ -185,6 +185,8 @@ class LancamentoService:
         return str(lancamento.origem or "").upper() == "TRANSFERENCIA"
 
     def _is_compensado_ou_pago(self, lancamento: Lancamento) -> bool:
+        if str(lancamento.status or "").upper() == "EM ABERTO":
+            return False
         status_pago = str(lancamento.status or "").upper() == "PAGO"
         return bool(status_pago or lancamento.data_pagamento or lancamento.conciliado)
 
@@ -776,10 +778,14 @@ class LancamentoService:
     def delete(self, lancamento_id: int, empresa_id: int, user_id: int, confirmar_exclusao_pagos: bool = False):
         lancamento = self.get_by_id(lancamento_id, empresa_id)
         if lancamento.conciliado:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Lançamentos conciliados não podem ser excluídos diretamente. Desconcilie o lançamento primeiro."
-            )
+            if str(lancamento.status or "").upper() == "EM ABERTO":
+                lancamento.conciliado = False
+                self.session.add(lancamento)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Lançamentos conciliados não podem ser excluídos diretamente. Desconcilie o lançamento primeiro."
+                )
         if self._is_compensado_ou_pago(lancamento) and not confirmar_exclusao_pagos:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -950,6 +956,8 @@ class LancamentoService:
                     detail="Existem lancamentos compensados/pagos na selecao. Para excluir, confirme explicitamente.",
                 )
         for lanc in related:
+            if lanc.conciliado and str(lanc.status or "").upper() == "EM ABERTO":
+                lanc.conciliado = False
             lanc.is_deleted = True
             lanc.deleted_at = datetime.utcnow()
             lanc.deleted_by_id = user_id

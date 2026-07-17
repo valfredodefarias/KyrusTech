@@ -3154,31 +3154,19 @@ export function Configuracoes() {
     return value === 'EMPRESA' || value === 'USUARIO' || value === 'SEGURANCA' || value === 'INTERESSADOS' || value === 'PLANO' || value === 'IMPORTACAO' || value === 'FINANCEIRO' || value === 'RBAC' || value === 'NFSTOCK' || value === 'PDV' || value === 'COMISSOES';
   };
 
-  const [activeTab, setActiveTab] = useState<ConfigTab>(() => {
-    const queryTab = searchParams.get('tab');
-    return isConfigTab(queryTab) ? queryTab : 'EMPRESA';
-  });
+  const queryTab = searchParams.get('tab');
+  const activeTab = isConfigTab(queryTab) ? queryTab : 'EMPRESA';
 
-  useEffect(() => {
-    const queryTab = searchParams.get('tab');
-    const target = isConfigTab(queryTab) ? queryTab : 'EMPRESA';
-    setActiveTab((prev) => (prev === target ? prev : target));
-  }, [searchParams]);
-
-  useEffect(() => {
-    const currentTab = searchParams.get('tab');
-    if ((activeTab === 'EMPRESA' && currentTab === null) || currentTab === activeTab) {
-      return;
-    }
-
+  const handleTabChange = (tabKey: ConfigTab) => {
     const next = new URLSearchParams(searchParams);
-    if (activeTab === 'EMPRESA') {
+    if (tabKey === 'EMPRESA') {
       next.delete('tab');
     } else {
-      next.set('tab', activeTab);
+      next.set('tab', tabKey);
     }
     setSearchParams(next, { replace: true });
-  }, [activeTab, searchParams, setSearchParams]);
+  };
+
 
   const tabs: Array<{ key: ConfigTab; label: string; description: string; icon: any }> = [
     { key: 'EMPRESA', label: 'Minha Empresa', description: 'Identidade visual e dados da conta', icon: Building2 },
@@ -3222,7 +3210,7 @@ export function Configuracoes() {
                   <button
                     key={tab.key}
                     type="button"
-                    onClick={() => setActiveTab(tab.key)}
+                    onClick={() => handleTabChange(tab.key)}
                     className={getTabClass(tab.key)}
                     title={menuCollapsed ? tab.label : undefined}
                   >

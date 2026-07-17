@@ -269,7 +269,16 @@ export function Lancamentos({
     } else {
       loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
     }
-  }, [currentEmpresaId, mesAtual, filtrosAvancados.dataInicio, filtrosAvancados.dataFim, filtrosAvancados.dataModo, filtrosAvancados.ocultarVendasCartaoPendentes, refreshCount]);
+  }, [
+    currentEmpresaId,
+    mesAtual,
+    filtrosAvancados.dataInicio,
+    filtrosAvancados.dataFim,
+    filtrosAvancados.dataModo,
+    filtrosAvancados.ocultarVendasCartaoPendentes,
+    refreshCount,
+    searchParams.get('boletim_ids'),
+  ]);
 
   useEffect(() => {
     return () => {
@@ -356,6 +365,11 @@ export function Lancamentos({
       .filter((id) => Number.isFinite(id) && id > 0);
 
     setBoletimIdsFiltro(parsedIds.length > 0 ? new Set(parsedIds) : null);
+
+    setFiltrosAvancados((prev) => ({
+      ...prev,
+      ocultarVendasCartaoPendentes: false,
+    }));
   }, [searchParams]);
 
   async function loadAuxData() {
@@ -416,7 +430,8 @@ export function Lancamentos({
 
 
   async function loadLancamentos(ini?: string, fim?: string, opts?: { force?: boolean; skipFallback?: boolean }) {
-    const key = `${currentEmpresaId ?? ''}|${ini || ''}|${fim || ''}|${filtrosAvancados.ocultarVendasCartaoPendentes}`;
+    const rawIds = searchParams.get('boletim_ids') || '';
+    const key = `${currentEmpresaId ?? ''}|${ini || ''}|${fim || ''}|${filtrosAvancados.ocultarVendasCartaoPendentes}|${rawIds}`;
     const isCacheMatch = key === useTransactionStore.getState().pagedCacheKey;
     const hasCachedItems = useTransactionStore.getState().pagedLancamentos.length > 0;
 
@@ -446,10 +461,14 @@ export function Lancamentos({
         minimized: true,
         sem_paginacao: true,
       };
-      if (ini) params.data_inicio = ini;
-      if (fim) params.data_fim = fim;
-      if (filtrosAvancados.ocultarVendasCartaoPendentes) {
-        params.ocultar_vendas_cartao_pendentes = true;
+      if (rawIds) {
+        params.ids = rawIds;
+      } else {
+        if (ini) params.data_inicio = ini;
+        if (fim) params.data_fim = fim;
+        if (filtrosAvancados.ocultarVendasCartaoPendentes) {
+          params.ocultar_vendas_cartao_pendentes = true;
+        }
       }
       const rows = await fetchLancamentosPaged<Lancamento>(params, { pageSize: 1500, signal: controller.signal });
       setPagedLancamentos(key, rows);

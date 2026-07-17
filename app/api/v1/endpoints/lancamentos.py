@@ -1561,11 +1561,12 @@ def listar_lancamentos(
     incluir_demonstracoes: bool = Query(False),
     incluir_importacao_legada: bool = Query(False),
     minimized: bool = Query(False),
+    ids: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """Lista lançamentos com paginação."""
-    logger.info(f"[listar_lancamentos] Chamado para empresa_id={empresa_id} minimized={minimized} sem_paginacao={sem_paginacao}")
+    logger.info(f"[listar_lancamentos] Chamado para empresa_id={empresa_id} minimized={minimized} sem_paginacao={sem_paginacao} ids={ids}")
     safe_limit = max(1, min(limit, 10000))
     safe_skip = max(skip, 0)
 
@@ -1583,7 +1584,8 @@ def listar_lancamentos(
                 str(somente_pagos), str(tipo),
                 str(origem), str(status),
                 str(conciliado), str(ocultar_vendas_cartao_pendentes),
-                str(incluir_demonstracoes), str(incluir_importacao_legada)
+                str(incluir_demonstracoes), str(incluir_importacao_legada),
+                str(ids)
             ]
             cache_key = hashlib.md5(":".join(key_parts).encode("utf-8")).hexdigest()
             from app.core.cache import get_transaction_cache
@@ -1643,72 +1645,80 @@ def listar_lancamentos(
             Lancamento.is_deleted == False
         )
 
-    if not incluir_demonstracoes:
-        query = query.where(
-            or_(
-                Lancamento.observacao.is_(None),
-                ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")
-            )
-        )
-    if not incluir_importacao_legada:
-        query = query.where(
-            or_(
-                Lancamento.observacao.is_(None),
-                ~Lancamento.observacao.ilike('%"legacy_id_venda"%')
-            )
-        )
-    if data_inicio and data_fim:
-        query = query.where(
-            or_(
-                (Lancamento.data_vencimento >= data_inicio) & (Lancamento.data_vencimento <= data_fim),
-                (Lancamento.data_pagamento.is_not(None))
-                & (Lancamento.data_pagamento >= data_inicio)
-                & (Lancamento.data_pagamento <= data_fim),
-            )
-        )
-    else:
-        if data_inicio:
-            query = query.where(
-                or_(
-                    Lancamento.data_vencimento >= data_inicio,
-                    (Lancamento.data_pagamento.is_not(None)) & (Lancamento.data_pagamento >= data_inicio),
-                )
-            )
-        if data_fim:
-            query = query.where(
-                or_(
-                    Lancamento.data_vencimento <= data_fim,
-                    (Lancamento.data_pagamento.is_not(None)) & (Lancamento.data_pagamento <= data_fim),
-                )
-            )
-    if conta_id:
-        query = query.where(Lancamento.conta_id == conta_id)
-    if cartao_id:
-        query = query.where(Lancamento.cartao_id == cartao_id)
-    if tipo:
-        query = query.where(Lancamento.tipo == tipo)
-    if origem:
-        if "," in origem:
-            origens = [o.strip() for o in origem.split(",")]
-            query = query.where(Lancamento.origem.in_(origens))
-        else:
-            query = query.where(Lancamento.origem == origem)
-    if status:
-        query = query.where(Lancamento.status == status)
-    if conciliado is not None:
-        if not conciliado:
-            query = query.where(or_(Lancamento.conciliado == False, Lancamento.conciliado.is_(None)))
-        else:
-            query = query.where(Lancamento.conciliado == True)
-    if ocultar_vendas_cartao_pendentes:
-        query = query.where(~((Lancamento.origem == "PDV") & (Lancamento.status == "EM ABERTO")))
-    if somente_pagos:
+    # Se ids for passado, filtramos por eles e ignoramos os filtros de data/outros
+    has_ids_filter = False
+    if ids:
+        id_list = [int(x.strip()) for x in ids.split(",") if x.strip().isdigit()]
+        if id_list:
+            query = query.where(Lancamento.id.in_(id_list))
+            has_ids_filter = True
 
-        query = query.where(
-            (col(Lancamento.status) == "PAGO")
-            | (Lancamento.data_pagamento.is_not(None))
-            | (col(Lancamento.valor_pago) != 0)
-        )
+    if not has_ids_filter:
+        if not incluir_demonstracoes:
+            query = query.where(
+                or_(
+                    Lancamento.observacao.is_(None),
+                    ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")
+                )
+            )
+        if not incluir_importacao_legada:
+            query = query.where(
+                or_(
+                    Lancamento.observacao.is_(None),
+                    ~Lancamento.observacao.ilike('%"legacy_id_venda"%')
+                )
+            )
+        if data_inicio and data_fim:
+            query = query.where(
+                or_(
+                    (Lancamento.data_vencimento >= data_inicio) & (Lancamento.data_vencimento <= data_fim),
+                    (Lancamento.data_pagamento.is_not(None))
+                    & (Lancamento.data_pagamento >= data_inicio)
+                    & (Lancamento.data_pagamento <= data_fim),
+                )
+            )
+        else:
+            if data_inicio:
+                query = query.where(
+                    or_(
+                        Lancamento.data_vencimento >= data_inicio,
+                        (Lancamento.data_pagamento.is_not(None)) & (Lancamento.data_pagamento >= data_inicio),
+                    )
+                )
+            if data_fim:
+                query = query.where(
+                    or_(
+                        Lancamento.data_vencimento <= data_fim,
+                        (Lancamento.data_pagamento.is_not(None)) & (Lancamento.data_pagamento <= data_fim),
+                    )
+                )
+        if conta_id:
+            query = query.where(Lancamento.conta_id == conta_id)
+        if cartao_id:
+            query = query.where(Lancamento.cartao_id == cartao_id)
+        if tipo:
+            query = query.where(Lancamento.tipo == tipo)
+        if origem:
+            if "," in origem:
+                origens = [o.strip() for o in origem.split(",")]
+                query = query.where(Lancamento.origem.in_(origens))
+            else:
+                query = query.where(Lancamento.origem == origem)
+        if status:
+            query = query.where(Lancamento.status == status)
+        if conciliado is not None:
+            if not conciliado:
+                query = query.where(or_(Lancamento.conciliado == False, Lancamento.conciliado.is_(None)))
+            else:
+                query = query.where(Lancamento.conciliado == True)
+        if ocultar_vendas_cartao_pendentes:
+            query = query.where(~((Lancamento.origem == "PDV") & (Lancamento.status == "EM ABERTO")))
+        if somente_pagos:
+            query = query.where(
+                (col(Lancamento.status) == "PAGO")
+                | (Lancamento.data_pagamento.is_not(None))
+                | (col(Lancamento.valor_pago) != 0)
+            )
 
     query = query.order_by(col(Lancamento.data_vencimento).asc())
     if not sem_paginacao:

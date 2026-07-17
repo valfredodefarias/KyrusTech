@@ -3161,9 +3161,8 @@ export function Configuracoes() {
 
   useEffect(() => {
     const queryTab = searchParams.get('tab');
-    if (isConfigTab(queryTab)) {
-      setActiveTab((prev) => (prev === queryTab ? prev : queryTab));
-    }
+    const target = isConfigTab(queryTab) ? queryTab : 'EMPRESA';
+    setActiveTab((prev) => (prev === target ? prev : target));
   }, [searchParams]);
 
   useEffect(() => {

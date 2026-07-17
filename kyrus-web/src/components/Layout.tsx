@@ -216,28 +216,29 @@ function LayoutShell() {
   const [minhasEmpresas, setMinhasEmpresas] = useState<any[]>([]);
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
 
-  // Atualizar cache de outlets
+  // Sincronizar cache de outlets usando basePath
   useEffect(() => {
     if (outlet && activeTabPath) {
+      const activeBasePath = activeTabPath.split('?')[0];
       setOutletCache((prev) => {
-        if (prev[activeTabPath] === outlet) return prev;
+        if (prev[activeBasePath] === outlet) return prev;
         return {
           ...prev,
-          [activeTabPath]: outlet,
+          [activeBasePath]: outlet,
         };
       });
     }
   }, [outlet, activeTabPath]);
 
-  // Remover outlets de abas que foram fechadas
+  // Remover outlets de abas que foram fechadas (verificando por basePath)
   useEffect(() => {
     setOutletCache((prev) => {
       const next = { ...prev };
       let changed = false;
-      const openPaths = tabs.map((t) => t.path);
-      for (const cachedPath in next) {
-        if (!openPaths.includes(cachedPath)) {
-          delete next[cachedPath];
+      const openBasePaths = tabs.map((t) => t.basePath);
+      for (const cachedBasePath in next) {
+        if (!openBasePaths.includes(cachedBasePath)) {
+          delete next[cachedBasePath];
           changed = true;
         }
       }
@@ -1664,12 +1665,12 @@ function LayoutShell() {
                   </TabErrorBoundary>
                 </div>
               )}
-              {Object.entries(outletCache).map(([path, element]) => {
-                const isActive = path === activeTabPath;
-                const tabItem = tabs.find((t) => t.path === path) || DEFAULT_TAB;
+              {Object.entries(outletCache).map(([basePath, element]) => {
+                const isActive = basePath === activeTabPath.split('?')[0];
+                const tabItem = tabs.find((t) => t.basePath === basePath) || DEFAULT_TAB;
                 return (
                   <div
-                    key={path}
+                    key={basePath}
                     style={{ display: isActive ? 'flex' : 'none' }}
                     className="min-h-full w-full animate-tab-content flex-1 flex flex-col"
                   >

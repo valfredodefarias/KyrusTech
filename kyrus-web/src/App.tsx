@@ -294,6 +294,38 @@ function App() {
     }
   }, [user]);
 
+  // Sistema de autopropagação de atualizações em produção
+  useEffect(() => {
+    if (import.meta.env.DEV) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch('/index.html', { cache: 'no-store' });
+        if (!response.ok) return;
+        const html = await response.text();
+        
+        // Achar o hash do script principal no HTML retornado do servidor
+        const match = html.match(/src="[^"]*assets\/index-([A-Za-z0-9_-]+)\.js"/);
+        if (!match) return;
+        const serverHash = match[1];
+
+        // Achar o hash do script principal atualmente carregado
+        const scriptElement = document.querySelector('script[src*="assets/index-"]');
+        const currentSrc = scriptElement?.getAttribute('src') || '';
+        const currentMatch = currentSrc.match(/assets\/index-([A-Za-z0-9_-]+)\.js/);
+        
+        if (currentMatch && currentMatch[1] !== serverHash) {
+          console.warn('[AutoUpdate] Nova versão detectada no servidor. Recarregando a aplicação...');
+          window.location.reload();
+        }
+      } catch (err) {
+        console.error('[AutoUpdate] Erro ao verificar atualizações:', err);
+      }
+    }, 180000); // Verifica a cada 3 minutos
+
+    return () => clearInterval(interval);
+  }, []);
+
   type SessionInfo = {
     expires_in_minutes: number;
     expires_at: string;

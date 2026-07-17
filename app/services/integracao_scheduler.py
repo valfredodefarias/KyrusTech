@@ -52,6 +52,11 @@ def run_due_integracoes_sync() -> None:
 
         try:
             cleanup_old_idempotency_logs(db)
+            try:
+                from scripts.cleanup_demos import cleanup_expired_demos
+                cleanup_expired_demos(hours_threshold=2, db_session=db)
+            except Exception as e_demo:
+                logger.error("[Scheduler] Falha ao executar limpeza de demos: {}", e_demo)
             due_integracoes = db.exec(
                 select(IntegracaoBancaria).where(
                     IntegracaoBancaria.is_deleted == False,

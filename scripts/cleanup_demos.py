@@ -56,6 +56,8 @@ def _execute_cleanup(session: Session, cutoff: datetime.datetime, hours_threshol
         
         print(f"[INFO] Encontradas {len(empresas_expiradas)} empresas de demonstração expiradas para remoção.")
         
+        from sqlalchemy import text
+        
         for empresa in empresas_expiradas:
             empresa_id = empresa.id
             print(f"[CLEANUP] Excluindo dados da empresa: {empresa.nome_fantasia} (ID: {empresa_id}, criada em: {empresa.created_at})...")
@@ -64,50 +66,62 @@ def _execute_cleanup(session: Session, cutoff: datetime.datetime, hours_threshol
             users_ids = [int(u.id) for u in session.exec(select(Usuario).where(Usuario.empresa_id == empresa_id)).all() if u.id is not None]
             # Obter IDs dos perfis de acesso dessa empresa
             profiles_ids = [int(p.id) for p in session.exec(select(AccessProfile).where(AccessProfile.empresa_id == empresa_id)).all() if p.id is not None]
+            # Obter IDs dos lançamentos dessa empresa
+            lancamento_ids = [int(l.id) for l in session.exec(select(Lancamento).where(Lancamento.empresa_id == empresa_id)).all() if l.id is not None]
             
             # Executar deleções na ordem correta para evitar violação de foreign keys:
             
-            # 1. UserSession
+            # 1. UserSession e AccessProfilePermission e AnexoLancamento
             if users_ids:
-                session.exec(delete(UserSession).where(UserSession.user_id.in_(users_ids))) # type: ignore
+                session.execute(text("DELETE FROM user_sessions WHERE user_id = ANY(:ids)"), {"ids": users_ids})
                 
-            # 2. AuditLog
-            session.exec(delete(AuditLog).where(AuditLog.empresa_id == empresa_id)) # type: ignore
-            
-            # 3. Lancamento
-            session.exec(delete(Lancamento).where(Lancamento.empresa_id == empresa_id)) # type: ignore
-            
-            # 4. Cartao
-            session.exec(delete(Cartao).where(Cartao.empresa_id == empresa_id)) # type: ignore
-            
-            # 5. UserCompanyProfile
-            session.exec(delete(UserCompanyProfile).where(UserCompanyProfile.empresa_id == empresa_id)) # type: ignore
-            
-            # 6. AccessProfilePermission
             if profiles_ids:
-                session.exec(delete(AccessProfilePermission).where(AccessProfilePermission.profile_id.in_(profiles_ids))) # type: ignore
+                session.execute(text("DELETE FROM access_profile_permissions WHERE profile_id = ANY(:ids)"), {"ids": profiles_ids})
                 
-            # 7. AccessProfile
-            session.exec(delete(AccessProfile).where(AccessProfile.empresa_id == empresa_id)) # type: ignore
+            if lancamento_ids:
+                session.execute(text("DELETE FROM anexo_lancamentos WHERE lancamento_id = ANY(:ids)"), {"ids": lancamento_ids})
+                
+            # 2. Tabelas de Movimento/Baixa/Lote que dependem de Lancamentos/Contas/Cartoes
+            session.execute(text("DELETE FROM baixas WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM movimentos WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM lote_cartao_itens WHERE lote_id IN (SELECT id FROM lote_cartoes WHERE empresa_id = :id)"), {"id": empresa_id})
+            session.execute(text("DELETE FROM lote_cartoes WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM regras_cartao WHERE empresa_id = :id"), {"id": empresa_id})
             
-            # 8. Conta
-            session.exec(delete(Conta).where(Conta.empresa_id == empresa_id)) # type: ignore
+            # 3. Tabelas de PDV e Estoque
+            session.execute(text("DELETE FROM pdv_movimentacoes WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM pdv_vendas WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM movimentacoes_estoque WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM fornecedor_produto_equivalencias WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM produtos WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM pdv_ifood_lancamentos WHERE empresa_id = :id"), {"id": empresa_id})
             
-            # 9. CentroCusto
-            session.exec(delete(CentroCusto).where(CentroCusto.empresa_id == empresa_id)) # type: ignore
+            # 4. Outras Tabelas de Config/Metas/Alertas
+            session.execute(text("DELETE FROM orcamentos WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM import_jobs WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM integracoes_bancarias WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM mapeamentos_categoria WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM todo_items WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM regras_comissao WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM metas_vendedores WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM alertas_anomalias WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM regras_silenciamento_auditor WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM consultores_empresas WHERE empresa_id = :id"), {"id": empresa_id})
             
-            # 10. Entidade
-            session.exec(delete(Entidade).where(Entidade.empresa_id == empresa_id)) # type: ignore
+            # 5. Tabelas fundamentais
+            session.execute(text("DELETE FROM audit_logs WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM lancamentos WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM cartoes WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM user_company_profiles WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM access_profiles WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM contas WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM centros_custo WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM entidades WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM plano_contas WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM usuarios WHERE empresa_id = :id"), {"id": empresa_id})
             
-            # 11. PlanoContas
-            session.exec(delete(PlanoContas).where(PlanoContas.empresa_id == empresa_id)) # type: ignore
-            
-            # 12. Usuario
-            session.exec(delete(Usuario).where(Usuario.empresa_id == empresa_id)) # type: ignore
-            
-            # 13. Empresa
+            # 6. Deletar a Empresa
             session.delete(empresa)
-            
             print(f"[CLEANUP] Empresa {empresa_id} removida com sucesso!")
             
         session.commit()

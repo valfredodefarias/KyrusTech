@@ -66,9 +66,6 @@ def _execute_cleanup(session: Session, cutoff: datetime.datetime, hours_threshol
             users_ids = [int(u.id) for u in session.exec(select(Usuario).where(Usuario.empresa_id == empresa_id)).all() if u.id is not None]
             # Obter IDs dos perfis de acesso dessa empresa
             profiles_ids = [int(p.id) for p in session.exec(select(AccessProfile).where(AccessProfile.empresa_id == empresa_id)).all() if p.id is not None]
-            # Obter IDs dos lançamentos dessa empresa
-            lancamento_ids = [int(l.id) for l in session.exec(select(Lancamento).where(Lancamento.empresa_id == empresa_id)).all() if l.id is not None]
-            
             # Executar deleções na ordem correta para evitar violação de foreign keys:
             
             # 1. UserSession e AccessProfilePermission e AnexoLancamento
@@ -78,8 +75,7 @@ def _execute_cleanup(session: Session, cutoff: datetime.datetime, hours_threshol
             if profiles_ids:
                 session.execute(text("DELETE FROM access_profile_permissions WHERE profile_id = ANY(:ids)"), {"ids": profiles_ids})
                 
-            if lancamento_ids:
-                session.execute(text("DELETE FROM anexo_lancamentos WHERE lancamento_id = ANY(:ids)"), {"ids": lancamento_ids})
+            session.execute(text("DELETE FROM anexos_lancamento WHERE empresa_id = :id"), {"id": empresa_id})
                 
             # 2. Tabelas de Movimento/Baixa/Lote que dependem de Lancamentos/Contas/Cartoes
             session.execute(text("DELETE FROM baixas WHERE empresa_id = :id"), {"id": empresa_id})

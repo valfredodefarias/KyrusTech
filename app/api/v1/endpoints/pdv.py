@@ -153,11 +153,7 @@ def listar_vendas_pdv(
         
         # Format description
         desc_itens = ", ".join(f"{it.nome_customizado or it.produto.nome} x{it.quantidade}" for it in v.itens)
-        if pagamentos_list:
-            desc_pag = " + ".join(f"{p.get('tipo_pagamento').replace('_', ' ').title()}: R$ {p.get('valor'):.2f}" for p in pagamentos_list)
-            descricao_completa = f"{desc_itens} [{desc_pag}]"
-        else:
-            descricao_completa = desc_itens
+        descricao_completa = desc_itens
 
         if v.cliente:
             descricao_completa = f"{v.cliente.nome} ({descricao_completa})"

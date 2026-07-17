@@ -746,11 +746,10 @@ export function Lancamentos({
     filteredList.forEach((l) => {
       if (!groups[l.data_vencimento]) groups[l.data_vencimento] = [];
       groups[l.data_vencimento].push(l);
-      const origem = String((l as any).origem || '').toUpperCase();
-      const contaNosResultados = categoriasOperacionaisResultado.has(Number(l.plano_contas_id));
-      if (origem !== 'TRANSFERENCIA' && contaNosResultados) {
-        if (l.tipo === 'RECEITA') r += Number(l.valor_previsto);
-        else d += Number(l.valor_previsto);
+      if (l.tipo === 'RECEITA') {
+        r += Number(l.valor_previsto);
+      } else {
+        d += Number(l.valor_previsto);
       }
     });
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import type { FormEvent } from 'react';
-import { AlertCircle, Calendar, Plus, Sparkles, X, Trash2, Edit3, Package, DollarSign, Percent, User, Download, Check, Ban, RotateCcw, UploadCloud, Search, Loader2, Info, QrCode, Camera, Printer } from 'lucide-react';
+import { AlertCircle, Calendar, Clock, Plus, Sparkles, X, Trash2, Edit3, Package, DollarSign, Percent, User, Download, Check, Ban, RotateCcw, UploadCloud, Search, Loader2, Info, QrCode, Camera, Printer, Layers, Filter } from 'lucide-react';
 import { api, toPublicAssetUrl, normalizeListResponse } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
@@ -801,6 +801,22 @@ export function PDV() {
   const [filtroCliente, setFiltroCliente] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('TODOS');
   const [filtroVendedor, setFiltroVendedor] = useState('TODOS');
+
+  const temFiltrosAtivos = useMemo(() => {
+    return Boolean(
+      filtroRv.trim() ||
+      filtroCliente.trim() ||
+      filtroStatus !== 'TODOS' ||
+      filtroVendedor !== 'TODOS'
+    );
+  }, [filtroRv, filtroCliente, filtroStatus, filtroVendedor]);
+
+  const resetFiltros = useCallback(() => {
+    setFiltroRv('');
+    setFiltroCliente('');
+    setFiltroStatus('TODOS');
+    setFiltroVendedor('TODOS');
+  }, []);
 
   const activeProdutos = useMemo(() => {
     return produtos.filter((p) => p.is_active !== false);
@@ -1800,9 +1816,44 @@ export function PDV() {
                 <Plus className="h-4 w-4" />
                 Venda
               </button>
+        </section>
+
+        {/* Indicadores de Resumo (KPI Cards) */}
+        {data && (
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 flex items-center justify-between transition hover:shadow-md">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Total de Vendas</p>
+                <h3 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{data.total_vendas}</h3>
+              </div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+                <Package className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 flex items-center justify-between transition hover:shadow-md">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Faturamento Total</p>
+                <h3 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">
+                  {currency.format(data.total_valor)}
+                </h3>
+              </div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-450">
+                <DollarSign className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 flex items-center justify-between transition hover:shadow-md">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Ticket Médio</p>
+                <h3 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">
+                  {currency.format(data.total_vendas > 0 ? data.total_valor / data.total_vendas : 0)}
+                </h3>
+              </div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-purple-50 text-purple-600 dark:bg-purple-950/40 dark:text-purple-400">
+                <Percent className="h-5 w-5" />
+              </div>
             </div>
           </div>
-        </section>
+        )}
 
             {/* Visual Queue for Pending Sales */}
             {pendingSales.length > 0 && (
@@ -1872,86 +1923,132 @@ export function PDV() {
             ) : temVendas ? (
               <div className="space-y-4">
                 {/* Filtros */}
-                <div className={`grid gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm ${data?.pode_ver_todas ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
-                  <div>
-                    <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Buscar por RV</label>
-                    <input
-                      type="text"
-                      value={filtroRv}
-                      onChange={(e) => setFiltroRv(e.target.value)}
-                      placeholder="Ex: RV-000001"
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Buscar por Cliente</label>
-                    <input
-                      type="text"
-                      value={filtroCliente}
-                      onChange={(e) => setFiltroCliente(e.target.value)}
-                      placeholder="Nome do cliente..."
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
-                    <select
-                      value={filtroStatus}
-                      onChange={(e) => setFiltroStatus(e.target.value)}
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                    >
-                      <option value="TODOS">Todos os Status</option>
-                      <option value="REALIZADO">Realizado</option>
-                      <option value="ORCAMENTO">Orçamento</option>
-                      <option value="CANCELADO">Cancelado</option>
-                      <option value="DEVOLVIDO">Devolvido</option>
-                    </select>
-                  </div>
-                  {data?.pode_ver_todas && (
-                    <div>
-                      <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Vendedor</label>
-                      <select
-                        value={filtroVendedor}
-                        onChange={(e) => setFiltroVendedor(e.target.value)}
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Filter className="w-3.5 h-3.5 text-blue-500" />
+                      Filtros de Busca
+                    </h4>
+                    {temFiltrosAtivos && (
+                      <button
+                        onClick={resetFiltros}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 hover:text-rose-700 dark:text-rose-450 dark:hover:text-rose-350 transition cursor-pointer"
                       >
-                        <option value="TODOS">Todos os Vendedores</option>
-                        {vendedores.map((v) => (
-                          <option key={v.id} value={v.id}>{v.nome || v.email.split('@')[0]}</option>
-                        ))}
-                      </select>
+                        <X className="w-3 h-3" />
+                        Limpar Filtros
+                      </button>
+                    )}
+                  </div>
+                  <div className={`grid gap-3 ${data?.pode_ver_todas ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Buscar por RV</label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-450 dark:text-slate-500 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={filtroRv}
+                          onChange={(e) => setFiltroRv(e.target.value)}
+                          placeholder="Ex: RV-000001"
+                          className="w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                        />
+                      </div>
                     </div>
-                  )}
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Buscar por Cliente</label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-450 dark:text-slate-500 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={filtroCliente}
+                          onChange={(e) => setFiltroCliente(e.target.value)}
+                          placeholder="Nome do cliente..."
+                          className="w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
+                      <div className="relative">
+                        <Layers className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-450 dark:text-slate-500 pointer-events-none" />
+                        <select
+                          value={filtroStatus}
+                          onChange={(e) => setFiltroStatus(e.target.value)}
+                          className="w-full rounded-xl border border-slate-300 bg-white pl-9 pr-8 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white appearance-none cursor-pointer"
+                        >
+                          <option value="TODOS">Todos os Status</option>
+                          <option value="REALIZADO">Realizado</option>
+                          <option value="ORCAMENTO">Em Andamento</option>
+                          <option value="CANCELADO">Cancelado</option>
+                          <option value="DEVOLVIDO">Devolvido</option>
+                        </select>
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 pointer-events-none">▼</span>
+                      </div>
+                    </div>
+                    {data?.pode_ver_todas && (
+                      <div>
+                        <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Vendedor</label>
+                        <div className="relative">
+                          <User className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-450 dark:text-slate-500 pointer-events-none" />
+                          <select
+                            value={filtroVendedor}
+                            onChange={(e) => setFiltroVendedor(e.target.value)}
+                            className="w-full rounded-xl border border-slate-300 bg-white pl-9 pr-8 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white appearance-none cursor-pointer"
+                          >
+                            <option value="TODOS">Todos os Vendedores</option>
+                            {vendedores.map((v) => (
+                              <option key={v.id} value={v.id}>{v.nome || v.email.split('@')[0]}</option>
+                            ))}
+                          </select>
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 pointer-events-none">▼</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {filteredAndGroupedVendas.length === 0 ? (
-                  <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                    <h3 className="mt-4 text-xl font-black text-slate-900 dark:text-white">Nenhuma venda corresponde aos filtros</h3>
-                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                      Tente alterar os filtros de busca para encontrar a venda desejada.
-                    </p>
-                  </div>
-                ) : (
-                  filteredAndGroupedVendas.map((grupo) => (
+                  <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900 flex flex-col items-center justify-center space-y-4">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-50 text-slate-450 dark:bg-slate-800/50 dark:text-slate-550">
+                      <Search className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black text-slate-900 dark:text-white">Nenhuma venda corresponde aos filtros</h3>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        Tente alterar os filtros de busca para encontrar a venda desejada.
+                      </p>
+                    </div>
+                    {temFiltrosAtivos && (
+                      <button
+                        onClick={resetFiltros}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded-xl transition cursor-pointer shadow-sm"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        Resetar Filtros
+                                     filteredAndGroupedVendas.map((grupo) => (
                   <section key={String(grupo.data)} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                    <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
-                      <div>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-blue-500">{dateFormatter.format(new Date(`${grupo.data}T00:00:00`))}</p>
-                        <h2 className="mt-1 text-lg font-black text-slate-900 dark:text-white">{grupo.quantidade} venda{grupo.quantidade === 1 ? '' : 's'}</h2>
+                    <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
+                      <div className="flex items-center gap-2.5">
+                        <span className="inline-flex items-center rounded-lg bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:text-blue-300">
+                          {grupo.quantidade} {grupo.quantidade === 1 ? 'venda' : 'vendas'}
+                        </span>
+                        <h2 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                          {dateFormatter.format(new Date(`${grupo.data}T00:00:00`))}
+                        </h2>
                       </div>
-                      <p className="text-lg font-black text-slate-900 dark:text-white">{currency.format(grupo.total)}</p>
+                      <p className="text-base font-black text-slate-900 dark:text-white">{currency.format(grupo.total)}</p>
                     </div>
 
-                    <div className="overflow-x-auto">
+                    {/* Desktop Table View */}
+                    <div className="hidden md:block overflow-x-auto">
                       <table className="min-w-full table-fixed text-left">
                         <thead className="bg-slate-50 text-[11px] font-bold uppercase text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
                           <tr>
-                            <th className="w-28 px-4 py-3">Data</th>
+                            <th className="w-24 px-4 py-3">Hora</th>
                             <th className="w-28 px-4 py-3">RV</th>
                             <th className="px-4 py-3">Descrição</th>
-                            <th className="w-48 px-4 py-3">Vendedor</th>
-                            <th className="w-28 px-4 py-3 text-center">Status</th>
-                            <th className="w-40 px-4 py-3 text-center">Ações</th>
+                            <th className="w-40 px-4 py-3">Vendedor</th>
+                            <th className="w-36 px-4 py-3 text-center">Status</th>
+                            <th className="w-44 px-4 py-3 text-center">Ações</th>
                             <th className="w-32 px-4 py-3 text-right">Valor</th>
                           </tr>
                         </thead>
@@ -1962,69 +2059,56 @@ export function PDV() {
                               className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer"
                               onClick={() => openEditarVenda(venda)}
                             >
-                              <td className="px-4 py-3 align-top text-sm text-slate-500 dark:text-slate-400">
-                                <span className="inline-flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
-                                  <Calendar className="h-4 w-4 text-blue-500" />
-                                  {new Intl.DateTimeFormat('pt-BR').format(new Date(`${venda.data}T00:00:00`))}
+                              <td className="px-4 py-3 align-top text-sm text-slate-500 dark:text-slate-400 font-medium">
+                                <span className="inline-flex items-center gap-1.5 text-slate-705 dark:text-slate-350">
+                                  <Clock className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
+                                  {venda.hora || '--:--'}
                                 </span>
-                                <div className="mt-1 text-xs">{venda.hora || '--:--'}</div>
                               </td>
                               <td className="px-4 py-3 align-top text-sm font-bold text-slate-900 dark:text-white">{venda.rv}</td>
                               <td className="px-4 py-3 align-top">
-                                <div className="font-semibold text-slate-900 dark:text-white">{venda.descricao}</div>
+                                <div className="font-semibold text-slate-900 dark:text-white text-xs">{venda.descricao}</div>
                               </td>
                               <td className="px-4 py-3 align-top text-sm text-slate-700 dark:text-slate-200">{venda.vendedor}</td>
-                              <td className="px-4 py-3 align-top text-center"><span className={statusBadgeClass(venda.status)}>{venda.status}</span></td>
                               <td className="px-4 py-3 align-top text-center">
-                                <div className="flex items-center justify-center gap-1.5">
+                                <span className={statusBadgeClass(venda.status)}>
+                                  {getStatusLabel(venda.status)}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 align-top text-center">
+                                <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                                   {venda.status === 'ORCAMENTO' && venda.venda_id_uuid && (
                                     <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleUpdateSaleStatus(venda.venda_id_uuid!, 'REALIZADO');
-                                      }}
-                                      className="flex items-center gap-1 px-2 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 rounded-lg text-xs font-bold transition duration-200 shadow-sm border border-emerald-250/20 cursor-pointer"
-                                      title="Efetivar venda"
+                                      onClick={() => handleUpdateSaleStatus(venda.venda_id_uuid!, 'REALIZADO')}
+                                      className="flex h-8 w-8 items-center justify-center bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/40 text-emerald-600 dark:text-emerald-450 rounded-xl transition duration-200 shadow-sm border border-emerald-200/20 cursor-pointer"
+                                      title="Efetivar venda (Orçamento -> Realizado)"
                                     >
-                                      <Check className="w-3 h-3" />
-                                      <span>Efetivar</span>
+                                      <Check className="w-4 h-4" />
                                     </button>
                                   )}
                                   
                                   {venda.status === 'REALIZADO' && venda.venda_id_uuid && (
                                     <>
                                       <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          imprimirCupom(venda);
-                                        }}
-                                        className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold transition duration-200 shadow-sm cursor-pointer"
+                                        onClick={() => imprimirCupom(venda)}
+                                        className="flex h-8 w-8 items-center justify-center bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded-xl transition duration-200 shadow-sm border border-blue-200/20 cursor-pointer"
                                         title="Imprimir Cupom"
                                       >
-                                        <Printer className="w-3.5 h-3.5" />
-                                        <span>Cupom</span>
+                                        <Printer className="w-4 h-4" />
                                       </button>
                                       <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleUpdateSaleStatus(venda.venda_id_uuid!, 'CANCELADO');
-                                        }}
-                                        className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-450 rounded-lg text-xs font-bold transition duration-200 shadow-sm cursor-pointer"
+                                        onClick={() => handleUpdateSaleStatus(venda.venda_id_uuid!, 'CANCELADO')}
+                                        className="flex h-8 w-8 items-center justify-center bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-455 rounded-xl transition duration-200 shadow-sm border border-rose-200/20 cursor-pointer"
                                         title="Cancelar venda"
                                       >
-                                        <Ban className="w-3.5 h-3.5" />
-                                        <span>Cancelar</span>
+                                        <Ban className="w-4 h-4" />
                                       </button>
                                       <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleUpdateSaleStatus(venda.venda_id_uuid!, 'DEVOLVIDO');
-                                        }}
-                                        className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-650 dark:text-slate-300 rounded-lg text-xs font-bold transition duration-200 shadow-sm cursor-pointer"
+                                        onClick={() => handleUpdateSaleStatus(venda.venda_id_uuid!, 'DEVOLVIDO')}
+                                        className="flex h-8 w-8 items-center justify-center bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-600 dark:text-slate-300 rounded-xl transition duration-200 shadow-sm border border-slate-200/20 cursor-pointer"
                                         title="Registrar devolução"
                                       >
-                                        <RotateCcw className="w-3.5 h-3.5" />
-                                        <span>Devolver</span>
+                                        <RotateCcw className="w-4 h-4" />
                                       </button>
                                     </>
                                   )}
@@ -2041,18 +2125,17 @@ export function PDV() {
                                         : [];
                                     if (urls.length === 0) return null;
                                     return (
-                                      <div className="flex items-center gap-1.5 ml-1.5" onClick={(e) => e.stopPropagation()}>
+                                      <div className="flex items-center gap-1">
                                         {urls.map((url, idx) => (
                                           <a
                                             key={idx}
                                             href={toPublicAssetUrl(url) || undefined}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="text-blue-500 hover:text-blue-400 font-bold text-xs flex items-center gap-0.5 cursor-pointer"
+                                            className="flex h-8 w-8 items-center justify-center bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 dark:hover:bg-slate-700 rounded-xl text-blue-500 hover:text-blue-600 dark:text-blue-400 border border-slate-200/20 cursor-pointer"
                                             title={`Ver comprovante ${idx + 1}`}
                                           >
-                                            <Download className="w-3.5 h-3.5" />
-                                            {urls.length > 1 && <span className="text-[10px]">{idx + 1}</span>}
+                                            <Download className="w-4 h-4" />
                                           </a>
                                         ))}
                                       </div>
@@ -2065,6 +2148,103 @@ export function PDV() {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+
+                    {/* Mobile Card List View */}
+                    <div className="block md:hidden divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                      {grupo.vendas.map((venda) => (
+                        <div
+                          key={venda.id}
+                          className="p-4 hover:bg-slate-50 dark:hover:bg-slate-850/20 flex flex-col gap-3 cursor-pointer"
+                          onClick={() => openEditarVenda(venda)}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-bold text-slate-900 dark:text-white text-sm">{venda.rv}</span>
+                                <span className={statusBadgeClass(venda.status)}>
+                                  {getStatusLabel(venda.status)}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-xs text-slate-450 dark:text-slate-500 font-medium">
+                                <Clock className="w-3.5 h-3.5" />
+                                <span>{venda.hora || '--:--'}</span>
+                                <span>•</span>
+                                <span>{venda.vendedor}</span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-black text-slate-900 dark:text-white text-sm">
+                                {currency.format(venda.valor)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-950 p-2.5 rounded-xl border border-slate-100 dark:border-slate-900">
+                            {venda.descricao}
+                          </div>
+
+                          {/* Quick Actions for Mobile */}
+                          <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60" onClick={(e) => e.stopPropagation()}>
+                            {venda.status === 'ORCAMENTO' && venda.venda_id_uuid && (
+                              <button
+                                onClick={() => handleUpdateSaleStatus(venda.venda_id_uuid!, 'REALIZADO')}
+                                className="flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/40 text-emerald-600 dark:text-emerald-450 rounded-lg text-xs font-bold transition duration-200 cursor-pointer"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Efetivar</span>
+                              </button>
+                            )}
+
+                            {venda.status === 'REALIZADO' && venda.venda_id_uuid && (
+                              <>
+                                <button
+                                  onClick={() => imprimirCupom(venda)}
+                                  className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold transition duration-200 cursor-pointer"
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                  <span>Cupom</span>
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateSaleStatus(venda.venda_id_uuid!, 'CANCELADO')}
+                                  className="flex items-center gap-1 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-455 rounded-lg text-xs font-bold transition duration-200 cursor-pointer"
+                                >
+                                  <Ban className="w-3.5 h-3.5" />
+                                  <span>Cancelar</span>
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateSaleStatus(venda.venda_id_uuid!, 'DEVOLVIDO')}
+                                  className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-bold transition duration-200 cursor-pointer"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  <span>Devolver</span>
+                                </button>
+                              </>
+                            )}
+
+                            {/* Comprovante Download Link */}
+                            {(() => {
+                              const urls = venda.comprovante_urls && venda.comprovante_urls.length > 0
+                                ? venda.comprovante_urls
+                                : venda.comprovante_url
+                                  ? [venda.comprovante_url]
+                                  : [];
+                              return urls.map((url, idx) => (
+                                <a
+                                  key={idx}
+                                  href={toPublicAssetUrl(url) || undefined}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex h-7 w-7 items-center justify-center bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-blue-500 dark:text-blue-400 border border-slate-200/20 cursor-pointer"
+                                  title={`Ver comprovante ${idx + 1}`}
+                                >
+                                  <Download className="w-4 h-4" />
+                                </a>
+                              ));
+                            })()}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </section>
                 )))}
@@ -2856,7 +3036,7 @@ export function PDV() {
                     className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                   >
                     <option value="REALIZADO">Realizado (Venda Concluída)</option>
-                    <option value="ORCAMENTO">Orçamento (Apenas Cotação)</option>
+                    <option value="ORCAMENTO">Em Andamento (Orçamento)</option>
                   </select>
                 </div>
 
@@ -3527,6 +3707,15 @@ export function PDV() {
       )}
     </>
   );
+}
+
+function getStatusLabel(status: string) {
+  const s = String(status || '').toUpperCase();
+  if (s === 'ORCAMENTO') return 'Em Andamento';
+  if (s === 'REALIZADO') return 'Realizado';
+  if (s === 'CANCELADO') return 'Cancelado';
+  if (s === 'DEVOLVIDO') return 'Devolvido';
+  return status;
 }
 
 function statusBadgeClass(status: string) {

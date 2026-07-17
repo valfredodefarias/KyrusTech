@@ -78,10 +78,10 @@ def _execute_cleanup(session: Session, cutoff: datetime.datetime, hours_threshol
             session.execute(text("DELETE FROM anexos_lancamento WHERE empresa_id = :id"), {"id": empresa_id})
                 
             # 2. Tabelas de Movimento/Baixa/Lote que dependem de Lancamentos/Contas/Cartoes
-            session.execute(text("DELETE FROM baixas WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM baixas WHERE movimento_id IN (SELECT id FROM movimentos WHERE empresa_id = :id)"), {"id": empresa_id})
             session.execute(text("DELETE FROM movimentos WHERE empresa_id = :id"), {"id": empresa_id})
-            session.execute(text("DELETE FROM lote_cartao_itens WHERE lote_id IN (SELECT id FROM lote_cartoes WHERE empresa_id = :id)"), {"id": empresa_id})
-            session.execute(text("DELETE FROM lote_cartoes WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM lote_cartao_itens WHERE lote_cartao_id IN (SELECT id FROM lotes_cartao WHERE empresa_id = :id)"), {"id": empresa_id})
+            session.execute(text("DELETE FROM lotes_cartao WHERE empresa_id = :id"), {"id": empresa_id})
             session.execute(text("DELETE FROM regras_cartao WHERE empresa_id = :id"), {"id": empresa_id})
             
             # 3. Tabelas de PDV e Estoque
@@ -96,13 +96,13 @@ def _execute_cleanup(session: Session, cutoff: datetime.datetime, hours_threshol
             session.execute(text("DELETE FROM orcamentos WHERE empresa_id = :id"), {"id": empresa_id})
             session.execute(text("DELETE FROM import_jobs WHERE empresa_id = :id"), {"id": empresa_id})
             session.execute(text("DELETE FROM integracoes_bancarias WHERE empresa_id = :id"), {"id": empresa_id})
-            session.execute(text("DELETE FROM mapeamentos_categoria WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM mapeamentos_categoria WHERE integracao_id IN (SELECT id FROM integracoes_bancarias WHERE empresa_id = :id)"), {"id": empresa_id})
             session.execute(text("DELETE FROM todo_items WHERE empresa_id = :id"), {"id": empresa_id})
             session.execute(text("DELETE FROM regras_comissao WHERE empresa_id = :id"), {"id": empresa_id})
             session.execute(text("DELETE FROM metas_vendedores WHERE empresa_id = :id"), {"id": empresa_id})
-            session.execute(text("DELETE FROM alertas_anomalias WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM alertas_anomalia WHERE empresa_id = :id"), {"id": empresa_id})
             session.execute(text("DELETE FROM regras_silenciamento_auditor WHERE empresa_id = :id"), {"id": empresa_id})
-            session.execute(text("DELETE FROM consultores_empresas WHERE empresa_id = :id"), {"id": empresa_id})
+            session.execute(text("DELETE FROM consultor_empresa WHERE empresa_id = :id"), {"id": empresa_id})
             
             # 5. Tabelas fundamentais
             session.execute(text("DELETE FROM audit_logs WHERE empresa_id = :id"), {"id": empresa_id})

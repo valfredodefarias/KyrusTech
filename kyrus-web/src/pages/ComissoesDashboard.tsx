@@ -3,7 +3,7 @@ import { useComissoesDashboard } from '../hooks/useComissoesDashboard';
 import { useAuthStore } from '../store/authStore';
 import { 
   RefreshCw, AlertCircle, Award, 
-  ChevronDown, ChevronUp, Target, Sparkles, UserCheck
+  ChevronDown, ChevronUp, Target, Sparkles, UserCheck, Users, Share2, DollarSign
 } from 'lucide-react';
 
 const formatBRL = (val: number, forceDecimals = false) => {
@@ -152,6 +152,7 @@ export function ComissoesDashboard() {
   const [ano, setAno] = useState(defaultYear);
   const [selectedVendedorId, setSelectedVendedorId] = useState<number>(0);
   const [showSprints, setShowSprints] = useState(false);
+  const [activeTab, setActiveTab] = useState<'INTERNOS' | 'EXTERNOS'>('INTERNOS');
 
   const { data, loading, error, refetch } = useComissoesDashboard(mes, ano);
 
@@ -180,6 +181,28 @@ export function ComissoesDashboard() {
 
     return filtered.length > 0 ? filtered : data.vendedores;
   }, [data, isAdminOrConsultor, user]);
+
+  // Consolidação de Vendedores Externos e Indicações
+  const vendedoresExternosData = useMemo(() => {
+    if (!data?.vendedores) return [];
+    const map: Record<string, { nome: string; qtd: number; total: number; pct: number }> = {};
+
+    data.vendedores.forEach((v) => {
+      (v.sprints || []).forEach((sp: any) => {
+        const extNome = sp.vendedor_externo_nome || sp.campos_extras?.vendedor_externo_nome;
+        const extPct = Number(sp.vendedor_externo_comissao_pct || sp.campos_extras?.vendedor_externo_comissao_pct || 5.0);
+        if (extNome) {
+          if (!map[extNome]) {
+            map[extNome] = { nome: extNome, qtd: 0, total: 0, pct: extPct };
+          }
+          map[extNome].qtd += 1;
+          map[extNome].total += Number(sp.valor || 0);
+        }
+      });
+    });
+
+    return Object.values(map);
+  }, [data]);
 
   // Sync selected seller
   useEffect(() => {
@@ -295,6 +318,110 @@ export function ComissoesDashboard() {
 
       {/* Conteúdo Principal */}
       <div className="p-8 space-y-6 max-w-[1600px] mx-auto w-full flex-1 animate-fade-in">
+        {/* Navigation Tabs: Internos vs Externos */}
+        <div className="flex items-center gap-2 bg-[#09090b] p-1.5 rounded-xl border border-amber-500/20 shadow-inner w-fit">
+          <button
+            onClick={() => setActiveTab('INTERNOS')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition cursor-pointer ${
+              activeTab === 'INTERNOS'
+                ? 'bg-amber-500 text-black shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-black/40'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            Vendedores Internos
+          </button>
+          <button
+            onClick={() => setActiveTab('EXTERNOS')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition cursor-pointer ${
+              activeTab === 'EXTERNOS'
+                ? 'bg-amber-500 text-black shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-black/40'
+            }`}
+          >
+            <Share2 className="w-4 h-4" />
+            Vendedores Externos / Indicações
+            {vendedoresExternosData.length > 0 && (
+              <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] bg-black text-amber-400 font-extrabold border border-amber-500/30">
+                {vendedoresExternosData.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Tab 2: Vendedores Externos & Indicações */}
+        {activeTab === 'EXTERNOS' && (
+          <div className="bg-[#09090b] rounded-xl border border-amber-500/20 p-6 space-y-6 shadow-2xl">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-amber-500/10 pb-4">
+              <div>
+                <h3 className="text-lg font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <Share2 className="w-5 h-5 text-amber-500" />
+                  Comissões de Vendedores Externos & Indicações
+                </h3>
+                <p className="text-xs text-slate-400 font-medium mt-1">
+                  Relatório consolidado de vendas indicadas por parceiros externos no mês de {mesesMap.find(m => m.value === mes)?.label}/{ano}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 bg-black/60 px-4 py-2 rounded-xl border border-amber-500/20">
+                <DollarSign className="w-4 h-4 text-emerald-400" />
+                <div className="text-right">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Total Comissão Externa</span>
+                  <span className="text-sm font-black text-emerald-400">
+                    R$ {formatBRL(vendedoresExternosData.reduce((acc, curr) => acc + (curr.total * (curr.pct / 100)), 0), true)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {vendedoresExternosData.length === 0 ? (
+              <div className="text-center py-12 space-y-3 bg-black/30 rounded-xl border border-dashed border-amber-500/10">
+                <UserCheck className="w-10 h-10 text-slate-600 mx-auto" />
+                <p className="text-sm font-bold text-slate-400">Nenhuma venda externa / indicação registrada neste período.</p>
+                <p className="text-xs text-slate-500">Para registrar uma venda externa, selecione "Vendedor Externo" no Canal de Venda ao realizar um pedido no PDV.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-amber-500/20 bg-black/50 text-[11px] font-black text-amber-500 uppercase tracking-wider">
+                      <th className="py-3 px-4">Vendedor Externo / Indicador</th>
+                      <th className="py-3 px-4 text-center">Qtd Vendas</th>
+                      <th className="py-3 px-4 text-right">Total Indicado (R$)</th>
+                      <th className="py-3 px-4 text-center">% Comissão</th>
+                      <th className="py-3 px-4 text-right text-emerald-400">Comissão A Pagar (R$)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-amber-500/10 text-xs font-semibold text-slate-200">
+                    {vendedoresExternosData.map((ve, idx) => {
+                      const comissaoDevida = ve.total * (ve.pct / 100);
+                      return (
+                        <tr key={idx} className="hover:bg-amber-500/5 transition">
+                          <td className="py-3.5 px-4 font-bold text-white flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-amber-500" />
+                            {ve.nome}
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-bold text-slate-300">
+                            {ve.qtd}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-amber-400">
+                            R$ {formatBRL(ve.total, true)}
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-bold text-amber-500">
+                            {ve.pct}%
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-extrabold text-emerald-400">
+                            R$ {formatBRL(comissaoDevida, true)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
         {/* Estados de Erro e Loading */}
         {loading ? (
           <div className="flex min-h-[500px] items-center justify-center rounded-xl border border-dashed border-amber-500/20 bg-black/40">
@@ -317,14 +444,14 @@ export function ComissoesDashboard() {
               </button>
             </div>
           </div>
-        ) : !data || data.vendedores.length === 0 ? (
+        ) : activeTab === 'INTERNOS' && (!data || data.vendedores.length === 0) ? (
           <div className="flex min-h-[500px] items-center justify-center rounded-xl border border-dashed border-amber-500/20 bg-black/40">
             <div className="text-center space-y-2">
               <Award className="w-8 h-8 text-slate-700 mx-auto" />
               <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Nenhum vendedor registrado no período.</p>
             </div>
           </div>
-        ) : (
+        ) : activeTab === 'INTERNOS' && (
           <>
             {/* Layout Principal */}
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

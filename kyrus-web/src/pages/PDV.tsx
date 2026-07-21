@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import type { FormEvent } from 'react';
-import { AlertCircle, Calendar, Clock, Plus, Sparkles, X, Trash2, Edit3, Package, DollarSign, Percent, User, Download, Check, Ban, RotateCcw, UploadCloud, Search, Loader2, Info, QrCode, Camera, Printer, Layers, Filter } from 'lucide-react';
+import { AlertCircle, Calendar, Clock, Plus, Sparkles, X, Trash2, Edit3, Package, DollarSign, Percent, User, UserPlus, Download, Check, Ban, RotateCcw, UploadCloud, Search, Loader2, Info, QrCode, Camera, Printer, Layers, Filter } from 'lucide-react';
 import { api, toPublicAssetUrl, normalizeListResponse } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
@@ -670,6 +670,13 @@ export function PDV() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
 
+  // Vendedor Externo State (Modal & Form)
+  const [showModalNovoVendedorExterno, setShowModalNovoVendedorExterno] = useState(false);
+  const [nomeNovoVendedorExterno, setNomeNovoVendedorExterno] = useState('');
+  const [telefoneNovoVendedorExterno, setTelefoneNovoVendedorExterno] = useState('');
+  const [comissaoPctNovoVendedorExterno, setComissaoPctNovoVendedorExterno] = useState('5.0');
+  const [savingVendedorExterno, setSavingVendedorExterno] = useState(false);
+
   const empresaId = useAuthStore((state) => state.user?.empresa_id ?? null);
   const empresa = useAuthStore((state) => state.empresa);
   const setEmpresa = useAuthStore((state) => state.setEmpresa);
@@ -686,6 +693,51 @@ export function PDV() {
   const customFields = useMemo(() => {
     return pdvConfig?.campos_personalizados || [];
   }, [pdvConfig]);
+
+  const handleSaveNovoVendedorExterno = async () => {
+    if (!nomeNovoVendedorExterno.trim()) {
+      alert('Por favor, informe o nome do Vendedor Externo / Indicador!');
+      return;
+    }
+    setSavingVendedorExterno(true);
+    try {
+      const currentList = pdvConfig?.vendedores_externos || [];
+      const newId = `ext_${Date.now()}`;
+      const comissaoVal = parseFloat(comissaoPctNovoVendedorExterno) || 5.0;
+      const newObj = {
+        id: newId,
+        nome: nomeNovoVendedorExterno.trim(),
+        telefone: telefoneNovoVendedorExterno.trim(),
+        comissao_pct: comissaoVal
+      };
+      const updatedList = [...currentList, newObj];
+      const updatedConfig = { ...(pdvConfig || {}), vendedores_externos: updatedList };
+      const configStr = JSON.stringify(updatedConfig);
+
+      if (empresa?.id) {
+        await api.patch(`/empresas/${empresa.id}`, { pdv_config: configStr });
+        setEmpresa({ ...empresa, pdv_config: configStr });
+      }
+
+      setCamposExtrasForm((prev) => ({
+        ...prev,
+        canal_venda: 'Vendedor Externo',
+        vendedor_externo_id: newId,
+        vendedor_externo_nome: newObj.nome,
+        vendedor_externo_comissao_pct: newObj.comissao_pct
+      }));
+
+      setShowModalNovoVendedorExterno(false);
+      setNomeNovoVendedorExterno('');
+      setTelefoneNovoVendedorExterno('');
+      setComissaoPctNovoVendedorExterno('5.0');
+    } catch (err) {
+      console.error('Erro ao cadastrar vendedor externo:', err);
+      alert('Erro ao salvar Vendedor Externo.');
+    } finally {
+      setSavingVendedorExterno(false);
+    }
+  };
 
   const paymentMethods = useMemo(() => {
     let list = [
@@ -2798,6 +2850,55 @@ export function PDV() {
                             </div>
                           )}
 
+                          {campo.id === 'canal_venda' && value === 'Vendedor Externo' && (
+                            <div className="mt-3 p-3.5 bg-blue-50/80 dark:bg-blue-950/40 rounded-xl border border-blue-200 dark:border-blue-900/60 space-y-2 select-none">
+                              <div className="flex items-center justify-between">
+                                <label className="text-xs font-bold text-blue-800 dark:text-blue-300 uppercase tracking-wider flex items-center gap-1.5">
+                                  <User className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                                  Vendedor Externo / Indicador *
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowModalNovoVendedorExterno(true)}
+                                  className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+                                >
+                                  <UserPlus className="w-3.5 h-3.5" />
+                                  + Novo Vendedor Externo
+                                </button>
+                              </div>
+
+                              <select
+                                value={camposExtrasForm.vendedor_externo_id || ''}
+                                onChange={(e) => {
+                                  const selId = e.target.value;
+                                  const list = pdvConfig?.vendedores_externos || [];
+                                  const found = list.find((ve: any) => String(ve.id) === String(selId));
+                                  setCamposExtrasForm((prev) => ({
+                                    ...prev,
+                                    vendedor_externo_id: selId,
+                                    vendedor_externo_nome: found ? found.nome : '',
+                                    vendedor_externo_comissao_pct: found ? found.comissao_pct : 5.0
+                                  }));
+                                }}
+                                className="w-full rounded-xl border border-blue-300 dark:border-blue-800 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-800 dark:text-white font-bold outline-none cursor-pointer focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">-- Selecione o Vendedor Externo --</option>
+                                {(pdvConfig?.vendedores_externos || []).map((ve: any) => (
+                                  <option key={ve.id} value={ve.id}>
+                                    {ve.nome} {ve.telefone ? `(${ve.telefone})` : ''} - {ve.comissao_pct || 5}% Comissão
+                                  </option>
+                                ))}
+                              </select>
+
+                              {camposExtrasForm.vendedor_externo_nome && (
+                                <div className="text-[11px] font-bold text-blue-700 dark:text-blue-300 flex items-center justify-between px-1 bg-white/60 dark:bg-slate-900/60 p-2 rounded-lg border border-blue-100 dark:border-blue-900/30">
+                                  <span>Indicado por: {camposExtrasForm.vendedor_externo_nome}</span>
+                                  <span className="text-blue-600 dark:text-blue-400">Comissão: {camposExtrasForm.vendedor_externo_comissao_pct || 5.0}%</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
                           {campo.type === 'select' && (
                             <select
                               value={value}
@@ -3723,6 +3824,88 @@ export function PDV() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Modal de Cadastro Rápido de Vendedor Externo / Indicador */}
+      {showModalNovoVendedorExterno && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-md p-6 space-y-4 animate-fade-in">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="font-extrabold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                Cadastrar Vendedor Externo
+              </h3>
+              <button
+                onClick={() => setShowModalNovoVendedorExterno(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Nome Completo / Parceiro *
+                </label>
+                <input
+                  type="text"
+                  value={nomeNovoVendedorExterno}
+                  onChange={(e) => setNomeNovoVendedorExterno(e.target.value)}
+                  placeholder="Ex: Carlos Indicador / Parceria Bragança"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm text-slate-800 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Telefone / WhatsApp (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={telefoneNovoVendedorExterno}
+                  onChange={(e) => setTelefoneNovoVendedorExterno(e.target.value)}
+                  placeholder="Ex: (91) 98888-7777"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm text-slate-800 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Comissão Padrão de Indicações (%) *
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={comissaoPctNovoVendedorExterno}
+                  onChange={(e) => setComissaoPctNovoVendedorExterno(e.target.value)}
+                  placeholder="Ex: 5.0"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm text-slate-800 dark:text-white font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowModalNovoVendedorExterno(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={savingVendedorExterno}
+                onClick={handleSaveNovoVendedorExterno}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 cursor-pointer shadow-md"
+              >
+                {savingVendedorExterno ? 'Salvando...' : 'Salvar Vendedor Externo'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

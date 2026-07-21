@@ -234,8 +234,9 @@ def process_pending_audit_hashes() -> None:
                 # Libera CPU brevemente entre lotes
                 time.sleep(0.01)
             except Exception as e:
-                from loguru import logger
-                logger.error(f"[Audit] Erro ao assinar lote de logs de auditoria: {e}")
+                if "interpreter shutdown" not in str(e).lower():
+                    from loguru import logger
+                    logger.error(f"[Audit] Erro ao assinar lote de logs de auditoria: {e}")
                 break
     finally:
         _signing_lock.release()

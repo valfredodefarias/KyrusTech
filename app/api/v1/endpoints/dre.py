@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlmodel import Session, select, or_
+from sqlmodel import Session, select, or_, func
 
 from app.api.v1.deps import get_empresa_id_from_user
 from app.db.session import get_db
@@ -118,6 +118,7 @@ def read_dre(
                 fila.append(filho_id)
 
     categorias_por_id = {int(categoria.id): categoria for categoria in categorias if categoria.id is not None}
+    comp_date = func.coalesce(Lancamento.data_competencia, Lancamento.data_vencimento)
     rows = db.exec(
         select(
             Lancamento.plano_contas_id,
@@ -136,8 +137,8 @@ def read_dre(
                 (~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%") & ~Lancamento.observacao.ilike('%"legacy_id_venda"%'))
             )
         )
-        .where(Lancamento.data_vencimento >= inicio_serie)
-        .where(Lancamento.data_vencimento <= fim_mes)
+        .where(comp_date >= inicio_serie)
+        .where(comp_date <= fim_mes)
     ).all()
 
     receitas_mes = Decimal("0")

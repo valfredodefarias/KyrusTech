@@ -1273,7 +1273,7 @@ export function Dre() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `DRE_${ano}.xlsx`;
+      anchor.download = `DRE_${ano}_${somentePagos ? 'Caixa' : 'Competencia'}.xlsx`;
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -1304,7 +1304,7 @@ export function Dre() {
                 DRE
               </h1>
               <span className="rounded-full bg-blue-500/10 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-blue-600 dark:bg-blue-400/10 dark:text-blue-400">
-                Demonstrativo de Resultado
+                Demonstrativo de Resultado – Regime de {somentePagos ? 'Caixa' : 'Competência'}
               </span>
             </div>
 
@@ -1353,24 +1353,47 @@ export function Dre() {
                 ))}
               </select>
 
-              <button
-                type="button"
-                onClick={async () => {
-                  const nextOnlyPaid = !somentePagos;
-                  if (!nextOnlyPaid && !loadedAllLancamentosRef.current) {
-                    try {
-                      await fetchFullYearLancamentos();
-                    } catch {
-                      return;
+              <div className="flex items-center space-x-1 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-900 h-8 border border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (somentePagos) {
+                      const nextOnlyPaid = false;
+                      if (!loadedAllLancamentosRef.current) {
+                        try {
+                          await fetchFullYearLancamentos();
+                        } catch {
+                          return;
+                        }
+                      }
+                      setSomentePagos(nextOnlyPaid);
                     }
-                  }
-                  setSomentePagos(nextOnlyPaid);
-                }}
-                className={`h-8 rounded-lg border px-2.5 sm:px-3.5 text-xs font-bold transition shadow-xs cursor-pointer ${somentePagos ? 'border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700' : 'border-slate-200 bg-white text-slate-700 dark:border-slate-850 dark:bg-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-              >
-                <span className="hidden sm:inline">{somentePagos ? 'Data pagamento' : 'Competência'}</span>
-                <span className="sm:hidden">{somentePagos ? 'Pagto' : 'Comp.'}</span>
-              </button>
+                  }}
+                  className={`rounded-md px-2.5 sm:px-3.5 py-1 text-xs font-bold transition cursor-pointer h-7 flex items-center ${
+                    !somentePagos
+                      ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-800 dark:text-white border border-slate-200/50 dark:border-slate-700/50'
+                      : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                  }`}
+                >
+                  Competência
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!somentePagos) {
+                      const nextOnlyPaid = true;
+                      setSomentePagos(nextOnlyPaid);
+                    }
+                  }}
+                  className={`rounded-md px-2.5 sm:px-3.5 py-1 text-xs font-bold transition cursor-pointer h-7 flex items-center ${
+                    somentePagos
+                      ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-800 dark:text-white border border-slate-200/50 dark:border-slate-700/50'
+                      : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                  }`}
+                >
+                  Caixa
+                </button>
+              </div>
 
               <button
                 type="button"
@@ -1423,11 +1446,11 @@ export function Dre() {
 
         {somentePagos ? (
           <p className={`text-xs font-bold ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>
-            DRE calculada somente com lancamentos pagos (competencia pela data de pagamento).
+            DRE calculada sob o <strong>Regime de Caixa</strong> (considera a data em que os lançamentos pagos foram liquidados no banco).
           </p>
         ) : (
           <p className={`text-xs font-bold ${isDark ? 'text-cyan-300' : 'text-cyan-700'}`}>
-            DRE calculada por competencia (usa apenas competencia/data_competencia para o mês).
+            DRE calculada sob o <strong>Regime de Competência</strong> (considera a data de venda/fato gerador, independente da liquidação financeira).
           </p>
         )}
 

@@ -1555,18 +1555,24 @@ class PdvService:
             db.add(l)
 
         db.flush()
-        db.refresh(first_launch)
-
-        data_registro = first_launch.data_pagamento or first_launch.data_vencimento or hoje_pag
+        if launches_created:
+            db.refresh(first_launch)
+            data_registro = first_launch.data_pagamento or first_launch.data_vencimento or hoje_pag
+            launch_id = int(first_launch.id or 0)
+            launch_desc = first_launch.descricao
+        else:
+            data_registro = hoje_pag
+            launch_id = 0
+            launch_desc = f"Venda {rv_code} - {descricao_geral[:200]}"
 
         return PdvVendaItemRead(
-            id=int(first_launch.id or 0),
+            id=launch_id,
             rv=rv_code,
             data=data_registro,
             hora=datetime.utcnow().strftime("%H:%M"),
             vendedor=(vendedor.nome or vendedor.email),
             status=sale_status,
-            descricao=first_launch.descricao,
+            descricao=launch_desc,
             valor=valor_final_venda,
             venda_id_uuid=pdv_venda_id,
             comprovante_url=None,
@@ -2213,18 +2219,24 @@ class PdvService:
             db.add(l)
 
         db.flush()
-        db.refresh(first_launch)
-
-        data_registro = first_launch.data_pagamento or first_launch.data_vencimento or hoje_pag
+        if launches_created:
+            db.refresh(first_launch)
+            data_registro = first_launch.data_pagamento or first_launch.data_vencimento or hoje_pag
+            launch_id = int(first_launch.id or 0)
+            launch_desc = first_launch.descricao
+        else:
+            data_registro = hoje_pag
+            launch_id = 0
+            launch_desc = f"Venda {rv_code} - {descricao_geral[:200]}"
 
         return PdvVendaItemRead(
-            id=int(first_launch.id or 0),
+            id=launch_id,
             rv=rv_code,
             data=data_registro,
             hora=datetime.utcnow().strftime("%H:%M"),
             vendedor=(vendedor.nome or vendedor.email),
             status=sale_status,
-            descricao=first_launch.descricao,
+            descricao=launch_desc,
             valor=valor_final_venda,
             venda_id_uuid=venda_id,
             comprovante_url=old_comprovante_url,

@@ -1520,8 +1520,13 @@ class PdvService:
 
         db.flush()
         
-        first_launch = launches_created[0]
-        rv_code = venda_in.rv.strip() if venda_in.rv and venda_in.rv.strip() else f"RV-{first_launch.id:06d}"
+        if launches_created:
+            first_launch = launches_created[0]
+            rv_code = venda_in.rv.strip() if venda_in.rv and venda_in.rv.strip() else f"RV-{first_launch.id:06d}"
+        else:
+            import random
+            rand_id = random.randint(100000, 999999)
+            rv_code = venda_in.rv.strip() if venda_in.rv and venda_in.rv.strip() else f"RV-{rand_id:06d}"
         
         for l in launches_created:
             l.descricao = l.descricao.replace("RV-AUTOGERADO", rv_code)
@@ -2163,8 +2168,13 @@ class PdvService:
             launches_created.append(l_desp)
 
         db.flush()
-        first_launch = launches_created[0]
-        rv_code = venda_in.rv.strip() if venda_in.rv and venda_in.rv.strip() else f"RV-{first_launch.id:06d}"
+        if launches_created:
+            first_launch = launches_created[0]
+            rv_code = venda_in.rv.strip() if venda_in.rv and venda_in.rv.strip() else f"RV-{first_launch.id:06d}"
+        else:
+            import random
+            rand_id = random.randint(100000, 999999)
+            rv_code = venda_in.rv.strip() if venda_in.rv and venda_in.rv.strip() else f"RV-{rand_id:06d}"
         
         for an in old_anexos:
             if venda_in.comprovante_urls is not None and an.url not in venda_in.comprovante_urls:
@@ -2172,7 +2182,8 @@ class PdvService:
                 an.deleted_at = datetime.utcnow()
                 an.deleted_by_id = current_user_id
             else:
-                an.lancamento_id = first_launch.id
+                if launches_created:
+                    an.lancamento_id = first_launch.id
             db.add(an)
 
         for l in launches_created:

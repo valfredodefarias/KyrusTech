@@ -202,8 +202,8 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>(() => {
     const path = location.pathname;
     return {
-      financeiro: ['/lancamentos', '/caixa', '/contas', '/cartoes', '/conciliacao-cartoes', '/dre', '/orcamentos', '/budget', '/comissoes'].some(p => path.startsWith(p)),
-      vendas: ['/pdv', '/importacao_nfe', '/produtos', '/apps/ifood'].some(p => path.startsWith(p)),
+      financeiro: ['/lancamentos', '/caixa', '/contas', '/cartoes', '/conciliacao-cartoes', '/dre', '/orcamentos', '/budget'].some(p => path.startsWith(p)),
+      vendas: ['/comissoes', '/pdv', '/importacao_nfe', '/produtos', '/apps/ifood'].some(p => path.startsWith(p)),
       admin: ['/auditoria', '/config', '/apps'].some(p => {
         if (path.startsWith('/apps/ifood')) return false;
         return path.startsWith(p);

@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useComissoesDashboard } from '../hooks/useComissoesDashboard';
+import { useAuthStore } from '../store/authStore';
 import { 
   RefreshCw, AlertCircle, Award, 
-  ChevronDown, ChevronUp, Target, Sparkles
+  ChevronDown, ChevronUp, Target, Sparkles, UserCheck
 } from 'lucide-react';
 
 const formatBRL = (val: number, forceDecimals = false) => {
@@ -20,8 +21,8 @@ interface GaugeProps {
 
 function Gauge({ value, label }: GaugeProps) {
   const cappedValue = Math.min(120, Math.max(0, value));
-  // Needle rotation: 0% is -140deg, 120% is +140deg (span of 280deg)
-  const needleAngle = (cappedValue / 120) * 280 - 140;
+  // Needle rotation: 0% is -130deg, 120% is +130deg (span of 260deg)
+  const needleAngle = (cappedValue / 120) * 260 - 130;
 
   const getCoordinate = (angle: number, radius: number) => {
     const angleRad = ((angle - 90) * Math.PI) / 180;
@@ -41,39 +42,22 @@ function Gauge({ value, label }: GaugeProps) {
     ].join(" ");
   };
 
-  // Draw 13 ticks (every 10%)
-  const ticks = [];
-  for (let i = 0; i <= 12; i++) {
-    const angle = 220 + i * (280 / 12);
-    const outer = getCoordinate(angle, 73);
-    const inner = getCoordinate(angle, 66);
-    ticks.push(
-      <line
-        key={i}
-        x1={outer.x}
-        y1={outer.y}
-        x2={inner.x}
-        y2={inner.y}
-        stroke="#4b5563"
-        strokeWidth="1.5"
-      />
-    );
-  }
-
-  // Neon active color based on gauge label and value
-  const getGlowColor = () => {
-    if (value >= 110) return 'rgba(16, 185, 129, 0.4)'; // Emerald
-    if (value >= 100) return 'rgba(245, 158, 11, 0.4)'; // Yellow/Amber
-    return 'rgba(239, 68, 68, 0.4)'; // Red
-  };
+  const isTargetMet = value >= 100;
+  const isSuperMet = value >= 110;
+  const gaugeColor = isSuperMet ? '#10b981' : (isTargetMet ? '#f59e0b' : '#ef4444');
 
   return (
-    <div className="flex flex-col items-center select-none w-full max-w-[280px]">
-      <div className="relative w-full aspect-square filter drop-shadow-[0_0_12px_var(--gauge-glow)]" style={{ '--gauge-glow': getGlowColor() } as any}>
-        <svg viewBox="0 0 200 200" className="w-full h-full">
+    <div className="flex flex-col items-center select-none w-full max-w-[260px] p-2">
+      <div className="relative w-full aspect-square flex items-center justify-center">
+        <svg viewBox="0 0 200 200" className="w-full h-full drop-shadow-[0_0_15px_rgba(245,158,11,0.15)]">
           <defs>
-            <filter id="glow-neon" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="3" result="blur" />
+            <linearGradient id="arcGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#ef4444" />
+              <stop offset="70%" stopColor="#f59e0b" />
+              <stop offset="100%" stopColor="#10b981" />
+            </linearGradient>
+            <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="2.5" result="blur" />
               <feMerge>
                 <feMergeNode in="blur" />
                 <feMergeNode in="SourceGraphic" />
@@ -81,91 +65,81 @@ function Gauge({ value, label }: GaugeProps) {
             </filter>
           </defs>
 
-          {/* Dark Glass Disc (Cyberpunk style) */}
-          <circle cx="100" cy="100" r="77" fill="#0f0f13" />
+          {/* Dial Background Disc */}
+          <circle cx="100" cy="100" r="78" fill="#09090b" stroke="#1f2937" strokeWidth="2" />
 
-          {/* Outer Metallic Ring */}
-          <circle cx="100" cy="100" r="79" fill="none" stroke="#d97706" strokeWidth="2.5" className="opacity-40" />
-          <circle cx="100" cy="100" r="77" fill="none" stroke="#1f2937" strokeWidth="1" />
-
-          {/* Track Arc Background */}
+          {/* Background Track Arc */}
           <path
-            d={describeArc(220, 500, 70)}
+            d={describeArc(230, 490, 68)}
             fill="none"
-            stroke="#1f2937"
-            strokeWidth="10"
+            stroke="#27272a"
+            strokeWidth="12"
             strokeLinecap="round"
-            className="opacity-50"
           />
 
-          {/* Red Zone (0% to 100%) */}
+          {/* Active Gradient Filled Arc */}
           <path
-            d={describeArc(220, 453.3, 70)}
+            d={describeArc(230, 230 + (cappedValue / 120) * 260, 68)}
             fill="none"
-            stroke="#ef4444"
-            strokeWidth="10"
-            filter="url(#glow-neon)"
-          />
-
-          {/* Yellow/Orange Zone (100% to 110%) */}
-          <path
-            d={describeArc(453.3, 476.7, 70)}
-            fill="none"
-            stroke="#f59e0b"
-            strokeWidth="10"
-            filter="url(#glow-neon)"
-          />
-
-          {/* Green Zone (110% to 120%) */}
-          <path
-            d={describeArc(476.7, 500, 70)}
-            fill="none"
-            stroke="#10b981"
-            strokeWidth="10"
+            stroke="url(#arcGradient)"
+            strokeWidth="12"
             strokeLinecap="round"
-            filter="url(#glow-neon)"
+            filter="url(#neonGlow)"
           />
 
-          {/* Ticks */}
-          {ticks}
+          {/* Ticks (every 10%) */}
+          {Array.from({ length: 13 }).map((_, i) => {
+            const angle = 230 + i * (260 / 12);
+            const p1 = getCoordinate(angle, 75);
+            const p2 = getCoordinate(angle, 61);
+            return (
+              <line
+                key={i}
+                x1={p1.x}
+                y1={p1.y}
+                x2={p2.x}
+                y2={p2.y}
+                stroke={i === 0 || i === 10 || i === 12 ? '#d97706' : '#52525b'}
+                strokeWidth={i % 5 === 0 ? '2' : '1'}
+              />
+            );
+          })}
 
-          {/* Scale labels */}
-          <text x="44" y="160" fill="#6b7280" fontSize="9" textAnchor="middle" fontWeight="bold" fontFamily="sans-serif">0</text>
-          <text x="156" y="160" fill="#6b7280" fontSize="9" textAnchor="middle" fontWeight="bold" fontFamily="sans-serif">1.2</text>
+          {/* Scale Labels */}
+          <text x="40" y="162" fill="#9ca3af" fontSize="10" textAnchor="middle" fontWeight="bold">0%</text>
+          <text x="100" y="38" fill="#f59e0b" fontSize="9" textAnchor="middle" fontWeight="bold">100%</text>
+          <text x="160" y="162" fill="#10b981" fontSize="10" textAnchor="middle" fontWeight="bold">120%</text>
 
-          {/* Percentage text */}
+          {/* Center Value Text */}
           <text
             x="100"
-            y="142"
-            fill="#ffffff"
-            fontSize="26"
+            y="135"
+            fill={gaugeColor}
+            fontSize="30"
             textAnchor="middle"
-            fontWeight="black"
-            fontFamily="sans-serif"
+            fontWeight="900"
             className="font-mono tracking-tighter"
+            filter="url(#neonGlow)"
           >
             {Math.round(value || 0)}%
           </text>
 
           {/* Needle */}
-          <polygon
-            points="96.5,100 103.5,100 100,24"
-            fill="#ea580c"
+          <g
             className="transition-transform duration-1000 ease-out"
-            filter="url(#glow-neon)"
             style={{
               transformOrigin: '100px 100px',
               transform: `rotate(${needleAngle}deg)`,
             }}
-          />
-
-          {/* Center Blue Cap */}
-          <circle cx="100" cy="100" r="9" fill="#3b82f6" stroke="#1d4ed8" strokeWidth="2.5" filter="url(#glow-neon)" />
+          >
+            <polygon points="98,100 102,100 100,28" fill="#f59e0b" filter="url(#neonGlow)" />
+            <circle cx="100" cy="100" r="8" fill="#18181b" stroke="#f59e0b" strokeWidth="3" />
+          </g>
         </svg>
       </div>
-      <div className="text-base font-bold tracking-widest text-slate-300 uppercase mt-2">
+      <span className="text-xs font-black tracking-widest text-amber-500 uppercase mt-1">
         {label}
-      </div>
+      </span>
     </div>
   );
 }
@@ -181,16 +155,41 @@ export function ComissoesDashboard() {
 
   const { data, loading, error, refetch } = useComissoesDashboard(mes, ano);
 
-  // Sync selected seller if they disappear from the dataset
+  const user = useAuthStore((state) => state.user);
+
+  const isAdminOrConsultor = useMemo(() => {
+    if (!user) return false;
+    return Boolean(
+      user.is_consultor ||
+      user.permissions?.includes('*') ||
+      user.permissions?.includes('PDV_VER_TODAS_VENDAS')
+    );
+  }, [user]);
+
+  // Filter sellers for non-admin/consultor users (Vendedores see only themselves)
+  const availableVendedores = useMemo(() => {
+    if (!data?.vendedores || data.vendedores.length === 0) return [];
+    if (isAdminOrConsultor) return data.vendedores;
+
+    const myId = user?.id;
+    const filtered = data.vendedores.filter((v) => {
+      if (v.vendedor_id === myId) return true;
+      if (user?.nome && v.vendedor && v.vendedor.toLowerCase().includes(user.nome.toLowerCase())) return true;
+      return false;
+    });
+
+    return filtered.length > 0 ? filtered : data.vendedores;
+  }, [data, isAdminOrConsultor, user]);
+
+  // Sync selected seller
   useEffect(() => {
-    if (data?.vendedores && data.vendedores.length > 0) {
-      const exists = data.vendedores.some(v => v.vendedor_id === selectedVendedorId);
+    if (availableVendedores.length > 0) {
+      const exists = availableVendedores.some(v => v.vendedor_id === selectedVendedorId);
       if (!exists) {
-        const hasLoja = data.vendedores.some(v => v.vendedor_id === 0);
-        setSelectedVendedorId(hasLoja ? 0 : data.vendedores[0].vendedor_id);
+        setSelectedVendedorId(availableVendedores[0].vendedor_id);
       }
     }
-  }, [data, selectedVendedorId]);
+  }, [availableVendedores, selectedVendedorId]);
 
   const mesesMap = [
     { value: 1, label: 'Janeiro' },
@@ -231,8 +230,8 @@ export function ComissoesDashboard() {
     }
   };
 
-  const selectedVendedor = data?.vendedores.find(v => v.vendedor_id === selectedVendedorId) 
-    || data?.vendedores[0] 
+  const selectedVendedor = availableVendedores.find(v => v.vendedor_id === selectedVendedorId) 
+    || availableVendedores[0] 
     || null;
 
   return (
@@ -335,17 +334,24 @@ export function ComissoesDashboard() {
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
                   <div className="flex items-center gap-2">
                     <span className="text-amber-500 text-xs font-black uppercase tracking-widest">Nome:</span>
-                    <select
-                      value={selectedVendedorId}
-                      onChange={(e) => setSelectedVendedorId(Number(e.target.value))}
-                      className="bg-black text-amber-500 border-2 border-amber-500/50 rounded px-3 py-1.5 outline-none cursor-pointer font-black focus:ring-1 focus:ring-amber-500 text-sm hover:border-amber-500 transition"
-                    >
-                      {data.vendedores.map((v) => (
-                        <option key={v.vendedor_id} value={v.vendedor_id} className="bg-neutral-900 text-white">
-                          {v.vendedor} {v.vendedor_id > 0 ? `(${v.vendedor_id})` : ''}
-                        </option>
-                      ))}
-                    </select>
+                    {isAdminOrConsultor ? (
+                      <select
+                        value={selectedVendedorId}
+                        onChange={(e) => setSelectedVendedorId(Number(e.target.value))}
+                        className="bg-black text-amber-500 border-2 border-amber-500/50 rounded px-3 py-1.5 outline-none cursor-pointer font-black focus:ring-1 focus:ring-amber-500 text-sm hover:border-amber-500 transition"
+                      >
+                        {availableVendedores.map((v) => (
+                          <option key={v.vendedor_id} value={v.vendedor_id} className="bg-neutral-900 text-white">
+                            {v.vendedor} {v.vendedor_id > 0 ? `(${v.vendedor_id})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="inline-flex items-center gap-2 bg-amber-950/40 text-amber-400 border border-amber-500/40 rounded px-3 py-1.5 text-sm font-black select-none shadow-sm">
+                        <UserCheck className="w-4 h-4 text-amber-500" />
+                        <span>{selectedVendedor?.vendedor || user?.nome || 'Seu Revisor'}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Medal/Rank display */}

@@ -93,9 +93,14 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     { icon: Calculator, label: 'Orçamentos', path: '/orcamentos', category: 'financeiro', requiredPermissions: ['page:dre:view'] },
     { icon: Table2, label: 'Budget', path: '/budget', category: 'financeiro', requiredPermissions: ['page:dre:view'] },
     { icon: LineChart, label: 'DRE', path: '/dre', category: 'financeiro', requiredPermissions: ['page:dre:view'] },
-    { icon: Award, label: 'Comissões e Metas', path: '/comissoes', category: 'financeiro', requiredPermissions: ['page:boletim:view'] },
-
     // Comercial / Vendas
+    {
+      icon: Award,
+      label: 'Revisor / Comissões e Metas',
+      path: '/comissoes',
+      category: 'vendas',
+      requiredPermissions: ['PDV_SER_VENDEDOR', 'PDV_VER_TODAS_VENDAS', 'page:boletim:view'],
+    },
     {
       icon: ShoppingBag,
       label: 'PDV',

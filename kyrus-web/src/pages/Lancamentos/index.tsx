@@ -119,7 +119,7 @@ export function Lancamentos({
     dataModo: 'VENCIMENTO' as 'VENCIMENTO' | 'PAGAMENTO',
     dataInicio: '',
     dataFim: '',
-    ocultarVendasCartaoPendentes: true,
+    ocultarVendasCartaoPendentes: false,
   });
   const [filtroRapidoTipo, setFiltroRapidoTipo] = useState<'TODOS' | 'RECEITA' | 'DESPESA'>('TODOS');
   const [filtroRapidoStatus, setFiltroRapidoStatus] = useState<'TODOS' | 'PAGO' | 'NAO_PAGO'>('TODOS');
@@ -811,7 +811,7 @@ export function Lancamentos({
       dataModo: 'VENCIMENTO',
       dataInicio: '',
       dataFim: '',
-      ocultarVendasCartaoPendentes: true,
+      ocultarVendasCartaoPendentes: false,
     });
     setFiltroTexto('');
     setCentroCustoFiltro('');

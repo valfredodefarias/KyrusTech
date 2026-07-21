@@ -10,6 +10,7 @@ from typing import List, Optional, Dict, Any
 from fastapi import HTTPException
 from sqlmodel import Session, select, col, delete
 
+from app.core.cache import clear_transaction_cache
 from app.models.lancamento import Lancamento
 from app.models.usuario import Usuario
 from app.models.produto import Produto
@@ -185,6 +186,340 @@ def obter_regra_cartao(
             return regra
 
     return None
+
+
+def format_card_description(bandeira: str, tipo_pagamento: str) -> str:
+    brand = (bandeira or "Outros").strip().upper()
+    if brand == "MASTERCARD":
+        brand = "Master"
+    elif brand == "AMERICAN EXPRESS":
+        brand = "Amex"
+    else:
+        brand = brand.title()
+        
+    tp = (tipo_pagamento or "").lower()
+    if "debito" in tp or "debit" in tp:
+        modality = "Debito"
+    else:
+        modality = "Credito"
+        
+    return f"{brand} {modality}"
+
+
+def adicionar_ou_atualizar_recebivel_cartao_agrupado(
+    db: Session,
+    empresa_id: int,
+    venda_id: str,
+    vencimento: date,
+    valor: Decimal,
+    formatted_desc: str,
+    plano_id: int,
+    conta_id: Optional[int],
+    centro_custo_id: Optional[int],
+    hoje_pag: date,
+    bandeira: str,
+    modality: str,
+    current_user_id: int,
+    venda_rv: Optional[str] = None,
+    vendedor_nome: Optional[str] = None,
+    cliente_nome: Optional[str] = None,
+) -> None:
+    l = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.tipo == "RECEITA",
+            Lancamento.data_vencimento == vencimento,
+            Lancamento.descricao == formatted_desc,
+            Lancamento.centro_custo_id == centro_custo_id,
+            Lancamento.origem == "PDV",
+            Lancamento.is_deleted == False
+        )
+    ).first()
+
+    if l:
+        if l.status == "PAGO" and l.conta_id is not None:
+            conta = db.get(Conta, l.conta_id)
+            nome_conta = conta.nome if conta else "Banco"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Não é possível adicionar a venda. O recebível agrupado '{formatted_desc}' para o dia {vencimento.strftime('%d/%m/%Y')} já foi liquidado no banco '{nome_conta}'."
+            )
+        
+        meta = {}
+        if l.observacao:
+            try:
+                meta = json.loads(l.observacao)
+            except Exception:
+                pass
+        
+        contribuicoes = meta.setdefault("contribuicoes", {})
+        contribuicoes[venda_id] = {
+            "valor": float(valor),
+            "rv": venda_rv or "N/A",
+            "vendedor": vendedor_nome or "N/A",
+            "cliente": cliente_nome or "N/A",
+            "status": "REALIZADO"
+        }
+        
+        total_previsto = sum(
+            Decimal(str(item["valor"]))
+            for item in contribuicoes.values()
+            if isinstance(item, dict) and item.get("status") == "REALIZADO"
+        )
+        l.valor_previsto = total_previsto
+        l.observacao = json.dumps(meta)
+        l.updated_by_id = current_user_id
+        l.updated_at = datetime.utcnow()
+        db.add(l)
+    else:
+        meta = {
+            "grouped_card_launch": True,
+            "bandeira": bandeira,
+            "modalidade": modality,
+            "contribuicoes": {
+                venda_id: {
+                    "valor": float(valor),
+                    "rv": venda_rv or "N/A",
+                    "vendedor": vendedor_nome or "N/A",
+                    "cliente": cliente_nome or "N/A",
+                    "status": "REALIZADO"
+                }
+            }
+        }
+        l = Lancamento(
+            descricao=formatted_desc,
+            tipo="RECEITA",
+            status="EM ABERTO",
+            origem="PDV",
+            valor_previsto=valor,
+            valor_pago=Decimal("0.00"),
+            valor_juros=Decimal("0.00"),
+            valor_desconto=Decimal("0.00"),
+            valor_multa=Decimal("0.00"),
+            data_vencimento=vencimento,
+            data_pagamento=None,
+            data_competencia=hoje_pag,
+            empresa_id=empresa_id,
+            plano_contas_id=plano_id,
+            conta_id=conta_id,
+            centro_custo_id=centro_custo_id,
+            observacao=json.dumps(meta),
+            is_deleted=False,
+            ipp=False,
+            previsto=True,
+            conciliado=False,
+            numero_parcela=None,
+            id_parcelamento=None,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+        db.add(l)
+
+
+def remover_contribuicoes_venda(db: Session, empresa_id: int, venda_id: str, current_user_id: int) -> None:
+    # 1. Buscar os lançamentos individuais da venda
+    individual_launches = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.id_parcelamento == venda_id
+        )
+    ).all()
+    
+    for l in individual_launches:
+        if l.conciliado:
+            raise HTTPException(
+                status_code=400,
+                detail="Esta venda possui parcelas que já foram conciliadas no extrato e não pode ser editada."
+            )
+
+    # 2. Buscar lançamentos agrupados que possuem a contribuição desta venda
+    grouped_launches = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "PDV",
+            col(Lancamento.observacao).like(f'%"{venda_id}":%')
+        )
+    ).all()
+
+    for l in grouped_launches:
+        if l.status == "PAGO" and l.conta_id is not None:
+            conta = db.get(Conta, l.conta_id)
+            nome_conta = conta.nome if conta else "Banco"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Esta venda possui recebíveis agrupados de cartão que já foram liquidados (pagos) no banco '{nome_conta}' e não pode ser alterada ou excluída."
+            )
+
+    # 3. Marcar individuais como deletados
+    for l in individual_launches:
+        l.is_deleted = True
+        l.deleted_at = datetime.utcnow()
+        l.deleted_by_id = current_user_id
+        db.add(l)
+
+    # 4. Remover contribuições dos agrupados
+    for l in grouped_launches:
+        meta = {}
+        try:
+            meta = json.loads(l.observacao)
+        except Exception:
+            continue
+        
+        contribuicoes = meta.get("contribuicoes", {})
+        if venda_id in contribuicoes:
+            del contribuicoes[venda_id]
+            
+            total_previsto = sum(
+                Decimal(str(item["valor"]))
+                for item in contribuicoes.values()
+                if isinstance(item, dict) and item.get("status") == "REALIZADO"
+            )
+            
+            if not contribuicoes or total_previsto == Decimal("0.00"):
+                l.is_deleted = True
+                l.deleted_at = datetime.utcnow()
+                l.deleted_by_id = current_user_id
+            else:
+                l.valor_previsto = total_previsto
+                l.observacao = json.dumps(meta)
+                l.updated_by_id = current_user_id
+                l.updated_at = datetime.utcnow()
+            db.add(l)
+
+
+def atualizar_status_contribuicoes_venda(
+    db: Session,
+    empresa_id: int,
+    venda_id: str,
+    novo_status: str,
+    current_user_id: int
+) -> None:
+    # 1. Buscar os lançamentos individuais da venda
+    individual_launches = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "PDV",
+            Lancamento.id_parcelamento == venda_id
+        )
+    ).all()
+    
+    for l in individual_launches:
+        if l.conciliado:
+            raise HTTPException(
+                status_code=400,
+                detail="Esta venda possui parcelas que já foram conciliadas no extrato e o status não pode ser alterado."
+            )
+
+    # 2. Buscar lançamentos agrupados que possuem a contribuição desta venda
+    grouped_launches = db.exec(
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "PDV",
+            col(Lancamento.observacao).like(f'%"{venda_id}":%')
+        )
+    ).all()
+
+    for l in grouped_launches:
+        if l.status == "PAGO" and l.conta_id is not None:
+            conta = db.get(Conta, l.conta_id)
+            nome_conta = conta.nome if conta else "Banco"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Esta venda possui recebíveis agrupados de cartão que já foram liquidados (pagos) no banco '{nome_conta}' e não pode ser alterada ou excluída."
+            )
+
+    # 3. Atualizar status dos lançamentos individuais
+    hoje = datetime.utcnow().date()
+    empresa = db.get(Empresa, empresa_id)
+    pdv_config_dict = {}
+    if empresa and empresa.pdv_config:
+        try:
+            pdv_config_dict = json.loads(empresa.pdv_config)
+        except Exception:
+            pass
+    config_marcar_como_pago = pdv_config_dict.get("marcar_como_pago", {})
+
+    for l in individual_launches:
+        meta = {}
+        if l.observacao:
+            try:
+                meta = json.loads(l.observacao)
+            except Exception:
+                pass
+        
+        meta["status"] = novo_status
+        l.observacao = json.dumps(meta)
+
+        if novo_status == "REALIZADO":
+            tipo_pag = meta.get("tipo_pagamento", "dinheiro")
+            is_paid = config_marcar_como_pago.get(
+                tipo_pag, 
+                tipo_pag in ["dinheiro"]
+            )
+            
+            if is_paid:
+                l.status = "PAGO"
+                l.data_pagamento = hoje
+                l.valor_pago = l.valor_previsto
+                if not l.conta_id:
+                    l.conta_id = obter_conta_caixa_fisica(db, empresa_id)
+            else:
+                l.status = "EM ABERTO"
+                l.data_pagamento = None
+                l.valor_pago = Decimal("0.00")
+        else:
+            l.status = novo_status
+            l.data_pagamento = None
+            l.valor_pago = Decimal("0.00")
+            
+        l.updated_by_id = current_user_id
+        l.updated_at = datetime.utcnow()
+        db.add(l)
+
+    # 4. Atualizar status da contribuição nos agrupados
+    for l in grouped_launches:
+        meta = {}
+        try:
+            meta = json.loads(l.observacao)
+        except Exception:
+            continue
+        
+        contribuicoes = meta.get("contribuicoes", {})
+        if venda_id in contribuicoes:
+            if isinstance(contribuicoes[venda_id], dict):
+                contribuicoes[venda_id]["status"] = novo_status
+            else:
+                contribuicoes[venda_id] = {
+                    "valor": float(contribuicoes[venda_id]),
+                    "status": novo_status
+                }
+            
+            total_previsto = sum(
+                Decimal(str(item["valor"]))
+                for item in contribuicoes.values()
+                if isinstance(item, dict) and item.get("status") == "REALIZADO"
+            )
+            
+            l.valor_previsto = total_previsto
+            if total_previsto == Decimal("0.00"):
+                l.status = "CANCELADO"
+            else:
+                if l.status in ["CANCELADO", "DEVOLVIDO"]:
+                    l.status = "EM ABERTO"
+            
+            l.observacao = json.dumps(meta)
+            l.updated_by_id = current_user_id
+            l.updated_at = datetime.utcnow()
+            db.add(l)
 
 
 class PdvService:
@@ -998,6 +1333,7 @@ class PdvService:
                     launches_created.append(l)
                 desconto_ja_atribuido = True
             else:
+                is_card = bool(regra) or ("cartao" in (p.tipo_pagamento or "").lower())
                 if regra:
                     vencimento = calcular_payout_date(hoje_pag, regra)
                     fee_percentage = regra.taxa_porcentagem
@@ -1009,47 +1345,73 @@ class PdvService:
                     fee_amount = Decimal("0.00")
                     liquid_value = p.valor
 
-                obs_data = dados_observacao_base.copy()
-                obs_data["tipo_pagamento"] = p.tipo_pagamento
-                if regra:
-                    obs_data["bandeira"] = regra.bandeira
-                    obs_data["cartao_taxa"] = float(fee_percentage)
-                    obs_data["cartao_taxa_valor"] = float(fee_amount)
-                    obs_data["cartao_liquido_previsto"] = float(liquid_value)
-                    obs_data["cartao_regra_id"] = regra.id
+                if is_card:
+                    bandeira_nome = (regra.bandeira if regra else p.bandeira) or "Outros"
+                    fmt_desc = format_card_description(bandeira_nome, p.tipo_pagamento)
+                    vendedor_nome = vendedor.nome if vendedor else "N/A"
+                    cliente_nome = entidade.nome if entidade else "N/A"
 
-                l = Lancamento(
-                    descricao=f"Venda RV-AUTOGERADO - {descricao_geral[:200]}",
-                    tipo="RECEITA",
-                    status="PAGO" if is_paid else "EM ABERTO",
-                    origem="PDV",
-                    valor_previsto=p.valor,
-                    valor_pago=p.valor if is_paid else Decimal("0.00"),
-                    valor_juros=Decimal("0.00"),
-                    valor_desconto=Decimal("0.00") if desconto_ja_atribuido else venda_in.desconto,
-                    valor_multa=Decimal("0.00"),
-                    data_vencimento=vencimento,
-                    data_pagamento=hoje_pag if is_paid else None,
-                    data_competencia=hoje_pag,
-                    empresa_id=empresa_id,
-                    plano_contas_id=plano_id,
-                    conta_id=conta_id,
-                    entidade_id=venda_in.entidade_id,
-                    centro_custo_id=venda_in.centro_custo_id,
-                    created_by_id=venda_in.vendedor_id,
-                    updated_by_id=current_user_id,
-                    observacao=json.dumps(obs_data),
-                    is_deleted=False,
-                    ipp=False,
-                    previsto=True,
-                    conciliado=False,
-                    id_parcelamento=pdv_venda_id,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                db.add(l)
-                launches_created.append(l)
-                desconto_ja_atribuido = True
+                    adicionar_ou_atualizar_recebivel_cartao_agrupado(
+                        db=db,
+                        empresa_id=empresa_id,
+                        venda_id=pdv_venda_id,
+                        vencimento=vencimento,
+                        valor=p.valor,
+                        formatted_desc=fmt_desc,
+                        plano_id=plano_id,
+                        conta_id=conta_id,
+                        centro_custo_id=venda_in.centro_custo_id,
+                        hoje_pag=hoje_pag,
+                        bandeira=bandeira_nome,
+                        modality="Debito" if "debito" in fmt_desc.lower() else "Credito",
+                        current_user_id=current_user_id,
+                        venda_rv=venda_in.rv,
+                        vendedor_nome=vendedor_nome,
+                        cliente_nome=cliente_nome,
+                    )
+                    desconto_ja_atribuido = True
+                else:
+                    obs_data = dados_observacao_base.copy()
+                    obs_data["tipo_pagamento"] = p.tipo_pagamento
+                    if regra:
+                        obs_data["bandeira"] = regra.bandeira
+                        obs_data["cartao_taxa"] = float(fee_percentage)
+                        obs_data["cartao_taxa_valor"] = float(fee_amount)
+                        obs_data["cartao_liquido_previsto"] = float(liquid_value)
+                        obs_data["cartao_regra_id"] = regra.id
+
+                    l = Lancamento(
+                        descricao=f"Venda RV-AUTOGERADO - {descricao_geral[:200]}",
+                        tipo="RECEITA",
+                        status="PAGO" if is_paid else "EM ABERTO",
+                        origem="PDV",
+                        valor_previsto=p.valor,
+                        valor_pago=p.valor if is_paid else Decimal("0.00"),
+                        valor_juros=Decimal("0.00"),
+                        valor_desconto=Decimal("0.00") if desconto_ja_atribuido else venda_in.desconto,
+                        valor_multa=Decimal("0.00"),
+                        data_vencimento=vencimento,
+                        data_pagamento=hoje_pag if is_paid else None,
+                        data_competencia=hoje_pag,
+                        empresa_id=empresa_id,
+                        plano_contas_id=plano_id,
+                        conta_id=conta_id,
+                        entidade_id=venda_in.entidade_id,
+                        centro_custo_id=venda_in.centro_custo_id,
+                        created_by_id=venda_in.vendedor_id,
+                        updated_by_id=current_user_id,
+                        observacao=json.dumps(obs_data),
+                        is_deleted=False,
+                        ipp=False,
+                        previsto=True,
+                        conciliado=False,
+                        id_parcelamento=pdv_venda_id,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(l)
+                    launches_created.append(l)
+                    desconto_ja_atribuido = True
 
         # 7.2. Criar lançamentos de despesas extras associadas (splits)
         campos_config = pdv_config_dict.get("campos_personalizados", [])
@@ -1174,25 +1536,8 @@ class PdvService:
         """
         Atualiza uma venda existente substituindo seus lançamentos pelos novos informados.
         """
-        # 1. Validar se a venda existe e se está conciliada (deve ser o primeiro passo)
-        launches_antigos = db.exec(
-            select(Lancamento)
-            .where(
-                Lancamento.empresa_id == empresa_id,
-                Lancamento.is_deleted == False,
-                Lancamento.origem == "PDV",
-                Lancamento.id_parcelamento == venda_id
-            )
-        ).all()
-        if not launches_antigos:
-            raise HTTPException(status_code=404, detail="Venda não encontrada.")
-            
-        for l in launches_antigos:
-            if l.conciliado:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Esta venda possui parcelas que já foram conciliadas no extrato e não pode ser editada."
-                )
+        # 1. Validar travas de segurança e remover contribuições/lançamentos antigos
+        remover_contribuicoes_venda(db, empresa_id, venda_id, current_user_id)
 
         hoje_pag = venda_in.data_pagamento or datetime.utcnow().date()
         

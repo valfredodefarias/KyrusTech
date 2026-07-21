@@ -29,6 +29,7 @@ class PdvVendaItemRead(SQLModel):
     campos_extras: Optional[Dict[str, Any]] = None
     alertas: Optional[List[str]] = None
     is_direct_sale: Optional[bool] = False
+    lock_reconciled: Optional[bool] = False
 
 
 class PdvVendaGrupoRead(SQLModel):

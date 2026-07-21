@@ -51,6 +51,7 @@ interface PdvVendaItem {
   pagamentos_detalhe?: any[] | null;
   campos_extras?: Record<string, any> | null;
   desconto?: number;
+  lock_reconciled?: boolean;
 }
 
 interface PdvVendaGrupo {
@@ -795,6 +796,7 @@ export function PDV() {
   const [vendaDataPagamento, setVendaDataPagamento] = useState('');
   const [isEditingSale, setIsEditingSale] = useState(false);
   const [editingSaleUuid, setEditingSaleUuid] = useState<string | null>(null);
+  const [saleLocked, setSaleLocked] = useState(false);
 
   // Filtros de Histórico de Venda
   const [filtroRv, setFiltroRv] = useState('');
@@ -1307,6 +1309,7 @@ export function PDV() {
     setErrorVenda(null);
     setIsEditingSale(false);
     setEditingSaleUuid(null);
+    setSaleLocked(false);
     const pdvCcId = pdvConfig?.pdv_centro_custo_padrao_id ?? pdvConfig?.centro_custo_padrao_id;
     if (pdvCcId) {
       setSelectedCentroCustoId(pdvCcId);
@@ -1328,6 +1331,7 @@ export function PDV() {
     setErrorVenda(null);
     setIsEditingSale(true);
     setEditingSaleUuid(venda.venda_id_uuid ?? null);
+    setSaleLocked(Boolean(venda.lock_reconciled));
     setSelectedVendedorId(venda.vendedor_id ?? currentUserId);
     setSelectedEntidadeId(venda.entidade_id ?? null);
     setSelectedCentroCustoId(venda.centro_custo_id ?? pdvConfig?.pdv_centro_custo_padrao_id ?? pdvConfig?.centro_custo_padrao_id ?? (centrosCusto.length === 1 ? centrosCusto[0].id : null));
@@ -2596,6 +2600,15 @@ export function PDV() {
 
             {/* Form Scrollable Body */}
             <div className="h-[calc(100vh-140px)] overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/50 dark:bg-slate-950/20">
+              {saleLocked && (
+                <div className="flex items-start gap-2.5 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 p-3.5 rounded-xl border border-amber-200/40 text-xs select-none shadow-sm">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
+                  <div>
+                    <strong>Venda Bloqueada para Alterações:</strong> Esta venda possui recebíveis agrupados de cartão que já foram liquidados (pagos) no banco e conciliados no financeiro. Por segurança, alterações ou cancelamentos não são permitidos.
+                  </div>
+                </div>
+              )}
+
               {errorVenda && (
                 <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs font-semibold text-rose-800 dark:border-rose-900/30 dark:bg-rose-950/20 dark:text-rose-300 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
@@ -3338,11 +3351,11 @@ export function PDV() {
               </button>
               <button
                 type="button"
-                disabled={savingVenda || produtos.length === 0 || !isPaymentValid}
+                disabled={savingVenda || produtos.length === 0 || !isPaymentValid || saleLocked}
                 onClick={handleNovaVendaSubmit}
                 className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg transition disabled:opacity-50 cursor-pointer"
               >
-                {savingVenda ? 'Processando...' : 'Salvar Venda'}
+                {savingVenda ? 'Processando...' : (saleLocked ? 'Venda Bloqueada' : 'Salvar Venda')}
               </button>
             </div>
           </div>

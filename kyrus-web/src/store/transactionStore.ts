@@ -69,6 +69,7 @@ interface TransactionState {
   refreshCount: number;
   pagedLancamentos: any[];
   pagedCacheKey: string;
+  pendingDeletedIds: Set<number>;
   setPagedLancamentos: (key: string, rows: any[]) => void;
   
   fetchYearTransactions: (year: number, force?: boolean) => Promise<LancamentoResumo[]>;
@@ -118,7 +119,16 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
     refreshCount: 0,
     pagedLancamentos: [],
     pagedCacheKey: '',
-    setPagedLancamentos: (key, rows) => set({ pagedCacheKey: key, pagedLancamentos: rows }),
+    pendingDeletedIds: new Set<number>(),
+    setPagedLancamentos: (key, rows) => set((state) => {
+      const cleanRows = Array.isArray(rows) 
+        ? rows.filter((r) => !state.pendingDeletedIds.has(Number(r.id))) 
+        : [];
+      return {
+        pagedCacheKey: key,
+        pagedLancamentos: cleanRows,
+      };
+    }),
 
   fetchYearTransactions: async (year: number, force = false) => {
     const { yearCache, cacheTimestamps } = get();
@@ -431,6 +441,9 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
 
   removeTransactionFromCache: (id) => {
     set((state) => {
+      const nextPending = new Set(state.pendingDeletedIds);
+      nextPending.add(id);
+
       const updatedYearCache = { ...state.yearCache };
       Object.keys(updatedYearCache).forEach((yKey) => {
         const y = Number(yKey);
@@ -438,10 +451,21 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
       });
       const nextPaged = state.pagedLancamentos.filter((t) => t.id !== id);
       return {
+        pendingDeletedIds: nextPending,
         yearCache: updatedYearCache,
         pagedLancamentos: nextPaged,
       };
     });
+
+    // Auto-prune entry from pendingDeletedIds after 60 seconds
+    setTimeout(() => {
+      set((state) => {
+        if (!state.pendingDeletedIds.has(id)) return state;
+        const nextPending = new Set(state.pendingDeletedIds);
+        nextPending.delete(id);
+        return { pendingDeletedIds: nextPending };
+      });
+    }, 60000);
   }
   };
 });

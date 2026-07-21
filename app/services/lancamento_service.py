@@ -828,15 +828,17 @@ class LancamentoService:
                     user_id=user_id,
                 )
                 self._sincronizar_movimento_manual(item, user_id=user_id)
-        from app.core.cache import IS_TESTING
+        from app.core.cache import IS_TESTING, clear_transaction_cache
         if IS_TESTING:
             from app.services.auditor_anomalia_service import AuditorAnomaliaService
             auditor = AuditorAnomaliaService(self.session)
             for item in related:
                 auditor.analisar_exclusao(item)
             self.session.commit()
+            clear_transaction_cache(empresa_id, force=True)
         else:
             self.session.commit()
+            clear_transaction_cache(empresa_id, force=True)
             from app.services.auditor_anomalia_service import schedule_analise_exclusao
             for item in related:
                 schedule_analise_exclusao(item.id)
@@ -857,6 +859,7 @@ class LancamentoService:
         lancamento.deleted_at = None
         lancamento.deleted_by_id = None
         lancamento.updated_by_id = user_id
+        lancamento.updated_at = datetime.utcnow()
         lancamento.updated_at = datetime.utcnow()
         self.session.add(lancamento)
         
@@ -997,15 +1000,17 @@ class LancamentoService:
                     user_id=user_id,
                 )
                 self._sincronizar_movimento_manual(lanc, user_id=user_id)
-        from app.core.cache import IS_TESTING
+        from app.core.cache import IS_TESTING, clear_transaction_cache
         if IS_TESTING:
             from app.services.auditor_anomalia_service import AuditorAnomaliaService
             auditor = AuditorAnomaliaService(self.session)
             for lanc in related:
                 auditor.analisar_exclusao(lanc)
             self.session.commit()
+            clear_transaction_cache(empresa_id, force=True)
         else:
             self.session.commit()
+            clear_transaction_cache(empresa_id, force=True)
             from app.services.auditor_anomalia_service import schedule_analise_exclusao
             for lanc in related:
                 schedule_analise_exclusao(lanc.id)

@@ -114,6 +114,8 @@ def listar_vendas_pdv(
     # Load associated Lancamentos in one query to read details like payment details
     venda_ids = [v.id for v in vendas_list]
     lancamentos_map = defaultdict(list)
+    # Map sale_id -> lock_reconciled boolean
+    sale_locks: dict[str, bool] = defaultdict(bool)
     if venda_ids:
         launches = db.exec(
             select(Lancamento)
@@ -126,6 +128,28 @@ def listar_vendas_pdv(
         ).all()
         for l in launches:
             lancamentos_map[l.id_parcelamento].append(l)
+            if l.conciliado:
+                sale_locks[l.id_parcelamento] = True
+
+        grouped_card_launches = db.exec(
+            select(Lancamento)
+            .where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.origem == "PDV",
+                col(Lancamento.observacao).like('%"grouped_card_launch": true%')
+            )
+        ).all()
+        for g in grouped_card_launches:
+            if g.status == "PAGO" and g.conta_id is not None:
+                if g.observacao:
+                    try:
+                        meta = json.loads(g.observacao)
+                        contribuicoes = meta.get("contribuicoes", {})
+                        for sid in contribuicoes.keys():
+                            sale_locks[sid] = True
+                    except Exception:
+                        pass
 
     consolidated_items = []
     for v in vendas_list:
@@ -197,6 +221,7 @@ def listar_vendas_pdv(
             "pagamentos_detalhe": pagamentos_list,
             "campos_extras": campos_extras,
             "is_direct_sale": v.is_direct_sale,
+            "lock_reconciled": sale_locks.get(venda_id, False)
         })
 
     # Sort consolidated sales by date and ID desc
@@ -229,7 +254,8 @@ def listar_vendas_pdv(
                 itens_detalhe=item["itens_detalhe"],
                 pagamentos_detalhe=item["pagamentos_detalhe"],
                 campos_extras=item["campos_extras"],
-                is_direct_sale=item.get("is_direct_sale", False)
+                is_direct_sale=item.get("is_direct_sale", False),
+                lock_reconciled=item.get("lock_reconciled", False)
             )
         )
         totals[dt] += item["valor"]
@@ -763,79 +789,14 @@ def atualizar_status_venda_pdv(
         )
         if "*" not in permissions and PdvPermission.PDV_CANCELAR_VENDA.value not in permissions:
             raise HTTPException(status_code=403, detail="Você não tem permissão para cancelar ou devolver vendas.")
-    launches = db.exec(
-        select(Lancamento)
-        .where(
-            Lancamento.empresa_id == empresa_id,
-            Lancamento.is_deleted == False,
-            Lancamento.origem == "PDV",
-            Lancamento.id_parcelamento == venda_id
-        )
-    ).all()
-    if not launches:
-        raise HTTPException(status_code=404, detail="Venda não encontrada.")
 
-    for l in launches:
-        if l.conciliado:
-            raise HTTPException(
-                status_code=400,
-                detail="Esta venda possui parcelas que já foram conciliadas no extrato e o status não pode ser alterado."
-            )
-
-    novo_status = status_in.upper()
-    if novo_status not in ["REALIZADO", "CANCELADO", "DEVOLVIDO"]:
-        raise HTTPException(status_code=400, detail="Status inválido.")
-
-    # Carregar configurações do PDV
-    empresa = db.get(Empresa, empresa_id)
-    pdv_config_dict = {}
-    if empresa and empresa.pdv_config:
-        try:
-            pdv_config_dict = json.loads(empresa.pdv_config)
-        except Exception:
-            pass
-    config_marcar_como_pago = pdv_config_dict.get("marcar_como_pago", {})
-
-    hoje = datetime.utcnow().date()
-
-    for l in launches:
-        meta = {}
-        if l.observacao:
-            try:
-                meta = json.loads(l.observacao)
-            except Exception:
-                pass
-        
-        meta["status"] = novo_status
-        l.observacao = json.dumps(meta)
-
-        if novo_status == "REALIZADO":
-            tipo_pag = meta.get("tipo_pagamento", "dinheiro")
-            is_paid = config_marcar_como_pago.get(
-                tipo_pag, 
-                tipo_pag in ["dinheiro"]
-            )
-            
-            if is_paid:
-                l.status = "PAGO"
-                l.data_pagamento = hoje
-                l.valor_pago = l.valor_previsto
-                if not l.conta_id:
-                    l.conta_id = obter_conta_caixa_fisica(db, empresa_id)
-            else:
-                l.status = "EM ABERTO"
-                l.data_pagamento = None
-                l.valor_pago = Decimal("0.00")
-        else: # CANCELADO ou DEVOLVIDO
-            # Para manter consistência financeira, lançamentos cancelados no PDV têm status 'CANCELADO'
-            # e zeram valor_pago para não distorcer o fluxo de caixa
-            l.status = novo_status
-            l.data_pagamento = None
-            l.valor_pago = Decimal("0.00")
-            
-        l.updated_by_id = current_user.id
-        l.updated_at = datetime.utcnow()
-        db.add(l)
+    PdvService.atualizar_status_contribuicoes_venda(
+        db=db,
+        empresa_id=empresa_id,
+        venda_id=venda_id,
+        novo_status=novo_status,
+        current_user_id=int(current_user.id or 0)
+    )
 
     # Sincronizar estoque e lançamentos splits
     PdvService.sincronizar_status_estoque_e_splits(
@@ -849,6 +810,9 @@ def atualizar_status_venda_pdv(
         venda_op.updated_by_id = current_user.id
         venda_op.updated_at = datetime.utcnow()
         db.add(venda_op)
+
+    from app.core.cache import clear_transaction_cache
+    clear_transaction_cache(empresa_id, force=True)
 
     db.commit()
     return {"message": f"Status da venda atualizado para {novo_status} com sucesso."}

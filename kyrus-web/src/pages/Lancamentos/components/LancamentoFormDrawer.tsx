@@ -20,6 +20,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Info,
+  Layers,
 } from 'lucide-react';
 import { SearchableSelect } from '../../../components/SearchableSelect';
 import { BankAvatar } from '../../../components/BrandAvatar';
@@ -1920,6 +1921,59 @@ export const LancamentoFormDrawer = ({
                 </div>
               )}
             </div>
+
+            {/* DETALHAMENTO DE VENDAS DE ORIGEM (RECEBÍVEL AGRUPADO DE CARTÃO) */}
+            {(() => {
+              if (!formData.observacao) return null;
+              try {
+                const meta = JSON.parse(formData.observacao);
+                if (!meta.grouped_card_launch || !meta.contribuicoes) return null;
+                const contribuicoesList = Object.entries(meta.contribuicoes).map(([vendaId, val]: [string, any]) => ({
+                  vendaId,
+                  ...(typeof val === 'object' ? val : { valor: val, rv: 'N/A', vendedor: 'N/A', cliente: 'N/A' })
+                }));
+
+                return (
+                  <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+                    <label className="block text-xs font-bold text-slate-400 uppercase flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400 font-extrabold">
+                        <Layers className="w-3.5 h-3.5" />
+                        Vendas de Origem Agrupadas ({meta.bandeira} {meta.modalidade})
+                      </span>
+                      <span className="text-[10px] bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-bold">
+                        {contribuicoesList.length} venda(s)
+                      </span>
+                    </label>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-400 font-bold uppercase text-[10px]">
+                            <th className="py-1.5 px-2">RV</th>
+                            <th className="py-1.5 px-2">Vendedor</th>
+                            <th className="py-1.5 px-2">Cliente</th>
+                            <th className="py-1.5 px-2 text-right">Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                          {contribuicoesList.map((item, idx) => (
+                            <tr key={idx} className="hover:bg-slate-100/50 dark:hover:bg-slate-800/60">
+                              <td className="py-1.5 px-2 font-bold text-slate-800 dark:text-white">{item.rv || 'N/A'}</td>
+                              <td className="py-1.5 px-2 text-slate-600 dark:text-slate-300">{item.vendedor || 'N/A'}</td>
+                              <td className="py-1.5 px-2 text-slate-600 dark:text-slate-300">{item.cliente || 'N/A'}</td>
+                              <td className="py-1.5 px-2 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                                {BRL.format(Number(item.valor || 0))}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              } catch {
+                return null;
+              }
+            })()}
 
             {/* HISTÓRICO DE CONCILIAÇÃO (BAIXAS) */}
             {isEditing && formData.baixas && formData.baixas.length > 0 && (

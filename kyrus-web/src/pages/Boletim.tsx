@@ -819,6 +819,8 @@ export function Boletim() {
     const contaPorId = new Map<number, PlanoContaResumo>();
     relevantes.forEach((conta) => contaPorId.set(conta.id, conta));
 
+    const resolvedDreGroupsCache: Record<number, string> = {};
+
     const classificarHeuristicaLegada = (contaId: number): 'DEDUCOES_RECEITA' | 'CUSTOS_VARIAVEIS' | 'DESPESAS_OPERACIONAIS' => {
       const partes: string[] = [];
       const visitados = new Set<number>();
@@ -842,11 +844,21 @@ export function Boletim() {
     };
 
     const resolverDreGrupo = (contaId: number): string => {
+      if (contaId in resolvedDreGroupsCache) {
+        return resolvedDreGroupsCache[contaId];
+      }
       const conta = contaPorId.get(contaId);
       const grupoNormalizado = String(conta?.dre_grupo || '').trim().toUpperCase();
-      if (grupoNormalizado) return grupoNormalizado;
-      if (conta && isReceita(conta.tipo)) return 'RECEITA_BRUTA';
-      return classificarHeuristicaLegada(contaId);
+      let res = grupoNormalizado;
+      if (!res) {
+        if (conta && isReceita(conta.tipo)) {
+          res = 'RECEITA_BRUTA';
+        } else {
+          res = classificarHeuristicaLegada(contaId);
+        }
+      }
+      resolvedDreGroupsCache[contaId] = res;
+      return res;
     };
 
     const EXCLUDED_BOLETIM_DRE_GROUPS = new Set([
@@ -884,7 +896,7 @@ export function Boletim() {
 
           let bandeira: string | null = null;
           let tipoPagamento: string | null = null;
-          if (item.observacao) {
+          if (item.observacao && item.observacao.trim().startsWith('{') && item.observacao.trim().endsWith('}')) {
             try {
               const meta = JSON.parse(item.observacao);
               tipoPagamento = meta.tipo_pagamento || meta.forma_pagamento || null;

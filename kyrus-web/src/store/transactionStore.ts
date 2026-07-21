@@ -556,7 +556,8 @@ function adjustBalanceForTx(tx: LancamentoResumo, mode: 'add' | 'remove') {
   const value = Number(tx.valor_pago || tx.valor_previsto || 0);
   if (value === 0) return;
 
-  const isReceipt = String(tx.tipo || '').toUpperCase() === 'RECEBIMENTO';
+  const tipoUpper = String(tx.tipo || '').toUpperCase();
+  const isReceipt = tipoUpper === 'RECEITA' || tipoUpper === 'RECEBIMENTO';
   let amount = 0;
   if (mode === 'add') {
     amount = isReceipt ? value : -value;

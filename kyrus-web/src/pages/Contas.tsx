@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useLookupStore } from '../store/lookupStore';
 import { useTabStore } from '../store/tabStore';
+import { useTransactionStore } from '../store/transactionStore';
 import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { BankAvatar } from '../components/BrandAvatar';
@@ -264,6 +265,9 @@ export function Contas() {
   // Tema Personalizado
   const empresa = useAuthStore((state) => state.empresa);
   const primaryColor = empresa?.cor_primaria || '#2563eb';
+  
+  const refreshCount = useTransactionStore((state) => state.refreshCount);
+  const initialLoadDone = useRef(false);
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState('');
@@ -487,9 +491,17 @@ export function Contas() {
   }
 
   useEffect(() => {
-    carregarDados();
     carregarUsuarios();
   }, []);
+
+  useEffect(() => {
+    if (!initialLoadDone.current) {
+      carregarDados(false);
+      initialLoadDone.current = true;
+    } else {
+      carregarDados(true);
+    }
+  }, [refreshCount]);
 
   useEffect(() => {
     if (!bankPresetsLoaded) {

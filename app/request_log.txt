@@ -27007,3 +27007,92 @@ ndedores
 <== REQUEST END: GET /api/v1/empresas/27 - 200
 ==> REQUEST START: GET /api/v1/lancamentos/
 <== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+ancarias/
+<== REQUEST END: GET /api/v1/auth/session - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber
+<== REQUEST END: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: GET /api/v1/usuarios/me
+
+<== REQUEST END: GET /api/v1/auth/session - 200
+<== REQUEST END: GET /api/v1/usuarios/me - 200
+==> REQUEST START: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+==> REQUEST START: GET /api/v1/pdv/config
+
+empresas
+o_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+==> REQUEST START: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+==> REQUEST START: OPTIONS /api/v1/consultor/meu-contexto
+<== REQUEST END: OPTIONS /api/v1/consultor/meu-contexto - 200
+==> REQUEST START: GET /api/v1/consultor/meu-contexto
+<== REQUEST END: GET /api/v1/consultor/meu-contexto - 200
+==> REQUEST START: GET /api/v1/consultor/meu-contexto
+<== REQUEST END: GET /api/v1/consultor/meu-contexto - 200
+==> REQUEST START: GET /static/logos/logo_27_0307f8ee.jpg
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /static/logos/logo_27_0307f8ee.jpg - 404
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/usuarios/me
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/usuarios/me - 200
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+<== REQUEST END: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+==> REQUEST START: GET /api/v1/centro-custo/
+os/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+==> REQUEST START: GET /api/v1/contas/
+ig
+<== REQUEST END: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+==> REQUEST START: GET /api/v1/empresas/27
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+==> REQUEST START: GET /static/logos/logo_27_0307f8ee.jpg
+<== REQUEST END: GET /static/logos/logo_27_0307f8ee.jpg - 404
+==> REQUEST START: GET /static/logos/logo_27_0307f8ee.jpg
+<== REQUEST END: GET /static/logos/logo_27_0307f8ee.jpg - 404
+==> REQUEST START: GET /api/v1/entidades/lookup
+es
+==> REQUEST START: GET /api/v1/pdv/vendas
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+<== REQUEST END: GET /api/v1/usuarios/vendedores - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/entidades/lookup - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/pdv/vendas - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/pdv/produtos - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200

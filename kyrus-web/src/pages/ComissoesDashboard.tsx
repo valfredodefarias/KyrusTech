@@ -3,7 +3,7 @@ import { useComissoesDashboard } from '../hooks/useComissoesDashboard';
 import { useAuthStore } from '../store/authStore';
 import { 
   RefreshCw, AlertCircle, Award, 
-  ChevronDown, ChevronUp, Target, Sparkles, UserCheck, Users, Share2, DollarSign
+  ChevronDown, ChevronUp, Target, Sparkles, UserCheck, Users, Share2, DollarSign, Search
 } from 'lucide-react';
 
 const formatBRL = (val: number, forceDecimals = false) => {
@@ -182,6 +182,8 @@ export function ComissoesDashboard() {
     return filtered.length > 0 ? filtered : data.vendedores;
   }, [data, isAdminOrConsultor, user]);
 
+  const [searchVendedorExterno, setSearchVendedorExterno] = useState('');
+
   // Consolidação de Vendedores Externos e Indicações
   const vendedoresExternosData = useMemo(() => {
     if (!data?.vendedores) return [];
@@ -203,6 +205,12 @@ export function ComissoesDashboard() {
 
     return Object.values(map);
   }, [data]);
+
+  const vendedoresExternosFiltrados = useMemo(() => {
+    if (!searchVendedorExterno.trim()) return vendedoresExternosData;
+    const term = searchVendedorExterno.toLowerCase();
+    return vendedoresExternosData.filter((ve) => ve.nome.toLowerCase().includes(term));
+  }, [vendedoresExternosData, searchVendedorExterno]);
 
   // Sync selected seller
   useEffect(() => {
@@ -363,21 +371,34 @@ export function ComissoesDashboard() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-3 bg-black/60 px-4 py-2 rounded-xl border border-amber-500/20">
-                <DollarSign className="w-4 h-4 text-emerald-400" />
-                <div className="text-right">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Total Comissão Externa</span>
-                  <span className="text-sm font-black text-emerald-400">
-                    R$ {formatBRL(vendedoresExternosData.reduce((acc, curr) => acc + (curr.total * (curr.pct / 100)), 0), true)}
-                  </span>
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-amber-500/70 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={searchVendedorExterno}
+                    onChange={(e) => setSearchVendedorExterno(e.target.value)}
+                    placeholder="Filtrar vendedor externo..."
+                    className="pl-9 pr-4 py-2 rounded-xl border border-amber-500/30 bg-black text-xs text-slate-200 outline-none focus:ring-1 focus:ring-amber-500 w-60 placeholder:text-slate-500 font-semibold"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 bg-black/60 px-4 py-2 rounded-xl border border-amber-500/20">
+                  <DollarSign className="w-4 h-4 text-emerald-400" />
+                  <div className="text-right">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Total Comissão Externa</span>
+                    <span className="text-sm font-black text-emerald-400">
+                      R$ {formatBRL(vendedoresExternosFiltrados.reduce((acc, curr) => acc + (curr.total * (curr.pct / 100)), 0), true)}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {vendedoresExternosData.length === 0 ? (
+            {vendedoresExternosFiltrados.length === 0 ? (
               <div className="text-center py-12 space-y-3 bg-black/30 rounded-xl border border-dashed border-amber-500/10">
                 <UserCheck className="w-10 h-10 text-slate-600 mx-auto" />
-                <p className="text-sm font-bold text-slate-400">Nenhuma venda externa / indicação registrada neste período.</p>
+                <p className="text-sm font-bold text-slate-400">Nenhum vendedor externo encontrado para os critérios selecionados.</p>
                 <p className="text-xs text-slate-500">Para registrar uma venda externa, selecione "Vendedor Externo" no Canal de Venda ao realizar um pedido no PDV.</p>
               </div>
             ) : (
@@ -393,7 +414,7 @@ export function ComissoesDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-amber-500/10 text-xs font-semibold text-slate-200">
-                    {vendedoresExternosData.map((ve, idx) => {
+                    {vendedoresExternosFiltrados.map((ve, idx) => {
                       const comissaoDevida = ve.total * (ve.pct / 100);
                       return (
                         <tr key={idx} className="hover:bg-amber-500/5 transition">

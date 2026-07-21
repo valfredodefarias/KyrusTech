@@ -4,6 +4,8 @@ from sqlmodel import Session, select
 from app.db.session import engine
 from app.models.usuario import Usuario
 from app.models.pdv_venda import PdvVenda
+from app.models.lancamento import Lancamento
+from app.models.empresa import Empresa
 from app.core.cache import clear_transaction_cache
 
 # Mapa de migração de IDs de vendedores: {ID_LEGADO: ID_ATIVO}
@@ -104,6 +106,35 @@ def migrate_legacy_vendedores(execute: bool = False):
         print("-" * 70)
         print(f"Total de vendas afetadas pela migração: {total_vendas_migradas}")
         print("-" * 70)
+
+        # 3. Atualizar pdv_config das empresas para incluir 'Google' e 'Vendedor Externo'
+        print("\n[Configurações] Atualizando canais de venda em pdv_config...")
+        import json
+        empresas = session.exec(select(Empresa)).all()
+        for emp in empresas:
+            if not emp.pdv_config:
+                continue
+            try:
+                cfg = json.loads(emp.pdv_config)
+                campos = cfg.get("campos_personalizados", [])
+                updated = False
+                for c in campos:
+                    if c.get("id") == "canal_venda":
+                        opts = c.get("options", [])
+                        for target_opt in ["Google", "Vendedor Externo"]:
+                            if target_opt not in opts:
+                                opts.append(target_opt)
+                                updated = True
+                        c["options"] = opts
+                if updated:
+                    cfg["campos_personalizados"] = campos
+                    print(f"  ➜ Atualizados canais de venda para Empresa ID {emp.id} ({emp.nome_fantasia or emp.razao_social})")
+                    if execute:
+                        emp.pdv_config = json.dumps(cfg)
+                        session.add(emp)
+                        empresas_afetadas.add(emp.id)
+            except Exception as e:
+                print(f"  ⚠ Erro ao atualizar pdv_config da empresa {emp.id}: {e}")
 
         if execute:
             session.commit()

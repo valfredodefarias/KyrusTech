@@ -1,5 +1,6 @@
 import sys
 import argparse
+import json
 from sqlmodel import Session, select
 from app.db.session import engine
 from app.models.usuario import Usuario
@@ -8,33 +9,42 @@ from app.models.lancamento import Lancamento
 from app.models.empresa import Empresa
 from app.core.cache import clear_transaction_cache
 
-# Mapa de migração de IDs de vendedores: {ID_LEGADO: ID_ATIVO}
-MIGRATION_MAP = {
-    35: 458,  # Joel (joel@kyrus_legado.com -> joelmir.15rowdry@gmail.com)
-    36: 31,   # Murillo (murillo@kyrus_legado.com -> murillosantos1@hotmail.com)
-    37: 457,  # Erick (erick@kyrus_legado.com -> erikbmaia@gmail.com)
-    38: 456,  # Danilo (danilo@kyrus_legado.com -> fernandesdan96@gmail.com / Dan Fernandes)
-    48: 51,   # Vendedor Legado -> LOJA (loja@kyrustechlegado.com)
-    49: 51,   # LOJA antigo -> LOJA principal
+# Configuração dinâmica de busca de alvos por e-mail ou palavras-chave no nome
+TARGET_CONFIG = {
+    35: {"email": "joelmir.15rowdry@gmail.com", "keywords": ["joel"], "fallback_id": 458},
+    36: {"email": "murillosantos1@hotmail.com", "keywords": ["murillo"], "fallback_id": 31},
+    37: {"email": "erikbmaia@gmail.com", "keywords": ["erik", "erick"], "fallback_id": 457},
+    38: {"email": "fernandesdan96@gmail.com", "keywords": ["dan", "danilo"], "fallback_id": 456},
+    48: {"email": "loja@kyrustechlegado.com", "keywords": ["loja"], "fallback_id": 51},
+    49: {"email": "loja@kyrustechlegado.com", "keywords": ["loja"], "fallback_id": 51},
 }
 
-# Vendedores ativos mantidos (não devem ser inativados)
-ACTIVE_SELLER_IDS = {
-    34,   # Silas
-    39,   # Guilherme (guilhermewanzeler239@gmail.com)
-    44,   # Santa Maria
-    45,   # Bragança
-    51,   # LOJA
-    31,   # Murillo
-    456,  # Dan Fernandes (Danilo)
-    457,  # Erik Maia
-    458,  # Joel
-}
+# Usuários a inativar no dropdown
+INACTIVE_EMAILS = [
+    "joel@kyrus_legado.com", "murillo@kyrus_legado.com", "erick@kyrus_legado.com",
+    "danilo@kyrus_legado.com", "adson@kyrus_legado.com", "breno@kyrus_legado.com",
+    "christiano@kyrus_legado.com", "raphael@kyrus_legado.com", "william@kyrus_legado.com",
+    "adriano@kyrus_legado.com"
+]
 
-# Vendedores legados a inativar no dropdown de usuários ativos
-INACTIVE_SELLER_IDS = {
-    35, 36, 37, 38, 40, 41, 42, 43, 46, 47, 48, 49
-}
+def find_target_user(session: Session, cfg: dict) -> Usuario | None:
+    # 1. Tentar por e-mail exato
+    if cfg.get("email"):
+        user = session.exec(select(Usuario).where(Usuario.email == cfg["email"])).first()
+        if user:
+            return user
+    # 2. Tentar por palavras-chave no nome entre usuários ativos
+    all_users = session.exec(select(Usuario)).all()
+    for kw in cfg.get("keywords", []):
+        for u in all_users:
+            if kw in (u.nome or "").lower() and u.is_active:
+                return u
+    # 3. Fallback por ID se existir
+    if cfg.get("fallback_id"):
+        user = session.get(Usuario, cfg["fallback_id"])
+        if user:
+            return user
+    return None
 
 def migrate_legacy_vendedores(execute: bool = False):
     print("=" * 70)
@@ -42,34 +52,33 @@ def migrate_legacy_vendedores(execute: bool = False):
     print("=" * 70)
 
     with Session(engine) as session:
-        # 1. Ajustar status is_active dos usuários mantidos e inativados
-        print("[Setup] Atualizando status is_active dos vendedores...")
-        for uid in ACTIVE_SELLER_IDS:
-            u = session.get(Usuario, uid)
-            if u:
-                if hasattr(u, "is_active") and not u.is_active:
-                    print(f"  ➜ Ativando usuário: {u.nome} (ID {u.id})")
-                    if execute:
-                        u.is_active = True
-                        session.add(u)
+        # 1. Inativar contas legadas duplicadas
+        print("[Setup] Atualizando status de contas legadas...")
+        for email in INACTIVE_EMAILS:
+            u = session.exec(select(Usuario).where(Usuario.email == email)).first()
+            if u and hasattr(u, "is_active") and u.is_active:
+                print(f"  ➜ Inativando usuário legado duplicado: {u.nome} ({u.email})")
+                if execute:
+                    u.is_active = False
+                    session.add(u)
 
-        for uid in INACTIVE_SELLER_IDS:
-            u = session.get(Usuario, uid)
-            if u:
-                if hasattr(u, "is_active") and u.is_active:
-                    print(f"  ➜ Inativando usuário legado: {u.nome} (ID {u.id})")
-                    if execute:
-                        u.is_active = False
-                        session.add(u)
-
-        # 2. Processar o mapeamento de migração de vendas
+        # 2. Processar o mapeamento dinâmico de migração de vendas e lançamentos
         total_vendas_migradas = 0
         empresas_afetadas = set()
 
-        print("\n[Migração] Reatribuindo vendas do PDV...")
-        for source_id, target_id in MIGRATION_MAP.items():
+        print("\n[Migração] Reatribuindo vendas do PDV e Lançamentos...")
+        for source_id, cfg in TARGET_CONFIG.items():
             source_user = session.get(Usuario, source_id)
-            target_user = session.get(Usuario, target_id)
+            target_user = find_target_user(session, cfg)
+
+            if not target_user:
+                print(f"  ⚠ ALERTA: Usuário alvo para o legado ID {source_id} não foi encontrado no banco!")
+                continue
+
+            target_id = target_user.id
+            if execute and hasattr(target_user, "is_active") and not target_user.is_active:
+                target_user.is_active = True
+                session.add(target_user)
 
             s_nome = source_user.nome if source_user else f"ID {source_id}"
             t_nome = target_user.nome if target_user else f"ID {target_id}"
@@ -109,14 +118,13 @@ def migrate_legacy_vendedores(execute: bool = False):
 
         # 3. Atualizar pdv_config das empresas para incluir 'Google' e 'Vendedor Externo'
         print("\n[Configurações] Atualizando canais de venda em pdv_config...")
-        import json
         empresas = session.exec(select(Empresa)).all()
         for emp in empresas:
             if not emp.pdv_config:
                 continue
             try:
-                cfg = json.loads(emp.pdv_config)
-                campos = cfg.get("campos_personalizados", [])
+                cfg_data = json.loads(emp.pdv_config)
+                campos = cfg_data.get("campos_personalizados", [])
                 updated = False
                 for c in campos:
                     if c.get("id") == "canal_venda":
@@ -127,10 +135,10 @@ def migrate_legacy_vendedores(execute: bool = False):
                                 updated = True
                         c["options"] = opts
                 if updated:
-                    cfg["campos_personalizados"] = campos
+                    cfg_data["campos_personalizados"] = campos
                     print(f"  ➜ Atualizados canais de venda para Empresa ID {emp.id} ({emp.nome_fantasia or emp.razao_social})")
                     if execute:
-                        emp.pdv_config = json.dumps(cfg)
+                        emp.pdv_config = json.dumps(cfg_data)
                         session.add(emp)
                         empresas_afetadas.add(emp.id)
             except Exception as e:

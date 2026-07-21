@@ -270,6 +270,29 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
     vendedor_nome: Optional[str] = None,
     cliente_nome: Optional[str] = None,
 ) -> None:
+    # Obter ou criar entidade "Recebimento Cartões"
+    entidade_nome = "Recebimento Cartões"
+    entidade = db.exec(
+        select(Entidade)
+        .where(
+            Entidade.empresa_id == empresa_id,
+            Entidade.nome == entidade_nome
+        )
+    ).first()
+    
+    if not entidade:
+        entidade = Entidade(
+            nome=entidade_nome,
+            empresa_id=empresa_id,
+            tipo="AMBOS",
+            tipo_pessoa="PJ",
+            status="ATIVO",
+            created_by_id=current_user_id,
+            updated_by_id=current_user_id
+        )
+        db.add(entidade)
+        db.flush()
+
     l = db.exec(
         select(Lancamento)
         .where(
@@ -314,6 +337,7 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
             if isinstance(item, dict) and item.get("status") == "REALIZADO"
         )
         l.valor_previsto = total_previsto
+        l.entidade_id = entidade.id
         l.observacao = json.dumps(meta)
         l.updated_by_id = current_user_id
         l.updated_at = datetime.utcnow()
@@ -349,6 +373,7 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
             empresa_id=empresa_id,
             plano_contas_id=plano_id,
             conta_id=conta_id,
+            entidade_id=entidade.id,
             centro_custo_id=centro_custo_id,
             observacao=json.dumps(meta),
             is_deleted=False,

@@ -265,9 +265,9 @@ export function Lancamentos({
       const mes = mesAtual.getMonth() + 1;
       const ini = new Date(ano, mes - 1, 1).toISOString().split('T')[0];
       const fim = new Date(ano, mes, 0).toISOString().split('T')[0];
-      loadLancamentos(ini, fim);
+      loadLancamentos(ini, fim, { silent: true });
     } else {
-      loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim);
+      loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { silent: true });
     }
   }, [
     currentEmpresaId,
@@ -429,13 +429,17 @@ export function Lancamentos({
 
 
 
-  async function loadLancamentos(ini?: string, fim?: string, opts?: { force?: boolean; skipFallback?: boolean }) {
+  async function loadLancamentos(
+    ini?: string,
+    fim?: string,
+    opts?: { force?: boolean; skipFallback?: boolean; silent?: boolean }
+  ) {
     const rawIds = searchParams.get('boletim_ids') || '';
     const key = `${currentEmpresaId ?? ''}|${ini || ''}|${fim || ''}|${filtrosAvancados.ocultarVendasCartaoPendentes}|${rawIds}`;
     const isCacheMatch = key === useTransactionStore.getState().pagedCacheKey;
     const hasCachedItems = useTransactionStore.getState().pagedLancamentos.length > 0;
 
-    if (!opts?.force && key === lastLancamentosKeyRef.current && hasCachedItems) {
+    if (!opts?.force && !opts?.silent && key === lastLancamentosKeyRef.current && hasCachedItems) {
       setLoading(false);
       return;
     }
@@ -447,13 +451,15 @@ export function Lancamentos({
     const controller = new AbortController();
     lancamentosAbortRef.current = controller;
 
-    if (!isCacheMatch || !hasCachedItems || opts?.force) {
-      setLoading(true);
-      if (!isCacheMatch) {
-        setPagedLancamentos(key, []);
+    if (!opts?.silent) {
+      if (!isCacheMatch || !hasCachedItems || opts?.force) {
+        setLoading(true);
+        if (!isCacheMatch) {
+          setPagedLancamentos(key, []);
+        }
+      } else {
+        setLoading(false);
       }
-    } else {
-      setLoading(false);
     }
 
     try {
@@ -478,7 +484,9 @@ export function Lancamentos({
     } finally {
       if (lancamentosAbortRef.current === controller) {
         lancamentosAbortRef.current = null;
-        setLoading(false);
+        if (!opts?.silent) {
+          setLoading(false);
+        }
       }
     }
   }

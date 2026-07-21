@@ -66,6 +66,7 @@ kyrus-web/.env
 
 # Docker
 docker-compose.local.yml
+limpar_docker.bat
 
 # OS
 .DS_Store

@@ -334,6 +334,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
     // 3. Mark all caches as stale by deleting timestamps
     set({
       cacheTimestamps: {},
+      pagedCacheKey: '',
     });
   },
 

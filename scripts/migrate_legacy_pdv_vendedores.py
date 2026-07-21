@@ -76,8 +76,13 @@ def migrate_legacy_vendedores(execute: bool = False):
                 select(PdvVenda).where(PdvVenda.vendedor_id == source_id)
             ).all()
 
+            launches = session.exec(
+                select(Lancamento).where(Lancamento.created_by_id == source_id)
+            ).all()
+
             count = len(vendas)
-            print(f"➜ De: {s_nome:25s} (ID {source_id:3d}) ➔ Para: {t_nome:25s} (ID {target_id:3d}) | Vendas: {count:6d}")
+            l_count = len(launches)
+            print(f"➜ De: {s_nome:25s} (ID {source_id:3d}) ➔ Para: {t_nome:25s} (ID {target_id:3d}) | Vendas: {count:6d} | Lançamentos: {l_count:6d}")
 
             if count > 0:
                 for v in vendas:
@@ -87,6 +92,14 @@ def migrate_legacy_vendedores(execute: bool = False):
                     if v.empresa_id:
                         empresas_afetadas.add(v.empresa_id)
                 total_vendas_migradas += count
+
+            if l_count > 0:
+                for l in launches:
+                    if execute:
+                        l.created_by_id = target_id
+                        session.add(l)
+                    if l.empresa_id:
+                        empresas_afetadas.add(l.empresa_id)
 
         print("-" * 70)
         print(f"Total de vendas afetadas pela migração: {total_vendas_migradas}")

@@ -95,6 +95,16 @@ export function Lancamentos({
   const [entidades, setEntidades] = useState<any[]>([]);
   const [categorias, setCategorias] = useState<any[]>([]);
 
+  const categoriasPorId = useMemo(() => {
+    return new Map(categorias.map((categoria: any) => [Number(categoria.id), String(categoria.nome || '')]));
+  }, [categorias]);
+
+  const entidadesPorId = useMemo(() => {
+    return new Map(
+      entidades.map((entidade: any) => [Number(entidade.id), String(entidade.nome || entidade.razao_social || '')])
+    );
+  }, [entidades]);
+
   // --- UI STATE ---
   const [mesAtual, setMesAtual] = useState(new Date());
   const [filtroTexto, setFiltroTexto] = useState('');
@@ -577,10 +587,6 @@ export function Lancamentos({
 
   const filteredList = useMemo(() => {
     const termoBusca = filtroTexto.trim().toLowerCase();
-    const categoriasPorId = new Map(categorias.map((categoria: any) => [Number(categoria.id), String(categoria.nome || '')]));
-    const entidadesPorId = new Map(
-      entidades.map((entidade: any) => [Number(entidade.id), String(entidade.nome || entidade.razao_social || '')])
-    );
 
     return lancamentos.filter((l) => {
       if (boletimIdsFiltro && boletimIdsFiltro.size > 0 && !boletimIdsFiltro.has(Number(l.id))) {
@@ -671,8 +677,8 @@ export function Lancamentos({
     filtroRapidoIpp,
     filtrosAvancados,
     contaExtratoAtivaId,
-    categorias,
-    entidades,
+    categoriasPorId,
+    entidadesPorId,
   ]);
 
   const contasFiltradas = useMemo(() => {
@@ -712,12 +718,7 @@ export function Lancamentos({
     let r = 0,
       d = 0;
     const categoriasOperacionaisResultado = buildOperationalCategoriaIds(categorias);
-    const interessadosPorId = new Map(
-      entidades.map((entidade: any) => [
-        Number(entidade.id),
-        String(entidade.nome || entidade.razao_social || ''),
-      ])
-    );
+    const interessadosPorId = entidadesPorId;
 
     const statusRank = (item: Lancamento) => {
       const pago = String(item.status).toUpperCase() === 'PAGO';
@@ -765,7 +766,7 @@ export function Lancamentos({
     sortedDates.forEach((date) => groups[date].sort(compareLancamentos));
 
     return { grouped: { groups, sortedDates }, kpis: { r, d, s: r - d } };
-  }, [filteredList, categorias, entidades, listaSort]);
+  }, [filteredList, categorias, entidadesPorId, listaSort]);
 
 
 

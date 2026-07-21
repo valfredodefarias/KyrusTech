@@ -30,6 +30,30 @@ Esta documentação serve de guia técnico para desenvolvedores (e agentes de IA
 *   **Como Evitar**:
     - **Throttling de Gravação**: Implemente uma verificação de tempo limite para a atualização. Grave o registro no banco de dados apenas se o intervalo decorrido desde a última gravação em disco for maior do que um limiar aceitável (ex: 60 segundos).
 
+### D. O Bug de Ausência de Colunas na Query Minimizada (Grid de Lançamentos)
+*   **O Problema**: Marcar um lançamento como IPP (ou editar previsto/conciliado) no frontend enviava o PUT correto para o backend, mas, ao recarregar a tabela principal de Lançamentos, o estado do checkbox continuava desmarcado na tela.
+*   **Causa Raiz**: O endpoint `/api/v1/lancamentos/` no modo otimizado (`minimized=true`) não selecionava as colunas `ipp`, `previsto`, `conciliado` e `numero_parcela` na query SQL nem serializava estes atributos no dicionário final de resposta. O frontend recebia estes valores como `undefined` e renderizava o estado desmarcado.
+*   **Como Evitar**:
+    - Ao criar queries SQL personalizadas no SQLAlchemy para otimização de payload (minimização), assegure-se de mapear explicitamente todos os atributos essenciais para a renderização do estado dos componentes no frontend.
+
+### E. O Bug de Corrupção do Saldo Bancário em Memória (Receipt vs. Revenue Mismatch)
+*   **O Problema**: Ao criar, pagar ou atualizar um lançamento do tipo Receita no frontend, o saldo bancário da conta no cabeçalho e na aba de contas era decrementado (subtraído) em vez de incrementado (somado), corrompendo a visualização dos saldos em tempo real até o F5.
+*   **Causa Raiz**: O helper de ajuste de saldo local `adjustBalanceForTx` no frontend validava `tx.tipo` com a string `'RECEBIMENTO'`, enquanto o backend e o restante do frontend salvam o tipo da transação como `'RECEITA'`. Isso fazia com que todas as receitas caíssem na regra de despesa, subtraindo o valor do saldo.
+*   **Como Evitar**:
+    - Mantenha conformidade exata nos enums e chaves de tipagem entre o banco de dados e os cálculos locais em memória do cliente. Utilize verificações robustas (como `.toUpperCase()` e mapeamento de enums) para evitar descompasso.
+
+### F. O Gargalo de Processamento CPU-bound no Boletim (Redundant Category Tree Climbs)
+*   **O Problema**: Em bases de dados com milhares de lançamentos, aplicar filtros ou navegar no Boletim causava lentidão, quedas de frames da tela (UI lag) e travamento das abas Keep-Alive do navegador.
+*   **Causa Raiz**: A função de classificação da DRE subia recursivamente a árvore hierárquica de categorias pai/filho para cada lançamento individual no loop da tabela. Isso repetia milhares de buscas repetidas para a mesma categoria.
+*   **Como Evitar**:
+    - **Memoização local**: Cacheie resultados de funções complexas de travessia de grafos/árvores em objetos locais de lookup durante iterações de loops pesados para evitar repetições desnecessárias.
+
+### G. O Gargalo de JS Exception Overhead por JSON.parse de Observações
+*   **O Problema**: Travamento e lentidão adicionais na renderização e filtragem do Boletim sob grandes volumes de lançamentos.
+*   **Causa Raiz**: O loop de mapeamento executava `JSON.parse` cegamente na coluna `observacao` de todos os lançamentos para ler metadados. Como a grande maioria dos registros possui textos planos (não JSON), o JavaScript gerava e capturava milhares de exceções por segundo, gerando enorme overhead de CPU e lixo para o Garbage Collector.
+*   **Como Evitar**:
+    - Faça checagens superficiais eficientes (ex: validar se a string começa com `{` e termina com `}`) antes de submeter uma entrada a analisadores sintáticos estruturados como o `JSON.parse`.
+
 ---
 
 ## ⚡ 2. Boas Práticas de Performance em Banco de Dados

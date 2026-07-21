@@ -367,7 +367,7 @@ export function Dre() {
         await Promise.all([
           fetchPlanoContas(),
           fetchCentrosCusto(),
-          fetchYearTransactions(ano),
+          fetchYearTransactions(ano, true),
         ]);
 
         if (active) {

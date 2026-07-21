@@ -220,13 +220,13 @@ export function ComissoesDashboard() {
 
   const getTierInfo = (atingimento: number) => {
     if (atingimento >= 110) {
-      return { label: 'Lendário 💎', style: 'text-cyan-400 border-cyan-400/40 bg-cyan-950/20 shadow-[0_0_10px_rgba(34,211,238,0.2)]' };
+      return { label: 'Meta Superada (110%+)', style: 'text-emerald-400 border-emerald-500/40 bg-emerald-950/20' };
     } else if (atingimento >= 100) {
-      return { label: 'Ouro 🥇', style: 'text-yellow-400 border-yellow-400/40 bg-yellow-950/20 shadow-[0_0_10px_rgba(250,204,21,0.2)]' };
+      return { label: 'Meta Atingida (100%)', style: 'text-amber-400 border-amber-400/40 bg-amber-950/20' };
     } else if (atingimento >= 80) {
-      return { label: 'Prata 🥈', style: 'text-slate-300 border-slate-300/40 bg-slate-800/20 shadow-[0_0_10px_rgba(203,213,225,0.1)]' };
+      return { label: 'Em Progresso (80%+)', style: 'text-blue-400 border-blue-400/40 bg-blue-950/20' };
     } else {
-      return { label: 'Bronze 🥉', style: 'text-amber-600 border-amber-600/40 bg-amber-950/10' };
+      return { label: 'Em Acompanhamento', style: 'text-slate-400 border-slate-700 bg-slate-900/40' };
     }
   };
 
@@ -235,7 +235,7 @@ export function ComissoesDashboard() {
     || null;
 
   return (
-    <div className="flex flex-col h-full bg-[#030303] min-h-screen text-white font-sans overflow-hidden">
+    <div className="flex flex-col h-full bg-[#030303] min-h-screen text-white font-sans overflow-y-auto pb-12">
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(8px); }
@@ -300,14 +300,14 @@ export function ComissoesDashboard() {
           <div className="flex min-h-[500px] items-center justify-center rounded-xl border border-dashed border-amber-500/20 bg-black/40">
             <div className="text-center space-y-3">
               <RefreshCw className="w-8 h-8 animate-spin text-amber-500 mx-auto" />
-              <p className="text-sm font-semibold text-slate-400 uppercase tracking-widest">Carregando Arena de Metas...</p>
+              <p className="text-sm font-semibold text-slate-400 uppercase tracking-widest">Carregando Revisor...</p>
             </div>
           </div>
         ) : error ? (
           <div className="flex min-h-[500px] items-center justify-center rounded-xl border border-dashed border-rose-900/50 bg-rose-950/10 px-6">
             <div className="text-center space-y-3 max-w-md">
               <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
-              <h3 className="text-lg font-bold text-white">Falha na Arena de Conquistas</h3>
+              <h3 className="text-lg font-bold text-white">Falha ao carregar Revisor</h3>
               <p className="text-sm text-slate-400 leading-relaxed">{error}</p>
               <button 
                 onClick={() => refetch()}
@@ -321,7 +321,7 @@ export function ComissoesDashboard() {
           <div className="flex min-h-[500px] items-center justify-center rounded-xl border border-dashed border-amber-500/20 bg-black/40">
             <div className="text-center space-y-2">
               <Award className="w-8 h-8 text-slate-700 mx-auto" />
-              <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Nenhum guerreiro de vendas registrado no período.</p>
+              <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Nenhum vendedor registrado no período.</p>
             </div>
           </div>
         ) : (
@@ -354,11 +354,11 @@ export function ComissoesDashboard() {
                     )}
                   </div>
 
-                  {/* Medal/Rank display */}
+                  {/* Status / Meta display */}
                   {selectedVendedor && (
                     <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-black tracking-wider uppercase ${getTierInfo(selectedVendedor.atingimento_pct).style}`}>
-                      <Sparkles className="w-3.5 h-3.5 animate-pulse" />
-                      Rank: {getTierInfo(selectedVendedor.atingimento_pct).label}
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Status: {getTierInfo(selectedVendedor.atingimento_pct).label}
                     </div>
                   )}
                 </div>
@@ -449,8 +449,8 @@ export function ComissoesDashboard() {
               <div className="border border-amber-500/25 bg-[#08080a]/90 rounded-xl p-6 shadow-[0_0_20px_rgba(217,119,6,0.03)]">
                 <div className="flex items-center justify-between text-xs font-black uppercase tracking-wider mb-2">
                   <span className="flex items-center gap-1.5 text-amber-400">
-                    <Award className="w-4 h-4 animate-bounce" />
-                    Progresso de Nível (Atingimento da Meta)
+                    <Award className="w-4 h-4 text-amber-500" />
+                    Atingimento da Meta
                   </span>
                   <span className="text-amber-500">{selectedVendedor.atingimento_pct}% Concluído</span>
                 </div>

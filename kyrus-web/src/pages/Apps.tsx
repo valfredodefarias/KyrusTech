@@ -129,7 +129,7 @@ export function Apps() {
         setPdvSangriaSaidaPlanoContasId(response.data.pdv_sangria_saida_plano_contas_id ?? '');
         setPdvSangriaEntradaPlanoContasId(response.data.pdv_sangria_entrada_plano_contas_id ?? '');
         setPdvConfigMarcadoPago(response.data.marcar_como_pago || {});
-        setFormasPagamento(response.data.formas_pagamento && response.data.formas_pagamento.length > 0 ? response.data.formas_pagamento : [
+        let loadedFormas = [
           { key: 'dinheiro', label: 'Dinheiro', parcelada: false, ativa: true },
           { key: 'pix_chave', label: 'PIX (Chave)', parcelada: false, ativa: true },
           { key: 'pix_qr', label: 'PIX (QR Code)', parcelada: false, ativa: true },
@@ -137,7 +137,15 @@ export function Apps() {
           { key: 'cartao_credito_vista', label: 'Cartão de Crédito (À Vista)', parcelada: false, ativa: true },
           { key: 'cartao_credito_parcelado', label: 'Cartão de Crédito (Parcelado)', parcelada: true, ativa: true },
           { key: 'boleto', label: 'Boleto', parcelada: true, ativa: true }
-        ]);
+        ];
+        if (response.data.formas_pagamento && response.data.formas_pagamento.length > 0) {
+          const parsedKeys = new Set(response.data.formas_pagamento.map((f: any) => f.key));
+          loadedFormas = [
+            ...response.data.formas_pagamento,
+            ...loadedFormas.filter((df) => !parsedKeys.has(df.key))
+          ];
+        }
+        setFormasPagamento(loadedFormas);
         setPdvConfigCategorias(response.data.categorias || {});
         setPdvConfigContas(response.data.contas || {});
       }

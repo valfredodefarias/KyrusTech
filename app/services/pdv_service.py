@@ -117,6 +117,52 @@ def shift_months(base_date: date, months: int) -> date:
     return date(year, month, day)
 
 
+def obter_categoria_pagamento(
+    db: Session,
+    empresa_id: int,
+    tipo_pagamento: str,
+    config_categorias: dict,
+    plano_fallback_id: int
+) -> int:
+    plano_id_str = config_categorias.get(tipo_pagamento)
+    if plano_id_str:
+        try:
+            return int(plano_id_str)
+        except ValueError:
+            pass
+
+    tipo_pagamento_lower = tipo_pagamento.lower()
+    search_terms = []
+    if "debito" in tipo_pagamento_lower:
+        search_terms = ["débito", "debito"]
+    elif "credito" in tipo_pagamento_lower:
+        search_terms = ["crédito", "credito"]
+    elif "pix" in tipo_pagamento_lower:
+        search_terms = ["pix"]
+    elif "dinheiro" in tipo_pagamento_lower:
+        search_terms = ["dinheiro", "caixa"]
+    elif "boleto" in tipo_pagamento_lower:
+        search_terms = ["boleto"]
+
+    if search_terms:
+        categorias = db.exec(
+            select(PlanoContas)
+            .where(
+                PlanoContas.empresa_id == empresa_id,
+                PlanoContas.tipo == "R",
+                PlanoContas.eh_cabecalho == False,
+                PlanoContas.is_deleted == False
+            )
+        ).all()
+
+        for cat in categorias:
+            nome_normalizado = cat.nome.lower()
+            if any(term in nome_normalizado for term in search_terms):
+                return int(cat.id)
+
+    return plano_fallback_id
+
+
 def obter_regra_cartao(
     db: Session,
     empresa_id: int,
@@ -1213,7 +1259,7 @@ class PdvService:
 
         # 7. Criar os lançamentos financeiros correspondentes a cada pagamento
         for p in venda_in.pagamentos:
-            plano_id = int(config_categorias.get(p.tipo_pagamento) or plano_fallback_id)
+            plano_id = obter_categoria_pagamento(db, empresa_id, p.tipo_pagamento, config_categorias, plano_fallback_id)
             conta_id_str = config_contas.get(p.tipo_pagamento)
             conta_id = int(conta_id_str) if conta_id_str else None
 
@@ -1536,6 +1582,16 @@ class PdvService:
         """
         Atualiza uma venda existente substituindo seus lançamentos pelos novos informados.
         """
+        # Query active launches of the sale BEFORE deleting/updating them
+        launches_antigos = db.exec(
+            select(Lancamento)
+            .where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.id_parcelamento == venda_id
+            )
+        ).all()
+
         # 1. Validar travas de segurança e remover contribuições/lançamentos antigos
         remover_contribuicoes_venda(db, empresa_id, venda_id, current_user_id)
 
@@ -1848,7 +1904,7 @@ class PdvService:
         desconto_ja_atribuido = False
 
         for p in venda_in.pagamentos:
-            plano_id = int(config_categorias.get(p.tipo_pagamento) or plano_fallback_id)
+            plano_id = obter_categoria_pagamento(db, empresa_id, p.tipo_pagamento, config_categorias, plano_fallback_id)
             conta_id_str = config_contas.get(p.tipo_pagamento)
             conta_id = int(conta_id_str) if conta_id_str else None
 
@@ -1967,6 +2023,7 @@ class PdvService:
                     launches_created.append(l)
                 desconto_ja_atribuido = True
             else:
+                is_card = bool(regra) or ("cartao" in (p.tipo_pagamento or "").lower())
                 if regra:
                     vencimento = calcular_payout_date(hoje_pag, regra)
                     fee_percentage = regra.taxa_porcentagem
@@ -1978,47 +2035,73 @@ class PdvService:
                     fee_amount = Decimal("0.00")
                     liquid_value = p.valor
 
-                obs_data = dados_observacao_base.copy()
-                obs_data["tipo_pagamento"] = p.tipo_pagamento
-                if regra:
-                    obs_data["bandeira"] = regra.bandeira
-                    obs_data["cartao_taxa"] = float(fee_percentage)
-                    obs_data["cartao_taxa_valor"] = float(fee_amount)
-                    obs_data["cartao_liquido_previsto"] = float(liquid_value)
-                    obs_data["cartao_regra_id"] = regra.id
+                if is_card:
+                    bandeira_nome = (regra.bandeira if regra else p.bandeira) or "Outros"
+                    fmt_desc = format_card_description(bandeira_nome, p.tipo_pagamento)
+                    vendedor_nome = vendedor.nome if vendedor else "N/A"
+                    cliente_nome = entidade.nome if entidade else "N/A"
 
-                l = Lancamento(
-                    descricao=f"Venda RV-AUTOGERADO - {descricao_geral[:200]}",
-                    tipo="RECEITA",
-                    status="PAGO" if is_paid else "EM ABERTO",
-                    origem="PDV",
-                    valor_previsto=p.valor,
-                    valor_pago=p.valor if is_paid else Decimal("0.00"),
-                    valor_juros=Decimal("0.00"),
-                    valor_desconto=Decimal("0.00") if desconto_ja_atribuido else venda_in.desconto,
-                    valor_multa=Decimal("0.00"),
-                    data_vencimento=vencimento,
-                    data_pagamento=hoje_pag if is_paid else None,
-                    data_competencia=hoje_pag,
-                    empresa_id=empresa_id,
-                    plano_contas_id=plano_id,
-                    conta_id=conta_id,
-                    entidade_id=venda_in.entidade_id,
-                    centro_custo_id=venda_in.centro_custo_id,
-                    created_by_id=venda_in.vendedor_id,
-                    updated_by_id=current_user_id,
-                    observacao=json.dumps(obs_data),
-                    is_deleted=False,
-                    ipp=False,
-                    previsto=True,
-                    conciliado=False,
-                    id_parcelamento=venda_id,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                db.add(l)
-                launches_created.append(l)
-                desconto_ja_atribuido = True
+                    adicionar_ou_atualizar_recebivel_cartao_agrupado(
+                        db=db,
+                        empresa_id=empresa_id,
+                        venda_id=venda_id,
+                        vencimento=vencimento,
+                        valor=p.valor,
+                        formatted_desc=fmt_desc,
+                        plano_id=plano_id,
+                        conta_id=conta_id,
+                        centro_custo_id=venda_in.centro_custo_id,
+                        hoje_pag=hoje_pag,
+                        bandeira=bandeira_nome,
+                        modality="Debito" if "debito" in fmt_desc.lower() else "Credito",
+                        current_user_id=current_user_id,
+                        venda_rv=venda_in.rv,
+                        vendedor_nome=vendedor_nome,
+                        cliente_nome=cliente_nome,
+                    )
+                    desconto_ja_atribuido = True
+                else:
+                    obs_data = dados_observacao_base.copy()
+                    obs_data["tipo_pagamento"] = p.tipo_pagamento
+                    if regra:
+                        obs_data["bandeira"] = regra.bandeira
+                        obs_data["cartao_taxa"] = float(fee_percentage)
+                        obs_data["cartao_taxa_valor"] = float(fee_amount)
+                        obs_data["cartao_liquido_previsto"] = float(liquid_value)
+                        obs_data["cartao_regra_id"] = regra.id
+
+                    l = Lancamento(
+                        descricao=f"Venda RV-AUTOGERADO - {descricao_geral[:200]}",
+                        tipo="RECEITA",
+                        status="PAGO" if is_paid else "EM ABERTO",
+                        origem="PDV",
+                        valor_previsto=p.valor,
+                        valor_pago=p.valor if is_paid else Decimal("0.00"),
+                        valor_juros=Decimal("0.00"),
+                        valor_desconto=Decimal("0.00") if desconto_ja_atribuido else venda_in.desconto,
+                        valor_multa=Decimal("0.00"),
+                        data_vencimento=vencimento,
+                        data_pagamento=hoje_pag if is_paid else None,
+                        data_competencia=hoje_pag,
+                        empresa_id=empresa_id,
+                        plano_contas_id=plano_id,
+                        conta_id=conta_id,
+                        entidade_id=venda_in.entidade_id,
+                        centro_custo_id=venda_in.centro_custo_id,
+                        created_by_id=venda_in.vendedor_id,
+                        updated_by_id=current_user_id,
+                        observacao=json.dumps(obs_data),
+                        is_deleted=False,
+                        ipp=False,
+                        previsto=True,
+                        conciliado=False,
+                        id_parcelamento=venda_id,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(l)
+                    launches_created.append(l)
+                    desconto_ja_atribuido = True
 
         # 7.2. Criar lançamentos de despesas extras associadas (splits)
         campos_config = pdv_config_dict.get("campos_personalizados", [])

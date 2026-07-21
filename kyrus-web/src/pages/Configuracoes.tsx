@@ -750,7 +750,11 @@ const ConfiguracoesPDV = () => {
           try {
             const parsed = JSON.parse(currentEmpresa.pdv_config);
             if (parsed.formas_pagamento && Array.isArray(parsed.formas_pagamento)) {
-              loadedFormas = parsed.formas_pagamento;
+              const parsedKeys = new Set(parsed.formas_pagamento.map((f: any) => f.key));
+              loadedFormas = [
+                ...parsed.formas_pagamento,
+                ...defaultFormas.filter((df) => !parsedKeys.has(df.key))
+              ];
             }
             if (parsed.categorias) {
               setPdvConfigCategorias((prev) => ({ ...prev, ...parsed.categorias }));

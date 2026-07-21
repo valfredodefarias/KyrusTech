@@ -233,10 +233,15 @@ export function Caixa() {
       try {
         const parsed = JSON.parse(empresa.pdv_config);
         if (parsed.formas_pagamento && Array.isArray(parsed.formas_pagamento)) {
-          list = parsed.formas_pagamento.map((item: any) => ({
+          const parsedKeys = new Set(parsed.formas_pagamento.map((f: any) => f.key));
+          const dbList = parsed.formas_pagamento.map((item: any) => ({
             key: item.key,
             label: item.label,
           }));
+          list = [
+            ...dbList,
+            ...list.filter((df) => !parsedKeys.has(df.key))
+          ];
         }
       } catch (e) {
         console.error('Erro ao ler formas de pagamento do pdv_config', e);

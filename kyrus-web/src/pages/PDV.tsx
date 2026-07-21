@@ -754,7 +754,11 @@ export function PDV() {
       try {
         const parsed = JSON.parse(empresa.pdv_config);
         if (parsed.formas_pagamento && Array.isArray(parsed.formas_pagamento)) {
-          list = parsed.formas_pagamento;
+          const parsedKeys = new Set(parsed.formas_pagamento.map((f: any) => f.key));
+          list = [
+            ...parsed.formas_pagamento,
+            ...list.filter((df) => !parsedKeys.has(df.key))
+          ];
         }
       } catch (e) {
         console.error('Erro ao fazer parse de pdv_config em PDV.tsx', e);

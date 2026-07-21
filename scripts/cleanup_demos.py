@@ -70,11 +70,13 @@ def _execute_cleanup(session: Session, cutoff: datetime.datetime, hours_threshol
             
             # 1. UserSession e AccessProfilePermission e AnexoLancamento e UsuarioContaAcesso
             if users_ids:
-                session.execute(text("DELETE FROM user_sessions WHERE user_id = ANY(:ids)"), {"ids": users_ids})
-                session.execute(text("DELETE FROM usuario_conta_acesso WHERE usuario_id = ANY(:ids)"), {"ids": users_ids})
+                users_ids_str = ",".join(str(x) for x in users_ids)
+                session.execute(text(f"DELETE FROM user_sessions WHERE user_id IN ({users_ids_str})"))
+                session.execute(text(f"DELETE FROM usuario_conta_acesso WHERE usuario_id IN ({users_ids_str})"))
                 
             if profiles_ids:
-                session.execute(text("DELETE FROM access_profile_permissions WHERE profile_id = ANY(:ids)"), {"ids": profiles_ids})
+                profiles_ids_str = ",".join(str(x) for x in profiles_ids)
+                session.execute(text(f"DELETE FROM access_profile_permissions WHERE profile_id IN ({profiles_ids_str})"))
                 
             session.execute(text("DELETE FROM anexos_lancamento WHERE empresa_id = :id"), {"id": empresa_id})
                 

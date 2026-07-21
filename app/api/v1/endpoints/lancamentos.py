@@ -1630,6 +1630,10 @@ def listar_lancamentos(
             Lancamento.entidade_id,
             Lancamento.centro_custo_id,
             Lancamento.cartao_id,
+            Lancamento.ipp,
+            Lancamento.previsto,
+            Lancamento.conciliado,
+            Lancamento.numero_parcela,
         ).where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.is_deleted == False
@@ -1748,6 +1752,10 @@ def listar_lancamentos(
                 "entidade_id": row.entidade_id,
                 "centro_custo_id": row.centro_custo_id,
                 "cartao_id": row.cartao_id,
+                "ipp": row.ipp,
+                "previsto": row.previsto,
+                "conciliado": row.conciliado,
+                "numero_parcela": row.numero_parcela,
             })
         import json
         json_content = json.dumps(minimized_data)

@@ -101,4 +101,4 @@ def register_cache_listeners():
     def receive_lancamento_mutation(mapper, connection, target):
         empresa_id = getattr(target, 'empresa_id', None)
         if empresa_id:
-            clear_transaction_cache(empresa_id)
+            clear_transaction_cache(empresa_id, force=True)

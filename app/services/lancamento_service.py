@@ -649,8 +649,13 @@ class LancamentoService:
         self._sincronizar_movimento_manual(db_lancamento, user_id=user_id)
         self.session.commit()
         self.session.refresh(db_lancamento)
-        from app.services.auditor_anomalia_service import AuditorAnomaliaService
-        AuditorAnomaliaService(self.session).analisar_lancamento(db_lancamento)
+        from app.core.cache import IS_TESTING
+        if IS_TESTING:
+            from app.services.auditor_anomalia_service import AuditorAnomaliaService
+            AuditorAnomaliaService(self.session).analisar_lancamento(db_lancamento)
+        else:
+            from app.services.auditor_anomalia_service import schedule_analise_lancamento
+            schedule_analise_lancamento(db_lancamento.id)
         return db_lancamento
     def get_by_id(self, lancamento_id: int, empresa_id: int) -> Lancamento:
         query = select(Lancamento).where(
@@ -772,8 +777,13 @@ class LancamentoService:
         self._sincronizar_movimento_manual(db_lancamento, user_id=user_id)
         self.session.commit()
         self.session.refresh(db_lancamento)
-        from app.services.auditor_anomalia_service import AuditorAnomaliaService
-        AuditorAnomaliaService(self.session).analisar_lancamento(db_lancamento)
+        from app.core.cache import IS_TESTING
+        if IS_TESTING:
+            from app.services.auditor_anomalia_service import AuditorAnomaliaService
+            AuditorAnomaliaService(self.session).analisar_lancamento(db_lancamento)
+        else:
+            from app.services.auditor_anomalia_service import schedule_analise_lancamento
+            schedule_analise_lancamento(db_lancamento.id)
         return db_lancamento
     def delete(self, lancamento_id: int, empresa_id: int, user_id: int, confirmar_exclusao_pagos: bool = False):
         lancamento = self.get_by_id(lancamento_id, empresa_id)
@@ -818,11 +828,18 @@ class LancamentoService:
                     user_id=user_id,
                 )
                 self._sincronizar_movimento_manual(item, user_id=user_id)
-        from app.services.auditor_anomalia_service import AuditorAnomaliaService
-        auditor = AuditorAnomaliaService(self.session)
-        for item in related:
-            auditor.analisar_exclusao(item)
-        self.session.commit()
+        from app.core.cache import IS_TESTING
+        if IS_TESTING:
+            from app.services.auditor_anomalia_service import AuditorAnomaliaService
+            auditor = AuditorAnomaliaService(self.session)
+            for item in related:
+                auditor.analisar_exclusao(item)
+            self.session.commit()
+        else:
+            self.session.commit()
+            from app.services.auditor_anomalia_service import schedule_analise_exclusao
+            for item in related:
+                schedule_analise_exclusao(item.id)
 
     def restore(self, lancamento_id: int, empresa_id: int, user_id: int) -> Lancamento:
         query = select(Lancamento).where(
@@ -861,12 +878,17 @@ class LancamentoService:
         # Sincronizar com movimento manual
         self._sincronizar_movimento_manual(lancamento, user_id=user_id)
         
-        # Analisar com o auditor
-        from app.services.auditor_anomalia_service import AuditorAnomaliaService
-        AuditorAnomaliaService(self.session).analisar_lancamento(lancamento)
-        
-        self.session.commit()
-        self.session.refresh(lancamento)
+        from app.core.cache import IS_TESTING
+        if IS_TESTING:
+            from app.services.auditor_anomalia_service import AuditorAnomaliaService
+            AuditorAnomaliaService(self.session).analisar_lancamento(lancamento)
+            self.session.commit()
+            self.session.refresh(lancamento)
+        else:
+            self.session.commit()
+            self.session.refresh(lancamento)
+            from app.services.auditor_anomalia_service import schedule_analise_lancamento
+            schedule_analise_lancamento(lancamento.id)
         return lancamento
 
     # --- Gestão de Anexos ---
@@ -918,11 +940,17 @@ class LancamentoService:
             self._upsert_auto_adjustment(obj, user_id=user_id)
             self._sincronizar_movimento_manual(obj, user_id=user_id)
         self.session.commit()
-        from app.services.auditor_anomalia_service import AuditorAnomaliaService
-        auditor = AuditorAnomaliaService(self.session)
-        for obj in novos_objetos:
-            self.session.refresh(obj)
-            auditor.analisar_lancamento(obj)
+        from app.core.cache import IS_TESTING
+        if IS_TESTING:
+            from app.services.auditor_anomalia_service import AuditorAnomaliaService
+            auditor = AuditorAnomaliaService(self.session)
+            for obj in novos_objetos:
+                self.session.refresh(obj)
+                auditor.analisar_lancamento(obj)
+        else:
+            from app.services.auditor_anomalia_service import schedule_analise_lancamento
+            for obj in novos_objetos:
+                schedule_analise_lancamento(obj.id)
         return novos_objetos
     def deletar_em_massa(self, ids: List[int], empresa_id: int, user_id: int, confirmar_exclusao_pagos: bool = False):
         statement = select(Lancamento).where(
@@ -969,11 +997,18 @@ class LancamentoService:
                     user_id=user_id,
                 )
                 self._sincronizar_movimento_manual(lanc, user_id=user_id)
-        from app.services.auditor_anomalia_service import AuditorAnomaliaService
-        auditor = AuditorAnomaliaService(self.session)
-        for lanc in related:
-            auditor.analisar_exclusao(lanc)
-        self.session.commit()
+        from app.core.cache import IS_TESTING
+        if IS_TESTING:
+            from app.services.auditor_anomalia_service import AuditorAnomaliaService
+            auditor = AuditorAnomaliaService(self.session)
+            for lanc in related:
+                auditor.analisar_exclusao(lanc)
+            self.session.commit()
+        else:
+            self.session.commit()
+            from app.services.auditor_anomalia_service import schedule_analise_exclusao
+            for lanc in related:
+                schedule_analise_exclusao(lanc.id)
 
     def baixar_em_massa(self, ids: List[int], data_pagamento: date, conta_id: Optional[int], empresa_id: int, user_id: int) -> int:
         statement = select(Lancamento).where(

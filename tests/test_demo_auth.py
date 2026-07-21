@@ -42,6 +42,9 @@ def test_demo_login_flow(client: TestClient, session: Session):
 
     # 6. Testar o script de cleanup
     import datetime
+    empresa_id = empresa.id
+    user_id = user.id
+    
     empresa.created_at = datetime.datetime.utcnow() - datetime.timedelta(hours=3)
     session.add(empresa)
     session.commit()
@@ -49,11 +52,11 @@ def test_demo_login_flow(client: TestClient, session: Session):
     cleanup_expired_demos(hours_threshold=2, db_session=session)
     
     session.expire_all()
-    empresa_removed = session.exec(select(Empresa).where(Empresa.id == empresa.id)).first()
+    empresa_removed = session.exec(select(Empresa).where(Empresa.id == empresa_id)).first()
     assert empresa_removed is None
     
-    user_removed = session.exec(select(Usuario).where(Usuario.id == user.id)).first()
+    user_removed = session.exec(select(Usuario).where(Usuario.id == user_id)).first()
     assert user_removed is None
     
-    launches_removed = session.exec(select(Lancamento).where(Lancamento.empresa_id == empresa.id)).all()
+    launches_removed = session.exec(select(Lancamento).where(Lancamento.empresa_id == empresa_id)).all()
     assert len(launches_removed) == 0

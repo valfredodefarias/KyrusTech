@@ -472,3 +472,46 @@ class AuditorAnomaliaService:
             self.session.commit()
             return alerta
         return None
+
+# --- BACKGROUND WORKERS PARA EXECUÇÃO ASSÍNCRONA ---
+
+import concurrent.futures
+from loguru import logger
+from app.db.session import engine
+
+# ThreadPoolExecutor global para rodar auditorias em background sem afetar o tempo de resposta da API
+_auditor_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+
+def analisar_lancamento_async(lancamento_id: int):
+    """Executa a análise de anomalia de um lançamento com uma nova sessão dedicada em background."""
+    with Session(engine) as session:
+        from app.models.lancamento import Lancamento
+        lancamento = session.get(Lancamento, lancamento_id)
+        if lancamento:
+            try:
+                service = AuditorAnomaliaService(session)
+                service.analisar_lancamento(lancamento)
+            except Exception as e:
+                logger.error(f"[Auditor Async] Erro ao analisar lançamento {lancamento_id}: {e}")
+
+def analisar_exclusao_async(lancamento_id: int):
+    """Executa a análise de anomalia de exclusão com uma nova sessão dedicada em background."""
+    with Session(engine) as session:
+        from app.models.lancamento import Lancamento
+        lancamento = session.get(Lancamento, lancamento_id)
+        if lancamento:
+            try:
+                service = AuditorAnomaliaService(session)
+                service.analisar_exclusao(lancamento)
+            except Exception as e:
+                logger.error(f"[Auditor Async] Erro ao analisar exclusão do lançamento {lancamento_id}: {e}")
+
+def schedule_analise_lancamento(lancamento_id: Optional[int]):
+    """Agenda a análise de anomalia de um lançamento para rodar em background."""
+    if lancamento_id is not None:
+        _auditor_executor.submit(analisar_lancamento_async, lancamento_id)
+
+def schedule_analise_exclusao(lancamento_id: Optional[int]):
+    """Agenda a análise de anomalia de exclusão de um lançamento para rodar em background."""
+    if lancamento_id is not None:
+        _auditor_executor.submit(analisar_exclusao_async, lancamento_id)

@@ -1,6 +1,6 @@
 import sys
 import argparse
-from sqlmodel import Session, select, text
+from sqlmodel import Session, select
 from app.db.session import engine
 from app.models.usuario import Usuario
 from app.models.pdv_venda import PdvVenda
@@ -11,8 +11,27 @@ MIGRATION_MAP = {
     35: 458,  # Joel (joel@kyrus_legado.com -> joelmir.15rowdry@gmail.com)
     36: 31,   # Murillo (murillo@kyrus_legado.com -> murillosantos1@hotmail.com)
     37: 457,  # Erick (erick@kyrus_legado.com -> erikbmaia@gmail.com)
+    38: 456,  # Danilo (danilo@kyrus_legado.com -> fernandesdan96@gmail.com / Dan Fernandes)
     48: 51,   # Vendedor Legado -> LOJA (loja@kyrustechlegado.com)
     49: 51,   # LOJA antigo -> LOJA principal
+}
+
+# Vendedores ativos mantidos (não devem ser inativados)
+ACTIVE_SELLER_IDS = {
+    34,   # Silas
+    39,   # Guilherme (guilhermewanzeler239@gmail.com)
+    44,   # Santa Maria
+    45,   # Bragança
+    51,   # LOJA
+    31,   # Murillo
+    456,  # Dan Fernandes (Danilo)
+    457,  # Erik Maia
+    458,  # Joel
+}
+
+# Vendedores legados a inativar no dropdown de usuários ativos
+INACTIVE_SELLER_IDS = {
+    35, 36, 37, 38, 40, 41, 42, 43, 46, 47, 48, 49
 }
 
 def migrate_legacy_vendedores(execute: bool = False):
@@ -21,18 +40,31 @@ def migrate_legacy_vendedores(execute: bool = False):
     print("=" * 70)
 
     with Session(engine) as session:
-        # 1. Garantir que o usuário LOJA (ID 51) esteja devidamente configurado
-        loja_user = session.get(Usuario, 51)
-        if loja_user:
-            if hasattr(loja_user, "is_active") and not loja_user.is_active:
-                loja_user.is_active = True
-                session.add(loja_user)
-                print("[Setup] Usuário LOJA (ID 51) ativado com sucesso.")
+        # 1. Ajustar status is_active dos usuários mantidos e inativados
+        print("[Setup] Atualizando status is_active dos vendedores...")
+        for uid in ACTIVE_SELLER_IDS:
+            u = session.get(Usuario, uid)
+            if u:
+                if hasattr(u, "is_active") and not u.is_active:
+                    print(f"  ➜ Ativando usuário: {u.nome} (ID {u.id})")
+                    if execute:
+                        u.is_active = True
+                        session.add(u)
 
-        # 2. Processar o mapeamento de migração
+        for uid in INACTIVE_SELLER_IDS:
+            u = session.get(Usuario, uid)
+            if u:
+                if hasattr(u, "is_active") and u.is_active:
+                    print(f"  ➜ Inativando usuário legado: {u.nome} (ID {u.id})")
+                    if execute:
+                        u.is_active = False
+                        session.add(u)
+
+        # 2. Processar o mapeamento de migração de vendas
         total_vendas_migradas = 0
         empresas_afetadas = set()
 
+        print("\n[Migração] Reatribuindo vendas do PDV...")
         for source_id, target_id in MIGRATION_MAP.items():
             source_user = session.get(Usuario, source_id)
             target_user = session.get(Usuario, target_id)

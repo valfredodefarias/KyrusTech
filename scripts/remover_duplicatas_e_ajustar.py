@@ -32,21 +32,17 @@ def run(dry_run=True):
     if len(emp_ids_mapeados) < 4:
         print("  ⚠️ ALERTA: Nem todas as 4 unidades da Pizza Fábio foram detectadas por nome. Verifique o banco.")
         
-    # Mapear códigos de duplicatas para cada ID detectado
-    DUPLICATE_CODES_BY_EMP = {}
+    # Mapear códigos de duplicatas para cada ID detectado.
+    # Suporta tanto códigos de 2 níveis (ex: 01.01) quanto 3 níveis (ex: 01.01.01) de todas as empresas
+    # para ser 100% resiliente a variações de plano de contas.
+    DUP_CODES_ALL = {
+        '01.01', '01.02', '01.03', '01.04', '01.05', 
+        '01.01.01', '01.01.02', '01.01.03', '01.01.04', '01.01.05'
+    }
     
-    # Umarizal
-    if "umarizal" in emp_ids_mapeados:
-        DUPLICATE_CODES_BY_EMP[emp_ids_mapeados["umarizal"]] = {'01.01.01', '01.01.02', '01.01.03', '01.01.04', '01.01.05'}
-    # Ananindeua
-    if "ananindeua" in emp_ids_mapeados:
-        DUPLICATE_CODES_BY_EMP[emp_ids_mapeados["ananindeua"]] = {'01.01', '01.02', '01.03', '01.04', '01.05'}
-    # Marco Salão
-    if "marco_salao" in emp_ids_mapeados:
-        DUPLICATE_CODES_BY_EMP[emp_ids_mapeados["marco_salao"]] = {'01.01', '01.02', '01.03', '01.04', '01.05'}
-    # Marco Delivery
-    if "marco_delivery" in emp_ids_mapeados:
-        DUPLICATE_CODES_BY_EMP[emp_ids_mapeados["marco_delivery"]] = {'01.01.01', '01.01.02', '01.01.03', '01.01.04', '01.01.05'}
+    DUPLICATE_CODES_BY_EMP = {}
+    for eid in emp_ids_mapeados.values():
+        DUPLICATE_CODES_BY_EMP[eid] = DUP_CODES_ALL
         
     # Obter todas as categorias e contas do banco
     categorias = session.exec(select(PlanoContas)).all()

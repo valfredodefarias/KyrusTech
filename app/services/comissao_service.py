@@ -449,20 +449,27 @@ class ComissaoService:
         from app.models.usuario import Usuario
         user_obj = db.get(Usuario, vendedor_id)
         if user_obj:
-            nome_lower = str(user_obj.nome or "").split()[0].lower()
+            nome_clean = str(user_obj.nome or "").lower()
             # Metas estáticas
             METAS_VENDEDORES = {
                 "joel": Decimal("150000.00"),
+                "joelmir": Decimal("150000.00"),
                 "murillo": Decimal("450000.00"),
                 "christiano": Decimal("40000.00"),
                 "raphael": Decimal("30000.00"),
                 "breno": Decimal("60000.00"),
                 "danilo": Decimal("25000.00"),
+                "dan": Decimal("25000.00"),
                 "adson": Decimal("20000.00"),
                 "erick": Decimal("150000.00"),
+                "erik": Decimal("150000.00"),
+                "guilherme": Decimal("150000.00"),
                 "silas": Decimal("0.00"),
             }
-            return METAS_VENDEDORES.get(nome_lower, Decimal("0.00"))
+            for key, val in METAS_VENDEDORES.items():
+                if key in nome_clean:
+                    return val
+
         return Decimal("0.00")
 
     @classmethod

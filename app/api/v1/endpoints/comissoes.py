@@ -17,18 +17,22 @@ router = APIRouter()
 # Configuração estática de metas de vendas para o ERP
 METAS_VENDEDORES = {
     "joel": Decimal("150000.00"),
+    "joelmir": Decimal("150000.00"),
     "murillo": Decimal("450000.00"),
     "christiano": Decimal("40000.00"),
     "raphael": Decimal("30000.00"),
     "breno": Decimal("60000.00"),
     "danilo": Decimal("25000.00"),
+    "dan": Decimal("25000.00"),
     "adson": Decimal("20000.00"),
     "erick": Decimal("150000.00"),
+    "erik": Decimal("150000.00"),
+    "guilherme": Decimal("150000.00"),
     "silas": Decimal("0.00"),
 }
 
 
-def obter_meta_vendedor(db: Session, vendedor_id: int, mes: int, ano: int, empresa_id: int, nome: str) -> Decimal:
+def obter_meta_vendedor(db: Session, vendedor_id: int, mes: int, ano: int, empresa_id: int, nome: str = "") -> Decimal:
     from app.models.meta_vendedor import MetaVendedor
     query = (
         select(MetaVendedor)
@@ -44,8 +48,17 @@ def obter_meta_vendedor(db: Session, vendedor_id: int, mes: int, ano: int, empre
     if meta_db:
         return meta_db.valor_meta
 
-    nome_lower = str(nome).split()[0].lower()
-    return METAS_VENDEDORES.get(nome_lower, Decimal("0.00"))
+    if not nome:
+        from app.models.usuario import Usuario
+        u_obj = db.get(Usuario, vendedor_id)
+        nome = u_obj.nome if u_obj else ""
+
+    nome_clean = str(nome or "").lower()
+    for key, val in METAS_VENDEDORES.items():
+        if key in nome_clean:
+            return val
+
+    return Decimal("0.00")
 
 
 def calcular_faturamento_bruto(db: Session, vendedor_id: int, mes: int, ano: int, empresa_id: int) -> Decimal:

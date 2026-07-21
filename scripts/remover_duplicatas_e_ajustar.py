@@ -3,33 +3,64 @@ from app.db.session import engine
 from app.models.lancamento import Lancamento
 from app.models.plano_contas import PlanoContas
 from app.models.conta import Conta
+from app.models.empresa import Empresa
 from decimal import Decimal
 
 def run(dry_run=True):
     session = Session(engine)
     
-    # Mapear códigos por empresa
-    DUPLICATE_CODES_BY_EMP = {
-        35: {'01.01.01', '01.01.02', '01.01.03', '01.01.04', '01.01.05'},
-        37: {'01.01', '01.02', '01.03', '01.04', '01.05'},
-        39: {'01.01', '01.02', '01.03', '01.04', '01.05'},
-        40: {'01.01.01', '01.01.02', '01.01.03', '01.01.04', '01.01.05'}
-    }
+    # 1. Buscar todas as empresas ativas para mapear os IDs dinamicamente
+    empresas = session.exec(select(Empresa).where(Empresa.is_active == True)).all()
     
-    EMPRESAS_IDS = [35, 37, 39, 40]
+    emp_ids_mapeados = {}
+    for emp in empresas:
+        nome = (emp.nome_fantasia or emp.razao_social or "").lower()
+        if "umarizal" in nome:
+            emp_ids_mapeados["umarizal"] = emp.id
+        elif "ananindeua" in nome:
+            emp_ids_mapeados["ananindeua"] = emp.id
+        elif "marco" in nome and ("delivery" in nome or "ifood" in nome):
+            emp_ids_mapeados["marco_delivery"] = emp.id
+        elif "marco" in nome:
+            emp_ids_mapeados["marco_salao"] = emp.id
+            
+    print(f"=== DETECÇÃO DINÂMICA DE EMPRESAS NO BANCO ===")
+    for tipo, eid in emp_ids_mapeados.items():
+        emp_obj = session.get(Empresa, eid)
+        print(f"  * {tipo.upper()}: ID = {eid} ({emp_obj.nome_fantasia})")
+        
+    if len(emp_ids_mapeados) < 4:
+        print("  ⚠️ ALERTA: Nem todas as 4 unidades da Pizza Fábio foram detectadas por nome. Verifique o banco.")
+        
+    # Mapear códigos de duplicatas para cada ID detectado
+    DUPLICATE_CODES_BY_EMP = {}
     
-    # Obter todas as categorias e contas
+    # Umarizal
+    if "umarizal" in emp_ids_mapeados:
+        DUPLICATE_CODES_BY_EMP[emp_ids_mapeados["umarizal"]] = {'01.01.01', '01.01.02', '01.01.03', '01.01.04', '01.01.05'}
+    # Ananindeua
+    if "ananindeua" in emp_ids_mapeados:
+        DUPLICATE_CODES_BY_EMP[emp_ids_mapeados["ananindeua"]] = {'01.01', '01.02', '01.03', '01.04', '01.05'}
+    # Marco Salão
+    if "marco_salao" in emp_ids_mapeados:
+        DUPLICATE_CODES_BY_EMP[emp_ids_mapeados["marco_salao"]] = {'01.01', '01.02', '01.03', '01.04', '01.05'}
+    # Marco Delivery
+    if "marco_delivery" in emp_ids_mapeados:
+        DUPLICATE_CODES_BY_EMP[emp_ids_mapeados["marco_delivery"]] = {'01.01.01', '01.01.02', '01.01.03', '01.01.04', '01.01.05'}
+        
+    # Obter todas as categorias e contas do banco
     categorias = session.exec(select(PlanoContas)).all()
     categoria_by_id = {c.id: c for c in categorias}
     
     contas = session.exec(select(Conta)).all()
     conta_by_id = {c.id: c for c in contas}
     
-    print(f"=== {'SIMULAÇÃO' if dry_run else 'EXECUÇÃO REAL'} DE LIMPEZA DE RECEITAS DUPLICADAS ===")
+    print(f"\n=== {'SIMULAÇÃO' if dry_run else 'EXECUÇÃO REAL'} DE LIMPEZA DE RECEITAS DUPLICADAS ===")
     
-    for emp_id in EMPRESAS_IDS:
+    for tipo, emp_id in emp_ids_mapeados.items():
+        emp_obj = session.get(Empresa, emp_id)
         print(f"\n--------------------------------------------------")
-        print(f"EMPRESA ID: {emp_id}")
+        print(f"Empresa: {emp_obj.nome_fantasia} (ID: {emp_id})")
         print(f"--------------------------------------------------")
         
         # Buscar todas as receitas ativas da origem WEB
@@ -105,7 +136,6 @@ def run(dry_run=True):
         print("\n>>> SIMULAÇÃO CONCLUÍDA (Sem alterações no banco de dados). <<<")
 
 if __name__ == "__main__":
-    # Para rodar de verdade, altere para False
     import sys
     dry_run = True
     if len(sys.argv) > 1 and sys.argv[1] == "run":

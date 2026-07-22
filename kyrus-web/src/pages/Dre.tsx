@@ -324,8 +324,12 @@ export function Dre() {
         if (isReceita(item.tipo)) {
           const cat = categorias.find((c) => c.id === item.plano_contas_id);
           const isDuplicated = cat ? preferredWebCodes.includes(cat.codigo) : false;
-          if (isDuplicated && item.origem === 'PDV') {
-            return false;
+          if (isDuplicated) {
+            const obs = String(item.observacao || '').toLowerCase();
+            const isLegacy = obs.includes('importação financeiro') || obs.includes('importacao financeiro');
+            if (item.origem !== 'WEB' || !isLegacy) {
+              return false;
+            }
           }
         }
         return true;

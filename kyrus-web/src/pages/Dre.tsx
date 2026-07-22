@@ -306,17 +306,43 @@ export function Dre() {
   const [somentePagos, setSomentePagos] = useState(true);
 
   const lancamentos = useMemo(() => {
+    const preferredWebCodes = [
+      '01.01.02', '01.01.03', '01.01.04', '01.01.05',
+      '01.02', '01.03', '01.04', '01.05'
+    ];
+
     if (somentePagos) {
-      return allLancamentos.filter(
-        (item) =>
+      return allLancamentos.filter((item) => {
+        const isPaid =
           item.status === 'PAGO' ||
           String(item.status).toUpperCase().startsWith('PARCIAL') ||
           (item.data_pagamento !== null && item.data_pagamento !== undefined && item.data_pagamento !== '') ||
-          (item.valor_pago !== null && item.valor_pago !== undefined && item.valor_pago !== 0)
-      );
+          (item.valor_pago !== null && item.valor_pago !== undefined && item.valor_pago !== 0);
+
+        if (!isPaid) return false;
+
+        if (isReceita(item.tipo)) {
+          const cat = categorias.find((c) => c.id === item.plano_contas_id);
+          const isDuplicated = cat ? preferredWebCodes.includes(cat.codigo) : false;
+          if (isDuplicated && item.origem === 'PDV') {
+            return false;
+          }
+        }
+        return true;
+      });
     }
-    return allLancamentos;
-  }, [allLancamentos, somentePagos]);
+
+    return allLancamentos.filter((item) => {
+      if (isReceita(item.tipo)) {
+        const cat = categorias.find((c) => c.id === item.plano_contas_id);
+        const isDuplicated = cat ? preferredWebCodes.includes(cat.codigo) : false;
+        if (isDuplicated && item.origem === 'WEB') {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [allLancamentos, somentePagos, categorias]);
 
   const [auditMetaLoading, setAuditMetaLoading] = useState(false);
 

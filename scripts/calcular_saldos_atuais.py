@@ -1,4 +1,4 @@
-from sqlmodel import Session, select
+from sqlmodel import Session, select, or_, not_
 from app.db.session import engine
 from app.models.conta import Conta
 from app.models.lancamento import Lancamento
@@ -11,31 +11,38 @@ ORIGINAL_BALANCES = {
 }
 
 def get_current_balance(session, conta_id, initial_balance):
-    # Saldo = inicial + total de receitas pagas - total de despesas pagas
-    # Receitas
-    receitas_query = select(Lancamento).where(
+    # exact Kyrus query filters:
+    query = select(Lancamento).where(
         Lancamento.conta_id == conta_id,
-        Lancamento.tipo == "RECEITA",
         Lancamento.is_deleted == False,
-        Lancamento.status == "PAGO"
+        # _movimento_influencia_saldo_clause()
+        or_(Lancamento.status == "PAGO", Lancamento.data_pagamento.is_not(None)),
+        # observation filters
+        or_(
+            Lancamento.observacao.is_(None),
+            (not_(Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")) & not_(Lancamento.observacao.ilike('%"legacy_id_venda"%')))
+        )
     )
-    receitas = sum(Decimal(str(l.valor_pago or l.valor_previsto or 0)) for l in session.exec(receitas_query).all())
     
-    # Despesas
-    despesas_query = select(Lancamento).where(
-        Lancamento.conta_id == conta_id,
-        Lancamento.tipo == "DESPESA",
-        Lancamento.is_deleted == False,
-        Lancamento.status == "PAGO"
-    )
-    despesas = sum(Decimal(str(l.valor_pago or l.valor_previsto or 0)) for l in session.exec(despesas_query).all())
+    launches = session.exec(query).all()
     
-    return initial_balance + receitas - despesas
+    total_entradas = Decimal("0.00")
+    total_saidas = Decimal("0.00")
+    
+    for m in launches:
+        val = Decimal(str(m.valor_pago if m.valor_pago is not None else 0))
+        tipo = (m.tipo or "").strip().upper()
+        if tipo.startswith("R"):
+            total_entradas += val
+        elif tipo.startswith("D"):
+            total_saidas += val
+            
+    return initial_balance + total_entradas - total_saidas
 
 def run():
     session = Session(engine)
     
-    print("=== CALCULO DE SALDOS ATUAIS (UMARIZAL) ===")
+    print("=== CALCULO DE SALDOS ATUAIS COM FILTROS EXATOS DO KYRUS (UMARIZAL) ===")
     for cid, original_val in ORIGINAL_BALANCES.items():
         conta = session.get(Conta, cid)
         if not conta:

@@ -12,11 +12,12 @@ Este documento é a especificação técnica absoluta de engenharia para guiar a
 2. [O Ecossistema Relacional de Conciliação (5 Tabelas)](#2-o-ecossistema-relacional-de-conciliacao-5-tabelas)
 3. [A Separação de Realidades: Lançamentos vs. Movimentos (OFX)](#3-a-separacao-de-realidades-lancamentos-vs-movimentos-ofx)
 4. [Análise de Bugs Críticos no Fluxo de Conciliação e Mitigações](#4-analise-de-bugs-criticos-no-fluxo-de-conciliacao-e-mitigacoes)
-5. [Modelagem e Data Migration Histórico Otimizado (Alembic)](#5-modelagem-e-data-migration-historico-otimizado-alembic)
-6. [Gravação de Vendas com Distribuição de Arredondamento e Cascading Soft-Delete](#6-gravacao-de-vendas-com-distribuicao-de-arredondamento-e-cascading-soft-delete)
-7. [Reescrita das APIs de Recebíveis e Movimentações com JOIN de Vendas](#7-reescrita-das-apis-de-recebiveis-e-movimentacoes-com-join-de-vendas)
-8. [Endpoints de Edição Segura e Estorno (Cancelamento)](#8-endpoints-de-edicao-segura-e-estorno-cancelamento)
-9. [Checklist de Homologação e Script de Auditoria Pós-Migration](#9-checklist-de-homologacao-e-script-de-auditoria-pos-migration)
+5. [Integridade no Módulo de Delivery (iFood)](#5-integridade-no-modulo-de-delivery-ifood)
+6. [Modelagem e Data Migration Histórico Otimizado (Alembic)](#6-modelagem-e-data-migration-historico-otimizado-alembic)
+7. [Gravação de Vendas com Distribuição de Arredondamento e Cascading Soft-Delete](#7-gravacao-de-vendas-com-distribuicao-de-arredondamento-e-cascading-soft-delete)
+8. [Reescrita das APIs de Recebíveis e Movimentações com JOIN de Vendas](#8-reescrita-das-apis-de-recebiveis-e-movimentacoes-com-join-de-vendas)
+9. [Endpoints de Edição Segura e Estorno (Cancelamento)](#9-endpoints-de-edicao-segura-e-estorno-cancelamento)
+10. [Checklist de Homologação e Script de Auditoria Pós-Migration](#10-checklist-de-homologacao-e-script-de-auditoria-pos-migration)
 
 ---
 
@@ -27,7 +28,7 @@ Durante a execução da refatoração, a IA **DEVE** seguir rigorosamente as seg
 1.  **Isolamento de Tenant (Multi-empresa)**: Toda consulta ou escrita SQL deve conter o filtro `empresa_id = :empresa_id`.
 2.  **Preservação do Contrato da API**: O JSON de resposta do endpoint `/pdv/recebiveis` deve ter chaves com nomes e tipos idênticos para não quebrar a tipagem React/TS.
 3.  **Proibição Absoluta de Modificação de Registros Conciliados**: Nenhuma API ou interface pode permitir a edição de data ou valor de movimentações cujo status de conciliação seja `conciliado = True`.
-4.  **Preservação de Helpers de Payout e Regras**: Devemos obrigatoriamente utilizar os helpers `calcular_payout_date` e `shift_months` existentes em `pdv_service.py` para calcular as datas estimadas de recebimento, honrando as regras de taxas da tabela `regras_cartao`.
+4.  **Preservação de Helpers de Payout e Regras**: Devemos obrigatoriamente utilizar os helpers `calcular_payout_date` e `shift_months` existentes in `pdv_service.py` para calcular as datas estimadas de recebimento, honrando as regras de taxas da tabela `regras_cartao`.
 
 ---
 
@@ -133,7 +134,24 @@ Para evitar duplicidade e manter a consistência matemática dos saldos do ERP, 
 
 ---
 
-## 5. MODELAGEM E DATA MIGRATION HISTÓRICO OTIMIZADO (ALEMBIC)
+## 5. INTEGRIDADE NO MÓDULO DE DELIVERY (IFOOD)
+
+Assim como nas vendas físicas/cartão, o módulo de delivery do iFood possui duas falhas graves de consistência operacional e fiscal:
+
+### 1. Distorção de Faturamento e Taxas Omitidas (iFood Fees)
+*   **O Erro**: Ao rodar a consolidação diária do iFood (`POST /pdv/ifood/consolidar`), o sistema grava no financeiro um lançamento com `valor_previsto = total_liquido` (ex: R$ 880,00). As taxas e comissões do iFood (ex: R$ 120,00) desaparecem da contabilidade, omitindo despesas operacionais da DRE.
+*   **A Solução**: A consolidação do iFood deve seguir o padrão de **Lançamento Desdobrado (Split Entry)**:
+    *   Um lançamento contábil de **`RECEITA`** com `valor_previsto = total_bruto` (ex: R$ 1.000,00) mapeado no faturamento de delivery.
+    *   Um lançamento contábil de **`DESPESA`** com `valor_previsto = total_comissao` (ex: R$ 120,00) mapeado nas despesas de taxas de delivery.
+    *   Ambos criados como `EM ABERTO`. O efeito líquido no caixa é exatamente o repasse previsto (R$ 880,00), que baterá com o extrato bancário.
+
+### 2. Transações de Vendas Presas (Órfãos de Consolidação)
+*   **O Erro**: A tabela `pdv_ifood_lancamentos` possui a flag `status_conciliado = True`, mas não possui nenhuma coluna apontando para qual `Lancamento` do financeiro ela foi consolidada. Se o usuário apagar o lançamento no painel financeiro para fazer correções, as vendas do iFood continuam marcadas como consolidadas para sempre, travadas contra edições e impossibilitadas de nova consolidação.
+*   **A Solução**: Adicionar a coluna `lancamento_consolidado_id` (chave estrangeira) em `pdv_ifood_lancamentos` via Alembic. Toda consolidação deve salvar o ID do lançamento gerado. Se o lançamento financeiro correspondente for deletado, roda-se um cascade trigger limpando `lancamento_consolidado_id = NULL` e resetando `status_conciliado = False` nas transações do iFood.
+
+---
+
+## 6. MODELAGEM E DATA MIGRATION HISTÓRICO OTIMIZADO (ALEMBIC)
 
 ```python
 """normalize pdv_movimentacoes and migrate history safely using set-based SQL
@@ -155,6 +173,15 @@ def upgrade():
         'lote_cartao_itens', 'pdv_movimentacoes', 
         ['pdv_movimentacao_id'], ['id'], 
         ondelete='CASCADE'
+    )
+    
+    # Suporte para consistência no iFood
+    op.add_column('pdv_ifood_lancamentos', sa.Column('lancamento_consolidado_id', sa.Integer(), nullable=True))
+    op.create_foreign_key(
+        'fk_pdv_ifood_lancamentos_consolidado',
+        'pdv_ifood_lancamentos', 'lancamentos',
+        ['lancamento_consolidado_id'], ['id'],
+        ondelete='SET NULL'
     )
 
     # --- PARTE 2: EXPLOSÃO HISTÓRICA E AJUSTES DE DATAS (SET-BASED POSTGRESQL) ---
@@ -218,11 +245,14 @@ def downgrade():
     op.drop_column('lote_cartao_itens', 'pdv_movimentacao_id')
     op.drop_column('pdv_movimentacoes', 'numero_parcela')
     op.drop_index('ix_pdv_movimentacoes_conciliado_fast')
+    
+    op.drop_constraint('fk_pdv_ifood_lancamentos_consolidado', 'pdv_ifood_lancamentos', type_='foreignkey')
+    op.drop_column('pdv_ifood_lancamentos', 'lancamento_consolidado_id')
 ```
 
 ---
 
-## 6. GRAVAÇÃO DE VENDAS COM DISTRIBUIÇÃO DE ARREDONDAMENTO E CASCADING SOFT-DELETE
+## 7. GRAVAÇÃO DE VENDAS COM DISTRIBUIÇÃO DE ARREDONDAMENTO E CASCADING SOFT-DELETE
 
 Em `app/services/pdv_service.py`:
 
@@ -293,9 +323,9 @@ def registrar_venda_pdv(db: Session, dados_venda: PdvVendaCreate, empresa_id: in
 
 ---
 
-## 7. REESCRITA DAS APIS DE RECEBÍVEIS E MOVIMENTAÇÕES COM JOIN DE VENDAS
+## 8. REESCRITA DAS APIS DE RECEBÍVEIS E MOVIMENTAÇÕES COM JOIN DE VENDAS
 
-### 7.1. API `/pdv/recebiveis` (Conciliadora)
+### 8.1. API `/pdv/recebiveis` (Conciliadora)
 
 ```python
 @router.get("/recebiveis")
@@ -360,7 +390,7 @@ def listar_recebiveis_cartao(
     return recebiveis
 ```
 
-### 7.2. API `/pdv/movimentacoes` (Histórico de Caixa do Terminal)
+### 8.2. API `/pdv/movimentacoes` (Histórico de Caixa do Terminal)
 
 ```python
 from app.models.usuario import Usuario
@@ -373,8 +403,6 @@ def listar_movimentacoes_pdv(
     current_user: Usuario = Depends(get_current_active_user),
     mes: Optional[str] = Query(None)
 ):
-    # Lógica de resolução do range de data do mês... (preservada)
-    
     stmt = (
         select(
             PdvMovimentacao, 
@@ -419,9 +447,9 @@ def listar_movimentacoes_pdv(
 
 ---
 
-## 8. ENDPOINTS DE EDIÇÃO SEGURA E ESTORNO (CANCELAMENTO)
+## 9. ENDPOINTS DE EDIÇÃO SEGURA E ESTORNO (CANCELAMENTO)
 
-### 8.1. API de Conciliação Bancária Automática (Split Entry / Lançamento Desdobrado)
+### 9.1. API de Conciliação Bancária Automática (Split Entry / Lançamento Desdobrado)
 
 ```python
 from app.models.baixa import Baixa
@@ -467,7 +495,7 @@ def conciliar_lote_cartao(payload: ConciliarLoteSchema, db: Session = Depends(ge
             status="PAGO",
             origem="CONCILIACAO_CARTAO",
             descricao="Tarifas / Taxas de Administração de Cartões",
-            plano_contas_id=obter_categoria_taxas_cartao(db, payload.empresa_id) # ex: '02.01.05'
+            plano_contas_id=obter_categoria_taxas_cartao(db, payload.empresa_id)
         )
         db.add(lancamento_despesa_taxa)
         db.flush()
@@ -480,7 +508,7 @@ def conciliar_lote_cartao(payload: ConciliarLoteSchema, db: Session = Depends(ge
             valor_taxa=payload.valor_taxa,
             valor_liquido=payload.valor_liquido,
             conta_destino_id=payload.conta_destino_id,
-            lancamento_deposito_id=lancamento_receita.id, # Link ao faturamento bruto
+            lancamento_deposito_id=lancamento_receita.id,
             status="CONCILIADO"
         )
         db.add(lote)
@@ -504,12 +532,11 @@ def conciliar_lote_cartao(payload: ConciliarLoteSchema, db: Session = Depends(ge
         if payload.movimento_ofx_id:
             mov_ofx = db.get(Movimento, payload.movimento_ofx_id)
             if mov_ofx:
-                # O valor pago na baixa é exatamente o valor líquido creditado no extrato (R$ 970,00)
                 baixa = Baixa(
                     empresa_id=payload.empresa_id,
                     lancamento_id=lancamento_receita.id,
                     movimento_id=mov_ofx.id,
-                    valor_pago=payload.valor_liquido, # Casamento exato com o valor do extrato
+                    valor_pago=payload.valor_liquido,
                     data_baixa=payload.data_pagamento,
                     tipo_baixa="PRINCIPAL",
                     is_deleted=False
@@ -525,7 +552,7 @@ def conciliar_lote_cartao(payload: ConciliarLoteSchema, db: Session = Depends(ge
         raise HTTPException(status_code=500, detail=str(e))
 ```
 
-### 8.2. Rota DELETE de Desfazimento (Estorno) de Lote Conciliado:
+### 9.2. Rota DELETE de Desfazimento (Estorno) de Lote Conciliado:
 
 ```python
 @router.delete("/conciliacao/lotes/{lote_id}")
@@ -535,7 +562,6 @@ def estornar_lote_cartao(lote_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Lote não encontrado")
         
     try:
-        # 1. Resetar status de conciliado para False em pdv_movimentacoes
         itens = db.execute(
             select(LoteCartaoItem).where(LoteCartaoItem.lote_cartao_id == lote_id)
         ).scalars().all()
@@ -547,26 +573,22 @@ def estornar_lote_cartao(lote_id: int, db: Session = Depends(get_db)):
                 db.add(mov)
             db.delete(item)
             
-        # 2. Deletar a baixa do extrato OFX se houver
         if lote.lancamento_deposito_id:
             baixa = db.execute(
                 select(Baixa).where(Baixa.lancamento_id == lote.lancamento_deposito_id, Baixa.is_deleted == False)
             ).scalar_one_or_none()
             
             if baixa:
-                # Reverter status do movimento do extrato para ABERTO
                 mov_ofx = db.get(Movimento, baixa.movimento_id)
                 if mov_ofx:
                     mov_ofx.status = "ABERTO"
                     db.add(mov_ofx)
                 db.delete(baixa)
                 
-            # 3. Apagar o lançamento de Receita Bruta
             receita = db.get(Lancamento, lote.lancamento_deposito_id)
             if receita:
                 db.delete(receita)
                 
-        # 4. Localizar e apagar a despesa de taxa de cartão correspondente
         despesa_taxa = db.execute(
             select(Lancamento).where(
                 Lancamento.empresa_id == lote.empresa_id,
@@ -585,4 +607,120 @@ def estornar_lote_cartao(lote_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+```
+
+### 9.3. iFood Consolidação com Lançamento Desdobrado (DRE Fiel)
+
+```python
+@router.post("/ifood/consolidar", status_code=200)
+def consolidar_dia_ifood(
+    consolidar_in: PdvIfoodConsolidarIn,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    transacoes = db.exec(
+        select(PdvIfoodLancamento)
+        .where(
+            PdvIfoodLancamento.empresa_id == empresa_id,
+            PdvIfoodLancamento.data_venda == consolidar_in.data_venda,
+            PdvIfoodLancamento.status_conciliado == False,
+            PdvIfoodLancamento.is_deleted == False
+        )
+    ).all()
+    
+    if not transacoes:
+        raise HTTPException(status_code=400, detail="Nenhuma transação pendente encontrada.")
+        
+    total_bruto = sum(t.valor_bruto for t in transacoes)
+    total_liquido = sum(t.valor_liquido for t in transacoes)
+    total_comissao = total_bruto - total_liquido
+    
+    data_recebimento = max(t.data_recebimento_ajustada for t in transacoes)
+    
+    # 1. LANÇAMENTO DESDOBRADO DE RECEITA IFOOD (Bruto)
+    receita_ifood = Lancamento(
+        empresa_id=empresa_id,
+        conta_id=consolidar_in.conta_id,
+        tipo="RECEITA",
+        descricao=f"Faturamento Bruto iFood - {consolidar_in.data_venda.strftime('%d/%m/%Y')}",
+        valor_previsto=total_bruto,
+        valor_pago=Decimal("0.00"),
+        data_vencimento=data_recebimento,
+        status="EM ABERTO",
+        origem="IFOOD"
+    )
+    db.add(receita_ifood)
+    db.flush() # Gerar ID de receita_ifood para vinculação
+    
+    # 2. LANÇAMENTO DESDOBRADO DE DESPESA DE COMISSÃO (Taxa)
+    if total_comissao > 0:
+        despesa_comissao = Lancamento(
+            empresa_id=empresa_id,
+            conta_id=consolidar_in.conta_id,
+            tipo="DESPESA",
+            descricao=f"Comissão / Taxas de Delivery iFood - {consolidar_in.data_venda.strftime('%d/%m/%Y')}",
+            valor_previsto=total_comissao,
+            valor_pago=Decimal("0.00"),
+            data_vencimento=data_recebimento,
+            status="EM ABERTO",
+            origem="IFOOD",
+            plano_contas_id=obter_categoria_taxas_delivery(db, empresa_id) # ex: '02.01.06'
+        )
+        db.add(despesa_comissao)
+
+    # 3. Atualizar as transações vinculando-as ao lançamento de receita consolidado
+    for t in transacoes:
+        t.status_conciliado = True
+        t.lancamento_consolidado_id = receita_ifood.id
+        db.add(t)
+        
+    db.commit()
+    return {"status": "success", "lancamento_id": receita_ifood.id, "valor_bruto": float(total_bruto)}
+```
+---
+
+## 10. CHECKLIST DE HOMOLOGAÇÃO E SCRIPT DE AUDITORIA PÓS-MIGRATION
+
+Após a migração, a IA executora deve executar `scripts/audit_migration.py`.
+
+```python
+# scripts/audit_migration.py
+import sys
+from app.db.session import SessionLocal
+from sqlalchemy import text
+
+db = SessionLocal()
+try:
+    # 1. Validar registros órfãos que possuíam venda válida no banco
+    orfaos = db.execute(text("""
+        SELECT count(lci.id) 
+        FROM lote_cartao_itens lci 
+        JOIN lancamentos l ON l.id = lci.lancamento_id
+        WHERE lci.pdv_movimentacao_id IS NULL
+          AND substring(l.observacao from '"venda_id_uuid"\s*:\s*"([^"]+)"') IN (SELECT id FROM pdv_vendas)
+    """)).scalar()
+    
+    if orfaos > 0:
+        print(f"❌ MIGRATION AUDIT FAILED: {orfaos} itens de lote ativos ficaram órfãos!")
+        sys.exit(1)
+        
+    # 2. Validar integridade matemática de centavos dos lotes
+    dif = db.execute(text("""
+        SELECT count(*) FROM (
+            SELECT lc.id, lc.valor_bruto, sum(pm.valor) as sum_v
+            FROM lotes_cartao lc
+            JOIN lote_cartao_itens lci ON lci.lote_cartao_id = lc.id
+            JOIN pdv_movimentacoes pm ON pm.id = lci.pdv_movimentacao_id
+            GROUP BY lc.id
+        ) q WHERE round(q.valor_bruto::numeric, 2) != round(q.sum_v::numeric, 2)
+    """)).scalar()
+    
+    if dif > 0:
+        print(f"❌ MIGRATION AUDIT FAILED: {dif} lotes de cartões divergem nos centavos!")
+        sys.exit(1)
+        
+    print("✅ MIGRATION AUDIT PASSED: Lotes e parcelas históricas auditados com sucesso.")
+finally:
+    db.close()
 ```

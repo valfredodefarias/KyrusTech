@@ -10,11 +10,12 @@ Este documento é a especificação técnica absoluta de engenharia para guiar a
 ## 🗺️ ÍNDICE
 1. [Diretrizes de Segurança e Políticas de Não-Quebra](#1-diretrizes-de-seguranca-e-politicas-de-nao-quebra)
 2. [O Ecossistema Relacional de Conciliação (5 Tabelas)](#2-o-ecossistema-relacional-de-conciliacao-5-tabelas)
-3. [Modelagem e Data Migration Histórico Otimizado (Alembic)](#3-modelagem-e-data-migration-historico-otimizado-alembic)
-4. [Gravação de Vendas com Distribuição de Arredondamento e Cascading Soft-Delete](#4-gravacao-de-vendas-com-distribuicao-de-arredondamento-e-cascading-soft-delete)
-5. [Reescrita das APIs de Recebíveis e Movimentações com JOIN de Vendas](#5-reescrita-das-apis-de-recebiveis-e-movimentacoes-com-join-de-vendas)
-6. [Endpoints de Edição Segura e Estorno (Cancelamento)](#6-endpoints-de-edicao-segura-e-estorno-cancelamento)
-7. [Checklist de Homologação e Script de Auditoria Pós-Migration](#7-checklist-de-homologacao-e-script-de-auditoria-pos-migration)
+3. [A Separação de Realidades: Lançamentos vs. Movimentos (OFX)](#3-a-separacao-de-realidades-lancamentos-vs-movimentos-ofx)
+4. [Modelagem e Data Migration Histórico Otimizado (Alembic)](#4-modelagem-e-data-migration-historico-otimizado-alembic)
+5. [Gravação de Vendas com Distribuição de Arredondamento e Cascading Soft-Delete](#5-gravacao-de-vendas-com-distribuicao-de-arredondamento-e-cascading-soft-delete)
+6. [Reescrita das APIs de Recebíveis e Movimentações com JOIN de Vendas](#6-reescrita-das-apis-de-recebiveis-e-movimentacoes-com-join-de-vendas)
+7. [Endpoints de Edição Segura e Estorno (Cancelamento)](#7-endpoints-de-edicao-segura-e-estorno-cancelamento)
+8. [Checklist de Homologação e Script de Auditoria Pós-Migration](#8-checklist-de-homologacao-e-script-de-auditoria-pos-migration)
 
 ---
 
@@ -61,7 +62,46 @@ Para evitar duplicidade e manter a consistência matemática dos saldos do ERP, 
 
 ---
 
-## 3. MODELAGEM E DATA MIGRATION HISTÓRICO OTIMIZADO (ALEMBIC)
+## 3. A SEPARAÇÃO DE REALIDADES: LANÇAMENTOS VS. MOVIMENTOS (OFX)
+
+> [!NOTE]
+> **Definição de Papéis**:
+> *   **`movimentos` (Realidade Externa / Suporte)**: É uma tabela estritamente de suporte e leitura. Ela funciona como um log fiel e imutável das movimentações físicas da conta bancária extraídas do arquivo OFX do banco (valor, banco, data, FITID). Ela **não possui categoria contábil** e não deve sofrer alterações manuais.
+> *   **`lancamentos` (Realidade Interna / Operacional)**: É a tabela de controle operacional do ERP. Possui categoria contábil, centro de custo, descrição amigável e é totalmente editável pelo usuário. É ela que calcula os relatórios contábeis e a DRE.
+
+### O Fluxo Bidirecional de Usabilidade no Frontend e Backend:
+
+```
+[Tela de Extrato / OFX]               [Tela de Lançamentos Financeiros]
+     |                                               |
+     | (Usuário seleciona Movimento)                 | (Usuário marca Lançamento como pago)
+     v                                               v
+[Busca Lançamento Correspondente]          [Busca Movimento no Extrato]
+     |                                               | (Mesmo valor, data e conta)
+     | (Encontra e associa)                          | (Se achar, vincula)
+     v                                               v
+-----------------------> [Gera registro em BAIXAS] <-----------------------
+                                     |
+                                     v
+                    [Lançamento vira PAGO no financeiro]
+                    [Movimento do Extrato vira CONCILIADO]
+```
+
+#### Cenário A: Ação Iniciada no Extrato (Movimentos)
+1.  O usuário visualiza uma linha de extrato em `movimentos`.
+2.  O sistema busca em `lancamentos` por registros compatíveis em aberto (mesmo valor e data aproximada).
+3.  Ao confirmar o match, o sistema cria o registro na tabela de junção `baixas` ligando o `movimento_id` ao `lancamento_id`.
+4.  O backend automaticamente atualiza o `lancamento` associado: vira `status = 'PAGO'`, assume o `valor_pago` e a `data_pagamento` exatos do movimento físico do extrato.
+
+#### Cenário B: Ação Iniciada no Financeiro (Lançamentos)
+1.  O usuário clica em "Marcar como Pago" em um lançamento em aberto.
+2.  O sistema abre o formulário e tenta buscar automaticamente no banco se existe algum registro em `movimentos` (importado via OFX) com o **mesmo valor, banco e data**.
+3.  *Se encontrar*: O sistema cria a `baixa` associando ambos na hora, mudando o status da movimentação para `CONCILIADO`.
+4.  *Se NÃO encontrar (OFX ainda não foi importado)*: O lançamento é simplesmente marcado como `PAGO` com os parâmetros inseridos pelo usuário. Quando o OFX for importado futuramente, o algoritmo de auto-match encontrará esse lançamento já pago e sugerirá a conciliação retroativa criando a `baixa`.
+
+---
+
+## 4. MODELAGEM E DATA MIGRATION HISTÓRICO OTIMIZADO (ALEMBIC)
 
 ```python
 """normalize pdv_movimentacoes and migrate history safely using set-based SQL
@@ -153,7 +193,7 @@ def downgrade():
 
 ---
 
-## 4. GRAVAÇÃO DE VENDAS COM DISTRIBUIÇÃO DE ARREDONDAMENTO E CASCADING SOFT-DELETE
+## 5. GRAVAÇÃO DE VENDAS COM DISTRIBUIÇÃO DE ARREDONDAMENTO E CASCADING SOFT-DELETE
 
 Em `app/services/pdv_service.py`:
 
@@ -224,10 +264,9 @@ def registrar_venda_pdv(db: Session, dados_venda: PdvVendaCreate, empresa_id: in
 
 ---
 
-## 5. REESCRITA DAS APIS DE RECEBÍVEIS E MOVIMENTAÇÕES COM JOIN DE VENDAS
+## 6. REESCRITA DAS APIS DE RECEBÍVEIS E MOVIMENTAÇÕES COM JOIN DE VENDAS
 
-### 5.1. API `/pdv/recebiveis` (Conciliadora)
-Retorna os recebíveis indexados diretamente da tabela `pdv_movimentacoes`:
+### 6.1. API `/pdv/recebiveis` (Conciliadora)
 
 ```python
 @router.get("/recebiveis")
@@ -292,11 +331,7 @@ def listar_recebiveis_cartao(
     return recebiveis
 ```
 
-### 5.2. API `/pdv/movimentacoes` (Histórico de Caixa do Terminal)
-> [!IMPORTANT]
-> **Bug de Vendedor / Cliente Ausente**: A tabela `pdv_movimentacoes` armazena apenas metadados financeiros de pagamento. Como ela não possui colunas de `vendedor` ou `cliente`, o histórico de caixa do PDV exibe dados em branco nestes campos.
->
-> **A Solução**: Realizar um `LEFT JOIN` com `PdvVenda`, `Usuario` (vendedor) e `Entidade` (cliente) para preencher esses dados de forma elegante no JSON de resposta se a movimentação vier de uma venda comercial.
+### 6.2. API `/pdv/movimentacoes` (Histórico de Caixa do Terminal)
 
 ```python
 from app.models.usuario import Usuario
@@ -311,7 +346,6 @@ def listar_movimentacoes_pdv(
 ):
     # Lógica de resolução do range de data do mês... (preservada)
     
-    # Realizar JOIN com as tabelas de Venda, Usuário e Cliente
     stmt = (
         select(
             PdvMovimentacao, 
@@ -348,7 +382,6 @@ def listar_movimentacoes_pdv(
             "centro_custo_id": m.centro_custo_id,
             "conta_id": m.conta_id,
             "conciliado": m.conciliado,
-            # Campos extras populados dinamicamente via JOIN
             "vendedor_nome": vendedor_nome or "N/A (Movimentação Caixa)",
             "cliente_nome": cliente_nome or "Consumidor Final"
         })
@@ -357,7 +390,7 @@ def listar_movimentacoes_pdv(
 
 ---
 
-## 6. ENDPOINTS DE EDIÇÃO SEGURA E ESTORNO (CANCELAMENTO)
+## 7. ENDPOINTS DE EDIÇÃO SEGURA E ESTORNO (CANCELAMENTO)
 
 ```python
 class RecebivelAgendaUpdate(BaseModel):
@@ -384,7 +417,7 @@ def atualizar_agenda_recebivel(id: int, payload: RecebivelAgendaUpdate, db: Sess
 
 ---
 
-## 7. CHECKLIST DE HOMOLOGAÇÃO E SCRIPT DE AUDITORIA PÓS-MIGRATION
+## 8. CHECKLIST DE HOMOLOGAÇÃO E SCRIPT DE AUDITORIA PÓS-MIGRATION
 
 Após a migração, a IA executora deve executar `scripts/audit_migration.py`.
 

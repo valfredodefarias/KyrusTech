@@ -1267,7 +1267,7 @@ export function ConciliacaoCartoes() {
                           {grupo.itens.map(item => {
                             const brandObj = inferCardBrand(item.bandeira);
                             return (
-                              <div key={item.id} onClick={() => handleOpenEditRecebivel(item)} className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 cursor-pointer transition">
+                              <div key={`${item.id}-${item.venda_id_uuid || ''}`} onClick={() => handleOpenEditRecebivel(item)} className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 cursor-pointer transition">
                                 <div className="flex items-center gap-4 min-w-0 flex-1">
                                   <BrandAvatar visual={brandObj} size="sm" className="shrink-0" />
                                   <div className="min-w-0">
@@ -1612,7 +1612,7 @@ export function ConciliacaoCartoes() {
                                   <div className="bg-slate-50/40 dark:bg-slate-900/20 border-t border-slate-100 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 pl-4 pr-3">
                                     {group.items.map(item => (
                                       <div
-                                        key={item.id}
+                                        key={`${item.id}-${item.venda_id_uuid || ''}`}
                                         onClick={() => handleOpenEditRecebivel(item)}
                                         className="py-3.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-white dark:hover:bg-slate-800/40 cursor-pointer transition px-2 my-1 rounded-lg"
                                       >

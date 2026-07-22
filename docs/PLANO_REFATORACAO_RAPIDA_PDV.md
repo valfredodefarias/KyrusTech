@@ -10,10 +10,10 @@ Este documento é a especificação técnica absoluta de engenharia para guiar a
 ## 🗺️ ÍNDICE
 1. [Diretrizes de Segurança e Políticas de Não-Quebra](#1-diretrizes-de-seguranca-e-politicas-de-nao-quebra)
 2. [O Ecossistema Relacional de Conciliação (5 Tabelas)](#2-o-ecossistema-relacional-de-conciliacao-5-tabelas)
-3. [Modelagem e Data Migration Histórico (Alembic)](#3-modelagem-e-data-migration-historico-alembic)
+3. [Modelagem e Data Migration Histórico Otimizado (Alembic)](#3-modelagem-e-data-migration-historico-otimizado-alembic)
 4. [Gravação de Vendas com Distribuição de Arredondamento e Cascading Soft-Delete](#4-gravacao-de-vendas-com-distribuicao-de-arredondamento-e-cascading-soft-delete)
-5. [Reescrita das APIs do Backend e Taxas Dinâmicas](#5-reescrita-das-apis-do-backend-e-mapeamento-limpo)
-6. [Novos Endpoints de Conciliação Automática de Extrato (OFX)](#6-novos-endpoints-de-conciliacao-automatica-de-extrato-ofx)
+5. [Reescrita das APIs de Recebíveis e Movimentações com JOIN de Vendas](#5-reescrita-das-apis-de-recebiveis-e-movimentacoes-com-join-de-vendas)
+6. [Endpoints de Edição Segura e Estorno (Cancelamento)](#6-endpoints-de-edicao-segura-e-estorno-cancelamento)
 7. [Checklist de Homologação e Script de Auditoria Pós-Migration](#7-checklist-de-homologacao-e-script-de-auditoria-pos-migration)
 
 ---
@@ -55,15 +55,13 @@ Para evitar duplicidade e manter a consistência matemática dos saldos do ERP, 
 
 1.  **`pdv_movimentacoes`**: Contém o recebível individual de cada venda desmembrado por parcela.
 2.  **`lotes_cartao`**: Agrupa as movimentações de cartão liquidadas no mesmo dia.
-3.  **`lancamentos`**: O lançamento financeiro que representa a entrada de dinheiro real na conta bancária (Itaú, Sicredi, etc.).
+3.  **`lancamentos`**: O lançamento financeiro que representa a entrada de dinheiro real na conta bancária.
 4.  **`movimentos`**: A transação física de crédito do extrato bancário importada via arquivo OFX.
 5.  **`baixas`**: A tabela de reconciliação que vincula o lançamento de receita (`lancamento_id`) à transação física do extrato (`movimento_id`), marcando a conciliação como concluída.
 
 ---
 
 ## 3. MODELAGEM E DATA MIGRATION HISTÓRICO OTIMIZADO (ALEMBIC)
-
-O script de migração do Alembic deve ser escrito exatamente da seguinte forma:
 
 ```python
 """normalize pdv_movimentacoes and migrate history safely using set-based SQL
@@ -226,9 +224,10 @@ def registrar_venda_pdv(db: Session, dados_venda: PdvVendaCreate, empresa_id: in
 
 ---
 
-## 5. REESCRITA DAS APIS DO BACKEND E TAXAS DINÂMICAS
+## 5. REESCRITA DAS APIS DE RECEBÍVEIS E MOVIMENTAÇÕES COM JOIN DE VENDAS
 
-A API `/pdv/recebiveis` em `app/api/v1/endpoints/pdv.py` retorna os recebíveis diretamente da tabela `pdv_movimentacoes`:
+### 5.1. API `/pdv/recebiveis` (Conciliadora)
+Retorna os recebíveis indexados diretamente da tabela `pdv_movimentacoes`:
 
 ```python
 @router.get("/recebiveis")
@@ -293,99 +292,94 @@ def listar_recebiveis_cartao(
     return recebiveis
 ```
 
----
-
-## 6. NOVOS ENDPOINTS DE CONCILIAÇÃO AUTOMÁTICA DE EXTRATO (OFX)
-
-Para evitar duplicidade de trabalho no fechamento diário, a API de conciliação de lote de cartões passará a aceitar opcionalmente o ID do movimento do extrato bancário (`movimento_ofx_id`), realizando a baixa automática e despesa do lote na mesma transação.
+### 5.2. API `/pdv/movimentacoes` (Histórico de Caixa do Terminal)
+> [!IMPORTANT]
+> **Bug de Vendedor / Cliente Ausente**: A tabela `pdv_movimentacoes` armazena apenas metadados financeiros de pagamento. Como ela não possui colunas de `vendedor` ou `cliente`, o histórico de caixa do PDV exibe dados em branco nestes campos.
+>
+> **A Solução**: Realizar um `LEFT JOIN` com `PdvVenda`, `Usuario` (vendedor) e `Entidade` (cliente) para preencher esses dados de forma elegante no JSON de resposta se a movimentação vier de uma venda comercial.
 
 ```python
-from app.models.baixa import Baixa
-from app.models.pdv_movimentacao import PdvMovimentacao
-from app.models.lote_cartao import LoteCartao
-from app.models.lote_cartao_item import LoteCartaoItem
+from app.models.usuario import Usuario
+from app.models.entidade import Entidade
 
-class ConciliarLoteSchema(BaseModel):
-    empresa_id: int
-    data_pagamento: date
-    valor_bruto: float
-    valor_taxa: float
-    valor_liquido: float
-    conta_destino_id: int
-    movimentacao_ids: List[int]
-    movimento_ofx_id: Optional[int] = None # Opcional: ID da transação importada do OFX
-
-@router.post("/conciliacao/lotes")
-def conciliar_lote_cartao(payload: ConciliarLoteSchema, db: Session = Depends(get_db)):
-    try:
-        # 1. Criar o lançamento financeiro consolidado de depósito bancário
-        lancamento_deposito = Lancamento(
-            empresa_id=payload.empresa_id,
-            tipo="RECEITA",
-            valor_previsto=payload.valor_bruto,
-            valor_pago=payload.valor_liquido,
-            data_vencimento=payload.data_pagamento,
-            data_pagamento=payload.data_pagamento,
-            status="PAGO",
-            origem="CONCILIACAO_CARTAO",
-            descricao=f"Depósito Lote Cartões - Líquido Recebido"
+@router.get("/movimentacoes")
+def listar_movimentacoes_pdv(
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    current_user: Usuario = Depends(get_current_active_user),
+    mes: Optional[str] = Query(None)
+):
+    # Lógica de resolução do range de data do mês... (preservada)
+    
+    # Realizar JOIN com as tabelas de Venda, Usuário e Cliente
+    stmt = (
+        select(
+            PdvMovimentacao, 
+            Usuario.nome.label("vendedor_nome"), 
+            Entidade.nome.label("cliente_nome")
         )
-        db.add(lancamento_deposito)
-        db.flush()
-        
-        # 2. Criar o lote na tabela lotes_cartao
-        lote = LoteCartao(
-            empresa_id=payload.empresa_id,
-            data_pagamento=payload.data_pagamento,
-            valor_bruto=payload.valor_bruto,
-            valor_taxa=payload.valor_taxa,
-            valor_liquido=payload.valor_liquido,
-            conta_destino_id=payload.conta_destino_id,
-            lancamento_deposito_id=lancamento_deposito.id,
-            status="CONCILIADO"
+        .join(PdvVenda, PdvVenda.id == PdvMovimentacao.venda_id, isouter=True)
+        .join(Usuario, Usuario.id == PdvVenda.vendedor_id, isouter=True)
+        .join(Entidade, Entidade.id == PdvVenda.entidade_id, isouter=True)
+        .where(
+            PdvMovimentacao.empresa_id == empresa_id,
+            PdvMovimentacao.is_deleted == False,
+            PdvMovimentacao.data >= start_date,
+            PdvMovimentacao.data < end_date
         )
-        db.add(lote)
-        db.flush()
+        .order_by(PdvMovimentacao.data.desc(), PdvMovimentacao.id.desc())
+    )
+    
+    resultados = db.execute(stmt).all()
+    movimentacoes = []
+    
+    for row in resultados:
+        m, vendedor_nome, cliente_nome = row
+        movimentacoes.append({
+            "id": m.id,
+            "id_parcelamento": m.venda_id,
+            "tipo": m.tipo,
+            "descricao": m.descricao,
+            "valor": float(m.valor),
+            "forma_pagamento": m.forma_pagamento,
+            "bandeira": m.bandeira,
+            "parcelas": m.parcelas,
+            "data": str(m.data),
+            "centro_custo_id": m.centro_custo_id,
+            "conta_id": m.conta_id,
+            "conciliado": m.conciliado,
+            # Campos extras populados dinamicamente via JOIN
+            "vendedor_nome": vendedor_nome or "N/A (Movimentação Caixa)",
+            "cliente_nome": cliente_nome or "Consumidor Final"
+        })
+    return movimentacoes
+```
+
+---
+
+## 6. ENDPOINTS DE EDIÇÃO SEGURA E ESTORNO (CANCELAMENTO)
+
+```python
+class RecebivelAgendaUpdate(BaseModel):
+    data: date
+    valor: float
+
+@router.put("/movimentacoes/{id}/agenda")
+def atualizar_agenda_recebivel(id: int, payload: RecebivelAgendaUpdate, db: Session = Depends(get_db)):
+    mov = db.get(PdvMovimentacao, id)
+    if not mov or mov.is_deleted:
+        raise HTTPException(status_code=404, detail="Recebível não encontrado.")
         
-        # 3. Conciliar todas as movimentações e criar os itens de lote
-        for mov_id in payload.movimentacao_ids:
-            mov = db.get(PdvMovimentacao, mov_id)
-            if mov:
-                mov.conciliado = True
-                item = LoteCartaoItem(
-                    lote_cartao_id=lote.id,
-                    pdv_movimentacao_id=mov.id,
-                    valor_bruto=mov.valor,
-                    valor_taxa=0.0,
-                    valor_liquido=mov.valor
-                )
-                db.add(item)
-
-        # 4. CONCILIAÇÃO BANCÁRIA AUTOMÁTICA (Integração com a tabela de movimentos OFX)
-        if payload.movimento_ofx_id:
-            mov_ofx = db.get(Movimento, payload.movimento_ofx_id)
-            if mov_ofx:
-                # Criar a Baixa vinculando o lançamento consolidado de depósito ao movimento físico do extrato
-                baixa = Baixa(
-                    empresa_id=payload.empresa_id,
-                    lancamento_id=lancamento_deposito.id,
-                    movimento_id=mov_ofx.id,
-                    valor_pago=payload.valor_liquido,
-                    data_baixa=payload.data_pagamento,
-                    tipo_baixa="PRINCIPAL",
-                    is_deleted=False
-                )
-                db.add(baixa)
-                
-                # Atualizar o status do movimento de extrato para CONCILIADO
-                mov_ofx.status = "CONCILIADO"
-                db.add(mov_ofx)
-
-        db.commit()
-        return {"status": "success", "lote_id": lote.id}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+    if mov.conciliado:
+        raise HTTPException(
+            status_code=400, 
+            detail="Não é permitido alterar dados de recebíveis de cartões já conciliados."
+        )
+        
+    mov.data = payload.data
+    mov.valor = payload.valor
+    db.commit()
+    return {"status": "success", "message": "Agenda de recebíveis atualizada."}
 ```
 
 ---

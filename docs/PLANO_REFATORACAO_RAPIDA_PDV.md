@@ -123,6 +123,14 @@ Para evitar duplicidade e manter a consistência matemática dos saldos do ERP, 
     1. Subtrai o valor da baixa do `valor_pago` do lançamento. Se o saldo pago zerar, retorna o lançamento para `status = 'EM ABERTO'` e limpa `data_pagamento`.
     2. Retorna o status do movimento de extrato em `movimentos` para `'ABERTO'`.
 
+### Bug E: Omissão de Despesas de Taxa de Cartão na DRE (Distorção Fiscal)
+*   **O Cenário**: Um lote de cartões possui R$ 1.000,00 brutos de vendas, R$ 30,00 de taxas cobradas pela adquirente e R$ 970,00 de valor líquido depositado no banco.
+*   **O Erro**: Se criarmos apenas o lançamento de receita consolidado com o valor líquido de R$ 970,00, a DRE omitirá a despesa de taxas de cartão (R$ 30,00) e reportará faturamento bruto a menor (R$ 970,00 em vez de R$ 1.000,00), violando as normas de contabilidade DRE/DFC.
+*   **Mitigação**: O fechamento do lote deve criar um **Lançamento Desdobrado (Split Entry)**:
+    1.  **Lançamento de Receita (`RECEITA`)**: Gravado com `valor_previsto = valor_bruto` (R$ 1.000,00) na categoria de receitas da loja.
+    2.  **Lançamento de Despesa (`DESPESA`)**: Criado automaticamente com `valor_previsto = valor_taxa` (R$ 30,00) na categoria de taxas de cartão (ex: `'02.01.05'`).
+    3.  Ambos são marcados como `PAGO` e vinculados ao mesmo banco. O saldo contábil líquido é alterado exatamente em R$ 970,00, batendo 100% com o extrato bancário (`movimentos`).
+
 ---
 
 ## 5. MODELAGEM E DATA MIGRATION HISTÓRICO OTIMIZADO (ALEMBIC)
@@ -413,72 +421,168 @@ def listar_movimentacoes_pdv(
 
 ## 8. ENDPOINTS DE EDIÇÃO SEGURA E ESTORNO (CANCELAMENTO)
 
-```python
-class RecebivelAgendaUpdate(BaseModel):
-    data: date
-    valor: float
+### 8.1. API de Conciliação Bancária Automática (Split Entry / Lançamento Desdobrado)
 
-@router.put("/movimentacoes/{id}/agenda")
-def atualizar_agenda_recebivel(id: int, payload: RecebivelAgendaUpdate, db: Session = Depends(get_db)):
-    mov = db.get(PdvMovimentacao, id)
-    if not mov or mov.is_deleted:
-        raise HTTPException(status_code=404, detail="Recebível não encontrado.")
-        
-    if mov.conciliado:
-        raise HTTPException(
-            status_code=400, 
-            detail="Não é permitido alterar dados de recebíveis de cartões já conciliados."
+```python
+from app.models.baixa import Baixa
+from app.models.pdv_movimentacao import PdvMovimentacao
+from app.models.lote_cartao import LoteCartao
+from app.models.lote_cartao_item import LoteCartaoItem
+
+class ConciliarLoteSchema(BaseModel):
+    empresa_id: int
+    data_pagamento: date
+    valor_bruto: float
+    valor_taxa: float
+    valor_liquido: float
+    conta_destino_id: int
+    movimentacao_ids: List[int]
+    movimento_ofx_id: Optional[int] = None
+
+@router.post("/conciliacao/lotes")
+def conciliar_lote_cartao(payload: ConciliarLoteSchema, db: Session = Depends(get_db)):
+    try:
+        # 1. LANÇAMENTO DESDOBRADO DE RECEITA (Valor Bruto Integral)
+        lancamento_receita = Lancamento(
+            empresa_id=payload.empresa_id,
+            tipo="RECEITA",
+            valor_previsto=payload.valor_bruto,
+            valor_pago=payload.valor_bruto,
+            data_vencimento=payload.data_pagamento,
+            data_pagamento=payload.data_pagamento,
+            status="PAGO",
+            origem="CONCILIACAO_CARTAO",
+            descricao="Faturamento Bruto - Lote Cartões Reconciliado"
         )
+        db.add(lancamento_receita)
         
-    mov.data = payload.data
-    mov.valor = payload.valor
-    db.commit()
-    return {"status": "success", "message": "Agenda de recebíveis atualizada."}
+        # 2. LANÇAMENTO DESDOBRADO DE DESPESA (Taxa Retida da Adquirente)
+        lancamento_despesa_taxa = Lancamento(
+            empresa_id=payload.empresa_id,
+            tipo="DESPESA",
+            valor_previsto=payload.valor_taxa,
+            valor_pago=payload.valor_taxa,
+            data_vencimento=payload.data_pagamento,
+            data_pagamento=payload.data_pagamento,
+            status="PAGO",
+            origem="CONCILIACAO_CARTAO",
+            descricao="Tarifas / Taxas de Administração de Cartões",
+            plano_contas_id=obter_categoria_taxas_cartao(db, payload.empresa_id) # ex: '02.01.05'
+        )
+        db.add(lancamento_despesa_taxa)
+        db.flush()
+        
+        # 3. Criar o cabeçalho do lote
+        lote = LoteCartao(
+            empresa_id=payload.empresa_id,
+            data_pagamento=payload.data_pagamento,
+            valor_bruto=payload.valor_bruto,
+            valor_taxa=payload.valor_taxa,
+            valor_liquido=payload.valor_liquido,
+            conta_destino_id=payload.conta_destino_id,
+            lancamento_deposito_id=lancamento_receita.id, # Link ao faturamento bruto
+            status="CONCILIADO"
+        )
+        db.add(lote)
+        db.flush()
+        
+        # 4. Vincular as parcelas
+        for mov_id in payload.movimentacao_ids:
+            mov = db.get(PdvMovimentacao, mov_id)
+            if mov:
+                mov.conciliado = True
+                item = LoteCartaoItem(
+                    lote_cartao_id=lote.id,
+                    pdv_movimentacao_id=mov.id,
+                    valor_bruto=mov.valor,
+                    valor_taxa=0.0,
+                    valor_liquido=mov.valor
+                )
+                db.add(item)
+
+        # 5. BAIXA DO EXTRATO BANCÁRIO (Vincula a receita bruta ao extrato)
+        if payload.movimento_ofx_id:
+            mov_ofx = db.get(Movimento, payload.movimento_ofx_id)
+            if mov_ofx:
+                # O valor pago na baixa é exatamente o valor líquido creditado no extrato (R$ 970,00)
+                baixa = Baixa(
+                    empresa_id=payload.empresa_id,
+                    lancamento_id=lancamento_receita.id,
+                    movimento_id=mov_ofx.id,
+                    valor_pago=payload.valor_liquido, # Casamento exato com o valor do extrato
+                    data_baixa=payload.data_pagamento,
+                    tipo_baixa="PRINCIPAL",
+                    is_deleted=False
+                )
+                db.add(baixa)
+                mov_ofx.status = "CONCILIADO"
+                db.add(mov_ofx)
+
+        db.commit()
+        return {"status": "success", "lote_id": lote.id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 ```
 
----
-
-## 9. CHECKLIST DE HOMOLOGAÇÃO E SCRIPT DE AUDITORIA PÓS-MIGRATION
-
-Após a migração, a IA executora deve executar `scripts/audit_migration.py`.
+### 8.2. Rota DELETE de Desfazimento (Estorno) de Lote Conciliado:
 
 ```python
-# scripts/audit_migration.py
-import sys
-from app.db.session import SessionLocal
-from sqlalchemy import text
-
-db = SessionLocal()
-try:
-    # 1. Validar registros órfãos que possuíam venda válida no banco
-    orfaos = db.execute(text("""
-        SELECT count(lci.id) 
-        FROM lote_cartao_itens lci 
-        JOIN lancamentos l ON l.id = lci.lancamento_id
-        WHERE lci.pdv_movimentacao_id IS NULL
-          AND substring(l.observacao from '"venda_id_uuid"\s*:\s*"([^"]+)"') IN (SELECT id FROM pdv_vendas)
-    """)).scalar()
-    
-    if orfaos > 0:
-        print(f"❌ MIGRATION AUDIT FAILED: {orfaos} itens de lote ativos ficaram órfãos!")
-        sys.exit(1)
+@router.delete("/conciliacao/lotes/{lote_id}")
+def estornar_lote_cartao(lote_id: int, db: Session = Depends(get_db)):
+    lote = db.get(LoteCartao, lote_id)
+    if not lote:
+        raise HTTPException(status_code=404, detail="Lote não encontrado")
         
-    # 2. Validar integridade matemática de centavos dos lotes
-    dif = db.execute(text("""
-        SELECT count(*) FROM (
-            SELECT lc.id, lc.valor_bruto, sum(pm.valor) as sum_v
-            FROM lotes_cartao lc
-            JOIN lote_cartao_itens lci ON lci.lote_cartao_id = lc.id
-            JOIN pdv_movimentacoes pm ON pm.id = lci.pdv_movimentacao_id
-            GROUP BY lc.id
-        ) q WHERE round(q.valor_bruto::numeric, 2) != round(q.sum_v::numeric, 2)
-    """)).scalar()
-    
-    if dif > 0:
-        print(f"❌ MIGRATION AUDIT FAILED: {dif} lotes de cartões divergem nos centavos!")
-        sys.exit(1)
+    try:
+        # 1. Resetar status de conciliado para False em pdv_movimentacoes
+        itens = db.execute(
+            select(LoteCartaoItem).where(LoteCartaoItem.lote_cartao_id == lote_id)
+        ).scalars().all()
         
-    print("✅ MIGRATION AUDIT PASSED: Lotes e parcelas históricas auditados com sucesso.")
-finally:
-    db.close()
+        for item in itens:
+            mov = db.get(PdvMovimentacao, item.pdv_movimentacao_id)
+            if mov:
+                mov.conciliado = False
+                db.add(mov)
+            db.delete(item)
+            
+        # 2. Deletar a baixa do extrato OFX se houver
+        if lote.lancamento_deposito_id:
+            baixa = db.execute(
+                select(Baixa).where(Baixa.lancamento_id == lote.lancamento_deposito_id, Baixa.is_deleted == False)
+            ).scalar_one_or_none()
+            
+            if baixa:
+                # Reverter status do movimento do extrato para ABERTO
+                mov_ofx = db.get(Movimento, baixa.movimento_id)
+                if mov_ofx:
+                    mov_ofx.status = "ABERTO"
+                    db.add(mov_ofx)
+                db.delete(baixa)
+                
+            # 3. Apagar o lançamento de Receita Bruta
+            receita = db.get(Lancamento, lote.lancamento_deposito_id)
+            if receita:
+                db.delete(receita)
+                
+        # 4. Localizar e apagar a despesa de taxa de cartão correspondente
+        despesa_taxa = db.execute(
+            select(Lancamento).where(
+                Lancamento.empresa_id == lote.empresa_id,
+                Lancamento.origem == "CONCILIACAO_CARTAO",
+                Lancamento.tipo == "DESPESA",
+                Lancamento.valor_previsto == lote.valor_taxa,
+                Lancamento.data_pagamento == lote.data_pagamento
+            )
+        ).first()
+        if despesa_taxa:
+            db.delete(despesa_taxa)
+                
+        db.delete(lote)
+        db.commit()
+        return {"message": "Lote estornado com sucesso. Recebíveis e extratos reabertos."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 ```

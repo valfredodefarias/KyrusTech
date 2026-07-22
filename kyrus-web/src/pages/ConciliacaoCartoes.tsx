@@ -415,14 +415,35 @@ export function ConciliacaoCartoes() {
     }
   };
 
+  const getMonthRange = (date: Date) => {
+    const y = date.getFullYear();
+    const m = date.getMonth();
+    const firstDay = new Date(y, m, 1);
+    const lastDay = new Date(y, m + 1, 0);
+    const format = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    return { start: format(firstDay), end: format(lastDay) };
+  };
+
   const fetchAgenda = async () => {
     setLoading(true);
     try {
-      // Só aplica filtro de data se o usuário selecionou manualmente
-      // Sem filtro: carrega todo o histórico disponível
       const params: Record<string, string> = {};
-      if (startDate) params.start_date = startDate;
-      if (endDate) params.end_date = endDate;
+      
+      // No modo calendário, forçamos a busca de todo o mês selecionado
+      // para evitar que o limite de 2000 oculte previsões de datas futuras.
+      if (viewMode === 'calendar') {
+        const range = getMonthRange(currentMonth);
+        params.start_date = range.start;
+        params.end_date = range.end;
+      } else {
+        if (startDate) params.start_date = startDate;
+        if (endDate) params.end_date = endDate;
+      }
 
       const res = await api.get('/pdv/recebiveis', { params });
       setRecebiveis(normalizeListResponse<Recebivel>(res.data));
@@ -462,7 +483,7 @@ export function ConciliacaoCartoes() {
     if (activeTab === 'agenda') {
       void fetchAgenda();
     }
-  }, [activeTab, currentMonth, startDate, endDate]);
+  }, [activeTab, currentMonth, startDate, endDate, viewMode]);
 
   // Fetch non-reconciled deposits when on conciliacao tab
   useEffect(() => {
@@ -1181,6 +1202,7 @@ export function ConciliacaoCartoes() {
                     setFilterStatus('');
                     setStartDate('');
                     setEndDate('');
+                    setSelectedDay(null);
                   }}
                   className="px-3 py-2 text-slate-400 hover:text-slate-600 dark:hover:text-white text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition mr-2"
                 >

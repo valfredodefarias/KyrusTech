@@ -935,8 +935,11 @@ def listar_recebiveis_cartao(
             Lancamento.is_deleted == False,
             Lancamento.tipo == "RECEITA",
             Lancamento.origem == "PDV",
-            # Filtra cartões no SQL (evita fetch de toda a tabela)
-            Lancamento.observacao.ilike('%"cartao_%'),
+            # Filtra cartões ou agrupados no SQL
+            or_(
+                Lancamento.observacao.ilike('%"cartao_%'),
+                Lancamento.observacao.ilike('%"grouped_card_launch"%')
+            ),
             # Exclui legados no SQL
             or_(
                 Lancamento.observacao.is_(None),
@@ -962,7 +965,16 @@ def listar_recebiveis_cartao(
         except Exception:
             continue
             
+        is_grouped = meta.get("grouped_card_launch") is True
         tipo_pag = meta.get("tipo_pagamento", "")
+        
+        if is_grouped:
+            modality = meta.get("modalidade", "Credito")
+            if str(modality).lower() == "debito":
+                tipo_pag = "cartao_debito"
+            else:
+                tipo_pag = "cartao_credito_vista"
+                
         # Validação final leve (ILIKE já filtrou a grande maioria no SQL)
         if not tipo_pag.startswith("cartao_"):
             continue

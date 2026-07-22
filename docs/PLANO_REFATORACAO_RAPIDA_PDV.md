@@ -11,11 +11,12 @@ Este documento é a especificação técnica absoluta de engenharia para guiar a
 1. [Diretrizes de Segurança e Políticas de Não-Quebra](#1-diretrizes-de-seguranca-e-politicas-de-nao-quebra)
 2. [O Ecossistema Relacional de Conciliação (5 Tabelas)](#2-o-ecossistema-relacional-de-conciliacao-5-tabelas)
 3. [A Separação de Realidades: Lançamentos vs. Movimentos (OFX)](#3-a-separacao-de-realidades-lancamentos-vs-movimentos-ofx)
-4. [Modelagem e Data Migration Histórico Otimizado (Alembic)](#4-modelagem-e-data-migration-historico-otimizado-alembic)
-5. [Gravação de Vendas com Distribuição de Arredondamento e Cascading Soft-Delete](#5-gravacao-de-vendas-com-distribuicao-de-arredondamento-e-cascading-soft-delete)
-6. [Reescrita das APIs de Recebíveis e Movimentações com JOIN de Vendas](#6-reescrita-das-apis-de-recebiveis-e-movimentacoes-com-join-de-vendas)
-7. [Endpoints de Edição Segura e Estorno (Cancelamento)](#7-endpoints-de-edicao-segura-e-estorno-cancelamento)
-8. [Checklist de Homologação e Script de Auditoria Pós-Migration](#8-checklist-de-homologacao-e-script-de-auditoria-pos-migration)
+4. [Análise de Bugs Críticos no Fluxo de Conciliação e Mitigações](#4-analise-de-bugs-criticos-no-fluxo-de-conciliacao-e-mitigacoes)
+5. [Modelagem e Data Migration Histórico Otimizado (Alembic)](#5-modelagem-e-data-migration-historico-otimizado-alembic)
+6. [Gravação de Vendas com Distribuição de Arredondamento e Cascading Soft-Delete](#6-gravacao-de-vendas-com-distribuicao-de-arredondamento-e-cascading-soft-delete)
+7. [Reescrita das APIs de Recebíveis e Movimentações com JOIN de Vendas](#7-reescrita-das-apis-de-recebiveis-e-movimentacoes-com-join-de-vendas)
+8. [Endpoints de Edição Segura e Estorno (Cancelamento)](#8-endpoints-de-edicao-segura-e-estorno-cancelamento)
+9. [Checklist de Homologação e Script de Auditoria Pós-Migration](#9-checklist-de-homologacao-e-script-de-auditoria-pos-migration)
 
 ---
 
@@ -64,10 +65,8 @@ Para evitar duplicidade e manter a consistência matemática dos saldos do ERP, 
 
 ## 3. A SEPARAÇÃO DE REALIDADES: LANÇAMENTOS VS. MOVIMENTOS (OFX)
 
-> [!NOTE]
-> **Definição de Papéis**:
-> *   **`movimentos` (Realidade Externa / Suporte)**: É uma tabela estritamente de suporte e leitura. Ela funciona como um log fiel e imutável das movimentações físicas da conta bancária extraídas do arquivo OFX do banco (valor, banco, data, FITID). Ela **não possui categoria contábil** e não deve sofrer alterações manuais.
-> *   **`lancamentos` (Realidade Interna / Operacional)**: É a tabela de controle operacional do ERP. Possui categoria contábil, centro de custo, descrição amigável e é totalmente editável pelo usuário. É ela que calcula os relatórios contábeis e a DRE.
+*   **`movimentos` (Realidade Externa / Suporte de Leitura)**: É uma tabela de suporte e leitura. Ela funciona como um log fiel e imutável das movimentações físicas da conta bancária extraídas do arquivo OFX (valor, banco, data, FITID). Ela **não possui categoria contábil** e não sofre alterações manuais.
+*   **`lancamentos` (Realidade Interna / Operacional)**: É a tabela de controle operacional do ERP. Possui categoria contábil, centro de custo, descrição amigável e é totalmente editável pelo usuário. É ela que calcula os relatórios contábeis e a DRE.
 
 ### O Fluxo Bidirecional de Usabilidade no Frontend e Backend:
 
@@ -87,21 +86,46 @@ Para evitar duplicidade e manter a consistência matemática dos saldos do ERP, 
                     [Movimento do Extrato vira CONCILIADO]
 ```
 
-#### Cenário A: Ação Iniciada no Extrato (Movimentos)
-1.  O usuário visualiza uma linha de extrato em `movimentos`.
-2.  O sistema busca em `lancamentos` por registros compatíveis em aberto (mesmo valor e data aproximada).
-3.  Ao confirmar o match, o sistema cria o registro na tabela de junção `baixas` ligando o `movimento_id` ao `lancamento_id`.
-4.  O backend automaticamente atualiza o `lancamento` associado: vira `status = 'PAGO'`, assume o `valor_pago` e a `data_pagamento` exatos do movimento físico do extrato.
+---
 
-#### Cenário B: Ação Iniciada no Financeiro (Lançamentos)
-1.  O usuário clica em "Marcar como Pago" em um lançamento em aberto.
-2.  O sistema abre o formulário e tenta buscar automaticamente no banco se existe algum registro em `movimentos` (importado via OFX) com o **mesmo valor, banco e data**.
-3.  *Se encontrar*: O sistema cria a `baixa` associando ambos na hora, mudando o status da movimentação para `CONCILIADO`.
-4.  *Se NÃO encontrar (OFX ainda não foi importado)*: O lançamento é simplesmente marcado como `PAGO` com os parâmetros inseridos pelo usuário. Quando o OFX for importado futuramente, o algoritmo de auto-match encontrará esse lançamento já pago e sugerirá a conciliação retroativa criando a `baixa`.
+## 4. ANÁLISE DE BUGS CRÍTICOS NO FLUXO DE CONCILIAÇÃO E MITIGAÇÕES
+
+### Bug A: Inflação de Saldos Contábeis por Match N-para-1 (Divergência de Valores)
+*   **O Cenário**: Um usuário faz a conciliação de uma transação de extrato bancário de R$ 1.000,00 (`movimentos`) vinculando-a a três contas a receber pendentes de R$ 300,00, R$ 500,00 e R$ 200,00 (`lancamentos`).
+*   **O Erro**: Se o backend copiar cegamente o valor do movimento físico para a coluna `valor_pago` de cada lançamento, os três lançamentos assumirão o valor de R$ 1.000,00 cada. Isso inflacionará o saldo bancário contábil da empresa no ERP para R$ 3.000,00 em vez dos R$ 1.000,00 reais recebidos.
+*   **Mitigação**: O `valor_pago` de cada `Lancamento` individual deve ser definido estritamente pelo valor da respectiva linha gerada na tabela de junção `baixas` (que grava a fatia alocada do rateio). O backend deve executar:
+    ```python
+    lancamento.valor_pago = db.execute(
+        select(func.sum(Baixa.valor_pago)).where(Baixa.lancamento_id == lancamento.id, Baixa.is_deleted == False)
+    ).scalar() or Decimal("0.00")
+    ```
+
+### Bug B: Falha no Auto-Match por Processamento Bancário Atrasado (Date Delay)
+*   **O Cenário**: O usuário paga um boleto ou recebe um Pix de madrugada ou no final de semana (ex: Sexta-feira, 24/07). O banco processa e grava a data de liquidação física no extrato OFX apenas no próximo dia útil (Segunda-feira, 27/07).
+*   **O Erro**: Uma query de auto-match que busque a correspondência exata de datas (`movimento.data == lancamento.data_pagamento`) falhará em 100% das transações de finais de semana e feriados.
+*   **Mitigação**: O algoritmo de conciliação bancária do backend deve aplicar uma **tolerância temporal de +/- 3 dias** na comparação de datas para fins de cruzamento e sugestão de match:
+    ```python
+    where(
+        Movimento.data >= lancamento.data_pagamento - timedelta(days=3),
+        Movimento.data <= lancamento.data_pagamento + timedelta(days=3)
+    )
+    ```
+
+### Bug C: Duplicidade Contábil por Duplo Match de Lançamento Reconciliado
+*   **O Cenário**: Um lançamento de R$ 100,00 já foi associado a um movimento de extrato A. Posteriormente, o usuário tenta associar esse mesmo lançamento a um movimento de extrato B.
+*   **O Erro**: O sistema gera a segunda baixa e acumula duplicidade de entrada no saldo de caixa.
+*   **Mitigação**: Bloquear a criação de novas baixas se a soma das baixas ativas existentes para o lançamento já atingir o seu valor bruto total (`valor_previsto`), a menos que seja uma baixa de diferença de juros/multas devidamente identificada.
+
+### Bug D: Estorno Incompleto de Baixas (Desconciliação Órfã)
+*   **O Cenário**: O usuário desfaz uma conciliação contábil excluindo o registro correspondente da tabela `baixas`.
+*   **O Erro**: O lançamento contábil continua marcado como `PAGO` e a transação bancária continua com status `CONCILIADO` no banco.
+*   **Mitigação**: Toda exclusão de `Baixa` deve rodar um gatilho no backend que:
+    1. Subtrai o valor da baixa do `valor_pago` do lançamento. Se o saldo pago zerar, retorna o lançamento para `status = 'EM ABERTO'` e limpa `data_pagamento`.
+    2. Retorna o status do movimento de extrato em `movimentos` para `'ABERTO'`.
 
 ---
 
-## 4. MODELAGEM E DATA MIGRATION HISTÓRICO OTIMIZADO (ALEMBIC)
+## 5. MODELAGEM E DATA MIGRATION HISTÓRICO OTIMIZADO (ALEMBIC)
 
 ```python
 """normalize pdv_movimentacoes and migrate history safely using set-based SQL
@@ -128,7 +152,6 @@ def upgrade():
     # --- PARTE 2: EXPLOSÃO HISTÓRICA E AJUSTES DE DATAS (SET-BASED POSTGRESQL) ---
     connection = op.get_bind()
 
-    # 2.1. Duplicar as parcelas 2 em diante diretamente no Postgres
     connection.execute(sa.text("""
         INSERT INTO pdv_movimentacoes (
             created_at, updated_at, is_deleted, empresa_id, tipo, descricao, valor, 
@@ -149,7 +172,6 @@ def upgrade():
         WHERE pm.parcelas > 1 AND pm.numero_parcela = 1;
     """))
 
-    # 2.2. Atualizar o valor e a data da primeira parcela histórica
     connection.execute(sa.text("""
         UPDATE pdv_movimentacoes 
         SET 
@@ -158,7 +180,6 @@ def upgrade():
         WHERE parcelas > 1 AND numero_parcela = 1;
     """))
 
-    # 2.3. Mapear as chaves de junção do lote para os novos registros explodidos
     mapping_query = sa.text("""
         UPDATE lote_cartao_itens lci
         SET pdv_movimentacao_id = pm.id
@@ -193,7 +214,7 @@ def downgrade():
 
 ---
 
-## 5. GRAVAÇÃO DE VENDAS COM DISTRIBUIÇÃO DE ARREDONDAMENTO E CASCADING SOFT-DELETE
+## 6. GRAVAÇÃO DE VENDAS COM DISTRIBUIÇÃO DE ARREDONDAMENTO E CASCADING SOFT-DELETE
 
 Em `app/services/pdv_service.py`:
 
@@ -264,9 +285,9 @@ def registrar_venda_pdv(db: Session, dados_venda: PdvVendaCreate, empresa_id: in
 
 ---
 
-## 6. REESCRITA DAS APIS DE RECEBÍVEIS E MOVIMENTAÇÕES COM JOIN DE VENDAS
+## 7. REESCRITA DAS APIS DE RECEBÍVEIS E MOVIMENTAÇÕES COM JOIN DE VENDAS
 
-### 6.1. API `/pdv/recebiveis` (Conciliadora)
+### 7.1. API `/pdv/recebiveis` (Conciliadora)
 
 ```python
 @router.get("/recebiveis")
@@ -331,7 +352,7 @@ def listar_recebiveis_cartao(
     return recebiveis
 ```
 
-### 6.2. API `/pdv/movimentacoes` (Histórico de Caixa do Terminal)
+### 7.2. API `/pdv/movimentacoes` (Histórico de Caixa do Terminal)
 
 ```python
 from app.models.usuario import Usuario
@@ -390,7 +411,7 @@ def listar_movimentacoes_pdv(
 
 ---
 
-## 7. ENDPOINTS DE EDIÇÃO SEGURA E ESTORNO (CANCELAMENTO)
+## 8. ENDPOINTS DE EDIÇÃO SEGURA E ESTORNO (CANCELAMENTO)
 
 ```python
 class RecebivelAgendaUpdate(BaseModel):
@@ -417,7 +438,7 @@ def atualizar_agenda_recebivel(id: int, payload: RecebivelAgendaUpdate, db: Sess
 
 ---
 
-## 8. CHECKLIST DE HOMOLOGAÇÃO E SCRIPT DE AUDITORIA PÓS-MIGRATION
+## 9. CHECKLIST DE HOMOLOGAÇÃO E SCRIPT DE AUDITORIA PÓS-MIGRATION
 
 Após a migração, a IA executora deve executar `scripts/audit_migration.py`.
 

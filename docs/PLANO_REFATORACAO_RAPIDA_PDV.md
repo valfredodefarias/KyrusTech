@@ -11,14 +11,15 @@ Este documento é a especificação técnica absoluta de engenharia para guiar a
 1. [Diretrizes de Segurança e Políticas de Não-Quebra](#1-diretrizes-de-seguranca-e-politicas-de-nao-quebra)
 2. [O Ecossistema Relacional de Conciliação (5 Tabelas)](#2-o-ecossistema-relacional-de-conciliacao-5-tabelas)
 3. [A Separação de Realidades: Lançamentos vs. Movimentos (OFX)](#3-a-separacao-de-realidades-lancamentos-vs-movimentos-ofx)
-4. [Análise de Bugs Críticos no Fluxo de Conciliação e Mitigações](#4-analise-de-bugs-criticos-no-fluxo-de-conciliacao-e-mitigacoes)
-5. [Integridade no Módulo de Delivery (iFood)](#5-integridade-no-modulo-de-delivery-ifood)
-6. [Motor Hierárquico de Resolução de Categorias (Plano de Contas)](#6-motor-hierarquico-de-resolucao-de-categorias-plano-de-contas)
-7. [Modelagem e Data Migration Histórico Otimizado (Alembic)](#7-modelagem-e-data-migration-historico-otimizado-alembic)
-8. [Gravação de Vendas com Distribuição de Arredondamento e Cascading Soft-Delete](#8-gravacao-de-vendas-com-distribuicao-de-arredondamento-e-cascading-soft-delete)
-9. [Reescrita das APIs de Recebíveis e Movimentações com JOIN de Vendas](#9-reescrita-das-apis-de-recebiveis-e-movimentacoes-com-join-de-vendas)
-10. [Endpoints de Edição Segura e Estorno (Cancelamento)](#10-endpoints-de-edicao-segura-e-estorno-cancelamento)
-11. [Checklist de Homologação e Script de Auditoria Pós-Migration](#11-checklist-de-homologacao-e-script-de-auditoria-pos-migration)
+4. [Normalização Contábil de Dados e Padrões Prontos para IA/ML](#4-normalizacao-contabil-de-dados-e-padroes-prontos-para-iaml)
+5. [Análise de Bugs Críticos no Fluxo de Conciliação e Mitigações](#5-analise-de-bugs-criticos-no-fluxo-de-conciliacao-e-mitigacoes)
+6. [Integridade no Módulo de Delivery (iFood)](#6-integridade-no-modulo-de-delivery-ifood)
+7. [Motor Hierárquico de Resolução de Categorias (Plano de Contas)](#7-motor-hierarquico-de-resolucao-de-categorias-plano-de-contas)
+8. [Modelagem e Data Migration Histórico Otimizado (Alembic)](#8-modelagem-e-data-migration-historico-otimizado-alembic)
+9. [Gravação de Vendas com Distribuição de Arredondamento e Cascading Soft-Delete](#9-gravacao-de-vendas-com-distribuicao-de-arredondamento-e-cascading-soft-delete)
+10. [Reescrita das APIs de Recebíveis e Movimentações com JOIN de Vendas](#10-reescrita-das-apis-de-recebiveis-e-movimentacoes-com-join-de-vendas)
+11. [Endpoints de Edição Segura e Estorno (Cancelamento)](#11-endpoints-de-edicao-segura-e-estorno-cancelamento)
+12. [Checklist de Homologação e Script de Auditoria Pós-Migration](#12-checklist-de-homologacao-e-script-de-auditoria-pos-migration)
 
 ---
 
@@ -70,27 +71,27 @@ Para evitar duplicidade e manter a consistência matemática dos saldos do ERP, 
 *   **`movimentos` (Realidade Externa / Suporte de Leitura)**: É uma tabela de suporte e leitura. Ela funciona como um log fiel e imutável das movimentações físicas da conta bancária extraídas do arquivo OFX (valor, banco, data, FITID). Ela **não possui categoria contábil** e não sofre alterações manuais.
 *   **`lancamentos` (Realidade Interna / Operacional)**: É a tabela de controle operacional do ERP. Possui categoria contábil, centro de custo, descrição amigável e é totalmente editável pelo usuário. É ela que calcula os relatórios contábeis e a DRE.
 
-### O Fluxo Bidirecional de Usabilidade no Frontend e Backend:
+---
 
-```
-[Tela de Extrato / OFX]               [Tela de Lançamentos Financeiros]
-     |                                               |
-     | (Usuário seleciona Movimento)                 | (Usuário marca Lançamento como pago)
-     v                                               v
-[Busca Lançamento Correspondente]          [Busca Movimento no Extrato]
-     |                                               | (Mesmo valor, data e conta)
-     | (Encontra e associa)                          | (Se achar, vincula)
-     v                                               v
------------------------> [Gera registro em BAIXAS] <-----------------------
-                                     |
-                                     v
-                    [Lançamento vira PAGO no financeiro]
-                    [Movimento do Extrato vira CONCILIADO]
-```
+## 4. NORMALIZAÇÃO CONTÁBIL DE DADOS E PADRÕES PRONTOS PARA IA/ML
+
+> [!IMPORTANT]
+> **O Impacto no Aprendizado de Máquina (ML)**: Formatos divergentes na mesma coluna forçam os modelos preditivos a classificar dados idênticos de formas diferentes (ex: tratar `"01/2026"` e `"01-2026"` como competências distintas). 
+>
+> Para viabilizar previsões de fluxo de caixa e inteligência de dados, a IA executora deve impor a padronização estrita de todos os campos textuais de enums e datas.
+
+### 4.1. Padronização Estrita do Campo `tipo`
+*   **Tabela `lancamentos`**: Deve armazenar apenas os valores `"RECEITA"` ou `"DESPESA"` em caixa alta.
+*   **Tabela `pdv_movimentacoes`**: Deve armazenar apenas os valores `"ENTRADA"` (vendas, suprimentos) ou `"SAIDA"` (sangrias, despesas físicas) em caixa alta para manter consistência com o histórico do terminal de caixa do PDV.
+*   **Tabela `movimentos`**: Deve armazenar apenas os valores `"RECEITA"` ou `"DESPESA"` em caixa alta.
+
+### 4.2. Padronização Estrita do Campo `competencia`
+*   A coluna `competencia` (texto) da tabela `lancamentos` deve seguir exclusivamente o formato **`"MM-YYYY"`** (ex: `"07-2026"`), usando hífen como delimitador padrão.
+*   **Regra de Código**: Todo gerador de lançamentos no Python deve preencher esta coluna usando `data_competencia.strftime("%m-%Y")`.
 
 ---
 
-## 4. ANÁLISE DE BUGS CRÍTICOS NO FLUXO DE CONCILIAÇÃO E MITIGAÇÕES
+## 5. ANÁLISE DE BUGS CRÍTICOS NO FLUXO DE CONCILIAÇÃO E MITIGAÇÕES
 
 ### Bug A: Inflação de Saldos Contábeis por Match N-para-1 (Divergência de Valores)
 *   **O Cenário**: Um usuário faz a conciliação de uma transação de extrato bancário de R$ 1.000,00 (`movimentos`) vinculando-a a três contas a receber pendentes de R$ 300,00, R$ 500,00 e R$ 200,00 (`lancamentos`).
@@ -135,7 +136,7 @@ Para evitar duplicidade e manter a consistência matemática dos saldos do ERP, 
 
 ---
 
-## 5. INTEGRIDADE NO MÓDULO DE DELIVERY (IFOOD)
+## 6. INTEGRIDADE NO MÓDULO DE DELIVERY (IFOOD)
 
 ### 1. Distorção de Faturamento e Taxas Omitidas (iFood Fees)
 *   **O Erro**: Ao rodar a consolidação diária do iFood (`POST /pdv/ifood/consolidar`), o sistema grava no financeiro um lançamento com `valor_previsto = total_liquido` (ex: R$ 880,00). As taxas e comissões do iFood (ex: R$ 120,00) desaparecem da contabilidade, omitindo despesas operacionais da DRE.
@@ -150,19 +151,13 @@ Para evitar duplicidade e manter a consistência matemática dos saldos do ERP, 
 
 ---
 
-## 6. MOTOR HIERÁRQUICO DE RESOLUÇÃO DE CATEGORIAS (PLANO DE CONTAS)
-
-> [!CAUTION]
-> **Risco de Crash por NullConstraint**: A coluna `plano_contas_id` (categoria) na tabela `lancamentos` possui a restrição `NOT NULL` no banco de dados. Tentar inserir lançamentos de faturamento bruto ou taxas sem informar uma categoria contábil válida resultará em quebra imediata da transação no banco (`IntegrityError`).
->
-> **Impossibilidade de Hardcoding**: Como os IDs do plano de contas mudam para cada empresa (tenant), a IA executora **NUNCA** deve usar IDs fixos no código.
+## 7. MOTOR HIERÁRQUICO DE RESOLUÇÃO DE CATEGORIAS (PLANO DE CONTAS)
 
 O backend deve implementar três helpers robustos em `app/services/pdv_service.py` para resolver as categorias contábeis seguindo este **fluxo de fallback hierárquico**:
 
 ### Helper A: Categoria para Faturamento (Receita)
 ```python
 def obter_categoria_receita_pdv(db: Session, empresa_id: int) -> int:
-    # 1. Tentar ler da configuração da empresa (pdv_config JSON)
     empresa = db.get(Empresa, empresa_id)
     if empresa and empresa.pdv_config:
         try:
@@ -171,7 +166,6 @@ def obter_categoria_receita_pdv(db: Session, empresa_id: int) -> int:
             if pc_id: return int(pc_id)
         except: pass
 
-    # 2. Fallback por Nome (ILike)
     pc = db.exec(
         select(PlanoContas).where(
             PlanoContas.empresa_id == empresa_id,
@@ -182,7 +176,6 @@ def obter_categoria_receita_pdv(db: Session, empresa_id: int) -> int:
     ).first()
     if pc: return pc.id
 
-    # 3. Fallback Geral (Primeira Receita Válida)
     pc_fallback = db.exec(
         select(PlanoContas).where(
             PlanoContas.empresa_id == empresa_id,
@@ -198,7 +191,6 @@ def obter_categoria_receita_pdv(db: Session, empresa_id: int) -> int:
 ### Helper B: Categoria para Despesas de Taxa de Cartão (Adquirente)
 ```python
 def obter_categoria_taxas_cartao(db: Session, empresa_id: int) -> int:
-    # 1. Configuração da Empresa
     empresa = db.get(Empresa, empresa_id)
     if empresa and empresa.pdv_config:
         try:
@@ -207,7 +199,6 @@ def obter_categoria_taxas_cartao(db: Session, empresa_id: int) -> int:
             if pc_id: return int(pc_id)
         except: pass
 
-    # 2. Busca por Nome
     pc = db.exec(
         select(PlanoContas).where(
             PlanoContas.empresa_id == empresa_id,
@@ -218,7 +209,6 @@ def obter_categoria_taxas_cartao(db: Session, empresa_id: int) -> int:
     ).first()
     if pc: return pc.id
 
-    # 3. Fallback Geral (Primeira Despesa Válida)
     pc_fallback = db.exec(
         select(PlanoContas).where(
             PlanoContas.empresa_id == empresa_id,
@@ -234,7 +224,6 @@ def obter_categoria_taxas_cartao(db: Session, empresa_id: int) -> int:
 ### Helper C: Categoria para Despesas de Delivery (iFood)
 ```python
 def obter_categoria_taxas_delivery(db: Session, empresa_id: int) -> int:
-    # 1. Configuração da Empresa
     empresa = db.get(Empresa, empresa_id)
     if empresa and empresa.pdv_config:
         try:
@@ -243,7 +232,6 @@ def obter_categoria_taxas_delivery(db: Session, empresa_id: int) -> int:
             if pc_id: return int(pc_id)
         except: pass
 
-    # 2. Busca por Nome
     pc = db.exec(
         select(PlanoContas).where(
             PlanoContas.empresa_id == empresa_id,
@@ -254,7 +242,6 @@ def obter_categoria_taxas_delivery(db: Session, empresa_id: int) -> int:
     ).first()
     if pc: return pc.id
 
-    # 3. Reuso das Taxas de Cartão se não houver iFood
     try:
         return obter_categoria_taxas_cartao(db, empresa_id)
     except:
@@ -272,7 +259,7 @@ def obter_categoria_taxas_delivery(db: Session, empresa_id: int) -> int:
 
 ---
 
-## 7. MODELAGEM E DATA MIGRATION HISTÓRICO OTIMIZADO (ALEMBIC)
+## 8. MODELAGEM E DATA MIGRATION HISTÓRICO OTIMIZADO (ALEMBIC)
 
 ```python
 """normalize pdv_movimentacoes and migrate history safely using set-based SQL
@@ -296,7 +283,6 @@ def upgrade():
         ondelete='CASCADE'
     )
     
-    # Suporte para consistência no iFood
     op.add_column('pdv_ifood_lancamentos', sa.Column('lancamento_consolidado_id', sa.Integer(), nullable=True))
     op.create_foreign_key(
         'fk_pdv_ifood_lancamentos_consolidado',
@@ -373,7 +359,7 @@ def downgrade():
 
 ---
 
-## 8. GRAVAÇÃO DE VENDAS COM DISTRIBUIÇÃO DE ARREDONDAMENTO E CASCADING SOFT-DELETE
+## 9. GRAVAÇÃO DE VENDAS COM DISTRIBUIÇÃO DE ARREDONDAMENTO E CASCADING SOFT-DELETE
 
 Em `app/services/pdv_service.py`:
 
@@ -388,15 +374,22 @@ def registrar_venda_pdv(db: Session, dados_venda: PdvVendaCreate, empresa_id: in
 
     for pag in dados_venda.pagamentos:
         if pag.tipo_pagamento.lower() == "dinheiro":
+            # Normalização de Categoria de Receita PDV
+            plano_receita_id = obter_categoria_receita_pdv(db, empresa_id)
+            
+            # Enforce "RECEITA" em tipo e "MM-YYYY" em competencia para ML
             lancamento_caixa = Lancamento(
                 empresa_id=empresa_id,
+                plano_contas_id=plano_receita_id,
                 tipo="RECEITA",
+                status="PAGO",
+                origem="PDV_CAIXA",
                 valor_previsto=pag.valor,
                 valor_pago=pag.valor,
                 data_vencimento=venda_db.data_venda,
                 data_pagamento=venda_db.data_venda,
-                status="PAGO",
-                origem="PDV_CAIXA",
+                data_competencia=venda_db.data_venda,
+                competencia=venda_db.data_venda.strftime("%m-%Y"), # Padronizado Hífen
                 descricao="Venda PDV - Dinheiro Físico"
             )
             db.add(lancamento_caixa)
@@ -424,9 +417,10 @@ def registrar_venda_pdv(db: Session, dados_venda: PdvVendaCreate, empresa_id: in
                 valor_final_parcela = val_p + resto if i == total_p else val_p
                 hash_unico = f"{dados_venda.import_hash}-P{i}" if dados_venda.import_hash else None
                 
+                # Enforce "ENTRADA" em tipo de movimentação física do terminal para ML
                 mov = PdvMovimentacao(
                     empresa_id=empresa_id,
-                    tipo="RECEITA",
+                    tipo="ENTRADA", # Padronizado ENTRADA para o terminal
                     descricao=f"Parcela {i}/{total_p} Venda PDV {venda_db.id}",
                     valor=valor_final_parcela,
                     forma_pagamento=pag.tipo_pagamento,
@@ -444,9 +438,9 @@ def registrar_venda_pdv(db: Session, dados_venda: PdvVendaCreate, empresa_id: in
 
 ---
 
-## 9. REESCRITA DAS APIS DE RECEBÍVEIS E MOVIMENTAÇÕES COM JOIN DE VENDAS
+## 10. REESCRITA DAS APIS DE RECEBÍVEIS E MOVIMENTAÇÕES COM JOIN DE VENDAS
 
-### 9.1. API `/pdv/recebiveis` (Conciliadora)
+### 10.1. API `/pdv/recebiveis` (Conciliadora)
 
 ```python
 @router.get("/recebiveis")
@@ -511,7 +505,7 @@ def listar_recebiveis_cartao(
     return recebiveis
 ```
 
-### 9.2. API `/pdv/movimentacoes` (Histórico de Caixa do Terminal)
+### 10.2. API `/pdv/movimentacoes` (Histórico de Caixa do Terminal)
 
 ```python
 from app.models.usuario import Usuario
@@ -568,9 +562,9 @@ def listar_movimentacoes_pdv(
 
 ---
 
-## 10. ENDPOINTS DE EDIÇÃO SEGURA E ESTORNO (CANCELAMENTO)
+## 11. ENDPOINTS DE EDIÇÃO SEGURA E ESTORNO (CANCELAMENTO)
 
-### 10.1. API de Conciliação Bancária Automática (Split Entry / Lançamento Desdobrado)
+### 11.1. API de Conciliação Bancária Automática (Split Entry / Lançamento Desdobrado)
 
 ```python
 from app.models.baixa import Baixa
@@ -591,34 +585,36 @@ class ConciliarLoteSchema(BaseModel):
 @router.post("/conciliacao/lotes")
 def conciliar_lote_cartao(payload: ConciliarLoteSchema, db: Session = Depends(get_db)):
     try:
-        # Resolvendo a categoria contábil com segurança
         plano_receita_id = obter_categoria_receita_pdv(db, payload.empresa_id)
         plano_taxa_id = obter_categoria_taxas_cartao(db, payload.empresa_id)
         
-        # 1. LANÇAMENTO DESDOBRADO DE RECEITA (Valor Bruto Integral)
+        # Enforce "RECEITA" / "DESPESA" e "MM-YYYY" (ML Compliance)
         lancamento_receita = Lancamento(
             empresa_id=payload.empresa_id,
             tipo="RECEITA",
-            plano_contas_id=plano_receita_id, # Categoria Resolvida Dinamicamente
+            plano_contas_id=plano_receita_id,
             valor_previsto=payload.valor_bruto,
             valor_pago=payload.valor_bruto,
             data_vencimento=payload.data_pagamento,
             data_pagamento=payload.data_pagamento,
+            data_competencia=payload.data_pagamento,
+            competencia=payload.data_pagamento.strftime("%m-%Y"), # Hífen
             status="PAGO",
             origem="CONCILIACAO_CARTAO",
             descricao="Faturamento Bruto - Lote Cartões Reconciliado"
         )
         db.add(lancamento_receita)
         
-        # 2. LANÇAMENTO DESDOBRADO DE DESPESA (Taxa Retida da Adquirente)
         lancamento_despesa_taxa = Lancamento(
             empresa_id=payload.empresa_id,
             tipo="DESPESA",
-            plano_contas_id=plano_taxa_id, # Categoria Resolvida Dinamicamente
+            plano_contas_id=plano_taxa_id,
             valor_previsto=payload.valor_taxa,
             valor_pago=payload.valor_taxa,
             data_vencimento=payload.data_pagamento,
             data_pagamento=payload.data_pagamento,
+            data_competencia=payload.data_pagamento,
+            competencia=payload.data_pagamento.strftime("%m-%Y"), # Hífen
             status="PAGO",
             origem="CONCILIACAO_CARTAO",
             descricao="Tarifas / Taxas de Administração de Cartões"
@@ -626,7 +622,6 @@ def conciliar_lote_cartao(payload: ConciliarLoteSchema, db: Session = Depends(ge
         db.add(lancamento_despesa_taxa)
         db.flush()
         
-        # 3. Criar o cabeçalho do lote
         lote = LoteCartao(
             empresa_id=payload.empresa_id,
             data_pagamento=payload.data_pagamento,
@@ -640,7 +635,6 @@ def conciliar_lote_cartao(payload: ConciliarLoteSchema, db: Session = Depends(ge
         db.add(lote)
         db.flush()
         
-        # 4. Vincular as parcelas
         for mov_id in payload.movimentacao_ids:
             mov = db.get(PdvMovimentacao, mov_id)
             if mov:
@@ -654,7 +648,6 @@ def conciliar_lote_cartao(payload: ConciliarLoteSchema, db: Session = Depends(ge
                 )
                 db.add(item)
 
-        # 5. BAIXA DO EXTRATO BANCÁRIO (Vincula a receita bruta ao extrato)
         if payload.movimento_ofx_id:
             mov_ofx = db.get(Movimento, payload.movimento_ofx_id)
             if mov_ofx:
@@ -678,7 +671,7 @@ def conciliar_lote_cartao(payload: ConciliarLoteSchema, db: Session = Depends(ge
         raise HTTPException(status_code=500, detail=str(e))
 ```
 
-### 10.2. Rota DELETE de Desfazimento (Estorno) de Lote Conciliado:
+### 11.2. Rota DELETE de Desfazimento (Estorno) de Lote Conciliado:
 
 ```python
 @router.delete("/conciliacao/lotes/{lote_id}")
@@ -735,7 +728,7 @@ def estornar_lote_cartao(lote_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 ```
 
-### 10.3. iFood Consolidação com Lançamento Desdobrado (DRE Fiel)
+### 11.3. iFood Consolidação com Lançamento Desdobrado (DRE Fiel)
 
 ```python
 @router.post("/ifood/consolidar", status_code=200)
@@ -764,43 +757,44 @@ def consolidar_dia_ifood(
     
     data_recebimento = max(t.data_recebimento_ajustada for t in transacoes)
     
-    # Resolvendo a categoria contábil com segurança
-    plano_receita_id = obter_categoria_receita_pdv(db, empresa_id) # Usando fallback para iFood/Venda
+    plano_receita_id = obter_categoria_receita_pdv(db, empresa_id)
     plano_taxa_delivery_id = obter_categoria_taxas_delivery(db, empresa_id)
     
-    # 1. LANÇAMENTO DESDOBRADO DE RECEITA IFOOD (Bruto)
+    # Enforce "RECEITA" / "DESPESA" e "MM-YYYY" (ML Compliance)
     receita_ifood = Lancamento(
         empresa_id=empresa_id,
         conta_id=consolidar_in.conta_id,
-        plano_contas_id=plano_receita_id, # Categoria Resolvida Dinamicamente
+        plano_contas_id=plano_receita_id,
         tipo="RECEITA",
         descricao=f"Faturamento Bruto iFood - {consolidar_in.data_venda.strftime('%d/%m/%Y')}",
         valor_previsto=total_bruto,
         valor_pago=Decimal("0.00"),
         data_vencimento=data_recebimento,
+        data_competencia=consolidar_in.data_venda,
+        competencia=consolidar_in.data_venda.strftime("%m-%Y"), # Hífen
         status="EM ABERTO",
         origem="IFOOD"
     )
     db.add(receita_ifood)
     db.flush()
     
-    # 2. LANÇAMENTO DESDOBRADO DE DESPESA DE COMISSÃO (Taxa)
     if total_comissao > 0:
         despesa_comissao = Lancamento(
             empresa_id=empresa_id,
             conta_id=consolidar_in.conta_id,
-            plano_contas_id=plano_taxa_delivery_id, # Categoria Resolvida Dinamicamente
+            plano_contas_id=plano_taxa_delivery_id,
             tipo="DESPESA",
             descricao=f"Comissão / Taxas de Delivery iFood - {consolidar_in.data_venda.strftime('%d/%m/%Y')}",
             valor_previsto=total_comissao,
             valor_pago=Decimal("0.00"),
             data_vencimento=data_recebimento,
+            data_competencia=consolidar_in.data_venda,
+            competencia=consolidar_in.data_venda.strftime("%m-%Y"), # Hífen
             status="EM ABERTO",
             origem="IFOOD"
         )
         db.add(despesa_comissao)
 
-    # 3. Atualizar as transações vinculando-as ao lançamento de receita consolidado
     for t in transacoes:
         t.status_conciliado = True
         t.lancamento_consolidado_id = receita_ifood.id
@@ -811,7 +805,7 @@ def consolidar_dia_ifood(
 ```
 ---
 
-## 11. CHECKLIST DE HOMOLOGAÇÃO E SCRIPT DE AUDITORIA PÓS-MIGRATION
+## 12. CHECKLIST DE HOMOLOGAÇÃO E SCRIPT DE AUDITORIA PÓS-MIGRATION
 
 Após a migração, a IA executora deve executar `scripts/audit_migration.py`.
 

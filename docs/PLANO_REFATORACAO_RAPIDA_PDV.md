@@ -1,19 +1,19 @@
 [🗺️ Visão Geral]([[Visao Geral]]) / [🩹 Erros Estruturais]([[Plano de Refatoracao e Erros Estruturais do PDV]])
 ***
 
-# 🤖 PLANO DE REFATORAÇÃO E MANUAL DE EXECUÇÃO PARA IA DEVELOPER (EDILÇÃO BLINDADA)
+# 🤖 PLANO DE REFATORAÇÃO E MANUAL DE EXECUÇÃO PARA IA DEVELOPER (5-TABLE RECONCILIATION)
 
-Este documento é a especificação técnica absoluta de engenharia para guiar a refatoração do módulo de conciliação de cartões e recebíveis no Kyrus ERP. Ele mapeia de forma cética todas as armadilhas de concorrência, erros de arredondamento, colisão de unicidade e resolve a migração histórica de alta escala usando processamento baseado em conjuntos no PostgreSQL.
+Este documento é a especificação técnica absoluta de engenharia para guiar a refatoração do módulo de conciliação de cartões e recebíveis no Kyrus ERP. Ele mapeia toda a arquitetura financeira de reconciliação bancária de ponta a ponta, conectando as tabelas de vendas do PDV, os recebíveis explodidos, os lotes de cartão, os lançamentos contábeis e as movimentações de extrato bancário (OFX) de forma 100% normalizada.
 
 ---
 
 ## 🗺️ ÍNDICE
 1. [Diretrizes de Segurança e Políticas de Não-Quebra](#1-diretrizes-de-seguranca-e-politicas-de-nao-quebra)
-2. [Análise Avançada de Riscos e Solução de Bugs Ocultos](#2-analise-avancada-de-riscos-e-solucao-de-bugs-ocultos)
-3. [Modelagem e Data Migration Histórico Otimizado (Alembic)](#3-modelagem-e-data-migration-historico-otimizado-alembic)
+2. [O Ecossistema Relacional de Conciliação (5 Tabelas)](#2-o-ecossistema-relacional-de-conciliacao-5-tabelas)
+3. [Modelagem e Data Migration Histórico (Alembic)](#3-modelagem-e-data-migration-historico-alembic)
 4. [Gravação de Vendas com Distribuição de Arredondamento e Cascading Soft-Delete](#4-gravacao-de-vendas-com-distribuicao-de-arredondamento-e-cascading-soft-delete)
-5. [Reescrita das APIs do Backend e Mapeamento Limpo](#5-reescrita-das-apis-do-backend-e-mapeamento-limpo)
-6. [Endpoints de Edição Segura e Estorno (Cancelamento)](#6-endpoints-de-edicao-segura-e-estorno-cancelamento)
+5. [Reescrita das APIs do Backend e Taxas Dinâmicas](#5-reescrita-das-apis-do-backend-e-mapeamento-limpo)
+6. [Novos Endpoints de Conciliação Automática de Extrato (OFX)](#6-novos-endpoints-de-conciliacao-automatica-de-extrato-ofx)
 7. [Checklist de Homologação e Script de Auditoria Pós-Migration](#7-checklist-de-homologacao-e-script-de-auditoria-pos-migration)
 
 ---
@@ -29,27 +29,41 @@ Durante a execução da refatoração, a IA **DEVE** seguir rigorosamente as seg
 
 ---
 
-## 2. ANÁLISE AVANÇADA DE RISCOS E SOLUÇÃO DE BUGS OCULTOS
+## 2. O ECOSSISTEMA RELACIONAL DE CONCILIAÇÃO (5 TABELAS)
 
-### Risco A: Falha na Conversão SQL `observacao::json` (Crash Geral de Migração)
-*   **O Problema**: A coluna `observacao` da tabela `lancamentos` contém texto livre em 98% dos registros. Tentar converter essa coluna diretamente para JSON no Postgres (`l.observacao::json`) fará a migração falhar com erro de sintaxe de JSON inválido, paralisando a atualização do banco de dados na produção.
-*   **Mitigação**: Utilizar funções de extração por **Expressão Regular (Regex)** nativas do Postgres (`substring`), que buscam o padrão de texto do UUID e das parcelas de forma segura, retornando `NULL` sem quebrar a consulta se a linha não contiver JSON.
+Para evitar duplicidade e manter a consistência matemática dos saldos do ERP, o fluxo de conciliação utiliza 5 tabelas especializadas por domínio:
 
-### Risco B: Desalinhamento Temporal por Dias Fixos (Calendar Drift)
-*   **O Problema**: Utilizar `timedelta(days=30 * i)` para calcular a data das parcelas faz com que a data de vencimento se desalinhe rapidamente com o calendário real (ex: uma venda em 31 de Janeiro venceria em 2 de Março em vez de 28 de Fevereiro). Os calendários de adquirentes seguem o padrão de meses relativos.
-*   **Mitigação**: Utilizar `relativedelta(months=i)` no Python e `INTERVAL '1 month'` no SQL para calcular a data exata de vencimento das parcelas subsequentes.
+```
+[pdv_movimentacoes] (Recebíveis de cartão explodidos por parcela)
+        |
+        | (muitos para um)
+        v
+  [lotes_cartao] (Agrupador diário por adquirente/bandeira)
+        |
+        | (um para um)
+        v
+  [lancamentos] (Receita consolidada de depósito no extrato do ERP)
+        |
+        | (um para muitos / muitos para um via Baixa)
+        v
+    [baixas] (Tabela de junção da conciliação bancária)
+        ^
+        | (muitos para um)
+        |
+  [movimentos] (Transações reais importadas do arquivo OFX do banco)
+```
 
-### Risco C: Colisão de Chave Única em `import_hash`
-*   **O Problema**: A tabela `pdv_movimentacoes` possui uma restrição de chave única (`UNIQUE`) no campo `import_hash`. Se uma venda de R$ 300,00 possuir um `import_hash` único e a explodirmos em 3 parcelas de R$ 100,00, tentar inserir o mesmo `import_hash` nas 3 parcelas gerará violação de unicidade no banco.
-*   **Mitigação**: Modificar o gerador de hash para concatenar o sufixo da parcela (ex: `"{hash_original}-P{numero_parcela}"`).
-
-### Risco D: Gargalo de Performance por Loops N+1 no Alembic
-*   **O Problema**: Ler milhares de movimentações antigas em Python e fazer `INSERT` individual em um loop causará timeout de transação em produção.
-*   **Mitigação**: Executar a explosão histórica e a distribuição de arredondamento em uma **única query baseada em conjuntos no PostgreSQL** usando `generate_series` e `CROSS JOIN LATERAL`.
+1.  **`pdv_movimentacoes`**: Contém o recebível individual de cada venda desmembrado por parcela.
+2.  **`lotes_cartao`**: Agrupa as movimentações de cartão liquidadas no mesmo dia.
+3.  **`lancamentos`**: O lançamento financeiro que representa a entrada de dinheiro real na conta bancária (Itaú, Sicredi, etc.).
+4.  **`movimentos`**: A transação física de crédito do extrato bancário importada via arquivo OFX.
+5.  **`baixas`**: A tabela de reconciliação que vincula o lançamento de receita (`lancamento_id`) à transação física do extrato (`movimento_id`), marcando a conciliação como concluída.
 
 ---
 
 ## 3. MODELAGEM E DATA MIGRATION HISTÓRICO OTIMIZADO (ALEMBIC)
+
+O script de migração do Alembic deve ser escrito exatamente da seguinte forma:
 
 ```python
 """normalize pdv_movimentacoes and migrate history safely using set-based SQL
@@ -143,21 +157,19 @@ def downgrade():
 
 ## 4. GRAVAÇÃO DE VENDAS COM DISTRIBUIÇÃO DE ARREDONDAMENTO E CASCADING SOFT-DELETE
 
-Em `app/services/pdv_service.py` na gravação e cancelamento das vendas:
+Em `app/services/pdv_service.py`:
 
 ```python
 from datetime import timedelta
 from dateutil.relativedelta import relativedelta
 
 def registrar_venda_pdv(db: Session, dados_venda: PdvVendaCreate, empresa_id: int):
-    # 1. Inserir cabeçalho
     venda_db = PdvVenda(...)
     db.add(venda_db)
     db.flush()
 
     for pag in dados_venda.pagamentos:
         if pag.tipo_pagamento.lower() == "dinheiro":
-            # Dinheiro físico gera lançamento imediato na tesouraria
             lancamento_caixa = Lancamento(
                 empresa_id=empresa_id,
                 tipo="RECEITA",
@@ -171,7 +183,6 @@ def registrar_venda_pdv(db: Session, dados_venda: PdvVendaCreate, empresa_id: in
             )
             db.add(lancamento_caixa)
         elif "cartao" in pag.tipo_pagamento.lower():
-            # Localizar a regra de cartões cadastrada
             regra = obter_regra_cartao(db, empresa_id, pag.tipo_pagamento, pag.bandeira, venda_db.centro_custo_id)
             
             total_p = pag.numero_parcelas or 1
@@ -181,7 +192,6 @@ def registrar_venda_pdv(db: Session, dados_venda: PdvVendaCreate, empresa_id: in
             resto = val_total - (val_p * total_p)
             
             for i in range(1, total_p + 1):
-                # Utilizar as regras de adquirentes nativas
                 hoje_pag = venda_db.data_venda
                 if regra:
                     if regra.modo_parcelamento == "ANTECIPADO":
@@ -212,28 +222,13 @@ def registrar_venda_pdv(db: Session, dados_venda: PdvVendaCreate, empresa_id: in
                 )
                 db.add(mov)
     db.commit()
-
-def cancelar_venda_pdv(db: Session, venda_id: str, empresa_id: int):
-    # Cascading Soft-Delete para evitar que parcelas fiquem ativas após a venda ser desfeita
-    venda = db.get(PdvVenda, venda_id)
-    if venda and venda.empresa_id == empresa_id:
-        venda.is_deleted = True
-        venda.deleted_at = datetime.utcnow()
-        
-        # Soft-deletar todas as movimentações financeiras vinculadas
-        db.execute(
-            update(PdvMovimentacao)
-            .where(PdvMovimentacao.venda_id == venda_id, PdvMovimentacao.empresa_id == empresa_id)
-            .values(is_deleted=True, deleted_at=datetime.utcnow())
-        )
-        db.commit()
 ```
 
 ---
 
-## 5. REESCRITA DAS APIS DO BACKEND E MAPEAMENTO LIMPO
+## 5. REESCRITA DAS APIS DO BACKEND E TAXAS DINÂMICAS
 
-A API `/pdv/recebiveis` em `app/api/v1/endpoints/pdv.py` retorna os recebíveis indexados diretamente:
+A API `/pdv/recebiveis` em `app/api/v1/endpoints/pdv.py` retorna os recebíveis diretamente da tabela `pdv_movimentacoes`:
 
 ```python
 @router.get("/recebiveis")
@@ -300,39 +295,104 @@ def listar_recebiveis_cartao(
 
 ---
 
-## 6. ENDPOINTS DE EDIÇÃO SEGURA E ESTORNO (CANCELAMENTO)
+## 6. NOVOS ENDPOINTS DE CONCILIAÇÃO AUTOMÁTICA DE EXTRATO (OFX)
 
-Adicionar a seguinte rota dedicada `PUT /pdv/movimentacoes/{id}/agenda` que é chamada diretamente pela Conciliadora de Cartões no frontend para editar a previsão de vencimento de cartões:
+Para evitar duplicidade de trabalho no fechamento diário, a API de conciliação de lote de cartões passará a aceitar opcionalmente o ID do movimento do extrato bancário (`movimento_ofx_id`), realizando a baixa automática e despesa do lote na mesma transação.
 
 ```python
-class RecebivelAgendaUpdate(BaseModel):
-    data: date
-    valor: float
+from app.models.baixa import Baixa
+from app.models.pdv_movimentacao import PdvMovimentacao
+from app.models.lote_cartao import LoteCartao
+from app.models.lote_cartao_item import LoteCartaoItem
 
-@router.put("/movimentacoes/{id}/agenda")
-def atualizar_agenda_recebivel(id: int, payload: RecebivelAgendaUpdate, db: Session = Depends(get_db)):
-    mov = db.get(PdvMovimentacao, id)
-    if not mov or mov.is_deleted:
-        raise HTTPException(status_code=404, detail="Recebível não encontrado.")
-        
-    if mov.conciliado:
-        raise HTTPException(
-            status_code=400, 
-            detail="Não é permitido alterar dados de recebíveis de cartões já conciliados."
+class ConciliarLoteSchema(BaseModel):
+    empresa_id: int
+    data_pagamento: date
+    valor_bruto: float
+    valor_taxa: float
+    valor_liquido: float
+    conta_destino_id: int
+    movimentacao_ids: List[int]
+    movimento_ofx_id: Optional[int] = None # Opcional: ID da transação importada do OFX
+
+@router.post("/conciliacao/lotes")
+def conciliar_lote_cartao(payload: ConciliarLoteSchema, db: Session = Depends(get_db)):
+    try:
+        # 1. Criar o lançamento financeiro consolidado de depósito bancário
+        lancamento_deposito = Lancamento(
+            empresa_id=payload.empresa_id,
+            tipo="RECEITA",
+            valor_previsto=payload.valor_bruto,
+            valor_pago=payload.valor_liquido,
+            data_vencimento=payload.data_pagamento,
+            data_pagamento=payload.data_pagamento,
+            status="PAGO",
+            origem="CONCILIACAO_CARTAO",
+            descricao=f"Depósito Lote Cartões - Líquido Recebido"
         )
+        db.add(lancamento_deposito)
+        db.flush()
         
-    # Salvar alterações diretas
-    mov.data = payload.data
-    mov.valor = payload.valor
-    db.commit()
-    return {"status": "success", "message": "Agenda de recebíveis atualizada."}
+        # 2. Criar o lote na tabela lotes_cartao
+        lote = LoteCartao(
+            empresa_id=payload.empresa_id,
+            data_pagamento=payload.data_pagamento,
+            valor_bruto=payload.valor_bruto,
+            valor_taxa=payload.valor_taxa,
+            valor_liquido=payload.valor_liquido,
+            conta_destino_id=payload.conta_destino_id,
+            lancamento_deposito_id=lancamento_deposito.id,
+            status="CONCILIADO"
+        )
+        db.add(lote)
+        db.flush()
+        
+        # 3. Conciliar todas as movimentações e criar os itens de lote
+        for mov_id in payload.movimentacao_ids:
+            mov = db.get(PdvMovimentacao, mov_id)
+            if mov:
+                mov.conciliado = True
+                item = LoteCartaoItem(
+                    lote_cartao_id=lote.id,
+                    pdv_movimentacao_id=mov.id,
+                    valor_bruto=mov.valor,
+                    valor_taxa=0.0,
+                    valor_liquido=mov.valor
+                )
+                db.add(item)
+
+        # 4. CONCILIAÇÃO BANCÁRIA AUTOMÁTICA (Integração com a tabela de movimentos OFX)
+        if payload.movimento_ofx_id:
+            mov_ofx = db.get(Movimento, payload.movimento_ofx_id)
+            if mov_ofx:
+                # Criar a Baixa vinculando o lançamento consolidado de depósito ao movimento físico do extrato
+                baixa = Baixa(
+                    empresa_id=payload.empresa_id,
+                    lancamento_id=lancamento_deposito.id,
+                    movimento_id=mov_ofx.id,
+                    valor_pago=payload.valor_liquido,
+                    data_baixa=payload.data_pagamento,
+                    tipo_baixa="PRINCIPAL",
+                    is_deleted=False
+                )
+                db.add(baixa)
+                
+                # Atualizar o status do movimento de extrato para CONCILIADO
+                mov_ofx.status = "CONCILIADO"
+                db.add(mov_ofx)
+
+        db.commit()
+        return {"status": "success", "lote_id": lote.id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 ```
 
 ---
 
 ## 7. CHECKLIST DE HOMOLOGAÇÃO E SCRIPT DE AUDITORIA PÓS-MIGRATION
 
-Após a migração, a IA executora deve executar `scripts/audit_migration.py`. Note que aceitamos registros órfãos históricos se o lançamento correspondente não possuir venda associada no banco.
+Após a migração, a IA executora deve executar `scripts/audit_migration.py`.
 
 ```python
 # scripts/audit_migration.py

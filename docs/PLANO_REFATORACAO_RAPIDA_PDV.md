@@ -1,9 +1,9 @@
 [🗺️ Visão Geral]([[Visao Geral]]) / [🩹 Erros Estruturais]([[Plano de Refatoracao e Erros Estruturais do PDV]])
 ***
 
-# 🤖 PLANO DE REFATORAÇÃO E MANUAL DE EXECUÇÃO PARA IA DEVELOPER (MAXIMUM DETAIL)
+# 🤖 PLANO DE REFATORAÇÃO E MANUAL DE EXECUÇÃO PARA IA DEVELOPER (ULTIMATE EDITION)
 
-Este documento é a especificação técnica de nível de arquiteto sênior para guiar a refatoração do módulo de conciliação de cartões e recebíveis no Kyrus ERP. Ele cobre todas as regras de negócio, tratamentos de parcelamento e contratos de API de forma exaustiva.
+Este documento é a especificação arquitetural final para a refatoração do módulo de conciliação de cartões e recebíveis do Kyrus ERP. Ele detalha a normalização completa do banco de dados, o fluxo de persistência de vendas e o tratamento estruturado de parcelas.
 
 ---
 
@@ -35,22 +35,43 @@ A IA deverá atuar exclusivamente sobre os seguintes arquivos:
 
 ---
 
-## 🛠️ 3. PASSO A PASSO TÉCNICO DA EXECUÇÃO
+## 🛠️ 3. A GRANDE SACADA ARQUITETURAL: EXPLOSÃO NO BANCO VS. EXPLOSÃO NA API
+
+> [!IMPORTANT]
+> **O Desafio do Parcelamento**: Se uma venda é feita em Crédito 3x, as parcelas serão pagas pelo banco com 30, 60 e 90 dias de prazo. Cada uma dessas parcelas é conciliada (paga) de forma independente.
+>
+> Se mantivermos apenas 1 registro na tabela `pdv_movimentacoes` para a venda toda, **não conseguiremos controlar quais parcelas já foram pagas e quais estão em aberto**, pois só haveria uma única coluna `conciliado` para as 3 parcelas.
+>
+> **A Solução Normalizada**: Adicionar a coluna `numero_parcela` na tabela `pdv_movimentacoes` e **explodir as parcelas em registros individuais diretamente no momento da venda (insert)**. 
+>
+> Exemplo de venda de R$ 300,00 em 3x no dia 01/10/2026:
+> *   **Registro 1**: `valor = 100.00`, `parcelas = 3`, `numero_parcela = 1`, `data = 31/10/2026` (D+30), `conciliado = false`
+> *   **Registro 2**: `valor = 100.00`, `parcelas = 3`, `numero_parcela = 2`, `data = 30/11/2026` (D+60), `conciliado = false`
+> *   **Registro 3**: `valor = 100.00`, `parcelas = 3`, `numero_parcela = 3`, `data = 30/12/2026` (D+90), `conciliado = false`
+
+Isso torna as consultas do calendário do financeiro extremamente limpas, indexadas por data e imunes a bugs de cálculo em tempo de execução.
+
+---
+
+## 🛠️ 4. PASSO A PASSO TÉCNICO DA EXECUÇÃO
 
 ### 📅 FASE 1: Alteração do Schema de Banco (Alembic)
-A tabela `lote_cartao_itens` deve parar de apontar para a tabela `lancamentos` e passar a apontar para `pdv_movimentacoes`.
+A tabela `lote_cartao_itens` deve parar de apontar para a tabela `lancamentos` e passar a apontar para `pdv_movimentacoes`. Além disso, a tabela `pdv_movimentacoes` ganha a coluna `numero_parcela`.
 
 1.  **Gerar a Migração**:
     ```bash
-    docker exec -it kyrustech_backend alembic revision -m "alter_lote_itens_to_pdv_mov"
+    docker exec -it kyrustech_backend alembic revision -m "normalize_pdv_movimentacoes"
     ```
 2.  **Escrever o Script de Upgrade**:
     ```python
     def upgrade():
-        # 1. Adicionar pdv_movimentacao_id como anulável temporariamente
+        # 1. Adicionar colunas em pdv_movimentacoes
+        op.add_column('pdv_movimentacoes', sa.Column('numero_parcela', sa.Integer(), nullable=False, server_default='1'))
+        
+        # 2. Adicionar pdv_movimentacao_id em lote_cartao_itens
         op.add_column('lote_cartao_itens', sa.Column('pdv_movimentacao_id', sa.Integer(), nullable=True))
         
-        # 2. Criar Chave Estrangeira apontando para pdv_movimentacoes(id)
+        # 3. Criar Chave Estrangeira em lote_cartao_itens
         op.create_foreign_key(
             'fk_lote_cartao_itens_pdv_mov', 
             'lote_cartao_itens', 'pdv_movimentacoes', 
@@ -58,32 +79,21 @@ A tabela `lote_cartao_itens` deve parar de apontar para a tabela `lancamentos` e
             ondelete='CASCADE'
         )
         
-        # 3. Remover restrição antiga
+        # 4. Remover restrição antiga
         op.drop_constraint('lote_cartao_itens_lancamento_id_fkey', 'lote_cartao_itens', type_='foreignkey')
         op.drop_column('lote_cartao_itens', 'lancamento_id')
         
-        # 4. Criar index de performance na tabela pdv_movimentacoes
+        # 5. Criar index de performance na tabela pdv_movimentacoes
         op.create_index('ix_pdv_movimentacoes_conciliado_fast', 'pdv_movimentacoes', ['empresa_id', 'conciliado', 'data'])
-
-    def downgrade():
-        op.add_column('lote_cartao_itens', sa.Column('lancamento_id', sa.Integer(), nullable=True))
-        op.create_foreign_key(
-            'lote_cartao_itens_lancamento_id_fkey', 
-            'lote_cartao_itens', 'lancamentos', 
-            ['lancamento_id'], ['id']
-        )
-        op.drop_constraint('fk_lote_cartao_itens_pdv_mov', 'lote_cartao_itens', type_='foreignkey')
-        op.drop_column('lote_cartao_itens', 'pdv_movimentacao_id')
-        op.drop_index('ix_pdv_movimentacoes_conciliado_fast')
     ```
 
 ---
 
 ### 📅 FASE 2: Data Migration do Histórico de Conciliações
-Para garantir que as conciliações antigas não sejam perdidas, execute a migração de dados acoplando as movimentações aos lotes existentes:
+A IA executora deve mapear as conciliações históricas de lote usando o `venda_id` e a correspondência de parcelas:
 
 ```python
-# Dentro do upgrade() do Alembic, execute esta query de update antes de dropar a coluna:
+# Dentro do upgrade() do Alembic, execute esta query de update antes de deletar a coluna antiga:
 connection = op.get_bind()
 mapping_query = sa.text("""
     SELECT 
@@ -93,7 +103,7 @@ mapping_query = sa.text("""
     JOIN lancamentos l ON l.id = lci.lancamento_id
     JOIN pdv_movimentacoes pm ON (
         pm.venda_id = (l.observacao::json->>'venda_id_uuid')
-        OR (pm.data = l.data_vencimento AND pm.valor = l.valor_previsto)
+        AND pm.numero_parcela = COALESCE((l.observacao::json->>'numero_parcela')::int, 1)
     )
     WHERE l.origem = 'PDV' 
       AND pm.forma_pagamento ILIKE 'cartao_%'
@@ -109,20 +119,68 @@ for row in results:
 
 ---
 
-### 📅 FASE 3: Reescrita da Consulta `/pdv/recebiveis` e Explosão de Parcelas
-> [!IMPORTANT]
-> **Explosão de Parcelas**: A tabela `pdv_movimentacoes` armazena vendas parceladas como uma única linha (ex: `valor = 300`, `parcelas = 3`). No entanto, o calendário financeiro exige que essa linha seja **desmembrada em 3 recebíveis separados** (1/3 de $100 no mês 1, 2/3 de $100 no mês 2, etc.). O backend deve explodir dinamicamente essas parcelas na resposta da API.
+### 📅 FASE 3: Alteração da Escrita de Vendas (`pdv_service.py`)
+Modificar a persistência do PDV para salvar os lançamentos de cartões já explodidos na tabela de movimentações de acordo com o número de parcelas da venda.
 
 ```python
-from datetime import timedelta
 from dateutil.relativedelta import relativedelta
 
-def calcular_vencimento(data_base: date, modalidade: str, numero_parcela: int) -> date:
-    if modalidade == "DEBITO":
-        return data_base + timedelta(days=1)
-    # Crédito: Parcela 1 vence em 30 dias, Parcela 2 em 60 dias, etc.
-    return data_base + relativedelta(months=numero_parcela)
+def registrar_venda_pdv(db: Session, dados_venda: VendaCreateSchema, empresa_id: int):
+    # 1. Inserir venda em pdv_vendas
+    venda_db = PdvVenda(...)
+    db.add(venda_db)
+    db.flush()
+    
+    # 2. Inserir pagamentos em pdv_movimentacoes explodindo parcelas
+    for pag in dados_venda.pagamentos:
+        if pag.forma_pagamento.lower() == "dinheiro":
+            # Dinheiro físico gera lançamento imediato no caixa geral
+            lancamento_caixa = Lancamento(
+                empresa_id=empresa_id,
+                tipo="RECEITA",
+                valor_previsto=pag.valor,
+                valor_pago=pag.valor,
+                data_vencimento=venda_db.data_venda,
+                data_pagamento=venda_db.data_venda,
+                status="PAGO",
+                origem="PDV_CAIXA",
+                descricao="Venda PDV - Dinheiro Físico"
+            )
+            db.add(lancamento_caixa)
+        elif "cartao" in pag.forma_pagamento.lower():
+            total_parcelas = pag.parcelas or 1
+            valor_parcela = round(pag.valor / total_parcelas, 2)
+            
+            # Gerar um registro de movimentação para cada parcela
+            for i in range(1, total_parcelas + 1):
+                # Calcular data estimada do recebimento da parcela (D+30 para crédito)
+                dias_prazo = 1 if "debito" in pag.forma_pagamento.lower() else 30 * i
+                data_recebimento = venda_db.data_venda + relativedelta(days=dias_prazo)
+                
+                mov = PdvMovimentacao(
+                    empresa_id=empresa_id,
+                    tipo="RECEITA",
+                    descricao=f"Parcela {i}/{total_parcelas} Venda PDV {venda_db.id}",
+                    valor=valor_parcela,
+                    forma_pagamento=pag.forma_pagamento,
+                    bandeira=pag.bandeira,
+                    parcelas=total_parcelas,
+                    numero_parcela=i,
+                    data=data_recebimento, # A data no banco passa a ser a data de vencimento da parcela
+                    venda_id=venda_db.id,
+                    conciliado=False
+                )
+                db.add(mov)
+                
+    db.commit()
+```
 
+---
+
+### 📅 FASE 4: Reescrita da Consulta `/pdv/recebiveis` (Query Direta Otimizada)
+Como os dados já estão explodidos no banco de dados, o endpoint do backend `/pdv/recebiveis` passa a ser extremamente simples e rápido, sem necessidade de laços de repetição de data em Python:
+
+```python
 @router.get("/recebiveis")
 def listar_recebiveis_cartao(
     start_date: date = Query(...),
@@ -130,7 +188,7 @@ def listar_recebiveis_cartao(
     empresa_id: int = Query(...),
     db: Session = Depends(get_db)
 ):
-    # 1. Carregar regras de taxas da empresa
+    # 1. Carregar mapa de taxas de cartão em memória
     regras = db.execute(
         select(RegraCartao).where(RegraCartao.empresa_id == empresa_id, RegraCartao.is_deleted == False)
     ).scalars().all()
@@ -141,7 +199,7 @@ def listar_recebiveis_cartao(
         modalidade_key = r.tipo_pagamento.upper() if r.tipo_pagamento else "CREDITO"
         taxa_map[(bandeira_key, modalidade_key)] = float(r.taxa)
 
-    # 2. Consultar movimentações de cartão
+    # 2. Consultar movimentações de cartão diretamente no range de datas
     stmt = (
         select(PdvMovimentacao, PdvVenda.id.label("venda_uuid"), PdvVenda.data_venda)
         .join(PdvVenda, PdvVenda.id == PdvMovimentacao.venda_id, isouter=True)
@@ -149,7 +207,7 @@ def listar_recebiveis_cartao(
             PdvMovimentacao.empresa_id == empresa_id,
             PdvMovimentacao.is_deleted == False,
             PdvMovimentacao.forma_pagamento.ilike('cartao_%'),
-            PdvMovimentacao.data >= start_date - timedelta(days=365), # Busca histórica para capturar parcelas passadas que vencem neste período
+            PdvMovimentacao.data >= start_date,
             PdvMovimentacao.data <= end_date
         )
     )
@@ -162,148 +220,35 @@ def listar_recebiveis_cartao(
         bandeira_limpa = (mov.bandeira or "OUTROS").upper()
         modalidade = "DEBITO" if "debito" in mov.forma_pagamento.lower() else "CREDITO"
         
-        # Buscar taxa cadastrada com fallback hierárquico
+        # Obter taxa cadastrada ou fallback padrão
         taxa_percentual = taxa_map.get((bandeira_limpa, modalidade))
         if taxa_percentual is None:
-            taxa_percentual = taxa_map.get(("OUTROS", modalidade)) or (2.0 if modalidade == "DEBITO" else 3.5)
+            taxa_percentual = 2.0 if modalidade == "DEBITO" else 3.5
             
-        total_parcelas = mov.parcelas or 1
-        valor_bruto_total = float(mov.valor)
+        valor_bruto = float(mov.valor)
+        valor_taxa = round(valor_bruto * (taxa_percentual / 100.0), 2)
+        valor_liquido = round(valor_bruto - valor_taxa, 2)
         
-        # EXPLODIR DINAMICAMENTE AS PARCELAS
-        for i in range(1, total_parcelas + 1):
-            data_vencimento_parcela = calcular_vencimento(mov.data, modalidade, i)
-            
-            # Filtrar se o vencimento desta parcela específica cai no range consultado
-            if not (start_date <= data_vencimento_parcela <= end_date):
-                continue
-                
-            valor_bruto_parcela = round(valor_bruto_total / total_parcelas, 2)
-            valor_taxa_parcela = round(valor_bruto_parcela * (taxa_percentual / 100.0), 2)
-            valor_liquido_parcela = round(valor_bruto_parcela - valor_taxa_parcela, 2)
-            
-            # Usar id composto id-parcela para chaves React no frontend
-            recebiveis.append({
-                "id": f"{mov.id}-{i}", # ID composto para evitar colisão no React
-                "movimentacao_id": mov.id,
-                "venda_id_uuid": venda_uuid or mov.venda_id,
-                "rv": mov.import_hash or f"RV-{mov.id}-{i}",
-                "data_venda": data_venda or mov.data,
-                "data_vencimento": data_vencimento_parcela,
-                "descricao": f"Parcela {i}/{total_parcelas} - {bandeira_limpa} {modalidade}",
-                "tipo_pagamento": mov.forma_pagamento,
-                "bandeira": bandeira_limpa,
-                "numero_parcela": i,
-                "total_parcelas": total_parcelas,
-                "valor_bruto": valor_bruto_parcela,
-                "valor_taxa": valor_taxa_parcela,
-                "valor_liquido": valor_liquido_parcela,
-                "status": "PAGO" if mov.conciliado else "A RECEBER",
-                "vendedor": "N/A",
-                "cliente": "Consumidor Final"
-            })
-            
+        recebiveis.append({
+            "id": mov.id,  # ID direto do banco, sem IDs compostos fictícios!
+            "venda_id_uuid": venda_uuid or mov.venda_id,
+            "rv": mov.import_hash or f"RV-{mov.id}",
+            "data_venda": data_venda or mov.data,
+            "data_vencimento": mov.data,
+            "descricao": mov.descricao,
+            "tipo_pagamento": mov.forma_pagamento,
+            "bandeira": bandeira_limpa,
+            "numero_parcela": mov.numero_parcela,
+            "total_parcelas": mov.parcelas or 1,
+            "valor_bruto": valor_bruto,
+            "valor_taxa": valor_taxa,
+            "valor_liquido": valor_liquido,
+            "status": "PAGO" if mov.conciliado else "A RECEBER",
+            "vendedor": "N/A",
+            "cliente": "Consumidor Final"
+        })
+        
     return recebiveis
-```
-
----
-
-### 📅 FASE 4: Criação do Endpoint de Edição de Vencimento
-Como o frontend passará a editar `pdv_movimentacoes`, crie a seguinte rota de atualização em `pdv.py`:
-
-```python
-from pydantic import BaseModel
-
-class MovimentacaoUpdate(BaseModel):
-    data: Optional[date] = None
-    valor: Optional[float] = None
-    conciliado: Optional[bool] = None
-
-@router.put("/movimentacoes/{id}")
-def atualizar_movimentacao_pdv(id: int, payload: MovimentacaoUpdate, db: Session = Depends(get_db)):
-    mov = db.get(PdvMovimentacao, id)
-    if not mov:
-        raise HTTPException(status_code=404, detail="Movimentação não encontrada")
-        
-    if payload.data is not None:
-        mov.data = payload.data
-    if payload.valor is not None:
-        mov.valor = payload.valor
-    if payload.conciliado is not None:
-        mov.conciliado = payload.conciliado
-        
-    db.commit()
-    return {"message": "Movimentação atualizada com sucesso"}
-```
-
----
-
-### 📅 FASE 5: Ajuste na Conciliação de Lotes (`pdv.py`)
-Alterar o fechamento de lotes para receber a estrutura correta.
-
-```python
-class ConciliarLoteSchema(BaseModel):
-    empresa_id: int
-    data_pagamento: date
-    valor_bruto: float
-    valor_taxa: float
-    valor_liquido: float
-    conta_destino_id: int
-    movimentacao_ids: List[int] # Lista de ids de pdv_movimentacoes
-
-@router.post("/conciliacao/lotes")
-def conciliar_lote_cartao(payload: ConciliarLoteSchema, db: Session = Depends(get_db)):
-    try:
-        # 1. Criar o lançamento de depósito unificado em lancamentos (Dinheiro real compensado no banco)
-        lancamento_deposito = Lancamento(
-            empresa_id=payload.empresa_id,
-            tipo="RECEITA",
-            valor_previsto=payload.valor_bruto,
-            valor_pago=payload.valor_liquido,
-            data_vencimento=payload.data_pagamento,
-            data_pagamento=payload.data_pagamento,
-            status="PAGO",
-            origem="CONCILIACAO_CARTAO",
-            descricao="Depósito Lote Cartões Conciliado"
-        )
-        db.add(lancamento_deposito)
-        db.flush() # Gerar ID do lançamento de depósito
-        
-        # 2. Criar o cabeçalho do lote em lotes_cartao
-        lote = LoteCartao(
-            empresa_id=payload.empresa_id,
-            data_pagamento=payload.data_pagamento,
-            valor_bruto=payload.valor_bruto,
-            valor_taxa=payload.valor_taxa,
-            valor_liquido=payload.valor_liquido,
-            conta_destino_id=payload.conta_destino_id,
-            lancamento_deposito_id=lancamento_deposito.id,
-            status="CONCILIADO"
-        )
-        db.add(lote)
-        db.flush() # Gerar ID do lote
-        
-        # 3. Vincular os itens e marcar como conciliado
-        for mov_id in payload.movimentacao_ids:
-            mov = db.get(PdvMovimentacao, mov_id)
-            if mov:
-                mov.conciliado = True
-                
-                # Criar item de junção
-                item = LoteCartaoItem(
-                    lote_cartao_id=lote.id,
-                    pdv_movimentacao_id=mov.id,
-                    valor_bruto=mov.valor,
-                    valor_taxa=0.0, # Pode ser proporcional
-                    valor_liquido=mov.valor
-                )
-                db.add(item)
-                
-        db.commit()
-        return {"status": "success", "lote_id": lote.id}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
 ```
 
 ---

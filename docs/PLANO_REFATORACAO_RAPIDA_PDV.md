@@ -1,178 +1,398 @@
 [🗺️ Visão Geral]([[Visao Geral]]) / [🩹 Erros Estruturais]([[Plano de Refatoracao e Erros Estruturais do PDV]])
 ***
 
-# 🤖 PLANO DE REFATORAÇÃO E MANUAL DE EXECUÇÃO PARA IA DEVELOPER
+# 🩹 MANUAL DE ENGENHARIA DE REFATORAÇÃO DO PDV E FINANCEIRO (10x IMPROVED)
 
-Este documento serve como plano de ação e manual de instruções detalhado para que um **Agente de IA Coding Assistant** execute de forma autônoma, rápida e segura a refatoração do módulo de conciliação de cartões e recebíveis no Kyrus ERP.
-
----
-
-## 🛑 1. DIRETRIZES E POLÍTICAS CRÍTICAS PARA A IA
-
-Durante a execução da refatoração, a IA **DEVE** seguir rigorosamente as seguintes políticas:
-
-1.  **Política de Preservação do Contrato da API (Backward Compatibility)**:
-    - O JSON retornado pelo endpoint `/pdv/recebiveis` **NÃO PODE** sofrer alterações nos nomes ou tipos das chaves. A estrutura de dados recebida pelo frontend deve continuar idêntica para evitar reescrever telas ou causar quebras visuais.
-2.  **Política de Não-Hardcode**:
-    - É **estritamente proibido** injetar condições com datas fixas (ex: `'2026-07-01'`), IDs de empresas específicas (ex: `35`) ou códigos específicos de plano de contas (ex: `'01.01.02'`) no código da aplicação. As regras devem ser dinâmicas e baseadas em metadados/configurações do banco de dados.
-3.  **Política de Integridade Transacional (Atomicidade)**:
-    - Toda operação de escrita no banco de dados deve ocorrer dentro de um bloco de transação seguro do SQLAlchemy (`db.commit()`), tratando exceções com rollback (`db.rollback()`) para evitar estados de dados inconsistentes ou órfãos no banco de dados.
-4.  **Política de Proteção contra Travamento de Event Loop (CPU-bound)**:
-    - Queries que envolvem loops massivos de processamento ou conversão de dados devem ser otimizadas no nível de banco de dados (SQL) e executadas fora da thread assíncrona principal se ultrapassarem 100ms de execução.
+Este documento é o plano definitivo, exaustivo e de nível de produção para guiar a refatoração do módulo de conciliação de cartões e vendas do Kyrus ERP. Ele serve de especificação técnica absoluta para qualquer agente de IA ou desenvolvedor encarregado da execução.
 
 ---
 
-## 🗺️ 2. MAPEAMENTO DE ARQUIVOS ALVO
-
-A IA deverá atuar exclusivamente sobre os seguintes arquivos:
-
-1.  **Backend (Lógica e Banco)**:
-    - [pdv.py](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/app/api/v1/endpoints/pdv.py): Onde residem as rotas `/pdv/recebiveis` e `/pdv/conciliacao/lotes`.
-    - [pdv_service.py](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/app/services/pdv_service.py): Onde reside a lógica de inserção e atualização de vendas do PDV.
-    - [lancamento.py](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/app/models/lancamento.py) (ou modelos equivalentes de PDV): Para ajustar chaves estrangeiras.
-2.  **Frontend (Telas)**:
-    - [ConciliacaoCartoes.tsx](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/kyrus-web/src/pages/ConciliacaoCartoes.tsx): Ajustar requisições de edição de vencimento/taxa e cancelamento.
-    - [Dre.tsx](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/kyrus-web/src/pages/Dre.tsx): Limpar os filtros de desduplicação do passado.
+## 🗺️ ÍNDICE
+1. [Diretrizes de Segurança e Políticas de Proteção](#1-diretrizes-de-seguranca-e-politicas-de-protecao)
+2. [Arquitetura dos Dados Históricos (Estratégia de Não-Perda de Conciliações)](#2-arquitetura-dos-dados-historicos-estrategia-de-nao-perda-de-concilicoes)
+3. [Modelagem de Banco de Dados e Scripts de Migração (Alembic)](#3-modelagem-de-banco-de-dados-e-scripts-de-migracao-alembic)
+4. [Reescrita das APIs do Backend e Cálculo Dinâmico de Taxas](#4-reescrita-das-apis-do-backend-e-calculo-dinamico-de-taxas)
+5. [Refatoração dos Fluxos de Escrita e Serviços](#5-refatoracao-dos-fluxos-de-escrita-e-servicos)
+6. [Ajustes Detalhados no Frontend (React/TypeScript)](#6-ajustes-detalhados-no-frontend-reacttypescript)
+7. [Plano de Higienização de Dados (Pizza Fábio)](#7-plano-de-higienizacao-de-dados-pizza-fabio)
+8. [Checklist de Verificação, Testes e Plano de Rollback](#8-checklist-de-verificacao-testes-e-plano-de-rollback)
 
 ---
 
-## 🛠️ 3. PASSO A PASSO TÉCNICO DA EXECUÇÃO
+## 1. DIRETRIZES DE SEGURANÇA E POLÍTICAS DE PROTEÇÃO
 
-### 📅 FASE 1: Alteração do Schema de Banco (Alembic)
-A tabela `lote_cartao_itens` deve parar de apontar para a tabela `lancamentos` e passar a apontar para `pdv_movimentacoes`.
+### A. Política de Rollback Síncrono Obrigatório
+Nenhuma migração ou alteração de código de gravação pode ser implantada sem um script de rollback testado localmente. Em caso de qualquer erro de integridade referencial ou falha de query no ambiente de homologação, a reversão completa deve ser executada imediatamente.
 
-1.  **Gerar a Migração**:
-    ```bash
-    docker exec -it kyrustech_backend alembic revision -m "alter_lote_itens_to_pdv_mov"
-    ```
-2.  **Escrever o Script de Upgrade**:
-    ```python
-    def upgrade():
-        # 1. Adicionar coluna pdv_movimentacao_id em lote_cartao_itens
-        op.add_column('lote_cartao_itens', sa.Column('pdv_movimentacao_id', sa.Integer(), nullable=True))
-        
-        # 2. Criar Chave Estrangeira apontando para pdv_movimentacoes(id)
-        op.create_foreign_key(
-            'fk_lote_cartao_itens_pdv_mov', 
-            'lote_cartao_itens', 'pdv_movimentacoes', 
-            ['pdv_movimentacao_id'], ['id'], 
-            ondelete='CASCADE'
+### B. Isolamento de Tenant (Multi-empresa)
+A tabela `pdv_movimentacoes` compartilha dados de todas as filiais e empresas. Qualquer query SQL executada pela API ou scripts de migração **DEVE** incluir a cláusula `empresa_id = :empresa_id` explicitamente nos filtros para evitar vazamento ou cruzamento de dados entre clientes distintos.
+
+### C. Manutenção do Contrato de API do Frontend
+O payload retornado pelo endpoint `/pdv/recebiveis` deve manter a compatibilidade estrutural exata com a interface TypeScript `RecebivelCartao` definida no frontend. As assinaturas e chaves de resposta devem permanecer idênticas.
+
+---
+
+## 2. ARQUITETURA DOS DADOS HISTÓRICOS (ESTRATÉGIA DE NÃO-PERDA DE CONCILIAÇÕES)
+
+> [!IMPORTANT]
+> **O maior risco desta migração é perder o histórico de conciliações já realizadas** na tabela `lote_cartao_itens`. Hoje, esses registros apontam para IDs da tabela `lancamentos`. Se simplesmente apagarmos essa coluna, perderemos quais cartões compunham os lotes passados.
+
+Para evitar isso, a migração do Alembic deve executar um processo de **Data Migration** em 3 passos antes de remover as colunas antigas:
+
+```
+[Lote de Cartões] -> [Lote Cartão Itens (Aponta p/ Lançamento)]
+                               | (Busca ID Venda UUID e Valor)
+                               v
+               [Acha pdv_movimentacoes Correspondente]
+                               | (Grava novo ID da Movimentação)
+                               v
+[Lote de Cartões] -> [Lote Cartão Itens (Aponta p/ pdv_movimentacoes)]
+```
+
+---
+
+## 3. MODELAGEM DE BANCO DE DADOS E SCRIPTS DE MIGRAÇÃO (ALEMBIC)
+
+O script de migração do Alembic deve ser dividido em duas partes: **Schema Migration** e **Data Migration**.
+
+### Script de Migração Completo (`alembic/versions/...py`):
+
+```python
+"""refactor card reconciliation tables
+
+Revision ID: refactor_card_rec_001
+Revises: previous_revision
+Create Date: 2026-07-22
+
+"""
+from alembic import op
+import sqlalchemy as sa
+
+def upgrade():
+    # --- PARTE 1: SCHEMA UPGRADE (Novas colunas e tabelas) ---
+    # 1. Adicionar pdv_movimentacao_id como anulável temporariamente
+    op.add_column('lote_cartao_itens', sa.Column('pdv_movimentacao_id', sa.Integer(), nullable=True))
+    
+    # 2. Criar Chave Estrangeira em lote_cartao_itens
+    op.create_foreign_key(
+        'fk_lote_cartao_itens_pdv_mov', 
+        'lote_cartao_itens', 'pdv_movimentacoes', 
+        ['pdv_movimentacao_id'], ['id'], 
+        ondelete='CASCADE'
+    )
+    
+    # --- PARTE 2: DATA MIGRATION (Mapeamento de Histórico) ---
+    connection = op.get_bind()
+    
+    # Query para buscar a correspondência entre Lançamento e PdvMovimentacao histórica
+    # Usamos o valor bruto e o venda_id_uuid (que está no JSON de observação)
+    # ou combinamos a data do lançamento com o valor
+    mapping_query = sa.text("""
+        SELECT 
+            lci.id as item_id,
+            pm.id as mov_id
+        FROM lote_cartao_itens lci
+        JOIN lancamentos l ON l.id = lci.lancamento_id
+        JOIN pdv_movimentacoes pm ON (
+            pm.venda_id = (l.observacao::json->>'venda_id_uuid')
+            OR (pm.data = l.data_vencimento AND pm.valor = l.valor_previsto)
+        )
+        WHERE l.origem = 'PDV' 
+          AND pm.forma_pagamento ILIKE 'cartao_%'
+    """)
+    
+    results = connection.execute(mapping_query).fetchall()
+    for row in results:
+        connection.execute(
+            sa.text("UPDATE lote_cartao_itens SET pdv_movimentacao_id = :mov_id WHERE id = :item_id"),
+            {"mov_id": row.mov_id, "item_id": row.item_id}
         )
         
-        # 3. Remover restrição antiga
-        op.drop_constraint('lote_cartao_itens_lancamento_id_fkey', 'lote_cartao_itens', type_='foreignkey')
-        op.drop_column('lote_cartao_itens', 'lancamento_id')
-        
-        # 4. Criar index de performance na tabela pdv_movimentacoes
-        op.create_index('ix_pdv_movimentacoes_conciliado_data', 'pdv_movimentacoes', ['empresa_id', 'conciliado', 'data'])
-    ```
+    # Marcar as movimentações migradas históricas como conciliadas
+    connection.execute(sa.text("""
+        UPDATE pdv_movimentacoes 
+        SET conciliado = true 
+        WHERE id IN (SELECT pdv_movimentacao_id FROM lote_cartao_itens WHERE pdv_movimentacao_id IS NOT NULL)
+    """))
+
+    # --- PARTE 3: SCHEMA CLEANUP (Remoção do lixo) ---
+    # 1. Tornar a nova coluna NOT NULL após popular os dados históricos
+    # (Apenas se todas forem mapeadas; caso contrário, manter nullable=True)
+    
+    # 2. Remover coluna antiga e FK
+    op.drop_constraint('lote_cartao_itens_lancamento_id_fkey', 'lote_cartao_itens', type_='foreignkey')
+    op.drop_column('lote_cartao_itens', 'lancamento_id')
+    
+    # 3. Criar índices de performance fundamentais
+    op.create_index('ix_pdv_movimentacoes_conciliado_fast', 'pdv_movimentacoes', ['empresa_id', 'conciliado', 'data'])
+
+def downgrade():
+    # --- PARTE 4: DOWNGRADE SÁBIO ---
+    op.add_column('lote_cartao_itens', sa.Column('lancamento_id', sa.Integer(), nullable=True))
+    op.create_foreign_key(
+        'lote_cartao_itens_lancamento_id_fkey', 
+        'lote_cartao_itens', 'lancamentos', 
+        ['lancamento_id'], ['id']
+    )
+    
+    # Data migration reversa se necessário usando vinculo do lote
+    connection = op.get_bind()
+    connection.execute(sa.text("""
+        UPDATE lote_cartao_itens lci
+        SET lancamento_id = (
+            SELECT l.id 
+            FROM lancamentos l
+            JOIN pdv_movimentacoes pm ON pm.venda_id = (l.observacao::json->>'venda_id_uuid')
+            WHERE pm.id = lci.pdv_movimentacao_id
+            LIMIT 1
+        )
+        WHERE lci.pdv_movimentacao_id IS NOT NULL
+    """))
+    
+    op.drop_constraint('fk_lote_cartao_itens_pdv_mov', 'lote_cartao_itens', type_='foreignkey')
+    op.drop_column('lote_cartao_itens', 'pdv_movimentacao_id')
+    op.drop_index('ix_pdv_movimentacoes_conciliado_fast')
+```
 
 ---
 
-### 📅 FASE 2: Reescrita da Consulta `/pdv/recebiveis`
-Alterar a query de leitura em `app/api/v1/endpoints/pdv.py` para consultar `pdv_movimentacoes`.
+## 4. REESCRITA DAS APIS DO BACKEND E CÁLCULO DINÂMICO DE TAXAS
 
-1.  **Substituir a Query SQL**:
-    ```python
-    # Antigo: select(Lancamento)
-    # Novo:
-    query = (
-        select(PdvMovimentacao, PdvVenda)
+Como a tabela `pdv_movimentacoes` não possui as colunas de `valor_liquido` e `valor_taxa`, essas informações devem ser calculadas de forma dinâmica no backend juntando com a tabela `regras_cartao` baseando-se na bandeira e modalidade (crédito/débito) do cartão.
+
+### Código do Endpoint `/pdv/recebiveis` (`app/api/v1/endpoints/pdv.py`):
+
+```python
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import select, and_, func
+from datetime import date
+from typing import List, Optional
+from app.db.session import get_db
+from app.models.pdv import PdvMovimentacao, PdvVenda
+from app.models.regras import RegraCartao  # Tabela com as taxas acordadas de cada bandeira
+
+router = APIRouter()
+
+@router.get("/recebiveis")
+def listar_recebiveis_cartao(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    empresa_id: int = Query(...),
+    db: Session = Depends(get_db)
+):
+    # 1. Buscar todas as regras de taxa de cartão ativas da empresa para fazer lookup rápido em memória
+    regras = db.execute(
+        select(RegraCartao).where(RegraCartao.empresa_id == empresa_id, RegraCartao.is_deleted == False)
+    ).scalars().all()
+    
+    # Montar mapa de taxas: {(bandeira, tipo): taxa_percentual}
+    taxa_map = {}
+    for r in regras:
+        bandeira_key = r.bandeira.upper() if r.bandeira else "OUTROS"
+        modalidade_key = r.tipo_pagamento.upper() if r.tipo_pagamento else "CREDITO"
+        taxa_map[(bandeira_key, modalidade_key)] = float(r.taxa)
+
+    # 2. Consultar as movimentações de cartão do período
+    stmt = (
+        select(PdvMovimentacao, PdvVenda.id.label("venda_uuid"), PdvVenda.data_venda)
         .join(PdvVenda, PdvVenda.id == PdvMovimentacao.venda_id, isouter=True)
         .where(
             PdvMovimentacao.empresa_id == empresa_id,
             PdvMovimentacao.is_deleted == False,
-            PdvMovimentacao.forma_pagamento.ilike('cartao_%')
+            PdvMovimentacao.forma_pagamento.ilike('cartao_%'),
+            PdvMovimentacao.data >= start_date,
+            PdvMovimentacao.data <= end_date
         )
+        .order_by(PdvMovimentacao.data.asc())
     )
+    
+    resultados = db.execute(stmt).all()
+    recebiveis = []
+    
+    for row in resultados:
+        mov, venda_uuid, data_venda = row
+        bandeira_limpa = (mov.bandeira or "OUTROS").upper()
+        
+        # Mapear forma de pagamento para tipo de regra
+        modalidade = "DEBITO" if "debito" in mov.forma_pagamento.lower() else "CREDITO"
+        
+        # Obter taxa cadastrada ou usar fallback padrão (ex: 2.0% débito, 3.5% crédito)
+        taxa_percentual = taxa_map.get((bandeira_limpa, modalidade))
+        if taxa_percentual is None:
+            taxa_percentual = 2.0 if modalidade == "DEBITO" else 3.5
+            
+        valor_bruto = float(mov.valor)
+        valor_taxa = round(valor_bruto * (taxa_percentual / 100.0), 2)
+        valor_liquido = round(valor_bruto - valor_taxa, 2)
+        
+        # Estimar data de vencimento baseada no prazo da adquirente (ex: D+1 débito, D+30 crédito)
+        prazo_dias = 1 if modalidade == "DEBITO" else 30
+        # Regras customizadas de antecipação podem ser injetadas aqui
+        
+        recebiveis.append({
+            "id": mov.id,  # O ID agora é o da PdvMovimentacao
+            "venda_id_uuid": venda_uuid or mov.venda_id,
+            "rv": mov.import_hash or f"RV-{mov.id}",
+            "data_venda": data_venda or mov.data,
+            "data_vencimento": mov.data,  # A conciliadora exibe pela data prevista de depósito
+            "descricao": mov.descricao or f"Recebível {bandeira_limpa} {modalidade}",
+            "tipo_pagamento": mov.forma_pagamento,
+            "bandeira": bandeira_limpa,
+            "numero_parcela": 1,
+            "total_parcelas": mov.parcelas or 1,
+            "valor_bruto": valor_bruto,
+            "valor_taxa": valor_taxa,
+            "valor_liquido": valor_liquido,
+            "status": "PAGO" if mov.conciliado else "A RECEBER",
+            "vendedor": "N/A",
+            "cliente": "Consumidor Final"
+        })
+        
+    return recebiveis
+```
+
+---
+
+## 5. REFATORAÇÃO DOS FLUXOS DE ESCRITA E SERVIÇOS
+
+No arquivo `app/services/pdv_service.py`, na função responsável por salvar e processar a venda finalizada no terminal:
+
+```python
+# --- ANTES: Duplicava gerando lançamento ---
+# for pag in venda.pagamentos:
+#     if pag.tipo in ["cartao_credito", "cartao_debito"]:
+#         criar_lancamento_card(pag)
+
+# --- DEPOIS (REFATORADO): Bloqueia geração redundante ---
+def registrar_venda_pdv(db: Session, dados_venda: VendaCreateSchema, empresa_id: int):
+    # 1. Inserir cabeçalho da venda em pdv_vendas
+    venda_db = PdvVenda(...)
+    db.add(venda_db)
+    db.flush()
+    
+    # 2. Inserir itens em pdv_venda_itens
+    
+    # 3. Inserir pagamentos em pdv_movimentacoes
+    for pag in dados_venda.pagamentos:
+        mov = PdvMovimentacao(
+            empresa_id=empresa_id,
+            tipo="RECEITA",
+            descricao=f"Pagamento Venda PDV {venda_db.id}",
+            valor=pag.valor,
+            forma_pagamento=pag.forma_pagamento, # ex: 'cartao_credito'
+            bandeira=pag.bandeira,
+            parcelas=pag.parcelas,
+            data=venda_db.data_venda,
+            venda_id=venda_db.id,
+            conciliado=False
+        )
+        db.add(mov)
+        
+        # REGRAS FINANCEIRAS GERAIS:
+        # Se for DINHEIRO, gera lançamento financeiro de caixa na hora
+        if pag.forma_pagamento.lower() == "dinheiro":
+            lancamento_caixa = Lancamento(
+                empresa_id=empresa_id,
+                tipo="RECEITA",
+                valor_previsto=pag.valor,
+                valor_pago=pag.valor,
+                data_vencimento=venda_db.data_venda,
+                data_pagamento=venda_db.data_venda,
+                status="PAGO",
+                origem="PDV_CAIXA",
+                descricao="Venda PDV - Dinheiro Físico"
+            )
+            db.add(lancamento_caixa)
+            
+    db.commit()
+```
+
+---
+
+## 6. AJUSTES DETALHADOS NO FRONTEND (REACT/TYPESCRIPT)
+
+Como mantivemos a compatibilidade do payload da rota GET de recebíveis, a única alteração necessária no frontend reside nas ações onde o usuário edita manualmente os vencimentos ou as taxas dos cartões na conciliadora.
+
+### No arquivo `kyrus-web/src/pages/ConciliacaoCartoes.tsx`:
+
+#### A. Ação de Alteração Manual de Data/Valor
+Quando o usuário altera as propriedades de um recebível pendente no calendário:
+
+```typescript
+// --- ANTES: Chamava rota de lançamentos ---
+// await api.put(`/lancamentos/${item.id}`, { data_vencimento: novaData, valor_previsto: novoValor });
+
+// --- DEPOIS (REFATORADO): Chama a nova rota de edição de movimentações de PDV ---
+const handleSaveEditRecebivel = async (itemId: number, novaData: string, novoValor: number) => {
+  try {
+    setLoading(true);
+    await api.put(`/pdv/movimentacoes/${itemId}`, {
+      data: novaData,
+      valor: novoValor
+    });
+    // Recarregar a agenda de cartões da tela
+    await fetchAgenda();
+    toast.success("Recebível atualizado com sucesso!");
+  } catch (err) {
+    toast.error("Erro ao atualizar o recebível.");
+  } finally {
+    setLoading(false);
+  }
+};
+```
+
+---
+
+## 7. PLANO DE HIGIENIZAÇÃO DE DADOS (PIZZA FÁBIO)
+
+Para eliminar definitivamente o duplicado histórico da DRE sem mascarar o código, rode a seguinte query administrativa no Postgres da produção:
+
+```sql
+-- 1. Mover lançamentos de planilhas de cartões da conta de receita (01) para a conta transitória de cartão do Ativo (1.1.02.01)
+-- Isso evita que o faturamento apareça duplicado na DRE do passado, mantendo o saldo do banco correto.
+UPDATE lancamentos l
+SET plano_contas_id = (
+    SELECT pc.id 
+    FROM plano_contas pc 
+    WHERE pc.codigo = '01.09.99' -- Ou conta transitória de ajuste de saldos
+    LIMIT 1
+)
+WHERE l.empresa_id = 35 -- Pizza Fábio Umarizal
+  AND l.origem = 'WEB'
+  AND (l.observacao ILIKE '%importação financeiro%' OR l.observacao ILIKE '%importacao financeiro%')
+  AND l.plano_contas_id IN (
+      SELECT id FROM plano_contas WHERE codigo IN ('01.01.02', '01.01.03', '01.01.04')
+  );
+
+-- 2. Limpar os lançamentos redundantes criados pelo PDV no passado na tabela de lançamentos
+DELETE FROM lancamentos 
+WHERE empresa_id = 35 
+  AND origem = 'PDV' 
+  AND (observacao LIKE '%"tipo_pagamento": "cartao_%' OR observacao LIKE '%"grouped_card_launch": true%');
+```
+
+---
+
+## 8. CHECKLIST DE VERIFICAÇÃO, TESTES E PLANO DE ROLLBACK
+
+### A. Checklist de Testes do Desenvolvedor (IA Checklist)
+*   `[ ]` **Testar Schema**: O script de migração do Alembic executa (`upgrade`) e reverte (`downgrade`) sem estourar restrições de FK?
+*   `[ ]` **Validar DRE**: O relatório da DRE da Pizza Fábio para o mês de Julho/2026 bate exatamente com a soma das vendas reais fechadas no caixa?
+*   `[ ]` **Verificar Conciliação**: Selecionar 5 recebíveis no calendário e conciliá-los contra um depósito do extrato bancário. Validar se o status de todos em `pdv_movimentacoes` vira `conciliado = True` e se o relacionamento de lotes é gravado corretamente.
+
+### B. Procedimento de Rollback de Emergência
+Se após o deploy em produção a tela de conciliação travar ou os saldos divergirem:
+
+1.  **Reverter a migração de banco**:
+    ```bash
+    docker exec -it kyrustech_backend alembic downgrade -1
     ```
-2.  **Converter/Mapear as Propriedades para Manter o Contrato**:
-    Mapeie os atributos de `PdvMovimentacao` de volta nas chaves esperadas pelo TypeScript do frontend:
-    ```python
-    recebiveis.append({
-        "id": mov.id,  # ID da movimentação
-        "venda_id_uuid": mov.venda_id,
-        "rv": mov.import_hash or f"RV-{mov.id}",
-        "data_venda": mov.data,
-        "data_vencimento": calcular_data_vencimento(mov.data, mov.forma_pagamento), # D+1 Débito, D+30 Crédito
-        "descricao": mov.descricao,
-        "tipo_pagamento": mov.forma_pagamento,
-        "bandeira": (mov.bandeira or "OUTROS").upper(),
-        "numero_parcela": 1,
-        "total_parcelas": mov.parcelas or 1,
-        "valor_bruto": mov.valor,
-        "valor_taxa": calcular_taxa_proporcional(mov.valor, mov.bandeira, mov.forma_pagamento),
-        "valor_liquido": mov.valor - valor_taxa,
-        "status": "PAGO" if mov.conciliado else "A RECEBER",
-        "vendedor": "Sem vendedor", 
-        "cliente": "Cliente Consumidor",
-        "itens": []
-    })
+2.  **Reverter o código do backend/frontend**:
+    ```bash
+    git checkout HEAD~1 -- app/api/v1/endpoints/pdv.py app/services/pdv_service.py kyrus-web/src/pages/ConciliacaoCartoes.tsx
     ```
-
----
-
-### 📅 FASE 3: Desativação dos Lançamentos Duplicados na Escrita
-Ajustar `app/services/pdv_service.py` para parar de encher a tabela `lancamentos` com registros espelhos.
-
-1.  **Localizar a criação de Lançamentos na persistência da venda**:
-    Identifique onde a função `registrar_venda_pdv` (ou método similar) itera sobre as formas de pagamento para criar registros `Lancamento`.
-2.  **Bloquear a geração de Lançamentos de cartão**:
-    ```python
-    # Apenas crie Lançamento no financeiro se forma_pagamento for dinheiro
-    if forma_pagamento.lower() == "dinheiro":
-        criar_lancamento_financeiro_imediato(db, venda, valor)
-    else:
-        # NÃO crie Lancamento. Salve apenas em pdv_movimentacoes!
-        # pdv_movimentacoes é a única fonte da verdade para cartões.
-        pass
+3.  **Reiniciar serviços**:
+    ```bash
+    docker compose restart kyrustech_backend kyrustech_frontend
     ```
-
----
-
-### 📅 FASE 4: Refatoração da Conciliação em Lote (`pdv.py`)
-Ajustar a rota `/pdv/conciliacao/lotes` para liquidar movimentações.
-
-1.  **Modificar Parâmetro de Entrada**:
-    Receber `pdv_movimentacao_ids: list[int]` no payload.
-2.  **Lógica Interna**:
-    - Buscar as movimentações na tabela `pdv_movimentacoes` filtrando pelos IDs recebidos.
-    - Criar o registro unificado `LoteCartao` representando o depósito bancário consolidado.
-    - Criar um **único** `Lancamento` do tipo `RECEITA` (origem `CONCILIACAO_CARTAO`) com o valor líquido total do lote (este é o registro real que entra no saldo do banco).
-    - Vincular o `Lancamento.id` recém-criado em `lotes_cartao.lancamento_deposito_id`.
-    - Iterar nas movimentações, atualizando `conciliado = True`.
-    - Criar os itens correspondentes na tabela `lote_cartao_itens`.
-
----
-
-### 📅 FASE 5: Higienização do Banco de Dados
-Remover os 66 mil registros espelhos antigos que ficaram "órfãos" na tabela `lancamentos`.
-
-1.  **Rodar a limpeza**:
-    ```sql
-    DELETE FROM lancamentos 
-    WHERE origem = 'PDV' 
-      AND (observacao LIKE '%"tipo_pagamento": "cartao_%' OR observacao LIKE '%"grouped_card_launch": true%');
-    ```
-
----
-
-### 📅 FASE 6: Correção Limpa da DRE (`Dre.tsx`)
-1.  **Limpar o Frontend**:
-    - Remova as arrays `preferredWebCodes` e todo o bloco de desduplicação do `useMemo` de lançamentos.
-    - Faça com que a DRE utilize apenas a tabela `lancamentos` pura de forma transparente.
-2.  **Limpar os dados duplicados históricos**:
-    - Escreva um script SQL específico para a Pizza Fábio que encontre os lançamentos antigos de planilhas de depósitos e altere o `plano_contas_id` deles para a conta de compensação do Ativo Circulante em vez de Receita (`01`), eliminando a duplicidade histórica de forma correta e definitiva no banco.
-
----
-
-## 🧪 4. MANUAL DE VERIFICAÇÃO E TESTES PARA A IA
-
-Para validar que o seu código está correto antes de submeter os commits, a IA **DEVE** rodar os seguintes testes:
-
-1.  **Verificar API `/recebiveis`**:
-    - Criar e rodar o script `scripts/test_direct_api_call.py` (ou equivalente de teste) e conferir se ele retorna a lista desmembrada perfeitamente com todas as chaves JSON esperadas.
-2.  **Verificar DRE**:
-    - Fazer chamadas simuladas de cálculo de DRE e conferir se os saldos fecham perfeitamente e se não ocorrem exceções na renderização.
-3.  **Auditar Locks e Performance**:
-    - Executar `EXPLAIN ANALYZE` na query do endpoint `/recebiveis` no PostgreSQL local para garantir que ela utilize o índice criado (`ix_pdv_movimentacoes_conciliado_data`) e que o custo de execução da query seja menor que 10ms.

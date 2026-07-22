@@ -835,6 +835,19 @@ export function ConciliacaoCartoes() {
     });
   }, [recebiveis, filterSearch, filterBrand, filterStatus, startDate, endDate]);
 
+  const calendarFilteredAgenda = useMemo(() => {
+    return recebiveis.filter(r => {
+      const matchSearch = !filterSearch ||
+        (r.descricao || '').toLowerCase().includes(filterSearch.toLowerCase()) ||
+        (r.rv || '').toLowerCase().includes(filterSearch.toLowerCase());
+
+      const matchBrand = !filterBrand || (r.bandeira || '') === filterBrand;
+      const matchStatus = !filterStatus || (r.status || '') === filterStatus;
+
+      return matchSearch && matchBrand && matchStatus;
+    });
+  }, [recebiveis, filterSearch, filterBrand, filterStatus]);
+
   const agendaSummary = useMemo(() => {
     let bruto = 0;
     let taxa = 0;
@@ -1333,7 +1346,7 @@ export function ConciliacaoCartoes() {
                   <div className="grid grid-cols-7 divide-x divide-y divide-slate-100 dark:divide-slate-800 border-l border-t border-slate-100 dark:border-slate-800">
                     {calendarDays.map((slot, index) => {
                       const isSelected = selectedDay === slot.dateStr;
-                      const dayItems = filteredAgenda.filter(r => r.data_vencimento === slot.dateStr);
+                      const dayItems = calendarFilteredAgenda.filter(r => r.data_vencimento === slot.dateStr);
 
                       // Group day items by brand, then by tipo (debito / credito)
                       const brandGrouped: Record<string, {

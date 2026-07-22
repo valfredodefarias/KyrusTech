@@ -327,10 +327,15 @@ export function Dre() {
         if (isRevenueCat) {
           const isDuplicated = cat ? preferredWebCodes.includes(cat.codigo) : false;
           if (isDuplicated) {
-            const obs = String(item.observacao || '').toLowerCase();
-            const isLegacy = obs.includes('importação financeiro') || obs.includes('importacao financeiro');
-            if (item.origem !== 'WEB' || !isLegacy) {
-              return false;
+            const dateStr = resolveCompetenciaDate(item, somentePagos) || item.data_vencimento || '';
+            const isBeforeJuly = dateStr && dateStr < '2026-07-01';
+            
+            if (isBeforeJuly) {
+              const obs = String(item.observacao || '').toLowerCase();
+              const isLegacy = obs.includes('importação financeiro') || obs.includes('importacao financeiro');
+              if (item.origem !== 'WEB' || !isLegacy) {
+                return false;
+              }
             }
           }
         }
@@ -343,8 +348,12 @@ export function Dre() {
       const isRevenueCat = cat ? (String(cat.codigo || '').startsWith('01') || isReceita(cat.tipo)) : false;
       if (isRevenueCat) {
         const isDuplicated = cat ? preferredWebCodes.includes(cat.codigo) : false;
-        if (isDuplicated && item.origem === 'WEB') {
-          return false;
+        if (isDuplicated) {
+          const dateStr = resolveCompetenciaDate(item, false) || item.data_vencimento || '';
+          const isBeforeJuly = dateStr && dateStr < '2026-07-01';
+          if (isBeforeJuly && item.origem === 'WEB') {
+            return false;
+          }
         }
       }
       return true;

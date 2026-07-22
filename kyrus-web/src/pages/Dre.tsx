@@ -321,8 +321,10 @@ export function Dre() {
 
         if (!isPaid) return false;
 
-        if (isReceita(item.tipo)) {
-          const cat = categorias.find((c) => c.id === item.plano_contas_id);
+        const cat = categorias.find((c) => Number(c.id) === Number(item.plano_contas_id));
+        const isRevenueCat = cat ? (String(cat.codigo || '').startsWith('01') || isReceita(cat.tipo)) : false;
+
+        if (isRevenueCat) {
           const isDuplicated = cat ? preferredWebCodes.includes(cat.codigo) : false;
           if (isDuplicated) {
             const obs = String(item.observacao || '').toLowerCase();
@@ -337,8 +339,9 @@ export function Dre() {
     }
 
     return allLancamentos.filter((item) => {
-      if (isReceita(item.tipo)) {
-        const cat = categorias.find((c) => c.id === item.plano_contas_id);
+      const cat = categorias.find((c) => Number(c.id) === Number(item.plano_contas_id));
+      const isRevenueCat = cat ? (String(cat.codigo || '').startsWith('01') || isReceita(cat.tipo)) : false;
+      if (isRevenueCat) {
         const isDuplicated = cat ? preferredWebCodes.includes(cat.codigo) : false;
         if (isDuplicated && item.origem === 'WEB') {
           return false;

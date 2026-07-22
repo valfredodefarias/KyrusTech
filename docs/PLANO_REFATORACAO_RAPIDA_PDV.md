@@ -25,6 +25,7 @@ Durante a execução da refatoração, a IA **DEVE** seguir rigorosamente as seg
 1.  **Isolamento de Tenant (Multi-empresa)**: Toda consulta ou escrita SQL deve conter o filtro `empresa_id = :empresa_id`.
 2.  **Preservação do Contrato da API**: O JSON de resposta do endpoint `/pdv/recebiveis` deve ter chaves com nomes e tipos idênticos para não quebrar a tipagem React/TS.
 3.  **Proibição Absoluta de Modificação de Registros Conciliados**: Nenhuma API ou interface pode permitir a edição de data ou valor de movimentações cujo status de conciliação seja `conciliado = True`.
+4.  **Preservação de Helpers de Payout e Regras**: Devemos obrigatoriamente utilizar os helpers `calcular_payout_date` e `shift_months` existentes em `pdv_service.py` para calcular as datas estimadas de recebimento, honrando as regras de taxas da tabela `regras_cartao`.
 
 ---
 
@@ -142,19 +143,21 @@ def downgrade():
 
 ## 4. GRAVAÇÃO DE VENDAS COM DISTRIBUIÇÃO DE ARREDONDAMENTO E CASCADING SOFT-DELETE
 
-Em `app/services/pdv_service.py`:
+Em `app/services/pdv_service.py` na gravação e cancelamento das vendas:
 
 ```python
 from datetime import timedelta
 from dateutil.relativedelta import relativedelta
 
-def registrar_venda_pdv(db: Session, dados_venda: VendaCreateSchema, empresa_id: int):
+def registrar_venda_pdv(db: Session, dados_venda: PdvVendaCreate, empresa_id: int):
+    # 1. Inserir cabeçalho
     venda_db = PdvVenda(...)
     db.add(venda_db)
     db.flush()
 
     for pag in dados_venda.pagamentos:
-        if pag.forma_pagamento.lower() == "dinheiro":
+        if pag.tipo_pagamento.lower() == "dinheiro":
+            # Dinheiro físico gera lançamento imediato na tesouraria
             lancamento_caixa = Lancamento(
                 empresa_id=empresa_id,
                 tipo="RECEITA",
@@ -167,21 +170,30 @@ def registrar_venda_pdv(db: Session, dados_venda: VendaCreateSchema, empresa_id:
                 descricao="Venda PDV - Dinheiro Físico"
             )
             db.add(lancamento_caixa)
-        elif "cartao" in pag.forma_pagamento.lower():
-            total_p = pag.parcelas or 1
-            val_total = float(pag.valor)
+        elif "cartao" in pag.tipo_pagamento.lower():
+            # Localizar a regra de cartões cadastrada
+            regra = obter_regra_cartao(db, empresa_id, pag.tipo_pagamento, pag.bandeira, venda_db.centro_custo_id)
             
-            val_p = round(val_total / total_p, 2)
-            resto = round(val_total - (val_p * total_p), 2)
+            total_p = pag.numero_parcelas or 1
+            val_total = Decimal(str(pag.valor))
+            
+            val_p = (val_total / total_p).quantize(Decimal("0.01"))
+            resto = val_total - (val_p * total_p)
             
             for i in range(1, total_p + 1):
-                # Usar relativedelta para evitar drift de calendário
-                if "debito" in pag.forma_pagamento.lower():
-                    data_recebimento = venda_db.data_venda + timedelta(days=1)
+                # Utilizar as regras de adquirentes nativas
+                hoje_pag = venda_db.data_venda
+                if regra:
+                    if regra.modo_parcelamento == "ANTECIPADO":
+                        vencimento = calcular_payout_date(hoje_pag, regra)
+                    else:
+                        base_installment_date = shift_months(hoje_pag, i - 1)
+                        vencimento = calcular_payout_date(base_installment_date, regra)
                 else:
-                    data_recebimento = venda_db.data_venda + relativedelta(months=i)
+                    prazo = 1 if "debito" in pag.tipo_pagamento.lower() else 30 * i
+                    vencimento = hoje_pag + timedelta(days=prazo)
                 
-                valor_final_parcela = round(val_p + resto, 2) if i == total_p else val_p
+                valor_final_parcela = val_p + resto if i == total_p else val_p
                 hash_unico = f"{dados_venda.import_hash}-P{i}" if dados_venda.import_hash else None
                 
                 mov = PdvMovimentacao(
@@ -189,17 +201,32 @@ def registrar_venda_pdv(db: Session, dados_venda: VendaCreateSchema, empresa_id:
                     tipo="RECEITA",
                     descricao=f"Parcela {i}/{total_p} Venda PDV {venda_db.id}",
                     valor=valor_final_parcela,
-                    forma_pagamento=pag.forma_pagamento,
+                    forma_pagamento=pag.tipo_pagamento,
                     bandeira=pag.bandeira,
                     parcelas=total_p,
                     numero_parcela=i,
-                    data=data_recebimento,
+                    data=vencimento,
                     venda_id=venda_db.id,
                     conciliado=False,
                     import_hash=hash_unico
                 )
                 db.add(mov)
     db.commit()
+
+def cancelar_venda_pdv(db: Session, venda_id: str, empresa_id: int):
+    # Cascading Soft-Delete para evitar que parcelas fiquem ativas após a venda ser desfeita
+    venda = db.get(PdvVenda, venda_id)
+    if venda and venda.empresa_id == empresa_id:
+        venda.is_deleted = True
+        venda.deleted_at = datetime.utcnow()
+        
+        # Soft-deletar todas as movimentações financeiras vinculadas
+        db.execute(
+            update(PdvMovimentacao)
+            .where(PdvMovimentacao.venda_id == venda_id, PdvMovimentacao.empresa_id == empresa_id)
+            .values(is_deleted=True, deleted_at=datetime.utcnow())
+        )
+        db.commit()
 ```
 
 ---
@@ -275,30 +302,30 @@ def listar_recebiveis_cartao(
 
 ## 6. ENDPOINTS DE EDIÇÃO SEGURA E ESTORNO (CANCELAMENTO)
 
-```python
-class MovimentacaoUpdate(BaseModel):
-    data: Optional[date] = None
-    valor: Optional[float] = None
+Adicionar a seguinte rota dedicada `PUT /pdv/movimentacoes/{id}/agenda` que é chamada diretamente pela Conciliadora de Cartões no frontend para editar a previsão de vencimento de cartões:
 
-@router.put("/movimentacoes/{id}")
-def atualizar_movimentacao_pdv(id: int, payload: MovimentacaoUpdate, db: Session = Depends(get_db)):
+```python
+class RecebivelAgendaUpdate(BaseModel):
+    data: date
+    valor: float
+
+@router.put("/movimentacoes/{id}/agenda")
+def atualizar_agenda_recebivel(id: int, payload: RecebivelAgendaUpdate, db: Session = Depends(get_db)):
     mov = db.get(PdvMovimentacao, id)
-    if not mov:
-        raise HTTPException(status_code=404, detail="Movimentação não encontrada")
+    if not mov or mov.is_deleted:
+        raise HTTPException(status_code=404, detail="Recebível não encontrado.")
         
     if mov.conciliado:
         raise HTTPException(
             status_code=400, 
-            detail="Modificação bloqueada: este recebível já está associado a um lote bancário pago."
+            detail="Não é permitido alterar dados de recebíveis de cartões já conciliados."
         )
         
-    if payload.data is not None:
-        mov.data = payload.data
-    if payload.valor is not None:
-        mov.valor = payload.valor
-        
+    # Salvar alterações diretas
+    mov.data = payload.data
+    mov.valor = payload.valor
     db.commit()
-    return {"message": "Movimentação updated com sucesso"}
+    return {"status": "success", "message": "Agenda de recebíveis atualizada."}
 ```
 
 ---

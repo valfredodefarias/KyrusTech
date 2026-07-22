@@ -67,3 +67,26 @@ A refatoração consistirá em remover a duplicação financeira e fazer com que
     1. Desativar no código do PDV (`pdv_service.py`) a criação automática de `Lancamento` espelho para cada venda de cartão.
     2. Criar e rodar um script para deletar do banco todos os lançamentos com `origem = 'PDV'` que eram apenas espelhos de cartão (mantendo apenas as vendas reais em dinheiro, que movimentam o caixa imediatamente).
 *   **Objetivo**: Reduzir o tamanho da tabela `lancamentos` em até 70%, otimizando o backup, restore e a performance global do ERP.
+
+---
+
+## 🔒 4. Diretrizes de Sincronização de Backups e Execução de Scripts em Produção
+
+Para manter a segurança e a consistência das operações financeiras entre os ambientes de Desenvolvimento Local e Produção, as seguintes diretrizes arquiteturais devem ser seguidas:
+
+### A. Desacoplamento Absoluto de Credenciais (Segurança do `.env`)
+*   **Regra**: Nenhum script utilitário, de correção ou migração de banco de dados (`.py` ou `.sql`) deve conter credenciais, senhas ou endereços de servidores de banco de dados embutidos (hardcoded).
+*   **Implementação**: Todo script administrativo em Python deve obrigatoriamente importar o motor de banco de dados nativo do ERP:
+    ```python
+    from app.db.session import engine
+    ```
+    Isso garante que as configurações do arquivo `.env` ativo no diretório de execução (desenvolvimento ou produção) sejam lidas de forma dinâmica e automática, impedindo o vazamento de segredos de produção no repositório Git.
+
+### B. Ciclo de Homologação com Snapshots de Backup
+*   **Processo**: Quando houver necessidade de corrigir dados históricos corrompidos ou excluídos por falha operacional, o desenvolvedor deve:
+    1. Importar um backup recente da base de produção para a base de desenvolvimento local (Docker `db_kyrustech`).
+    2. Desenvolver e testar o script de correção localmente.
+    3. Validar a quantidade de registros afetados (ex: `UPDATE 36`).
+    4. Subir o script para o repositório Git.
+    5. Dar `git pull` no servidor de produção e executar o script de lá (ex: `docker exec -it kyrustech_backend python scripts/restore_21_launches.py`), permitindo que a própria infraestrutura do servidor execute o comando localmente utilizando a senha de produção oculta do `.env`.
+

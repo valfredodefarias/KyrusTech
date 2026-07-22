@@ -980,38 +980,74 @@ def listar_recebiveis_cartao(
             continue
             
         status_l = "PAGO" if l.status == "PAGO" else "A RECEBER"
-        
         taxa_perc = Decimal(str(meta.get("cartao_taxa", 0.0)))
-        valor_bruto = l.valor_previsto
-        valor_taxa = Decimal(str(meta.get("cartao_taxa_valor", 0.0)))
-        if not meta.get("cartao_taxa_valor") and taxa_perc > 0:
-            valor_taxa = (valor_bruto * taxa_perc / 100).quantize(Decimal("0.01"))
-            
-        valor_liquido = Decimal(str(meta.get("cartao_liquido_previsto", float(valor_bruto - valor_taxa))))
         
-        recebiveis.append({
-            "id": l.id,
-            "venda_id_uuid": l.id_parcelamento,
-            "rv": meta.get("rv", f"RV-{l.id:06d}"),
-            "data_venda": l.data_competencia or (l.created_at.date() if l.created_at else date.today()),
-            "data_vencimento": l.data_vencimento,
-            "descricao": l.descricao,
-            "tipo_pagamento": tipo_pag,
-            "bandeira": meta.get("bandeira", "OUTROS").upper(),
-            "numero_parcela": meta.get("numero_parcela"),
-            "total_parcelas": meta.get("total_parcelas"),
-            "valor_bruto": valor_bruto,
-            "valor_taxa": valor_taxa,
-            "valor_liquido": valor_liquido,
-            "status": status_l,
-            "vendedor": (vendedor.nome or vendedor.email) if vendedor else "Sem vendedor",
-            "vendedor_id": l.created_by_id,
-            "cliente": (cliente.nome or cliente.nome_fantasia or "Cliente Final") if cliente else "Cliente Final",
-            "cliente_id": l.entidade_id,
-            "itens": meta.get("itens", []),
-            "conta_id": l.conta_id,
-            "plano_contas_id": l.plano_contas_id
-        })
+        if is_grouped:
+            contribuicoes = meta.get("contribuicoes", {})
+            for venda_id_uuid, contrib in contribuicoes.items():
+                valor_bruto = Decimal(str(contrib.get("valor", 0.0)))
+                # Proporção da taxa
+                valor_taxa = (valor_bruto * taxa_perc / 100).quantize(Decimal("0.01"))
+                valor_liquido = valor_bruto - valor_taxa
+                
+                vendedor_nome = contrib.get("vendedor", "Sem vendedor")
+                cliente_nome = contrib.get("cliente", "Cliente Final")
+                rv_val = contrib.get("rv", f"RV-{l.id:06d}")
+                
+                recebiveis.append({
+                    "id": l.id,
+                    "venda_id_uuid": venda_id_uuid,
+                    "rv": rv_val,
+                    "data_venda": l.data_competencia or (l.created_at.date() if l.created_at else date.today()),
+                    "data_vencimento": l.data_vencimento,
+                    "descricao": l.descricao,
+                    "tipo_pagamento": tipo_pag,
+                    "bandeira": meta.get("bandeira", "OUTROS").upper(),
+                    "numero_parcela": None,
+                    "total_parcelas": None,
+                    "valor_bruto": valor_bruto,
+                    "valor_taxa": valor_taxa,
+                    "valor_liquido": valor_liquido,
+                    "status": status_l,
+                    "vendedor": vendedor_nome,
+                    "vendedor_id": l.created_by_id,
+                    "cliente": cliente_nome,
+                    "cliente_id": l.entidade_id,
+                    "itens": [],
+                    "conta_id": l.conta_id,
+                    "plano_contas_id": l.plano_contas_id
+                })
+        else:
+            valor_bruto = l.valor_previsto
+            valor_taxa = Decimal(str(meta.get("cartao_taxa_valor", 0.0)))
+            if not meta.get("cartao_taxa_valor") and taxa_perc > 0:
+                valor_taxa = (valor_bruto * taxa_perc / 100).quantize(Decimal("0.01"))
+                
+            valor_liquido = Decimal(str(meta.get("cartao_liquido_previsto", float(valor_bruto - valor_taxa))))
+            
+            recebiveis.append({
+                "id": l.id,
+                "venda_id_uuid": l.id_parcelamento,
+                "rv": meta.get("rv", f"RV-{l.id:06d}"),
+                "data_venda": l.data_competencia or (l.created_at.date() if l.created_at else date.today()),
+                "data_vencimento": l.data_vencimento,
+                "descricao": l.descricao,
+                "tipo_pagamento": tipo_pag,
+                "bandeira": meta.get("bandeira", "OUTROS").upper(),
+                "numero_parcela": meta.get("numero_parcela"),
+                "total_parcelas": meta.get("total_parcelas"),
+                "valor_bruto": valor_bruto,
+                "valor_taxa": valor_taxa,
+                "valor_liquido": valor_liquido,
+                "status": status_l,
+                "vendedor": (vendedor.nome or vendedor.email) if vendedor else "Sem vendedor",
+                "vendedor_id": l.created_by_id,
+                "cliente": (cliente.nome or cliente.nome_fantasia or "Cliente Final") if cliente else "Cliente Final",
+                "cliente_id": l.entidade_id,
+                "itens": meta.get("itens", []),
+                "conta_id": l.conta_id,
+                "plano_contas_id": l.plano_contas_id
+            })
     
     # SQL ORDER BY já está aplicado, sem sort Python redundante
     return recebiveis

@@ -10,6 +10,7 @@ from .base_audit import AuditMixin
 
 if TYPE_CHECKING:
     from .empresa import Empresa
+    from .lancamento import Lancamento
 
 class PdvIfoodLancamento(AuditMixin, SQLModel, table=True):
     __tablename__ = "pdv_ifood_lancamentos"
@@ -28,5 +29,8 @@ class PdvIfoodLancamento(AuditMixin, SQLModel, table=True):
     # Armazena despesas extras como lista serializada (ex: "cupom_descontos,entrega_gratis")
     despesas_extras_str: Optional[str] = Field(default=None)
     status_conciliado: bool = Field(default=False)
+    
+    lancamento_consolidado_id: Optional[int] = Field(default=None, foreign_key="lancamentos.id", index=True, nullable=True)
 
     empresa: Optional["Empresa"] = Relationship(sa_relationship=relationship("Empresa"))
+    lancamento_consolidado: Optional["Lancamento"] = Relationship(sa_relationship=relationship("Lancamento"))

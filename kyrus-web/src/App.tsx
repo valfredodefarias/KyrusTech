@@ -52,7 +52,7 @@ const PAGE_PERMISSIONS: Record<string, string[]> = {
   '/orcamentos': ['page:dre:view'],
   '/budget': ['page:dre:view'],
   '/dre': ['page:dre:view'],
-  '/comissoes': ['page:boletim:view'],
+  '/comissoes': ['page:boletim:view', 'PDV_SER_VENDEDOR', 'PDV_VER_TODAS_VENDAS'],
   '/consultor': ['page:consultor:view'],
   '/auditoria': ['page:auditoria:view'],
   '/config': ['page:configuracoes:view'],

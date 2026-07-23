@@ -183,7 +183,7 @@ class RegraCartaoUpdate(SQLModel):
 class LoteCartaoItemRead(SQLModel):
     id: int
     lote_cartao_id: int
-    lancamento_id: int
+    pdv_movimentacao_id: int
     valor_bruto: Decimal
     valor_taxa: Decimal
     valor_liquido: Decimal

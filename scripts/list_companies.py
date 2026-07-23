@@ -1,4 +1,8 @@
 # scripts/list_companies.py
+import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from sqlmodel import Session, select
 from app.db.session import engine
 from app.models.empresa import Empresa

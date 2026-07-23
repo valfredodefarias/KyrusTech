@@ -11,8 +11,10 @@ def run():
     session = Session(engine)
     
     # 1. Carregar planilha
-    excel_path = "/app/backups/Base_PizzaFabioUmarizal.xlsx"
-    print("Carregando planilha...")
+    import os
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    excel_path = os.path.join(base_dir, "backups", "Base_PizzaFabioUmarizal.xlsx")
+    print(f"Carregando planilha de {excel_path}...")
     df = pd.read_excel(excel_path, sheet_name="Tb_Financeira")
     print(f"Planilha carregada. Total de linhas: {len(df)}")
     
@@ -42,34 +44,53 @@ def run():
     # Mapear lançamentos da planilha por IdFinanceiro
     sheet_by_id = {str(row["IdFinanceiro"]).strip(): row for _, row in df_old.iterrows()}
     
-    # Comparar
+    # Comparar com status normalizado
     mismatches = []
+    
+    def normalize_status(st):
+        st = str(st).strip().upper()
+        if st in ["PAGO", "LIQUIDADO"]:
+            return "PAGO"
+        return "PENDENTE"
+
     for l in db_lances:
         h = (l.import_hash or "").strip()
         if not h:
             continue
+        if h.startswith("legacy-"):
+            h = h[7:]
         if h in sheet_by_id:
             row = sheet_by_id[h]
-            sheet_status = str(row["Situa\u00e7\u00e3o"]).strip().upper() # Situação na planilha: e.g. PAGO, EM ABERTO
-            # No banco
-            db_status = l.status.upper()
+            sheet_status = normalize_status(row["Situa\u00e7\u00e3o"])
+            db_status = normalize_status(l.status)
             
             if db_status != sheet_status:
                 mismatches.append({
                     "id": l.id,
+                    "tipo": l.tipo,
                     "descricao": l.descricao,
                     "valor": float(l.valor_previsto),
-                    "vencimento": str(l.data_vencimento),
+                    "vencimento": l.data_vencimento,
                     "import_hash": h,
-                    "sheet_status": sheet_status,
-                    "db_status": db_status,
+                    "sheet_status": str(row["Situa\u00e7\u00e3o"]).strip().upper(),
+                    "db_status": l.status.upper(),
                     "db_banco_id": l.conta_id,
-                    "sheet_banco": row["Banco"]
+                    "sheet_banco": str(row["Banco"]).strip()
                 })
                 
-    print(f"\nTotal de divergências encontradas: {len(mismatches)}")
-    for m in mismatches[:10]:
-        print(f"Divergência: ID {m['id']} | Desc: {m['descricao']} | Vcto: {m['vencimento']} | Planilha: {m['sheet_status']} | BancoDB: {m['db_status']} | BancoPlanilha: {m['sheet_banco']}")
+    print(f"\nTotal de divergências REAIS encontradas: {len(mismatches)}")
+    
+    # Agrupar divergências por mês de vencimento
+    from collections import defaultdict
+    by_month = defaultdict(list)
+    for m in mismatches:
+        month_key = m["vencimento"].strftime("%Y-%m")
+        by_month[month_key].append(m)
+        
+    for month_key in sorted(by_month.keys()):
+        print(f"\nMês: {month_key} -> {len(by_month[month_key])} divergências")
+        for m in by_month[month_key][:5]:
+            print(f"  ID {m['id']} | Tipo: {m['tipo']} | Desc: {m['descricao']} | Vcto: {m['vencimento']} | Planilha: {m['sheet_status']} | BancoDB: {m['db_status']}")
 
 if __name__ == "__main__":
     run()

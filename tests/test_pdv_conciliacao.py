@@ -17,6 +17,8 @@ from app.models.produto import Produto
 from app.models.lancamento import Lancamento
 from app.models.regra_cartao import RegraCartao
 from app.models.lote_cartao import LoteCartao
+from app.models.lote_cartao_item import LoteCartaoItem
+from app.models.pdv_movimentacao import PdvMovimentacao
 
 @pytest.fixture(name="setup_db")
 def setup_db_fixture(session: Session):
@@ -223,24 +225,20 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
         assert res_venda_vista.status_code == 201
         venda_vista = res_venda_vista.json()
         uuid_vista = venda_vista["venda_id_uuid"]
-
-        # Verificar se o lançamento no banco calculou corretamente
-        lanc_vista = session.exec(
-            select(Lancamento).where(Lancamento.id_parcelamento == uuid_vista)
+        
+        # Verificar se a movimentação no banco calculou corretamente
+        mov_vista = session.exec(
+            select(PdvMovimentacao).where(PdvMovimentacao.venda_id == uuid_vista)
         ).first()
-        assert lanc_vista is not None
-        assert lanc_vista.status == "EM ABERTO"  # Sobrescrito para não pago
-        assert lanc_vista.conta_id == 1
+        assert mov_vista is not None
+        assert mov_vista.conciliado == False  # Sobrescrito para não pago
+        assert mov_vista.conta_id == 1
         
         # Payout vencimento: 13/06 + 30 dias = 13/07/2026. É uma segunda-feira (dia útil).
-        assert lanc_vista.data_vencimento == date(2026, 7, 13)
-        
-        # Verificar metadados de taxas
-        meta_vista = json.loads(lanc_vista.observacao)
-        assert meta_vista["bandeira"] == "VISA"
-        assert meta_vista["cartao_taxa"] == 2.50
-        assert meta_vista["cartao_taxa_valor"] == 25.00  # 2.50% de 1000
-        assert meta_vista["cartao_liquido_previsto"] == 975.00
+        assert mov_vista.data == date(2026, 7, 13)
+        assert mov_vista.bandeira == "VISA"
+        assert mov_vista.forma_pagamento == "CREDITO_AVISTA"
+        assert mov_vista.valor == Decimal("1000.00")
 
         # --- TESTE C: Realizar Venda de Cartão Parcelado 3x (PRO_RATA) ---
         payload_venda_parcelado = {
@@ -267,35 +265,33 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
         venda_parc = res_venda_parc.json()
         uuid_parc = venda_parc["venda_id_uuid"]
 
-        # Devem existir 3 lançamentos parcelados
-        lancs_parc = session.exec(
-            select(Lancamento)
-            .where(Lancamento.id_parcelamento == uuid_parc)
-            .order_by(Lancamento.numero_parcela)
+        # Devem existir 3 movimentações parceladas
+        movs_parc = session.exec(
+            select(PdvMovimentacao)
+            .where(PdvMovimentacao.venda_id == uuid_parc)
+            .order_by(PdvMovimentacao.numero_parcela)
         ).all()
-        assert len(lancs_parc) == 3
+        assert len(movs_parc) == 3
 
         # Parcela 1: Venda 13/06. Base 13/06. D+30 = 13/07/2026 (Segunda)
         # Parcela 2: Venda 13/06. Base 13/07. D+30 = 12/08/2026 (Quarta)
         # Parcela 3: Venda 13/06. Base 13/08. D+30 = 12/09/2026. Sábado! FDS rollover -> 14/09/2026 (Segunda)
-        assert lancs_parc[0].data_vencimento == date(2026, 7, 13)
-        assert lancs_parc[1].data_vencimento == date(2026, 8, 12)
-        assert lancs_parc[2].data_vencimento == date(2026, 9, 14)
+        assert movs_parc[0].data == date(2026, 7, 13)
+        assert movs_parc[1].data == date(2026, 8, 12)
+        assert movs_parc[2].data == date(2026, 9, 14)
 
-        for lp in lancs_parc:
-            assert lp.status == "EM ABERTO"
-            meta_lp = json.loads(lp.observacao)
-            assert meta_lp["bandeira"] == "MASTERCARD"
-            assert meta_lp["cartao_taxa"] == 3.00
-            assert meta_lp["cartao_taxa_valor"] == 30.00  # 3.00% de 1000 por parcela
-            assert meta_lp["cartao_liquido_previsto"] == 970.00
+        for mp in movs_parc:
+            assert mp.conciliado == False
+            assert mp.bandeira == "MASTERCARD"
+            assert mp.forma_pagamento == "CREDITO_PARCELADO"
+            assert mp.valor == Decimal("1000.00")
 
         # --- TESTE D: Agenda de Recebíveis ---
         res_recebiveis = client.get("/api/v1/pdv/recebiveis")
         assert res_recebiveis.status_code == 200
         recebiveis = res_recebiveis.json()
         
-        # Deve listar todos os lançamentos de cartão ativos (4 no total: 1 vista + 3 parcelados)
+        # Deve listar todos os recebíveis de cartão ativos (4 no total: 1 vista + 3 parcelados)
         assert len(recebiveis) == 4
 
         # --- TESTE E: Auto-Match de Conciliação ---
@@ -327,11 +323,11 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
         assert res_match.status_code == 200
         suggestions = res_match.json()
         
-        # A melhor sugestão deve ser o lançamento de Crédito à Vista (líquido R$ 975,00)
+        # A melhor sugestão deve ser a PdvMovimentacao de Crédito à Vista (líquido R$ 975,00)
         assert len(suggestions) > 0
         melhor_opcao = suggestions[0]
         assert melhor_opcao["valor_liquido"] == 975.00
-        assert lanc_vista.id in melhor_opcao["lancamentos"]
+        assert mov_vista.id in melhor_opcao["lancamentos"]
 
         # --- TESTE F: Liquidar/Conciliar Lote ---
         # Baixar o recebível da venda à vista (Visa) contra o depósito do extrato
@@ -339,7 +335,7 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
             "data_pagamento": "2026-07-13",
             "conta_destino_id": 1,
             "lancamento_deposito_id": deposito.id,
-            "lancamento_ids": [lanc_vista.id]
+            "lancamento_ids": [mov_vista.id]
         }
         res_lote = client.post("/api/v1/pdv/conciliacao/lotes", json=payload_lote)
         assert res_lote.status_code == 201
@@ -352,11 +348,10 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
         assert lote_db.valor_taxa == Decimal("25.00")
         assert lote_db.valor_liquido == Decimal("975.00")
 
-        # 2. Verificar se o recebível de receita foi liquidado e conciliado
-        session.refresh(lanc_vista)
-        assert lanc_vista.status == "PAGO"
-        assert lanc_vista.conciliado is True
-        assert lanc_vista.valor_pago == Decimal("1000.00")
+        # 2. Verificar se a movimentação foi liquidada e conciliada
+        session.refresh(mov_vista)
+        assert mov_vista.conciliado is True
+        assert mov_vista.conta_id == 1
 
         # 3. Verificar se a despesa de taxas adquirentes foi gerada e liquidada
         lanc_taxa = session.exec(
@@ -389,13 +384,7 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
         dep_mov = next((m for m in movs if m["id"] == deposito.id), None)
         assert dep_mov is not None
         assert dep_mov["has_lote_card"] is True
-
-        # O lanc_vista (outro lançamento normal) deve ter has_lote_card = False
-        normal_mov = next((m for m in movs if m["id"] == lanc_vista.id), None)
-        assert normal_mov is not None
-        assert normal_mov["has_lote_card"] is False
         
     finally:
         # Limpar overrides no FastAPI
         app.dependency_overrides.clear()
-

@@ -1,3 +1,7 @@
+import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from sqlmodel import Session, select, func
 from app.db.session import engine
 from app.models.lancamento import Lancamento

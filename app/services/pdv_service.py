@@ -24,6 +24,7 @@ from app.models.regra_cartao import RegraCartao
 from app.models.movimentacao_estoque import MovimentacaoEstoque
 from app.models.pdv_venda import PdvVenda
 from app.models.pdv_venda_item import PdvVendaItem
+from app.models.pdv_movimentacao import PdvMovimentacao
 from app.schemas.pdv import (
     PdvVendaCreate,
     PdvVendaItemRead,
@@ -406,6 +407,26 @@ def remover_contribuicoes_venda(db: Session, empresa_id: int, venda_id: str, cur
                 detail="Esta venda possui parcelas que já foram conciliadas no extrato e não pode ser editada."
             )
 
+    # Validar e remover PdvMovimentacao associadas
+    movs_venda = db.exec(
+        select(PdvMovimentacao)
+        .where(
+            PdvMovimentacao.venda_id == venda_id,
+            PdvMovimentacao.empresa_id == empresa_id,
+            PdvMovimentacao.is_deleted == False
+        )
+    ).all()
+    for m in movs_venda:
+        if m.conciliado:
+            raise HTTPException(
+                status_code=400,
+                detail="Esta venda possui recebíveis de cartão que já foram conciliados e não pode ser editada."
+            )
+        m.is_deleted = True
+        m.deleted_at = datetime.utcnow()
+        m.deleted_by_id = current_user_id
+        db.add(m)
+
     # 2. Buscar lançamentos agrupados que possuem a contribuição desta venda
     grouped_launches = db.exec(
         select(Lancamento)
@@ -487,6 +508,27 @@ def atualizar_status_contribuicoes_venda(
                 status_code=400,
                 detail="Esta venda possui parcelas que já foram conciliadas no extrato e o status não pode ser alterado."
             )
+
+    # Validar e atualizar PdvMovimentacao associadas
+    movs_venda = db.exec(
+        select(PdvMovimentacao)
+        .where(
+            PdvMovimentacao.venda_id == venda_id,
+            PdvMovimentacao.empresa_id == empresa_id,
+            PdvMovimentacao.is_deleted == False
+        )
+    ).all()
+    for m in movs_venda:
+        if m.conciliado:
+            raise HTTPException(
+                status_code=400,
+                detail="Esta venda possui recebíveis de cartão que já foram conciliados e seu status não pode ser alterado."
+            )
+        if novo_status in ["CANCELADO", "DEVOLVIDO"]:
+            m.is_deleted = True
+            m.deleted_at = datetime.utcnow()
+            m.deleted_by_id = current_user_id
+            db.add(m)
 
     # 2. Buscar lançamentos agrupados que possuem a contribuição desta venda
     grouped_launches = db.exec(
@@ -591,6 +633,114 @@ def atualizar_status_contribuicoes_venda(
             l.updated_by_id = current_user_id
             l.updated_at = datetime.utcnow()
             db.add(l)
+
+
+def obter_categoria_receita_pdv(db: Session, empresa_id: int) -> int:
+    empresa = db.get(Empresa, empresa_id)
+    if empresa and empresa.pdv_config:
+        try:
+            cfg = json.loads(empresa.pdv_config)
+            pc_id = cfg.get("pdv_plano_contas_receita_id")
+            if pc_id: return int(pc_id)
+        except: pass
+
+    pc = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.tipo == "R",
+            PlanoContas.eh_cabecalho == False,
+            PlanoContas.permite_lancamentos == True,
+            PlanoContas.is_deleted == False,
+            (PlanoContas.nome.ilike("%venda%pdv%") | PlanoContas.nome.ilike("%receita%pdv%"))
+        )
+    ).first()
+    if pc: return pc.id
+
+    pc_fallback = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.tipo == "R",
+            PlanoContas.eh_cabecalho == False,
+            PlanoContas.permite_lancamentos == True,
+            PlanoContas.is_deleted == False
+        )
+    ).first()
+    if not pc_fallback:
+        raise ValueError(f"A empresa {empresa_id} não possui nenhuma conta de receita ativa configurada no Plano de Contas.")
+    return pc_fallback.id
+
+
+def obter_categoria_taxas_cartao(db: Session, empresa_id: int) -> int:
+    empresa = db.get(Empresa, empresa_id)
+    if empresa and empresa.pdv_config:
+        try:
+            cfg = json.loads(empresa.pdv_config)
+            pc_id = cfg.get("pdv_plano_contas_taxa_cartao_id")
+            if pc_id: return int(pc_id)
+        except: pass
+
+    pc = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.tipo == "D",
+            PlanoContas.eh_cabecalho == False,
+            PlanoContas.permite_lancamentos == True,
+            PlanoContas.is_deleted == False,
+            (PlanoContas.nome.ilike("%taxa%cartao%") | PlanoContas.nome.ilike("%tarifa%cartao%"))
+        )
+    ).first()
+    if pc: return pc.id
+
+    pc_fallback = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.tipo == "D",
+            PlanoContas.eh_cabecalho == False,
+            PlanoContas.permite_lancamentos == True,
+            PlanoContas.is_deleted == False
+        )
+    ).first()
+    if not pc_fallback:
+        raise ValueError(f"A empresa {empresa_id} não possui nenhuma conta de despesa ativa configurada no Plano de Contas.")
+    return pc_fallback.id
+
+
+def obter_categoria_taxas_delivery(db: Session, empresa_id: int) -> int:
+    empresa = db.get(Empresa, empresa_id)
+    if empresa and empresa.pdv_config:
+        try:
+            cfg = json.loads(empresa.pdv_config)
+            pc_id = cfg.get("ifood_plano_contas_taxa_delivery_id")
+            if pc_id: return int(pc_id)
+        except: pass
+
+    pc = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.tipo == "D",
+            PlanoContas.eh_cabecalho == False,
+            PlanoContas.permite_lancamentos == True,
+            PlanoContas.is_deleted == False,
+            (PlanoContas.nome.ilike("%taxa%ifood%") | PlanoContas.nome.ilike("%taxa%delivery%"))
+        )
+    ).first()
+    if pc: return pc.id
+
+    try:
+        return obter_categoria_taxas_cartao(db, empresa_id)
+    except:
+        pc_fallback = db.exec(
+            select(PlanoContas).where(
+                PlanoContas.empresa_id == empresa_id,
+                PlanoContas.tipo == "D",
+                PlanoContas.eh_cabecalho == False,
+                PlanoContas.permite_lancamentos == True,
+                PlanoContas.is_deleted == False
+            )
+        ).first()
+        if not pc_fallback:
+            raise ValueError(f"A empresa {empresa_id} não possui nenhuma conta de despesa ativa configurada no Plano de Contas.")
+        return pc_fallback.id
 
 
 class PdvService:
@@ -950,26 +1100,25 @@ class PdvService:
         from app.models.movimentacao_estoque import MovimentacaoEstoque
         from app.models.lancamento import Lancamento
 
-        # 1. Obter a primeira receita da venda para ler os itens do observacao JSON
-        first_launch = db.exec(
-            select(Lancamento)
-            .where(
-                Lancamento.empresa_id == empresa_id,
-                Lancamento.is_deleted == False,
-                Lancamento.origem == "PDV",
-                Lancamento.id_parcelamento == venda_id
-            )
-            .order_by(Lancamento.id)
-        ).first()
+        # 1. Obter os itens da venda via tabela operacional PdvVendaItem
+        itens_db = db.exec(
+            select(PdvVendaItem)
+            .where(PdvVendaItem.venda_id == venda_id)
+        ).all()
 
-        if not first_launch or not first_launch.observacao:
+        if not itens_db:
             return
 
-        try:
-            meta = json.loads(first_launch.observacao)
-            itens = meta.get("itens", [])
-        except Exception:
-            return
+        itens = [
+            {
+                "produto_id": it.produto_id,
+                "quantidade": float(it.quantidade),
+                "preco_unitario": float(it.preco_unitario),
+                "desconto": float(it.desconto or 0),
+                "subtotal": float(it.subtotal)
+            }
+            for it in itens_db
+        ]
 
         # 2. Atualizar estoque
         PdvService.processar_estoque_venda(db, empresa_id, venda_id, itens, novo_status, user_id)
@@ -1305,7 +1454,7 @@ class PdvService:
                 if regra.conta_destino_id:
                     conta_id = regra.conta_destino_id
 
-            # Validar se a conta existe para evitar erro de chave estrangeira (ForeignKeyViolation)
+            # Validar se a conta existe para evitar erro de chave estrangeira
             if conta_id:
                 conta_valida = db.exec(
                     select(Conta)
@@ -1325,17 +1474,22 @@ class PdvService:
             if is_paid and not conta_id:
                 conta_id = obter_conta_caixa_fisica(db, empresa_id)
 
-            is_parcelada = False
-            formas_config = pdv_config_dict.get("formas_pagamento", [])
-            matched_forma = next((f for f in formas_config if f.get("key") == p.tipo_pagamento), None)
-            if matched_forma:
-                is_parcelada = matched_forma.get("parcelada", False)
-            else:
-                is_parcelada = p.tipo_pagamento in ["cartao_credito_parcelado", "boleto"]
+            is_card = bool(regra) or ("cartao" in (p.tipo_pagamento or "").lower())
 
-            if is_parcelada and p.numero_parcelas and p.numero_parcelas > 1:
-                num_parc = int(p.numero_parcelas)
-                total_pag = Decimal(p.valor)
+            if is_card:
+                bandeira_nome = (regra.bandeira if regra else p.bandeira) or "OUTROS"
+                
+                # Verificar se é pagamento parcelado
+                is_parcelada = False
+                formas_config = pdv_config_dict.get("formas_pagamento", [])
+                matched_forma = next((f for f in formas_config if f.get("key") == p.tipo_pagamento), None)
+                if matched_forma:
+                    is_parcelada = matched_forma.get("parcelada", False)
+                else:
+                    is_parcelada = p.tipo_pagamento in ["cartao_credito_parcelado"]
+
+                num_parc = int(p.numero_parcelas) if (is_parcelada and p.numero_parcelas and p.numero_parcelas > 1) else 1
+                total_pag = Decimal(str(p.valor))
                 base_val = (total_pag / num_parc).quantize(Decimal("0.01"))
                 last_val = total_pag - (base_val * (num_parc - 1))
 
@@ -1349,121 +1503,91 @@ class PdvService:
                             vencimento = calcular_payout_date(base_installment_date, regra)
                             fee_percentage = regra.taxa_porcentagem
                     else:
-                        year = hoje_pag.year + (hoje_pag.month - 1 + i) // 12
-                        month = (hoje_pag.month - 1 + i) % 12 + 1
-                        day = min(hoje_pag.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month-1])
-                        vencimento = date(year, month, day)
+                        if is_parcelada:
+                            year = hoje_pag.year + (hoje_pag.month - 1 + i) // 12
+                            month = (hoje_pag.month - 1 + i) % 12 + 1
+                            day = min(hoje_pag.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month-1])
+                            vencimento = date(year, month, day)
+                        else:
+                            prazo = 1 if "debito" in p.tipo_pagamento.lower() else 30
+                            vencimento = hoje_pag + timedelta(days=prazo)
                         fee_percentage = Decimal("0.00")
 
                     valor_linha = base_val if i < num_parc else last_val
-                    
+                    hash_unico = f"{venda_in.import_hash}-P{i}" if (venda_in.import_hash and num_parc > 1) else (venda_in.import_hash if venda_in.import_hash else None)
+
+                    # Mapear forma de pagamento para caixa alta padrão
+                    forma_pag_mapeada = p.tipo_pagamento.upper()
+                    if "CREDITO_VISTA" in forma_pag_mapeada or "CREDITO_AVISTA" in forma_pag_mapeada or "CREDITO_AT_VISTA" in forma_pag_mapeada or forma_pag_mapeada == "CARTAO_CREDITO_VISTA":
+                        forma_pag_mapeada = "CREDITO_AVISTA"
+                    elif "CREDITO_PARCELADO" in forma_pag_mapeada or forma_pag_mapeada == "CARTAO_CREDITO_PARCELADO":
+                        forma_pag_mapeada = "CREDITO_PARCELADO"
+                    elif "DEBITO" in forma_pag_mapeada or forma_pag_mapeada == "CARTAO_DEBITO":
+                        forma_pag_mapeada = "DEBITO"
+
+                    mov = PdvMovimentacao(
+                        empresa_id=empresa_id,
+                        tipo="ENTRADA",
+                        descricao=f"Parcela {i}/{num_parc} Venda PDV {pdv_venda_id}" if num_parc > 1 else f"Venda PDV {pdv_venda_id}",
+                        valor=valor_linha,
+                        forma_pagamento=forma_pag_mapeada,
+                        bandeira=bandeira_nome.upper(),
+                        parcelas=num_parc,
+                        numero_parcela=i,
+                        data=vencimento,
+                        centro_custo_id=venda_in.centro_custo_id,
+                        conta_id=conta_id,
+                        conciliado=False,
+                        venda_id=pdv_venda_id,
+                        import_hash=hash_unico,
+                        created_by_id=venda_in.vendedor_id,
+                        updated_by_id=current_user_id,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(mov)
+
+                desconto_ja_atribuido = True
+            else:
+                if p.tipo_pagamento.lower() == "dinheiro":
+                    plano_id = obter_categoria_receita_pdv(db, empresa_id)
+
+                is_parcelada = False
+                formas_config = pdv_config_dict.get("formas_pagamento", [])
+                matched_forma = next((f for f in formas_config if f.get("key") == p.tipo_pagamento), None)
+                if matched_forma:
+                    is_parcelada = matched_forma.get("parcelada", False)
+                else:
+                    is_parcelada = p.tipo_pagamento in ["boleto"]
+
+                num_parc = int(p.numero_parcelas) if (is_parcelada and p.numero_parcelas and p.numero_parcelas > 1) else 1
+                total_pag = Decimal(str(p.valor))
+                base_val = (total_pag / num_parc).quantize(Decimal("0.01"))
+                last_val = total_pag - (base_val * (num_parc - 1))
+
+                for i in range(1, num_parc + 1):
+                    vencimento = shift_months(hoje_pag, i - 1)
+                    valor_linha = base_val if i < num_parc else last_val
+
                     obs_data = dados_observacao_base.copy()
                     obs_data["tipo_pagamento"] = p.tipo_pagamento
                     obs_data["numero_parcela"] = i
                     obs_data["total_parcelas"] = num_parc
-                    if regra:
-                        fee_amount = (valor_linha * fee_percentage / 100).quantize(Decimal("0.01"))
-                        liquid_value = valor_linha - fee_amount
-                        obs_data["bandeira"] = regra.bandeira
-                        obs_data["cartao_taxa"] = float(fee_percentage)
-                        obs_data["cartao_taxa_valor"] = float(fee_amount)
-                        obs_data["cartao_liquido_previsto"] = float(liquid_value)
-                        obs_data["cartao_regra_id"] = regra.id
 
                     l = Lancamento(
-                        descricao=f"Venda RV-AUTOGERADO ({i}/{num_parc}) - {descricao_geral[:150]}",
+                        descricao=f"Venda Parcela {i}/{num_parc} RV-AUTOGERADO - {descricao_geral[:150]}" if num_parc > 1 else f"Venda RV-AUTOGERADO - {descricao_geral[:200]}",
                         tipo="RECEITA",
                         status="PAGO" if is_paid else "EM ABERTO",
-                        origem="PDV",
+                        origem="PDV_CAIXA" if p.tipo_pagamento.lower() == "dinheiro" else "PDV",
                         valor_previsto=valor_linha,
                         valor_pago=valor_linha if is_paid else Decimal("0.00"),
-                        valor_juros=Decimal("0.00"),
-                        valor_desconto=Decimal("0.00") if desconto_ja_atribuido or i > 1 else venda_in.desconto,
-                        valor_multa=Decimal("0.00"),
-                        data_vencimento=vencimento,
-                        data_pagamento=hoje_pag if is_paid else None,
-                        data_competencia=hoje_pag,
-                        empresa_id=empresa_id,
-                        plano_contas_id=plano_id,
-                        conta_id=conta_id,
-                        entidade_id=venda_in.entidade_id,
-                        centro_custo_id=venda_in.centro_custo_id,
-                        created_by_id=venda_in.vendedor_id,
-                        updated_by_id=current_user_id,
-                        observacao=json.dumps(obs_data),
-                        is_deleted=False,
-                        ipp=False,
-                        previsto=True,
-                        conciliado=False,
-                        numero_parcela=i,
-                        id_parcelamento=pdv_venda_id,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
-                    )
-                    db.add(l)
-                    launches_created.append(l)
-                desconto_ja_atribuido = True
-            else:
-                is_card = bool(regra) or ("cartao" in (p.tipo_pagamento or "").lower())
-                if regra:
-                    vencimento = calcular_payout_date(hoje_pag, regra)
-                    fee_percentage = regra.taxa_porcentagem
-                    fee_amount = (p.valor * fee_percentage / 100).quantize(Decimal("0.01"))
-                    liquid_value = p.valor - fee_amount
-                else:
-                    vencimento = hoje_pag
-                    fee_percentage = Decimal("0.00")
-                    fee_amount = Decimal("0.00")
-                    liquid_value = p.valor
-
-                if is_card:
-                    bandeira_nome = (regra.bandeira if regra else p.bandeira) or "Outros"
-                    fmt_desc = format_card_description(bandeira_nome, p.tipo_pagamento)
-                    vendedor_nome = vendedor.nome if vendedor else "N/A"
-                    cliente_nome = entidade.nome if entidade else "N/A"
-
-                    adicionar_ou_atualizar_recebivel_cartao_agrupado(
-                        db=db,
-                        empresa_id=empresa_id,
-                        venda_id=pdv_venda_id,
-                        vencimento=vencimento,
-                        valor=p.valor,
-                        formatted_desc=fmt_desc,
-                        plano_id=plano_id,
-                        conta_id=conta_id,
-                        centro_custo_id=venda_in.centro_custo_id,
-                        hoje_pag=hoje_pag,
-                        bandeira=bandeira_nome,
-                        modality="Debito" if "debito" in fmt_desc.lower() else "Credito",
-                        current_user_id=current_user_id,
-                        venda_rv=venda_in.rv,
-                        vendedor_nome=vendedor_nome,
-                        cliente_nome=cliente_nome,
-                    )
-                    desconto_ja_atribuido = True
-                else:
-                    obs_data = dados_observacao_base.copy()
-                    obs_data["tipo_pagamento"] = p.tipo_pagamento
-                    if regra:
-                        obs_data["bandeira"] = regra.bandeira
-                        obs_data["cartao_taxa"] = float(fee_percentage)
-                        obs_data["cartao_taxa_valor"] = float(fee_amount)
-                        obs_data["cartao_liquido_previsto"] = float(liquid_value)
-                        obs_data["cartao_regra_id"] = regra.id
-
-                    l = Lancamento(
-                        descricao=f"Venda RV-AUTOGERADO - {descricao_geral[:200]}",
-                        tipo="RECEITA",
-                        status="PAGO" if is_paid else "EM ABERTO",
-                        origem="PDV",
-                        valor_previsto=p.valor,
-                        valor_pago=p.valor if is_paid else Decimal("0.00"),
                         valor_juros=Decimal("0.00"),
                         valor_desconto=Decimal("0.00") if desconto_ja_atribuido else venda_in.desconto,
                         valor_multa=Decimal("0.00"),
                         data_vencimento=vencimento,
-                        data_pagamento=hoje_pag if is_paid else None,
+                        data_pagamento=vencimento if is_paid else None,
                         data_competencia=hoje_pag,
+                        competencia=hoje_pag.strftime("%m-%Y"),
                         empresa_id=empresa_id,
                         plano_contas_id=plano_id,
                         conta_id=conta_id,
@@ -1477,12 +1601,14 @@ class PdvService:
                         previsto=True,
                         conciliado=False,
                         id_parcelamento=pdv_venda_id,
+                        numero_parcela=i if num_parc > 1 else None,
                         created_at=datetime.utcnow(),
                         updated_at=datetime.utcnow()
                     )
                     db.add(l)
                     launches_created.append(l)
-                    desconto_ja_atribuido = True
+
+                desconto_ja_atribuido = True
 
         # 7.2. Criar lançamentos de despesas extras associadas (splits)
         campos_config = pdv_config_dict.get("campos_personalizados", [])
@@ -1938,6 +2064,7 @@ class PdvService:
         
         launches_created = []
         desconto_ja_atribuido = False
+        pdv_venda_id = venda_id
 
         for p in venda_in.pagamentos:
             plano_id = obter_categoria_pagamento(db, empresa_id, p.tipo_pagamento, config_categorias, plano_fallback_id)
@@ -1954,13 +2081,14 @@ class PdvService:
                     p.tipo_pagamento in ["dinheiro"]
                 )
 
+            # Buscar regra de cartão se houver
             regra = obter_regra_cartao(db, empresa_id, p.tipo_pagamento, p.bandeira, venda_in.centro_custo_id)
             if regra:
                 is_paid = False
                 if regra.conta_destino_id:
                     conta_id = regra.conta_destino_id
 
-            # Validar se a conta existe para evitar erro de chave estrangeira (ForeignKeyViolation)
+            # Validar se a conta existe para evitar erro de chave estrangeira
             if conta_id:
                 conta_valida = db.exec(
                     select(Conta)
@@ -1980,17 +2108,22 @@ class PdvService:
             if is_paid and not conta_id:
                 conta_id = obter_conta_caixa_fisica(db, empresa_id)
 
-            is_parcelada = False
-            formas_config = pdv_config_dict.get("formas_pagamento", [])
-            matched_forma = next((f for f in formas_config if f.get("key") == p.tipo_pagamento), None)
-            if matched_forma:
-                is_parcelada = matched_forma.get("parcelada", False)
-            else:
-                is_parcelada = p.tipo_pagamento in ["cartao_credito_parcelado", "boleto"]
+            is_card = bool(regra) or ("cartao" in (p.tipo_pagamento or "").lower())
 
-            if is_parcelada and p.numero_parcelas and p.numero_parcelas > 1:
-                num_parc = int(p.numero_parcelas)
-                total_pag = Decimal(p.valor)
+            if is_card:
+                bandeira_nome = (regra.bandeira if regra else p.bandeira) or "OUTROS"
+                
+                # Verificar se é pagamento parcelado
+                is_parcelada = False
+                formas_config = pdv_config_dict.get("formas_pagamento", [])
+                matched_forma = next((f for f in formas_config if f.get("key") == p.tipo_pagamento), None)
+                if matched_forma:
+                    is_parcelada = matched_forma.get("parcelada", False)
+                else:
+                    is_parcelada = p.tipo_pagamento in ["cartao_credito_parcelado"]
+
+                num_parc = int(p.numero_parcelas) if (is_parcelada and p.numero_parcelas and p.numero_parcelas > 1) else 1
+                total_pag = Decimal(str(p.valor))
                 base_val = (total_pag / num_parc).quantize(Decimal("0.01"))
                 last_val = total_pag - (base_val * (num_parc - 1))
 
@@ -2004,121 +2137,91 @@ class PdvService:
                             vencimento = calcular_payout_date(base_installment_date, regra)
                             fee_percentage = regra.taxa_porcentagem
                     else:
-                        year = hoje_pag.year + (hoje_pag.month - 1 + i) // 12
-                        month = (hoje_pag.month - 1 + i) % 12 + 1
-                        day = min(hoje_pag.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month-1])
-                        vencimento = date(year, month, day)
+                        if is_parcelada:
+                            year = hoje_pag.year + (hoje_pag.month - 1 + i) // 12
+                            month = (hoje_pag.month - 1 + i) % 12 + 1
+                            day = min(hoje_pag.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month-1])
+                            vencimento = date(year, month, day)
+                        else:
+                            prazo = 1 if "debito" in p.tipo_pagamento.lower() else 30
+                            vencimento = hoje_pag + timedelta(days=prazo)
                         fee_percentage = Decimal("0.00")
 
                     valor_linha = base_val if i < num_parc else last_val
-                    
+                    hash_unico = f"{venda_in.import_hash}-P{i}" if (venda_in.import_hash and num_parc > 1) else (venda_in.import_hash if venda_in.import_hash else None)
+
+                    # Mapear forma de pagamento para caixa alta padrão
+                    forma_pag_mapeada = p.tipo_pagamento.upper()
+                    if "CREDITO_VISTA" in forma_pag_mapeada or "CREDITO_AVISTA" in forma_pag_mapeada or "CREDITO_AT_VISTA" in forma_pag_mapeada or forma_pag_mapeada == "CARTAO_CREDITO_VISTA":
+                        forma_pag_mapeada = "CREDITO_AVISTA"
+                    elif "CREDITO_PARCELADO" in forma_pag_mapeada or forma_pag_mapeada == "CARTAO_CREDITO_PARCELADO":
+                        forma_pag_mapeada = "CREDITO_PARCELADO"
+                    elif "DEBITO" in forma_pag_mapeada or forma_pag_mapeada == "CARTAO_DEBITO":
+                        forma_pag_mapeada = "DEBITO"
+
+                    mov = PdvMovimentacao(
+                        empresa_id=empresa_id,
+                        tipo="ENTRADA",
+                        descricao=f"Parcela {i}/{num_parc} Venda PDV {pdv_venda_id}" if num_parc > 1 else f"Venda PDV {pdv_venda_id}",
+                        valor=valor_linha,
+                        forma_pagamento=forma_pag_mapeada,
+                        bandeira=bandeira_nome.upper(),
+                        parcelas=num_parc,
+                        numero_parcela=i,
+                        data=vencimento,
+                        centro_custo_id=venda_in.centro_custo_id,
+                        conta_id=conta_id,
+                        conciliado=False,
+                        venda_id=pdv_venda_id,
+                        import_hash=hash_unico,
+                        created_by_id=venda_in.vendedor_id,
+                        updated_by_id=current_user_id,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(mov)
+
+                desconto_ja_atribuido = True
+            else:
+                if p.tipo_pagamento.lower() == "dinheiro":
+                    plano_id = obter_categoria_receita_pdv(db, empresa_id)
+
+                is_parcelada = False
+                formas_config = pdv_config_dict.get("formas_pagamento", [])
+                matched_forma = next((f for f in formas_config if f.get("key") == p.tipo_pagamento), None)
+                if matched_forma:
+                    is_parcelada = matched_forma.get("parcelada", False)
+                else:
+                    is_parcelada = p.tipo_pagamento in ["boleto"]
+
+                num_parc = int(p.numero_parcelas) if (is_parcelada and p.numero_parcelas and p.numero_parcelas > 1) else 1
+                total_pag = Decimal(str(p.valor))
+                base_val = (total_pag / num_parc).quantize(Decimal("0.01"))
+                last_val = total_pag - (base_val * (num_parc - 1))
+
+                for i in range(1, num_parc + 1):
+                    vencimento = shift_months(hoje_pag, i - 1)
+                    valor_linha = base_val if i < num_parc else last_val
+
                     obs_data = dados_observacao_base.copy()
                     obs_data["tipo_pagamento"] = p.tipo_pagamento
                     obs_data["numero_parcela"] = i
                     obs_data["total_parcelas"] = num_parc
-                    if regra:
-                        fee_amount = (valor_linha * fee_percentage / 100).quantize(Decimal("0.01"))
-                        liquid_value = valor_linha - fee_amount
-                        obs_data["bandeira"] = regra.bandeira
-                        obs_data["cartao_taxa"] = float(fee_percentage)
-                        obs_data["cartao_taxa_valor"] = float(fee_amount)
-                        obs_data["cartao_liquido_previsto"] = float(liquid_value)
-                        obs_data["cartao_regra_id"] = regra.id
 
                     l = Lancamento(
-                        descricao=f"Venda RV-AUTOGERADO ({i}/{num_parc}) - {descricao_geral[:150]}",
+                        descricao=f"Venda Parcela {i}/{num_parc} RV-AUTOGERADO - {descricao_geral[:150]}" if num_parc > 1 else f"Venda RV-AUTOGERADO - {descricao_geral[:200]}",
                         tipo="RECEITA",
                         status="PAGO" if is_paid else "EM ABERTO",
-                        origem="PDV",
+                        origem="PDV_CAIXA" if p.tipo_pagamento.lower() == "dinheiro" else "PDV",
                         valor_previsto=valor_linha,
                         valor_pago=valor_linha if is_paid else Decimal("0.00"),
-                        valor_juros=Decimal("0.00"),
-                        valor_desconto=Decimal("0.00") if desconto_ja_atribuido or i > 1 else venda_in.desconto,
-                        valor_multa=Decimal("0.00"),
-                        data_vencimento=vencimento,
-                        data_pagamento=hoje_pag if is_paid else None,
-                        data_competencia=hoje_pag,
-                        empresa_id=empresa_id,
-                        plano_contas_id=plano_id,
-                        conta_id=conta_id,
-                        entidade_id=venda_in.entidade_id,
-                        centro_custo_id=venda_in.centro_custo_id,
-                        created_by_id=venda_in.vendedor_id,
-                        updated_by_id=current_user_id,
-                        observacao=json.dumps(obs_data),
-                        is_deleted=False,
-                        ipp=False,
-                        previsto=True,
-                        conciliado=False,
-                        numero_parcela=i,
-                        id_parcelamento=venda_id,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
-                    )
-                    db.add(l)
-                    launches_created.append(l)
-                desconto_ja_atribuido = True
-            else:
-                is_card = bool(regra) or ("cartao" in (p.tipo_pagamento or "").lower())
-                if regra:
-                    vencimento = calcular_payout_date(hoje_pag, regra)
-                    fee_percentage = regra.taxa_porcentagem
-                    fee_amount = (p.valor * fee_percentage / 100).quantize(Decimal("0.01"))
-                    liquid_value = p.valor - fee_amount
-                else:
-                    vencimento = hoje_pag
-                    fee_percentage = Decimal("0.00")
-                    fee_amount = Decimal("0.00")
-                    liquid_value = p.valor
-
-                if is_card:
-                    bandeira_nome = (regra.bandeira if regra else p.bandeira) or "Outros"
-                    fmt_desc = format_card_description(bandeira_nome, p.tipo_pagamento)
-                    vendedor_nome = vendedor.nome if vendedor else "N/A"
-                    cliente_nome = entidade.nome if entidade else "N/A"
-
-                    adicionar_ou_atualizar_recebivel_cartao_agrupado(
-                        db=db,
-                        empresa_id=empresa_id,
-                        venda_id=venda_id,
-                        vencimento=vencimento,
-                        valor=p.valor,
-                        formatted_desc=fmt_desc,
-                        plano_id=plano_id,
-                        conta_id=conta_id,
-                        centro_custo_id=venda_in.centro_custo_id,
-                        hoje_pag=hoje_pag,
-                        bandeira=bandeira_nome,
-                        modality="Debito" if "debito" in fmt_desc.lower() else "Credito",
-                        current_user_id=current_user_id,
-                        venda_rv=venda_in.rv,
-                        vendedor_nome=vendedor_nome,
-                        cliente_nome=cliente_nome,
-                    )
-                    desconto_ja_atribuido = True
-                else:
-                    obs_data = dados_observacao_base.copy()
-                    obs_data["tipo_pagamento"] = p.tipo_pagamento
-                    if regra:
-                        obs_data["bandeira"] = regra.bandeira
-                        obs_data["cartao_taxa"] = float(fee_percentage)
-                        obs_data["cartao_taxa_valor"] = float(fee_amount)
-                        obs_data["cartao_liquido_previsto"] = float(liquid_value)
-                        obs_data["cartao_regra_id"] = regra.id
-
-                    l = Lancamento(
-                        descricao=f"Venda RV-AUTOGERADO - {descricao_geral[:200]}",
-                        tipo="RECEITA",
-                        status="PAGO" if is_paid else "EM ABERTO",
-                        origem="PDV",
-                        valor_previsto=p.valor,
-                        valor_pago=p.valor if is_paid else Decimal("0.00"),
                         valor_juros=Decimal("0.00"),
                         valor_desconto=Decimal("0.00") if desconto_ja_atribuido else venda_in.desconto,
                         valor_multa=Decimal("0.00"),
                         data_vencimento=vencimento,
-                        data_pagamento=hoje_pag if is_paid else None,
+                        data_pagamento=vencimento if is_paid else None,
                         data_competencia=hoje_pag,
+                        competencia=hoje_pag.strftime("%m-%Y"),
                         empresa_id=empresa_id,
                         plano_contas_id=plano_id,
                         conta_id=conta_id,
@@ -2131,15 +2234,16 @@ class PdvService:
                         ipp=False,
                         previsto=True,
                         conciliado=False,
-                        id_parcelamento=venda_id,
+                        id_parcelamento=pdv_venda_id,
+                        numero_parcela=i if num_parc > 1 else None,
                         created_at=datetime.utcnow(),
                         updated_at=datetime.utcnow()
                     )
                     db.add(l)
                     launches_created.append(l)
-                    desconto_ja_atribuido = True
 
-        # 7.2. Criar lançamentos de despesas extras associadas (splits)
+                desconto_ja_atribuido = True
+
         campos_config = pdv_config_dict.get("campos_personalizados", [])
         extra_despesas = []
         for campo in campos_config:

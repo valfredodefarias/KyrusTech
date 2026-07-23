@@ -18,11 +18,11 @@ def main():
         for emp_id in companies:
             pcs = db.exec(select(PlanoContas).where(PlanoContas.empresa_id == emp_id)).all()
             pc_cache[emp_id] = {
-                "dinheiro": next((p.id for p in pcs if p.codigo.startswith("01.01")), None),
-                "credito": next((p.id for p in pcs if p.codigo.startswith("01.02")), None),
-                "debito": next((p.id for p in pcs if p.codigo.startswith("01.03")), None),
+                "dinheiro": next((p.id for p in pcs if p.codigo and p.codigo.startswith("01.01")), None),
+                "credito": next((p.id for p in pcs if p.codigo and p.codigo.startswith("01.02")), None),
+                "debito": next((p.id for p in pcs if p.codigo and p.codigo.startswith("01.03")), None),
                 # Fallback to pix_qrs or pix_deposito
-                "pix": next((p.id for p in pcs if p.codigo.startswith("01.05")), None) or next((p.id for p in pcs if p.codigo.startswith("01.04")), None),
+                "pix": next((p.id for p in pcs if p.codigo and p.codigo.startswith("01.05")), None) or next((p.id for p in pcs if p.codigo and p.codigo.startswith("01.04")), None),
             }
             # Fallback if specific code not found, try by name
             if not pc_cache[emp_id]["dinheiro"]:

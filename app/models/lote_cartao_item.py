@@ -8,14 +8,14 @@ from decimal import Decimal
 
 if TYPE_CHECKING:
     from .lote_cartao import LoteCartao
-    from .lancamento import Lancamento
+    from .pdv_movimentacao import PdvMovimentacao
 
 class LoteCartaoItem(SQLModel, table=True):
     __tablename__ = "lote_cartao_itens"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     lote_cartao_id: int = Field(foreign_key="lotes_cartao.id", index=True)
-    lancamento_id: int = Field(foreign_key="lancamentos.id", index=True)
+    pdv_movimentacao_id: int = Field(foreign_key="pdv_movimentacoes.id", index=True)
     
     valor_bruto: Decimal = Field(max_digits=12, decimal_places=2)
     valor_taxa: Decimal = Field(default=Decimal("0.00"), max_digits=10, decimal_places=2)
@@ -25,4 +25,4 @@ class LoteCartaoItem(SQLModel, table=True):
     lote_cartao: "LoteCartao" = Relationship(
         sa_relationship=relationship("LoteCartao", back_populates="itens")
     )
-    lancamento: "Lancamento" = Relationship(sa_relationship=relationship("Lancamento"))
+    pdv_movimentacao: "PdvMovimentacao" = Relationship(sa_relationship=relationship("PdvMovimentacao"))

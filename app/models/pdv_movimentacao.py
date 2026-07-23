@@ -25,6 +25,7 @@ class PdvMovimentacao(AuditMixin, SQLModel, table=True):
     forma_pagamento: str = Field(index=True)  # DINHEIRO, PIX, DEBITO, CREDITO_AVISTA, CREDITO_PARCELADO
     bandeira: Optional[str] = "OUTROS"
     parcelas: Optional[int] = 1
+    numero_parcela: int = Field(default=1)
     data: datetime.date = Field(index=True)
     
     centro_custo_id: Optional[int] = Field(default=None, foreign_key="centros_custo.id", index=True, nullable=True)

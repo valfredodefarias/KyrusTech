@@ -306,11 +306,6 @@ export function Dre() {
   const [somentePagos, setSomentePagos] = useState(true);
 
   const lancamentos = useMemo(() => {
-    const preferredWebCodes = [
-      '01.01.02', '01.01.03', '01.01.04', '01.01.05',
-      '01.02', '01.03', '01.04', '01.05'
-    ];
-
     if (somentePagos) {
       return allLancamentos.filter((item) => {
         const isPaid =
@@ -319,46 +314,12 @@ export function Dre() {
           (item.data_pagamento !== null && item.data_pagamento !== undefined && item.data_pagamento !== '') ||
           (item.valor_pago !== null && item.valor_pago !== undefined && item.valor_pago !== 0);
 
-        if (!isPaid) return false;
-
-        const cat = categorias.find((c) => Number(c.id) === Number(item.plano_contas_id));
-        const isRevenueCat = cat ? (String(cat.codigo || '').startsWith('01') || isReceita(cat.tipo)) : false;
-
-        if (isRevenueCat) {
-          const isDuplicated = cat ? preferredWebCodes.includes(cat.codigo) : false;
-          if (isDuplicated) {
-            const dateStr = resolveCompetenciaDate(item, somentePagos) || item.data_vencimento || '';
-            const isBeforeJuly = dateStr && dateStr < '2026-07-01';
-            
-            if (isBeforeJuly) {
-              const obs = String(item.observacao || '').toLowerCase();
-              const isLegacy = obs.includes('importação financeiro') || obs.includes('importacao financeiro');
-              if (item.origem !== 'WEB' || !isLegacy) {
-                return false;
-              }
-            }
-          }
-        }
-        return true;
+        return isPaid;
       });
     }
 
-    return allLancamentos.filter((item) => {
-      const cat = categorias.find((c) => Number(c.id) === Number(item.plano_contas_id));
-      const isRevenueCat = cat ? (String(cat.codigo || '').startsWith('01') || isReceita(cat.tipo)) : false;
-      if (isRevenueCat) {
-        const isDuplicated = cat ? preferredWebCodes.includes(cat.codigo) : false;
-        if (isDuplicated) {
-          const dateStr = resolveCompetenciaDate(item, false) || item.data_vencimento || '';
-          const isBeforeJuly = dateStr && dateStr < '2026-07-01';
-          if (isBeforeJuly && item.origem === 'WEB') {
-            return false;
-          }
-        }
-      }
-      return true;
-    });
-  }, [allLancamentos, somentePagos, categorias]);
+    return allLancamentos;
+  }, [allLancamentos, somentePagos]);
 
   const [auditMetaLoading, setAuditMetaLoading] = useState(false);
 

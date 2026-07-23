@@ -174,6 +174,7 @@ def _apply_legacy_schema_compatibility() -> None:
         "CREATE INDEX IF NOT EXISTS idx_lancamentos_no_legacy ON lancamentos (empresa_id) WHERE is_deleted = false AND (observacao IS NULL OR (observacao NOT ILIKE '%\"legacy_id_venda\"%'))",
         "CREATE INDEX IF NOT EXISTS idx_lancamentos_venc_perf ON lancamentos (empresa_id, data_vencimento)",
         "CREATE INDEX IF NOT EXISTS idx_lancamentos_dre_perf ON lancamentos (empresa_id, data_competencia, data_vencimento)",
+        "CREATE INDEX IF NOT EXISTS idx_pdv_mov_conciliacao_perf ON pdv_movimentacoes (empresa_id, is_deleted, conciliado, forma_pagamento, data, id)",
     ]
 
     with engine.begin() as connection:

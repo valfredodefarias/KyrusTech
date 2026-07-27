@@ -456,6 +456,9 @@ export function Lancamentos({
     lastLancamentosKeyRef.current = key;
 
     if (lancamentosAbortRef.current) {
+      if (opts?.silent) {
+        return;
+      }
       lancamentosAbortRef.current.abort();
     }
     const controller = new AbortController();

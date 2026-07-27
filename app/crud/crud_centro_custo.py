@@ -7,15 +7,30 @@ from app.models.centro_custo import CentroCusto
 from app.schemas.centro_custo import CentroCustoCreate, CentroCustoUpdate
 
 
-def ensure_centro_custo_principal(db: Session, *, empresa_id: int) -> CentroCusto:
-    """Garante que a empresa tenha um centro de custo padrao chamado 'principal'."""
+def ensure_centro_custo_principal(db: Session, *, empresa_id: int) -> Optional[CentroCusto]:
+    """Garante que a empresa tenha um centro de custo padrao chamado 'principal' apenas se nao tiver nenhum outro ativo."""
+    empresa_id = int(empresa_id)
+    
+    # Envia alterações pendentes do SQLAlchemy para a transação antes da busca
+    db.flush()
+
     statement = select(CentroCusto).where(
         CentroCusto.empresa_id == empresa_id,
         CentroCusto.nome.ilike("principal"),
+        CentroCusto.is_deleted == False,
     )
     centro = db.exec(statement).first()
     if centro:
         return centro
+
+    # Se a empresa ja tiver QUALQUER centro de custo ativo, nao cria o principal
+    any_cc_statement = select(CentroCusto).where(
+        CentroCusto.empresa_id == empresa_id,
+        CentroCusto.is_deleted == False,
+    )
+    any_cc = db.exec(any_cc_statement).first()
+    if any_cc:
+        return None
 
     novo = CentroCusto(nome="principal", status="ATIVO", empresa_id=empresa_id)
     db.add(novo)

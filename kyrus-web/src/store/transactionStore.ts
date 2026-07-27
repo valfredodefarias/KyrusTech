@@ -121,8 +121,15 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
     pagedCacheKey: '',
     pendingDeletedIds: new Set<number>(),
     setPagedLancamentos: (key, rows) => set((state) => {
+      console.log('[Zustand] setPagedLancamentos called with key:', key, 'rows count:', rows?.length, 'pendingDeletedIds:', Array.from(state.pendingDeletedIds));
       const cleanRows = Array.isArray(rows) 
-        ? rows.filter((r) => !state.pendingDeletedIds.has(Number(r.id))) 
+        ? rows.filter((r) => {
+            const isPending = state.pendingDeletedIds.has(Number(r.id));
+            if (isPending) {
+              console.log('[Zustand] Filtering out pending deleted transaction:', r.id);
+            }
+            return !isPending;
+          }) 
         : [];
       return {
         pagedCacheKey: key,
@@ -366,6 +373,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
       loadingAsaas: {},
       pagedLancamentos: [],
       pagedCacheKey: '',
+      pendingDeletedIds: new Set<number>(),
     });
   },
 
@@ -440,6 +448,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
   },
 
   removeTransactionFromCache: (id) => {
+    console.log('[Zustand] removeTransactionFromCache called for ID:', id);
     set((state) => {
       const nextPending = new Set(state.pendingDeletedIds);
       nextPending.add(id);
@@ -481,10 +490,12 @@ if (syncChannel) {
       store.incrementRefreshCount();
     } else if (data && typeof data === 'object') {
       if (data.type === 'add' && data.tx) {
+        store.invalidate();
         store.addTransactionToCache(data.tx);
         adjustBalanceForTx(data.tx, 'add');
         store.incrementRefreshCount();
       } else if (data.type === 'update' && data.tx) {
+        store.invalidate();
         // Revert old balance
         const year = parseDateOnly(data.tx.data_vencimento)?.getFullYear();
         if (year && store.yearCache[year]) {
@@ -497,6 +508,7 @@ if (syncChannel) {
         adjustBalanceForTx(data.tx, 'add');
         store.incrementRefreshCount();
       } else if (data.type === 'remove' && data.id) {
+        store.invalidate();
         // Revert balance
         let oldTx: LancamentoResumo | undefined;
         for (const year of Object.keys(store.yearCache).map(Number)) {
@@ -596,6 +608,7 @@ function adjustBalanceForTx(tx: LancamentoResumo, mode: 'add' | 'remove') {
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 onApiMutation((url, response) => {
+  console.log('[Zustand] onApiMutation intercepted url:', url, 'status:', response?.status, 'method:', response?.config?.method);
   const isFinanceMutation =
     url.includes('/lancamentos') ||
     url.includes('/importacao') ||
@@ -620,9 +633,7 @@ onApiMutation((url, response) => {
       const newTx = response.data as LancamentoResumo;
       store.addTransactionToCache(newTx);
       adjustBalanceForTx(newTx, 'add');
-      store.incrementRefreshCount();
       syncChannel?.postMessage({ type: 'add', tx: newTx });
-      return;
     }
 
     if (isSinglePut && response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
@@ -639,15 +650,15 @@ onApiMutation((url, response) => {
 
       store.updateTransactionInCache(newTx);
       adjustBalanceForTx(newTx, 'add');
-      store.incrementRefreshCount();
       syncChannel?.postMessage({ type: 'update', tx: newTx });
-      return;
     }
 
     if (isSingleDelete) {
+      console.log('[Zustand] Matches isSingleDelete');
       const match = url.match(/\/lancamentos\/(\d+)/);
       if (match) {
         const id = Number(match[1]);
+        console.log('[Zustand] Extracted single delete ID:', id);
         
         // Revert balance impact of deleted transaction
         let oldTx: LancamentoResumo | undefined;
@@ -660,9 +671,7 @@ onApiMutation((url, response) => {
         }
 
         store.removeTransactionFromCache(id);
-        store.incrementRefreshCount();
         syncChannel?.postMessage({ type: 'remove', id });
-        return;
       }
     }
   }

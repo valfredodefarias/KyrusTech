@@ -1141,12 +1141,23 @@ class PdvService:
             )
         ).all()
 
+        first_launch = db.exec(
+            select(Lancamento)
+            .where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.origem == "PDV",
+                Lancamento.id_parcelamento == venda_id,
+                Lancamento.tipo == "RECEITA"
+            )
+        ).first()
+
         for d in desp_launches:
             if novo_status in ["CANCELADO", "DEVOLVIDO"]:
                 d.status = novo_status
                 d.valor_pago = Decimal("0.00")
             elif novo_status == "REALIZADO":
-                receita_paga = first_launch.status == "PAGO"
+                receita_paga = (first_launch.status == "PAGO") if first_launch else False
                 d.status = "PAGO" if receita_paga else "EM ABERTO"
                 d.valor_pago = d.valor_previsto if receita_paga else Decimal("0.00")
             d.updated_by_id = user_id
@@ -1787,7 +1798,7 @@ class PdvService:
             raise HTTPException(status_code=400, detail="Vendedor inválido para esta empresa.")
             
         entidade = db.get(Entidade, venda_in.entidade_id)
-        if not entidad or entidade.empresa_id != empresa_id:
+        if not entidade or entidade.empresa_id != empresa_id:
             raise HTTPException(status_code=400, detail="Cliente inválido.")
 
         if not venda_in.centro_custo_id:

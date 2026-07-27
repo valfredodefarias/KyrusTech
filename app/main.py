@@ -408,6 +408,9 @@ async def cache_headers_middleware(request: Request, call_next):
     content_type = response.headers.get("content-type", "")
 
     if path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
         return response
 
     if content_type.startswith("text/html"):

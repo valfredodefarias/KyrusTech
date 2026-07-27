@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date
 from decimal import Decimal
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from sqlmodel import Session, select, or_
 
 from app.models.lancamento import Lancamento
@@ -21,53 +21,110 @@ class ComissaoService:
     ) -> Decimal:
         """
         Calcula o faturamento total do vendedor no mês/ano para fins de meta (escalonamento).
-        Exclui lançamentos em 'boleto parcelado' ou 'boleto' que estão em aberto.
+        Exclui lançamentos em 'boleto' que estão em aberto.
         Inclui os lançamentos de boleto que foram pagos no mês correspondente.
         """
-        # 1. Buscar lançamentos ativos de receita do vendedor na empresa filtrados pelo mês/ano alvo
         import calendar
         _, last_day = calendar.monthrange(ano, mes)
         start_date = date(ano, mes, 1)
         end_date = date(ano, mes, last_day)
 
-        query = (
-            select(Lancamento)
+        from app.models.pdv_venda import PdvVenda
+        
+        # 1. Regime de competência (não-boletos)
+        # Buscamos as vendas do vendedor do mês corrente.
+        vendas_query = (
+            select(PdvVenda)
             .where(
-                Lancamento.empresa_id == empresa_id,
-                Lancamento.created_by_id == vendedor_id,
-                Lancamento.is_deleted == False,
-                Lancamento.tipo == "RECEITA",
-                or_(
-                    (Lancamento.data_pagamento >= start_date) & (Lancamento.data_pagamento <= end_date),
-                    (Lancamento.data_competencia >= start_date) & (Lancamento.data_competencia <= end_date)
-                )
+                PdvVenda.empresa_id == empresa_id,
+                PdvVenda.vendedor_id == vendedor_id,
+                PdvVenda.is_deleted == False,
+                PdvVenda.status == "REALIZADO",
+                PdvVenda.data_venda >= start_date,
+                PdvVenda.data_venda <= end_date
             )
         )
-        launches = db.exec(query).all()
+        vendas = db.exec(vendas_query).all()
         
         faturamento_total = Decimal("0.00")
         
-        for l in launches:
-            # Pegamos o metadado do lançamento se houver
-            meta = {}
+        # Para cada venda do mês de competência, somamos os lançamentos associados que NÃO são boletos
+        vendas_ids = [v.id for v in vendas]
+        from collections import defaultdict
+        launches_by_venda = defaultdict(list)
+        
+        if vendas_ids:
+            launches_query = (
+                select(Lancamento)
+                .where(
+                    Lancamento.empresa_id == empresa_id,
+                    Lancamento.id_parcelamento.in_(vendas_ids),
+                    Lancamento.is_deleted == False,
+                    Lancamento.tipo == "RECEITA"
+                )
+            )
+            for l in db.exec(launches_query).all():
+                launches_by_venda[l.id_parcelamento].append(l)
+                
+        for v in vendas:
+            launches = launches_by_venda[v.id]
+            for l in launches:
+                meta_json = {}
+                if l.observacao:
+                    try:
+                        meta_json = json.loads(l.observacao)
+                    except Exception:
+                        pass
+                
+                tipo_pagamento = str(meta_json.get("tipo_pagamento", "")).lower()
+                is_boleto = "boleto" in tipo_pagamento
+                
+                if not is_boleto:
+                    faturamento_total += Decimal(str(l.valor_previsto or 0))
+                    
+        # 2. Regime de caixa (boletos)
+        # Buscamos boletos pagos no mês corrente cuja venda seja deste vendedor.
+        boletos_pagos_query = (
+            select(Lancamento)
+            .where(
+                Lancamento.empresa_id == empresa_id,
+                Lancamento.is_deleted == False,
+                Lancamento.tipo == "RECEITA",
+                Lancamento.status == "PAGO",
+                Lancamento.data_pagamento >= start_date,
+                Lancamento.data_pagamento <= end_date
+            )
+        )
+        boletos_pagos = db.exec(boletos_pagos_query).all()
+        
+        # Pre-fetch vendas correspondentes a estes boletos
+        boleto_venda_ids = [l.id_parcelamento for l in boletos_pagos if l.id_parcelamento]
+        vendas_by_id = {}
+        if boleto_venda_ids:
+            vendas_db = db.exec(
+                select(PdvVenda)
+                .where(
+                    PdvVenda.id.in_(boleto_venda_ids),
+                    PdvVenda.status == "REALIZADO",
+                    PdvVenda.is_deleted == False
+                )
+            ).all()
+            vendas_by_id = {v.id: v for v in vendas_db}
+            
+        for l in boletos_pagos:
+            meta_json = {}
             if l.observacao:
                 try:
-                    meta = json.loads(l.observacao)
+                    meta_json = json.loads(l.observacao)
                 except Exception:
                     pass
             
-            tipo_pagamento = str(meta.get("tipo_pagamento", "")).lower()
+            tipo_pagamento = str(meta_json.get("tipo_pagamento", "")).lower()
             is_boleto = "boleto" in tipo_pagamento
             
-            if is_boleto:
-                # Regime de caixa: Só entra se estiver PAGO e se o pagamento foi no mês/ano alvo
-                if l.status == "PAGO" and l.data_pagamento:
-                    if l.data_pagamento.month == mes and l.data_pagamento.year == ano:
-                        # O valor pago entra
-                        faturamento_total += Decimal(str(l.valor_previsto or 0))
-            else:
-                # Outros pagamentos: Entram pelo mês de competência (data da venda)
-                if l.data_competencia and l.data_competencia.month == mes and l.data_competencia.year == ano:
+            if is_boleto and l.id_parcelamento:
+                venda = vendas_by_id.get(l.id_parcelamento)
+                if venda and venda.vendedor_id == vendedor_id:
                     faturamento_total += Decimal(str(l.valor_previsto or 0))
                     
         return faturamento_total
@@ -220,20 +277,88 @@ class ComissaoService:
         start_date = date(ano, mes, 1)
         end_date = date(ano, mes, last_day)
 
-        query = (
+        from app.models.pdv_venda import PdvVenda
+        
+        # 3.1. Obter todas as vendas do vendedor no mês corrente (para competência)
+        vendas_correntes_query = (
+            select(PdvVenda)
+            .where(
+                PdvVenda.empresa_id == empresa_id,
+                PdvVenda.vendedor_id == vendedor_id,
+                PdvVenda.is_deleted == False,
+                PdvVenda.status == "REALIZADO",
+                PdvVenda.data_venda >= start_date,
+                PdvVenda.data_venda <= end_date
+            )
+        )
+        vendas_correntes = db.exec(vendas_correntes_query).all()
+        vendas_correntes_ids = [v.id for v in vendas_correntes]
+
+        launches = []
+
+        # Para as vendas do mês corrente, pegar os lançamentos que NÃO são boletos
+        if vendas_correntes_ids:
+            query_non_boletos = (
+                select(Lancamento)
+                .where(
+                    Lancamento.empresa_id == empresa_id,
+                    Lancamento.is_deleted == False,
+                    Lancamento.tipo == "RECEITA",
+                    Lancamento.id_parcelamento.in_(vendas_correntes_ids)
+                )
+            )
+            for l in db.exec(query_non_boletos).all():
+                meta_json = {}
+                if l.observacao:
+                    try:
+                        meta_json = json.loads(l.observacao)
+                    except Exception:
+                        pass
+                tipo_pagamento = str(meta_json.get("tipo_pagamento", "")).lower()
+                is_boleto = "boleto" in tipo_pagamento
+                if not is_boleto:
+                    launches.append(l)
+
+        # 3.2. Obter boletos pagos no mês corrente cuja venda seja deste vendedor
+        query_boletos_pagos = (
             select(Lancamento)
             .where(
                 Lancamento.empresa_id == empresa_id,
-                Lancamento.created_by_id == vendedor_id,
                 Lancamento.is_deleted == False,
                 Lancamento.tipo == "RECEITA",
-                or_(
-                    (Lancamento.data_pagamento >= start_date) & (Lancamento.data_pagamento <= end_date),
-                    (Lancamento.data_competencia >= start_date) & (Lancamento.data_competencia <= end_date)
-                )
+                Lancamento.status == "PAGO",
+                Lancamento.data_pagamento >= start_date,
+                Lancamento.data_pagamento <= end_date
             )
         )
-        launches = db.exec(query).all()
+        boletos_pagos = db.exec(query_boletos_pagos).all()
+        boleto_venda_ids = [l.id_parcelamento for l in boletos_pagos if l.id_parcelamento]
+        vendas_by_id = {}
+        if boleto_venda_ids:
+            vendas_db = db.exec(
+                select(PdvVenda)
+                .where(
+                    PdvVenda.id.in_(boleto_venda_ids),
+                    PdvVenda.vendedor_id == vendedor_id,
+                    PdvVenda.status == "REALIZADO",
+                    PdvVenda.is_deleted == False
+                )
+            ).all()
+            vendas_by_id = {v.id: v for v in vendas_db}
+            
+        for l in boletos_pagos:
+            meta_json = {}
+            if l.observacao:
+                try:
+                    meta_json = json.loads(l.observacao)
+                except Exception:
+                    pass
+            tipo_pagamento = str(meta_json.get("tipo_pagamento", "")).lower()
+            is_boleto = "boleto" in tipo_pagamento
+            if is_boleto and l.id_parcelamento:
+                venda = vendas_by_id.get(l.id_parcelamento)
+                if venda:
+                    launches.append(l)
         
         vendas_detalhadas = []
         comissao_produtos = Decimal("0.00")
@@ -243,6 +368,26 @@ class ComissaoService:
         
         # Mapeamento rápido de produtos para evitar múltiplas queries
         produtos_cache: Dict[int, Produto] = {}
+        
+        launches_venda_ids = [l.id_parcelamento for l in launches if l.id_parcelamento]
+        from collections import defaultdict
+        vendas_cache = {}
+        itens_cache = defaultdict(list)
+        
+        if launches_venda_ids:
+            vendas_db = db.exec(select(PdvVenda).where(PdvVenda.id.in_(launches_venda_ids))).all()
+            vendas_cache = {v.id: v for v in vendas_db}
+            
+            from app.models.pdv_venda_item import PdvVendaItem
+            itens_db = db.exec(select(PdvVendaItem).where(PdvVendaItem.venda_id.in_(launches_venda_ids))).all()
+            for item in itens_db:
+                itens_cache[item.venda_id].append(item)
+                
+            from app.models.produto import Produto
+            prod_ids = {item.produto_id for item in itens_db}
+            if prod_ids:
+                produtos_db = db.exec(select(Produto).where(Produto.id.in_(list(prod_ids)))).all()
+                produtos_cache = {p.id: p for p in produtos_db}
         
         for l in launches:
             meta_json = {}
@@ -305,11 +450,30 @@ class ComissaoService:
                     elif dias_atraso > tolerancia:
                         fator_multa = max(Decimal("0.00"), Decimal("1.00") - redutor)
 
-            # Calcular o valor deste pagamento proporcional ao total da venda
-            itens = meta_json.get("itens", [])
-            subtotal_venda = Decimal(str(meta_json.get("subtotal") or l.valor_previsto or 0))
-            desconto_venda = Decimal(str(meta_json.get("desconto") or 0))
-            valor_liquido_venda = subtotal_venda - desconto_venda
+            # Obter a venda correspondente para carregar os itens e valores do banco de dados
+            itens = []
+            venda = None
+            if l.id_parcelamento:
+                venda = vendas_cache.get(l.id_parcelamento)
+                
+            if venda:
+                itens_db = itens_cache.get(venda.id, [])
+                for item_db in itens_db:
+                    prod = produtos_cache.get(item_db.produto_id)
+                    itens.append({
+                        "produto_id": item_db.produto_id,
+                        "nome": item_db.nome_customizado or (prod.nome if prod else "Item"),
+                        "subtotal": item_db.subtotal,
+                        "desconto": item_db.desconto
+                    })
+                subtotal_venda = venda.valor_subtotal
+                desconto_venda = venda.valor_desconto
+                valor_liquido_venda = venda.valor_total
+            else:
+                # Fallback seguro para lançamentos avulsos
+                subtotal_venda = Decimal(str(meta_json.get("subtotal") or l.valor_previsto or 0))
+                desconto_venda = Decimal(str(meta_json.get("desconto") or 0))
+                valor_liquido_venda = subtotal_venda - desconto_venda
             
             if valor_liquido_venda <= 0:
                 continue
@@ -345,16 +509,15 @@ class ComissaoService:
                     subtotal_item = Decimal(str(item.get("subtotal", 0)))
                     desconto_item = Decimal(str(item.get("desconto", 0)))
                     
-                    valor_liquido_item = subtotal_item - desconto_item
-                    if subtotal_venda > 0:
-                        proporcao_item = subtotal_item / subtotal_venda
-                        desconto_geral_item = desconto_venda * proporcao_item
-                        valor_liquido_item -= desconto_geral_item
+                    # Net value of the item
+                    item_net_val = subtotal_item - desconto_item
+                    
+                    # Proportion of this item in the sale
+                    proporcao_item = Decimal("0.00")
+                    if valor_liquido_venda > 0:
+                        proporcao_item = item_net_val / valor_liquido_venda
                         
-                    if valor_liquido_item < 0:
-                        valor_liquido_item = Decimal("0.00")
-                        
-                    valor_item_na_parcela = valor_liquido_item * proporção_linha
+                    valor_item_na_parcela = valor_lancamento * proporcao_item
                     
                     is_servico = False
                     if produto_id:
@@ -446,29 +609,30 @@ class ComissaoService:
             return meta_db.valor_meta
 
         # Fallback estático
-        from app.models.usuario import Usuario
-        user_obj = db.get(Usuario, vendedor_id)
-        if user_obj:
-            nome_clean = str(user_obj.nome or "").lower()
-            # Metas estáticas
-            METAS_VENDEDORES = {
-                "joel": Decimal("150000.00"),
-                "joelmir": Decimal("150000.00"),
-                "murillo": Decimal("450000.00"),
-                "christiano": Decimal("40000.00"),
-                "raphael": Decimal("30000.00"),
-                "breno": Decimal("60000.00"),
-                "danilo": Decimal("25000.00"),
-                "dan": Decimal("25000.00"),
-                "adson": Decimal("20000.00"),
-                "erick": Decimal("150000.00"),
-                "erik": Decimal("150000.00"),
-                "guilherme": Decimal("150000.00"),
-                "silas": Decimal("0.00"),
-            }
-            for key, val in METAS_VENDEDORES.items():
-                if key in nome_clean:
-                    return val
+        if empresa_id in [35, 37, 39, 40]:
+            from app.models.usuario import Usuario
+            user_obj = db.get(Usuario, vendedor_id)
+            if user_obj:
+                nome_clean = str(user_obj.nome or "").lower()
+                # Metas estáticas
+                METAS_VENDEDORES = {
+                    "joel": Decimal("150000.00"),
+                    "joelmir": Decimal("150000.00"),
+                    "murillo": Decimal("450000.00"),
+                    "christiano": Decimal("40000.00"),
+                    "raphael": Decimal("30000.00"),
+                    "breno": Decimal("60000.00"),
+                    "danilo": Decimal("25000.00"),
+                    "dan": Decimal("25000.00"),
+                    "adson": Decimal("20000.00"),
+                    "erick": Decimal("150000.00"),
+                    "erik": Decimal("150000.00"),
+                    "guilherme": Decimal("150000.00"),
+                    "silas": Decimal("0.00"),
+                }
+                for key, val in METAS_VENDEDORES.items():
+                    if key in nome_clean:
+                        return val
 
         return Decimal("0.00")
 
@@ -513,9 +677,10 @@ class ComissaoService:
         dias_decorridos = tempo["DIAS_DECORRIDOS"]
         dias_restantes = tempo["DIAS_RESTANTES"]
         
-        # 2. Obter meta e realizado
+        # 2. Obter meta e comissão detalhada (que também calcula o realizado)
         meta = cls.obter_meta_vendedor(db, vendedor_id, mes, ano, empresa_id)
-        realizado = cls.calcular_faturamento_meta(db, vendedor_id, mes, ano, empresa_id)
+        com_data = cls.calcular_comissoes_vendedor(db, vendedor_id, mes, ano, empresa_id, hoje)
+        realizado = Decimal(str(com_data["faturamento_meta"]))
         
         # 3. Fórmulas Matemáticas da Especificação
         super_meta = meta * Decimal("1.20")
@@ -535,8 +700,6 @@ class ComissaoService:
         
         percentual_projecao = (projecao / meta * 100) if meta > 0 else Decimal("0.00")
         
-        # 4. Calcular comissão detalhada
-        com_data = cls.calcular_comissoes_vendedor(db, vendedor_id, mes, ano, empresa_id, hoje)
         comissao = Decimal(str(com_data["comissao_total"]))
         
         return {
@@ -557,4 +720,3 @@ class ComissaoService:
             "faturamento_servicos_total": float(round(Decimal(str(com_data["faturamento_servicos_total"])), 2)),
             "sprints": com_data["vendas"]
         }
-

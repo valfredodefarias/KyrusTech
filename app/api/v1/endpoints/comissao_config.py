@@ -172,7 +172,7 @@ def get_metas(
             Usuario.is_active == True,
             Usuario.is_deleted == False,
             Usuario.is_consultor == False,
-            Usuario.email != "loja@kyrus_legado.com"
+            Usuario.nome != "LOJA"
         )
         .order_by(Usuario.nome)
     ).all()
@@ -270,7 +270,7 @@ def get_metas_ano(
             Usuario.is_active == True,
             Usuario.is_deleted == False,
             Usuario.is_consultor == False,
-            Usuario.email != "loja@kyrus_legado.com"
+            Usuario.nome != "LOJA"
         )
         .order_by(Usuario.nome)
     ).all()

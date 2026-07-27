@@ -48,15 +48,16 @@ def obter_meta_vendedor(db: Session, vendedor_id: int, mes: int, ano: int, empre
     if meta_db:
         return meta_db.valor_meta
 
-    if not nome:
-        from app.models.usuario import Usuario
-        u_obj = db.get(Usuario, vendedor_id)
-        nome = u_obj.nome if u_obj else ""
+    if empresa_id in [35, 37, 39, 40]:
+        if not nome:
+            from app.models.usuario import Usuario
+            u_obj = db.get(Usuario, vendedor_id)
+            nome = u_obj.nome if u_obj else ""
 
-    nome_clean = str(nome or "").lower()
-    for key, val in METAS_VENDEDORES.items():
-        if key in nome_clean:
-            return val
+        nome_clean = str(nome or "").lower()
+        for key, val in METAS_VENDEDORES.items():
+            if key in nome_clean:
+                return val
 
     return Decimal("0.00")
 
@@ -110,8 +111,8 @@ def calcular_dias_uteis(ano: int, mes: int, hoje: date) -> Dict[str, Any]:
 
 @router.get("/auditoria")
 def get_auditoria(
-    mes: int = Query(6, ge=1, le=12),
-    ano: int = Query(2026),
+    mes: int = Query(default=None, ge=1, le=12),
+    ano: int = Query(default=None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_active_user)
 ):
@@ -119,6 +120,11 @@ def get_auditoria(
     Retorna o faturamento sumarizado por vendedor para auditoria interna.
     Valores devem bater com o motor legado.
     """
+    hoje_atual = date.today()
+    if mes is None:
+        mes = hoje_atual.month
+    if ano is None:
+        ano = hoje_atual.year
     empresa_id = current_user.empresa_id
     
     # Buscar todos os usuários da empresa que não são consultores
@@ -128,7 +134,7 @@ def get_auditoria(
             Usuario.empresa_id == empresa_id,
             Usuario.is_deleted == False,
             Usuario.is_consultor == False,
-            Usuario.email != "loja@kyrus_legado.com"
+            Usuario.nome != "LOJA"
         )
     ).all()
     
@@ -155,8 +161,8 @@ def get_auditoria(
 
 @router.get("/dashboard")
 def get_dashboard(
-    mes: int = Query(6, ge=1, le=12),
-    ano: int = Query(2026),
+    mes: int = Query(default=None, ge=1, le=12),
+    ano: int = Query(default=None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_active_user)
 ):
@@ -164,10 +170,15 @@ def get_dashboard(
     Retorna os dados gerenciais completos do dashboard de metas e comissões.
     Cruza as vendas com as dezenas e faz as projeções.
     """
+    hoje_atual = date.today()
+    if mes is None:
+        mes = hoje_atual.month
+    if ano is None:
+        ano = hoje_atual.year
+        
     empresa_id = current_user.empresa_id
     
     # Para o cenário de testes de Junho/2026, fixamos hoje em 21/06/2026.
-    hoje_atual = date.today()
     if ano == 2026 and mes == 6:
         hoje = date(2026, 6, 21)
     else:
@@ -214,7 +225,7 @@ def get_dashboard(
         vendedores = [v for v in vendedores if v.id == current_user.id]
  
     # Excluir o usuário fake "Loja" da lista
-    vendedores = [v for v in vendedores if v.email != "loja@kyrus_legado.com"]
+    vendedores = [v for v in vendedores if v.nome != "LOJA"]
  
     vendedores_metrics = []
     for v in vendedores:

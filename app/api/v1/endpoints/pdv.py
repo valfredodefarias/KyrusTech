@@ -758,13 +758,15 @@ def atualizar_venda_pdv(
     if not pode_ver_todas and venda.vendedor_id != current_user.id:
         raise HTTPException(status_code=403, detail="Você não tem permissão para editar vendas de outros vendedores.")
 
-    return PdvService.atualizar_venda(
+    result = PdvService.atualizar_venda(
         db=db,
         venda_id=venda_id,
         venda_in=venda_in,
         empresa_id=empresa_id,
         current_user_id=int(current_user.id or 0)
     )
+    db.commit()
+    return result
 
 @router.patch("/vendas/{venda_id}/status", status_code=200)
 def atualizar_status_venda_pdv(

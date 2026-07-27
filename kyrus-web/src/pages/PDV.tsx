@@ -271,6 +271,20 @@ function imprimirCupom(venda: PdvVendaItem) {
   printWindow.document.close();
 }
 
+const decodeHtmlSimple = (str: string) => {
+  if (!str) return '';
+  return str
+    .replace(/<[^>]*>/g, '') // remove HTML tags
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
 // Subcomponente Dropdown Pesquisável de Cliente
 function SearchableCustomerSelect({
   customers,
@@ -303,7 +317,7 @@ function SearchableCustomerSelect({
 
   const filtered = customers.filter((c) => {
     const s = search.toLowerCase();
-    const nameMatch = (c.nome || '').toLowerCase().includes(s);
+    const nameMatch = decodeHtmlSimple(c.nome).toLowerCase().includes(s);
     const cpfMatch = (c.cpf_cnpj || '').replace(/\D/g, '').includes(s.replace(/\D/g, ''));
     return nameMatch || cpfMatch;
   });
@@ -319,7 +333,7 @@ function SearchableCustomerSelect({
       >
         <span className={selectedCustomer ? 'text-slate-900 dark:text-white font-medium' : 'text-slate-400'}>
           {selectedCustomer
-            ? `${selectedCustomer.nome} ${selectedCustomer.cpf_cnpj ? `(${selectedCustomer.cpf_cnpj})` : ''}`
+            ? `${decodeHtmlSimple(selectedCustomer.nome)} ${selectedCustomer.cpf_cnpj ? `(${selectedCustomer.cpf_cnpj})` : ''}`
             : placeholder}
         </span>
         <span className="text-slate-400 text-xs">▼</span>
@@ -364,7 +378,7 @@ function SearchableCustomerSelect({
                     : 'text-slate-700 dark:text-slate-300'
                 }`}
               >
-                {cust.nome} {cust.cpf_cnpj ? `- ${cust.cpf_cnpj}` : ''}
+                {decodeHtmlSimple(cust.nome)} {cust.cpf_cnpj ? `- ${cust.cpf_cnpj}` : ''}
               </div>
             ))
           )}
@@ -405,7 +419,7 @@ function SearchableProductSelect({
   }, []);
 
   const filtered = products.filter((p) =>
-    p.nome.toLowerCase().includes(search.toLowerCase())
+    decodeHtmlSimple(p.nome).toLowerCase().includes(search.toLowerCase())
   );
 
   const formatCurrency = (val: number) => {
@@ -424,7 +438,7 @@ function SearchableProductSelect({
               {selectedProduct.imagem_url && (
                 <img
                   src={toPublicAssetUrl(selectedProduct.imagem_url) ?? undefined}
-                  alt={selectedProduct.nome}
+                  alt={decodeHtmlSimple(selectedProduct.nome)}
                   className="w-5 h-5 rounded object-cover border border-slate-200 dark:border-slate-800 shrink-0 bg-white"
                 />
               )}
@@ -440,7 +454,7 @@ function SearchableProductSelect({
                   Revisar
                 </span>
               )}
-              <span className="truncate text-slate-900 dark:text-white font-medium">{selectedProduct.nome} - {formatCurrency(Number(selectedProduct.preco_unitario))}</span>
+              <span className="truncate text-slate-900 dark:text-white font-medium">{decodeHtmlSimple(selectedProduct.nome)} - {formatCurrency(Number(selectedProduct.preco_unitario))}</span>
             </div>
           ) : (
             <span className="text-slate-400">{placeholder}</span>
@@ -494,7 +508,7 @@ function SearchableProductSelect({
                   {prod.imagem_url ? (
                     <img
                       src={toPublicAssetUrl(prod.imagem_url) ?? undefined}
-                      alt={prod.nome}
+                      alt={decodeHtmlSimple(prod.nome)}
                       className="w-10 h-10 rounded-lg object-cover border border-slate-200 dark:border-slate-800 shrink-0 bg-white"
                     />
                   ) : (
@@ -505,7 +519,7 @@ function SearchableProductSelect({
 
                   <div className="flex-1 min-w-0 flex flex-col gap-1">
                     <div className="font-bold text-slate-900 dark:text-white truncate">
-                      {prod.nome}
+                      {decodeHtmlSimple(prod.nome)}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-1 text-[9px]">
@@ -816,6 +830,12 @@ export function PDV() {
   // Entidades (Clientes) Lookup de useLookupStore
   const entidadesLookup = useLookupStore((state) => state.entidadesLookup);
   const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
+
+  const clientesOnly = useMemo(() => {
+    return entidadesLookup.filter((e: any) => 
+      e.tipo === 'CLIENTE' || e.tipo === 'AMBOS'
+    );
+  }, [entidadesLookup]);
 
   // Nova Venda Form State (Drawer)
   const [showVendaForm, setShowVendaForm] = useState(false);
@@ -1667,7 +1687,7 @@ export function PDV() {
 
       // Se NÃO for edição, salvamos Offline-First na fila local!
       if (!isEditingSale) {
-        const selectedCliente = entidadesLookup.find((c) => String(c.id) === String(selectedEntidadeId));
+        const selectedCliente = clientesOnly.find((c) => String(c.id) === String(selectedEntidadeId));
         const selectedVendedor = vendedores.find((v) => String(v.id) === String(selectedVendedorId));
         const selectedCentro = centrosCusto.find((cc) => String(cc.id) === String(selectedCentroCustoId));
 
@@ -2739,7 +2759,7 @@ export function PDV() {
                 <div>
                   <label className="mb-1.5 block text-xs font-bold text-slate-400 uppercase tracking-wider">Cliente / Interessado *</label>
                   <SearchableCustomerSelect
-                    customers={entidadesLookup}
+                    customers={clientesOnly}
                     selectedValue={selectedEntidadeId || ''}
                     onChange={(val) => setSelectedEntidadeId(val)}
                     onCreateClick={() => setShowClienteModal(true)}

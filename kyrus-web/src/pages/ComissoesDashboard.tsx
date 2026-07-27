@@ -20,9 +20,9 @@ interface GaugeProps {
 }
 
 function Gauge({ value, label }: GaugeProps) {
-  const cappedValue = Math.min(120, Math.max(0, value));
-  // Needle rotation: 0% is -130deg, 120% is +130deg (span of 260deg)
-  const needleAngle = (cappedValue / 120) * 260 - 130;
+  const cappedValue = Math.min(100, Math.max(0, value));
+  // Needle rotation: 0% is -130deg, 100% is +130deg (span of 260deg)
+  const needleAngle = (cappedValue / 100) * 260 - 130;
 
   const getCoordinate = (angle: number, radius: number) => {
     const angleRad = ((angle - 90) * Math.PI) / 180;
@@ -42,22 +42,100 @@ function Gauge({ value, label }: GaugeProps) {
     ].join(" ");
   };
 
-  const isTargetMet = value >= 100;
-  const isSuperMet = value >= 110;
-  const gaugeColor = isSuperMet ? '#10b981' : (isTargetMet ? '#f59e0b' : '#ef4444');
+  // Determine colors and filters dynamically based on percentage
+  const getGlowFilterId = (val: number) => {
+    if (val <= 70) return "redGlow";
+    if (val < 90) return "yellowGlow";
+    return "greenGlow";
+  };
+  const getGradientId = (val: number) => {
+    if (val <= 70) return "redGradient";
+    if (val < 90) return "yellowGradient";
+    return "greenGradient";
+  };
+  const getAccentColor = (val: number) => {
+    if (val <= 70) return "#ef4444";
+    if (val < 90) return "#f59e0b";
+    return "#10b981";
+  };
+  const getDarkAccentColor = (val: number) => {
+    if (val <= 70) return "rgba(239, 68, 68, 0.12)";
+    if (val < 90) return "rgba(245, 158, 11, 0.12)";
+    return "rgba(16, 185, 129, 0.12)";
+  };
+
+  const accentColor = getAccentColor(value);
+  const darkAccentColor = getDarkAccentColor(value);
+  const gradientId = getGradientId(value);
+  const glowFilterId = getGlowFilterId(value);
 
   return (
     <div className="flex flex-col items-center select-none w-full max-w-[260px] p-2">
       <div className="relative w-full aspect-square flex items-center justify-center">
-        <svg viewBox="0 0 200 200" className="w-full h-full drop-shadow-[0_0_15px_rgba(245,158,11,0.15)]">
+        <svg viewBox="0 0 200 200" className="w-full h-full">
           <defs>
-            <linearGradient id="arcGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#ef4444" />
-              <stop offset="70%" stopColor="#f59e0b" />
-              <stop offset="100%" stopColor="#10b981" />
+            {/* Chrome/Aluminum Bezel Gradient */}
+            <linearGradient id="metalRing" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#f8fafc" />
+              <stop offset="15%" stopColor="#cbd5e1" />
+              <stop offset="45%" stopColor="#64748b" />
+              <stop offset="55%" stopColor="#475569" />
+              <stop offset="85%" stopColor="#cbd5e1" />
+              <stop offset="100%" stopColor="#1e293b" />
             </linearGradient>
-            <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="2.5" result="blur" />
+
+            {/* Inner Dial Concave Shading */}
+            <radialGradient id="dialBezel" cx="50%" cy="50%" r="50%">
+              <stop offset="70%" stopColor="#0b0f19" />
+              <stop offset="95%" stopColor="#05070c" />
+              <stop offset="100%" stopColor="#010204" />
+            </radialGradient>
+
+            {/* Center Cap Metal Gradient */}
+            <radialGradient id="centerCap" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#475569" />
+              <stop offset="70%" stopColor="#111827" />
+              <stop offset="100%" stopColor="#030712" />
+            </radialGradient>
+
+            {/* Glass Spherical Dome Highlight Gradient */}
+            <linearGradient id="glassReflection" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#ffffff" stopOpacity="0.3" />
+              <stop offset="25%" stopColor="#ffffff" stopOpacity="0.1" />
+              <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+            </linearGradient>
+
+            {/* Gradients for Arc */}
+            <linearGradient id="redGradient" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#dc2626" />
+              <stop offset="100%" stopColor="#f87171" />
+            </linearGradient>
+            <linearGradient id="yellowGradient" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#d97706" />
+              <stop offset="100%" stopColor="#fbbf24" />
+            </linearGradient>
+            <linearGradient id="greenGradient" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#059669" />
+              <stop offset="100%" stopColor="#34d399" />
+            </linearGradient>
+
+            {/* LED glows */}
+            <filter id="redGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="3" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+            <filter id="yellowGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="3" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+            <filter id="greenGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="3" result="blur" />
               <feMerge>
                 <feMergeNode in="blur" />
                 <feMergeNode in="SourceGraphic" />
@@ -65,33 +143,73 @@ function Gauge({ value, label }: GaugeProps) {
             </filter>
           </defs>
 
-          {/* Dial Background Disc */}
-          <circle cx="100" cy="100" r="78" fill="#09090b" stroke="#1f2937" strokeWidth="2" />
+          {/* Outer Chrome Ring */}
+          <circle cx="100" cy="100" r="91" fill="none" stroke="url(#metalRing)" strokeWidth="6" />
+          <circle cx="100" cy="100" r="88" fill="none" stroke="#090d16" strokeWidth="1" />
 
-          {/* Background Track Arc */}
+          {/* Inner Dial Face */}
+          <circle cx="100" cy="100" r="87" fill="url(#dialBezel)" />
+
+          {/* STATIC COLORED SCALE ZONES (Bright & Solid, Radius 84, Width 5) */}
+          {/* Red Zone (0% - 70%) */}
           <path
-            d={describeArc(230, 490, 68)}
+            d={describeArc(230, 412, 84)}
             fill="none"
-            stroke="#27272a"
-            strokeWidth="12"
+            stroke="#ef4444"
+            strokeWidth="5"
             strokeLinecap="round"
+            opacity="0.9"
+          />
+          {/* Yellow Zone (70% - 90%) */}
+          <path
+            d={describeArc(412, 464, 84)}
+            fill="none"
+            stroke="#f59e0b"
+            strokeWidth="5"
+            opacity="0.9"
+          />
+          {/* Green Zone (90% - 100%) */}
+          <path
+            d={describeArc(464, 490, 84)}
+            fill="none"
+            stroke="#10b981"
+            strokeWidth="5"
+            strokeLinecap="round"
+            opacity="0.9"
           />
 
-          {/* Active Gradient Filled Arc */}
+          {/* ACTIVE PROGRESS ARC (Glowing Inner Track, Radius 74, Width 8) */}
           <path
-            d={describeArc(230, 230 + (cappedValue / 120) * 260, 68)}
+            d={describeArc(230, 230 + (cappedValue / 100) * 260, 74)}
             fill="none"
-            stroke="url(#arcGradient)"
-            strokeWidth="12"
+            stroke={`url(#${gradientId})`}
+            strokeWidth="8"
             strokeLinecap="round"
-            filter="url(#neonGlow)"
+            filter={`url(#${glowFilterId})`}
           />
 
-          {/* Ticks (every 10%) */}
-          {Array.from({ length: 13 }).map((_, i) => {
-            const angle = 230 + i * (260 / 12);
-            const p1 = getCoordinate(angle, 75);
-            const p2 = getCoordinate(angle, 61);
+          {/* Inner ticks (every 5%) */}
+          {Array.from({ length: 21 }).map((_, i) => {
+            const angle = 230 + i * (260 / 20);
+            const isMajor = i % 5 === 0;
+            const p1 = getCoordinate(angle, 79);
+            
+            // Boundary tick styling helpers
+            const getTickColor = (index: number) => {
+              if (index === 14) return '#f59e0b'; // 70% threshold
+              if (index === 18) return '#10b981'; // 90% threshold
+              return isMajor ? '#e2e8f0' : '#475569';
+            };
+            const getTickWidth = (index: number) => {
+              if (index === 14 || index === 18) return '2';
+              return isMajor ? '1.5' : '0.75';
+            };
+            const getTickInnerRadius = (index: number) => {
+              if (index === 14 || index === 18) return 63; // longer tick
+              return isMajor ? 67 : 72;
+            };
+
+            const p2 = getCoordinate(angle, getTickInnerRadius(i));
             return (
               <line
                 key={i}
@@ -99,32 +217,62 @@ function Gauge({ value, label }: GaugeProps) {
                 y1={p1.y}
                 x2={p2.x}
                 y2={p2.y}
-                stroke={i === 0 || i === 10 || i === 12 ? '#d97706' : '#52525b'}
-                strokeWidth={i % 5 === 0 ? '2' : '1'}
+                stroke={getTickColor(i)}
+                strokeWidth={getTickWidth(i)}
               />
             );
           })}
 
           {/* Scale Labels */}
-          <text x="40" y="162" fill="#9ca3af" fontSize="10" textAnchor="middle" fontWeight="bold">0%</text>
-          <text x="100" y="38" fill="#f59e0b" fontSize="9" textAnchor="middle" fontWeight="bold">100%</text>
-          <text x="160" y="162" fill="#10b981" fontSize="10" textAnchor="middle" fontWeight="bold">120%</text>
+          { [0, 25, 50, 75, 100].map((val) => {
+            const angle = 230 + (val / 100) * 260;
+            const pos = getCoordinate(angle, 60);
+            // Adjust label vertical position slightly
+            const yOffset = val === 50 ? 5 : (val === 0 || val === 100 ? -2 : 3);
+            return (
+              <text
+                key={val}
+                x={pos.x}
+                y={pos.y + yOffset}
+                fill="#94a3b8"
+                fontSize="8"
+                fontWeight="800"
+                textAnchor="middle"
+                className="font-mono"
+              >
+                {val}%
+              </text>
+            );
+          })}
 
-          {/* Center Value Text */}
+          {/* Label text inside dial */}
           <text
             x="100"
-            y="135"
-            fill={gaugeColor}
-            fontSize="30"
+            y="130"
+            fill="#64748b"
+            fontSize="10"
+            fontWeight="bold"
+            letterSpacing="1.5"
             textAnchor="middle"
+          >
+            {label === "REALIZADO" ? "FATURADO" : label}
+          </text>
+
+          {/* Giant value text with glow at the bottom */}
+          <text
+            x="100"
+            y="162"
+            fill={accentColor}
+            fontSize="26"
             fontWeight="900"
-            className="font-mono tracking-tighter"
-            filter="url(#neonGlow)"
+            textAnchor="middle"
+            filter={`url(#${glowFilterId})`}
+            className="font-mono"
           >
             {Math.round(value || 0)}%
           </text>
 
-          {/* Needle */}
+          {/* Speedometer Needle */}
           <g
             className="transition-transform duration-1000 ease-out"
             style={{
@@ -132,14 +280,27 @@ function Gauge({ value, label }: GaugeProps) {
               transform: `rotate(${needleAngle}deg)`,
             }}
           >
-            <polygon points="98,100 102,100 100,28" fill="#f59e0b" filter="url(#neonGlow)" />
-            <circle cx="100" cy="100" r="8" fill="#18181b" stroke="#f59e0b" strokeWidth="3" />
+            {/* Needle Shadow */}
+            <polygon points="98.5,100 101.5,100 100,20" fill="rgba(0,0,0,0.6)" transform="translate(1.5, 1.5)" />
+            {/* Dark Needle Body */}
+            <polygon points="98.5,100 101.5,100 100,20" fill="#1e293b" stroke="#475569" strokeWidth="0.5" />
+            {/* Bright tip/stripe */}
+            <line x1="100" y1="100" x2="100" y2="24" stroke={accentColor} strokeWidth="1.2" />
+            {/* Center Cap Ring */}
+            <circle cx="100" cy="100" r="14" fill="url(#centerCap)" stroke="#334155" strokeWidth="1" />
+            {/* Glowing LED Center Pin */}
+            <circle cx="100" cy="100" r="3.5" fill={accentColor} filter={`url(#${glowFilterId})`} />
           </g>
+
+          {/* Glass Spherical Highlight Overlay */}
+          <path
+            d="M 15 100 A 85 85 0 0 1 185 100 A 85 55 0 0 0 15 100 Z"
+            fill="url(#glassReflection)"
+            opacity="0.15"
+            pointerEvents="none"
+          />
         </svg>
       </div>
-      <span className="text-xs font-black tracking-widest text-amber-500 uppercase mt-1">
-        {label}
-      </span>
     </div>
   );
 }

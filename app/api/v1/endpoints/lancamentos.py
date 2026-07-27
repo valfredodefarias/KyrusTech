@@ -1724,6 +1724,8 @@ def listar_lancamentos(
                 | (col(Lancamento.valor_pago) != 0)
             )
 
+
+
     query = query.order_by(col(Lancamento.data_vencimento).asc())
     if not sem_paginacao:
         query = query.offset(safe_skip).limit(safe_limit)

@@ -120,6 +120,10 @@ def run(dry_run=True):
                 pc_obj = pc_by_code[mapped_code]
                 
                 for col, (y, m) in month_cols.items():
+                    # Processar apenas o período histórico (até Junho/2026)
+                    if y == 2026 and m > 6:
+                        continue
+                        
                     val = parse_decimal(sheet.cell(row, col).value)
                     comp_date = date(y, m, 1)
                     end_day = 31 if m in [1, 3, 5, 7, 8, 10, 12] else (30 if m != 2 else (29 if y % 4 == 0 else 28))

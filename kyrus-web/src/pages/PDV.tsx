@@ -562,26 +562,19 @@ function SearchableProductSelect({
   );
 }
 
-const formatMonetario = (val: string | number) => {
+const formatMonetario = (val: string | number): string => {
   if (val === '' || val === null || val === undefined) return '';
   if (typeof val === 'number') {
+    if (isNaN(val)) return '';
     return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
   }
   const str = String(val).trim();
   if (!str) return '';
-  if (str.includes(',') || str.includes('.')) {
-    const parsed = parseFloat(str.replace(/\./g, '').replace(',', '.'));
-    if (!isNaN(parsed)) {
-      return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(parsed);
-    }
-  }
-  const cleanVal = str.replace(/\D/g, '');
-  if (!cleanVal) return '';
-  if (cleanVal.length <= 2) {
-    const num = parseInt(cleanVal, 10);
-    return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
-  }
-  const num = parseInt(cleanVal, 10) / 100;
+
+  const cleanDigits = str.replace(/\D/g, '');
+  if (!cleanDigits) return '';
+
+  const num = parseInt(cleanDigits, 10) / 100;
   return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
 };
 
@@ -589,16 +582,9 @@ const parseMonetario = (val: string | number): number => {
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
   if (!val) return 0;
   const str = String(val).trim();
-  if (str.includes(',') || str.includes('.')) {
-    const parsed = parseFloat(str.replace(/\./g, '').replace(',', '.'));
-    return isNaN(parsed) ? 0 : parsed;
-  }
-  const cleanVal = str.replace(/\D/g, '');
-  if (!cleanVal) return 0;
-  if (cleanVal.length <= 2) {
-    return parseInt(cleanVal, 10);
-  }
-  return parseInt(cleanVal, 10) / 100;
+  const cleanDigits = str.replace(/\D/g, '');
+  if (!cleanDigits) return 0;
+  return parseInt(cleanDigits, 10) / 100;
 };
 
 const handleDownloadQrCode = async (product: Produto) => {

@@ -135,7 +135,13 @@ def read_dre(
         .where(
             or_(
                 Lancamento.observacao.is_(None),
-                (~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%") & ~Lancamento.observacao.ilike('%"legacy_id_venda"%'))
+                (
+                    ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%") &
+                    ~Lancamento.observacao.ilike('%"legacy_id_venda"%') &
+                    ~Lancamento.observacao.ilike('%"grouped_card_launch": true%') &
+                    ~Lancamento.observacao.ilike('%"is_movimentacao_pdv": true%') &
+                    ~Lancamento.observacao.ilike('%"origem": "PDV"%')
+                )
             )
         )
         .where(
@@ -231,13 +237,14 @@ def read_dre(
                     categorias_despesa[categoria.id or 0] = categoria_item
                 categoria_item.total = float(Decimal(str(categoria_item.total)) + valor)
 
-    # 1. Obter a última data de importação da planilha (WEB) para esta empresa
+    # 1. Obter a última data de importação da planilha (WEB) para esta empresa (limitada até a data atual)
     max_web_date = db.exec(
         select(func.max(Lancamento.data_vencimento))
         .where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.origem == "WEB",
-            Lancamento.is_deleted == False
+            Lancamento.is_deleted == False,
+            Lancamento.data_vencimento <= date.today()
         )
     ).first()
 

@@ -43,25 +43,34 @@ def parse_decimal(val):
         return Decimal("0.00")
 
 def find_excel_file(file_name):
-    possible_paths = [
-        ROOT_DIR / "scripts" / file_name,
-        ROOT_DIR / "scripts" / "fabio" / file_name,
-        ROOT_DIR / "fabio" / file_name,
-        ROOT_DIR / file_name,
-        Path("/app") / "fabio" / file_name,
-        Path("/app") / "scripts" / "fabio" / file_name,
-        Path("/root") / "KyrusERP" / "fabio" / file_name,
-        Path("/root") / "KyrusERP" / "scripts" / "fabio" / file_name,
+    # Strip extension for prefix matching
+    base_stem = file_name.replace(".xlsx", "")
+    
+    search_dirs = [
+        ROOT_DIR / "backups" / "fabio",
+        ROOT_DIR / "scripts" / "fabio",
+        ROOT_DIR / "scripts",
+        ROOT_DIR / "fabio",
+        ROOT_DIR,
+        Path("/app") / "backups" / "fabio",
+        Path("/app") / "scripts" / "fabio",
+        Path("/app") / "fabio",
+        Path("/root") / "KyrusERP" / "backups" / "fabio",
+        Path("/root") / "KyrusERP" / "scripts" / "fabio",
+        Path("/root") / "KyrusERP" / "fabio",
     ]
-    for p in possible_paths:
-        if p.exists():
-            return p
+    
+    for d in search_dirs:
+        if d.exists() and d.is_dir():
+            for f in d.iterdir():
+                if f.is_file() and f.suffix == ".xlsx" and base_stem.lower() in f.name.lower():
+                    return f
+                    
+    # Global recursive search if not found in specific dirs
+    for f in ROOT_DIR.rglob("*.xlsx"):
+        if base_stem.lower() in f.name.lower():
+            return f
             
-    # Search recursively for the filename
-    found = list(ROOT_DIR.rglob(file_name))
-    if found:
-        return found[0]
-        
     return None
 
 def run(dry_run=True):

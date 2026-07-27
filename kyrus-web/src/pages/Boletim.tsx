@@ -865,7 +865,29 @@ export function Boletim() {
       'FORA_DRE',
       'FORA DRE',
       'FORA DA DRE',
+      'NAO_OPERACIONAL',
+      'NÃO_OPERACIONAL',
+      'NAO OPERACIONAL',
+      'NÃO OPERACIONAL',
+      'NAO OPERACIONAL / FORA DA DRE',
+      'NAO OP.',
+      'NAO_DRE',
+      'NÃO_DRE',
     ]);
+
+    const isForaDre = (contaId: number): boolean => {
+      if (!contaId || contaId <= 0) return false;
+      const conta = contaPorId.get(contaId);
+      if (conta) {
+        if (conta.eh_operacional === false) return true;
+        if ((conta as any).considerar_nos_resultados === false) return true;
+        const grupoNormalizado = String(conta.dre_grupo || '').trim().toUpperCase();
+        if (EXCLUDED_BOLETIM_DRE_GROUPS.has(grupoNormalizado)) return true;
+      }
+      const dreGrupo = resolverDreGrupo(contaId);
+      if (EXCLUDED_BOLETIM_DRE_GROUPS.has(dreGrupo)) return true;
+      return false;
+    };
 
     const dbAsaasIds = new Set<string>();
 
@@ -874,9 +896,7 @@ export function Boletim() {
         .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
         .filter((item) => {
           const contaId = Number(item.plano_contas_id);
-          if (!contaPorId.has(contaId)) return false;
-          const dreGrupo = resolverDreGrupo(contaId);
-          if (EXCLUDED_BOLETIM_DRE_GROUPS.has(dreGrupo)) return false;
+          if (contaId > 0 && isForaDre(contaId)) return false;
           return true;
         })
         .map((item) => {
@@ -1003,8 +1023,7 @@ export function Boletim() {
         if (monthIndex < 0) return;
         const conta = contaPorId.get(contaId);
         if (!conta) return;
-        const dreGrupo = resolverDreGrupo(contaId);
-        if (dreGrupo === 'NAO_OPERACIONAL' || EXCLUDED_BOLETIM_DRE_GROUPS.has(dreGrupo)) return;
+        if (isForaDre(contaId)) return;
         const value = resolveLancamentoValue(lancamento, true);
 
         if (isReceita(conta.tipo)) {

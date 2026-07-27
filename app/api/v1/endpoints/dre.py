@@ -158,7 +158,14 @@ def read_dre(
             continue
 
         grupo_dre = str(categoria.dre_grupo or "").strip().upper()
-        if grupo_dre in ("FORA_DRE", "FORA DRE", "FORA DA DRE"):
+        eh_operacional = getattr(categoria, 'eh_operacional', True)
+        considerar_nos_resultados = getattr(categoria, 'considerar_nos_resultados', True)
+
+        if (
+            grupo_dre in ("FORA_DRE", "FORA DRE", "FORA DA DRE", "NAO_OPERACIONAL", "NAO OPERACIONAL", "NÃO_OPERACIONAL", "NÃO OPERACIONAL", "NAO OP.", "NAO_DRE", "NÃO_DRE")
+            or eh_operacional is False
+            or considerar_nos_resultados is False
+        ):
             continue
 
         competencia = data_competencia or data_vencimento

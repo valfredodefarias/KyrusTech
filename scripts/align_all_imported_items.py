@@ -103,32 +103,45 @@ def run(dry_run=True):
             wb = openpyxl.load_workbook(xlsx_path, data_only=True)
             sheet = wb[sheet_name] if sheet_name in wb.sheetnames else wb.active
             
-            # Map header columns (01/2026, 02/2026, ...)
+            # Map header columns (search rows 1 to 5)
             month_cols = {}
-            for col in range(2, 20):
-                cell_val = sheet.cell(1, col).value or sheet.cell(2, col).value
-                if isinstance(cell_val, (datetime, date)):
-                    month_cols[col] = (cell_val.year, cell_val.month)
-                else:
-                    val = clean_str(cell_val)
-                    if "/" in val:
-                        parts = val.split("/")
-                        if len(parts) == 2 and parts[1].startswith("202"):
-                            try:
-                                m = int(parts[0])
-                                y = int(parts[1])
-                                month_cols[col] = (y, m)
-                            except ValueError:
-                                pass
-                        elif len(parts) == 2 and parts[0].startswith("202"):
-                            try:
-                                y = int(parts[0])
-                                m = int(parts[1])
-                                month_cols[col] = (y, m)
-                            except ValueError:
-                                pass
+            for r in range(1, 6):
+                for col in range(1, 25):
+                    cell_val = sheet.cell(r, col).value
+                    if not cell_val:
+                        continue
+                    if isinstance(cell_val, (datetime, date)):
+                        month_cols[col] = (cell_val.year, cell_val.month)
+                        print(f"  Header encontrado na linha {r}, col {col}: {cell_val.year}-{cell_val.month}")
+                    else:
+                        val = clean_str(cell_val)
+                        if "/" in val:
+                            parts = val.split("/")
+                            if len(parts) == 2 and parts[1].startswith("202"):
+                                try:
+                                    m = int(parts[0])
+                                    y = int(parts[1])
+                                    month_cols[col] = (y, m)
+                                    print(f"  Header encontrado na linha {r}, col {col}: {y}-{m}")
+                                except ValueError:
+                                    pass
+                            elif len(parts) == 2 and parts[0].startswith("202"):
+                                try:
+                                    y = int(parts[0])
+                                    m = int(parts[1])
+                                    month_cols[col] = (y, m)
+                                    print(f"  Header encontrado na linha {r}, col {col}: {y}-{m}")
+                                except ValueError:
+                                    pass
+                if month_cols:
+                    print(f"  Linha {r} continha os cabeçalhos de mês.")
+                    break
                         
-            print(f"  Colunas de meses encontradas: {len(month_cols)}")
+            if not month_cols:
+                print("  [DEBUG] Nenhuma coluna de mês encontrada automaticamente. Imprimindo primeiras 3 linhas:")
+                for r in range(1, 4):
+                    row_vals = [sheet.cell(r, c).value for c in range(1, 12)]
+                    print(f"    Linha {r}: {row_vals}")
             
             # Load plano_contas for this company
             pcs = db.exec(select(PlanoContas).where(PlanoContas.empresa_id == emp_id, PlanoContas.is_deleted == False)).all()

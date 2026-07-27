@@ -11,7 +11,6 @@ from app.api.v1.deps import get_empresa_id_from_user
 from app.db.session import get_db
 from app.models.lancamento import Lancamento
 from app.models.plano_contas import PlanoContas
-from app.models.pdv_movimentacao import PdvMovimentacao
 
 router = APIRouter()
 
@@ -225,69 +224,6 @@ def read_dre(
                     )
                     categorias_despesa[categoria.id or 0] = categoria_item
                 categoria_item.total = float(Decimal(str(categoria_item.total)) + valor)
-
-    # 1. Obter a última data de importação da planilha (WEB) para esta empresa (limitada até a data atual)
-    max_web_date = db.exec(
-        select(func.max(Lancamento.data_vencimento))
-        .where(
-            Lancamento.empresa_id == empresa_id,
-            Lancamento.origem == "WEB",
-            Lancamento.is_deleted == False,
-            Lancamento.data_vencimento <= date.today()
-        )
-    ).first()
-
-    if max_web_date is None:
-        max_web_date = date(2000, 1, 1)
-
-    # 2. Buscar faturamento de cartões no PDV a partir do dia seguinte ao último import da planilha
-    pdv_movs = db.exec(
-        select(
-            PdvMovimentacao.data,
-            PdvMovimentacao.valor,
-            PdvMovimentacao.forma_pagamento
-        )
-        .where(PdvMovimentacao.empresa_id == empresa_id)
-        .where(PdvMovimentacao.is_deleted == False)
-        .where(PdvMovimentacao.tipo == "ENTRADA")
-        .where(PdvMovimentacao.forma_pagamento.in_(["DEBITO", "CREDITO_AVISTA", "CREDITO_PARCELADO"]))
-        .where(PdvMovimentacao.data > max_web_date)
-        .where(PdvMovimentacao.data <= fim_mes)
-    ).all()
-
-    credito_cat = next((c for c in categorias if c.codigo in ("01.02", "01.01.02")), None)
-    debito_cat = next((c for c in categorias if c.codigo in ("01.03", "01.01.03")), None)
-
-    for data_mov, valor_mov, forma_pag in pdv_movs:
-        competencia_mov = data_mov
-        key_mov = _month_key(competencia_mov)
-        if key_mov not in serie_dict:
-            continue
-
-        cat_obj = debito_cat if forma_pag == "DEBITO" else credito_cat
-        if not cat_obj:
-            continue
-
-        val_dec = Decimal(str(valor_mov))
-        serie_dict[key_mov]["receitas"] += val_dec
-
-        if inicio_mes <= competencia_mov <= fim_mes:
-            receitas_mes += val_dec
-            grupo_dre = str(cat_obj.dre_grupo or "").strip().upper()
-            if grupo_dre != "NAO_OPERACIONAL":
-                receitas_operacionais_mes += val_dec
-
-            categoria_item = categorias_receita.get(cat_obj.id or 0)
-            if not categoria_item:
-                categoria_item = DRECategoriaItem(
-                    plano_contas_id=cat_obj.id,
-                    nome=cat_obj.nome,
-                    codigo=cat_obj.codigo,
-                    tipo="R",
-                    total=0.0,
-                )
-                categorias_receita[cat_obj.id or 0] = categoria_item
-            categoria_item.total = float(Decimal(str(categoria_item.total)) + val_dec)
 
     resultado = receitas_mes - despesas_mes
     margem = float((resultado / receitas_mes) * Decimal("100")) if receitas_mes != Decimal("0") else 0.0

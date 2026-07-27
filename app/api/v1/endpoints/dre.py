@@ -118,9 +118,24 @@ def read_dre(
                 categorias_operacionais_ids.add(filho_id)
                 fila.append(filho_id)
 
+    # 1. Obter a última data de importação da planilha (WEB) para esta empresa (limitado a hoje para evitar datas futuras)
+    max_web_date = db.exec(
+        select(func.max(Lancamento.data_vencimento))
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.origem == "WEB",
+            Lancamento.is_deleted == False,
+            Lancamento.data_vencimento <= date.today()
+        )
+    ).first()
+
+    if max_web_date is None:
+        max_web_date = date(2000, 1, 1)
+
     categorias_por_id = {int(categoria.id): categoria for categoria in categorias if categoria.id is not None}
     comp_date = func.coalesce(Lancamento.data_competencia, Lancamento.data_vencimento)
-    rows = db.exec(
+    
+    stmt_lancamentos = (
         select(
             Lancamento.plano_contas_id,
             Lancamento.tipo,
@@ -146,7 +161,17 @@ def read_dre(
         )
         .where(comp_date >= inicio_serie)
         .where(comp_date <= fim_mes)
-    ).all()
+    )
+
+    if max_web_date > date(2000, 1, 1):
+        stmt_lancamentos = stmt_lancamentos.where(
+            or_(
+                Lancamento.origem != "PDV",
+                comp_date > max_web_date
+            )
+        )
+
+    rows = db.exec(stmt_lancamentos).all()
 
     receitas_mes = Decimal("0")
     despesas_mes = Decimal("0")
@@ -173,8 +198,6 @@ def read_dre(
         if grupo_dre in ("FORA_DRE", "FORA DRE", "FORA DA DRE"):
             continue
 
-        competencia = data_competencia or data_vencimento
-        
         competencia = data_competencia or data_vencimento
         
         # valor
@@ -232,19 +255,6 @@ def read_dre(
                     )
                     categorias_despesa[categoria.id or 0] = categoria_item
                 categoria_item.total = float(Decimal(str(categoria_item.total)) + valor)
-
-    # 1. Obter a última data de importação da planilha (WEB) para esta empresa
-    max_web_date = db.exec(
-        select(func.max(Lancamento.data_vencimento))
-        .where(
-            Lancamento.empresa_id == empresa_id,
-            Lancamento.origem == "WEB",
-            Lancamento.is_deleted == False
-        )
-    ).first()
-
-    if max_web_date is None:
-        max_web_date = date(2000, 1, 1)
 
     # 2. Buscar faturamento de cartões no PDV a partir do dia seguinte ao último import da planilha
     pdv_movs = db.exec(

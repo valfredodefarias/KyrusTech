@@ -188,6 +188,20 @@ def run_migrations():
 
         print("Executando migrations do Alembic...")
         
+        # Auto-heal production db version mismatch (e90d42582d34 -> da222fea69a9)
+        try:
+            engine = create_engine(settings.DATABASE_URL)
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT version_num FROM alembic_version"))
+                version = res.scalar()
+                if version == "e90d42582d34":
+                    print("[Alembic Heal] Found production version_num 'e90d42582d34'. Updating to 'da222fea69a9'...")
+                    conn.execute(text("UPDATE alembic_version SET version_num = 'da222fea69a9'"))
+                    conn.commit()
+                    print("[Alembic Heal] Version updated successfully.")
+        except Exception as e:
+            print("[Alembic Heal] Check/update of version_num bypassed:", e)
+        
         from alembic.config import Config
         from alembic import command
 

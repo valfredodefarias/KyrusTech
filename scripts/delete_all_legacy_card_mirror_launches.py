@@ -86,6 +86,7 @@ def main():
                 WHERE id IN (
                     SELECT id FROM lancamentos
                     WHERE origem = 'PDV'
+                      AND conta_id IS NULL
                       AND plano_contas_id IN :cat_ids
                       AND is_deleted = false
                     LIMIT 5000

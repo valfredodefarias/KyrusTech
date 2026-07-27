@@ -239,6 +239,7 @@ def run(dry_run=True):
                             new_lan = Lancamento(
                                 empresa_id=emp_id,
                                 plano_contas_id=item["plano_contas_id"],
+                                descricao=f"Receita Planilha {item['nome']}",
                                 tipo="R",
                                 origem="WEB",
                                 valor_previsto=target_val,

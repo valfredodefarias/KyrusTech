@@ -483,10 +483,11 @@ export function Dre() {
 
   const lancamentosFiltrados = useMemo(() => {
     return lancamentos.filter((item) => {
+      const isPaid = isLancamentoPago(item);
       const bankId = Number(item.conta_id || (item as any).conta_bancaria_id || 0);
-      if (bankId <= 0) return false;
+      if (isPaid && bankId <= 0) return false;
       if (selectedCentroCustoId !== 'ALL' && Number(item.centro_custo_id) !== selectedCentroCustoId) return false;
-      if (somentePagos && !isLancamentoPago(item)) return false;
+      if (somentePagos && !isPaid) return false;
       return true;
     });
   }, [lancamentos, selectedCentroCustoId, somentePagos]);

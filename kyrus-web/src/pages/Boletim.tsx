@@ -996,8 +996,9 @@ export function Boletim() {
       ...lancamentos
         .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
         .filter((item) => {
+          const isPaid = getStatusKey(item, todayIso, tomorrowIso) === 'PAGO' || Boolean(item.data_pagamento) || Number(item.valor_pago || 0) > 0;
           const bankId = Number(item.conta_id || (item as any).conta_bancaria_id || 0);
-          if (bankId <= 0) return false;
+          if (isPaid && bankId <= 0) return false;
           const contaId = Number(item.plano_contas_id);
           if (contaId > 0 && isForaDre(contaId)) return false;
           return true;

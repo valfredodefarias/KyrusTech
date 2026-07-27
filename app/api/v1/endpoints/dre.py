@@ -128,11 +128,10 @@ def read_dre(
             Lancamento.valor_pago,
             Lancamento.valor_previsto,
             Lancamento.data_pagamento,
+            Lancamento.conta_id,
         )
         .where(Lancamento.empresa_id == empresa_id)
         .where(Lancamento.is_deleted == False)
-        .where(Lancamento.conta_id.isnot(None))
-        .where(Lancamento.conta_id > 0)
         .where(comp_date >= inicio_serie)
         .where(comp_date <= fim_mes)
     ).all()
@@ -153,7 +152,10 @@ def read_dre(
         next_year = cursor.year + 1 if next_month == 13 else cursor.year
         cursor = date(next_year, 1 if next_month == 13 else next_month, 1)
 
-    for plano_contas_id, tipo_lan, data_competencia, data_vencimento, valor_pago, valor_previsto, data_pagamento in rows:
+    for plano_contas_id, tipo_lan, data_competencia, data_vencimento, valor_pago, valor_previsto, data_pagamento, conta_id in rows:
+        is_paid = data_pagamento is not None or (valor_pago is not None and valor_pago > 0)
+        if is_paid and (conta_id is None or conta_id <= 0):
+            continue
         categoria = categorias_por_id.get(int(plano_contas_id or 0))
         if categoria is None:
             continue

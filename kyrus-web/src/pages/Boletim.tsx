@@ -15,7 +15,10 @@ import {
   Activity,
   Check,
   Clock,
+  FileSpreadsheet,
+  Download,
 } from 'lucide-react';
+import ExcelJS from 'exceljs';
 
 
 import { AsyncApexChart } from '../components/AsyncApexChart';
@@ -788,6 +791,104 @@ export function Boletim() {
       active = false;
     };
   }, [referenceYear, refreshCount]);
+
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+
+  useEffect(() => {
+    const handleCloseMenu = () => setContextMenuPos(null);
+    window.addEventListener('click', handleCloseMenu);
+    return () => window.removeEventListener('click', handleCloseMenu);
+  }, []);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenuPos({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleExportExcel = async (customRows?: NormalizedRow[], prefix?: string) => {
+    setIsExportingExcel(true);
+    try {
+      const rowsToExport = customRows || dashboard.tableRows;
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Indicadores');
+
+      // Title Row
+      worksheet.mergeCells('A1:H1');
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = `Relatório de Indicadores - ${dashboard.effectiveMonthLabel}`;
+      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      worksheet.addRow([]);
+
+      // Header Row
+      const headers = ['Data Vencimento', 'Interessado / Entidade', 'Descrição', 'Valor (R$)', 'Operação', 'Categoria', 'Banco / Conta', 'Status'];
+      const headerRow = worksheet.addRow(headers);
+      headerRow.height = 26;
+
+      headerRow.eachCell((cell) => {
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+
+      const catMap = new Map(categorias.map((c) => [c.id, c.nome]));
+      const contaMap = new Map(contas.map((c) => [c.id, c.nome]));
+
+      // Data Rows
+      rowsToExport.forEach((row) => {
+        const catNome = row.contaId ? catMap.get(Number(row.contaId)) || '-' : '-';
+        const contaNome = row.contaNome || (row.contaId ? contaMap.get(Number(row.contaId)) || '-' : '-');
+
+        const addedRow = worksheet.addRow([
+          formatDate(row.dataVencimento),
+          row.interessado || '-',
+          row.descricao || '-',
+          Number(row.valorAbsoluto || 0),
+          row.flowType === 'RECEBIMENTO' ? 'Receita' : 'Despesa',
+          catNome,
+          contaNome,
+          row.statusLabel || '-',
+        ]);
+
+        addedRow.height = 20;
+
+        const valCell = addedRow.getCell(4);
+        valCell.numFmt = '"R$"#,##0.00;[Red]-"R$"#,##0.00';
+        valCell.alignment = { horizontal: 'right', vertical: 'middle' };
+
+        addedRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+        addedRow.getCell(5).alignment = { horizontal: 'center', vertical: 'middle' };
+        addedRow.getCell(8).alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+
+      // Auto width
+      worksheet.columns.forEach((column) => {
+        let maxLen = 14;
+        column.eachCell?.({ includeEmpty: true }, (cell) => {
+          const len = cell.value ? String(cell.value).length : 10;
+          if (len > maxLen) maxLen = len;
+        });
+        column.width = Math.min(maxLen + 4, 45);
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const filename = `${prefix || 'Indicadores_Boletim'}_${dashboard.effectiveMonthLabel.replace('/', '_')}.xlsx`;
+      a.download = filename;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Erro ao exportar planilha de Indicadores:', err);
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
 
 
 
@@ -2082,7 +2183,7 @@ export function Boletim() {
   const auditPanelShellClass = isDark ? 'border-white/12 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-900';
 
   return (
-    <div className={`min-h-full ${pageClass}`}>
+    <div className={`min-h-full ${pageClass}`} onContextMenu={handleContextMenu}>
       <div className="mx-auto w-full space-y-3">
         <header className={`overflow-hidden rounded-none border px-4 py-4 ${shellClass}`}>
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
@@ -2097,6 +2198,20 @@ export function Boletim() {
 
             <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
               <ViewToggle current={viewMode} onChange={setViewMode} isDark={isDark} />
+              <button
+                type="button"
+                onClick={() => handleExportExcel()}
+                disabled={isExportingExcel}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-bold transition ${
+                  isDark
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                    : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                }`}
+                title="Clique ou clique com o botão direito para exportar em Excel"
+              >
+                <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
+                <span>{isExportingExcel ? 'Gerando...' : 'Exportar Excel'}</span>
+              </button>
               <div className={`inline-flex flex-wrap items-center gap-2 rounded-full border px-3 py-2 ${isDark ? 'border-white/12 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
                 <CalendarDays className="h-4 w-4" />
                 <span className="text-[11px] font-black uppercase tracking-[0.14em]">Data</span>
@@ -3019,6 +3134,25 @@ export function Boletim() {
               </div>
             </section>
           </section>
+        {contextMenuPos && (
+          <div
+            className="fixed z-[9999] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-1.5 min-w-[240px]"
+            style={{ top: contextMenuPos.y, left: contextMenuPos.x }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setContextMenuPos(null);
+                void handleExportExcel();
+              }}
+              disabled={isExportingExcel}
+              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-700 dark:hover:text-emerald-400 rounded-lg transition-colors text-left"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>{isExportingExcel ? 'Gerando Planilha...' : 'Exportar Indicadores em Excel (.xlsx)'}</span>
+            </button>
+          </div>
         )}
       </div>
     </div>

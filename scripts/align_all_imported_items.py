@@ -84,10 +84,10 @@ def run(dry_run=True):
     print("======================================================================")
     
     files_map = {
-        35: ("Base_PizzaFabioUmarizal.xlsx", "Umarizal"),
-        37: ("Base_PizzaFabioAnanindeua.xlsx", "Ananindeua"),
-        39: ("Base_PizzaFabioMarco.xlsx", "Salão"),
-        40: ("Base_PizzaFabioMarco.xlsx", "Delivery"),
+        35: ("umarizal", "Umarizal"),
+        37: ("ananindeua", "Ananindeua"),
+        39: ("marco", "Salão"),
+        40: ("marco", "Delivery"),
     }
     
     # Category code mapping

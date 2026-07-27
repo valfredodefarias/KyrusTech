@@ -8,6 +8,12 @@ from decimal import Decimal
 from sqlmodel import Session, select
 from sqlalchemy import text
 
+if sys.stdout.encoding.lower() != 'utf-8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
@@ -58,7 +64,7 @@ def find_excel_file(keyword):
                 if f.is_file() and f.suffix.lower() == ".xlsx":
                     f_name = f.name.lower()
                     if kw in f_name and "ifood" not in f_name:
-                        print(f"  ✅ Encontrado: {f}")
+                        print(f"  [OK] Encontrado: {f}")
                         return f
     return None
 
@@ -96,7 +102,7 @@ def run(dry_run=True):
         for emp_id, (file_name, sheet_name) in files_map.items():
             xlsx_path = find_excel_file(file_name)
             if not xlsx_path:
-                print(f"⚠️ Arquivo {file_name} não encontrado nas pastas do projeto. Ignorando empresa {emp_id}.")
+                print(f"  [AVISO] Arquivo {file_name} não encontrado nas pastas do projeto. Ignorando empresa {emp_id}.")
                 continue
                 
             print(f"\nProcessing Empresa ID {emp_id} usando {xlsx_path.name}...")

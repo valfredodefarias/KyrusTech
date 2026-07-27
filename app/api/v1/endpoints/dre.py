@@ -131,6 +131,8 @@ def read_dre(
         )
         .where(Lancamento.empresa_id == empresa_id)
         .where(Lancamento.is_deleted == False)
+        .where(Lancamento.conta_id.isnot(None))
+        .where(Lancamento.conta_id > 0)
         .where(comp_date >= inicio_serie)
         .where(comp_date <= fim_mes)
     ).all()

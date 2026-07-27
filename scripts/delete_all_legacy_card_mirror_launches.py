@@ -19,7 +19,7 @@ def main():
     
     db = Session(engine)
     try:
-        # 1. Obter os IDs das categorias de cartão para todas as empresas
+        # 1. Obter os IDs das categorias de cartão e PIX para todas as empresas
         categories = db.execute(text("""
             SELECT id FROM plano_contas 
             WHERE (
@@ -27,13 +27,18 @@ def main():
                 OR codigo LIKE '01.03%'
                 OR codigo LIKE '01.01.02%'
                 OR codigo LIKE '01.01.03%'
+                OR codigo LIKE '01.01.04%'
+                OR codigo LIKE '01.01.05%'
                 OR LOWER(nome) LIKE '%cartão%'
                 OR LOWER(nome) LIKE '%cartao%'
                 OR LOWER(nome) LIKE '%crédito%'
                 OR LOWER(nome) LIKE '%credito%'
                 OR LOWER(nome) LIKE '%débito%'
                 OR LOWER(nome) LIKE '%debito%'
+                OR LOWER(nome) LIKE '%pix%'
             )
+            AND codigo NOT IN ('01.01', '01.01.01')
+            AND LOWER(nome) NOT LIKE '%dinheiro%'
             AND is_deleted = false;
         """)).fetchall()
         

@@ -116,6 +116,7 @@ def main():
     recent_eng = create_engine(url_recent)
     
     empresas = [
+        (27, "Rosário Belém"),
         (35, "Pizza Fábio Umarizal"),
         (37, "Pizza Fábio Ananindeua"),
         (39, "Pizza Fábio Marco - Salão"),

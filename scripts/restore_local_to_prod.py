@@ -28,11 +28,20 @@ def main():
         print(f"❌ Arquivo de dump não encontrado em {dump_file}!")
         return
         
+    # Drop public schema to ensure 100% fresh restore without FK constraint conflicts
+    from sqlalchemy import create_engine, text
+    try:
+        engine = create_engine(settings.DATABASE_URL)
+        with engine.connect() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
+            conn.commit()
+            print("✅ Schema public recriado do zero com sucesso!")
+    except Exception as e:
+        print(f"Aviso ao recriar schema: {e}")
+
     cmd = [
-        "pg_restore",
+        "pg_dump" if False else "pg_restore",
         "--dbname", db_url,
-        "--clean",
-        "--if-exists",
         "--no-owner",
         "--no-privileges",
         str(dump_file)

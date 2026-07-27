@@ -1418,7 +1418,13 @@ export function PDV() {
     
     // Detectar Venda Direta
     const firstItem = venda.itens_detalhe?.[0];
-    const isDirect = (venda as any).is_direct_sale || (venda.itens_detalhe?.length === 1 && (Number(firstItem?.produto_id) <= 0 || firstItem?.produto_nome === 'Venda Geral'));
+    const isGenericProduct = firstItem && (
+      Number(firstItem.produto_id) <= 0 ||
+      firstItem.produto_nome === 'Venda Geral' ||
+      firstItem.nome === 'Venda Geral' ||
+      produtos.find(p => String(p.id) === String(firstItem.produto_id))?.nome === 'Venda Geral'
+    );
+    const isDirect = (venda as any).is_direct_sale || (venda.itens_detalhe?.length === 1 && isGenericProduct);
     setIsDirectSale(!!isDirect);
     if (isDirect && firstItem) {
       setDirectSaleValue(formatMonetario((firstItem.preco_unitario || 0) * (firstItem.quantidade || 1)));

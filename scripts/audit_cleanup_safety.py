@@ -67,10 +67,19 @@ def main():
             # Check links to lote_cartao_itens
             cand_ids = tuple(r[0] for r in candidates)
             if cand_ids:
+                # In normalized schema, check if pdv_movimentacao_id or lancamento_id link exists
                 lote_links = conn.execute(text(
-                    "SELECT count(*) FROM lote_cartao_itens WHERE lancamento_id IN :ids"
+                    "SELECT count(*) FROM lote_cartao_itens WHERE pdv_movimentacao_id IN (SELECT id FROM pdv_movimentacoes WHERE venda_id IN (SELECT id_parcelamento FROM lancamentos WHERE id IN :ids))"
                 ), {"ids": cand_ids}).scalar()
                 print(f"  - Vinculados a Lotes de Cartão (lote_cartao_itens): {lote_links}")
+                
+            # Sample observacao JSONs
+            sample_obs = conn.execute(text(
+                "SELECT id, observacao FROM lancamentos WHERE id IN :ids LIMIT 5"
+            ), {"ids": cand_ids[:5]}).all()
+            print("  - Exemplos de observacao nos lançamentos do PDV:")
+            for s_id, s_obs in sample_obs:
+                print(f"    [ID {s_id}]: {s_obs}")
             print()
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ def main():
             WHERE id = :conta_id
         """), {"conta_id": conta_id}).first()
         
-        saldo_inicial = Decimal(str(conta[3] or 0))
+        saldo_inicial = Decimal(str(conta[2] or 0))
         
         # 2. Check all soft-deleted launches for conta_id 330
         deleted_launches = conn.execute(text("""

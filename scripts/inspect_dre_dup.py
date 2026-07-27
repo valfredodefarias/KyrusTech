@@ -18,7 +18,7 @@ def main():
     
     # We will inspect Pizza Fábio Umarizal (we can search by name to get the correct company_id)
     with engine.connect() as conn:
-        res = conn.execute(text("SELECT id, nome FROM empresas WHERE nome ILIKE '%Fábio%' OR nome ILIKE '%Umarizal%'"))
+        res = conn.execute(text("SELECT id, nome_fantasia FROM empresas WHERE nome_fantasia ILIKE '%Fábio%' OR nome_fantasia ILIKE '%Umarizal%'"))
         empresas = res.all()
         print("Empresas encontradas:", empresas)
         if not empresas:

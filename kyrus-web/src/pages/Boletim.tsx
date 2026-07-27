@@ -1124,6 +1124,7 @@ export function Boletim() {
         if (monthIndex < 0) return;
         const conta = contaPorId.get(contaId);
         if (!conta) return;
+        const dreGrupo = resolverDreGrupo(contaId);
         if (isForaDre(contaId)) return;
         const value = resolveLancamentoValue(lancamento, true);
 
@@ -3134,6 +3135,7 @@ export function Boletim() {
               </div>
             </section>
           </section>
+        )}
         {contextMenuPos && (
           <div
             className="fixed z-[9999] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-1.5 min-w-[240px]"

@@ -132,24 +132,6 @@ def read_dre(
         )
         .where(Lancamento.empresa_id == empresa_id)
         .where(Lancamento.is_deleted == False)
-        .where(
-            or_(
-                Lancamento.observacao.is_(None),
-                (
-                    ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%") &
-                    ~Lancamento.observacao.ilike('%"legacy_id_venda"%') &
-                    ~Lancamento.observacao.ilike('%"grouped_card_launch": true%') &
-                    ~Lancamento.observacao.ilike('%"is_movimentacao_pdv": true%') &
-                    ~Lancamento.observacao.ilike('%"origem": "PDV"%')
-                )
-            )
-        )
-        .where(
-            or_(
-                Lancamento.import_hash.is_(None),
-                ~Lancamento.import_hash.ilike("sangria-%")
-            )
-        )
         .where(comp_date >= inicio_serie)
         .where(comp_date <= fim_mes)
     ).all()

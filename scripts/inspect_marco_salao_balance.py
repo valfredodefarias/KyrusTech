@@ -21,7 +21,7 @@ def main():
         
         # 1. Accounts list
         contas = conn.execute(text("""
-            SELECT id, nome, tipo, saldo_inicial, saldo_atual
+            SELECT id, nome, tipo, saldo_inicial
             FROM contas
             WHERE empresa_id = :empresa_id AND is_deleted = false
             ORDER BY id
@@ -29,7 +29,7 @@ def main():
         
         print("\n--- CONTAS DE EMPRESA 39 ---")
         for c in contas:
-            print(f"ID: {c[0]:4d} | Nome: {c[1]:30s} | Tipo: {c[2]:10s} | Saldo Inicial: R$ {c[3]:12.2f} | Saldo Atual: R$ {c[4]:12.2f}")
+            print(f"ID: {c[0]:4d} | Nome: {c[1]:30s} | Tipo: {c[2]:10s} | Saldo Inicial: R$ {c[3]:12.2f}")
             
             # Recalculate balance for this account
             # Sum of revenues (R) - expenses (D) paid
@@ -54,7 +54,7 @@ def main():
             calculated_balance = Decimal(str(c[3] or 0)) + Decimal(str(rev)) - Decimal(str(exp))
             print(f"       -> Total Entradas (R): R$ {Decimal(str(rev)):12.2f}")
             print(f"       -> Total Saídas   (D): R$ {Decimal(str(exp)):12.2f}")
-            print(f"       -> Saldo Recalculado: R$ {calculated_balance:12.2f} (Diferença para DB: R$ {calculated_balance - Decimal(str(c[4] or 0)):10.2f})")
+            print(f"       -> Saldo Recalculado Atual: R$ {calculated_balance:12.2f}")
 
         # Check soft-deleted card launches that had a conta_id assigned!
         deleted_with_account = conn.execute(text("""

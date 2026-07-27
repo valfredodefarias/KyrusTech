@@ -30,7 +30,7 @@ def main():
         # 1. Audit Bank Balances
         print("\n--- 1. SALDOS DAS CONTAS BANCÁRIAS E CAIXAS DAS EMPRESAS ---")
         contas = conn.execute(text("""
-            SELECT c.id, e.nome_fantasia, c.nome, c.saldo_inicial, c.saldo_atual
+            SELECT c.id, e.nome_fantasia, c.nome, c.saldo_inicial
             FROM contas c
             JOIN empresas e ON e.id = c.empresa_id
             WHERE c.empresa_id IN (35, 37, 39, 40)
@@ -39,7 +39,7 @@ def main():
         """)).all()
         
         for c in contas:
-            print(f"  Empresa [{c[1]}] | Conta '{c[2]}' (ID {c[0]}): Saldo Inicial = R$ {c[3]:10.2f} | Saldo Atual = R$ {c[4]:10.2f}")
+            print(f"  Empresa [{c[1]}] | Conta '{c[2]}' (ID {c[0]}): Saldo Inicial = R$ {c[3]:10.2f}")
             
         # 2. Simulate DRE totals for Jan to Jun 2026
         print("\n--- 2. MATRIZ DRE DE RECEITAS SIMULADA (JAN A JUN/2026) ---")

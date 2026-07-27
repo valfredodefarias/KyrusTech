@@ -108,13 +108,23 @@ def run(dry_run=True):
             print(f"\nProcessing Empresa ID {emp_id} usando {xlsx_path.name}...")
             wb = openpyxl.load_workbook(xlsx_path, data_only=True)
             
-            # Target sheet 'DRE'
+            # Target sheet based on requested sheet_name or 'DRE'
             sheet = None
             for sname in wb.sheetnames:
-                if "dre" in sname.lower() and "2025" not in sname and "2024" not in sname:
+                s_clean = sname.lower()
+                if sheet_name.lower() in s_clean:
                     sheet = wb[sname]
-                    print(f"  Aba DRE selecionada: '{sname}'")
+                    print(f"  Aba especificada selecionada: '{sname}'")
                     break
+                    
+            if not sheet:
+                for sname in wb.sheetnames:
+                    s_clean = sname.lower()
+                    if "dre" in s_clean and "2025" not in s_clean and "2024" not in s_clean:
+                        sheet = wb[sname]
+                        print(f"  Aba DRE selecionada: '{sname}'")
+                        break
+                        
             if not sheet:
                 sheet = wb.active
                 print(f"  Aba padrão selecionada: '{sheet.title}'")

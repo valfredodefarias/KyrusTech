@@ -42,39 +42,24 @@ def parse_decimal(val):
     except Exception:
         return Decimal("0.00")
 
-def find_excel_file(file_name):
-    base_stem = file_name.replace(".xlsx", "").replace(" ", "").lower()
-    
-    # Common base paths inside container and host
+def find_excel_file(keyword):
+    kw = keyword.lower()
     search_dirs = [
-        Path("/app/backups/fabio"),
-        Path("/app/backups"),
-        Path("/app/scripts"),
-        Path("/app/fabio"),
-        Path("/app"),
-        ROOT_DIR / "backups" / "fabio",
-        ROOT_DIR / "backups",
         ROOT_DIR / "scripts",
-        ROOT_DIR / "fabio",
-        ROOT_DIR,
-        Path("/root/KyrusERP/backups/fabio"),
-        Path("/root/KyrusERP/backups"),
+        ROOT_DIR / "backups" / "fabio",
+        Path("/app/scripts"),
+        Path("/app/backups/fabio"),
     ]
     
-    print(f"Buscando arquivo '{file_name}' (stem: '{base_stem}')...")
+    print(f"Buscando arquivo com a palavra-chave '{kw}'...")
     for d in search_dirs:
         if d.exists() and d.is_dir():
-            try:
-                for f in d.iterdir():
-                    if f.is_file() and f.suffix.lower() == ".xlsx":
-                        f_stem = f.name.replace(".xlsx", "").replace(" ", "").lower()
-                        # Check match
-                        if base_stem in f_stem or f_stem in base_stem or "fabio" in f_stem:
-                            print(f"  ✅ Encontrado: {f}")
-                            return f
-            except Exception as e:
-                pass
-                
+            for f in d.iterdir():
+                if f.is_file() and f.suffix.lower() == ".xlsx":
+                    f_name = f.name.lower()
+                    if kw in f_name and "ifood" not in f_name:
+                        print(f"  ✅ Encontrado: {f}")
+                        return f
     return None
 
 def run(dry_run=True):
@@ -121,13 +106,27 @@ def run(dry_run=True):
             # Map header columns (01/2026, 02/2026, ...)
             month_cols = {}
             for col in range(2, 20):
-                val = clean_str(sheet.cell(1, col).value or sheet.cell(2, col).value)
-                if "/" in val:
-                    parts = val.split("/")
-                    if len(parts) == 2 and parts[1].startswith("202"):
-                        m = int(parts[0])
-                        y = int(parts[1])
-                        month_cols[col] = (y, m)
+                cell_val = sheet.cell(1, col).value or sheet.cell(2, col).value
+                if isinstance(cell_val, (datetime, date)):
+                    month_cols[col] = (cell_val.year, cell_val.month)
+                else:
+                    val = clean_str(cell_val)
+                    if "/" in val:
+                        parts = val.split("/")
+                        if len(parts) == 2 and parts[1].startswith("202"):
+                            try:
+                                m = int(parts[0])
+                                y = int(parts[1])
+                                month_cols[col] = (y, m)
+                            except ValueError:
+                                pass
+                        elif len(parts) == 2 and parts[0].startswith("202"):
+                            try:
+                                y = int(parts[0])
+                                m = int(parts[1])
+                                month_cols[col] = (y, m)
+                            except ValueError:
+                                pass
                         
             print(f"  Colunas de meses encontradas: {len(month_cols)}")
             

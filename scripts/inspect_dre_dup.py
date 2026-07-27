@@ -43,7 +43,7 @@ def main():
                 start_date = f"2026-{m:02d}-01"
                 end_date = f"2026-{m:02d}-31" if m in [1, 3, 5, 7] else (f"2026-{m:02d}-30" if m != 2 else "2026-02-28")
                 
-                # Query Lancamentos WITH FILTER (ignore PDV if <= max_web_date)
+                # Query Lancamentos WITH FILTER on observacao tags
                 lan_query = conn.execute(text("""
                     SELECT l.origem, SUM(COALESCE(NULLIF(l.valor_pago, 0), l.valor_previsto))
                     FROM lancamentos l
@@ -53,15 +53,16 @@ def main():
                       AND pc.tipo = 'R'
                       AND COALESCE(l.data_competencia, l.data_vencimento) >= :start_date
                       AND COALESCE(l.data_competencia, l.data_vencimento) <= :end_date
-                      AND (l.observacao IS NULL OR (l.observacao NOT ILIKE '%DestinoCompra DEMONSTRACAO%' AND l.observacao NOT ILIKE '%"legacy_id_venda"%'))
+                      AND (l.observacao IS NULL OR (
+                          l.observacao NOT ILIKE '%DestinoCompra DEMONSTRACAO%' 
+                          AND l.observacao NOT ILIKE '%"legacy_id_venda"%'
+                          AND l.observacao NOT ILIKE '%"grouped_card_launch": true%'
+                          AND l.observacao NOT ILIKE '%"is_movimentacao_pdv": true%'
+                          AND l.observacao NOT ILIKE '%"origem": "PDV"%'
+                      ))
                       AND (l.import_hash IS NULL OR l.import_hash NOT ILIKE 'sangria-%')
-                      AND (
-                        :max_web_date IS NULL 
-                        OR l.origem <> 'PDV' 
-                        OR COALESCE(l.data_competencia, l.data_vencimento) > :max_web_date
-                      )
                     GROUP BY l.origem
-                """), {"empresa_id": empresa_id, "start_date": start_date, "end_date": end_date, "max_web_date": max_web_date}).all()
+                """), {"empresa_id": empresa_id, "start_date": start_date, "end_date": end_date}).all()
                 
                 # Query PdvMovimentacoes
                 mov_query = conn.execute(text("""

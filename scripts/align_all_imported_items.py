@@ -42,6 +42,28 @@ def parse_decimal(val):
     except Exception:
         return Decimal("0.00")
 
+def find_excel_file(file_name):
+    possible_paths = [
+        ROOT_DIR / "scripts" / file_name,
+        ROOT_DIR / "scripts" / "fabio" / file_name,
+        ROOT_DIR / "fabio" / file_name,
+        ROOT_DIR / file_name,
+        Path("/app") / "fabio" / file_name,
+        Path("/app") / "scripts" / "fabio" / file_name,
+        Path("/root") / "KyrusERP" / "fabio" / file_name,
+        Path("/root") / "KyrusERP" / "scripts" / "fabio" / file_name,
+    ]
+    for p in possible_paths:
+        if p.exists():
+            return p
+            
+    # Search recursively for the filename
+    found = list(ROOT_DIR.rglob(file_name))
+    if found:
+        return found[0]
+        
+    return None
+
 def run(dry_run=True):
     print("======================================================================")
     print("ALINHAMENTO HISTÓRICO DAS PLANILHAS GOOGLE SHEETS (ORIGEM='WEB')")
@@ -74,9 +96,9 @@ def run(dry_run=True):
     db = Session(engine)
     try:
         for emp_id, (file_name, sheet_name) in files_map.items():
-            xlsx_path = ROOT_DIR / "scripts" / file_name
-            if not xlsx_path.exists():
-                print(f"⚠️ Arquivo {file_name} não encontrado. Ignorando empresa {emp_id}.")
+            xlsx_path = find_excel_file(file_name)
+            if not xlsx_path:
+                print(f"⚠️ Arquivo {file_name} não encontrado nas pastas do projeto. Ignorando empresa {emp_id}.")
                 continue
                 
             print(f"\nProcessing Empresa ID {emp_id} usando {file_name} (Aba: {sheet_name})...")

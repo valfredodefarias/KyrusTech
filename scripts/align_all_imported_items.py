@@ -99,49 +99,44 @@ def run(dry_run=True):
                 print(f"⚠️ Arquivo {file_name} não encontrado nas pastas do projeto. Ignorando empresa {emp_id}.")
                 continue
                 
-            print(f"\nProcessing Empresa ID {emp_id} usando {file_name} (Aba: {sheet_name})...")
+            print(f"\nProcessing Empresa ID {emp_id} usando {xlsx_path.name}...")
             wb = openpyxl.load_workbook(xlsx_path, data_only=True)
-            sheet = wb[sheet_name] if sheet_name in wb.sheetnames else wb.active
             
-            # Map header columns (search rows 1 to 5)
-            month_cols = {}
-            for r in range(1, 6):
-                for col in range(1, 25):
-                    cell_val = sheet.cell(r, col).value
-                    if not cell_val:
-                        continue
-                    if isinstance(cell_val, (datetime, date)):
-                        month_cols[col] = (cell_val.year, cell_val.month)
-                        print(f"  Header encontrado na linha {r}, col {col}: {cell_val.year}-{cell_val.month}")
-                    else:
-                        val = clean_str(cell_val)
-                        if "/" in val:
-                            parts = val.split("/")
-                            if len(parts) == 2 and parts[1].startswith("202"):
-                                try:
-                                    m = int(parts[0])
-                                    y = int(parts[1])
-                                    month_cols[col] = (y, m)
-                                    print(f"  Header encontrado na linha {r}, col {col}: {y}-{m}")
-                                except ValueError:
-                                    pass
-                            elif len(parts) == 2 and parts[0].startswith("202"):
-                                try:
-                                    y = int(parts[0])
-                                    m = int(parts[1])
-                                    month_cols[col] = (y, m)
-                                    print(f"  Header encontrado na linha {r}, col {col}: {y}-{m}")
-                                except ValueError:
-                                    pass
-                if month_cols:
-                    print(f"  Linha {r} continha os cabeçalhos de mês.")
+            # Target sheet 'DRE'
+            sheet = None
+            for sname in wb.sheetnames:
+                if "dre" in sname.lower() and "2025" not in sname and "2024" not in sname:
+                    sheet = wb[sname]
+                    print(f"  Aba DRE selecionada: '{sname}'")
                     break
-                        
-            if not month_cols:
-                print("  [DEBUG] Nenhuma coluna de mês encontrada automaticamente. Imprimindo primeiras 3 linhas:")
-                for r in range(1, 4):
-                    row_vals = [sheet.cell(r, c).value for c in range(1, 12)]
-                    print(f"    Linha {r}: {row_vals}")
+            if not sheet:
+                sheet = wb.active
+                print(f"  Aba padrão selecionada: '{sheet.title}'")
+            
+            # Map header columns from Row 1
+            month_cols = {}
+            for col in range(4, 25): # Cols D (4), E (5), F (6)...
+                cell_val = sheet.cell(1, col).value
+                if not cell_val:
+                    continue
+                if isinstance(cell_val, (datetime, date)):
+                    month_cols[col] = (cell_val.year, cell_val.month)
+                    print(f"  Mês encontrado na Col {col} (Row 1): {cell_val.year}-{cell_val.month:02d}")
+                else:
+                    val = clean_str(cell_val)
+                    if "/" in val:
+                        parts = val.split("/")
+                        if len(parts) == 2:
+                            try:
+                                m = int(parts[0])
+                                y = int(parts[1])
+                                if y < 100: y += 2000
+                                month_cols[col] = (y, m)
+                                print(f"  Mês encontrado na Col {col} (Row 1): {y}-{m:02d}")
+                            except ValueError:
+                                pass
+                                
+            print(f"  Total de colunas de meses identificadas em Row 1: {len(month_cols)}")
             
             # Load plano_contas for this company
             pcs = db.exec(select(PlanoContas).where(PlanoContas.empresa_id == emp_id, PlanoContas.is_deleted == False)).all()

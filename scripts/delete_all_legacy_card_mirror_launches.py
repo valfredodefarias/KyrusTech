@@ -1,13 +1,14 @@
 # scripts/delete_all_legacy_card_mirror_launches.py
 import os
 import sys
+
+# Adiciona o diretório raiz ao path para que o Python localize a pasta 'app'
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from sqlmodel import Session
 from app.db.session import engine
 from sqlalchemy import text
 from datetime import datetime
-
-# Adiciona o diretório raiz ao path para que o Python localize a pasta 'app'
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 def main():
     dry_run = "--apply" not in sys.argv

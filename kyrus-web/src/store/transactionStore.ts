@@ -4,8 +4,8 @@ import { api, normalizeListResponse, onApiMutation } from '../services/api';
 import { useAuthStore } from './authStore';
 import { useLookupStore } from './lookupStore';
 
-// Time-To-Live (TTL) for caching: 5 minutes (300,000 milliseconds)
-const CACHE_TTL = 300000;
+// Time-To-Live (TTL) for caching: 30 seconds (30,000 milliseconds)
+const CACHE_TTL = 30000;
 
 export interface LancamentoResumo {
   id: number;

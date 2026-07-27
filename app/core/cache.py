@@ -10,13 +10,13 @@ _MINIMIZED_CACHE: dict[int, dict[str, tuple[float, str]]] = {}
 IS_TESTING = "pytest" in sys.modules or os.getenv("TESTING") == "True"
 
 # Grace period in seconds to protect cache entries from instant invalidation (preventing stampedes)
-CACHE_GRACE_PERIOD = 15.0
+CACHE_TTL = 30.0
 # Maximum number of active companies in cache to keep memory usage low
 MAX_ACTIVE_COMPANIES = 5
 
 def get_transaction_cache(empresa_id: int, cache_key: str) -> Optional[str]:
     """
-    Retrieves a cached JSON payload if it exists and has not expired (TTL of 10 minutes).
+    Retrieves a cached JSON payload if it exists and has not expired (TTL of 30 seconds).
     """
     if empresa_id not in _MINIMIZED_CACHE:
         return None
@@ -26,7 +26,7 @@ def get_transaction_cache(empresa_id: int, cache_key: str) -> Optional[str]:
         return None
         
     timestamp, json_payload = entry
-    if time.time() - timestamp < 600.0:
+    if time.time() - timestamp < CACHE_TTL:
         return json_payload
         
     # Evict expired entry
@@ -60,33 +60,22 @@ def set_transaction_cache(empresa_id: int, cache_key: str, json_content: str):
     # 2. Set the cached value
     _MINIMIZED_CACHE[empresa_id][cache_key] = (now, json_content)
 
-    # 3. Clean up expired entries (older than 10 minutes / 600s) across all companies
+    # 3. Clean up expired entries (older than 30s) across all companies
     for emp_id in list(_MINIMIZED_CACHE.keys()):
         _MINIMIZED_CACHE[emp_id] = {
             k: (ts, val)
             for k, (ts, val) in _MINIMIZED_CACHE[emp_id].items()
-            if now - ts < 600.0
+            if now - ts < CACHE_TTL
         }
         if not _MINIMIZED_CACHE[emp_id]:
             _MINIMIZED_CACHE.pop(emp_id, None)
 
-def clear_transaction_cache(empresa_id: int, force: bool = False):
+def clear_transaction_cache(empresa_id: int, force: bool = True):
     """
-    Clears cached transaction lists for a given company, respecting the grace period unless forced.
+    Clears cached transaction lists for a given company immediately on mutation.
     """
-    if empresa_id not in _MINIMIZED_CACHE:
-        return
-
-    if force:
+    if empresa_id in _MINIMIZED_CACHE:
         _MINIMIZED_CACHE[empresa_id].clear()
-        return
-
-    now = time.time()
-    _MINIMIZED_CACHE[empresa_id] = {
-        key: (ts, val)
-        for key, (ts, val) in _MINIMIZED_CACHE[empresa_id].items()
-        if now - ts < CACHE_GRACE_PERIOD
-    }
 
 def register_cache_listeners():
     """

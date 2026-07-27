@@ -1083,7 +1083,11 @@ export const LancamentoFormDrawer = ({
         }
       }
       closeDrawerDirect();
-      pushToast('success', isEditing ? 'Lançamento atualizado com sucesso.' : 'Lançamento salvo com sucesso.');
+      if (formData.cartao_id && dataVencimento !== formData.data_vencimento) {
+        pushToast('info', `Lançamento salvo com sucesso. O vencimento foi ajustado para a fatura de ${formatDateShort(dataVencimento)}.`);
+      } else {
+        pushToast('success', isEditing ? 'Lançamento atualizado com sucesso.' : 'Lançamento salvo com sucesso.');
+      }
       if (onSaveSuccess) {
         onSaveSuccess(id || undefined);
       }

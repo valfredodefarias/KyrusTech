@@ -1658,20 +1658,6 @@ def listar_lancamentos(
             has_ids_filter = True
 
     if not has_ids_filter:
-        if not incluir_demonstracoes:
-            query = query.where(
-                or_(
-                    Lancamento.observacao.is_(None),
-                    ~Lancamento.observacao.ilike("%DestinoCompra DEMONSTRACAO%")
-                )
-            )
-        if not incluir_importacao_legada:
-            query = query.where(
-                or_(
-                    Lancamento.observacao.is_(None),
-                    ~Lancamento.observacao.ilike('%"legacy_id_venda"%')
-                )
-            )
         if data_inicio and data_fim:
             query = query.where(
                 or_(
@@ -1709,7 +1695,10 @@ def listar_lancamentos(
             else:
                 query = query.where(Lancamento.origem == origem)
         if status:
-            query = query.where(Lancamento.status == status)
+            if status.upper() in ("NAO_PAGO", "EM_ABERTO"):
+                query = query.where(col(Lancamento.status).in_(["EM ABERTO", "PENDENTE"]))
+            else:
+                query = query.where(Lancamento.status == status)
         if conciliado is not None:
             if not conciliado:
                 query = query.where(or_(Lancamento.conciliado == False, Lancamento.conciliado.is_(None)))
@@ -1724,8 +1713,6 @@ def listar_lancamentos(
                 | (col(Lancamento.valor_pago) != 0)
             )
 
-
-
     query = query.order_by(col(Lancamento.data_vencimento).asc())
     if not sem_paginacao:
         query = query.offset(safe_skip).limit(safe_limit)
@@ -1735,7 +1722,7 @@ def listar_lancamentos(
     if minimized:
         minimized_data = []
         for row in results:
-            minimized_data.append({
+            item = {
                 "id": row.id,
                 "descricao": row.descricao,
                 "tipo": row.tipo,
@@ -1758,9 +1745,10 @@ def listar_lancamentos(
                 "previsto": row.previsto,
                 "conciliado": row.conciliado,
                 "numero_parcela": row.numero_parcela,
-            })
+            }
+            minimized_data.append({k: v for k, v in item.items() if v is not None})
         import json
-        json_content = json.dumps(minimized_data)
+        json_content = json.dumps(minimized_data, separators=(",", ":"))
         from app.core.cache import IS_TESTING
         if not IS_TESTING and cache_key:
             from app.core.cache import set_transaction_cache

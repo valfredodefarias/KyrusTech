@@ -563,16 +563,41 @@ function SearchableProductSelect({
 }
 
 const formatMonetario = (val: string | number) => {
-  const cleanVal = typeof val === 'number' ? val.toFixed(2).replace('.', '') : String(val || '').replace(/\D/g, '');
+  if (val === '' || val === null || val === undefined) return '';
+  if (typeof val === 'number') {
+    return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
+  }
+  const str = String(val).trim();
+  if (!str) return '';
+  if (str.includes(',') || str.includes('.')) {
+    const parsed = parseFloat(str.replace(/\./g, '').replace(',', '.'));
+    if (!isNaN(parsed)) {
+      return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(parsed);
+    }
+  }
+  const cleanVal = str.replace(/\D/g, '');
   if (!cleanVal) return '';
+  if (cleanVal.length <= 2) {
+    const num = parseInt(cleanVal, 10);
+    return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+  }
   const num = parseInt(cleanVal, 10) / 100;
   return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
 };
 
 const parseMonetario = (val: string | number): number => {
-  if (typeof val === 'number') return val;
-  const cleanVal = String(val || '').replace(/\D/g, '');
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (!val) return 0;
+  const str = String(val).trim();
+  if (str.includes(',') || str.includes('.')) {
+    const parsed = parseFloat(str.replace(/\./g, '').replace(',', '.'));
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  const cleanVal = str.replace(/\D/g, '');
   if (!cleanVal) return 0;
+  if (cleanVal.length <= 2) {
+    return parseInt(cleanVal, 10);
+  }
   return parseInt(cleanVal, 10) / 100;
 };
 
@@ -849,6 +874,7 @@ export function PDV() {
   const [directSaleValue, setDirectSaleValue] = useState('');
   const [directSaleDiscount, setDirectSaleDiscount] = useState('');
   const [directSaleDescription, setDirectSaleDescription] = useState('');
+  const [showDescriptionAccordion, setShowDescriptionAccordion] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
   
   // Múltiplos Pagamentos, Status e Comprovante
@@ -1248,19 +1274,20 @@ export function PDV() {
     return 0;
   }, [paymentTotal, vendaValores.total]);
 
-  // Auto-sincronizar valor da Venda Direta com a forma de pagamento padrão
+  // Auto-sincronizar valor da Venda Direta com a forma de pagamento padrão (usando valor líquido pós-desconto)
   useEffect(() => {
     if (isDirectSale && !isEditingSale) {
       const defaultKey = pdvConfig?.forma_pagamento_padrao || 'dinheiro';
+      const valorLiquido = vendaValores.total > 0 ? formatMonetario(vendaValores.total) : (directSaleValue ? directSaleValue : '');
       setVendaPagamentos((prev) =>
         prev.map((p) =>
           p.tipoPagamento === defaultKey
-            ? { ...p, valor: directSaleValue }
+            ? { ...p, valor: valorLiquido }
             : p
         )
       );
     }
-  }, [isDirectSale, isEditingSale, directSaleValue, pdvConfig?.forma_pagamento_padrao]);
+  }, [isDirectSale, isEditingSale, directSaleValue, vendaValores.total, pdvConfig?.forma_pagamento_padrao]);
 
   // Foco automático ao abrir o drawer
   useEffect(() => {
@@ -1614,10 +1641,6 @@ export function PDV() {
     
     let validItens = [];
     if (isDirectSale) {
-      if (!directSaleDescription.trim()) {
-        setErrorVenda('A descrição dos itens vendidos é obrigatória.');
-        return;
-      }
       if (!directSaleValue || parseMonetario(directSaleValue) <= 0) {
         setErrorVenda('O valor da venda direta deve ser maior que zero.');
         return;
@@ -2987,17 +3010,6 @@ export function PDV() {
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 animate-in fade-in">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Venda Direta (Consolidada)</span>
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2 space-y-1">
-                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Descrição dos Itens Vendidos *</label>
-                      <input
-                        type="text"
-                        value={directSaleDescription}
-                        onChange={(e) => setDirectSaleDescription(e.target.value)}
-                        placeholder="Ex: Coca-cola 2L, 3 Salgados, etc."
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white"
-                        required
-                      />
-                    </div>
                     <div className="col-span-2 sm:col-span-1 space-y-1">
                       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Valor Total da Venda (R$) *</label>
                       <input
@@ -3019,6 +3031,29 @@ export function PDV() {
                         className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white"
                       />
                     </div>
+                  </div>
+
+                  {/* Descrição Opcional em Sanfona */}
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowDescriptionAccordion(!showDescriptionAccordion)}
+                      className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      {showDescriptionAccordion || directSaleDescription ? '▲ Ocultar descrição dos itens' : '+ Adicionar descrição dos itens (opcional)'}
+                    </button>
+                    {(showDescriptionAccordion || directSaleDescription) && (
+                      <div className="mt-2 space-y-1 animate-in fade-in">
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Descrição dos Itens Vendidos (Opcional)</label>
+                        <input
+                          type="text"
+                          value={directSaleDescription}
+                          onChange={(e) => setDirectSaleDescription(e.target.value)}
+                          placeholder="Ex: Coca-cola 2L, 3 Salgados, etc."
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white"
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (

@@ -43,34 +43,38 @@ def parse_decimal(val):
         return Decimal("0.00")
 
 def find_excel_file(file_name):
-    # Strip extension for prefix matching
-    base_stem = file_name.replace(".xlsx", "")
+    base_stem = file_name.replace(".xlsx", "").replace(" ", "").lower()
     
+    # Common base paths inside container and host
     search_dirs = [
+        Path("/app/backups/fabio"),
+        Path("/app/backups"),
+        Path("/app/scripts"),
+        Path("/app/fabio"),
+        Path("/app"),
         ROOT_DIR / "backups" / "fabio",
-        ROOT_DIR / "scripts" / "fabio",
+        ROOT_DIR / "backups",
         ROOT_DIR / "scripts",
         ROOT_DIR / "fabio",
         ROOT_DIR,
-        Path("/app") / "backups" / "fabio",
-        Path("/app") / "scripts" / "fabio",
-        Path("/app") / "fabio",
-        Path("/root") / "KyrusERP" / "backups" / "fabio",
-        Path("/root") / "KyrusERP" / "scripts" / "fabio",
-        Path("/root") / "KyrusERP" / "fabio",
+        Path("/root/KyrusERP/backups/fabio"),
+        Path("/root/KyrusERP/backups"),
     ]
     
+    print(f"Buscando arquivo '{file_name}' (stem: '{base_stem}')...")
     for d in search_dirs:
         if d.exists() and d.is_dir():
-            for f in d.iterdir():
-                if f.is_file() and f.suffix == ".xlsx" and base_stem.lower() in f.name.lower():
-                    return f
-                    
-    # Global recursive search if not found in specific dirs
-    for f in ROOT_DIR.rglob("*.xlsx"):
-        if base_stem.lower() in f.name.lower():
-            return f
-            
+            try:
+                for f in d.iterdir():
+                    if f.is_file() and f.suffix.lower() == ".xlsx":
+                        f_stem = f.name.replace(".xlsx", "").replace(" ", "").lower()
+                        # Check match
+                        if base_stem in f_stem or f_stem in base_stem or "fabio" in f_stem:
+                            print(f"  ✅ Encontrado: {f}")
+                            return f
+            except Exception as e:
+                pass
+                
     return None
 
 def run(dry_run=True):

@@ -32,18 +32,18 @@ def main():
             print(f"Analisando DRE de: {empresa_nome} (ID: {empresa_id})")
             print(f"=======================================================")
             
-            # Max web date
+            # Max web date (capped at today)
             max_web_res = conn.execute(text(
-                "SELECT max(data_vencimento) FROM lancamentos WHERE empresa_id = :empresa_id AND origem = 'WEB' AND is_deleted = false"
+                "SELECT max(data_vencimento) FROM lancamentos WHERE empresa_id = :empresa_id AND origem = 'WEB' AND is_deleted = false AND data_vencimento <= CURRENT_DATE"
             ), {"empresa_id": empresa_id})
             max_web_date = max_web_res.scalar()
-            print("max_web_date (origem='WEB'):", max_web_date)
+            print("max_web_date (origem='WEB', <= hoje):", max_web_date)
             
             for m in range(1, 8):
                 start_date = f"2026-{m:02d}-01"
                 end_date = f"2026-{m:02d}-31" if m in [1, 3, 5, 7] else (f"2026-{m:02d}-30" if m != 2 else "2026-02-28")
                 
-                # Query Lancamentos
+                # Query Lancamentos WITH FILTER (ignore PDV if <= max_web_date)
                 lan_query = conn.execute(text("""
                     SELECT l.origem, SUM(COALESCE(NULLIF(l.valor_pago, 0), l.valor_previsto))
                     FROM lancamentos l
@@ -55,8 +55,13 @@ def main():
                       AND COALESCE(l.data_competencia, l.data_vencimento) <= :end_date
                       AND (l.observacao IS NULL OR (l.observacao NOT ILIKE '%DestinoCompra DEMONSTRACAO%' AND l.observacao NOT ILIKE '%"legacy_id_venda"%'))
                       AND (l.import_hash IS NULL OR l.import_hash NOT ILIKE 'sangria-%')
+                      AND (
+                        :max_web_date IS NULL 
+                        OR l.origem <> 'PDV' 
+                        OR COALESCE(l.data_competencia, l.data_vencimento) > :max_web_date
+                      )
                     GROUP BY l.origem
-                """), {"empresa_id": empresa_id, "start_date": start_date, "end_date": end_date}).all()
+                """), {"empresa_id": empresa_id, "start_date": start_date, "end_date": end_date, "max_web_date": max_web_date}).all()
                 
                 # Query PdvMovimentacoes
                 mov_query = conn.execute(text("""
@@ -73,7 +78,7 @@ def main():
                 
                 lan_dict = {r[0]: Decimal(str(r[1] or 0)) for r in lan_query}
                 total_mes = sum(lan_dict.values()) + mov_query
-                print(f"Mês 2026-{m:02d} | TOTAL DRE: {total_mes:12.2f} | Lancamentos WEB: {lan_dict.get('WEB', 0):12.2f} | Lancamentos PDV: {lan_dict.get('PDV', 0):12.2f} | PdvMovs (>max_web): {mov_query:12.2f}")
+                print(f"Mês 2026-{m:02d} | TOTAL CORRIGIDO: {total_mes:12.2f} | WEB: {lan_dict.get('WEB', 0):12.2f} | PDV: {lan_dict.get('PDV', 0):12.2f} | Movs: {mov_query:12.2f}")
 
 
 if __name__ == "__main__":

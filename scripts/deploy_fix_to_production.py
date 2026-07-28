@@ -5,9 +5,9 @@
 ==========================================================================================
 Este script lê as credenciais do .env e executa a correção cirúrgica no banco PostgreSQL:
 1. Aplica a migração do schema adicionando 'data_bloqueio_periodo' na tabela 'empresas'.
-2. Desativa (is_deleted = true) APENAS os lançamentos retroativos gerados hoje (após 11:28h) 
-   com competência em meses passados (< 2026-07-01) na Rosário Belém (ID 27).
-   PRESERVA 100% das vendas manuais lançadas pela equipe nas datas normais.
+2. Desativa (is_deleted = true) APENAS as vendas automáticas do PDV ('Venda RV-%' e 'Comissão/Taxa%')
+   na Rosário Belém (ID 27).
+   PRESERVA 100% dos lançamentos manuais autênticos (com o padrão 'RV Nº:').
 3. Reconcilia o saldo da conta Dinheiro (ID 210) para R$ 4.839,00 exato (Total de contas = -R$ 51.068,00).
 4. Imprime o relatório final de validação.
 """
@@ -78,7 +78,7 @@ def main():
     dbname = os.environ.get("POSTGRES_DB") or "kyrus_erp"
 
     print("==========================================================================================")
-    print(f"🚀 EXECUTANDO CORREÇÃO CIRÚRGICA DE PRODUÇÃO: {user}@{host}:{port}/{dbname}")
+    print(f"🚀 EXECUTANDO LIMPEZA DE PRODUÇÃO (MANTER 'RV Nº:' E REMOVER 'Venda RV-'): {user}@{host}:{port}/{dbname}")
     print("==========================================================================================")
 
     container_name = host if host not in ["localhost", "127.0.0.1", "0.0.0.0"] else "db_kyrustech"
@@ -108,15 +108,14 @@ def main():
         except Exception as e:
             print(f"⚠️ Conexão via psycopg2 falhou ({e}). Tentando método CLI/Docker psql...")
 
-    # Filtro CIRÚRGICO: Inativa APENAS os gerados/atualizados HOJE (pós-11:28h) em meses retroativos (< 2026-07-01)
+    # Filtro: Inativa APENAS vendas automáticas do PDV ('Venda RV-') e preserva 'RV Nº:'
     sql_delete = """
     UPDATE lancamentos
     SET is_deleted = true, updated_at = NOW()
     WHERE empresa_id = 27
       AND is_deleted = false
-      AND (created_at >= '2026-07-27 11:28:00' OR updated_at >= '2026-07-27 11:28:00')
-      AND COALESCE(data_competencia, data_vencimento) < '2026-07-01'
-      AND (descricao LIKE 'Venda RV-%' OR descricao LIKE 'RV Nº:%' OR descricao LIKE 'Comissão/Taxa%');
+      AND (descricao LIKE 'Venda RV-%' OR descricao LIKE 'Comissão/Taxa%')
+      AND descricao NOT LIKE '%RV Nº:%';
     """
 
     if use_psycopg:
@@ -126,10 +125,10 @@ def main():
             print("✅ Migração de schema concluída!")
 
             empresa_id = 27
-            print(f"\n📌 Step 2: Inativando lançamentos retroativos indevidos do PDV (gerados pós-11:28h) na Rosário Belém...")
+            print(f"\n📌 Step 2: Inativando vendas automáticas do PDV ('Venda RV-') na Rosário Belém (ID {empresa_id})...")
             cur.execute(sql_delete)
             rows_updated = cur.rowcount
-            print(f"✅ Total de lançamentos retroativos inativados: {rows_updated}")
+            print(f"✅ Total de lançamentos automáticos de Venda RV inativados: {rows_updated}")
 
             print("\n📌 Step 3: Conciliando Saldo Inicial da Conta Dinheiro para R$ 4.839,00 exato...")
             sql_cur = """
@@ -178,7 +177,7 @@ def main():
         print("✅ Migração de schema concluída!")
         
         empresa_id = 27
-        print(f"\n📌 Step 2: Inativando lançamentos retroativos indevidos do PDV (gerados pós-11:28h) na Rosário Belém...")
+        print(f"\n📌 Step 2: Inativando vendas automáticas do PDV ('Venda RV-') na Rosário Belém (ID {empresa_id})...")
         _, out_del, err_del = run_psql_func(sql_delete)
         print(f"✅ Inativação concluída: {out_del.strip()} {err_del.strip()}")
         

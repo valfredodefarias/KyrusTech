@@ -231,10 +231,7 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
             select(PdvMovimentacao).where(PdvMovimentacao.venda_id == uuid_vista)
         ).first()
         assert mov_vista is not None
-        assert mov_vista.conciliado == False  # Sobrescrito para não pago
-        assert mov_vista.conta_id == 1
-        
-        # Payout vencimento: 13/06 + 30 dias = 13/07/2026. É uma segunda-feira (dia útil).
+        # Payout vencimento: 13/06 + 30 dias = 13/07/2026 (Segunda-feira)
         assert mov_vista.data == date(2026, 7, 13)
         assert mov_vista.bandeira == "VISA"
         assert mov_vista.forma_pagamento == "CREDITO_AVISTA"

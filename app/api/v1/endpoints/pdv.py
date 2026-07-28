@@ -928,6 +928,7 @@ def listar_recebiveis_cartao(
     Lê da tabela pdv_movimentacoes e também da tabela lancamentos (para lançamentos agrupados de cartão).
     """
     from app.services.pdv_service import obter_regra_cartao, calcular_payout_date, shift_months
+    from sqlalchemy.orm import selectinload
     from datetime import timedelta
 
     # 1. Query pdv_movimentacoes joining with PdvVenda, Usuario, and Entidade
@@ -1272,8 +1273,8 @@ def auto_match_conciliacao(
             PdvMovimentacao.is_deleted == False,
             PdvMovimentacao.forma_pagamento.in_(["CREDITO_AVISTA", "CREDITO_PARCELADO", "DEBITO"]),
             PdvMovimentacao.conciliado == False,
-            PdvMovimentacao.data >= data_deposito - timedelta(days=7),
-            PdvMovimentacao.data <= data_deposito + timedelta(days=7)
+            PdvMovimentacao.data >= data_deposito - timedelta(days=60),
+            PdvMovimentacao.data <= data_deposito + timedelta(days=15)
         )
     ).all()
     
@@ -1289,27 +1290,34 @@ def auto_match_conciliacao(
     def achar_regra_em_memoria(tipo_pag: str, band: str, cc_id: Optional[int]) -> Optional[RegraCartao]:
         band_upper = band.upper() if band else "OUTROS"
         
+        def match_tipo(r_tipo: str, query_tipo: str) -> bool:
+            if r_tipo == query_tipo:
+                return True
+            q_norm = "CREDITO_AVISTA" if query_tipo.lower() in ["cartao_credito_vista", "credito_vista"] else ("CREDITO_PARCELADO" if query_tipo.lower() in ["cartao_credito_parcelado", "credito_parcelado"] else ("DEBITO" if query_tipo.lower() in ["cartao_debito", "debito"] else query_tipo.upper()))
+            r_norm = "CREDITO_AVISTA" if r_tipo.lower() in ["cartao_credito_vista", "credito_vista"] else ("CREDITO_PARCELADO" if r_tipo.lower() in ["cartao_credito_parcelado", "credito_parcelado"] else ("DEBITO" if r_tipo.lower() in ["cartao_debito", "debito"] else r_tipo.upper()))
+            return q_norm == r_norm
+
         # 1. Tentar correspondência exata: tipo, bandeira e centro de custo
         if cc_id:
             for r in regras:
-                if r.tipo_pagamento == tipo_pag and r.bandeira == band_upper and r.centro_custo_id == cc_id:
+                if match_tipo(r.tipo_pagamento, tipo_pag) and r.bandeira == band_upper and r.centro_custo_id == cc_id:
                     return r
                     
         # 2. Tentar tipo e bandeira, sem centro de custo (centro_custo_id = None)
         for r in regras:
-            if r.tipo_pagamento == tipo_pag and r.bandeira == band_upper and r.centro_custo_id is None:
+            if match_tipo(r.tipo_pagamento, tipo_pag) and r.bandeira == band_upper and r.centro_custo_id is None:
                 return r
                 
         # 3. Tentar tipo e bandeira "OUTROS" com centro de custo
         if cc_id and band_upper != "OUTROS":
             for r in regras:
-                if r.tipo_pagamento == tipo_pag and r.bandeira == "OUTROS" and r.centro_custo_id == cc_id:
+                if match_tipo(r.tipo_pagamento, tipo_pag) and r.bandeira == "OUTROS" and r.centro_custo_id == cc_id:
                     return r
                     
         # 4. Tentar tipo e bandeira "OUTROS" sem centro de custo
         if band_upper != "OUTROS":
             for r in regras:
-                if r.tipo_pagamento == tipo_pag and r.bandeira == "OUTROS" and r.centro_custo_id is None:
+                if match_tipo(r.tipo_pagamento, tipo_pag) and r.bandeira == "OUTROS" and r.centro_custo_id is None:
                     return r
                     
         return None

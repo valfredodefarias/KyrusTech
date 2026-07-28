@@ -173,13 +173,22 @@ def obter_regra_cartao(
 ) -> Optional[RegraCartao]:
     bandeira_upper = bandeira.upper() if bandeira else "OUTROS"
     
+    # Normalizar tipo_pagamento para alinhar com os enums de RegraCartao
+    tipo_norm = tipo_pagamento.upper() if tipo_pagamento else ""
+    if tipo_pagamento and tipo_pagamento.lower() in ["cartao_credito_vista", "credito_vista"]:
+        tipo_norm = "CREDITO_AVISTA"
+    elif tipo_pagamento and tipo_pagamento.lower() in ["cartao_credito_parcelado", "credito_parcelado"]:
+        tipo_norm = "CREDITO_PARCELADO"
+    elif tipo_pagamento and tipo_pagamento.lower() in ["cartao_debito", "debito"]:
+        tipo_norm = "DEBITO"
+
     # 1. Tentar correspondência exata: tipo, bandeira e centro de custo
     if centro_custo_id:
         regra = db.exec(
             select(RegraCartao)
             .where(
                 RegraCartao.empresa_id == empresa_id,
-                RegraCartao.tipo_pagamento == tipo_pagamento,
+                RegraCartao.tipo_pagamento.in_([tipo_pagamento, tipo_norm]),
                 RegraCartao.bandeira == bandeira_upper,
                 RegraCartao.centro_custo_id == centro_custo_id,
                 RegraCartao.is_deleted == False
@@ -193,7 +202,7 @@ def obter_regra_cartao(
         select(RegraCartao)
         .where(
             RegraCartao.empresa_id == empresa_id,
-            RegraCartao.tipo_pagamento == tipo_pagamento,
+            RegraCartao.tipo_pagamento.in_([tipo_pagamento, tipo_norm]),
             RegraCartao.bandeira == bandeira_upper,
             RegraCartao.centro_custo_id == None,
             RegraCartao.is_deleted == False
@@ -1545,7 +1554,7 @@ class PdvService:
                         bandeira=bandeira_nome.upper(),
                         parcelas=num_parc,
                         numero_parcela=i,
-                        data=hoje_pag,
+                        data=vencimento,
                         centro_custo_id=venda_in.centro_custo_id,
                         conta_id=conta_id,
                         conciliado=False,

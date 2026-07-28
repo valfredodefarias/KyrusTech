@@ -28,6 +28,7 @@ from app.models.centro_custo import CentroCusto
 from app.models.regra_cartao import RegraCartao
 from app.models.lote_cartao import LoteCartao
 from app.models.lote_cartao_item import LoteCartaoItem
+from app.services.periodo_service import PeriodoService
 from app.models.movimentacao_estoque import MovimentacaoEstoque
 from app.models.pdv_venda import PdvVenda
 from app.models.pdv_venda_item import PdvVendaItem
@@ -2105,8 +2106,8 @@ def consolidar_dia_ifood(
         valor_pago=valor_pago_l,
         data_vencimento=data_recebimento,
         data_pagamento=data_pagamento_l,
-        data_competencia=consolidar_in.data_venda,
-        competencia=consolidar_in.data_venda.strftime("%m-%Y"),
+        data_competencia=PeriodoService.validar_e_ajustar_competencia(db, empresa_id, consolidar_in.data_venda),
+        competencia=PeriodoService.validar_e_ajustar_competencia(db, empresa_id, consolidar_in.data_venda).strftime("%m-%Y"),
         status=status_l,
         origem="IFOOD",
         id_parcelamento=None,
@@ -2138,8 +2139,8 @@ def consolidar_dia_ifood(
             valor_pago=Decimal("0.00"),
             data_vencimento=data_recebimento,
             data_pagamento=None,
-            data_competencia=consolidar_in.data_venda,
-            competencia=consolidar_in.data_venda.strftime("%m-%Y"),
+            data_competencia=PeriodoService.validar_e_ajustar_competencia(db, empresa_id, consolidar_in.data_venda),
+            competencia=PeriodoService.validar_e_ajustar_competencia(db, empresa_id, consolidar_in.data_venda).strftime("%m-%Y"),
             status="EM ABERTO",
             origem="IFOOD",
             id_parcelamento=consolidado_receita.id,
@@ -2351,7 +2352,7 @@ def criar_movimentacao_pdv(
                 valor_pago=mov_in.valor,
                 data_vencimento=mov_in.data,
                 data_pagamento=mov_in.data,
-                data_competencia=mov_in.data,
+                data_competencia=PeriodoService.validar_e_ajustar_competencia(db, empresa_id, mov_in.data),
                 status="PAGO",
                 entidade_id=default_client.id,
                 centro_custo_id=cc_id,
@@ -2516,7 +2517,7 @@ def criar_movimentacao_pdv(
             valor_pago=mov_in.valor,
             data_vencimento=mov_in.data,
             data_pagamento=mov_in.data,
-            data_competencia=mov_in.data,
+            data_competencia=PeriodoService.validar_e_ajustar_competencia(db, empresa_id, mov_in.data),
             status="PAGO",
             centro_custo_id=cc_id,
             observacao=json.dumps(meta, ensure_ascii=False)

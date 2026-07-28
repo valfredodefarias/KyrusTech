@@ -2456,19 +2456,29 @@ def listar_movimentacoes_pdv(
     """
     from sqlalchemy import func
     
-    # 1. If month not provided, find the latest month with data dynamically and quickly using index-backed query
+    # 1. If month not provided, find the latest month with data up to today dynamically
     if not mes or not isinstance(mes, str) or "-" not in mes:
+        today_d = date.today()
         latest_date = db.exec(
             select(func.max(PdvMovimentacao.data))
             .where(
                 PdvMovimentacao.empresa_id == empresa_id,
-                PdvMovimentacao.is_deleted == False
+                PdvMovimentacao.is_deleted == False,
+                PdvMovimentacao.data <= today_d
             )
         ).first()
+        if not latest_date:
+            latest_date = db.exec(
+                select(func.max(PdvMovimentacao.data))
+                .where(
+                    PdvMovimentacao.empresa_id == empresa_id,
+                    PdvMovimentacao.is_deleted == False
+                )
+            ).first()
         if latest_date:
             mes = str(latest_date)[:7]
         else:
-            mes = datetime.utcnow().strftime("%Y-%m")
+            mes = today_d.strftime("%Y-%m")
 
     # 2. Build date range for the selected month to ensure database-independent index-friendly scan
     try:

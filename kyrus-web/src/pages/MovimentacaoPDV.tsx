@@ -171,7 +171,9 @@ export function MovimentacaoPDV() {
       const targetSelectedDate = forceSelectedDate !== undefined ? forceSelectedDate : selectedDate;
 
       if (list.length > 0 && !targetSelectedDate) {
-        const sorted = [...list].sort((a, b) => b.data.localeCompare(a.data));
+        const todayStr = new Date().toISOString().split('T')[0];
+        const validDates = list.filter(m => m.data <= todayStr);
+        const sorted = (validDates.length > 0 ? validDates : list).sort((a, b) => b.data.localeCompare(a.data));
         const latestDate = sorted[0].data;
         setSelectedDate(latestDate);
         setCurrentYearMonth(latestDate.substring(0, 7));

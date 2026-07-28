@@ -5,7 +5,7 @@
 ==========================================================================================
 Este script lê as credenciais do .env e executa a correção no banco PostgreSQL:
 1. Aplica a migração do schema adicionando 'data_bloqueio_periodo' na tabela 'empresas'.
-2. Desativa (is_deleted = true) todos os lançamentos retroativos de Vendas RV em Rosário Belém (ID 27).
+2. Desativa (is_deleted = true) todos os lançamentos de Vendas RV em Rosário Belém (ID 27).
 3. Reconcilia o saldo da conta Dinheiro (ID 210) para R$ 4.839,00 exato (Total de contas = -R$ 51.068,00).
 4. Imprime o relatório final de validação.
 """
@@ -62,7 +62,6 @@ def run_docker_psql(container, user, dbname, sql):
     if res.returncode == 0:
         return res.returncode, res.stdout.decode("utf-8", errors="ignore"), res.stderr.decode("utf-8", errors="ignore")
         
-    # Fallback to postgres user inside container if app user fails
     cmd_fallback = ["docker", "exec", container, "psql", "-U", "postgres", "-d", dbname, "-A", "-F", "\t", "-c", sql]
     res_fallback = subprocess.run(cmd_fallback, env=env, capture_output=True)
     return res_fallback.returncode, res_fallback.stdout.decode("utf-8", errors="ignore"), res_fallback.stderr.decode("utf-8", errors="ignore")
@@ -80,10 +79,8 @@ def main():
     print(f"🚀 EXECUTANDO CORREÇÃO USANDO CREDENCIAIS DO .ENV: {user}@{host}:{port}/{dbname}")
     print("==========================================================================================")
 
-    # Detect container name if host is a container name or default db_kyrustech
     container_name = host if host not in ["localhost", "127.0.0.1", "0.0.0.0"] else "db_kyrustech"
 
-    # 1. Tentar psycopg2 se disponível
     psycopg2 = None
     try:
         import psycopg2
@@ -109,28 +106,33 @@ def main():
         except Exception as e:
             print(f"⚠️ Conexão via psycopg2 falhou ({e}). Tentando método CLI/Docker psql...")
 
+    sql_delete = """
+    UPDATE lancamentos
+    SET is_deleted = true, updated_at = NOW()
+    WHERE empresa_id = 27
+      AND is_deleted = false
+      AND (
+          descricao ILIKE '%Venda RV%' 
+       OR descricao ILIKE '%RV Nº:%' 
+       OR descricao ILIKE '% RV %' 
+       OR descricao ILIKE 'RV %' 
+       OR descricao ILIKE '%RV' 
+       OR descricao ILIKE '%Comissão/Taxa%'
+      );
+    """
+
     if use_psycopg:
         try:
-            # Step 1: Migration schema
             print("📌 Step 1: Aplicando migração da coluna 'data_bloqueio_periodo'...")
             cur.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS data_bloqueio_periodo DATE;")
             print("✅ Migração de schema concluída!")
 
-            # Step 2: Soft delete Venda RV lancamentos for Rosario Belem (Empresa 27)
             empresa_id = 27
-            print(f"\n📌 Step 2: Inativando lançamentos de Venda RV da Rosário Belém (ID {empresa_id})...")
-            sql_delete = f"""
-            UPDATE lancamentos
-            SET is_deleted = true, updated_at = NOW()
-            WHERE empresa_id = {empresa_id}
-              AND is_deleted = false
-              AND (descricao LIKE 'Venda RV-%' OR descricao LIKE 'RV Nº:%' OR descricao LIKE 'Comissão/Taxa%');
-            """
+            print(f"\n📌 Step 2: Inativando todos os lançamentos de Venda RV da Rosário Belém (ID {empresa_id})...")
             cur.execute(sql_delete)
             rows_updated = cur.rowcount
             print(f"✅ Total de lançamentos Venda RV inativados: {rows_updated}")
 
-            # Step 3: Reconcile saldo_inicial on Conta 210 (Dinheiro)
             print("\n📌 Step 3: Conciliando Saldo Inicial da Conta Dinheiro para R$ 4.839,00 exato...")
             sql_cur = """
             SELECT 
@@ -166,7 +168,6 @@ def main():
             cur.close()
             conn.close()
     else:
-        # Fallback via CLI psql ou Docker
         print("📌 Step 1: Aplicando migração da coluna 'data_bloqueio_periodo'...")
         code, out, err = run_system_psql(host, port, user, password, dbname, "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS data_bloqueio_periodo DATE;")
         if code != 0:
@@ -179,16 +180,9 @@ def main():
         print("✅ Migração de schema concluída!")
         
         empresa_id = 27
-        print(f"\n📌 Step 2: Inativando lançamentos de Venda RV da Rosário Belém (ID {empresa_id})...")
-        sql_delete = f"""
-        UPDATE lancamentos
-        SET is_deleted = true, updated_at = NOW()
-        WHERE empresa_id = {empresa_id}
-          AND is_deleted = false
-          AND (descricao LIKE 'Venda RV-%' OR descricao LIKE 'RV Nº:%' OR descricao LIKE 'Comissão/Taxa%');
-        """
-        _, out_del, _ = run_psql_func(sql_delete)
-        print(f"✅ Inativação concluída: {out_del.strip()}")
+        print(f"\n📌 Step 2: Inativando todos os lançamentos de Venda RV da Rosário Belém (ID {empresa_id})...")
+        _, out_del, err_del = run_psql_func(sql_delete)
+        print(f"✅ Inativação concluída: {out_del.strip()} {err_del.strip()}")
         
         print("\n📌 Step 3: Conciliando Saldo Inicial da Conta Dinheiro para R$ 4.839,00 exato...")
         sql_cur = """

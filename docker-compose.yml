@@ -90,7 +90,7 @@ services:
 
 networks:
   kyrus_portal:
-    external: true
+    name: kyrus_portal
   kyrus_db_internal:
     internal: true
 

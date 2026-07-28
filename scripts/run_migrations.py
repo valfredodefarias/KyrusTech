@@ -80,6 +80,7 @@ def apply_legacy_schema_compatibility() -> None:
         "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS transferencia_grupo_id VARCHAR",
         "CREATE INDEX IF NOT EXISTS ix_lancamentos_transferencia_grupo_id ON lancamentos (transferencia_grupo_id)",
         "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pdv_config VARCHAR",
+        "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS data_bloqueio_periodo DATE",
         "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS tipo_prazo VARCHAR DEFAULT 'DIAS_CORRIDOS'",
         "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS dia_fixo INTEGER",
         "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS fds_proximo_dia_util BOOLEAN DEFAULT TRUE",

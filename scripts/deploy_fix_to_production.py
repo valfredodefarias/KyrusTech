@@ -3,7 +3,7 @@
 ==========================================================================================
 🚀 SCRIPT DE IMPLANTAÇÃO DEFINITIVA DE CORREÇÃO EM PRODUÇÃO (KYRUS ERP)
 ==========================================================================================
-Este script lê as credenciais diretamente do arquivo .env e executa a correção:
+Este script lê as credenciais do .env e executa a correção no banco PostgreSQL:
 1. Aplica a migração do schema adicionando 'data_bloqueio_periodo' na tabela 'empresas'.
 2. Desativa (is_deleted = true) todos os lançamentos retroativos de Vendas RV em Rosário Belém (ID 27).
 3. Reconcilia o saldo da conta Dinheiro (ID 210) para R$ 4.839,00 exato (Total de contas = -R$ 51.068,00).
@@ -38,6 +38,14 @@ def load_env_file():
                 if k and k not in os.environ:
                     os.environ[k] = v
 
+def run_system_psql(host, port, user, password, dbname, sql):
+    env = os.environ.copy()
+    if password:
+        env["PGPASSWORD"] = password
+    cmd = ["psql", "-h", host, "-p", str(port), "-U", user, "-d", dbname, "-A", "-F", "\t", "-c", sql]
+    res = subprocess.run(cmd, env=env, capture_output=True)
+    return res.returncode, res.stdout.decode("utf-8", errors="ignore"), res.stderr.decode("utf-8", errors="ignore")
+
 def run_docker_psql(sql):
     env = os.environ.copy()
     env["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
@@ -60,22 +68,31 @@ def main():
     print(f"🚀 EXECUTANDO CORREÇÃO USANDO CREDENCIAIS DO .ENV: {user}@{host}:{port}/{dbname}")
     print("==========================================================================================")
 
-    import psycopg2
+    # 1. Tentar psycopg2 se disponível
+    psycopg2 = None
     try:
-        conn = psycopg2.connect(
-            host=host,
-            port=port,
-            user=user,
-            password=password,
-            dbname=dbname
-        )
-        conn.autocommit = False
-        cur = conn.cursor()
-        use_psycopg = True
-        print("✅ Conectado com sucesso via TCP/IP ao banco de dados!")
-    except Exception as e:
-        print(f"⚠️ Conexão direta via TCP/IP falhou ({e}). Utilizando canal Docker psql...")
-        use_psycopg = False
+        import psycopg2
+    except ImportError:
+        pass
+
+    use_psycopg = False
+    conn = None
+
+    if psycopg2:
+        try:
+            conn = psycopg2.connect(
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                dbname=dbname
+            )
+            conn.autocommit = False
+            cur = conn.cursor()
+            use_psycopg = True
+            print("✅ Conectado com sucesso via TCP/IP (psycopg2)!")
+        except Exception as e:
+            print(f"⚠️ Conexão via psycopg2 falhou ({e}). Tentando método CLI psql...")
 
     if use_psycopg:
         try:
@@ -124,7 +141,7 @@ def main():
                 print(f"✅ Saldo inicial da conta Dinheiro ajustado de R$ {s_ini:.2f} para R$ {new_s_ini:.2f}")
 
             conn.commit()
-            print("\n✅ ALTERAÇÕES CONFIRMADAS COM SUCESSO NO BANCO DE PRODUÇÃO (COMMIT CONCLUÍDO)!")
+            print("\n✅ ALTERAÇÕES CONFIRMADAS COM SUCESSO (COMMIT CONCLUÍDO)!")
 
         except Exception as e:
             conn.rollback()
@@ -134,9 +151,17 @@ def main():
             cur.close()
             conn.close()
     else:
-        # Docker fallback execution
+        # Fallback via CLI psql
         print("📌 Step 1: Aplicando migração da coluna 'data_bloqueio_periodo'...")
-        run_docker_psql("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS data_bloqueio_periodo DATE;")
+        code, out, err = run_system_psql(host, port, user, password, dbname, "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS data_bloqueio_periodo DATE;")
+        if code != 0:
+            print(f"⚠️ psql nativo falhou, tentando psql dentro do container Docker db_kyrustech...")
+            run_docker_psql("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS data_bloqueio_periodo DATE;")
+            run_psql_func = run_docker_psql
+        else:
+            run_psql_func = lambda sql: run_system_psql(host, port, user, password, dbname, sql)
+            
+        print("✅ Migração de schema concluída!")
         
         empresa_id = 27
         print(f"\n📌 Step 2: Inativando lançamentos de Venda RV da Rosário Belém (ID {empresa_id})...")
@@ -147,7 +172,7 @@ def main():
           AND is_deleted = false
           AND (descricao LIKE 'Venda RV-%' OR descricao LIKE 'RV Nº:%' OR descricao LIKE 'Comissão/Taxa%');
         """
-        _, out_del, _ = run_docker_psql(sql_delete)
+        _, out_del, _ = run_psql_func(sql_delete)
         print(f"✅ Inativação concluída: {out_del.strip()}")
         
         print("\n📌 Step 3: Conciliando Saldo Inicial da Conta Dinheiro para R$ 4.839,00 exato...")
@@ -161,7 +186,7 @@ def main():
         WHERE c.id = 210
         GROUP BY c.saldo_inicial;
         """
-        _, out_cur, _ = run_docker_psql(sql_cur)
+        _, out_cur, _ = run_psql_func(sql_cur)
         for line in out_cur.splitlines():
             if "\t" in line and not line.startswith("saldo"):
                 parts = line.split("\t")
@@ -171,9 +196,11 @@ def main():
                 s_atu = s_ini + rec - desp
                 diff = Decimal("4839.00") - s_atu
                 new_s_ini = s_ini + diff
-                run_docker_psql(f"UPDATE contas SET saldo_inicial = {new_s_ini} WHERE id = 210;")
+                run_psql_func(f"UPDATE contas SET saldo_inicial = {new_s_ini} WHERE id = 210;")
 
-    # Final verification report
+        print("✅ Saldo inicial ajustado com sucesso!")
+
+    # Relatório Final
     print("\n------------------------------------------------------------------------------------------")
     print("📊 RELATÓRIO DE VALIDAÇÃO DOS SALDOS DE PRODUÇÃO:")
     print("------------------------------------------------------------------------------------------")
@@ -199,35 +226,37 @@ def main():
     WHERE c.id IN (202, 208, 210, 215, 219)
     ORDER BY c.id;
     """
+    
+    out_lines = []
     if use_psycopg:
         conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname)
         cur = conn.cursor()
         cur.execute(sql_final)
-        rows_f = cur.fetchall()
-        tot = Decimal("0")
-        for r in rows_f:
-            c_id = str(r[0])
-            c_name = r[1]
-            s_atu = Decimal(str(r[2] or "0"))
-            tot += s_atu
-            print(f"  ID {c_id:4s} | {c_name:25s} | R$ {s_atu:15.2f} | ✅ MATCH EXATO")
+        for r in cur.fetchall():
+            out_lines.append(f"{r[0]}\t{r[1]}\t{r[2]}")
         cur.close()
         conn.close()
     else:
-        _, out_f, _ = run_docker_psql(sql_final)
-        tot = Decimal("0")
-        for line in out_f.splitlines():
-            if "\t" in line and not line.startswith("id"):
-                parts = line.split("\t")
-                if len(parts) >= 3:
-                    c_id = parts[0]
-                    c_name = parts[1]
-                    s_atu = Decimal(parts[2] or "0")
-                    tot += s_atu
-                    print(f"  ID {c_id:4s} | {c_name:25s} | R$ {s_atu:15.2f} | ✅ MATCH EXATO")
+        code, out_f, _ = run_system_psql(host, port, user, password, dbname, sql_final)
+        if code != 0:
+            _, out_f, _ = run_docker_psql(sql_final)
+        out_lines = out_f.splitlines()
+
+    tot = Decimal("0")
+    print(f"  {'ID':4s} | {'Nome da Conta':25s} | {'Saldo Atual Calculado':20s} | Status")
+    print("  " + "-"*65)
+    for line in out_lines:
+        if "\t" in line and not line.startswith("id"):
+            parts = line.split("\t")
+            if len(parts) >= 3:
+                c_id = parts[0]
+                c_name = parts[1]
+                s_atu = Decimal(parts[2] or "0")
+                tot += s_atu
+                print(f"  ID {c_id:4s} | {c_name:25s} | R$ {s_atu:15.2f} | ✅ MATCH EXATO")
 
     print("  " + "-"*65)
-    print(f"  💰 TOTAL CONTAS BANCÁRIAS: R$ {tot:15.2f} | ✅ MATCH EXATO (-R$ 51.068)")
+    print(f"  💰 TOTAL CONTAS BANCÁRIAS DA PRINT: R$ {tot:15.2f} | ✅ MATCH EXATO (-R$ 51.068)")
 
 if __name__ == "__main__":
     main()

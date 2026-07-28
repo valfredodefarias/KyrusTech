@@ -12,6 +12,7 @@ Este script lê as credenciais do .env e executa a correção no banco PostgreSQ
 
 import os
 import sys
+import shutil
 import subprocess
 from pathlib import Path
 from decimal import Decimal
@@ -39,21 +40,33 @@ def load_env_file():
                     os.environ[k] = v
 
 def run_system_psql(host, port, user, password, dbname, sql):
+    if not shutil.which("psql"):
+        return -1, "", "psql CLI não encontrado no SO host"
     env = os.environ.copy()
     if password:
         env["PGPASSWORD"] = password
     cmd = ["psql", "-h", host, "-p", str(port), "-U", user, "-d", dbname, "-A", "-F", "\t", "-c", sql]
-    res = subprocess.run(cmd, env=env, capture_output=True)
-    return res.returncode, res.stdout.decode("utf-8", errors="ignore"), res.stderr.decode("utf-8", errors="ignore")
+    try:
+        res = subprocess.run(cmd, env=env, capture_output=True)
+        return res.returncode, res.stdout.decode("utf-8", errors="ignore"), res.stderr.decode("utf-8", errors="ignore")
+    except Exception as e:
+        return -1, "", str(e)
 
 def run_docker_psql(sql):
     env = os.environ.copy()
-    env["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
-    res = subprocess.run(
-        ["docker", "exec", "db_kyrustech", "psql", "-U", "kyrus_user", "-d", "kyrus_erp", "-A", "-F", "\t", "-c", sql],
-        env=env, capture_output=True
-    )
-    return res.returncode, res.stdout.decode("utf-8", errors="ignore"), res.stderr.decode("utf-8", errors="ignore")
+    if "DOCKER_HOST" not in env and os.name == 'nt':
+        env["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
+    
+    # Try db_kyrustech container first
+    cmd = ["docker", "exec", "db_kyrustech", "psql", "-U", "kyrus_user", "-d", "kyrus_erp", "-A", "-F", "\t", "-c", sql]
+    res = subprocess.run(cmd, env=env, capture_output=True)
+    if res.returncode == 0:
+        return res.returncode, res.stdout.decode("utf-8", errors="ignore"), res.stderr.decode("utf-8", errors="ignore")
+        
+    # Try any running postgres container
+    cmd_alt = ["docker", "exec", "-i", "db_kyrustech", "psql", "-U", "kyrus_user", "-d", "kyrus_erp", "-A", "-F", "\t", "-c", sql]
+    res_alt = subprocess.run(cmd_alt, env=env, capture_output=True)
+    return res_alt.returncode, res_alt.stdout.decode("utf-8", errors="ignore"), res_alt.stderr.decode("utf-8", errors="ignore")
 
 def main():
     load_env_file()
@@ -92,7 +105,7 @@ def main():
             use_psycopg = True
             print("✅ Conectado com sucesso via TCP/IP (psycopg2)!")
         except Exception as e:
-            print(f"⚠️ Conexão via psycopg2 falhou ({e}). Tentando método CLI psql...")
+            print(f"⚠️ Conexão via psycopg2 falhou ({e}). Tentando método CLI/Docker psql...")
 
     if use_psycopg:
         try:
@@ -151,13 +164,13 @@ def main():
             cur.close()
             conn.close()
     else:
-        # Fallback via CLI psql
+        # Fallback via CLI psql ou Docker
         print("📌 Step 1: Aplicando migração da coluna 'data_bloqueio_periodo'...")
         code, out, err = run_system_psql(host, port, user, password, dbname, "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS data_bloqueio_periodo DATE;")
         if code != 0:
-            print(f"⚠️ psql nativo falhou, tentando psql dentro do container Docker db_kyrustech...")
-            run_docker_psql("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS data_bloqueio_periodo DATE;")
+            print("ℹ️ Executando comandos via container Docker db_kyrustech...")
             run_psql_func = run_docker_psql
+            run_psql_func("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS data_bloqueio_periodo DATE;")
         else:
             run_psql_func = lambda sql: run_system_psql(host, port, user, password, dbname, sql)
             

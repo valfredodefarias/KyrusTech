@@ -927,9 +927,8 @@ def listar_recebiveis_cartao(
     
     Lê da tabela pdv_movimentacoes e também da tabela lancamentos (para lançamentos agrupados de cartão).
     """
-    from app.services.pdv_service import obter_regra_cartao
-    from sqlalchemy.orm import selectinload
-    from sqlmodel import col, func
+    from app.services.pdv_service import obter_regra_cartao, calcular_payout_date, shift_months
+    from datetime import timedelta
 
     # 1. Query pdv_movimentacoes joining with PdvVenda, Usuario, and Entidade
     query = (
@@ -978,9 +977,17 @@ def listar_recebiveis_cartao(
         if regra:
             if regra.modo_parcelamento == "ANTECIPADO":
                 fee_percentage = regra.taxa_porcentagem + (m.numero_parcela - 1) * regra.taxa_antecipacao
+                dt_venc = calcular_payout_date(m.data, regra)
             else:
+                base_installment_date = shift_months(m.data, (m.numero_parcela or 1) - 1)
+                dt_venc = calcular_payout_date(base_installment_date, regra)
                 fee_percentage = regra.taxa_porcentagem
         else:
+            if m.forma_pagamento == "CREDITO_PARCELADO":
+                dt_venc = shift_months(m.data, (m.numero_parcela or 1) - 1)
+            else:
+                prazo = 1 if m.forma_pagamento == "DEBITO" else 30
+                dt_venc = m.data + timedelta(days=prazo)
             fee_percentage = Decimal("0.00")
 
         valor_bruto = m.valor
@@ -993,8 +1000,8 @@ def listar_recebiveis_cartao(
             "id": m.id,
             "venda_id_uuid": m.venda_id,
             "rv": venda.rv if (venda and venda.rv) else f"RV-{m.id:06d}",
-            "data_venda": venda.data_venda if venda else m.data,
-            "data_vencimento": m.data,
+            "data_venda": str(venda.data_venda if (venda and venda.data_venda) else m.data),
+            "data_vencimento": str(dt_venc),
             "descricao": m.descricao,
             "tipo_pagamento": tipo_pag_lower,
             "bandeira": m.bandeira or "OUTROS",

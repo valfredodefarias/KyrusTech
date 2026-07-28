@@ -12,7 +12,7 @@ services:
       - "5432:5432"
     volumes:
       - db_kyrustech_data:/var/lib/postgresql/data
-    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "work_mem=64MB", "-c", "maintenance_work_mem=128MB", "-c", "effective_cache_size=1.5GB", "-c", "synchronous_commit=off", "-c", "max_connections=300"]
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "work_mem=64MB", "-c", "maintenance_work_mem=128MB", "-c", "effective_cache_size=1.5GB", "-c", "synchronous_commit=off", "-c", "checkpoint_completion_target=0.9", "-c", "random_page_cost=1.1", "-c", "max_connections=300"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s

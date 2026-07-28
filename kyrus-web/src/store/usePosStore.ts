@@ -256,13 +256,31 @@ export const usePosStore = create<PosState>()(
   )
 );
 
-// Global Window Listeners
+// Global Window Listeners & Auto-Healing Background Loop
 if (typeof window !== 'undefined') {
+  // Auto-retry a cada 10 segundos se houver vendas pendentes
+  setInterval(() => {
+    const { pendingSales, isOnline } = usePosStore.getState();
+    if (pendingSales.length > 0 && isOnline) {
+      void usePosStore.getState().forceSyncPendingSales();
+    }
+  }, 10000);
+
   window.addEventListener('online', () => {
     usePosStore.getState().setOnline(true);
-    void usePosStore.getState().syncPendingSales();
+    void usePosStore.getState().forceSyncPendingSales();
   });
   window.addEventListener('offline', () => {
     usePosStore.getState().setOnline(false);
+  });
+  window.addEventListener('focus', () => {
+    if (usePosStore.getState().pendingSales.length > 0) {
+      void usePosStore.getState().forceSyncPendingSales();
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && usePosStore.getState().pendingSales.length > 0) {
+      void usePosStore.getState().forceSyncPendingSales();
+    }
   });
 }

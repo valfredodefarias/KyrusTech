@@ -618,6 +618,9 @@ export function PDV() {
   const isOnline = usePosStore((state) => state.isOnline);
   const addSale = usePosStore((state) => state.addSale);
   const syncPendingSales = usePosStore((state) => state.syncPendingSales);
+  const forceSyncPendingSales = usePosStore((state) => state.forceSyncPendingSales);
+  const removePendingSale = usePosStore((state) => state.removePendingSale);
+  const clearPendingSales = usePosStore((state) => state.clearPendingSales);
 
   const permissions = useAuthStore((state) => state.user?.permissions || []);
   const podeEscolherVendedor = permissions.includes('*') || permissions.includes('PDV_REALIZAR_SANGRIA') || permissions.includes('PDV_CANCELAR_VENDA');
@@ -1955,27 +1958,41 @@ export function PDV() {
             {/* Visual Queue for Pending Sales */}
             {pendingSales.length > 0 && (
               <div className="rounded-3xl border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20 backdrop-blur-sm shadow-sm space-y-3 mb-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <UploadCloud className="h-5 w-5 text-amber-600 dark:text-amber-400 animate-pulse" />
                     <h3 className="font-bold text-sm text-amber-900 dark:text-amber-200">
                       Vendas em fila de sincronização ({pendingSales.length})
                     </h3>
                   </div>
-                  {!isOnline && (
-                    <span className="text-[10px] bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      Offline
-                    </span>
-                  )}
-                  {isOnline && (
-                    <span className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-450 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      Online - Sincronizando
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void forceSyncPendingSales()}
+                      className="flex items-center gap-1 text-[11px] font-bold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded-xl shadow-sm transition active:scale-95 cursor-pointer"
+                      title="Forçar tentativa de envio imediata ao servidor"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Sincronizar Agora
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm('Deseja limpar toda a fila de vendas pendentes da memória local? Vendas não salvas no servidor serão descartadas.')) {
+                          clearPendingSales();
+                        }
+                      }}
+                      className="flex items-center gap-1 text-[11px] font-bold bg-slate-200 hover:bg-rose-100 text-slate-700 hover:text-rose-700 dark:bg-slate-800 dark:hover:bg-rose-950/50 dark:text-slate-300 dark:hover:text-rose-300 px-2.5 py-1 rounded-xl transition cursor-pointer"
+                      title="Limpar todas as vendas da fila local"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Limpar Fila
+                    </button>
+                  </div>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
                   {pendingSales.map((sale) => (
-                    <div key={sale.idempotency_key} className="bg-white/70 dark:bg-slate-900/60 rounded-2xl p-3 border border-amber-100 dark:border-amber-950/50 flex flex-col justify-between gap-3 shadow-sm transition hover:scale-[1.01]">
+                    <div key={sale.idempotency_key} className="bg-white/90 dark:bg-slate-900/90 rounded-2xl p-3 border border-amber-200 dark:border-amber-900/40 flex flex-col justify-between gap-3 shadow-sm transition hover:scale-[1.01]">
                       <div>
                         <div className="flex justify-between items-start gap-2">
                           <span className="font-bold text-xs text-slate-800 dark:text-white truncate">
@@ -1988,6 +2005,11 @@ export function PDV() {
                         <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
                           {sale.itensNomes}
                         </p>
+                        {sale.lastError && (
+                          <div className="mt-1.5 p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-[10px] text-rose-700 dark:text-rose-300 font-semibold leading-snug">
+                            ⚠️ {sale.lastError}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center justify-between text-[9px] text-slate-400 dark:text-slate-500 pt-1 border-t border-slate-100 dark:border-slate-800">
                         <span>
@@ -1995,10 +2017,20 @@ export function PDV() {
                             ? new Date(sale.dataHoraLocal).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) 
                             : '--:--'}
                         </span>
-                        <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
-                          <RotateCcw className="w-2.5 h-2.5 animate-spin" />
-                          Salvando
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
+                            <RotateCcw className="w-2.5 h-2.5 animate-spin" />
+                            {sale.lastError ? 'Tentando Novamente' : 'Salvando'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removePendingSale(sale.idempotency_key)}
+                            className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer"
+                            title="Remover esta venda da fila local"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}

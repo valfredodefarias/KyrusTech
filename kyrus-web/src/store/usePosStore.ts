@@ -94,6 +94,7 @@ export interface Sale {
   itensNomes?: string;
   dataHoraLocal?: string; // ISO String
   empresa_id?: number;
+  lastError?: string;
 }
 
 interface PosState {
@@ -102,6 +103,9 @@ interface PosState {
   isSyncing: boolean;
   addSale: (sale: Omit<Sale, 'idempotency_key'>) => void;
   syncPendingSales: () => Promise<void>;
+  forceSyncPendingSales: () => Promise<void>;
+  removePendingSale: (idempotency_key: string) => void;
+  clearPendingSales: () => void;
   setOnline: (status: boolean) => void;
 }
 
@@ -141,6 +145,21 @@ export const usePosStore = create<PosState>()(
         }
       },
 
+      forceSyncPendingSales: async () => {
+        set({ isSyncing: false });
+        await get().syncPendingSales();
+      },
+
+      removePendingSale: (idempotency_key) => {
+        set((state) => ({
+          pendingSales: state.pendingSales.filter((s) => s.idempotency_key !== idempotency_key),
+        }));
+      },
+
+      clearPendingSales: () => {
+        set({ pendingSales: [], isSyncing: false });
+      },
+
       syncPendingSales: async () => {
         const { pendingSales, isSyncing, isOnline } = get();
         if (isSyncing || !isOnline || pendingSales.length === 0) return;
@@ -150,74 +169,82 @@ export const usePosStore = create<PosState>()(
         const queue = [...pendingSales];
         const failed: Sale[] = [];
 
-        for (const sale of queue) {
-          try {
-            const syncHeaders: Record<string, string> = {
-              'X-Idempotency-Key': sale.idempotency_key,
-            };
-            if (sale.empresa_id) {
-              syncHeaders['X-Company-ID'] = String(sale.empresa_id);
-            }
-
-            // Envia a venda ao backend
-            const response = await api.post('/pdv/vendas', {
-              entidade_id: sale.entidade_id,
-              centro_custo_id: sale.centro_custo_id,
-              vendedor_id: sale.vendedor_id,
-              desconto: sale.desconto,
-              status: sale.status,
-              itens: sale.itens,
-              pagamentos: sale.pagamentos,
-              rv: sale.rv,
-              data_pagamento: sale.data_pagamento,
-              observacao: sale.observacao,
-              comprovante_urls: sale.comprovante_urls || [],
-              campos_extras: sale.campos_extras || null
-            }, {
-              headers: syncHeaders,
-            });
-
-            const createdSale = response.data;
-            const targetUuid = createdSale?.venda_id_uuid;
-
-            // Se houver arquivos comprovantes anexados localmente, reconstrói e envia
-            if (sale.comprovanteFiles && sale.comprovanteFiles.length > 0 && targetUuid) {
-              const formDataUpload = new FormData();
-              for (const fileData of sale.comprovanteFiles) {
-                const byteCharacters = atob(fileData.data);
-                const byteNumbers = new Array(byteCharacters.length);
-                for (let i = 0; i < byteCharacters.length; i++) {
-                  byteNumbers[i] = byteCharacters.charCodeAt(i);
-                }
-                const byteArray = new Uint8Array(byteNumbers);
-                const blob = new Blob([byteArray], { type: fileData.type });
-                formDataUpload.append('files', blob, fileData.name);
-              }
-
-              const uploadHeaders: Record<string, string> = {
-                'Content-Type': 'multipart/form-data',
+        try {
+          for (const sale of queue) {
+            try {
+              const syncHeaders: Record<string, string> = {
+                'X-Idempotency-Key': sale.idempotency_key,
               };
               if (sale.empresa_id) {
-                uploadHeaders['X-Company-ID'] = String(sale.empresa_id);
+                syncHeaders['X-Company-ID'] = String(sale.empresa_id);
               }
 
-              await api.post(`/pdv/vendas/${targetUuid}/comprovante`, formDataUpload, {
-                headers: uploadHeaders,
+              // Envia a venda ao backend
+              const response = await api.post('/pdv/vendas', {
+                entidade_id: sale.entidade_id,
+                centro_custo_id: sale.centro_custo_id,
+                vendedor_id: sale.vendedor_id,
+                desconto: sale.desconto,
+                status: sale.status,
+                itens: sale.itens,
+                pagamentos: sale.pagamentos,
+                rv: sale.rv,
+                data_pagamento: sale.data_pagamento,
+                observacao: sale.observacao,
+                comprovante_urls: sale.comprovante_urls || [],
+                campos_extras: sale.campos_extras || null
+              }, {
+                headers: syncHeaders,
+              });
+
+              const createdSale = response.data;
+              const targetUuid = createdSale?.venda_id_uuid;
+
+              // Se houver arquivos comprovantes anexados localmente, reconstrói e envia
+              if (sale.comprovanteFiles && sale.comprovanteFiles.length > 0 && targetUuid) {
+                const formDataUpload = new FormData();
+                for (const fileData of sale.comprovanteFiles) {
+                  const byteCharacters = atob(fileData.data);
+                  const byteNumbers = new Array(byteCharacters.length);
+                  for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                  }
+                  const byteArray = new Uint8Array(byteNumbers);
+                  const blob = new Blob([byteArray], { type: fileData.type });
+                  formDataUpload.append('files', blob, fileData.name);
+                }
+
+                const uploadHeaders: Record<string, string> = {
+                  'Content-Type': 'multipart/form-data',
+                };
+                if (sale.empresa_id) {
+                  uploadHeaders['X-Company-ID'] = String(sale.empresa_id);
+                }
+
+                await api.post(`/pdv/vendas/${targetUuid}/comprovante`, formDataUpload, {
+                  headers: uploadHeaders,
+                });
+              }
+            } catch (error: any) {
+              console.error('Erro na sincronização de venda do PDV:', error);
+              const status = error?.response?.status;
+              // Se for duplicado (409) ou já inserido anteriormente com sucesso (200/201), remove da fila
+              if (status === 409 || status === 200 || status === 201) {
+                continue;
+              }
+
+              const detail = error?.response?.data?.detail;
+              const errorMsg = typeof detail === 'string' ? detail : (error?.message || 'Erro ao sincronizar');
+
+              failed.push({
+                ...sale,
+                lastError: errorMsg
               });
             }
-          } catch (error: any) {
-            console.error('Erro na sincronização de venda do PDV:', error);
-            const status = error?.response?.status;
-            // Se for duplicado (409) ou já inserido anteriormente com sucesso (200/201), remove da fila
-            if (status === 409 || status === 200 || status === 201) {
-              continue;
-            }
-            // Outros erros (ex: 500, falha de rede temporária), mantém na fila de retransmissão
-            failed.push(sale);
           }
+        } finally {
+          set({ pendingSales: failed, isSyncing: false });
         }
-
-        set({ pendingSales: failed, isSyncing: false });
       },
 
       setOnline: (isOnline) => set({ isOnline }),

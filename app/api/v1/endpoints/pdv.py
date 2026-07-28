@@ -1253,6 +1253,7 @@ def auto_match_conciliacao(
 ):
     """Retorna sugestões de recebíveis que correspondem ao valor creditado no extrato."""
     from datetime import timedelta
+    from app.services.pdv_service import calcular_payout_date, shift_months
 
     deposito = db.get(Lancamento, lancamento_deposito_id)
     if not deposito or deposito.empresa_id != empresa_id or deposito.is_deleted:
@@ -1327,11 +1328,18 @@ def auto_match_conciliacao(
         tipo_pag_lower = "cartao_debito" if m.forma_pagamento == "DEBITO" else ("cartao_credito_parcelado" if m.forma_pagamento == "CREDITO_PARCELADO" else "cartao_credito_vista")
         regra = achar_regra_em_memoria(tipo_pag_lower, m.bandeira, m.centro_custo_id)
         if regra:
+            if m.forma_pagamento == "CREDITO_PARCELADO" and m.numero_parcela and m.numero_parcela > 1:
+                base_installment_date = shift_months(m.data, m.numero_parcela - 1)
+                venc_previsto = calcular_payout_date(base_installment_date, regra)
+            else:
+                venc_previsto = calcular_payout_date(m.data, regra)
+
             if regra.modo_parcelamento == "ANTECIPADO":
                 fee_percentage = regra.taxa_porcentagem + (m.numero_parcela - 1) * regra.taxa_antecipacao
             else:
                 fee_percentage = regra.taxa_porcentagem
         else:
+            venc_previsto = m.data
             fee_percentage = Decimal("0.00")
 
         valor_bruto = m.valor
@@ -1340,7 +1348,7 @@ def auto_match_conciliacao(
         
         recebiveis_abertos.append({
             "id": m.id,
-            "data_vencimento": m.data,
+            "data_vencimento": venc_previsto,
             "bandeira": m.bandeira or "OUTROS",
             "valor_bruto": valor_bruto,
             "valor_taxa": valor_taxa,

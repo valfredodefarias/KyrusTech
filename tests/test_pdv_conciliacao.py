@@ -231,8 +231,8 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
             select(PdvMovimentacao).where(PdvMovimentacao.venda_id == uuid_vista)
         ).first()
         assert mov_vista is not None
-        # Payout vencimento: 13/06 + 30 dias = 13/07/2026 (Segunda-feira)
-        assert mov_vista.data == date(2026, 7, 13)
+        # Data da movimentação operacional no PDV: 13/06/2026 (Data da venda)
+        assert mov_vista.data == date(2026, 6, 13)
         assert mov_vista.bandeira == "VISA"
         assert mov_vista.forma_pagamento == "CREDITO_AVISTA"
         assert mov_vista.valor == Decimal("1000.00")
@@ -262,7 +262,7 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
         venda_parc = res_venda_parc.json()
         uuid_parc = venda_parc["venda_id_uuid"]
 
-        # Devem existir 3 movimentações parceladas
+        # Devem existir 3 movimentações parceladas registradas na data da venda (13/06/2026)
         movs_parc = session.exec(
             select(PdvMovimentacao)
             .where(PdvMovimentacao.venda_id == uuid_parc)
@@ -270,12 +270,10 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
         ).all()
         assert len(movs_parc) == 3
 
-        # Parcela 1: Venda 13/06. Base 13/06. D+30 = 13/07/2026 (Segunda)
-        # Parcela 2: Venda 13/06. Base 13/07. D+30 = 12/08/2026 (Quarta)
-        # Parcela 3: Venda 13/06. Base 13/08. D+30 = 12/09/2026. Sábado! FDS rollover -> 14/09/2026 (Segunda)
-        assert movs_parc[0].data == date(2026, 7, 13)
-        assert movs_parc[1].data == date(2026, 8, 12)
-        assert movs_parc[2].data == date(2026, 9, 14)
+        # Data da transação no PDV: 13/06/2026
+        assert movs_parc[0].data == date(2026, 6, 13)
+        assert movs_parc[1].data == date(2026, 6, 13)
+        assert movs_parc[2].data == date(2026, 6, 13)
 
         for mp in movs_parc:
             assert mp.conciliado == False

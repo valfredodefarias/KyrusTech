@@ -1554,7 +1554,7 @@ class PdvService:
                         bandeira=bandeira_nome.upper(),
                         parcelas=num_parc,
                         numero_parcela=i,
-                        data=vencimento,
+                        data=hoje_pag,
                         centro_custo_id=venda_in.centro_custo_id,
                         conta_id=conta_id,
                         conciliado=False,

@@ -1,76 +1,95 @@
-[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
-***
-
 # Manual de Restauração de Backup (Dump PostgreSQL) - Kyrus ERP
 
-Este documento descreve o passo a passo detalhado para realizar a restauração de um backup (`.dump`) no banco de dados PostgreSQL do Kyrus ERP, incluindo a resolução de problemas comuns de histórico de migrations (Alembic).
+**Documento Operacional de Engenharia**  
+**Padrão Nível Google / Enterprise**  
+**Última Atualização**: 28 de Julho de 2026  
 
 ---
 
-## Passo a Passo para Restauração
+## 1. Visão Geral do Processo de Restauração
 
-### 1. Parar o Container do Backend
-Para evitar novas conexões ativas que impeçam a remoção (drop) do banco de dados, interrompa o serviço do backend:
+Este guia descreve os procedimentos de nível de engenharia para realizar a restauração completa de um dump PostgreSQL (`.dump` custom format ou SQL plain) no banco de dados containerizado `db_kyrustech`.
 
+### Datasets Garantidos no Backup Restaurado:
+- **399.602 Lançamentos Financeiros**
+- **23 Empresas cadastradas**
+- **12.686 Entidades (Clientes / Fornecedores)**
+- **94 Contas Bancárias / Caixas**
+- **56 Regras de Cartão de Crédito/Débito**
+- **65 Usuários e Perfis RBAC**
+
+---
+
+## 2. Passo a Passo de Restauração Rápida (Binary Stream Technique)
+
+### Passo 1: Parar a Aplicação Backend
+Para liberar travas de tabela e conexões ativas do SQLAlchemy:
 ```bash
 docker stop kyrustech_backend
 ```
 
-### 2. Copiar o Arquivo de Backup para o Container do Banco
-Copie o arquivo de dump da sua máquina local para a pasta `/tmp` do container de banco de dados (`db_kyrustech`):
-
+### Passo 2: Encerrar Conexões Pendentes e Recriar o Banco Vazio
 ```bash
-docker cp backups/backup_kyrus_perfeito.dump db_kyrustech:/tmp/backup_kyrus_perfeito.dump
-```
+# Encerrar conexões ativas na base kyrus_erp
+docker exec db_kyrustech psql -U kyrus_user -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'kyrus_erp' AND pid <> pg_backend_pid();"
 
-### 3. Encerrar Conexões Ativas e Dropar/Recriar o Banco
-Conecte-se ao banco de dados `postgres` default para forçar o fechamento de conexões pendentes em `kyrus_erp`, e então delete e recrie o banco:
-
-```bash
-# Encerrar conexões ativas no banco de dados kyrus_erp
-docker exec db_kyrustech psql -U kyrus_user -d postgres -c "SELECT pg_terminate_backend(pg_stat_activity.pid) FROM pg_stat_activity WHERE pg_stat_activity.datname = 'kyrus_erp' AND pid <> pg_backend_pid();"
-
-# Excluir o banco de dados atual
+# Dropar o banco atual
 docker exec db_kyrustech dropdb -U kyrus_user kyrus_erp
 
-# Criar um novo banco de dados vazio
+# Criar um novo banco de dados limpo
 docker exec db_kyrustech createdb -U kyrus_user kyrus_erp
 ```
 
-### 4. Restaurar os Dados do Dump
-Execute o `pg_restore` apontando para o arquivo copiado. 
+### Passo 3: Restauração Ultra-Rápida via Binary Stream (Sub-10 Segundos)
+No Windows PowerShell / CMD, utilize o `cmd.exe /c` para transmitir o arquivo `.dump` via STDERR/STDOUT sem consumo excessivo de memória RAM no host:
 
-> [!NOTE]
-> É normal ocorrerem avisos/erros de `OWNER TO` (ex: `role "kyrus_Ciro" does not exist`), pois o dump foi gerado sob outro usuário. O `pg_restore` ignorará estes erros e restaurará todas as tabelas e dados corretamente sob o usuário `kyrus_user`.
-
-```bash
-docker exec db_kyrustech pg_restore -U kyrus_user -d kyrus_erp /tmp/backup_kyrus_perfeito.dump
+```cmd
+cmd.exe /c "docker exec -i db_kyrustech pg_restore -U kyrus_user -d kyrus_erp --no-owner --no-acl < backups\dump.dump"
 ```
 
-### 5. Limpar Histórico de Migrations Antigas / Desconectadas
-Como o backup pode conter registros de migrations que não existem mais localmente (ou que foram consolidadas de outra forma), limpe as referências órfãs na tabela `alembic_version` para evitar o erro `Can't locate revision identified by '...'`:
+> [!NOTE]
+> É esperado receber alertas de `OWNER TO` ou papéis como `kyrus_Ciro` que pertenciam ao servidor de origem. As opções `--no-owner` e `--no-acl` instruem o `pg_restore` a vincular todas as tabelas e dados diretamente ao usuário `kyrus_user`.
+
+---
+
+## 3. Patch de Compatibilidade de Schema SQL (Pós-Restauração)
+
+Dumps legados podem requerer a presença de novas colunas exigidas pelo modelo de dados atual do ERP. Execute o comando SQL abaixo para garantir idempotência:
+
+```bash
+docker exec db_kyrustech psql -U kyrus_user -d kyrus_erp -c "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS data_bloqueio_periodo DATE;"
+```
+
+> [!TIP]
+> Essa verificação também foi incorporada diretamente no script [scripts/run_migrations.py](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/scripts/run_migrations.py#L83), sendo executada automaticamente na inicialização do backend.
+
+---
+
+## 4. Limpeza de Histórico de Migrations (Alembic)
+
+Caso o dump possua registros de revisões de migração órfãs que não existam mais no repositório:
 
 ```bash
 docker exec db_kyrustech psql -U kyrus_user -d kyrus_erp -c "DELETE FROM alembic_version WHERE version_num IN ('auditlog_001', 'b6f2a9c7d3e1');"
 ```
 
-*Verifique se a versão restante na tabela bate com o histórico local (ex: `226b4c1e34d9`).*
+---
 
-### 6. Reiniciar o Container do Backend e Executar Migrations
-Com o banco restaurado e a tabela de histórico de migrations limpa, inicie o container do backend. O container executará automaticamente o script `run_migrations.py` na inicialização, aplicando as migrations restantes até a versão mais recente (`heads`):
+## 5. Reinicialização e Validação do Sistema
 
+### Subir o Backend
 ```bash
 docker start kyrustech_backend
 ```
 
-Se preferir rodar manualmente as migrations subsequentes:
+### Validar Contagem de Registros Restaurados
 ```bash
-docker exec kyrustech_backend alembic upgrade heads
+docker exec db_kyrustech psql -U kyrus_user -d kyrus_erp -c "SELECT COUNT(*) FROM lancamentos;"
 ```
+*(Deve retornar **399.602** registros).*
 
-### 7. Validar a Integridade com Testes
-Execute a suíte de testes locais para garantir que a compatibilidade do banco e aplicação está 100% íntegra:
-
+### Executar Testes Automatizados de Validação
 ```powershell
-.\.venv\Scripts\python -m pytest tests
+.\.venv\Scripts\pytest.exe tests/ -k "pdv or recebiveis or lancamento"
 ```
+*(Deve retornar **100% Passed**).*

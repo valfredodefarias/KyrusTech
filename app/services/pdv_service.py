@@ -551,7 +551,7 @@ def atualizar_status_contribuicoes_venda(
             )
 
     # 3. Atualizar status dos lançamentos individuais
-    hoje = datetime.utcnow().date()
+    hoje = date.today()
     empresa = db.get(Empresa, empresa_id)
     pdv_config_dict = {}
     if empresa and empresa.pdv_config:
@@ -1175,7 +1175,7 @@ class PdvService:
         """
         Registra uma nova venda itemizada no PDV, criando os respectivos lançamentos financeiros.
         """
-        hoje_pag = venda_in.data_pagamento or datetime.utcnow().date()
+        hoje_pag = venda_in.data_pagamento or venda_in.data
         
         # 0. Validar e processar campos extras
         campos_extras_validados = PdvService.validar_e_processar_campos_extras(
@@ -1448,7 +1448,7 @@ class PdvService:
             conta_id_str = config_contas.get(p.tipo_pagamento)
             conta_id = int(conta_id_str) if conta_id_str else None
 
-            hoje_pag = p.data_pagamento if p.data_pagamento else (venda_in.data_pagamento if venda_in.data_pagamento else datetime.utcnow().date())
+            hoje_pag = p.data_pagamento if p.data_pagamento else (venda_in.data_pagamento if venda_in.data_pagamento else venda_in.data)
 
             if sale_status == "ORCAMENTO":
                 is_paid = False
@@ -1768,7 +1768,7 @@ class PdvService:
         # 1. Validar travas de segurança e remover contribuições/lançamentos antigos
         remover_contribuicoes_venda(db, empresa_id, venda_id, current_user_id)
 
-        hoje_pag = venda_in.data_pagamento or datetime.utcnow().date()
+        hoje_pag = venda_in.data_pagamento or venda_in.data
         
         # 0. Validar e processar campos extras
         campos_extras_validados = PdvService.validar_e_processar_campos_extras(
@@ -2082,7 +2082,7 @@ class PdvService:
             conta_id_str = config_contas.get(p.tipo_pagamento)
             conta_id = int(conta_id_str) if conta_id_str else None
 
-            hoje_pag = p.data_pagamento if p.data_pagamento else (venda_in.data_pagamento if venda_in.data_pagamento else datetime.utcnow().date())
+            hoje_pag = p.data_pagamento if p.data_pagamento else (venda_in.data_pagamento if venda_in.data_pagamento else venda_in.data)
 
             if sale_status == "ORCAMENTO":
                 is_paid = False

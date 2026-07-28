@@ -122,7 +122,13 @@ api.interceptors.request.use(
     if (companyId) {
       config.headers['X-Company-ID'] = String(companyId);
     }
-    if (config.method?.toUpperCase() === 'GET') {
+    const method = String(config.method || '').toUpperCase();
+    if (['POST', 'PUT', 'DELETE'].includes(method)) {
+      const cryptoObj = typeof window !== 'undefined' ? window.crypto : null;
+      const mutationId = cryptoObj?.randomUUID ? cryptoObj.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      config.headers['X-Mutation-ID'] = mutationId;
+    }
+    if (method === 'GET') {
       config.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
       config.headers['Pragma'] = 'no-cache';
       config.headers['Expires'] = '0';

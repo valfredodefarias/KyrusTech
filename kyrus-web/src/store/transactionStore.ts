@@ -70,6 +70,7 @@ interface TransactionState {
   pagedLancamentos: any[];
   pagedCacheKey: string;
   pendingDeletedIds: Set<number>;
+  pendingUpdatedTxs: Map<number, { tx: LancamentoResumo; timestamp: number }>;
   setPagedLancamentos: (key: string, rows: any[]) => void;
   
   fetchYearTransactions: (year: number, force?: boolean) => Promise<LancamentoResumo[]>;
@@ -120,16 +121,29 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
     pagedLancamentos: [],
     pagedCacheKey: '',
     pendingDeletedIds: new Set<number>(),
+    pendingUpdatedTxs: new Map<number, { tx: LancamentoResumo; timestamp: number }>(),
     setPagedLancamentos: (key, rows) => set((state) => {
       console.log('[Zustand] setPagedLancamentos called with key:', key, 'rows count:', rows?.length, 'pendingDeletedIds:', Array.from(state.pendingDeletedIds));
+      const now = Date.now();
+      const TTL_WINDOW = 30000; // 30s Window Protection for Recent Client-Side Mutations
+
       const cleanRows = Array.isArray(rows) 
-        ? rows.filter((r) => {
-            const isPending = state.pendingDeletedIds.has(Number(r.id));
-            if (isPending) {
-              console.log('[Zustand] Filtering out pending deleted transaction:', r.id);
-            }
-            return !isPending;
-          }) 
+        ? rows
+            .filter((r) => {
+              const isPending = state.pendingDeletedIds.has(Number(r.id));
+              if (isPending) {
+                console.log('[Zustand] Filtering out pending deleted transaction:', r.id);
+              }
+              return !isPending;
+            })
+            .map((r) => {
+              const pending = state.pendingUpdatedTxs.get(Number(r.id));
+              if (pending && (now - pending.timestamp < TTL_WINDOW)) {
+                // Smart Merge: Preserve recent client-side optimistic mutation over stale GET response
+                return { ...r, ...pending.tx };
+              }
+              return r;
+            })
         : [];
       return {
         pagedCacheKey: key,
@@ -374,6 +388,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
       pagedLancamentos: [],
       pagedCacheKey: '',
       pendingDeletedIds: new Set<number>(),
+      pendingUpdatedTxs: new Map<number, { tx: LancamentoResumo; timestamp: number }>(),
     });
   },
 
@@ -384,8 +399,16 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
     if (!date) return;
     const year = date.getFullYear();
     set((state) => {
+      const nextPendingUpdated = new Map(state.pendingUpdatedTxs);
+      nextPendingUpdated.set(Number(transaction.id), {
+        tx: transaction,
+        timestamp: Date.now(),
+      });
+
       const yearList = state.yearCache[year] || [];
-      if (yearList.some((t) => t.id === transaction.id)) return state;
+      if (yearList.some((t) => t.id === transaction.id)) {
+        return { pendingUpdatedTxs: nextPendingUpdated };
+      }
       const nextList = [...yearList, transaction].sort((a, b) => {
         const da = parseDateOnly(a.data_vencimento)?.getTime() || 0;
         const db = parseDateOnly(b.data_vencimento)?.getTime() || 0;
@@ -397,6 +420,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
         return da - db;
       });
       return {
+        pendingUpdatedTxs: nextPendingUpdated,
         yearCache: { ...state.yearCache, [year]: nextList },
         pagedLancamentos: nextPaged,
       };
@@ -408,6 +432,12 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
     if (!date) return;
     const newYear = date.getFullYear();
     set((state) => {
+      const nextPendingUpdated = new Map(state.pendingUpdatedTxs);
+      nextPendingUpdated.set(Number(transaction.id), {
+        tx: transaction,
+        timestamp: Date.now(),
+      });
+
       const updatedYearCache = { ...state.yearCache };
       // Remove from other years if year changed
       Object.keys(updatedYearCache).forEach((yKey) => {
@@ -441,6 +471,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
       });
 
       return {
+        pendingUpdatedTxs: nextPendingUpdated,
         yearCache: updatedYearCache,
         pagedLancamentos: nextPaged,
       };
@@ -490,12 +521,9 @@ if (syncChannel) {
       store.incrementRefreshCount();
     } else if (data && typeof data === 'object') {
       if (data.type === 'add' && data.tx) {
-        store.invalidate();
         store.addTransactionToCache(data.tx);
         adjustBalanceForTx(data.tx, 'add');
-        store.incrementRefreshCount();
       } else if (data.type === 'update' && data.tx) {
-        store.invalidate();
         // Revert old balance
         const year = parseDateOnly(data.tx.data_vencimento)?.getFullYear();
         if (year && store.yearCache[year]) {
@@ -506,9 +534,7 @@ if (syncChannel) {
         }
         store.updateTransactionInCache(data.tx);
         adjustBalanceForTx(data.tx, 'add');
-        store.incrementRefreshCount();
       } else if (data.type === 'remove' && data.id) {
-        store.invalidate();
         // Revert balance
         let oldTx: LancamentoResumo | undefined;
         for (const year of Object.keys(store.yearCache).map(Number)) {
@@ -519,7 +545,6 @@ if (syncChannel) {
           adjustBalanceForTx(oldTx, 'remove');
         }
         store.removeTransactionFromCache(data.id);
-        store.incrementRefreshCount();
       }
     }
   };
@@ -625,8 +650,8 @@ onApiMutation((url, response) => {
   // Optimistic UI updates for single creation/edit/delete (0ms transitions)
   if (response && response.status >= 200 && response.status < 300) {
     const method = String(response.config?.method || '').toUpperCase();
-    const isSinglePost = url.endsWith('/lancamentos/');
-    const isSinglePut = /\/lancamentos\/\d+/.test(url);
+    const isSinglePost = url.endsWith('/lancamentos/') && method === 'POST';
+    const isSinglePut = /\/lancamentos\/\d+/.test(url) && method === 'PUT';
     const isSingleDelete = /\/lancamentos\/\d+/.test(url) && method === 'DELETE';
 
     if (isSinglePost && response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
@@ -634,6 +659,7 @@ onApiMutation((url, response) => {
       store.addTransactionToCache(newTx);
       adjustBalanceForTx(newTx, 'add');
       syncChannel?.postMessage({ type: 'add', tx: newTx });
+      return; // Single mutation handled 100% optimistically; skip full-table debounced refetch!
     }
 
     if (isSinglePut && response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
@@ -651,6 +677,7 @@ onApiMutation((url, response) => {
       store.updateTransactionInCache(newTx);
       adjustBalanceForTx(newTx, 'add');
       syncChannel?.postMessage({ type: 'update', tx: newTx });
+      return; // Single mutation handled 100% optimistically; skip full-table debounced refetch!
     }
 
     if (isSingleDelete) {
@@ -673,6 +700,7 @@ onApiMutation((url, response) => {
         store.removeTransactionFromCache(id);
         syncChannel?.postMessage({ type: 'remove', id });
       }
+      return; // Single mutation handled 100% optimistically; skip full-table debounced refetch!
     }
   }
 

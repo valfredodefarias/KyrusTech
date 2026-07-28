@@ -122,7 +122,7 @@ export function ConciliacaoCartoes() {
   const [saving, setSaving] = useState(false);
 
   // Calendar view states
-  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('calendar');
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [expandedBrands, setExpandedBrands] = useState<Record<string, boolean>>({});
@@ -429,13 +429,18 @@ export function ConciliacaoCartoes() {
     return { start: format(firstDay), end: format(lastDay) };
   };
 
+  const [syncing, setSyncing] = useState(false);
+
   const fetchAgenda = async () => {
-    setLoading(true);
+    if (recebiveis.length === 0) {
+      setLoading(true);
+    } else {
+      setSyncing(true);
+    }
     try {
       const params: Record<string, string> = {};
       
       // No modo calendário, forçamos a busca de todo o mês selecionado
-      // para evitar que o limite de 2000 oculte previsões de datas futuras.
       if (viewMode === 'calendar') {
         const range = getMonthRange(currentMonth);
         params.start_date = range.start;
@@ -451,11 +456,16 @@ export function ConciliacaoCartoes() {
       console.error('Erro ao carregar recebíveis:', e);
     } finally {
       setLoading(false);
+      setSyncing(false);
     }
   };
 
   const fetchDepositos = async () => {
-    setLoading(true);
+    if (depositos.length === 0) {
+      setLoading(true);
+    } else {
+      setSyncing(true);
+    }
     try {
       const res = await api.get('/lancamentos/', {
         params: {
@@ -470,6 +480,7 @@ export function ConciliacaoCartoes() {
       console.error('Erro ao carregar depósitos:', e);
     } finally {
       setLoading(false);
+      setSyncing(false);
     }
   };
 
@@ -558,58 +569,19 @@ export function ConciliacaoCartoes() {
     e.preventDefault();
     setSaving(true);
     try {
-      // Fetch current database lancamento to preserve other observacao fields
-      const resGet = await api.get(`/lancamentos/${recebivelForm.id}`);
-      const lancamentoAtual = resGet.data;
-
-      let meta = {};
-      if (lancamentoAtual.observacao) {
-        try {
-          meta = JSON.parse(lancamentoAtual.observacao);
-        } catch (err) {
-          meta = {};
-        }
-      }
-
-      const updatedMeta = {
-        ...meta,
-        rv: recebivelForm.rv,
-        bandeira: recebivelForm.bandeira.toUpperCase(),
-        tipo_pagamento: recebivelForm.tipo_pagamento,
-        cartao_taxa: Number(recebivelForm.cartao_taxa),
-        cartao_taxa_valor: Number(recebivelForm.cartao_taxa_valor),
-        cartao_liquido_previsto: Number(recebivelForm.valor_liquido),
-        vendedor_id: recebivelForm.vendedor_id ? Number(recebivelForm.vendedor_id) : null
-      };
-
-      const payload = {
-        descricao: recebivelForm.descricao,
-        valor_bruto: Number(recebivelForm.valor_bruto),
-        valor_taxa: Number(recebivelForm.cartao_taxa_valor),
-        valor_liquido: Number(recebivelForm.valor_liquido),
+      // Sincroniza bandeira e valor no PDV e recarrega taxa/líquido no financeiro
+      await api.put(`/pdv/recebiveis/${recebivelForm.id}`, {
         bandeira: recebivelForm.bandeira,
-        tipo_pagamento: recebivelForm.tipo_pagamento,
-        rv: recebivelForm.rv,
-        data_venda: recebivelForm.data_venda,
-        vendedor_id: recebivelForm.vendedor_id ? Number(recebivelForm.vendedor_id) : null,
-        
-        // If status changes to PAGO, set valor_pago and data_pagamento
-        valor_pago: recebivelForm.status === 'PAGO' ? Number(recebivelForm.valor_bruto) : 0,
-        data_pagamento: recebivelForm.status === 'PAGO' ? (lancamentoAtual.data_pagamento || new Date().toISOString().split('T')[0]) : null,
-        data_vencimento: recebivelForm.data_vencimento,
-        conta_id: recebivelForm.conta_id ? Number(recebivelForm.conta_id) : null,
-        plano_contas_id: recebivelForm.plano_contas_id ? Number(recebivelForm.plano_contas_id) : null,
-        entidade_id: recebivelForm.entidade_id ? Number(recebivelForm.entidade_id) : null,
-        status: recebivelForm.status
-      };
+        valor: Number(recebivelForm.valor_bruto)
+      });
 
-      await api.put(`/lancamentos/${recebivelForm.id}`, payload);
       setShowEditRecebivelDrawer(false);
       await fetchAgenda();
       alert('Recebível atualizado com sucesso!');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao atualizar recebível:', err);
-      alert('Erro ao atualizar recebível.');
+      const detail = err?.response?.data?.detail || 'Erro ao atualizar recebível.';
+      alert(`⚠️ ${detail}`);
     } finally {
       setSaving(false);
     }
@@ -1404,8 +1376,6 @@ export function ConciliacaoCartoes() {
                           key={`${slot.dateStr}-${index}`}
                           onClick={() => {
                             setSelectedDay(slot.dateStr);
-                            setStartDate(slot.dateStr);
-                            setEndDate(slot.dateStr);
                           }}
                           className={`min-h-[110px] p-2.5 flex flex-col justify-between cursor-pointer transition hover:bg-blue-50/20 dark:hover:bg-blue-950/5 ${!slot.isCurrentMonth ? 'bg-slate-50/50 dark:bg-slate-950/20 opacity-40' : ''} ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50/30 dark:bg-blue-950/10' : ''}`}
                         >

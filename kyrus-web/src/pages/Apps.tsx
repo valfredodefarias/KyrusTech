@@ -9,6 +9,7 @@ import {
 import { api, normalizeListResponse } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
+import { getTodayLocalYmd } from './Lancamentos/utils';
 
 // Type definitions
 interface iFoodTransaction {
@@ -97,8 +98,8 @@ export function Apps() {
   const [formFormaRecebimento, setFormFormaRecebimento] = useState('Pix Ifood');
   const [formValorBruto, setFormValorBruto] = useState('R$ 0,00');
   const [formDespesasExtras, setFormDespesasExtras] = useState<string[]>([]);
-  const [formDataVenda, setFormDataVenda] = useState(new Date().toISOString().split('T')[0]);
-  const [formDataRecebimento, setFormDataRecebimento] = useState(new Date().toISOString().split('T')[0]);
+  const [formDataVenda, setFormDataVenda] = useState(getTodayLocalYmd());
+  const [formDataRecebimento, setFormDataRecebimento] = useState(getTodayLocalYmd());
   const [formHoraVenda, setFormHoraVenda] = useState(new Date().toLocaleTimeString('pt-BR', { hour12: false }));
   const [submitting, setSubmitting] = useState(false);
 
@@ -328,9 +329,16 @@ export function Apps() {
     if (!formDataVenda) return;
     const baseDate = new Date(formDataVenda + 'T00:00:00');
     
+    const formatYmd = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
     // Check if it is a Dinheiro payment (immediate D+0)
     if (formFormaRecebimento.includes('Dinheiro')) {
-      setFormDataRecebimento(baseDate.toISOString().split('T')[0]);
+      setFormDataRecebimento(formatYmd(baseDate));
       return;
     }
     
@@ -368,7 +376,7 @@ export function Apps() {
       }
     }
     
-    setFormDataRecebimento(baseDate.toISOString().split('T')[0]);
+    setFormDataRecebimento(formatYmd(baseDate));
   }, [formFormaRecebimento, formDataVenda]);
 
   // Handle extra expenses toggle
@@ -1719,7 +1727,7 @@ export function Apps() {
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
                 >
                   <option value="">Sem centro de custo padrão</option>
-                  {centrosCusto.map((cc) => (
+                  {centrosCusto.map((cc: any) => (
                     <option key={cc.id} value={cc.id}>{cc.nome}</option>
                   ))}
                 </select>
@@ -1753,7 +1761,7 @@ export function Apps() {
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
                 >
                   <option value="">Sem conta padrão</option>
-                  {contas.map((c) => (
+                  {contas.map((c: any) => (
                     <option key={c.id} value={c.id}>{c.nome}</option>
                   ))}
                 </select>
@@ -1768,7 +1776,7 @@ export function Apps() {
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-955 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
                 >
                   <option value="">Sem categoria padrão de saída</option>
-                  {planoContas.filter(pc => (pc.tipo === 'D' || pc.tipo === 'DESPESA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc) => (
+                  {planoContas.filter((pc: any) => (pc.tipo === 'D' || pc.tipo === 'DESPESA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc: any) => (
                     <option key={pc.id} value={pc.id}>{pc.codigo} - {pc.nome}</option>
                   ))}
                 </select>
@@ -1783,7 +1791,7 @@ export function Apps() {
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-955 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
                 >
                   <option value="">Sem categoria padrão de entrada</option>
-                  {planoContas.filter(pc => (pc.tipo === 'R' || pc.tipo === 'RECEITA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc) => (
+                  {planoContas.filter((pc: any) => (pc.tipo === 'R' || pc.tipo === 'RECEITA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc: any) => (
                     <option key={pc.id} value={pc.id}>{pc.codigo} - {pc.nome}</option>
                   ))}
                 </select>
@@ -1796,7 +1804,7 @@ export function Apps() {
                   <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
                     {formasPagamento.map((forma) => (
                       <div key={forma.key} className="flex items-center justify-between gap-3 text-xs">
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">{forma.label}</span>
+                        <span className="font-semibold text-slate-700 dark:text-slate-350">{forma.label}</span>
                         <select
                           value={settingsPdvCategorias[forma.key] || ''}
                           onChange={(e) => setSettingsPdvCategorias({
@@ -1806,7 +1814,7 @@ export function Apps() {
                           className="w-1/2 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-955 text-xs text-slate-850 dark:text-white outline-none transition focus:border-rose-500 font-bold"
                         >
                           <option value="">Automático</option>
-                          {planoContas.filter(pc => (pc.tipo === 'R' || pc.tipo === 'RECEITA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc) => (
+                          {planoContas.filter((pc: any) => (pc.tipo === 'R' || pc.tipo === 'RECEITA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc: any) => (
                             <option key={pc.id} value={pc.id}>{pc.nome}</option>
                           ))}
                         </select>

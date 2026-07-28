@@ -1899,38 +1899,68 @@ export const LancamentoFormDrawer = ({
               </div>
             )}
 
-            <div className="space-y-1">
-              <InputDark
-                label="Código de barras"
-                value={formData.observacao || ''}
-                onChange={(e: any) => setFormData((prev: any) => ({ ...prev, observacao: e.target.value }))}
-                placeholder="Cole aqui o código de barras para facilitar copiar e colar no pagamento"
-              />
-              {formData.observacao && (
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(String(formData.observacao || ''));
-                        pushToast('success', 'Código de barras copiado.');
-                      } catch {
-                        pushToast('error', 'Não foi possível copiar o código de barras.');
+            {/* CAMPO DE CÓDIGO DE BARRAS LIMPO E ENCAPSULAMENTO DE METADADOS */}
+            {(() => {
+              const rawObs = formData.observacao || '';
+              const trimmed = rawObs.trim();
+              let isSystemMetadata = false;
+              let userNotes = rawObs;
+              let systemMeta: any = null;
+
+              if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+                try {
+                  systemMeta = JSON.parse(trimmed);
+                  isSystemMetadata = true;
+                  userNotes = systemMeta.user_notes || systemMeta.codigo_barras || '';
+                } catch {
+                  systemMeta = null;
+                }
+              }
+
+              return (
+                <div className="space-y-1">
+                  <InputDark
+                    label="Código de barras"
+                    value={userNotes}
+                    onChange={(e: any) => {
+                      const newUserNotes = e.target.value;
+                      let newObs = newUserNotes;
+                      if (systemMeta) {
+                        newObs = JSON.stringify({ ...systemMeta, user_notes: newUserNotes, codigo_barras: newUserNotes });
                       }
+                      setFormData((prev: any) => ({ ...prev, observacao: newObs }));
                     }}
-                    className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                  >
-                    Copiar código
-                  </button>
+                    placeholder="Cole aqui o código de barras para facilitar copiar e colar no pagamento (opcional)"
+                  />
+                  {userNotes && (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(String(userNotes));
+                            pushToast('success', 'Código de barras copiado.');
+                          } catch {
+                            pushToast('error', 'Não foi possível copiar o código de barras.');
+                          }
+                        }}
+                        className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        Copiar código
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })()}
 
             {/* DETALHAMENTO DE VENDAS DE ORIGEM (RECEBÍVEL AGRUPADO DE CARTÃO) */}
             {(() => {
               if (!formData.observacao) return null;
               try {
-                const meta = JSON.parse(formData.observacao);
+                const trimmed = formData.observacao.trim();
+                if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null;
+                const meta = JSON.parse(trimmed);
                 if (!meta.grouped_card_launch || !meta.contribuicoes) return null;
                 const contribuicoesList = Object.entries(meta.contribuicoes).map(([vendaId, val]: [string, any]) => ({
                   vendaId,

@@ -121,6 +121,7 @@ class PdvVendaCreate(SQLModel):
     pagamentos: List[PdvVendaPagamento]
     rv: Optional[str] = None
     data_pagamento: Optional[date] = None
+    data: Optional[date] = None
     cliente: Optional[str] = None  # mantido para compatibilidade
     observacao: Optional[str] = None
     comprovante_urls: Optional[List[str]] = None

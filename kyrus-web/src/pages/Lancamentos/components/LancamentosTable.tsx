@@ -224,6 +224,7 @@ export const LancamentosTable = ({
                     return (
                       <tr
                         key={l.id}
+                        style={{ contentVisibility: 'auto', containIntrinsicSize: '1px 44px' }}
                         onClick={() => {
                           if (!transfer) openDrawer(l);
                         }}

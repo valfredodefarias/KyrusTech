@@ -200,6 +200,7 @@ export function Lancamentos({
   const lastEmpresaIdRef = useRef<number | null>(null);
   const quickOpenNovoHandledRef = useRef(false);
   const embedDrawerOpenedRef = useRef(false);
+  const requestIdCounterRef = useRef<number>(0);
 
 
   useEffect(() => {
@@ -444,6 +445,7 @@ export function Lancamentos({
     fim?: string,
     opts?: { force?: boolean; skipFallback?: boolean; silent?: boolean }
   ) {
+    const thisRequestId = ++requestIdCounterRef.current;
     const rawIds = searchParams.get('boletim_ids') || '';
     const key = `${currentEmpresaId ?? ''}|${ini || ''}|${fim || ''}|${filtrosAvancados.ocultarVendasCartaoPendentes}|${rawIds}`;
     const isCacheMatch = key === useTransactionStore.getState().pagedCacheKey;
@@ -490,6 +492,13 @@ export function Lancamentos({
         }
       }
       const rows = await fetchLancamentosPaged<Lancamento>(params, { pageSize: 1500, signal: controller.signal });
+      
+      // Sequence Guard: Discard stale response if a newer request was dispatched
+      if (thisRequestId < requestIdCounterRef.current) {
+        console.warn(`[Out-of-Order Guard] Resposta obsoleta ignorada (req #${thisRequestId} vs atual #${requestIdCounterRef.current})`);
+        return;
+      }
+
       setPagedLancamentos(key, rows);
     } catch (e: any) {
       if (axios.isCancel(e)) return;
@@ -513,12 +522,20 @@ export function Lancamentos({
     });
 
     const next = !l.ipp;
-    setLancamentos((prev) => prev.map((item) => (item.id === l.id ? { ...item, ipp: next } : item)));
+    const updatedTx = { ...l, ipp: next };
+
+    // 1. Update local page state instantly
+    setLancamentos((prev) => prev.map((item) => (item.id === l.id ? updatedTx : item)));
+
+    // 2. Register optimistic update in global Zustand store
+    useTransactionStore.getState().updateTransactionInCache(updatedTx);
+
     try {
       await api.put(`/lancamentos/${l.id}`, { ipp: next });
     } catch (e) {
       console.error(e);
       setLancamentos((prev) => prev.map((item) => (item.id === l.id ? { ...item, ipp: l.ipp } : item)));
+      useTransactionStore.getState().updateTransactionInCache(l);
       pushToast('error', 'Não foi possível marcar/desmarcar IPP.');
     } finally {
       setSavingIppIds((prev) => {

@@ -353,7 +353,7 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
         assert mov_vista.conciliado is True
         assert mov_vista.conta_id == 1
 
-        # 3. Verificar se a despesa de taxas adquirentes foi gerada e liquidada
+        # 3. Verificar se a despesa de taxas adquirentes foi gerada e liquidada no dia do recebimento
         lanc_taxa = session.exec(
             select(Lancamento)
             .where(
@@ -366,7 +366,8 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
         assert lanc_taxa.valor_previsto == Decimal("25.00")
         assert lanc_taxa.valor_pago == Decimal("25.00")
         assert lanc_taxa.status == "PAGO"
-        assert lanc_taxa.plano_contas_id == 20  # Direto do plano_contas_taxa_id da regra
+        assert str(lanc_taxa.data_pagamento).startswith("2026-07-13")  # No exato dia do recebimento
+        assert lanc_taxa.plano_contas_id == 20
         assert lanc_taxa.conciliado is True
 
         # 4. Verificar se o depósito do extrato bancário foi conciliado

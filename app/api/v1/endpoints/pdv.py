@@ -925,12 +925,13 @@ def listar_recebiveis_cartao(
 ):
     """Lista recebíveis de cartão previstos/recebidos da empresa (Agenda de Recebíveis).
     
-    Lê diretamente da tabela pdv_movimentacoes aplicando join com pdv_vendas.
+    Lê da tabela pdv_movimentacoes e também da tabela lancamentos (para lançamentos agrupados de cartão).
     """
     from app.services.pdv_service import obter_regra_cartao
     from sqlalchemy.orm import selectinload
+    from sqlmodel import col, func
 
-    # Query pdv_movimentacoes joining with PdvVenda, Usuario, and Entidade
+    # 1. Query pdv_movimentacoes joining with PdvVenda, Usuario, and Entidade
     query = (
         select(PdvMovimentacao, PdvVenda, Usuario, Entidade)
         .join(PdvVenda, PdvVenda.id == PdvMovimentacao.venda_id, isouter=True)
@@ -942,7 +943,6 @@ def listar_recebiveis_cartao(
             PdvMovimentacao.forma_pagamento.in_(["CREDITO_AVISTA", "CREDITO_PARCELADO", "DEBITO"])
         )
         .order_by(PdvMovimentacao.data.desc(), PdvMovimentacao.id.desc())
-        .limit(2000)
     )
     if start_date:
         query = query.where(PdvMovimentacao.data >= start_date)
@@ -972,10 +972,8 @@ def listar_recebiveis_cartao(
 
     recebiveis = []
     for m, venda, vendedor, cliente in rows:
-        # Map payment form back to frontend string format
         tipo_pag_lower = "cartao_debito" if m.forma_pagamento == "DEBITO" else ("cartao_credito_parcelado" if m.forma_pagamento == "CREDITO_PARCELADO" else "cartao_credito_vista")
 
-        # Resolve card fee percentage using the rules
         regra = obter_regra_cartao(db, empresa_id, tipo_pag_lower, m.bandeira, m.centro_custo_id)
         if regra:
             if regra.modo_parcelamento == "ANTECIPADO":
@@ -1015,7 +1013,228 @@ def listar_recebiveis_cartao(
             "plano_contas_id": None
         })
 
+    # 2. Query Lancamento para Lançamentos Agrupados de Cartão (grouped_card_launch)
+    query_grouped = (
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.tipo == "RECEITA",
+            col(Lancamento.observacao).like('%"grouped_card_launch": true%')
+        )
+    )
+    if start_date:
+        query_grouped = query_grouped.where(func.coalesce(Lancamento.data_vencimento, Lancamento.data_pagamento) >= start_date)
+    if end_date:
+        query_grouped = query_grouped.where(func.coalesce(Lancamento.data_vencimento, Lancamento.data_pagamento) <= end_date)
+
+    grouped_launches = db.exec(query_grouped).all()
+    for gl in grouped_launches:
+        dt_venc = gl.data_vencimento or gl.data_pagamento or date.today()
+        dt_comp = gl.data_competencia or dt_venc
+        
+        bandeira_gl = "OUTROS"
+        modalidade_gl = "cartao_credito_vista"
+        try:
+            if gl.observacao:
+                parsed_meta = json.loads(gl.observacao)
+                bandeira_gl = parsed_meta.get("bandeira", "OUTROS")
+                mod = parsed_meta.get("modalidade", "CREDITO")
+                mod_str = str(mod).upper()
+                if "PARCELADO" in mod_str:
+                    modalidade_gl = "cartao_credito_parcelado"
+                elif "DEBITO" in mod_str or "DEBIT" in mod_str:
+                    modalidade_gl = "cartao_debito"
+                else:
+                    modalidade_gl = "cartao_credito_vista"
+        except Exception:
+            pass
+
+        val_bruto_gl = gl.valor_previsto or Decimal("0.00")
+
+        regra_gl = obter_regra_cartao(db, empresa_id, modalidade_gl, bandeira_gl, gl.centro_custo_id)
+        if regra_gl:
+            fee_percentage_gl = regra_gl.taxa_porcentagem
+        else:
+            fee_percentage_gl = Decimal("0.00")
+
+        val_taxa_gl = (val_bruto_gl * fee_percentage_gl / Decimal("100")).quantize(Decimal("0.01"))
+        
+        val_pago_gl = gl.valor_pago or Decimal("0.00")
+        if gl.status == "PAGO" and val_pago_gl > 0:
+            val_liquido_gl = val_pago_gl
+        else:
+            val_liquido_gl = val_bruto_gl - val_taxa_gl
+
+        status_gl = "PAGO" if gl.status == "PAGO" else "A RECEBER"
+
+        recebiveis.append({
+            "id": gl.id,
+            "venda_id_uuid": f"GROUPED-{gl.id}",
+            "rv": f"RV-GRP-{gl.id:06d}",
+            "data_venda": dt_comp,
+            "data_vencimento": dt_venc,
+            "descricao": gl.descricao or f"Recebimento Agrupado {bandeira_gl}",
+            "tipo_pagamento": modalidade_gl,
+            "bandeira": bandeira_gl,
+            "numero_parcela": 1,
+            "total_parcelas": 1,
+            "valor_bruto": val_bruto_gl,
+            "valor_taxa": val_taxa_gl,
+            "valor_liquido": val_liquido_gl,
+            "status": status_gl,
+            "vendedor": "Lote Agrupado",
+            "vendedor_id": None,
+            "cliente": "Recebimento Cartões",
+            "cliente_id": None,
+            "itens": [],
+            "conta_id": gl.conta_id,
+            "plano_contas_id": gl.plano_contas_id
+        })
+
     return recebiveis
+
+
+from pydantic import BaseModel
+
+class AtualizarRecebivelSchema(BaseModel):
+    bandeira: Optional[str] = None
+    valor: Optional[Decimal] = None
+
+@router.put("/recebiveis/{id}", status_code=200)
+def atualizar_recebivel_cartao(
+    id: int,
+    payload: AtualizarRecebivelSchema,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    current_user: Usuario = Depends(get_current_active_user)
+):
+    """
+    Atualiza bandeira ou valor de um recebível de cartão (PdvMovimentacao ou Lancamento Agrupado).
+    Recalcula taxa, valor líquido e atualiza o lançamento financeiro em Contas a Receber.
+    Bloqueia se já estiver PAGO/CONCILIADO em uma conta bancária.
+    """
+    from app.services.pdv_service import obter_regra_cartao
+    
+    # 1. Tentar encontrar PdvMovimentacao por id
+    m_op = db.get(PdvMovimentacao, id)
+    if m_op and m_op.empresa_id == empresa_id and not m_op.is_deleted:
+        if m_op.conciliado:
+            raise HTTPException(
+                status_code=400,
+                detail="Este recebível já foi conciliado e creditado na conta bancária. Para alterar bandeira ou valor, desfaça a conciliação do lote primeiro."
+            )
+        
+        # Verificar lançamentos financeiros vinculados
+        if m_op.venda_id:
+            l_list = db.exec(
+                select(Lancamento).where(
+                    Lancamento.empresa_id == empresa_id,
+                    Lancamento.id_parcelamento == m_op.venda_id,
+                    Lancamento.is_deleted == False
+                )
+            ).all()
+        else:
+            l_item = db.get(Lancamento, m_op.id)
+            l_list = [l_item] if l_item else []
+            
+        for l in l_list:
+            if l.status == "PAGO" and l.conta_id is not None:
+                conta = db.get(Conta, l.conta_id)
+                nome_c = conta.nome if conta else "Banco"
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Este recebível já foi pago/baixado no banco '{nome_c}'. Não é possível alterar a bandeira ou valor."
+                )
+
+        if payload.bandeira:
+            m_op.bandeira = payload.bandeira.upper()
+        if payload.valor is not None and payload.valor > 0:
+            m_op.valor = payload.valor
+
+        m_op.updated_at = datetime.utcnow()
+        m_op.updated_by_id = current_user.id
+        db.add(m_op)
+
+        # Recalcular taxa e valor líquido
+        tipo_pag_lower = "cartao_debito" if m_op.forma_pagamento == "DEBITO" else ("cartao_credito_parcelado" if m_op.forma_pagamento == "CREDITO_PARCELADO" else "cartao_credito_vista")
+        regra = obter_regra_cartao(db, empresa_id, tipo_pag_lower, m_op.bandeira, m_op.centro_custo_id)
+        fee_pct = regra.taxa_porcentagem if regra else Decimal("0.00")
+        valor_taxa = (m_op.valor * fee_pct / Decimal("100")).quantize(Decimal("0.01"))
+        valor_liquido = m_op.valor - valor_taxa
+
+        for l in l_list:
+            l.valor_previsto = valor_liquido
+            meta = {}
+            if l.observacao:
+                try:
+                    meta = json.loads(l.observacao)
+                except Exception:
+                    meta = {}
+            meta["bandeira"] = m_op.bandeira
+            meta["valor_bruto"] = float(m_op.valor)
+            meta["valor_taxa"] = float(valor_taxa)
+            meta["valor_liquido"] = float(valor_liquido)
+            l.observacao = json.dumps(meta)
+            l.updated_at = datetime.utcnow()
+            l.updated_by_id = current_user.id
+            db.add(l)
+
+        db.commit()
+        return {"status": "success", "message": "Recebível atualizado com sucesso."}
+
+    # 2. Tentar encontrar Lancamento Agrupado por id
+    gl = db.get(Lancamento, id)
+    if gl and gl.empresa_id == empresa_id and not gl.is_deleted:
+        if gl.status == "PAGO" and gl.conta_id is not None:
+            conta = db.get(Conta, gl.conta_id)
+            nome_c = conta.nome if conta else "Banco"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Este recebível agrupado já foi pago/baixado no banco '{nome_c}'. Não é possível alterar a bandeira ou valor."
+            )
+
+        meta = {}
+        if gl.observacao:
+            try:
+                meta = json.loads(gl.observacao)
+            except Exception:
+                meta = {}
+        
+        bandeira_gl = payload.bandeira.upper() if payload.bandeira else meta.get("bandeira", "OUTROS")
+        meta["bandeira"] = bandeira_gl
+        
+        if payload.valor is not None and payload.valor > 0:
+            val_bruto_gl = payload.valor
+        else:
+            val_bruto_gl = gl.valor_previsto or Decimal("0.00")
+
+        mod = meta.get("modalidade", "CREDITO")
+        mod_str = str(mod).upper()
+        if "PARCELADO" in mod_str:
+            modalidade_gl = "cartao_credito_parcelado"
+        elif "DEBITO" in mod_str or "DEBIT" in mod_str:
+            modalidade_gl = "cartao_debito"
+        else:
+            modalidade_gl = "cartao_credito_vista"
+
+        regra = obter_regra_cartao(db, empresa_id, modalidade_gl, bandeira_gl, gl.centro_custo_id)
+        fee_pct = regra.taxa_porcentagem if regra else Decimal("0.00")
+        val_taxa_gl = (val_bruto_gl * fee_pct / Decimal("100")).quantize(Decimal("0.01"))
+        val_liquido_gl = val_bruto_gl - val_taxa_gl
+
+        gl.valor_previsto = val_liquido_gl
+        meta["valor_bruto"] = float(val_bruto_gl)
+        meta["valor_taxa"] = float(val_taxa_gl)
+        meta["valor_liquido"] = float(val_liquido_gl)
+        gl.observacao = json.dumps(meta)
+        gl.updated_at = datetime.utcnow()
+        gl.updated_by_id = current_user.id
+        db.add(gl)
+        db.commit()
+        return {"status": "success", "message": "Recebível agrupado atualizado com sucesso."}
+
+    raise HTTPException(status_code=404, detail="Recebível não encontrado.")
 
 
 @router.post("/conciliacao/auto-match", status_code=200)
@@ -1377,10 +1596,49 @@ def criar_e_conciliar_lote_cartao(
     )
     db.add(faturamento_bruto)
 
+    # Lança a despesa de taxas no dia do recebimento (data_pagamento do lote), adaptável por bandeira, regra e modalidade (Débito vs Crédito)
     if total_taxa > 0:
-        plano_taxa_id = obter_categoria_taxas_cartao(db, empresa_id)
+        modalidades_no_lote = set()
+        for r in recebiveis:
+            if r.forma_pagamento == "DEBITO":
+                modalidades_no_lote.add("cartao_debito")
+            elif r.forma_pagamento == "CREDITO_PARCELADO":
+                modalidades_no_lote.add("cartao_credito_parcelado")
+            else:
+                modalidades_no_lote.add("cartao_credito_vista")
+
+        tipo_pag_predominante = list(modalidades_no_lote)[0] if modalidades_no_lote else "cartao_credito_vista"
+        modalidade_label = "Débito" if tipo_pag_predominante == "cartao_debito" else ("Crédito Parcelado" if tipo_pag_predominante == "cartao_credito_parcelado" else "Crédito")
+
+        plano_taxa_id = None
+        if lote.bandeira:
+            regra = db.exec(
+                select(RegraCartao)
+                .where(
+                    RegraCartao.empresa_id == empresa_id,
+                    RegraCartao.bandeira == lote.bandeira.upper(),
+                    RegraCartao.tipo_pagamento == tipo_pag_predominante,
+                    RegraCartao.is_active == True
+                )
+            ).first()
+            if not regra:
+                regra = db.exec(
+                    select(RegraCartao)
+                    .where(
+                        RegraCartao.empresa_id == empresa_id,
+                        RegraCartao.bandeira == lote.bandeira.upper(),
+                        RegraCartao.is_active == True
+                    )
+                ).first()
+
+            if regra and regra.plano_contas_taxa_id:
+                plano_taxa_id = regra.plano_contas_taxa_id
+
+        if not plano_taxa_id:
+            plano_taxa_id = obter_categoria_taxas_cartao(db, empresa_id)
+
         despesa_taxa = Lancamento(
-            descricao=f"Taxa de Adm. Cartão Lote #{lote.id}",
+            descricao=f"Taxa de Adm. Cartão {modalidade_label} ({lote.bandeira or 'Geral'}) Lote #{lote.id}",
             tipo="DESPESA",
             status="PAGO",
             origem="PDV",
@@ -1398,7 +1656,7 @@ def criar_e_conciliar_lote_cartao(
             conta_id=lote_in.conta_destino_id,
             created_by_id=current_user.id,
             updated_by_id=current_user.id,
-            observacao=json.dumps({"lote_cartao_id": lote.id, "conciliacao_taxa": True}),
+            observacao=json.dumps({"lote_cartao_id": lote.id, "conciliacao_taxa": True, "modalidade": tipo_pag_predominante}),
             is_deleted=False,
             ipp=False,
             previsto=True,
@@ -2234,8 +2492,25 @@ def listar_movimentacoes_pdv(
     
     movs = db.exec(query).all()
     
+    # Pre-fetch contas para mapeamento rápido de nomes
+    contas = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
+    contas_map = {c.id: c.nome for c in contas if c.id is not None}
+
     movimentacoes = []
     for m in movs:
+        conta_destino_id = None
+        conta_destino_nome = None
+        if not m.venda_id:
+            l_orig = db.get(Lancamento, m.id)
+            if l_orig and l_orig.observacao and "sangria" in l_orig.observacao.lower():
+                try:
+                    meta_s = json.loads(l_orig.observacao)
+                    conta_destino_id = meta_s.get("conta_destino_id")
+                    if conta_destino_id:
+                        conta_destino_nome = contas_map.get(conta_destino_id)
+                except Exception:
+                    pass
+
         movimentacoes.append({
             "id": m.id,
             "id_parcelamento": m.venda_id,
@@ -2249,6 +2524,8 @@ def listar_movimentacoes_pdv(
             "data": str(m.data),
             "centro_custo_id": m.centro_custo_id,
             "conta_id": m.conta_id,
+            "conta_destino_id": conta_destino_id,
+            "conta_destino_nome": conta_destino_nome,
             "conciliado": m.conciliado
         })
         
@@ -2406,6 +2683,8 @@ def criar_movimentacao_pdv(
                 vendedor_id=current_user.id,
                 desconto=Decimal("0.00"),
                 status="REALIZADO",
+                data=mov_in.data,
+                data_pagamento=mov_in.data,
                 itens=[
                     PdvVendaItemCreate(
                         produto_id=0,
@@ -2852,6 +3131,42 @@ def deletar_movimentacao_pdv(
             venda_op.deleted_at = datetime.utcnow()
             venda_op.deleted_by_id = current_user.id
             db.add(venda_op)
+
+        # 1. Reversão em cascata das baixas de estoque da venda
+        movs_estoque = db.exec(
+            select(MovimentacaoEstoque).where(
+                MovimentacaoEstoque.empresa_id == empresa_id,
+                MovimentacaoEstoque.chave_nfe == f"pdv:{m_op.venda_id}",
+                MovimentacaoEstoque.is_deleted == False
+            )
+        ).all()
+        for me in movs_estoque:
+            me.is_deleted = True
+            me.deleted_at = datetime.utcnow()
+            me.deleted_by_id = current_user.id
+            db.add(me)
+    else:
+        # 2. Exclusão em cascata de Sangrias (deletar a perna de entrada no banco destino)
+        l_saida = db.get(Lancamento, m_op.id)
+        if l_saida and l_saida.observacao:
+            try:
+                meta_s = json.loads(l_saida.observacao)
+                sangria_uuid = meta_s.get("sangria_uuid") or l_saida.id_parcelamento
+                if sangria_uuid:
+                    entradas_banco = db.exec(
+                        select(Lancamento).where(
+                            Lancamento.empresa_id == empresa_id,
+                            Lancamento.id_parcelamento == sangria_uuid,
+                            Lancamento.is_deleted == False
+                        )
+                    ).all()
+                    for eb in entradas_banco:
+                        eb.is_deleted = True
+                        eb.deleted_at = datetime.utcnow()
+                        eb.updated_by_id = current_user.id
+                        db.add(eb)
+            except Exception:
+                pass
             
     for lanc in lancamentos_to_delete:
         lanc.is_deleted = True
@@ -2921,6 +3236,20 @@ def atualizar_movimentacao_pdv(
             venda_op.deleted_at = datetime.utcnow()
             venda_op.deleted_by_id = current_user.id
             db.add(venda_op)
+
+        # Invalidar baixas de estoque antigas antes de criar a nova versão da venda
+        movs_estoque_antigos = db.exec(
+            select(MovimentacaoEstoque).where(
+                MovimentacaoEstoque.empresa_id == empresa_id,
+                MovimentacaoEstoque.chave_nfe == f"pdv:{m_op.venda_id}",
+                MovimentacaoEstoque.is_deleted == False
+            )
+        ).all()
+        for me in movs_estoque_antigos:
+            me.is_deleted = True
+            me.deleted_at = datetime.utcnow()
+            me.deleted_by_id = current_user.id
+            db.add(me)
             
     for lanc in lancamentos_to_delete:
         lanc.is_deleted = True
@@ -2931,3 +3260,43 @@ def atualizar_movimentacao_pdv(
     
     res = criar_movimentacao_pdv(mov_in=mov_in, db=db, empresa_id=empresa_id, current_user=current_user)
     return res
+
+
+@router.delete("/conciliacao/lotes/{id}")
+def deletar_lote_cartao(
+    id: int,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    current_user: Usuario = Depends(get_current_active_user)
+):
+    """Cancela/desfaz a conciliação de um lote de cartões."""
+    lote = db.get(LoteCartao, id)
+    if not lote or lote.empresa_id != empresa_id:
+        raise HTTPException(status_code=404, detail="Lote de cartão não encontrado.")
+    
+    # Desativar lançamentos financeiros de split gerados pelo lote
+    lancamentos = db.exec(
+        select(Lancamento).where(
+            Lancamento.empresa_id == empresa_id,
+            col(Lancamento.observacao).like(f'%"lote_cartao_id": {id}%'),
+            Lancamento.is_deleted == False
+        )
+    ).all()
+    for l in lancamentos:
+        l.is_deleted = True
+        l.updated_at = datetime.utcnow()
+        l.updated_by_id = current_user.id
+        db.add(l)
+
+    # Restaurar recebíveis para conciliado = False
+    itens = db.exec(select(LoteCartaoItem).where(LoteCartaoItem.lote_cartao_id == id)).all()
+    for item in itens:
+        m = db.get(PdvMovimentacao, item.pdv_movimentacao_id)
+        if m:
+            m.conciliado = False
+            db.add(m)
+        db.delete(item)
+
+    db.delete(lote)
+    db.commit()
+    return {"status": "success", "message": "Lote de cartão desfeito com sucesso."}

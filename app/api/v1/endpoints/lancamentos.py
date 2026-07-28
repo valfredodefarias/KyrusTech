@@ -1209,13 +1209,18 @@ def _execute_import_contents(
             if centro_custo_id is None and row["centro_key"]:
                 centro_custo_id = nomes_centros_sist.get(str(row["centro_key"]))
 
+            status_lancamento = "PAGO" if data_pagamento is not None else "EM ABERTO"
+            previsto_lancamento = False if data_pagamento is not None else True
+
             batch.append(
                 Lancamento(
                     descricao=str(row["descricao"] or "").strip(),
                     tipo=str(row["tipo"]),
+                    status=status_lancamento,
+                    previsto=previsto_lancamento,
                     origem="IMPORTACAO",
                     valor_previsto=valor,
-                    valor_pago=valor if data_pagamento else Decimal("0.00"),
+                    valor_pago=valor if data_pagamento is not None else Decimal("0.00"),
                     data_vencimento=data_vencimento,
                     data_pagamento=data_pagamento,
                     data_competencia=data_vencimento,
@@ -1746,7 +1751,7 @@ def listar_lancamentos(
                 "conciliado": row.conciliado,
                 "numero_parcela": row.numero_parcela,
             }
-            minimized_data.append({k: v for k, v in item.items() if v is not None})
+            minimized_data.append(item)
         import json
         json_content = json.dumps(minimized_data, separators=(",", ":"))
         from app.core.cache import IS_TESTING
@@ -1768,7 +1773,10 @@ def listar_lancamentos(
 )
 def criar_lancamento(lancamento_in: LancamentoCreate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
-    return service.create(dados=lancamento_in, empresa_id=empresa_id, user_id=user_id)
+    created = service.create(dados=lancamento_in, empresa_id=empresa_id, user_id=user_id)
+    from app.core.cache import clear_transaction_cache
+    clear_transaction_cache(empresa_id)
+    return created
 
 @router.get("/{lancamento_id}", response_model=LancamentoRead)
 def obter_lancamento(lancamento_id: int, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
@@ -1802,7 +1810,10 @@ def listar_por_parcelamento(parcelamento_id: str, service: LancamentoService = D
 )
 def atualizar_lancamento(lancamento_id: int, lancamento_in: LancamentoUpdate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
-    return service.update(lancamento_id=lancamento_id, dados_atualizacao=lancamento_in, empresa_id=empresa_id, user_id=user_id)
+    updated = service.update(lancamento_id=lancamento_id, dados_atualizacao=lancamento_in, empresa_id=empresa_id, user_id=user_id)
+    from app.core.cache import clear_transaction_cache
+    clear_transaction_cache(empresa_id)
+    return updated
 
 @router.delete(
     "/{lancamento_id}",
@@ -1817,6 +1828,8 @@ def deletar_lancamento(
 ):
     empresa_id, user_id = require_empresa_user(current_user)
     service.delete(lancamento_id, empresa_id, user_id, confirmar_exclusao_pagos=confirmar_exclusao_pagos)
+    from app.core.cache import clear_transaction_cache
+    clear_transaction_cache(empresa_id)
 
 # ==========================================
 # AÇÕES EM MASSA (BULK)

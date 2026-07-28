@@ -10,7 +10,7 @@ from typing import List, Optional
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
-from sqlmodel import Session, select, col, or_
+from sqlmodel import Session, select, col, or_, func
 
 from app.api.v1.deps import get_current_active_user, get_empresa_id_from_user
 from app.api.deps import check_idempotency

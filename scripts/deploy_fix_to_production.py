@@ -52,21 +52,20 @@ def run_system_psql(host, port, user, password, dbname, sql):
     except Exception as e:
         return -1, "", str(e)
 
-def run_docker_psql(sql):
+def run_docker_psql(container, user, dbname, sql):
     env = os.environ.copy()
     if "DOCKER_HOST" not in env and os.name == 'nt':
         env["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
     
-    # Try db_kyrustech container first
-    cmd = ["docker", "exec", "db_kyrustech", "psql", "-U", "kyrus_user", "-d", "kyrus_erp", "-A", "-F", "\t", "-c", sql]
+    cmd = ["docker", "exec", container, "psql", "-U", user, "-d", dbname, "-A", "-F", "\t", "-c", sql]
     res = subprocess.run(cmd, env=env, capture_output=True)
     if res.returncode == 0:
         return res.returncode, res.stdout.decode("utf-8", errors="ignore"), res.stderr.decode("utf-8", errors="ignore")
         
-    # Try any running postgres container
-    cmd_alt = ["docker", "exec", "-i", "db_kyrustech", "psql", "-U", "kyrus_user", "-d", "kyrus_erp", "-A", "-F", "\t", "-c", sql]
-    res_alt = subprocess.run(cmd_alt, env=env, capture_output=True)
-    return res_alt.returncode, res_alt.stdout.decode("utf-8", errors="ignore"), res_alt.stderr.decode("utf-8", errors="ignore")
+    # Fallback to postgres user inside container if app user fails
+    cmd_fallback = ["docker", "exec", container, "psql", "-U", "postgres", "-d", dbname, "-A", "-F", "\t", "-c", sql]
+    res_fallback = subprocess.run(cmd_fallback, env=env, capture_output=True)
+    return res_fallback.returncode, res_fallback.stdout.decode("utf-8", errors="ignore"), res_fallback.stderr.decode("utf-8", errors="ignore")
 
 def main():
     load_env_file()
@@ -80,6 +79,9 @@ def main():
     print("==========================================================================================")
     print(f"🚀 EXECUTANDO CORREÇÃO USANDO CREDENCIAIS DO .ENV: {user}@{host}:{port}/{dbname}")
     print("==========================================================================================")
+
+    # Detect container name if host is a container name or default db_kyrustech
+    container_name = host if host not in ["localhost", "127.0.0.1", "0.0.0.0"] else "db_kyrustech"
 
     # 1. Tentar psycopg2 se disponível
     psycopg2 = None
@@ -168,8 +170,8 @@ def main():
         print("📌 Step 1: Aplicando migração da coluna 'data_bloqueio_periodo'...")
         code, out, err = run_system_psql(host, port, user, password, dbname, "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS data_bloqueio_periodo DATE;")
         if code != 0:
-            print("ℹ️ Executando comandos via container Docker db_kyrustech...")
-            run_psql_func = run_docker_psql
+            print(f"ℹ️ Executando comandos via container Docker '{container_name}' com usuário '{user}'...")
+            run_psql_func = lambda sql: run_docker_psql(container_name, user, dbname, sql)
             run_psql_func("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS data_bloqueio_periodo DATE;")
         else:
             run_psql_func = lambda sql: run_system_psql(host, port, user, password, dbname, sql)
@@ -252,7 +254,7 @@ def main():
     else:
         code, out_f, _ = run_system_psql(host, port, user, password, dbname, sql_final)
         if code != 0:
-            _, out_f, _ = run_docker_psql(sql_final)
+            _, out_f, _ = run_docker_psql(container_name, user, dbname, sql_final)
         out_lines = out_f.splitlines()
 
     tot = Decimal("0")

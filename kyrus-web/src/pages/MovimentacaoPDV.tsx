@@ -590,7 +590,10 @@ export function MovimentacaoPDV() {
         await api.post('/pdv/movimentacoes', payload);
       }
       setShowDrawer(false);
-      await fetchMovimentacoes(currentYearMonth, selectedDate);
+      const targetMonth = formData.substring(0, 7);
+      setSelectedDate(formData);
+      setCurrentYearMonth(targetMonth);
+      await fetchMovimentacoes(targetMonth, formData);
     } catch (err: any) {
       console.error('Erro ao salvar movimentação:', err);
       alert(err?.response?.data?.detail || 'Erro ao registrar movimentação.');

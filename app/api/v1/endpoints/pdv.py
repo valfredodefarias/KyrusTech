@@ -2619,6 +2619,7 @@ def criar_movimentacao_pdv(
                 "total_parcelas": 1
             }
             
+            mov_uuid = f"mov_{uuid.uuid4()}"
             l = Lancamento(
                 empresa_id=empresa_id,
                 conta_id=c_id,
@@ -2633,6 +2634,7 @@ def criar_movimentacao_pdv(
                 status="PAGO",
                 entidade_id=default_client.id,
                 centro_custo_id=cc_id,
+                id_parcelamento=mov_uuid,
                 observacao=json.dumps(meta, ensure_ascii=False)
             )
             l.created_by_id = current_user.id
@@ -2644,7 +2646,6 @@ def criar_movimentacao_pdv(
 
             # Criar registro na nova tabela pdv_movimentacoes
             m_op = PdvMovimentacao(
-                id=l.id,
                 empresa_id=empresa_id,
                 tipo="ENTRADA",
                 descricao=mov_in.descricao,
@@ -2656,6 +2657,7 @@ def criar_movimentacao_pdv(
                 centro_custo_id=cc_id,
                 conta_id=c_id,
                 conciliado=False,
+                venda_id=mov_uuid,
                 created_by_id=current_user.id,
                 updated_by_id=current_user.id,
                 created_at=datetime.utcnow(),
@@ -2663,7 +2665,7 @@ def criar_movimentacao_pdv(
             )
             db.add(m_op)
             db.commit()
-            return {"status": "success", "id": l.id}
+            return {"status": "success", "id": m_op.id}
             
         else:
             # É pagamento com cartão ou PIX (DEBITO, CREDITO_AVISTA, CREDITO_PARCELADO, PIX)
@@ -2729,26 +2731,6 @@ def criar_movimentacao_pdv(
                 l.observacao = json.dumps(meta, ensure_ascii=False)
                 db.add(l)
 
-            # Criar registro na nova tabela pdv_movimentacoes
-            m_op = PdvMovimentacao(
-                empresa_id=empresa_id,
-                tipo="ENTRADA",
-                descricao=mov_in.descricao,
-                valor=mov_in.valor,
-                forma_pagamento=mov_in.forma_pagamento,
-                bandeira=mov_in.bandeira or "OUTROS",
-                parcelas=mov_in.parcelas or 1,
-                data=mov_in.data,
-                centro_custo_id=cc_id,
-                conta_id=c_id,
-                conciliado=False,
-                venda_id=venda_uuid,
-                created_by_id=current_user.id,
-                updated_by_id=current_user.id,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
-            )
-            db.add(m_op)
             db.commit()
             return {"status": "success", "id_parcelamento": venda_uuid}
             
@@ -2759,7 +2741,9 @@ def criar_movimentacao_pdv(
         if empresa and empresa.pdv_config:
             try:
                 config = json.loads(empresa.pdv_config)
-                pc_id = config.get("pdv_sangria_saida_plano_contas_id")
+                pc_id_str = config.get("categorias", {}).get("sangria") or config.get("categorias", {}).get("despesa")
+                if pc_id_str:
+                    pc_id = int(pc_id_str)
             except Exception:
                 pass
 
@@ -2770,7 +2754,7 @@ def criar_movimentacao_pdv(
             ).first()
             if not pc_despesa:
                 pc_despesa = PlanoContas(
-                    nome="Sangria / Despesas Operacionais",
+                    nome="Despesas Operacionais",
                     tipo="D",
                     empresa_id=empresa_id,
                     permite_lancamentos=True,
@@ -2785,7 +2769,8 @@ def criar_movimentacao_pdv(
             "forma_pagamento": "DINHEIRO",
             "total_parcelas": 1
         }
-
+        
+        mov_uuid = f"mov_{uuid.uuid4()}"
         l = Lancamento(
             empresa_id=empresa_id,
             conta_id=c_id,
@@ -2799,6 +2784,7 @@ def criar_movimentacao_pdv(
             data_competencia=PeriodoService.validar_e_ajustar_competencia(db, empresa_id, mov_in.data),
             status="PAGO",
             centro_custo_id=cc_id,
+            id_parcelamento=mov_uuid,
             observacao=json.dumps(meta, ensure_ascii=False)
         )
         l.created_by_id = current_user.id
@@ -2810,7 +2796,6 @@ def criar_movimentacao_pdv(
 
         # Criar registro na nova tabela pdv_movimentacoes
         m_op = PdvMovimentacao(
-            id=l.id,
             empresa_id=empresa_id,
             tipo="SAIDA",
             descricao=mov_in.descricao,
@@ -2822,6 +2807,7 @@ def criar_movimentacao_pdv(
             centro_custo_id=cc_id,
             conta_id=c_id,
             conciliado=False,
+            venda_id=mov_uuid,
             created_by_id=current_user.id,
             updated_by_id=current_user.id,
             created_at=datetime.utcnow(),

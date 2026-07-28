@@ -83,7 +83,7 @@ services:
     container_name: kyrustech_frontend
     restart: always
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${FRONTEND_PORT:-3000}:80"
     depends_on:
       - backend
     # IMPORTANTE: Não coloque "command" aqui. Deixe o Dockerfile usar o padrão "serve".

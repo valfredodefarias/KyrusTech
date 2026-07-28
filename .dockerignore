@@ -1,12 +1,10 @@
-# Python
+# Python Caches & Environments
 **/__pycache__/
 **/*.py[cod]
 **/*$py.class
 *.so
 .Python
 .venv/
-.venv-1/
-.venv311/
 .venv*/
 env/
 venv/
@@ -28,62 +26,66 @@ wheels/
 *.egg
 MANIFEST
 
-# Frontend shared source that must stay in Docker context
-kyrus-web/**
-!kyrus-web/src/lib/
-!kyrus-web/src/lib/**
+# Heavy Data Dumps, Backups, Databases, TSV & Excel Files (GIGABYTES DE DUMPS)
+*.dump
+*.sql
+backup*
+backup_*
+*.tsv
+*.xlsx
+*.csv
+backups/
+dump/
+dumps/
+scripts/*.dump
+scripts/*.tsv
+scripts/*.xlsx
+scripts/*.sql
+local_target_clean.dump
+postgres_data/
+*.db
 
-# IDE
+# Ignore frontend folder completely from backend build context
+kyrus-web/
+
+# IDE & OS Files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.DS_Store
 
-# Git
+# Git Metadata
 .git/
 .gitignore
 .github/
 
-# Testing
+# Testing & Coverage
 .pytest_cache/
 htmlcov/
 .coverage
 .tox/
 
-# Database
-postgres_data/
-*.db
-
-# Uploads
+# Uploads & Temp Logs
 static/uploads/
+*.log
+app/request_log.txt
+compact_vhdx.txt
+limpar_test.bat
+tmp_*.json
+tmp_*.txt
 
-# Frontend
+# Frontend Node Modules & Env
 node_modules/
 kyrus-web/node_modules/
 kyrus-web/.env
 kyrus-web/dist/
 
-# Local data / artifacts not required in image
-xlsx/
-backups/
-auth_*.txt
-tmp_*.json
-tmp_*.txt
-
-# Environment
+# Environment Local Secrets
 .env
 .env.local
 .env.*.local
-
-# Docker
-Dockerfile*
-docker-compose*.yml
-
-# Others
-.DS_Store
-*.log
-README.md
 
 # Documentation & Benchmarks
 docs/

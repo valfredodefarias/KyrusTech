@@ -14,15 +14,15 @@ ENV VITE_API_URL=$VITE_API_URL
 
 RUN npm run build
 
-# Production stage
-FROM node:20-alpine
+# Production stage - Ultra-lightweight Nginx (~25MB)
+FROM nginx:alpine
 
-WORKDIR /app
+# Copiar configuracao do Nginx para suporte a SPA (React Router)
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-RUN npm install -g serve
+# Copiar build estático do Vite
+COPY --from=build /app/dist /usr/share/nginx/html
 
-COPY --from=build /app/dist ./dist
+EXPOSE 80
 
-EXPOSE 3000
-
-CMD ["serve", "-s", "dist", "-l", "3000"]
+CMD ["nginx", "-g", "daemon off;"]

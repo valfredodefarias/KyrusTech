@@ -2,8 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Instalar dependências do sistema
-RUN apt-get update && apt-get install -y \
+# Instalar dependências de sistema mínimas sem pacotes recomendados desnecessários
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     postgresql-client \
     chromium \
@@ -31,10 +31,10 @@ RUN apt-get update && apt-get install -y \
 ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
 
-# Copiar requirements
+# Copiar requirements primeiro para utilizar o cache de camadas do Docker
 COPY requirements.txt .
 
-# Instalar Python dependencies
+# Instalar pacotes Python com cache limpo
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiar código da aplicação
@@ -43,12 +43,8 @@ COPY . .
 # Criar diretórios necessários
 RUN mkdir -p static/uploads
 
-# Expor porta
 EXPOSE 8000
 
-# Script de inicialização
 RUN chmod +x scripts/*.py
 
-# Comando padrão - backend FastAPI
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-

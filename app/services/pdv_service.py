@@ -1494,7 +1494,8 @@ class PdvService:
             if is_paid and not conta_id:
                 conta_id = obter_conta_caixa_fisica(db, empresa_id)
 
-            is_card = bool(regra) or ("cartao" in (p.tipo_pagamento or "").lower())
+            tp_lower = (p.tipo_pagamento or "").lower()
+            is_card = bool(regra) or any(k in tp_lower for k in ["cartao", "credito", "debito", "debit", "credit"])
 
             if is_card:
                 bandeira_nome = (regra.bandeira if regra else p.bandeira) or "OUTROS"
@@ -1506,12 +1507,16 @@ class PdvService:
                 if matched_forma:
                     is_parcelada = matched_forma.get("parcelada", False)
                 else:
-                    is_parcelada = p.tipo_pagamento in ["cartao_credito_parcelado"]
+                    is_parcelada = p.tipo_pagamento in ["cartao_credito_parcelado", "credito_parcelado"]
 
                 num_parc = int(p.numero_parcelas) if (is_parcelada and p.numero_parcelas and p.numero_parcelas > 1) else 1
                 total_pag = Decimal(str(p.valor))
                 base_val = (total_pag / num_parc).quantize(Decimal("0.01"))
                 last_val = total_pag - (base_val * (num_parc - 1))
+
+                vendedor_obj = db.get(Usuario, venda_in.vendedor_id) if venda_in.vendedor_id else None
+                vendedor_nome = (vendedor_obj.nome or vendedor_obj.email) if vendedor_obj else "Sem vendedor"
+                cliente_nome = (entidade.nome or entidade.nome_fantasia) if entidade else "Consumidor Final"
 
                 for i in range(1, num_parc + 1):
                     if regra:
@@ -1538,7 +1543,7 @@ class PdvService:
 
                     # Mapear forma de pagamento para caixa alta padrão
                     forma_pag_mapeada = p.tipo_pagamento.upper()
-                    if "CREDITO_VISTA" in forma_pag_mapeada or "CREDITO_AVISTA" in forma_pag_mapeada or "CREDITO_AT_VISTA" in forma_pag_mapeada or forma_pag_mapeada == "CARTAO_CREDITO_VISTA":
+                    if "CREDITO_VISTA" in forma_pag_mapeada or "CREDITO_AVISTA" in forma_pag_mapeada or "CREDITO_AT_VISTA" in forma_pag_mapeada or forma_pag_mapeada in ["CARTAO_CREDITO_VISTA", "CREDITO"]:
                         forma_pag_mapeada = "CREDITO_AVISTA"
                     elif "CREDITO_PARCELADO" in forma_pag_mapeada or forma_pag_mapeada == "CARTAO_CREDITO_PARCELADO":
                         forma_pag_mapeada = "CREDITO_PARCELADO"
@@ -1566,6 +1571,28 @@ class PdvService:
                         updated_at=datetime.utcnow()
                     )
                     db.add(mov)
+
+                    # Criar/atualizar o lançamento financeiro agrupado no Financeiro
+                    formatted_desc = format_card_description(bandeira_nome, p.tipo_pagamento)
+                    modality = "Debito" if ("debito" in tp_lower or "debit" in tp_lower) else "Credito"
+                    adicionar_ou_atualizar_recebivel_cartao_agrupado(
+                        db=db,
+                        empresa_id=empresa_id,
+                        venda_id=pdv_venda_id,
+                        vencimento=vencimento,
+                        valor=valor_linha,
+                        formatted_desc=formatted_desc,
+                        plano_id=plano_id,
+                        conta_id=conta_id,
+                        centro_custo_id=venda_in.centro_custo_id,
+                        hoje_pag=hoje_pag,
+                        bandeira=bandeira_nome.upper(),
+                        modality=modality,
+                        current_user_id=current_user_id,
+                        venda_rv=venda_in.rv,
+                        vendedor_nome=vendedor_nome,
+                        cliente_nome=cliente_nome
+                    )
 
                 desconto_ja_atribuido = True
             else:

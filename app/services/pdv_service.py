@@ -303,8 +303,7 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
         db.add(entidade)
         db.flush()
 
-    is_debito = (modality.lower() == "debito" or "debito" in formatted_desc.lower())
-    target_vencimento = hoje_pag if is_debito else vencimento
+    target_vencimento = vencimento
 
     l = db.exec(
         select(Lancamento)

@@ -71,7 +71,10 @@ def main():
             tp_lower = forma.lower()
             formatted_desc = format_card_description(band, forma)
             modality = "Debito" if ("debito" in tp_lower or "debit" in tp_lower) else "Credito"
-            target_vencimento = dt_venda  # Para exibir no proprio dia
+            from app.services.pdv_service import obter_regra_cartao, calcular_payout_date
+            tipo_pag_lower = "cartao_debito" if forma == "DEBITO" else ("cartao_credito_parcelado" if forma == "CREDITO_PARCELADO" else "cartao_credito_vista")
+            regra = obter_regra_cartao(session, emp_id, tipo_pag_lower, band, cc_id)
+            target_vencimento = calcular_payout_date(dt_venda, regra) if regra else dt_venda
 
             total_val = sum(Decimal(str(m.valor or 0)) for m in items)
 

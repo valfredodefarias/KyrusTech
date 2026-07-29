@@ -1457,6 +1457,13 @@ export function ConciliacaoCartoes() {
                       if (dayItems.length === 0) {
                         return <p className="text-xs text-slate-400 text-center py-6">Nenhum recebível previsto para este dia.</p>;
                       }
+
+                      const totalDayBruto = dayItems.reduce((acc, curr) => acc + Number(curr.valor_bruto || 0), 0);
+                      const totalDayTaxa = dayItems.reduce((acc, curr) => acc + Number(curr.valor_taxa || 0), 0);
+                      const totalDayLiquido = dayItems.reduce((acc, curr) => acc + Number(curr.valor_liquido || 0), 0);
+                      const totalDayDebito = dayItems.filter(r => r.tipo_pagamento === 'cartao_debito').reduce((acc, curr) => acc + Number(curr.valor_liquido || 0), 0);
+                      const totalDayCredito = dayItems.filter(r => r.tipo_pagamento !== 'cartao_debito').reduce((acc, curr) => acc + Number(curr.valor_liquido || 0), 0);
+                      const avgTaxaPct = totalDayBruto > 0 ? (totalDayTaxa / totalDayBruto) * 100 : 0;
                       
                       // Group items by brand + modality (DEBITO / CREDITO)
                       const groups: Record<string, {
@@ -1503,7 +1510,49 @@ export function ConciliacaoCartoes() {
                       });
                       
                       return (
-                        <div className="space-y-3">
+                        <div className="space-y-4">
+                          {/* Selected Day Summary KPIs */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            {/* Card 1: Bruto */}
+                            <div className="bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-3.5 flex items-center justify-between shadow-2xs">
+                              <div>
+                                <span className="text-[10px] font-black uppercase text-slate-400 dark:text-slate-500 tracking-wider block">Total Bruto do Dia</span>
+                                <span className="text-base font-black text-slate-900 dark:text-white font-mono mt-0.5 block">{BRL.format(totalDayBruto)}</span>
+                                <span className="text-[10px] text-slate-400 font-medium block mt-0.5">{dayItems.length} recebível(eis)</span>
+                              </div>
+                              <div className="w-9 h-9 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs">
+                                💵
+                              </div>
+                            </div>
+
+                            {/* Card 2: Taxas */}
+                            <div className="bg-rose-50/40 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 rounded-xl p-3.5 flex items-center justify-between shadow-2xs">
+                              <div>
+                                <span className="text-[10px] font-black uppercase text-rose-500/80 dark:text-rose-400/80 tracking-wider block">Taxas Estimadas (Custo)</span>
+                                <span className="text-base font-black text-rose-600 dark:text-rose-400 font-mono mt-0.5 block">{BRL.format(totalDayTaxa)}</span>
+                                <span className="text-[10px] text-rose-500/80 font-medium block mt-0.5">Taxa Média: {avgTaxaPct.toFixed(2)}%</span>
+                              </div>
+                              <div className="w-9 h-9 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center font-bold text-xs">
+                                %
+                              </div>
+                            </div>
+
+                            {/* Card 3: Líquido */}
+                            <div className="bg-emerald-50/40 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 rounded-xl p-3.5 flex items-center justify-between shadow-2xs">
+                              <div>
+                                <span className="text-[10px] font-black uppercase text-emerald-600/80 dark:text-emerald-400/80 tracking-wider block">Líquido a Receber</span>
+                                <span className="text-base font-black text-emerald-600 dark:text-emerald-400 font-mono mt-0.5 block">{BRL.format(totalDayLiquido)}</span>
+                                <div className="flex items-center gap-1.5 mt-0.5 text-[9px] font-bold">
+                                  <span className="text-blue-600 dark:text-blue-400">Débito: {BRL.format(totalDayDebito)}</span>
+                                  <span className="text-slate-300 dark:text-slate-700">•</span>
+                                  <span className="text-violet-600 dark:text-violet-400">Crédito: {BRL.format(totalDayCredito)}</span>
+                                </div>
+                              </div>
+                              <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-xs">
+                                💰
+                              </div>
+                            </div>
+                          </div>
                           {groupedList.map(group => {
                             const brandObj = inferCardBrand(group.bandeira);
                             const isExpanded = !!expandedBrands[group.key];

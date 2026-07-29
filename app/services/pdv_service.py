@@ -1628,6 +1628,39 @@ class PdvService:
                     db.add(l)
                     launches_created.append(l)
 
+                    # Mapear forma de pagamento para caixa alta padrão
+                    forma_pag_mapeada = p.tipo_pagamento.upper()
+                    if "PIX" in forma_pag_mapeada:
+                        forma_pag_mapeada = "PIX"
+                    elif "DINHEIRO" in forma_pag_mapeada:
+                        forma_pag_mapeada = "DINHEIRO"
+                    elif "BOLETO" in forma_pag_mapeada:
+                        forma_pag_mapeada = "BOLETO"
+
+                    hash_unico = f"{venda_in.import_hash}-P{i}" if (venda_in.import_hash and num_parc > 1) else (venda_in.import_hash if venda_in.import_hash else None)
+
+                    mov = PdvMovimentacao(
+                        empresa_id=empresa_id,
+                        tipo="ENTRADA",
+                        descricao=f"Parcela {i}/{num_parc} Venda PDV {pdv_venda_id}" if num_parc > 1 else f"Venda PDV {pdv_venda_id}",
+                        valor=valor_linha,
+                        forma_pagamento=forma_pag_mapeada,
+                        bandeira=(p.bandeira or "OUTROS").upper(),
+                        parcelas=num_parc,
+                        numero_parcela=i,
+                        data=hoje_pag,
+                        centro_custo_id=venda_in.centro_custo_id,
+                        conta_id=conta_id,
+                        conciliado=False,
+                        venda_id=pdv_venda_id,
+                        import_hash=hash_unico,
+                        created_by_id=venda_in.vendedor_id,
+                        updated_by_id=current_user_id,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(mov)
+
                 desconto_ja_atribuido = True
 
         # 7.2. Criar lançamentos de despesas extras associadas (splits)

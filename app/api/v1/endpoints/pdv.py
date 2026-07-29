@@ -1032,9 +1032,19 @@ def listar_recebiveis_cartao(
         )
     )
     if start_date:
-        query_grouped = query_grouped.where(func.coalesce(Lancamento.data_vencimento, Lancamento.data_pagamento) >= start_date)
+        query_grouped = query_grouped.where(
+            or_(
+                func.coalesce(Lancamento.data_vencimento, Lancamento.data_pagamento) >= start_date,
+                Lancamento.data_competencia >= start_date
+            )
+        )
     if end_date:
-        query_grouped = query_grouped.where(func.coalesce(Lancamento.data_vencimento, Lancamento.data_pagamento) <= end_date)
+        query_grouped = query_grouped.where(
+            or_(
+                func.coalesce(Lancamento.data_vencimento, Lancamento.data_pagamento) <= end_date,
+                Lancamento.data_competencia <= end_date
+            )
+        )
 
     grouped_launches = db.exec(query_grouped).all()
     for gl in grouped_launches:

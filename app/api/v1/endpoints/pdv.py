@@ -1085,7 +1085,24 @@ def listar_recebiveis_cartao(
         else:
             val_liquido_gl = gl.valor_previsto or Decimal("0.00")
 
-        if fee_percentage_gl > 0 and fee_percentage_gl < Decimal("100"):
+        val_bruto_from_meta = None
+        try:
+            if gl.observacao:
+                parsed_meta = json.loads(gl.observacao)
+                contribuicoes = parsed_meta.get("contribuicoes", {})
+                if contribuicoes and isinstance(contribuicoes, dict):
+                    val_bruto_from_meta = sum(
+                        Decimal(str(item.get("valor", 0)))
+                        for item in contribuicoes.values()
+                        if isinstance(item, dict)
+                    )
+        except Exception:
+            pass
+
+        if val_bruto_from_meta and val_bruto_from_meta > 0:
+            val_bruto_gl = val_bruto_from_meta
+            val_taxa_gl = val_bruto_gl - val_liquido_gl
+        elif fee_percentage_gl > 0 and fee_percentage_gl < Decimal("100"):
             val_bruto_gl = (val_liquido_gl * Decimal("100") / (Decimal("100") - fee_percentage_gl)).quantize(Decimal("0.01"))
             val_taxa_gl = val_bruto_gl - val_liquido_gl
         else:

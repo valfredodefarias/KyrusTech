@@ -813,12 +813,15 @@ export function ConciliacaoCartoes() {
       const matchStatus = !filterStatus || (r.status || '') === filterStatus;
 
       let matchDate = true;
-      if (startDate || endDate) {
-        const dVenc = r.data_vencimento || '';
-        const dVenda = r.data_venda || '';
-        const matchVenc = (!startDate || dVenc >= startDate) && (!endDate || dVenc <= endDate);
-        const matchVenda = (!startDate || dVenda >= startDate) && (!endDate || dVenda <= endDate);
-        matchDate = matchVenc || matchVenda;
+      if (r.data_vencimento) {
+        if (startDate) {
+          matchDate = matchDate && r.data_vencimento >= startDate;
+        }
+        if (endDate) {
+          matchDate = matchDate && r.data_vencimento <= endDate;
+        }
+      } else if (startDate || endDate) {
+        matchDate = false;
       }
 
       return matchSearch && matchBrand && matchStatus && matchDate;

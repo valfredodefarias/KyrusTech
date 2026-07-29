@@ -123,6 +123,12 @@ def main():
                 "contribuicoes": contribuicoes
             }
 
+            tp_lower = "cartao_debito" if forma == "DEBITO" else ("cartao_credito_parcelado" if forma == "CREDITO_PARCELADO" else "cartao_credito_vista")
+            regra = obter_regra_cartao(session, emp_id, tp_lower, band, cc_id)
+            fee_pct = regra.taxa_porcentagem if regra else Decimal("0.00")
+            val_taxa = (total_bruto * fee_pct / Decimal("100")).quantize(Decimal("0.01"))
+            total_liquido = total_bruto - val_taxa
+
             # Verificar se Lancamento existe (mesmo se estivesse is_deleted)
             l = session.exec(
                 select(Lancamento)
@@ -138,20 +144,20 @@ def main():
 
             if l:
                 was_deleted = l.is_deleted
-                l.valor_previsto = total_bruto
+                l.valor_previsto = total_liquido
                 l.is_deleted = False  # Reativa se estivesse deletado
                 l.observacao = json.dumps(meta)
                 l.updated_at = datetime.utcnow()
                 session.add(l)
                 status_msg = "Reativado e Atualizado" if was_deleted else "Atualizado"
-                print(f"🔄 [{emp_name}] {formatted_desc} ({dt_venc.strftime('%d/%m/%Y')}): R$ {total_bruto:.2f} ({status_msg})")
+                print(f"🔄 [{emp_name}] {formatted_desc} ({dt_venc.strftime('%d/%m/%Y')}): Líquido R$ {total_liquido:.2f} (Bruto: R$ {total_bruto:.2f}, Taxa: R$ {val_taxa:.2f})")
             else:
                 l = Lancamento(
                     descricao=formatted_desc,
                     tipo="RECEITA",
                     status="EM ABERTO",
                     origem="PDV",
-                    valor_previsto=total_bruto,
+                    valor_previsto=total_liquido,
                     valor_pago=Decimal("0.00"),
                     valor_juros=Decimal("0.00"),
                     valor_desconto=Decimal("0.00"),

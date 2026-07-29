@@ -343,12 +343,18 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
             "status": "REALIZADO"
         }
         
-        total_previsto = sum(
+        total_bruto = sum(
             Decimal(str(item["valor"]))
             for item in contribuicoes.values()
             if isinstance(item, dict) and item.get("status") == "REALIZADO"
         )
-        l.valor_previsto = total_previsto
+        tipo_pag_lower = "cartao_debito" if (modality.lower() == "debito" or "debito" in formatted_desc.lower()) else "cartao_credito_vista"
+        regra = obter_regra_cartao(db, empresa_id, tipo_pag_lower, bandeira, centro_custo_id)
+        fee_pct = regra.taxa_porcentagem if regra else Decimal("0.00")
+        val_taxa = (total_bruto * fee_pct / Decimal("100")).quantize(Decimal("0.01"))
+        total_liquido = total_bruto - val_taxa
+
+        l.valor_previsto = total_liquido
         l.entidade_id = entidade.id
         l.observacao = json.dumps(meta)
         l.updated_by_id = current_user_id
@@ -369,12 +375,19 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
                 }
             }
         }
+        val_bruto_init = Decimal(str(valor))
+        tipo_pag_lower = "cartao_debito" if (modality.lower() == "debito" or "debito" in formatted_desc.lower()) else "cartao_credito_vista"
+        regra = obter_regra_cartao(db, empresa_id, tipo_pag_lower, bandeira, centro_custo_id)
+        fee_pct = regra.taxa_porcentagem if regra else Decimal("0.00")
+        val_taxa_init = (val_bruto_init * fee_pct / Decimal("100")).quantize(Decimal("0.01"))
+        val_liquido_init = val_bruto_init - val_taxa_init
+
         l = Lancamento(
             descricao=formatted_desc,
             tipo="RECEITA",
             status="EM ABERTO",
             origem="PDV",
-            valor_previsto=valor,
+            valor_previsto=val_liquido_init,
             valor_pago=Decimal("0.00"),
             valor_juros=Decimal("0.00"),
             valor_desconto=Decimal("0.00"),

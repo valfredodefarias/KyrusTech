@@ -854,7 +854,7 @@ export function ConciliacaoCartoes() {
   const agendaGroupedByDate = useMemo(() => {
     const groups: Record<string, Recebivel[]> = {};
     filteredAgenda.forEach(r => {
-      const d = r.data_vencimento;
+      const d = r.data_vencimento || r.data_venda;
       if (!groups[d]) groups[d] = [];
       groups[d].push(r);
     });
@@ -1337,7 +1337,7 @@ export function ConciliacaoCartoes() {
                   <div className="grid grid-cols-7 divide-x divide-y divide-slate-100 dark:divide-slate-800 border-l border-t border-slate-100 dark:border-slate-800">
                     {calendarDays.map((slot, index) => {
                       const isSelected = selectedDay === slot.dateStr;
-                      const dayItems = calendarFilteredAgenda.filter(r => r.data_vencimento === slot.dateStr);
+                      const dayItems = calendarFilteredAgenda.filter(r => r.data_vencimento === slot.dateStr || r.data_venda === slot.dateStr);
 
                       // Group day items by brand, then by tipo (debito / credito)
                       const brandGrouped: Record<string, {
@@ -1450,7 +1450,7 @@ export function ConciliacaoCartoes() {
                     </div>
 
                     {(() => {
-                      const dayItems = filteredAgenda.filter(r => r.data_vencimento === selectedDay);
+                      const dayItems = filteredAgenda.filter(r => r.data_vencimento === selectedDay || r.data_venda === selectedDay);
                       if (dayItems.length === 0) {
                         return <p className="text-xs text-slate-400 text-center py-6">Nenhum recebível previsto para este dia.</p>;
                       }

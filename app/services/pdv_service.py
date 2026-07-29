@@ -1533,6 +1533,39 @@ class PdvService:
                 vendedor_nome = (vendedor_obj.nome or vendedor_obj.email) if vendedor_obj else "Sem vendedor"
                 cliente_nome = (entidade.nome or entidade.nome_fantasia) if entidade else "Consumidor Final"
 
+                # Mapear forma de pagamento para caixa alta padrão
+                forma_pag_mapeada = p.tipo_pagamento.upper()
+                if "CREDITO_VISTA" in forma_pag_mapeada or "CREDITO_AVISTA" in forma_pag_mapeada or "CREDITO_AT_VISTA" in forma_pag_mapeada or forma_pag_mapeada in ["CARTAO_CREDITO_VISTA", "CREDITO"]:
+                    forma_pag_mapeada = "CREDITO_AVISTA"
+                elif "CREDITO_PARCELADO" in forma_pag_mapeada or forma_pag_mapeada == "CARTAO_CREDITO_PARCELADO":
+                    forma_pag_mapeada = "CREDITO_PARCELADO"
+                elif "DEBITO" in forma_pag_mapeada or forma_pag_mapeada == "CARTAO_DEBITO":
+                    forma_pag_mapeada = "DEBITO"
+
+                # 1. Criar UMA ÚNICA movimentação no caixa do PDV com o valor total da venda
+                mov = PdvMovimentacao(
+                    empresa_id=empresa_id,
+                    tipo="ENTRADA",
+                    descricao=f"Venda PDV {pdv_venda_id}",
+                    valor=total_pag,
+                    forma_pagamento=forma_pag_mapeada,
+                    bandeira=bandeira_nome.upper(),
+                    parcelas=num_parc,
+                    numero_parcela=1,
+                    data=hoje_pag,
+                    centro_custo_id=venda_in.centro_custo_id,
+                    conta_id=conta_id,
+                    conciliado=False,
+                    venda_id=pdv_venda_id,
+                    import_hash=venda_in.import_hash,
+                    created_by_id=venda_in.vendedor_id,
+                    updated_by_id=current_user_id,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                db.add(mov)
+
+                # 2. Gerar as parcelas separadas para os respectivos meses na Agenda da Conciliadora / Financeiro
                 for i in range(1, num_parc + 1):
                     if regra:
                         if regra.modo_parcelamento == "ANTECIPADO":
@@ -1554,40 +1587,7 @@ class PdvService:
                         fee_percentage = Decimal("0.00")
 
                     valor_linha = base_val if i < num_parc else last_val
-                    hash_unico = f"{venda_in.import_hash}-P{i}" if (venda_in.import_hash and num_parc > 1) else (venda_in.import_hash if venda_in.import_hash else None)
 
-                    # Mapear forma de pagamento para caixa alta padrão
-                    forma_pag_mapeada = p.tipo_pagamento.upper()
-                    if "CREDITO_VISTA" in forma_pag_mapeada or "CREDITO_AVISTA" in forma_pag_mapeada or "CREDITO_AT_VISTA" in forma_pag_mapeada or forma_pag_mapeada in ["CARTAO_CREDITO_VISTA", "CREDITO"]:
-                        forma_pag_mapeada = "CREDITO_AVISTA"
-                    elif "CREDITO_PARCELADO" in forma_pag_mapeada or forma_pag_mapeada == "CARTAO_CREDITO_PARCELADO":
-                        forma_pag_mapeada = "CREDITO_PARCELADO"
-                    elif "DEBITO" in forma_pag_mapeada or forma_pag_mapeada == "CARTAO_DEBITO":
-                        forma_pag_mapeada = "DEBITO"
-
-                    mov = PdvMovimentacao(
-                        empresa_id=empresa_id,
-                        tipo="ENTRADA",
-                        descricao=f"Parcela {i}/{num_parc} Venda PDV {pdv_venda_id}" if num_parc > 1 else f"Venda PDV {pdv_venda_id}",
-                        valor=valor_linha,
-                        forma_pagamento=forma_pag_mapeada,
-                        bandeira=bandeira_nome.upper(),
-                        parcelas=num_parc,
-                        numero_parcela=i,
-                        data=hoje_pag,
-                        centro_custo_id=venda_in.centro_custo_id,
-                        conta_id=conta_id,
-                        conciliado=False,
-                        venda_id=pdv_venda_id,
-                        import_hash=hash_unico,
-                        created_by_id=venda_in.vendedor_id,
-                        updated_by_id=current_user_id,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
-                    )
-                    db.add(mov)
-
-                    # Criar/atualizar o lançamento financeiro agrupado no Financeiro
                     formatted_desc = format_card_description(bandeira_nome, p.tipo_pagamento)
                     modality = "Debito" if ("debito" in tp_lower or "debit" in tp_lower) else "Credito"
                     adicionar_ou_atualizar_recebivel_cartao_agrupado(

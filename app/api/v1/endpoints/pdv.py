@@ -1076,21 +1076,21 @@ def listar_recebiveis_cartao(
         except Exception:
             pass
 
-        val_bruto_gl = gl.valor_previsto or Decimal("0.00")
-
         regra_gl = obter_regra_cartao(db, empresa_id, modalidade_gl, bandeira_gl, gl.centro_custo_id)
-        if regra_gl:
-            fee_percentage_gl = regra_gl.taxa_porcentagem
-        else:
-            fee_percentage_gl = Decimal("0.00")
+        fee_percentage_gl = regra_gl.taxa_porcentagem if regra_gl else Decimal("0.00")
 
-        val_taxa_gl = (val_bruto_gl * fee_percentage_gl / Decimal("100")).quantize(Decimal("0.01"))
-        
         val_pago_gl = gl.valor_pago or Decimal("0.00")
         if gl.status == "PAGO" and val_pago_gl > 0:
             val_liquido_gl = val_pago_gl
         else:
-            val_liquido_gl = val_bruto_gl - val_taxa_gl
+            val_liquido_gl = gl.valor_previsto or Decimal("0.00")
+
+        if fee_percentage_gl > 0 and fee_percentage_gl < Decimal("100"):
+            val_bruto_gl = (val_liquido_gl * Decimal("100") / (Decimal("100") - fee_percentage_gl)).quantize(Decimal("0.01"))
+            val_taxa_gl = val_bruto_gl - val_liquido_gl
+        else:
+            val_bruto_gl = val_liquido_gl
+            val_taxa_gl = Decimal("0.00")
 
         status_gl = "PAGO" if gl.status == "PAGO" else "A RECEBER"
 

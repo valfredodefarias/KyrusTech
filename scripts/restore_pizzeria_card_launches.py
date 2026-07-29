@@ -14,9 +14,9 @@ if sys.stdout.encoding.lower() != 'utf-8':
         pass
 
 def main():
-    parser = argparse.ArgumentParser(description="Reativa lancamentos de cartao agrupados deletados estritamente para as Pizzarias Fábio a partir de hoje (29/07/2026).")
+    parser = argparse.ArgumentParser(description="Reativa lancamentos de cartao agrupados deletados estritamente para as Pizzarias Fábio a partir de 28/07/2026.")
     parser.add_argument("--commit", action="store_true", help="Aplica as alteracoes no banco de dados.")
-    parser.add_argument("--start-date", type=str, default="2026-07-29", help="Data inicial de vencimento (YYYY-MM-DD). Padrao: 2026-07-29.")
+    parser.add_argument("--start-date", type=str, default="2026-07-28", help="Data inicial de vencimento (YYYY-MM-DD). Padrao: 2026-07-28.")
     args = parser.parse_args()
 
     filter_start_date = datetime.strptime(args.start_date, "%Y-%m-%d").date()

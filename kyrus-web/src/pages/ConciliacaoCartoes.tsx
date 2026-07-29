@@ -127,6 +127,11 @@ export function ConciliacaoCartoes() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [expandedBrands, setExpandedBrands] = useState<Record<string, boolean>>({});
 
+  // Antecipação Simulator State
+  const [showAntecipacaoModal, setShowAntecipacaoModal] = useState(false);
+  const [antecipacaoTaxaPct, setAntecipacaoTaxaPct] = useState<number>(2.5);
+  const [antecipacaoDias, setAntecipacaoDias] = useState<number>(30);
+
   // Lists from DB
   const [regras, setRegras] = useState<RegraCartao[]>([]);
   const [recebiveis, setRecebiveis] = useState<Recebivel[]>([]);
@@ -1064,29 +1069,40 @@ export function ConciliacaoCartoes() {
           <p className="text-xs font-semibold text-slate-400 mt-1 uppercase tracking-wider">Mapeamento de taxas, agenda de recebíveis e conciliação assistida de adquirentes</p>
         </div>
 
-        {/* TABS CONTROLS */}
-        <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700/80 w-full md:w-auto self-stretch md:self-auto">
+        {/* TABS CONTROLS & ACTIONS */}
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto self-stretch md:self-auto">
           <button
-            onClick={() => setActiveTab('agenda')}
-            className={`flex-1 md:flex-none px-4 py-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 ${activeTab === 'agenda' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}
+            onClick={() => setShowAntecipacaoModal(true)}
+            className="px-3.5 py-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold text-xs border border-amber-500/20 transition flex items-center justify-center gap-2 shadow-2xs w-full sm:w-auto"
+            title="Simular antecipação de recebíveis de crédito futuros"
           >
-            <Calendar className="w-4 h-4" />
-            Agenda de Recebíveis
+            <Zap className="w-4 h-4 text-amber-500 fill-amber-500/30" />
+            Simular Antecipação
           </button>
-          <button
-            onClick={() => setActiveTab('conciliacao')}
-            className={`flex-1 md:flex-none px-4 py-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 ${activeTab === 'conciliacao' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}
-          >
-            <CheckSquare className="w-4 h-4" />
-            Conciliação Assistida
-          </button>
-          <button
-            onClick={() => setActiveTab('regras')}
-            className={`flex-1 md:flex-none px-4 py-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 ${activeTab === 'regras' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}
-          >
-            <Filter className="w-4 h-4" />
-            Parâmetros das Bandeiras
-          </button>
+
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700/80 w-full sm:w-auto flex-1 md:flex-none">
+            <button
+              onClick={() => setActiveTab('agenda')}
+              className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 ${activeTab === 'agenda' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}
+            >
+              <Calendar className="w-4 h-4" />
+              Agenda de Recebíveis
+            </button>
+            <button
+              onClick={() => setActiveTab('conciliacao')}
+              className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 ${activeTab === 'conciliacao' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}
+            >
+              <CheckSquare className="w-4 h-4" />
+              Conciliação Assistida
+            </button>
+            <button
+              onClick={() => setActiveTab('regras')}
+              className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 ${activeTab === 'regras' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}
+            >
+              <Filter className="w-4 h-4" />
+              Parâmetros das Bandeiras
+            </button>
+          </div>
         </div>
       </header>
 
@@ -2789,6 +2805,119 @@ export function ConciliacaoCartoes() {
                     </div>
                   </div>
 
+                </div>
+              </div>
+            )}
+
+            {/* SIMULADOR DE ANTECIPAÇÃO MODAL */}
+            {showAntecipacaoModal && (
+              <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl max-w-xl w-full space-y-6 relative">
+                  <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold shrink-0">
+                        <Zap className="w-5 h-5 fill-amber-500/30" />
+                      </div>
+                      <div>
+                        <h3 className="font-black text-slate-950 dark:text-white text-base">Simulador de Antecipação de Cartão</h3>
+                        <p className="text-xs text-slate-400 font-medium">Calcule o custo e o valor líquido ao antecipar recebíveis de crédito futuros</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowAntecipacaoModal(false)}
+                      className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg transition"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {(() => {
+                    // Compute available future credit launches
+                    const credFuturos = recebiveis.filter(r => r.tipo_pagamento !== 'cartao_debito' && r.status !== 'PAGO');
+                    const totalBrutoFuturo = credFuturos.reduce((acc, curr) => acc + Number(curr.valor_bruto || 0), 0);
+                    const totalLiquidoOriginal = credFuturos.reduce((acc, curr) => acc + Number(curr.valor_liquido || 0), 0);
+                    
+                    // Calculation based on selected rate % a.m.
+                    const taxaDecimal = (antecipacaoTaxaPct || 0) / 100;
+                    const proporcionalMeses = (antecipacaoDias || 30) / 30;
+                    const despesaAntecipacao = totalBrutoFuturo * taxaDecimal * proporcionalMeses;
+                    const valorLiquidoHoje = Math.max(0, totalBrutoFuturo - despesaAntecipacao);
+
+                    return (
+                      <div className="space-y-5">
+                        {/* Input Controls */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
+                          <div>
+                            <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                              Taxa de Antecipação (% a.m.)
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                max="15"
+                                value={antecipacaoTaxaPct}
+                                onChange={(e) => setAntecipacaoTaxaPct(Number(e.target.value))}
+                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-slate-900 dark:text-white pr-8 focus:ring-2 focus:ring-amber-500 outline-none"
+                              />
+                              <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                              Prazo Médio de Antecipação
+                            </label>
+                            <select
+                              value={antecipacaoDias}
+                              onChange={(e) => setAntecipacaoDias(Number(e.target.value))}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 outline-none"
+                            >
+                              <option value={15}>15 dias de antecedência</option>
+                              <option value={30}>30 dias de antecedência (1 mês)</option>
+                              <option value={60}>60 dias de antecedência (2 meses)</option>
+                              <option value={90}>90 dias de antecedência (3 meses)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Results Cards */}
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center bg-slate-100 dark:bg-slate-800 p-3.5 rounded-xl text-xs font-semibold">
+                            <span className="text-slate-500 dark:text-slate-400">Total de Crédito Futuro a Receber:</span>
+                            <span className="font-mono font-bold text-slate-900 dark:text-white">{BRL.format(totalBrutoFuturo)} ({credFuturos.length} lote/s)</span>
+                          </div>
+
+                          <div className="flex justify-between items-center bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/50 p-3.5 rounded-xl text-xs font-semibold">
+                            <span className="text-rose-600 dark:text-rose-400 font-bold">(-) Custo Desconto de Antecipação ({antecipacaoTaxaPct}%):</span>
+                            <span className="font-mono font-black text-rose-600 dark:text-rose-400">- {BRL.format(despesaAntecipacao)}</span>
+                          </div>
+
+                          <div className="flex justify-between items-center bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl">
+                            <div>
+                              <span className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">(=) Valor Líquido Entrando Hoje na Conta</span>
+                              <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono mt-1 block">{BRL.format(valorLiquidoHoje)}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-[10px] text-slate-400 block">Diferença vs Líquido Sem Antecipar:</span>
+                              <span className="text-xs font-bold text-amber-600 dark:text-amber-400 font-mono">-{BRL.format(totalLiquidoOriginal - valorLiquidoHoje)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex justify-end gap-3 pt-2">
+                          <button
+                            onClick={() => setShowAntecipacaoModal(false)}
+                            className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs hover:opacity-90 transition shadow-sm"
+                          >
+                            Fechar Simulador
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             )}

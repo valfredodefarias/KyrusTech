@@ -5,7 +5,7 @@ import {
   Plus, Edit2, Trash2, X, Check, Loader2,
   CheckCircle2, Calendar,
   DollarSign, AlertCircle, ArrowRight, Search, Filter,
-  Sparkles, TrendingUp, Percent, CheckSquare, Coins
+  Sparkles, TrendingUp, Percent, CheckSquare, Coins, Zap
 } from 'lucide-react';
 
 // --- HELPERS ---

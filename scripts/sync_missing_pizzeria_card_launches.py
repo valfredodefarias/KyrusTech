@@ -18,7 +18,7 @@ if sys.stdout.encoding.lower() != 'utf-8':
 def main():
     parser = argparse.ArgumentParser(description="Gera/sincroniza os lancamentos de cartao agrupados no Financeiro a partir das movimentacoes ativas do PDV.")
     parser.add_argument("--commit", action="store_true", help="Aplica as alteracoes no banco de dados.")
-    parser.add_argument("--start-date", type=str, default="2026-07-28", help="Data inicial (YYYY-MM-DD). Padrao: 2026-07-28.")
+    parser.add_argument("--start-date", type=str, default="2026-07-29", help="Data inicial (YYYY-MM-DD). Padrao: 2026-07-29.")
     args = parser.parse_args()
 
     filter_start_date = datetime.strptime(args.start_date, "%Y-%m-%d").date()

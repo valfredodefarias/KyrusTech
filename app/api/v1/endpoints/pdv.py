@@ -931,7 +931,35 @@ def listar_recebiveis_cartao(
     from sqlalchemy.orm import selectinload
     from datetime import timedelta
 
-    # 1. Query pdv_movimentacoes joining with PdvVenda, Usuario, and Entidade
+    # 1. Query Lancamento para Lançamentos Agrupados de Cartão ativos (grouped_card_launch)
+    query_grouped = (
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.tipo == "RECEITA",
+            col(Lancamento.observacao).like('%"grouped_card_launch": true%')
+        )
+    )
+    if start_date:
+        query_grouped = query_grouped.where(func.coalesce(Lancamento.data_vencimento, Lancamento.data_pagamento) >= start_date)
+    if end_date:
+        query_grouped = query_grouped.where(func.coalesce(Lancamento.data_vencimento, Lancamento.data_pagamento) <= end_date)
+
+    grouped_launches = db.exec(query_grouped).all()
+
+    covered_mov_keys = set()
+    for gl in grouped_launches:
+        if gl.observacao:
+            try:
+                parsed_meta = json.loads(gl.observacao)
+                contribuicoes = parsed_meta.get("contribuicoes", {})
+                for k in contribuicoes.keys():
+                    covered_mov_keys.add(str(k))
+            except Exception:
+                pass
+
+    # 2. Query pdv_movimentacoes joining with PdvVenda, Usuario, and Entidade
     query = (
         select(PdvMovimentacao, PdvVenda, Usuario, Entidade)
         .join(PdvVenda, PdvVenda.id == PdvMovimentacao.venda_id, isouter=True)
@@ -972,6 +1000,12 @@ def listar_recebiveis_cartao(
 
     recebiveis = []
     for m, venda, vendedor, cliente in rows:
+        # Se a movimentacao ja estiver coberta por um lancamento agrupado no Financeiro, ignorar para evitar duplicacao na tela
+        v_id_str = str(m.venda_id or m.id)
+        m_id_str = str(m.id)
+        if v_id_str in covered_mov_keys or m_id_str in covered_mov_keys:
+            continue
+
         tipo_pag_lower = "cartao_debito" if m.forma_pagamento == "DEBITO" else ("cartao_credito_parcelado" if m.forma_pagamento == "CREDITO_PARCELADO" else "cartao_credito_vista")
 
         regra = obter_regra_cartao(db, empresa_id, tipo_pag_lower, m.bandeira, m.centro_custo_id)
@@ -1021,22 +1055,6 @@ def listar_recebiveis_cartao(
             "plano_contas_id": None
         })
 
-    # 2. Query Lancamento para Lançamentos Agrupados de Cartão (grouped_card_launch)
-    query_grouped = (
-        select(Lancamento)
-        .where(
-            Lancamento.empresa_id == empresa_id,
-            Lancamento.is_deleted == False,
-            Lancamento.tipo == "RECEITA",
-            col(Lancamento.observacao).like('%"grouped_card_launch": true%')
-        )
-    )
-    if start_date:
-        query_grouped = query_grouped.where(func.coalesce(Lancamento.data_vencimento, Lancamento.data_pagamento) >= start_date)
-    if end_date:
-        query_grouped = query_grouped.where(func.coalesce(Lancamento.data_vencimento, Lancamento.data_pagamento) <= end_date)
-
-    grouped_launches = db.exec(query_grouped).all()
     for gl in grouped_launches:
         dt_venc = gl.data_vencimento or gl.data_pagamento or date.today()
         dt_comp = gl.data_competencia or dt_venc

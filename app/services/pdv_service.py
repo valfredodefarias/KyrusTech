@@ -303,12 +303,15 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
         db.add(entidade)
         db.flush()
 
+    is_debito = (modality.lower() == "debito" or "debito" in formatted_desc.lower())
+    target_vencimento = hoje_pag if is_debito else vencimento
+
     l = db.exec(
         select(Lancamento)
         .where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.tipo == "RECEITA",
-            Lancamento.data_vencimento == vencimento,
+            Lancamento.data_vencimento == target_vencimento,
             Lancamento.descricao == formatted_desc,
             Lancamento.centro_custo_id == centro_custo_id,
             Lancamento.origem == "PDV",
@@ -317,14 +320,12 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
     ).first()
 
     if l:
-        is_debito = (modality.lower() == "debito" or "debito" in formatted_desc.lower())
-
-        if l.status == "PAGO" and l.conta_id is not None and not is_debito:
+        if l.status == "PAGO" and l.conta_id is not None:
             conta = db.get(Conta, l.conta_id)
             nome_conta = conta.nome if conta else "Banco"
             raise HTTPException(
                 status_code=400,
-                detail=f"Não é possível adicionar a venda. O recebível agrupado '{formatted_desc}' para o dia {vencimento.strftime('%d/%m/%Y')} já foi liquidado no banco '{nome_conta}'."
+                detail=f"Não é possível adicionar a venda. O recebível agrupado '{formatted_desc}' para o dia {target_vencimento.strftime('%d/%m/%Y')} já foi liquidado no banco '{nome_conta}'."
             )
         
         meta = {}
@@ -349,17 +350,12 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
             if isinstance(item, dict) and item.get("status") == "REALIZADO"
         )
         l.valor_previsto = total_previsto
-        if is_debito:
-            l.status = "PAGO"
-            l.valor_pago = total_previsto
-            l.data_pagamento = vencimento
         l.entidade_id = entidade.id
         l.observacao = json.dumps(meta)
         l.updated_by_id = current_user_id
         l.updated_at = datetime.utcnow()
         db.add(l)
     else:
-        is_debito = (modality.lower() == "debito" or "debito" in formatted_desc.lower())
         meta = {
             "grouped_card_launch": True,
             "bandeira": bandeira,
@@ -377,19 +373,19 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
         l = Lancamento(
             descricao=formatted_desc,
             tipo="RECEITA",
-            status="PAGO" if is_debito else "EM ABERTO",
+            status="EM ABERTO",
             origem="PDV",
             valor_previsto=valor,
-            valor_pago=valor if is_debito else Decimal("0.00"),
+            valor_pago=Decimal("0.00"),
             valor_juros=Decimal("0.00"),
             valor_desconto=Decimal("0.00"),
             valor_multa=Decimal("0.00"),
-            data_vencimento=vencimento,
-            data_pagamento=vencimento if is_debito else None,
+            data_vencimento=target_vencimento,
+            data_pagamento=None,
             data_competencia=hoje_pag,
             empresa_id=empresa_id,
             plano_contas_id=plano_id,
-            conta_id=conta_id,
+            conta_id=None,
             entidade_id=entidade.id,
             centro_custo_id=centro_custo_id,
             observacao=json.dumps(meta),
@@ -1582,7 +1578,6 @@ class PdvService:
                     # Criar/atualizar o lançamento financeiro agrupado no Financeiro
                     formatted_desc = format_card_description(bandeira_nome, p.tipo_pagamento)
                     modality = "Debito" if ("debito" in tp_lower or "debit" in tp_lower) else "Credito"
-                    conta_para_recebivel = (regra.conta_destino_id if (regra and regra.conta_destino_id) else conta_id)
                     adicionar_ou_atualizar_recebivel_cartao_agrupado(
                         db=db,
                         empresa_id=empresa_id,
@@ -1591,7 +1586,7 @@ class PdvService:
                         valor=valor_linha,
                         formatted_desc=formatted_desc,
                         plano_id=plano_id,
-                        conta_id=conta_para_recebivel,
+                        conta_id=None,
                         centro_custo_id=venda_in.centro_custo_id,
                         hoje_pag=hoje_pag,
                         bandeira=bandeira_nome.upper(),

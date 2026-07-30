@@ -1566,14 +1566,22 @@ def listar_lancamentos(
     incluir_demonstracoes: bool = Query(False),
     incluir_importacao_legada: bool = Query(False),
     minimized: bool = Query(False),
+    data_modo: Optional[str] = Query(None),
     ids: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """Lista lançamentos com paginação."""
-    logger.info(f"[listar_lancamentos] Chamado para empresa_id={empresa_id} minimized={minimized} sem_paginacao={sem_paginacao} ids={ids}")
+    logger.info(f"[listar_lancamentos] Chamado para empresa_id={empresa_id} minimized={minimized} sem_paginacao={sem_paginacao} data_modo={data_modo} ids={ids}")
     safe_limit = max(1, min(limit, 10000))
     safe_skip = max(skip, 0)
+
+    effective_data_modo = (data_modo or "").strip().lower()
+    if not effective_data_modo:
+        if somente_pagos:
+            effective_data_modo = "pagamento"
+        else:
+            effective_data_modo = "vencimento"
 
     cache_key = None
     if minimized:
@@ -1590,6 +1598,7 @@ def listar_lancamentos(
                 str(origem), str(status),
                 str(conciliado), str(ocultar_vendas_cartao_pendentes),
                 str(incluir_demonstracoes), str(incluir_importacao_legada),
+                str(effective_data_modo),
                 str(ids)
             ]
             cache_key = hashlib.md5(":".join(key_parts).encode("utf-8")).hexdigest()
@@ -1663,30 +1672,19 @@ def listar_lancamentos(
             has_ids_filter = True
 
     if not has_ids_filter:
+        if effective_data_modo == "pagamento":
+            date_col = Lancamento.data_pagamento
+            query = query.where(date_col.is_not(None))
+        else:
+            date_col = Lancamento.data_vencimento
+
         if data_inicio and data_fim:
-            query = query.where(
-                or_(
-                    (Lancamento.data_vencimento >= data_inicio) & (Lancamento.data_vencimento <= data_fim),
-                    (Lancamento.data_pagamento.is_not(None))
-                    & (Lancamento.data_pagamento >= data_inicio)
-                    & (Lancamento.data_pagamento <= data_fim),
-                )
-            )
+            query = query.where((date_col >= data_inicio) & (date_col <= data_fim))
         else:
             if data_inicio:
-                query = query.where(
-                    or_(
-                        Lancamento.data_vencimento >= data_inicio,
-                        (Lancamento.data_pagamento.is_not(None)) & (Lancamento.data_pagamento >= data_inicio),
-                    )
-                )
+                query = query.where(date_col >= data_inicio)
             if data_fim:
-                query = query.where(
-                    or_(
-                        Lancamento.data_vencimento <= data_fim,
-                        (Lancamento.data_pagamento.is_not(None)) & (Lancamento.data_pagamento <= data_fim),
-                    )
-                )
+                query = query.where(date_col <= data_fim)
         if conta_id:
             query = query.where(Lancamento.conta_id == conta_id)
         if cartao_id:

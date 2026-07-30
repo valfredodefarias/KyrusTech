@@ -243,7 +243,7 @@ export function Lancamentos({
   };
 
   const getVisibleRange = () => {
-    if (filtrosAvancados.dataModo === 'VENCIMENTO' && filtrosAvancados.dataInicio && filtrosAvancados.dataFim) {
+    if (filtrosAvancados.dataInicio && filtrosAvancados.dataFim) {
       return { ini: filtrosAvancados.dataInicio, fim: filtrosAvancados.dataFim };
     }
     const ano = mesAtual.getFullYear();
@@ -269,17 +269,8 @@ export function Lancamentos({
   };
 
   useEffect(() => {
-    if (filtrosAvancados.dataModo === 'PAGAMENTO' && (filtrosAvancados.dataInicio || filtrosAvancados.dataFim)) {
-      loadLancamentos(undefined, undefined, { force: true, skipFallback: true });
-    } else if (!filtrosAvancados.dataInicio && !filtrosAvancados.dataFim) {
-      const ano = mesAtual.getFullYear();
-      const mes = mesAtual.getMonth() + 1;
-      const ini = new Date(ano, mes - 1, 1).toISOString().split('T')[0];
-      const fim = new Date(ano, mes, 0).toISOString().split('T')[0];
-      loadLancamentos(ini, fim, { silent: true });
-    } else {
-      loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { silent: true });
-    }
+    const { ini, fim } = getVisibleRange();
+    loadLancamentos(ini, fim, { silent: true });
   }, [
     currentEmpresaId,
     mesAtual,
@@ -438,16 +429,19 @@ export function Lancamentos({
     }
   }
 
-
-
   async function loadLancamentos(
     ini?: string,
     fim?: string,
     opts?: { force?: boolean; skipFallback?: boolean; silent?: boolean }
   ) {
-    const thisRequestId = ++requestIdCounterRef.current;
     const rawIds = searchParams.get('boletim_ids') || '';
-    const key = `${currentEmpresaId ?? ''}|${ini || ''}|${fim || ''}|${filtrosAvancados.ocultarVendasCartaoPendentes}|${rawIds}`;
+    if (!ini && !fim && !rawIds && !opts?.skipFallback) {
+      const range = getVisibleRange();
+      ini = range.ini;
+      fim = range.fim;
+    }
+    const thisRequestId = ++requestIdCounterRef.current;
+    const key = `${currentEmpresaId ?? ''}|${ini || ''}|${fim || ''}|${filtrosAvancados.dataModo}|${filtrosAvancados.ocultarVendasCartaoPendentes}|${rawIds}`;
     const isCacheMatch = key === useTransactionStore.getState().pagedCacheKey;
     const hasCachedItems = useTransactionStore.getState().pagedLancamentos.length > 0;
 
@@ -481,6 +475,7 @@ export function Lancamentos({
       const params: any = {
         minimized: true,
         sem_paginacao: true,
+        data_modo: filtrosAvancados.dataModo ? filtrosAvancados.dataModo.toLowerCase() : 'vencimento',
       };
       if (rawIds) {
         params.ids = rawIds;
@@ -521,22 +516,16 @@ export function Lancamentos({
       return nextSet;
     });
 
-    const next = !l.ipp;
-    const updatedTx = { ...l, ipp: next };
-
-    // 1. Update local page state instantly
-    setLancamentos((prev) => prev.map((item) => (item.id === l.id ? updatedTx : item)));
-
-    // 2. Register optimistic update in global Zustand store
-    useTransactionStore.getState().updateTransactionInCache(updatedTx);
+    const currentIpp = !!l.ipp;
+    const next = !currentIpp;
+    setLancamentos((prev) => prev.map((item) => (item.id === l.id ? { ...item, ipp: next } : item)));
 
     try {
       await api.put(`/lancamentos/${l.id}`, { ipp: next });
     } catch (e) {
       console.error(e);
-      setLancamentos((prev) => prev.map((item) => (item.id === l.id ? { ...item, ipp: l.ipp } : item)));
-      useTransactionStore.getState().updateTransactionInCache(l);
-      pushToast('error', 'Não foi possível marcar/desmarcar IPP.');
+      setLancamentos((prev) => prev.map((item) => (item.id === l.id ? { ...item, ipp: currentIpp } : item)));
+      pushToast('error', 'Não foi possível atualizar o status IPP.');
     } finally {
       setSavingIppIds((prev) => {
         const nextSet = new Set(prev);
@@ -544,6 +533,33 @@ export function Lancamentos({
         return nextSet;
       });
     }
+  }
+
+  function toggleSelectAllVisible(allIds: number[]) {
+    if (selectedIds.size >= allIds.length) {
+      setSelectedIds(new Set());
+      return;
+    }
+    setSelectedIds(new Set(allIds));
+  }
+
+  function toggleSelectId(id: number) {
+    setSelectedIds((prev) => {
+      const nextSet = new Set(prev);
+      if (nextSet.has(id)) nextSet.delete(id);
+      else nextSet.add(id);
+      return nextSet;
+    });
+  }
+
+  function openBulkPay() {
+    if (selectedIds.size === 0) return;
+    setBulkPayData({
+      conta_id: contasFiltradas.length > 0 ? String(contasFiltradas[0].id) : '',
+      modoData: 'HOJE',
+      data: todayISO,
+    });
+    setShowBulkPay(true);
   }
 
   async function handleBulkPay() {
@@ -773,12 +789,22 @@ export function Lancamentos({
     };
 
     filteredList.forEach((l) => {
-      if (!groups[l.data_vencimento]) groups[l.data_vencimento] = [];
-      groups[l.data_vencimento].push(l);
+      const dataGroup =
+        filtrosAvancados.dataModo === 'PAGAMENTO'
+          ? (l.data_pagamento || l.data_vencimento)
+          : l.data_vencimento;
+      if (!groups[dataGroup]) groups[dataGroup] = [];
+      groups[dataGroup].push(l);
+
+      const val =
+        filtrosAvancados.dataModo === 'PAGAMENTO' && l.valor_pago
+          ? Number(l.valor_pago)
+          : Number(l.valor_previsto);
+
       if (l.tipo === 'RECEITA') {
-        r += Number(l.valor_previsto);
+        r += val;
       } else {
-        d += Number(l.valor_previsto);
+        d += val;
       }
     });
 
@@ -786,7 +812,7 @@ export function Lancamentos({
     sortedDates.forEach((date) => groups[date].sort(compareLancamentos));
 
     return { grouped: { groups, sortedDates }, kpis: { r, d, s: r - d } };
-  }, [filteredList, categorias, entidadesPorId, listaSort]);
+  }, [filteredList, categorias, entidadesPorId, listaSort, filtrosAvancados.dataModo]);
 
 
 
@@ -1212,7 +1238,7 @@ export function Lancamentos({
                 </button>
               </div>
               <button
-                onClick={() => loadLancamentos(undefined, undefined, { force: true })}
+                onClick={() => refreshLancamentosVisiveis()}
                 className="p-2 text-slate-500 hover:text-blue-500 border border-slate-300 dark:border-slate-600 rounded-lg hover:border-blue-500 transition-colors"
                 title="Sincronizar lançamentos"
               >

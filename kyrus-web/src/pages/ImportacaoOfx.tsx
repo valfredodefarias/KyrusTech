@@ -2584,7 +2584,11 @@ export function ImportacaoOfx() {
                                  {displayedAlocs.length === 1 && (() => {
                                    const aloc = displayedAlocs[0];
                                    const valorBanco = Math.abs(lanc.valor);
-                                   const valorPrevisto = aloc.valor_previsto || 0;
+                                   const valorPrevisto = aloc.valor_previsto || (
+                                     aloc.lancamento_id === lanc.lancamento_previsto_id
+                                       ? lanc.lancamento_previsto_resumo?.valor_previsto
+                                       : lanc.lancamentos_atrasados_resumo?.find((r) => r.id === aloc.lancamento_id)?.valor_previsto
+                                   ) || 0;
                                    const diferencaAp = Number((valorBanco - valorPrevisto).toFixed(2));
                                    const temDivergencia = diferencaAp !== 0 || Number((aloc.valor_alocado - valorPrevisto).toFixed(2)) !== 0;
 

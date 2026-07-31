@@ -130,6 +130,8 @@ export function Lancamentos({
     dataInicio: '',
     dataFim: '',
     ocultarVendasCartaoPendentes: false,
+    origem: 'TODOS' as 'TODOS' | 'OFX' | 'MANUAL',
+    conciliado: 'TODOS' as 'TODOS' | 'SIM' | 'NAO',
   });
   const [filtroRapidoTipo, setFiltroRapidoTipo] = useState<'TODOS' | 'RECEITA' | 'DESPESA'>('TODOS');
   const [filtroRapidoStatus, setFiltroRapidoStatus] = useState<'TODOS' | 'PAGO' | 'NAO_PAGO'>('TODOS');
@@ -700,6 +702,14 @@ export function Lancamentos({
       // Filtro de Categorias (Multi)
       if (filtrosAvancados.categoriaIds.size > 0 && !filtrosAvancados.categoriaIds.has(l.plano_contas_id)) return false;
 
+      // Filtro por Origem (OFX vs Manual)
+      if (filtrosAvancados.origem === 'OFX' && !l.origem?.includes('OFX') && !l.conciliado) return false;
+      if (filtrosAvancados.origem === 'MANUAL' && (l.origem?.includes('OFX') || l.conciliado)) return false;
+
+      // Filtro por Conciliado
+      if (filtrosAvancados.conciliado === 'SIM' && !l.conciliado) return false;
+      if (filtrosAvancados.conciliado === 'NAO' && l.conciliado) return false;
+
       return true;
     });
   }, [
@@ -859,6 +869,8 @@ export function Lancamentos({
       dataInicio: '',
       dataFim: '',
       ocultarVendasCartaoPendentes: false,
+      origem: 'TODOS',
+      conciliado: 'TODOS',
     });
     setFiltroTexto('');
     setCentroCustoFiltro('');

@@ -2553,6 +2553,10 @@ def atualizar_lancamento_apos_baixas(db: Session, lancamento_id: int):
         lancamento.valor_multa = multa
         lancamento.valor_desconto = desconto
         
+        ultimas_datas = [b.data_baixa for b in baixas if b.data_baixa is not None]
+        if ultimas_datas:
+            lancamento.data_pagamento = max(ultimas_datas)
+
         total_coberto = principal + desconto
         saldo_restante = lancamento.valor_previsto - total_coberto
         if saldo_restante <= Decimal("0.01"):

@@ -16,6 +16,8 @@ interface FiltrosSidebarProps {
     dataInicio: string;
     dataFim: string;
     ocultarVendasCartaoPendentes: boolean;
+    origem?: 'TODOS' | 'OFX' | 'MANUAL';
+    conciliado?: 'TODOS' | 'SIM' | 'NAO';
   };
   setFiltrosAvancados: React.Dispatch<React.SetStateAction<any>>;
   isQuickFilterActive: (id: string | null) => boolean;
@@ -167,7 +169,7 @@ export const FiltrosSidebar = ({
             <div className="grid grid-cols-2 gap-2">
               {[
                 { id: 'VENCIMENTO', label: 'Vencimento' },
-                { id: 'PAGAMENTO', label: 'Pagamento' },
+                { id: 'PAGAMENTO', label: 'Pagamento (Baixa)' },
               ].map((modo) => (
                 <button
                   key={modo.id}
@@ -177,6 +179,33 @@ export const FiltrosSidebar = ({
                   className={`py-2 rounded-lg text-xs font-bold border transition ${filtrosAvancados.dataModo === modo.id ? 'bg-cyan-600 text-white border-cyan-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
                 >
                   {modo.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Filtro por Conciliação / OFX */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">
+              Conciliado via OFX
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: 'TODOS', label: 'Todos' },
+                { id: 'SIM', label: 'Conciliados' },
+                { id: 'NAO', label: 'Não Conciliados' },
+              ].map((opcao) => (
+                <button
+                  key={opcao.id}
+                  onClick={() =>
+                    setFiltrosAvancados((prev: any) => ({
+                      ...prev,
+                      conciliado: opcao.id,
+                    }))
+                  }
+                  className={`py-2 rounded-lg text-xs font-bold border transition ${filtrosAvancados.conciliado === opcao.id ? 'bg-emerald-600 text-white border-emerald-600' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                >
+                  {opcao.label}
                 </button>
               ))}
             </div>

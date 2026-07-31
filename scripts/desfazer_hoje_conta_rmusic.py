@@ -1,115 +1,106 @@
 """
 Script para desfazer 100% de qualquer operacao/conciliacao realizada HOJE (31/07/2026) na conta ITAÚ - RMUSIC (ID 215, Empresa 27).
+Otimizacao de performance por conta especifica (Instantaneo).
 """
 import os
 import sys
-from datetime import date
 from decimal import Decimal
-from sqlmodel import Session, select, or_
+from sqlmodel import Session
 from sqlalchemy import text
 
 from app.db.session import engine
 from app.models.conta import Conta
-from app.models.lancamento import Lancamento
-from app.models.baixa import Baixa
-from app.models.movimento import Movimento
 
 def desfazer_operacoes_hoje():
     with Session(engine) as db:
         print("=== CANCELANDO/DESFAZENDO TODAS AS OPERAÇÕES DE HOJE (31/07/2026) NA CONTA ITAÚ - RMUSIC ===")
 
-        # 1. Soft-delete em TODAS as baixas criadas ou modificadas hoje (31/07/2026) para lancamentos da conta 215
-        baixas_hoje = db.exec(text("""
-            SELECT b.id, b.lancamento_id, b.valor_pago 
-            FROM baixas b
-            JOIN lancamentos l ON l.id = b.lancamento_id
-            WHERE l.empresa_id = 27 AND l.conta_id = 215 
-              AND (b.created_at::date = '2026-07-31' OR b.updated_at::date = '2026-07-31' OR b.data_baixa = '2026-07-31' OR l.id >= 1056000)
-        """)).mappings().all()
+        # Desativar statement_timeout para esta sessao caso necessario
+        db.exec(text("SET statement_timeout = '60s';"))
 
-        print(f"Total de baixas de hoje a cancelar: {len(baixas_hoje)}")
-        b_ids = [b['id'] for b in baixas_hoje]
-        if b_ids:
-            db.exec(text(f"UPDATE baixas SET is_deleted = true WHERE id IN ({','.join(map(str, b_ids))})"))
-        db.flush()
-
-        # 2. Lancamentos criados hoje durante a importacao OFX (id >= 1056000 ou criados hoje): Soft-delete
-        novos_hoje = db.exec(
-            select(Lancamento).where(
-                Lancamento.empresa_id == 27,
-                Lancamento.conta_id == 215,
-                or_(Lancamento.id >= 1056000, Lancamento.origem == "OFX")
+        # 1. Soft-delete em TODAS as baixas criadas ou modificadas hoje (31/07/2026) para a conta 215
+        db.exec(text("""
+            UPDATE baixas 
+            SET is_deleted = true 
+            WHERE id IN (
+                SELECT b.id 
+                FROM baixas b
+                JOIN lancamentos l ON l.id = b.lancamento_id
+                WHERE l.empresa_id = 27 AND l.conta_id = 215 
+                  AND (b.created_at::date = '2026-07-31' OR b.updated_at::date = '2026-07-31' OR b.data_baixa = '2026-07-31' OR l.id >= 1056000)
             )
-        ).all()
+        """))
+        db.commit()
+        print("1. Baixas de hoje canceladas com sucesso.")
 
-        print(f"Total de lancamentos novos de hoje a deletar: {len(novos_hoje)}")
-        for n in novos_hoje:
-            n.is_deleted = True
-            n.status = "EM ABERTO"
-            n.valor_pago = Decimal("0.00")
-            n.data_pagamento = None
-            n.conciliado = False
-            db.add(n)
-        db.flush()
+        # 2. Deletar (is_deleted = true) novos lancamentos criados hoje durante a importacao OFX (id >= 1056000 ou origem OFX)
+        db.exec(text("""
+            UPDATE lancamentos
+            SET is_deleted = true, status = 'EM ABERTO', valor_pago = 0.00, data_pagamento = NULL, conciliado = false
+            WHERE empresa_id = 27 AND conta_id = 215 
+              AND (id >= 1056000 OR (origem = 'OFX' AND created_at::date = '2026-07-31'))
+        """))
+        db.commit()
+        print("2. Novos lançamentos criados pela importação de hoje foram desativados.")
 
-        # 3. Lancamentos pre-existentes que foram alterados hoje: recalcular status/valor_pago com base em baixas anteriores ativas
-        lancamentos_alterados = db.exec(
-            select(Lancamento).where(
-                Lancamento.empresa_id == 27,
-                Lancamento.conta_id == 215,
-                Lancamento.id < 1056000,
-                Lancamento.is_deleted == False
+        # 3. Recalcular os lancamentos da conta 215 baseando-se APENAS nas suas baixas ativas
+        db.exec(text("""
+            WITH baixas_conta AS (
+                SELECT 
+                    b.lancamento_id,
+                    SUM(CASE WHEN b.tipo_baixa = 'PRINCIPAL' THEN b.valor_pago ELSE 0 END) AS principal,
+                    SUM(CASE WHEN b.tipo_baixa = 'JUROS' THEN b.valor_pago ELSE 0 END) AS juros,
+                    SUM(CASE WHEN b.tipo_baixa = 'MULTA' THEN b.valor_pago ELSE 0 END) AS multa,
+                    SUM(CASE WHEN b.tipo_baixa = 'DESCONTO' THEN b.valor_pago ELSE 0 END) AS desconto,
+                    MAX(b.data_baixa) AS max_data_baixa,
+                    COUNT(b.id) AS total_baixas
+                FROM baixas b
+                JOIN lancamentos l ON l.id = b.lancamento_id
+                WHERE l.empresa_id = 27 AND l.conta_id = 215 AND b.is_deleted = false
+                GROUP BY b.lancamento_id
             )
-        ).all()
+            UPDATE lancamentos
+            SET 
+                valor_pago = COALESCE(bc.principal + bc.juros + bc.multa - bc.desconto, 0.00),
+                valor_juros = COALESCE(bc.juros, 0.00),
+                valor_multa = COALESCE(bc.multa, 0.00),
+                valor_desconto = COALESCE(bc.desconto, 0.00),
+                data_pagamento = bc.max_data_baixa,
+                conciliado = CASE WHEN bc.total_baixas > 0 THEN true ELSE false END,
+                status = CASE 
+                    WHEN bc.total_baixas > 0 AND (lancamentos.valor_previsto - (bc.principal + bc.desconto)) <= 0.01 THEN 'PAGO'
+                    WHEN bc.total_baixas > 0 THEN 'PARCIAL'
+                    ELSE 'EM ABERTO'
+                END
+            FROM baixas_conta bc
+            WHERE lancamentos.id = bc.lancamento_id
+              AND lancamentos.empresa_id = 27 AND lancamentos.conta_id = 215 AND lancamentos.is_deleted = false
+        """))
 
-        for l in lancamentos_alterados:
-            baixas_ativas = db.exec(
-                select(Baixa).where(
-                    Baixa.lancamento_id == l.id,
-                    Baixa.is_deleted == False
-                )
-            ).all()
-
-            if not baixas_ativas:
-                l.status = "EM ABERTO"
-                l.valor_pago = Decimal("0.00")
-                l.data_pagamento = None
-                l.conciliado = False
-            else:
-                principal = sum(b.valor_pago for b in baixas_ativas if b.tipo_baixa == "PRINCIPAL")
-                juros = sum(b.valor_pago for b in baixas_ativas if b.tipo_baixa == "JUROS")
-                multa = sum(b.valor_pago for b in baixas_ativas if b.tipo_baixa == "MULTA")
-                desconto = sum(b.valor_pago for b in baixas_ativas if b.tipo_baixa == "DESCONTO")
-
-                l.valor_pago = principal + juros + multa - desconto
-                l.valor_juros = juros
-                l.valor_multa = multa
-                l.valor_desconto = desconto
-                l.data_pagamento = max(b.data_baixa for b in baixas_ativas if b.data_baixa is not None) if baixas_ativas else None
-                
-                saldo_rest = l.valor_previsto - (principal + desconto)
-                l.status = "PAGO" if saldo_rest <= Decimal("0.01") else "PARCIAL"
-                l.conciliado = True
-
-            db.add(l)
-        db.flush()
+        # Zerar lancamentos da conta 215 que nao tem NENHUMA baixa ativa
+        db.exec(text("""
+            UPDATE lancamentos
+            SET valor_pago = 0.00, valor_juros = 0.00, valor_multa = 0.00, valor_desconto = 0.00,
+                data_pagamento = NULL, conciliado = false, status = 'EM ABERTO'
+            WHERE empresa_id = 27 AND conta_id = 215 AND is_deleted = false
+              AND id NOT IN (
+                  SELECT b.lancamento_id 
+                  FROM baixas b
+                  JOIN lancamentos l ON l.id = b.lancamento_id
+                  WHERE l.empresa_id = 27 AND l.conta_id = 215 AND b.is_deleted = false
+              )
+        """))
+        db.commit()
+        print("3. Títulos pré-existentes recalculados com base única em baixas ativas anteriores.")
 
         # 4. Reabrir a fila de movimentos bancarios OFX da conta
-        movs = db.exec(
-            select(Movimento).where(
-                Movimento.empresa_id == 27,
-                Movimento.conta_id == 215,
-                Movimento.status != "ABERTO"
-            )
-        ).all()
-
-        print(f"Total de movimentos OFX a reabrir: {len(movs)}")
-        for m in movs:
-            m.status = "ABERTO"
-            db.add(m)
-
+        db.exec(text("""
+            UPDATE movimentos
+            SET status = 'ABERTO'
+            WHERE empresa_id = 27 AND conta_id = 215 AND status != 'ABERTO'
+        """))
         db.commit()
-        print("\n✅ Todas as alterações de hoje foram desfeitas com sucesso!")
+        print("4. Fila de movimentos OFX reaberta com sucesso.")
 
         # 5. Saldo final recalculado
         conta = db.get(Conta, 215)
@@ -125,7 +116,7 @@ def desfazer_operacoes_hoje():
         print(f"SALDO INICIAL: R$ {saldo_inicial:.2f}")
         print(f"RECEITAS PAGAS: R$ {rec_pagas:.2f}")
         print(f"DESPESAS PAGAS: R$ {desp_pagas:.2f}")
-        print(f"SALDO RESULTANTE: R$ {saldo_final:.2f}")
+        print(f"SALDO RESULTANTE APÓS REVERTER HOJE: R$ {saldo_final:.2f}")
         print("==================================================================")
 
 if __name__ == "__main__":

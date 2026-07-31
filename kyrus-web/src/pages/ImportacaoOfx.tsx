@@ -1231,12 +1231,12 @@ export function ImportacaoOfx() {
   }, []);
 
   const contaSelecionada = useMemo(
-    () => contas.find((c) => c.id === contaId),
+    () => contas.find((c) => Number(c.id) === Number(contaId)),
     [contaId, contas]
   );
 
   const cartaoSelecionado = useMemo(
-    () => cartoes.find((c) => c.id === cartaoId),
+    () => cartoes.find((c) => Number(c.id) === Number(cartaoId)),
     [cartaoId, cartoes]
   );
 

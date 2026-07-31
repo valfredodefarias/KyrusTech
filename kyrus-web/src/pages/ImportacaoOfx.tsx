@@ -335,6 +335,18 @@ function getSugestaoInicial(lanc: LancamentoImportado): NonNullable<LancamentoIm
   return 'CRIAR_NOVO';
 }
 
+function mapImportadoToEditado(item: LancamentoImportado): LancamentoEditado {
+  const acao = getSugestaoInicial(item);
+  return {
+    ...item,
+    sugestao_acao: acao,
+    sugestao_acao_original: acao,
+    sugestao_confirmada: false,
+    auto_preenchido: false,
+    lancamentos_atrasados_relacionados: item.lancamentos_atrasados_ids || [],
+  };
+}
+
 function getAlocacoesOrDefault(item: LancamentoEditado): AlocacaoItemUI[] {
   if (item.alocacoes && item.alocacoes.length > 0) {
     return item.alocacoes.map((a) => {
@@ -1157,7 +1169,7 @@ export function ImportacaoOfx() {
 
   useEffect(() => {
     if (resultado?.lancamentos) {
-      setLancamentosEditados(resultado.lancamentos.map((l) => ({ ...l })));
+      setLancamentosEditados(resultado.lancamentos.map(mapImportadoToEditado));
     }
   }, [resultado]);
 

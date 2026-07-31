@@ -180,6 +180,12 @@ def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None, cartao_i
     movimento_uid = _normalizar_texto(lancamento.get("movimento_uid"))
     referencia_externa = _normalizar_texto(lancamento.get("referencia_externa"))
     ofx_bank_id = _normalizar_texto(lancamento.get("ofx_bank_id"))
+    fitid = _normalizar_texto(lancamento.get("fitid"))
+    pix_e2e_id = _normalizar_texto(lancamento.get("pix_e2e_id"))
+    ocorrencia_index = int(lancamento.get("ocorrencia_index") or 1)
+
+    # Texto original imutável vindo do extrato bancário
+    descricao_bruta = _normalizar_texto(lancamento.get("descricao_original_ofx") or lancamento.get("descricao"))
 
     # Estabilização: referências geradas via fallback (sem fitid do banco) devem ser desconsideradas do hash
     eh_fallback = False
@@ -192,10 +198,13 @@ def gerar_import_hash(lancamento: Dict, conta_id: Optional[int] = None, cartao_i
         "origem": lancamento.get("origem"),
         "tipo": lancamento.get("tipo"),
         "data": str(lancamento.get("data") or ""),
-        "data_hora": lancamento.get("data_hora"),
+        "data_hora": str(lancamento.get("data_hora") or ""),
         "valor": str(lancamento.get("valor") or ""),
-        "descricao": _normalizar_texto(lancamento.get("descricao")),
-        "razao_social": _normalizar_texto(lancamento.get("razao_social")),
+        "descricao_original": descricao_bruta,
+        "fitid": fitid if fitid else None,
+        "pix_e2e_id": pix_e2e_id if pix_e2e_id else None,
+        "ocorrencia_index": ocorrencia_index,
+        "razao_social": _normalizar_texto(lancamento.get("razao_social") or lancamento.get("payee_bruto")),
         "cpf_cnpj": _limpar_cpf_cnpj(lancamento.get("cpf_cnpj")),
         "referencia_externa": None if eh_fallback else referencia_externa,
         "movimento_uid": None if eh_fallback else movimento_uid,
@@ -340,6 +349,7 @@ def buscar_lancamento_previsto_mesmo_dia_valor(
     tolerancia_valor: Optional[Decimal] = None,
     tolerancia_percentual: Optional[Decimal] = None,
     previstos_indisponiveis_ids: Optional[set[int]] = None,
+    conta_id: Optional[int] = None,
 ) -> Optional[Lancamento]:
     data_lancamento = lancamento["data"]
     valor = Decimal(str(lancamento["valor"]))
@@ -361,6 +371,13 @@ def buscar_lancamento_previsto_mesmo_dia_valor(
             ~lancamento_table.c.observacao.ilike('%"legacy_id_venda"%')
         ),
     )
+    if conta_id:
+        query = query.where(
+            or_(
+                lancamento_table.c.conta_id.is_(None),
+                lancamento_table.c.conta_id == conta_id
+            )
+        )
     if centro_custo_id:
         query = query.where(lancamento_table.c.centro_custo_id == centro_custo_id)
     if previstos_indisponiveis_ids:
@@ -368,7 +385,37 @@ def buscar_lancamento_previsto_mesmo_dia_valor(
         if ids_validos:
             query = query.where(~lancamento_table.c.id.in_(ids_validos))
 
-    return db.exec(query).first()
+    candidatos = db.exec(query).all()
+    if not candidatos:
+        return None
+
+    desc_ofx = _normalizar_texto(lancamento.get("descricao") or lancamento.get("razao_social"))
+    if not desc_ofx:
+        return candidatos[0]
+
+    melhor_candidato = None
+    melhor_ratio = 0.0
+
+    for cand in candidatos:
+        desc_cand = _normalizar_texto(cand.descricao)
+        ratio = SequenceMatcher(None, desc_ofx, desc_cand).ratio() if desc_cand else 0.0
+        if ratio > melhor_ratio:
+            melhor_ratio = ratio
+            melhor_candidato = cand
+
+    # Trava de Segurança: Se a descrição existe nos dois lados mas a similaridade for menor que 35%,
+    # NÃO selecionar empresa errada automaticamente (como AUDIOAMERICA vs PRO SHOWS).
+    if melhor_candidato and melhor_ratio >= 0.35:
+        return melhor_candidato
+
+    # Se a diferença de valor for EXATA (0.00), aceitar primeiro candidato se não houver conflito gritante
+    for cand in candidatos:
+        if abs(cand.valor_previsto - valor) <= Decimal("0.01"):
+            desc_cand = _normalizar_texto(cand.descricao)
+            if not desc_cand or SequenceMatcher(None, desc_ofx, desc_cand).ratio() >= 0.25:
+                return cand
+
+    return None
 
 
 def buscar_lancamento_atrasado_mesmo_valor(

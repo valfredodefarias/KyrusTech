@@ -94,7 +94,22 @@ def apply_legacy_schema_compatibility() -> None:
         "CREATE INDEX IF NOT EXISTS ix_audit_logs_batch_id ON audit_logs (batch_id)",
         "CREATE INDEX IF NOT EXISTS ix_audit_logs_is_automatic ON audit_logs (is_automatic)",
         "CREATE INDEX IF NOT EXISTS ix_audit_logs_signature_hash ON audit_logs (signature_hash)",
-        "CREATE INDEX IF NOT EXISTS ix_audit_logs_previous_hash ON audit_logs (previous_hash)"
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_previous_hash ON audit_logs (previous_hash)",
+        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS ofx_bank_id VARCHAR",
+        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS ofx_agencia VARCHAR",
+        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS ofx_conta_numero VARCHAR",
+        "ALTER TABLE movimentos ADD COLUMN IF NOT EXISTS descricao_original VARCHAR",
+        "ALTER TABLE movimentos ADD COLUMN IF NOT EXISTS fitid VARCHAR",
+        "ALTER TABLE movimentos ADD COLUMN IF NOT EXISTS payee_bruto VARCHAR",
+        "ALTER TABLE movimentos ADD COLUMN IF NOT EXISTS documento_extrato VARCHAR",
+        "ALTER TABLE movimentos ADD COLUMN IF NOT EXISTS ocorrencia_index INTEGER DEFAULT 1",
+        "ALTER TABLE movimentos ADD COLUMN IF NOT EXISTS ofx_bank_id VARCHAR",
+        "ALTER TABLE movimentos ADD COLUMN IF NOT EXISTS ofx_agencia VARCHAR",
+        "ALTER TABLE movimentos ADD COLUMN IF NOT EXISTS ofx_conta_numero VARCHAR",
+        "ALTER TABLE movimentos ADD COLUMN IF NOT EXISTS pix_e2e_id VARCHAR",
+        "CREATE INDEX IF NOT EXISTS ix_movimentos_descricao_original ON movimentos (descricao_original)",
+        "CREATE INDEX IF NOT EXISTS ix_movimentos_fitid ON movimentos (fitid)",
+        "CREATE INDEX IF NOT EXISTS ix_movimentos_pix_e2e_id ON movimentos (pix_e2e_id)"
     ]
 
     for statement in statements:
@@ -117,6 +132,7 @@ def apply_legacy_schema_compatibility() -> None:
     from app.models.regra_comissao import RegraComissao
     from app.models.meta_vendedor import MetaVendedor
     from app.models.regra_silenciamento_auditor import RegraSilenciamentoAuditor
+    from app.models.regra_classificacao import RegraClassificacaoFornecedor
     RegraCartao.__table__.create(bind=engine, checkfirst=True)
     LoteCartao.__table__.create(bind=engine, checkfirst=True)
     LoteCartaoItem.__table__.create(bind=engine, checkfirst=True)
@@ -124,6 +140,7 @@ def apply_legacy_schema_compatibility() -> None:
     RegraComissao.__table__.create(bind=engine, checkfirst=True)
     MetaVendedor.__table__.create(bind=engine, checkfirst=True)
     RegraSilenciamentoAuditor.__table__.create(bind=engine, checkfirst=True)
+    RegraClassificacaoFornecedor.__table__.create(bind=engine, checkfirst=True)
 
 
 

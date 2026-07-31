@@ -272,6 +272,8 @@ def processar_ofx(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
                 saldo_extrato_valor = None
                 logger.warning("Saldo do extrato OFX invalido para conta {}", account_metadata.get("ofx_conta_numero"))
 
+        ocorrencias_por_chave: Dict[tuple[str, str, Decimal, str], int] = {}
+
         for txn in statement.transactions:
             data_lanc, data_hora = _to_date(getattr(txn, "date", None))
             if not data_lanc:
@@ -295,37 +297,59 @@ def processar_ofx(arquivo_bytes: bytes, empresa_id: int) -> List[Dict]:
             memo = (getattr(txn, "memo", "") or "").strip()
             payee = (getattr(txn, "payee", "") or "").strip()
             tipo_txn = (getattr(txn, "type", "") or "").strip()
-            descricao = memo or payee or tipo_txn or "Transacao OFX"
-            saldo_informativo = _eh_movimento_saldo_informativo(descricao)
+            descricao_bruta = memo or payee or tipo_txn or "Transacao OFX"
+            saldo_informativo = _eh_movimento_saldo_informativo(descricao_bruta)
             identidade = _resolve_transaction_identity(txn)
+            fitid = _safe_text(getattr(txn, "id", None)) or _safe_text(getattr(txn, "fitid", None)) or None
+
+            # Rastrear E2E ID do PIX se presente na descrição ou memo (padrão E + 31 dígitos)
+            pix_match = re.search(r"\bE\d{31}\b", f"{memo} {payee}", re.IGNORECASE)
+            pix_e2e_id = pix_match.group(0).upper() if pix_match else None
+
+            # Calcular ocorrencia_index para múltiplas transações idênticas no mesmo dia
+            chave_ocorrencia = (
+                account_metadata.get("ofx_conta_numero") or "",
+                data_lanc.isoformat(),
+                tipo,
+                valor_abs,
+                _safe_text(descricao_bruta).lower(),
+            )
+            ocorrencias_por_chave[chave_ocorrencia] = ocorrencias_por_chave.get(chave_ocorrencia, 0) + 1
+            ocorrencia_index = ocorrencias_por_chave[chave_ocorrencia]
+
             dedupe_key = _build_transaction_dedupe_key(
                 account_metadata,
                 txn,
                 data_lanc,
                 data_hora,
                 valor_abs,
-                descricao,
+                descricao_bruta,
                 identidade,
             )
             if identidade:
                 if dedupe_key in movimentos_vistos:
                     logger.warning(
                         "Movimento OFX duplicado ignorado no parser: {} | {} | {}",
-                        descricao,
+                        descricao_bruta,
                         data_lanc.isoformat(),
                         valor_abs,
                     )
                     linha += 1
                     continue
                 movimentos_vistos.add(dedupe_key)
-            referencia_txn = _resolve_transaction_reference(txn, linha, data_lanc, valor_abs, descricao)
+            referencia_txn = _resolve_transaction_reference(txn, linha, data_lanc, valor_abs, descricao_bruta)
 
             lancamentos.append({
                 "data": data_lanc,
                 "data_pagamento": data_lanc.isoformat(),
                 "data_vencimento": data_lanc.isoformat(),
                 "data_hora": data_hora,
-                "descricao": descricao,
+                "descricao": descricao_bruta,
+                "descricao_original_ofx": descricao_bruta,
+                "fitid": fitid,
+                "payee_bruto": payee,
+                "pix_e2e_id": pix_e2e_id,
+                "ocorrencia_index": ocorrencia_index,
                 "razao_social": payee,
                 "cpf_cnpj": "",
                 "referencia": referencia_txn,

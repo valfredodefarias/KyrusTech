@@ -29,6 +29,17 @@ class Movimento(AuditMixin, SQLModel, table=True):
     empresa_id: int = Field(foreign_key="empresas.id", index=True)
     conta_id: int = Field(foreign_key="contas.id", index=True)
 
+    # Campos Estruturados de Extrato OFX
+    descricao_original: Optional[str] = Field(default=None, index=True)
+    fitid: Optional[str] = Field(default=None, index=True)
+    payee_bruto: Optional[str] = Field(default=None)
+    documento_extrato: Optional[str] = Field(default=None)
+    ocorrencia_index: int = Field(default=1)
+    ofx_bank_id: Optional[str] = Field(default=None)
+    ofx_agencia: Optional[str] = Field(default=None)
+    ofx_conta_numero: Optional[str] = Field(default=None)
+    pix_e2e_id: Optional[str] = Field(default=None, index=True)
+
     # Relacionamentos
     empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa", lazy="selectin"))
     conta: "Conta" = Relationship(sa_relationship=relationship("Conta", lazy="selectin"))

@@ -6,6 +6,7 @@ import {
   ArrowRight,
   Check,
   CheckCircle,
+  CheckCircle2,
   ChevronDown,
   Edit,
   FileSpreadsheet,
@@ -23,6 +24,10 @@ import {
 import { BankAvatar } from '../components/BrandAvatar';
 import { api, normalizeListResponse } from '../services/api';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
+import { OfxBalanceSimulationCard } from './ImportacaoOfx/components/OfxBalanceSimulationCard';
+import { OfxDifferenceAdjusterModal } from './ImportacaoOfx/components/OfxDifferenceAdjusterModal';
+import { OfxStickyFooterBar } from './ImportacaoOfx/components/OfxStickyFooterBar';
+import { OfxToastError } from './ImportacaoOfx/components/OfxToastError';
 
 function normalizarDescricao(texto?: string | null) {
   if (!texto) return '';
@@ -87,6 +92,7 @@ interface ContaItem {
   tipo_integracao?: string | null;
   centro_custo_id?: number | null;
   status?: 'ATIVO' | 'INATIVO' | string;
+  saldo_atual?: number | null;
 }
 
 interface CartaoItem {
@@ -217,6 +223,7 @@ type FeedbackState = {
   type: 'success' | 'error' | 'warning';
   message: string;
   conflitos?: string[];
+  errorLineIndex?: number | null;
 };
 
 interface ProcessarArquivoResponse {
@@ -330,31 +337,45 @@ function getSugestaoInicial(lanc: LancamentoImportado): NonNullable<LancamentoIm
 
 function getAlocacoesOrDefault(item: LancamentoEditado): AlocacaoItemUI[] {
   if (item.alocacoes && item.alocacoes.length > 0) {
-    return item.alocacoes;
+    return item.alocacoes.map((a) => {
+      const pVal = a.valor_previsto || (
+        a.lancamento_id === item.lancamento_previsto_id
+          ? item.lancamento_previsto_resumo?.valor_previsto
+          : item.lancamentos_atrasados_resumo?.find((r) => r.id === a.lancamento_id)?.valor_previsto
+      );
+      if (pVal && pVal > 0 && (a.valor_alocado === Math.abs(item.valor) || !a.valor_alocado) && Math.abs(item.valor) !== pVal) {
+        return { ...a, valor_previsto: pVal, valor_alocado: pVal };
+      }
+      return { ...a, valor_previsto: pVal || a.valor_previsto || 0 };
+    });
   }
   if (item.sugestao_acao === 'BAIXAR_PREVISTO' && item.lancamento_previsto_id) {
+    const prevVal = item.lancamento_previsto_resumo?.valor_previsto || 0;
+    const valorAlocado = prevVal > 0 ? prevVal : Math.abs(item.valor);
     return [{
       lancamento_id: item.lancamento_previsto_id,
-      valor_alocado: Math.abs(item.valor),
+      valor_alocado: valorAlocado,
       tipo_baixa: 'PRINCIPAL',
       descricao: item.lancamento_previsto_resumo?.descricao || undefined,
       interessado: item.lancamento_previsto_resumo?.interessado || undefined,
       data_vencimento: item.lancamento_previsto_resumo?.data_vencimento || '',
-      valor_previsto: item.lancamento_previsto_resumo?.valor_previsto || 0,
+      valor_previsto: prevVal,
     }];
   }
   if (item.sugestao_acao === 'RELACIONAR_ATRASADOS' && item.lancamentos_atrasados_relacionados) {
     const relatedIds = item.lancamentos_atrasados_relacionados;
     return relatedIds.map((id) => {
       const res = item.lancamentos_atrasados_resumo?.find((r) => r.id === id);
+      const prevVal = res?.valor_previsto || 0;
+      const valorAlocado = prevVal > 0 ? prevVal : (relatedIds.length === 1 ? Math.abs(item.valor) : 0);
       return {
         lancamento_id: id,
-        valor_alocado: relatedIds.length === 1 ? Math.abs(item.valor) : (res?.valor_previsto ?? Math.abs(item.valor)),
+        valor_alocado: valorAlocado,
         tipo_baixa: 'PRINCIPAL',
         descricao: res?.descricao || undefined,
         interessado: res?.interessado || undefined,
         data_vencimento: res?.data_vencimento || '',
-        valor_previsto: res?.valor_previsto || 0,
+        valor_previsto: prevVal,
       };
     });
   }
@@ -527,6 +548,22 @@ export function ImportacaoOfx() {
   } | null>(null);
 
   const [limiteResultados, setLimiteResultados] = useState(15);
+  const [simulacaoSaldo, setSimulacaoSaldo] = useState<{
+    saldo_atual: number;
+    impacto_receitas: number;
+    impacto_despesas: number;
+    saldo_projetado: number;
+  } | null>(null);
+
+  const [differenceModalConfig, setDifferenceModalConfig] = useState<{
+    isOpen: boolean;
+    linhaArquivo: number;
+    alocId: number;
+    valorBanco: number;
+    valorPrevisto: number;
+    diferenca: number;
+  } | null>(null);
+
   const [formDrawerConfig, setFormDrawerConfig] = useState<{
     show: boolean;
     prefilledData?: any;
@@ -547,6 +584,27 @@ export function ImportacaoOfx() {
       setSugestoes({});
     };
   }, []);
+
+  useEffect(() => {
+    if (!contaId || lancamentosEditados.length === 0) {
+      setSimulacaoSaldo(null);
+      return;
+    }
+    const itens = lancamentosEditados
+      .filter((item) => item.sugestao_acao !== 'DESCARTAR')
+      .map((item) => ({
+        tipo: item.tipo,
+        valor: Math.abs(item.valor),
+      }));
+
+    api.post('/ofx/simular-saldo', { conta_id: Number(contaId), itens })
+      .then((res) => {
+        setSimulacaoSaldo(res.data);
+      })
+      .catch((err) => {
+        console.warn('Erro ao simular saldo:', err);
+      });
+  }, [contaId, lancamentosEditados]);
 
   const scrollCardIntoView = (linhaArquivo: number) => {
     setTimeout(() => {
@@ -708,14 +766,19 @@ export function ImportacaoOfx() {
     scrollCardIntoView(linhaArquivo);
   };
 
-  const handleAjustarVencimento = (linhaArquivo: number, lancamentoId: number, novoValor: number) => {
+  const handleAjustarValorPrevisto = (linhaArquivo: number, lancamentoId: number, novoValor: number) => {
     setLancamentosEditados((prev) =>
       prev.map((item) => {
         if (item.linha_arquivo === linhaArquivo) {
           const currentAlocs = getAlocacoesOrDefault(item);
           const nextAlocs = currentAlocs.map((a) => {
             if (a.lancamento_id === lancamentoId) {
-              return { ...a, valor_previsto: novoValor };
+              return {
+                ...a,
+                valor_previsto: novoValor,
+                valor_alocado: novoValor,
+                decisao_excedido: 'MANTER' as const,
+              };
             }
             return a;
           });
@@ -742,7 +805,7 @@ export function ImportacaoOfx() {
         return item;
       })
     );
-    setFeedback({ type: 'success', message: 'Ajuste de valor previsto agendado! Será salvo ao confirmar a importação.' });
+    setFeedback({ type: 'success', message: `Valor do lançamento previsto ajustado para ${formatCurrency(novoValor)}!` });
     scrollCardIntoView(linhaArquivo);
   };
 
@@ -764,7 +827,17 @@ export function ImportacaoOfx() {
     );
   };
 
-  const handleAbrirFormJurosMulta = async (lanc: LancamentoEditado, diffVal: number) => {
+  const handleLancarDiferencaModal = (tipoBaixa: 'JUROS' | 'MULTA' | 'TARIFA' | 'DESCONTO') => {
+    if (!differenceModalConfig) return;
+    const { linhaArquivo, diferenca } = differenceModalConfig;
+    const lanc = lancamentosEditados.find((l) => l.linha_arquivo === linhaArquivo);
+    setDifferenceModalConfig(null);
+    if (lanc) {
+      handleAbrirFormJurosMulta(lanc, Math.abs(diferenca), tipoBaixa);
+    }
+  };
+
+  const handleAbrirFormJurosMulta = async (lanc: LancamentoEditado, diffVal: number, tipoBaixaLabel?: string) => {
     try {
       setLoading(true);
       const originalAloc = lanc.alocacoes?.[0] || lanc.lancamento_previsto_resumo;
@@ -779,7 +852,8 @@ export function ImportacaoOfx() {
         originalDesc = origRes.data.descricao || lanc.descricao;
       }
 
-      const prefilledDescription = `Juros e multa referente a ${originalDesc}`;
+      const rotulo = tipoBaixaLabel ? tipoBaixaLabel.toLowerCase() : 'juros/multa';
+      const prefilledDescription = `Ajuste (${rotulo}) referente a ${originalDesc}`;
       
       const prefilled: any = {
         descricao: prefilledDescription,
@@ -808,10 +882,11 @@ export function ImportacaoOfx() {
         || (lanc.alocacoes && lanc.alocacoes.length > 0 ? lanc.alocacoes[0].descricao : null)
         || lanc.descricao;
 
+      const rotulo = tipoBaixaLabel ? tipoBaixaLabel.toLowerCase() : 'juros/multa';
       setFormDrawerConfig({
         show: true,
         prefilledData: {
-          descricao: `Juros e multa referente a ${originalDesc}`,
+          descricao: `Ajuste (${rotulo}) referente a ${originalDesc}`,
           tipo: lanc.tipo || 'DESPESA',
           valor_previsto: diffVal,
           valor_pago: diffVal,
@@ -927,7 +1002,14 @@ export function ImportacaoOfx() {
         setLancamentosEditados((prev) =>
           prev.map((item) => {
             if (item.linha_arquivo === linhaArquivo) {
-              const currentAlocs = item.alocacoes || [];
+              const baseAlocs = item.alocacoes || getAlocacoesOrDefault(item);
+              const currentAlocs = baseAlocs.map((a) => {
+                const pVal = a.valor_previsto;
+                if (pVal && pVal > 0) {
+                  return { ...a, valor_alocado: pVal };
+                }
+                return a;
+              });
               const newAloc: AlocacaoItemUI = {
                 lancamento_id: createdId,
                 valor_alocado: diffVal,
@@ -1053,7 +1135,7 @@ export function ImportacaoOfx() {
     async function loadContas() {
       try {
         const [contasRes, cartoesRes, centrosRes] = await Promise.all([
-          api.get<ContaItem[]>('/contas/?include_saldo=false'),
+          api.get<ContaItem[]>('/contas/?include_saldo=true'),
           api.get<CartaoItem[]>('/cartoes/'),
           api.get<CentroCustoItem[]>('/centro-custo/'),
         ]);
@@ -1331,6 +1413,13 @@ export function ImportacaoOfx() {
                 await reloadEntidadesLookup();
               }
 
+              if (!lanc.plano_contas_id || Number(lanc.plano_contas_id) <= 0) {
+                const errMsg = `O lançamento "${lanc.descricao}" precisa de uma Categoria / Plano de Contas selecionado.`;
+                setFeedback({ type: 'error', message: errMsg, errorLineIndex: lanc.linha_arquivo });
+                setLoading(false);
+                return;
+              }
+
               const tempId = `new-${lanc.linha_arquivo}`;
               const newLaunchPayload = {
                 temp_id: tempId,
@@ -1342,7 +1431,7 @@ export function ImportacaoOfx() {
                 valor_previsto: Math.abs(lanc.valor),
                 data: lanc.data,
                 data_vencimento: lanc.data,
-                plano_contas_id: lanc.plano_contas_id || 1,
+                plano_contas_id: Number(lanc.plano_contas_id),
                 entidade_id: entId || null,
                 conta_id: Number(contaId),
                 centro_custo_id: centroCustoPadraoBusca,
@@ -2419,6 +2508,7 @@ export function ImportacaoOfx() {
                           const nextPrevistoResumo = lanc.lancamento_previsto_id === alocId ? null : lanc.lancamento_previsto_resumo;
                           
                           updateLancamento(lanc.linha_arquivo, {
+                            sugestao_acao: nextAlocs.length === 0 ? 'CRIAR_NOVO' : lanc.sugestao_acao,
                             alocacoes: nextAlocs,
                             lancamentos_atrasados_relacionados: nextAtrasados,
                             lancamentos_atrasados_resumo: nextResumo,
@@ -2445,96 +2535,114 @@ export function ImportacaoOfx() {
                             ) : (
                               <>
                                 {displayedAlocs.map((aloc) => (
-                                  <div key={aloc.lancamento_id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/60 md:flex-row md:items-center md:justify-between">
-                                    <div className="min-w-0 flex-1">
-                                      {aloc.interessado && (
-                                        <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                          {aloc.interessado}
-                                        </p>
-                                      )}
-                                      <p className="font-bold text-slate-900 dark:text-white truncate">{aloc.descricao || `Lançamento #${aloc.lancamento_id}`}</p>
-                                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                                        <span>Previsto: {formatCurrency(aloc.valor_previsto || 0)}</span>
-                                      </div>
-                                    </div>
-                                    
-                                    <div className="flex flex-wrap items-center gap-3 shrink-0">
-                                      <div className="text-right mr-1.5">
-                                        <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400">Vencimento</span>
-                                        <p className="text-xs font-black text-slate-700 dark:text-slate-300">{formatDate(aloc.data_vencimento)}</p>
-                                      </div>
-                                      
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-xs font-bold text-slate-500 uppercase">R$</span>
-                                        <input
-                                          type="number"
-                                          step="0.01"
-                                          value={aloc.valor_alocado}
-                                          onChange={(e) => handleUpdateAloc(aloc.lancamento_id!, { valor_alocado: Number(e.target.value) })}
-                                          className="w-28 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                                        />
-                                      </div>
-                                      
-                                      <button
-                                        type="button"
-                                        onClick={() => handleEditarLancamentoExistente(lanc.linha_arquivo, aloc.lancamento_id!)}
-                                        className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition mr-1"
-                                        title="Editar lançamento"
-                                      >
-                                        <Edit className="h-4 w-4" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRemoveAloc(aloc.lancamento_id!)}
-                                        className="rounded-xl p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition"
-                                        title="Remover alocação"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
+                                   <div key={aloc.lancamento_id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white/80 p-3.5 shadow-sm dark:border-slate-800 dark:bg-slate-900/60 md:flex-row md:items-center md:justify-between">
+                                     <div className="min-w-0 flex-1">
+                                       {aloc.interessado && (
+                                         <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">
+                                           {aloc.interessado}
+                                         </p>
+                                       )}
+                                       <p className="font-bold text-slate-900 dark:text-white truncate">{aloc.descricao || `Lançamento #${aloc.lancamento_id}`}</p>
+                                     </div>
+                                     
+                                     <div className="flex flex-wrap items-center gap-4 shrink-0">
+                                       <div className="text-right">
+                                         <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400 block">Previsto Original</span>
+                                         <p className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{formatCurrency(aloc.valor_previsto || 0)}</p>
+                                       </div>
 
-                                {displayedAlocs.length === 1 && (() => {
-                                  const aloc = displayedAlocs[0];
-                                  const diff = Number((aloc.valor_alocado - (aloc.valor_previsto || 0)).toFixed(2));
-                                  if (diff !== 0 && aloc.decisao_excedido !== 'MANTER') {
-                                    const isExcedido = diff > 0;
-                                    return (
-                                      <div className="p-4 rounded-2xl border border-amber-200 bg-amber-50/40 dark:border-amber-900/30 dark:bg-amber-950/10 space-y-3">
-                                        <div className="flex items-start gap-2.5">
-                                          <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
-                                          <div className="flex-1">
-                                            <h4 className="font-extrabold text-sm text-amber-800 dark:text-amber-300">
-                                              {isExcedido ? 'Valor Alocado Excede o Previsto' : 'Valor Alocado é Menor que o Previsto'}
-                                            </h4>
-                                            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                                              O valor da movimentação ({formatCurrency(aloc.valor_alocado)}) é {isExcedido ? 'maior' : 'menor'} que o valor previsto original do título ({formatCurrency(aloc.valor_previsto || 0)}). Como deseja ajustar?
-                                            </p>
-                                          </div>
-                                        </div>
-                                        <div className="flex flex-wrap gap-2 pt-1">
-                                          <button
-                                            type="button"
-                                            onClick={() => handleAjustarVencimento(lanc.linha_arquivo, aloc.lancamento_id!, aloc.valor_alocado)}
-                                            className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-[0.98] transition text-xs font-bold text-white shadow-sm"
-                                          >
-                                            Ajustar valor do lançamento para {formatCurrency(aloc.valor_alocado)}
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleManterPrevisto(lanc.linha_arquivo, aloc.lancamento_id!)}
-                                            className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 dark:bg-slate-950 dark:border-slate-800 dark:hover:bg-slate-900 dark:text-slate-300 transition text-xs font-bold shadow-sm"
-                                          >
-                                            {isExcedido ? 'Manter previsto e pagar com valor maior (juros/multa)' : 'Manter previsto e pagar valor menor (parcial)'}
-                                          </button>
-                                        </div>
-                                      </div>
-                                    );
-                                  }
-                                  return null;
-                                })()}
-                              </>
+                                       <div className="text-right">
+                                         <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400 block">Vencimento</span>
+                                         <p className="text-xs font-black text-slate-700 dark:text-slate-300">{formatDate(aloc.data_vencimento)}</p>
+                                       </div>
+                                       
+                                       <div className="text-right">
+                                         <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400 block">Valor Alocado</span>
+                                         <p className="text-sm font-extrabold text-slate-900 dark:text-white">{formatCurrency(aloc.valor_alocado || 0)}</p>
+                                       </div>
+                                       
+                                       <button
+                                         type="button"
+                                         onClick={() => handleEditarLancamentoExistente(lanc.linha_arquivo, aloc.lancamento_id!)}
+                                         className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition mr-1"
+                                         title="Editar lançamento"
+                                       >
+                                         <Edit className="h-4 w-4" />
+                                       </button>
+                                       <button
+                                         type="button"
+                                         onClick={() => handleRemoveAloc(aloc.lancamento_id!)}
+                                         className="rounded-xl p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition"
+                                         title="Remover alocação"
+                                       >
+                                         <Trash2 className="h-4 w-4" />
+                                       </button>
+                                     </div>
+                                   </div>
+                                 ))}
+
+                                 {displayedAlocs.length === 1 && (() => {
+                                   const aloc = displayedAlocs[0];
+                                   const valorBanco = Math.abs(lanc.valor);
+                                   const valorPrevisto = aloc.valor_previsto || 0;
+                                   const diferencaAp = Number((valorBanco - valorPrevisto).toFixed(2));
+                                   const temDivergencia = diferencaAp !== 0 || Number((aloc.valor_alocado - valorPrevisto).toFixed(2)) !== 0;
+
+                                   if (temDivergencia && aloc.decisao_excedido !== 'MANTER') {
+                                     const isExcedido = diferencaAp > 0;
+                                     return (
+                                       <div className="p-4 rounded-2xl border border-amber-200 bg-amber-50/40 dark:border-amber-900/30 dark:bg-amber-950/10 space-y-3 mt-3 w-full">
+                                         <div className="flex items-start gap-2.5">
+                                           <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                                           <div className="flex-1">
+                                             <h4 className="font-extrabold text-sm text-amber-800 dark:text-amber-300">
+                                               {isExcedido ? 'Valor no Banco é Maior que o Previsto' : 'Valor no Banco é Menor que o Previsto'}
+                                             </h4>
+                                             <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                                               Valor Extrato Banco: <strong className="text-slate-800 dark:text-slate-200">{formatCurrency(valorBanco)}</strong> | 
+                                               Previsto Original: <strong className="text-slate-800 dark:text-slate-200">{formatCurrency(valorPrevisto)}</strong> | 
+                                               Diferença: <strong className="text-amber-700 dark:text-amber-400">{formatCurrency(Math.abs(diferencaAp))} ({diferencaAp > 0 ? 'Sobras/Juros' : 'Desconto/Retenção'})</strong>
+                                             </p>
+                                           </div>
+                                         </div>
+                                         <div className="flex flex-wrap gap-2 pt-1">
+                                           <button
+                                             type="button"
+                                             onClick={() => handleAjustarValorPrevisto(lanc.linha_arquivo, aloc.lancamento_id!, valorBanco)}
+                                             className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-[0.98] transition text-xs font-bold text-white shadow-sm"
+                                           >
+                                             Ajustar valor do lançamento previsto para {formatCurrency(valorBanco)}
+                                           </button>
+                                           <button
+                                             type="button"
+                                             onClick={() => {
+                                               setDifferenceModalConfig({
+                                                 isOpen: true,
+                                                 linhaArquivo: lanc.linha_arquivo,
+                                                 alocId: aloc.lancamento_id!,
+                                                 valorBanco,
+                                                 valorPrevisto,
+                                                 diferenca: diferencaAp,
+                                               });
+                                             }}
+                                             className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] transition text-xs font-bold text-white shadow-sm"
+                                           >
+                                             Lançar diferença ({formatCurrency(Math.abs(diferencaAp))}) como Juros/Multa/Desconto
+                                           </button>
+                                           <button
+                                             type="button"
+                                             onClick={() => handleManterPrevisto(lanc.linha_arquivo, aloc.lancamento_id!)}
+                                             className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 dark:bg-slate-950 dark:border-slate-800 dark:hover:bg-slate-900 dark:text-slate-300 transition text-xs font-bold shadow-sm"
+                                           >
+                                             Manter previsto e pagar com diferença
+                                           </button>
+                                         </div>
+                                       </div>
+                                     );
+                                   }
+                                   return null;
+                                 })()}
+                               </>
                             )}
 
                             {/* Totalizer */}
@@ -3143,18 +3251,68 @@ export function ImportacaoOfx() {
               </div>
             ) : null}
 
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="space-y-2.5">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex flex-wrap items-center gap-6">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Resumo para confirmação</p>
-                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{lancamentosEditados.length} item(ns) analisados. {resumo.semCategoria === 0 ? 'Os novos lançamentos já têm categoria.' : `${resumo.semCategoria} novo(s) ainda exigem categoria.`}</p>
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Resumo da Conciliação</p>
+                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-0.5">
+                    {lancamentosEditados.length} item(ns) analisados
+                    {resumo.semCategoria > 0 && <span className="text-amber-600 dark:text-amber-400 ml-1 font-semibold">({resumo.semCategoria} sem categoria)</span>}
+                  </p>
                 </div>
 
+                <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 hidden sm:block" />
+
+                {/* 1. Saldo Extrato OFX (Banco) */}
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">1. Saldo Extrato OFX (Banco)</span>
+                  <span className="text-sm font-black text-slate-900 dark:text-white">
+                    {resultado?.saldo_ofx != null ? formatCurrency(resultado.saldo_ofx) : 'Não informado'}
+                  </span>
+                </div>
+
+                <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 hidden sm:block" />
+
+                {/* 2. Saldo Projetado ERP */}
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">2. Saldo Projetado (ERP)</span>
+                  <span className="text-sm font-black text-indigo-600 dark:text-indigo-400">
+                    {formatCurrency((contaSelecionada?.saldo_atual || 0) + resumo.receitas - resumo.despesas)}
+                  </span>
+                </div>
+
+                <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 hidden sm:block" />
+
+                {/* 3. Diferença Apurada */}
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">3. Diferença Apurada</span>
+                  {(() => {
+                    const saldoOfx = resultado?.saldo_ofx;
+                    if (saldoOfx == null) return <span className="text-xs text-slate-400">Sem referência</span>;
+                    const saldoProj = (contaSelecionada?.saldo_atual || 0) + resumo.receitas - resumo.despesas;
+                    const dif = Number((saldoProj - saldoOfx).toFixed(2));
+                    if (Math.abs(dif) < 0.01) {
+                      return (
+                        <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          ✓ Saldo 100% Batido
+                        </span>
+                      );
+                    }
+                    return (
+                      <span className="inline-flex items-center gap-1 text-xs font-black text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-lg border border-amber-200 dark:border-amber-800">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        Diferença: {formatCurrency(Math.abs(dif))}
+                      </span>
+                    );
+                  })()}
+                </div>
               </div>
+
               <button
                 onClick={() => handleConfirmar()}
                 disabled={confirming || !resultado || resultado.lancamentos.length === 0}
-                className="flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+                className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3.5 text-sm font-extrabold transition disabled:cursor-not-allowed disabled:opacity-60 shadow-lg shadow-emerald-600/20 shrink-0"
               >
                 {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                 {confirming && confirmProgress
@@ -3288,6 +3446,29 @@ export function ImportacaoOfx() {
           contas={contas}
           cartoes={cartoes}
           centros={centrosCusto}
+        />
+      )}
+
+      {differenceModalConfig && (
+        <OfxDifferenceAdjusterModal
+          isOpen={differenceModalConfig.isOpen}
+          onClose={() => setDifferenceModalConfig(null)}
+          valorBanco={differenceModalConfig.valorBanco}
+          valorPrevisto={differenceModalConfig.valorPrevisto}
+          diferenca={differenceModalConfig.diferenca}
+          onAjustarValorPrevisto={() => {
+            handleAjustarValorPrevisto(differenceModalConfig.linhaArquivo, differenceModalConfig.alocId, differenceModalConfig.valorBanco);
+          }}
+          onLancarDiferenca={handleLancarDiferencaModal}
+        />
+      )}
+
+      {feedback && feedback.type === 'error' && (
+        <OfxToastError
+          message={feedback.message}
+          errorLineIndex={feedback.errorLineIndex}
+          onClose={() => setFeedback(null)}
+          onScrollToLine={(lineIndex: number) => scrollCardIntoView(lineIndex)}
         />
       )}
     </div>

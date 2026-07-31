@@ -2100,14 +2100,50 @@ def upload_ofx(
                     continue
 
                 import_hash_atual = str(lanc_raw.get("import_hash") or "")
+                fitid_atual = str(lanc_raw.get("fitid") or "")
+                desc_raw_search = str(lanc_raw.get("descricao_original_ofx") or lanc_raw.get("descricao") or "").strip()
+                data_search = lanc_raw.get("data")
+                valor_search = Decimal(str(lanc_raw.get("valor") or "0"))
+                tipo_search = str(lanc_raw.get("tipo") or "")
+
+                mov = None
+                # 1. Busca Movimento por FITID (se fitid existir)
+                if fitid_atual:
+                    mov = db.exec(
+                        select(Movimento).where(
+                            Movimento.empresa_id == empresa_id,
+                            Movimento.conta_id == conta_db_id,
+                            Movimento.fitid == fitid_atual
+                        )
+                    ).first()
+
+                # 2. Busca Movimento por import_hash
+                if not mov and import_hash_atual:
+                    mov = db.exec(
+                        select(Movimento).where(
+                            Movimento.empresa_id == empresa_id,
+                            Movimento.import_hash == import_hash_atual
+                        )
+                    ).first()
+
+                # 3. Busca Movimento por combinação de conta, data, valor e descrição (suporte a histórico antigo)
+                if not mov and desc_raw_search and data_search:
+                    mov = db.exec(
+                        select(Movimento).where(
+                            Movimento.empresa_id == empresa_id,
+                            Movimento.conta_id == conta_db_id,
+                            Movimento.data == data_search,
+                            Movimento.valor == valor_search,
+                            Movimento.tipo == tipo_search,
+                            or_(
+                                Movimento.descricao == desc_raw_search,
+                                Movimento.descricao_original == desc_raw_search
+                            )
+                        )
+                    ).first()
+
                 duplicata = None
-                mov = db.exec(
-                    select(Movimento).where(
-                        Movimento.empresa_id == empresa_id,
-                        Movimento.import_hash == import_hash_atual
-                    )
-                ).first()
-                if mov and mov.status == "CONCILIADO":
+                if mov:
                     baixa_rel = db.exec(
                         select(Baixa).where(
                             Baixa.movimento_id == mov.id,
@@ -2116,6 +2152,20 @@ def upload_ofx(
                     ).first()
                     if baixa_rel:
                         duplicata = db.get(Lancamento, baixa_rel.lancamento_id)
+
+                    duplicatas += 1
+                    lanc_raw["sugestao_acao"] = "DESCARTAR"
+                    lanc_raw["motivo_conciliacao"] = f"Movimento bancário já cadastrado em {mov.data.strftime('%d/%m/%Y')} (Status: {mov.status})."
+                    lanc_raw["duplicata_resumo"] = DuplicataResumo(
+                        descricao=mov.descricao,
+                        data_pagamento=mov.data.isoformat(),
+                        valor_pago=float(mov.valor),
+                        origem=mov.origem,
+                        motivo=f"Movimentação bancária já existente no extrato (ID #{mov.id})",
+                    )
+                    lancamentos_processados.append(lanc_raw)
+                    continue
+
                 if not duplicata:
                     duplicata = duplicatas_por_hash.get(import_hash_atual)
 
@@ -2503,11 +2553,15 @@ def atualizar_lancamento_apos_baixas(db: Session, lancamento_id: int):
         lancamento.valor_multa = multa
         lancamento.valor_desconto = desconto
         
-        lancamento.data_pagamento = max(b.data_baixa for b in baixas)
-        lancamento.conciliado = True
-        
-        lancamento.status = "PAGO"
-            
+        total_coberto = principal + desconto
+        saldo_restante = lancamento.valor_previsto - total_coberto
+        if saldo_restante <= Decimal("0.01"):
+            lancamento.status = "PAGO"
+            lancamento.conciliado = True
+        else:
+            lancamento.status = "PARCIAL"
+            lancamento.conciliado = True
+
     db.add(lancamento)
     db.flush()
 
@@ -2686,6 +2740,12 @@ def confirmar_lancamentos(
                     data_compra_base = parsear_data(lanc_data.get("data") or "") or date.today()
                     data_vencimento = parsear_data(lanc_data["data_vencimento"]) if lanc_data.get("data_vencimento") else data_compra_base
 
+                    cat_id_raw = lanc_data.get("plano_contas_id")
+                    if not cat_id_raw or int(cat_id_raw) <= 0:
+                        erros.append(f"O lançamento '{lanc_data.get('descricao')}' precisa de uma Categoria/Plano de Contas selecionado.")
+                        continue
+                    plano_contas_id_val = int(cat_id_raw)
+
                     novo_lancamento = Lancamento(
                         descricao=str(lanc_data["descricao"]),
                         tipo=str(lanc_data["tipo"]),
@@ -2696,7 +2756,7 @@ def confirmar_lancamentos(
                         data_vencimento=data_vencimento,
                         data_competencia=data_compra_base,
                         empresa_id=empresa_id,
-                        plano_contas_id=int(lanc_data.get("plano_contas_id") or 1),
+                        plano_contas_id=plano_contas_id_val,
                         entidade_id=int(entidade_id) if entidade_id else None,
                         conta_id=conta_resolvida_id or request.conta_id,
                         centro_custo_id=centro_custo_resolvido,
@@ -3000,6 +3060,10 @@ def confirmar_lancamentos(
                     conta_nova_id = int(cartao_resolvido.conta_id) if cartao_resolvido.conta_id else None
                     cartao_novo_id = int(cartao_resolvido.id)
 
+                if not plano_contas_id or int(plano_contas_id) <= 0:
+                    erros.append(f"O lançamento '{lanc_data.get('descricao')}' precisa de uma Categoria/Plano de Contas selecionado.")
+                    continue
+
                 novo_lancamento = Lancamento(
                     descricao=str(lanc_data["descricao"]),
                     tipo=str(lanc_data["tipo"]),
@@ -3011,7 +3075,7 @@ def confirmar_lancamentos(
                     data_pagamento=data_pagamento,
                     data_competencia=data_compra_base,
                     empresa_id=empresa_id,
-                    plano_contas_id=int(plano_contas_id or 1),
+                    plano_contas_id=int(plano_contas_id),
                     entidade_id=int(entidade_id) if entidade_id else None,
                     conta_id=conta_nova_id,
                     cartao_id=cartao_novo_id,
@@ -3151,6 +3215,40 @@ def desconciliar_lancamento(
         db.flush()
         atualizar_lancamento_apos_baixas(db, lancamento_id)
     db.commit()
-
     return {"sucesso": True, "mensagem": "Lançamento desconciliado com sucesso."}
+
+
+class SimularSaldoItem(BaseModel):
+    tipo: str
+    valor: Decimal
+
+class SimularSaldoRequest(BaseModel):
+    conta_id: int
+    itens: List[SimularSaldoItem]
+
+@router.post("/ofx/simular-saldo")
+def simular_saldo_pos_importacao(
+    request: SimularSaldoRequest,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    conta = db.get(Conta, request.conta_id)
+    if not conta or int(conta.empresa_id) != int(empresa_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conta bancária não encontrada."
+        )
+
+    saldo_atual = _calcular_saldo_atual_conta(db, empresa_id, request.conta_id)
+    impacto_receitas = sum(item.valor for item in request.itens if item.tipo.upper() == "RECEITA")
+    impacto_despesas = sum(item.valor for item in request.itens if item.tipo.upper() == "DESPESA")
+    saldo_projetado = saldo_atual + impacto_receitas - impacto_despesas
+
+    return {
+        "conta_id": request.conta_id,
+        "saldo_atual": float(saldo_atual),
+        "impacto_receitas": float(impacto_receitas),
+        "impacto_despesas": float(impacto_despesas),
+        "saldo_projetado": float(saldo_projetado),
+    }
 

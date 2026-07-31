@@ -41,6 +41,9 @@ class Conta(AuditMixin, SQLModel, table=True):
     # --- Integração ---
     # Define se essa conta é manual ou automatizada
     tipo_integracao: str = Field(default="MANUAL", index=True) # Opções: MANUAL, ASAAS, ITAU
+    ofx_bank_id: Optional[str] = Field(default=None, index=True)
+    ofx_agencia: Optional[str] = Field(default=None)
+    ofx_conta_numero: Optional[str] = Field(default=None)
     
     # Chaves Estrangeiras
     centro_custo_id: Optional[int] = Field(default=None, foreign_key="centros_custo.id")

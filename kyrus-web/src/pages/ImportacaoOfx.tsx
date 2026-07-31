@@ -632,51 +632,7 @@ export function ImportacaoOfx() {
       });
   }, [contaId, lancamentosEditados]);
 
-  const simulacaoSaldoLocal = useMemo(() => {
-    if (!contaId || !contaSelecionada || lancamentosEditados.length === 0) return null;
-    const saldoBase = contaSelecionada.saldo_atual || 0;
-    let receitas = 0;
-    let despesas = 0;
 
-    lancamentosEditados.forEach((item) => {
-      if (item.sugestao_acao === 'DESCARTAR' || item.sugestao_acao === 'IGNORAR_DUPLICATA') return;
-      
-      const ehCriarNovo = item.sugestao_acao === 'CRIAR_NOVO' && !item.duplicata_id;
-      const ehConfirmado = Boolean(item.sugestao_confirmada);
-
-      if (ehConfirmado || ehCriarNovo) {
-        const alocs = item.alocacoes && item.alocacoes.length > 0 ? item.alocacoes : getAlocacoesOrDefault(item);
-        let totalAlocado = 0;
-        alocs.forEach((a) => {
-          const val = Number(a.valor_alocado || 0);
-          if (val > 0) {
-            if (a.tipo_baixa === 'DESCONTO') {
-              totalAlocado -= val;
-            } else {
-              totalAlocado += val;
-            }
-          }
-        });
-        if (totalAlocado <= 0 && ehCriarNovo) {
-          totalAlocado = Math.abs(item.valor);
-        }
-        if (totalAlocado > 0) {
-          if (item.tipo === 'RECEITA') {
-            receitas += totalAlocado;
-          } else {
-            despesas += totalAlocado;
-          }
-        }
-      }
-    });
-
-    return {
-      saldo_atual: saldoBase,
-      impacto_receitas: receitas,
-      impacto_despesas: despesas,
-      saldo_projetado: saldoBase + receitas - despesas,
-    };
-  }, [contaId, contaSelecionada, lancamentosEditados]);
 
   const scrollCardIntoView = (linhaArquivo: number) => {
     setFiltroStatus('todos');
@@ -1280,6 +1236,52 @@ export function ImportacaoOfx() {
     }
     return cartaoSelecionado?.centro_custo_id ?? null;
   }, [modoImportacao, contaSelecionada, cartaoSelecionado]);
+
+  const simulacaoSaldoLocal = useMemo(() => {
+    if (!contaId || !contaSelecionada || lancamentosEditados.length === 0) return null;
+    const saldoBase = contaSelecionada.saldo_atual || 0;
+    let receitas = 0;
+    let despesas = 0;
+
+    lancamentosEditados.forEach((item) => {
+      if (item.sugestao_acao === 'DESCARTAR' || item.sugestao_acao === 'IGNORAR_DUPLICATA') return;
+      
+      const ehCriarNovo = item.sugestao_acao === 'CRIAR_NOVO' && !item.duplicata_id;
+      const ehConfirmado = Boolean(item.sugestao_confirmada);
+
+      if (ehConfirmado || ehCriarNovo) {
+        const alocs = item.alocacoes && item.alocacoes.length > 0 ? item.alocacoes : getAlocacoesOrDefault(item);
+        let totalAlocado = 0;
+        alocs.forEach((a) => {
+          const val = Number(a.valor_alocado || 0);
+          if (val > 0) {
+            if (a.tipo_baixa === 'DESCONTO') {
+              totalAlocado -= val;
+            } else {
+              totalAlocado += val;
+            }
+          }
+        });
+        if (totalAlocado <= 0 && ehCriarNovo) {
+          totalAlocado = Math.abs(item.valor);
+        }
+        if (totalAlocado > 0) {
+          if (item.tipo === 'RECEITA') {
+            receitas += totalAlocado;
+          } else {
+            despesas += totalAlocado;
+          }
+        }
+      }
+    });
+
+    return {
+      saldo_atual: saldoBase,
+      impacto_receitas: receitas,
+      impacto_despesas: despesas,
+      saldo_projetado: saldoBase + receitas - despesas,
+    };
+  }, [contaId, contaSelecionada, lancamentosEditados]);
 
   const contasAtivas = useMemo(
     () => contas.filter((conta) => String(conta.status || 'ATIVO').toUpperCase() !== 'INATIVO'),

@@ -590,12 +590,36 @@ export function ImportacaoOfx() {
       setSimulacaoSaldo(null);
       return;
     }
-    const itens = lancamentosEditados
-      .filter((item) => item.sugestao_acao !== 'DESCARTAR')
-      .map((item) => ({
-        tipo: item.tipo,
-        valor: Math.abs(item.valor),
-      }));
+    const itens: { tipo: string; valor: number }[] = [];
+    lancamentosEditados.forEach((item) => {
+      if (item.sugestao_acao === 'DESCARTAR' || item.sugestao_acao === 'IGNORAR_DUPLICATA') return;
+      
+      // Incluir itens se a sugestão estiver confirmada, se for criar novo ou se tiver alocações
+      const temAlocacao = item.alocacoes && item.alocacoes.length > 0;
+      const ehCriarNovo = item.sugestao_acao === 'CRIAR_NOVO' && !item.duplicata_id;
+      const ehConfirmado = Boolean(item.sugestao_confirmada);
+
+      if (ehConfirmado || ehCriarNovo || temAlocacao) {
+        const alocs = temAlocacao ? item.alocacoes! : getAlocacoesOrDefault(item);
+        let totalAlocado = 0;
+        alocs.forEach((a) => {
+          const val = Number(a.valor_alocado || 0);
+          if (val > 0) {
+            if (a.tipo_baixa === 'DESCONTO') {
+              totalAlocado -= val;
+            } else {
+              totalAlocado += val;
+            }
+          }
+        });
+        if (totalAlocado > 0) {
+          itens.push({
+            tipo: item.tipo,
+            valor: totalAlocado,
+          });
+        }
+      }
+    });
 
     api.post('/ofx/simular-saldo', { conta_id: Number(contaId), itens })
       .then((res) => {
@@ -607,12 +631,16 @@ export function ImportacaoOfx() {
   }, [contaId, lancamentosEditados]);
 
   const scrollCardIntoView = (linhaArquivo: number) => {
+    setFiltroStatus('todos');
+    setBusca('');
     setTimeout(() => {
       const el = document.getElementById(`card-lancamento-${linhaArquivo}`);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('ring-4', 'ring-rose-500', 'animate-pulse');
+        setTimeout(() => el.classList.remove('ring-4', 'ring-rose-500', 'animate-pulse'), 3500);
       }
-    }, 100);
+    }, 150);
   };
 
   const obterOutrosLancamentosComSelecao = (atrasoId: number, linhaArquivoAtual: number) => {
@@ -1417,6 +1445,7 @@ export function ImportacaoOfx() {
                 const errMsg = `O lançamento "${lanc.descricao}" precisa de uma Categoria / Plano de Contas selecionado.`;
                 setFeedback({ type: 'error', message: errMsg, errorLineIndex: lanc.linha_arquivo });
                 setLoading(false);
+                setConfirming(false);
                 return;
               }
 
@@ -3281,7 +3310,7 @@ export function ImportacaoOfx() {
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">2. Saldo Projetado (ERP)</span>
                   <span className="text-sm font-black text-indigo-600 dark:text-indigo-400">
-                    {formatCurrency((contaSelecionada?.saldo_atual || 0) + resumo.receitas - resumo.despesas)}
+                    {formatCurrency(simulacaoSaldo ? simulacaoSaldo.saldo_projetado : ((contaSelecionada?.saldo_atual || 0) + resumo.receitas - resumo.despesas))}
                   </span>
                 </div>
 
@@ -3293,7 +3322,7 @@ export function ImportacaoOfx() {
                   {(() => {
                     const saldoOfx = resultado?.saldo_ofx;
                     if (saldoOfx == null) return <span className="text-xs text-slate-400">Sem referência</span>;
-                    const saldoProj = (contaSelecionada?.saldo_atual || 0) + resumo.receitas - resumo.despesas;
+                    const saldoProj = simulacaoSaldo ? simulacaoSaldo.saldo_projetado : ((contaSelecionada?.saldo_atual || 0) + resumo.receitas - resumo.despesas);
                     const dif = Number((saldoProj - saldoOfx).toFixed(2));
                     if (Math.abs(dif) < 0.01) {
                       return (

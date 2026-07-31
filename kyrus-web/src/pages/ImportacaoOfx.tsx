@@ -3353,8 +3353,8 @@ export function ImportacaoOfx() {
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">2. Saldo Projetado (ERP)</span>
                   <span className="text-sm font-black text-indigo-600 dark:text-indigo-400">
                     {formatCurrency(
-                      (simulacaoSaldoLocal || simulacaoSaldo)
-                        ? (simulacaoSaldoLocal || simulacaoSaldo)!.saldo_projetado
+                      simulacaoSaldo
+                        ? simulacaoSaldo.saldo_projetado
                         : ((contaSelecionada?.saldo_atual || 0) + resumo.receitas - resumo.despesas)
                     )}
                   </span>
@@ -3368,7 +3368,7 @@ export function ImportacaoOfx() {
                   {(() => {
                     const saldoOfx = resultado?.saldo_ofx;
                     if (saldoOfx == null) return <span className="text-xs text-slate-400">Sem referência</span>;
-                    const sim = simulacaoSaldoLocal || simulacaoSaldo;
+                    const sim = simulacaoSaldo;
                     const saldoProj = sim ? sim.saldo_projetado : ((contaSelecionada?.saldo_atual || 0) + resumo.receitas - resumo.despesas);
                     const dif = Number((saldoProj - saldoOfx).toFixed(2));
                     if (Math.abs(dif) < 0.01) {

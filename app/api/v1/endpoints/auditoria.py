@@ -545,12 +545,10 @@ def listar_lotes_importacao(
     return BatchListResponse(items=items)
 
 
-@router.post("/batch/{batch_id}/undo")
-def desfazer_lote_importacao(
-    batch_id: str,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
-):
+class DesfazerLoteRequest(BaseModel):
+    batch_id: str
+
+def _executar_desfazer_lote(batch_id: str, db: Session, current_user: Usuario):
     context_empresa_id = get_empresa_id_from_user(current_user=current_user, session=db)
     if not context_empresa_id:
         raise HTTPException(status_code=403, detail="Acesso negado: usuário ou contexto sem empresa vinculada")
@@ -608,6 +606,77 @@ def desfazer_lote_importacao(
 
     db.commit()
     return {"sucesso": True, "mensagem": f"Desfeitas {desfeitos} alterações do lote com sucesso."}
+
+
+@router.post("/batch/undo")
+def desfazer_lote_importacao_body(
+    request: DesfazerLoteRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    return _executar_desfazer_lote(request.batch_id, db, current_user)
+
+
+@router.post("/batch/{batch_id:path}/undo")
+def desfazer_lote_importacao_path(
+    batch_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    return _executar_desfazer_lote(batch_id, db, current_user)
+
+
+class BatchPreviewRequest(BaseModel):
+    batch_id: str
+
+
+def _executar_preview_lote(batch_id: str, db: Session, current_user: Usuario):
+    context_empresa_id = get_empresa_id_from_user(current_user=current_user, session=db)
+    if not context_empresa_id:
+        raise HTTPException(status_code=403, detail="Acesso negado: usuário ou contexto sem empresa vinculada")
+
+    logs = db.exec(
+        select(AuditLog, Usuario.email)
+        .join(Usuario, col(AuditLog.user_id) == col(Usuario.id), isouter=True)
+        .where(AuditLog.empresa_id == context_empresa_id, AuditLog.batch_id == batch_id)
+        .order_by(AuditLog.id.desc())
+    ).all()
+
+    items = []
+    for row in logs:
+        log = row[0]
+        email = row[1]
+        friendly_table, friendly_action, friendly_details, is_undoable = _build_friendly_log_data(log)
+        items.append({
+            "id": log.id,
+            "friendly_table_name": friendly_table,
+            "friendly_action": friendly_action,
+            "friendly_details": friendly_details,
+            "user_email": email,
+            "undone": log.undone,
+            "is_undoable": is_undoable,
+            "created_at": _utc_to_brazil(log.created_at).isoformat(),
+        })
+
+    return {"items": items}
+
+
+@router.post("/batch/preview")
+def preview_lote_importacao_body(
+    request: BatchPreviewRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    return _executar_preview_lote(request.batch_id, db, current_user)
+
+
+@router.get("/batch/{batch_id:path}/preview")
+def preview_lote_importacao_path(
+    batch_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    return _executar_preview_lote(batch_id, db, current_user)
 
 
 # --- NOVOS ENDPOINTS DE AUDITORIA E COMPLIANCE ---

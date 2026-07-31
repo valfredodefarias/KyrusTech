@@ -451,7 +451,7 @@ class LancamentoService:
                 data_competencia=base_date,
                 competencia=self._format_competencia(base_date),
                 observacao=token,
-                conciliado=lancamento.conciliado,
+                conciliado=True,
                 empresa_id=lancamento.empresa_id,
                 plano_contas_id=categoria_id,
                 conta_id=lancamento.conta_id,

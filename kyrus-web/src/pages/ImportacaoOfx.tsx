@@ -194,6 +194,7 @@ interface LancamentoImportado {
   lancamento_previsto_resumo?: RelacionamentoResumo | null;
   lancamentos_atrasados_resumo?: RelacionamentoResumo[];
   duplicata_resumo?: DuplicataResumo | null;
+  saldo_informativo?: boolean;
   movimento_id?: number | null;
 }
 
@@ -1129,12 +1130,6 @@ export function ImportacaoOfx() {
   }, [state]);
 
   useEffect(() => {
-    if (resultado?.lancamentos) {
-      setLancamentosEditados(resultado.lancamentos.map(mapImportadoToEditado));
-    }
-  }, [resultado]);
-
-  useEffect(() => {
     async function loadContas() {
       try {
         const [contasRes, cartoesRes, centrosRes] = await Promise.all([
@@ -1208,6 +1203,7 @@ export function ImportacaoOfx() {
     return cartaoSelecionado?.centro_custo_id ?? null;
   }, [modoImportacao, contaSelecionada, cartaoSelecionado]);
 
+  // Simulacao de saldo local em tempo real (inclui todos os lançamentos ativos a serem importados/conciliados)
   const simulacaoSaldoLocal = useMemo(() => {
     if (!lancamentosEditados || lancamentosEditados.length === 0) return null;
     const saldoBase = contaSelecionada?.saldo_atual ?? 0;
@@ -1215,10 +1211,29 @@ export function ImportacaoOfx() {
     let despesas = 0;
 
     lancamentosEditados.forEach((item) => {
-      if (item.sugestao_acao === 'DESCARTAR' || item.sugestao_acao === 'IGNORAR_DUPLICATA') return;
+      // Ignorar apenas linhas informativas do extrato e itens explicitamente descartados/ignorados pelo usuário
+      const isSaldoInformativo = Boolean(item.saldo_informativo) || /\bsaldo\b/i.test(item.descricao || '');
+      if (isSaldoInformativo || item.sugestao_acao === 'DESCARTAR' || item.sugestao_acao === 'IGNORAR_DUPLICATA') return;
 
-      const val = Math.abs(item.valor || 0);
-      if (item.tipo === 'RECEITA') {
+      let val = 0;
+      if (item.alocacoes && item.alocacoes.length > 0) {
+        let valAlocado = 0;
+        item.alocacoes.forEach((aloc) => {
+          const v = Number(aloc.valor_alocado || 0);
+          if (aloc.tipo_baixa === 'DESCONTO') {
+            valAlocado -= v;
+          } else {
+            valAlocado += v;
+          }
+        });
+        val = Math.abs(valAlocado > 0 ? valAlocado : Number(item.valor || 0));
+      } else {
+        val = Math.abs(Number(item.valor || 0));
+      }
+
+      const tipoStr = String(item.tipo || '').toUpperCase();
+      const isReceita = tipoStr === 'RECEITA' || tipoStr === 'CREDIT' || tipoStr === 'CREDITO';
+      if (isReceita) {
         receitas += val;
       } else {
         despesas += val;
@@ -1232,6 +1247,56 @@ export function ImportacaoOfx() {
       saldo_projetado: saldoBase + receitas - despesas,
     };
   }, [contaSelecionada, lancamentosEditados]);
+
+  const pendenciasAlocacao = useMemo(() => {
+    let unallocatedCount = 0;
+    let semCategoriaCount = 0;
+
+    lancamentosEditados.forEach((item) => {
+      const isSaldoInformativo = Boolean(item.saldo_informativo) || /\bsaldo\b/i.test(item.descricao || '');
+      if (isSaldoInformativo || item.sugestao_acao === 'DESCARTAR' || item.sugestao_acao === 'IGNORAR_DUPLICATA') return;
+
+      if (item.sugestao_acao === 'CRIAR_NOVO') {
+        if (!item.plano_contas_id) {
+          semCategoriaCount += 1;
+        }
+      } else if (item.sugestao_acao === 'BAIXAR_PREVISTO' || item.sugestao_acao === 'RELACIONAR_ATRASADOS') {
+        const alocacoes = item.alocacoes || [];
+        let totalAlocado = 0;
+        if (alocacoes.length > 0) {
+          alocacoes.forEach((aloc) => {
+            const val = Number(aloc.valor_alocado || 0);
+            if (aloc.tipo_baixa === 'DESCONTO') {
+              totalAlocado -= val;
+            } else {
+              totalAlocado += val;
+            }
+          });
+        } else {
+          if (item.sugestao_acao === 'BAIXAR_PREVISTO' && item.lancamento_previsto_id) {
+            totalAlocado = Math.abs(item.valor);
+          } else if (item.sugestao_acao === 'RELACIONAR_ATRASADOS' && item.lancamentos_atrasados_relacionados) {
+            totalAlocado = item.lancamentos_atrasados_relacionados.reduce((acc, id) => {
+              const res = item.lancamentos_atrasados_resumo?.find((r) => r.id === id);
+              return acc + (res?.valor_previsto ?? Math.abs(item.valor));
+            }, 0);
+          }
+        }
+
+        const diffVal = Number((Math.abs(item.valor) - totalAlocado).toFixed(2));
+        if (Math.abs(diffVal) > 0.01) {
+          unallocatedCount += 1;
+        }
+      }
+    });
+
+    return {
+      unallocatedCount,
+      semCategoriaCount,
+      totalPendencias: unallocatedCount + semCategoriaCount,
+      hasPendencias: unallocatedCount + semCategoriaCount > 0,
+    };
+  }, [lancamentosEditados]);
 
   const contasAtivas = useMemo(
     () => contas.filter((conta) => String(conta.status || 'ATIVO').toUpperCase() !== 'INATIVO'),
@@ -1255,11 +1320,20 @@ export function ImportacaoOfx() {
   }
 
   const resumo = useMemo(() => {
-    const items = lancamentosEditados.filter((item) => item.sugestao_acao !== 'IGNORAR_DUPLICATA' && item.sugestao_acao !== 'DESCARTAR');
+    const items = lancamentosEditados.filter((item) => {
+      const isSaldoInformativo = Boolean(item.saldo_informativo) || /\bsaldo\b/i.test(item.descricao || '');
+      return !isSaldoInformativo && item.sugestao_acao !== 'IGNORAR_DUPLICATA' && item.sugestao_acao !== 'DESCARTAR';
+    });
     const conciliaveis = items.filter((item) => isConciliacaoAutomatica(item.sugestao_acao)).length;
     const novos = items.filter((item) => item.sugestao_acao === 'CRIAR_NOVO').length;
-    const receitas = items.filter((item) => item.tipo === 'RECEITA').reduce((acc, item) => acc + Number(item.valor || 0), 0);
-    const despesas = items.filter((item) => item.tipo === 'DESPESA').reduce((acc, item) => acc + Number(item.valor || 0), 0);
+    const receitas = items.filter((item) => {
+      const t = String(item.tipo || '').toUpperCase();
+      return t === 'RECEITA' || t === 'CREDIT' || t === 'CREDITO';
+    }).reduce((acc, item) => acc + Math.abs(Number(item.valor || 0)), 0);
+    const despesas = items.filter((item) => {
+      const t = String(item.tipo || '').toUpperCase();
+      return t === 'DESPESA' || t === 'DEBIT' || t === 'DEBITO';
+    }).reduce((acc, item) => acc + Math.abs(Number(item.valor || 0)), 0);
     const semCategoria = items.filter((item) => item.sugestao_acao === 'CRIAR_NOVO' && !item.plano_contas_id).length;
     return { conciliaveis, novos, receitas, despesas, semCategoria };
   }, [lancamentosEditados]);
@@ -1268,9 +1342,28 @@ export function ImportacaoOfx() {
     let receitas = 0;
     let despesas = 0;
     lancamentosEditados.forEach((item) => {
-      if (item.sugestao_acao === 'DESCARTAR' || item.sugestao_acao === 'IGNORAR_DUPLICATA') return;
-      const val = Math.abs(item.valor || 0);
-      if (item.tipo === 'RECEITA') {
+      const isSaldoInformativo = Boolean(item.saldo_informativo) || /\bsaldo\b/i.test(item.descricao || '');
+      if (isSaldoInformativo || item.sugestao_acao === 'DESCARTAR' || item.sugestao_acao === 'IGNORAR_DUPLICATA') return;
+
+      let val = 0;
+      if (item.alocacoes && item.alocacoes.length > 0) {
+        let valAlocado = 0;
+        item.alocacoes.forEach((aloc) => {
+          const v = Number(aloc.valor_alocado || 0);
+          if (aloc.tipo_baixa === 'DESCONTO') {
+            valAlocado -= v;
+          } else {
+            valAlocado += v;
+          }
+        });
+        val = Math.abs(valAlocado > 0 ? valAlocado : Number(item.valor || 0));
+      } else {
+        val = Math.abs(Number(item.valor || 0));
+      }
+
+      const tipoStr = String(item.tipo || '').toUpperCase();
+      const isReceita = tipoStr === 'RECEITA' || tipoStr === 'CREDIT' || tipoStr === 'CREDITO';
+      if (isReceita) {
         receitas += val;
       } else {
         despesas += val;
@@ -1694,72 +1787,99 @@ export function ImportacaoOfx() {
     }
   };
 
+  const lastResultadoRef = useRef<any>(null);
+
   useEffect(() => {
     if (!resultado) {
       setLancamentosEditados([]);
+      lastResultadoRef.current = null;
       return;
     }
 
-    const editados = resultado.lancamentos.map((lanc) => {
-      const key = `${lanc.tipo || ''}|${normalizarDescricao(lanc.descricao)}`;
-      const sugestao = sugestoes[key] || {};
-      const plano_contas_id = lanc.plano_contas_id ?? sugestao.plano_contas_id ?? null;
-      const entidadeSugestaoTexto = lanc.interessado_sugerido || sugestao.entidade_nome || lanc.razao_social || null;
-      const entidade_id = lanc.entidade_id
-        ?? sugestao.entidade_id
-        ?? encontrarEntidadeIdPorNome(entidadeSugestaoTexto, entidades)
-        ?? null;
-      const auto_preenchido = plano_contas_id != null || entidade_id != null;
-      const criar_novo_interessado = !entidade_id && !!entidadeSugestaoTexto;
-      const interessado_digitado = criar_novo_interessado ? String(entidadeSugestaoTexto) : '';
+    if (lastResultadoRef.current !== resultado) {
+      lastResultadoRef.current = resultado;
+      const editados = resultado.lancamentos.map((lanc) => {
+        const key = `${lanc.tipo || ''}|${normalizarDescricao(lanc.descricao)}`;
+        const sugestao = sugestoes[key] || {};
+        const plano_contas_id = lanc.plano_contas_id ?? sugestao.plano_contas_id ?? null;
+        const entidadeSugestaoTexto = lanc.interessado_sugerido || sugestao.entidade_nome || lanc.razao_social || null;
+        const entidade_id = lanc.entidade_id
+          ?? sugestao.entidade_id
+          ?? encontrarEntidadeIdPorNome(entidadeSugestaoTexto, entidades)
+          ?? null;
+        const auto_preenchido = plano_contas_id != null || entidade_id != null;
+        const criar_novo_interessado = !entidade_id && !!entidadeSugestaoTexto;
+        const interessado_digitado = criar_novo_interessado ? String(entidadeSugestaoTexto) : '';
 
-      const sugestaoOriginal = getSugestaoInicial(lanc);
-      const initialAlocacoes: AlocacaoItemUI[] = [];
-      if (sugestaoOriginal === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_id && lanc.lancamento_previsto_resumo) {
-        initialAlocacoes.push({
-          lancamento_id: lanc.lancamento_previsto_id,
-          valor_alocado: Math.abs(lanc.valor),
-          tipo_baixa: 'PRINCIPAL',
-          descricao: lanc.lancamento_previsto_resumo.descricao,
-          interessado: lanc.lancamento_previsto_resumo.interessado,
-          data_vencimento: lanc.lancamento_previsto_resumo.data_vencimento,
-          valor_previsto: lanc.lancamento_previsto_resumo.valor_previsto,
-        });
-      } else if (sugestaoOriginal === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_resumo) {
-        const relatedIds = lanc.lancamentos_atrasados_ids || [];
-        lanc.lancamentos_atrasados_resumo.forEach((atr) => {
-          if (atr.id && relatedIds.includes(atr.id)) {
-            initialAlocacoes.push({
-              lancamento_id: atr.id,
-              valor_alocado: relatedIds.length === 1 ? Math.abs(lanc.valor) : atr.valor_previsto,
-              tipo_baixa: 'PRINCIPAL',
-              descricao: atr.descricao,
-              interessado: atr.interessado,
-              data_vencimento: atr.data_vencimento,
-              valor_previsto: atr.valor_previsto,
-            });
-          }
-        });
-      }
+        const sugestaoOriginal = getSugestaoInicial(lanc);
+        const initialAlocacoes: AlocacaoItemUI[] = [];
+        if (sugestaoOriginal === 'BAIXAR_PREVISTO' && lanc.lancamento_previsto_id && lanc.lancamento_previsto_resumo) {
+          initialAlocacoes.push({
+            lancamento_id: lanc.lancamento_previsto_id,
+            valor_alocado: Math.abs(lanc.valor),
+            tipo_baixa: 'PRINCIPAL',
+            descricao: lanc.lancamento_previsto_resumo.descricao,
+            interessado: lanc.lancamento_previsto_resumo.interessado,
+            data_vencimento: lanc.lancamento_previsto_resumo.data_vencimento,
+            valor_previsto: lanc.lancamento_previsto_resumo.valor_previsto,
+          });
+        } else if (sugestaoOriginal === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_resumo) {
+          const relatedIds = lanc.lancamentos_atrasados_ids || [];
+          lanc.lancamentos_atrasados_resumo.forEach((atr) => {
+            if (atr.id && relatedIds.includes(atr.id)) {
+              initialAlocacoes.push({
+                lancamento_id: atr.id,
+                valor_alocado: relatedIds.length === 1 ? Math.abs(lanc.valor) : atr.valor_previsto,
+                tipo_baixa: 'PRINCIPAL',
+                descricao: atr.descricao,
+                interessado: atr.interessado,
+                data_vencimento: atr.data_vencimento,
+                valor_previsto: atr.valor_previsto,
+              });
+            }
+          });
+        }
 
-      return {
-        ...lanc,
-        plano_contas_id,
-        entidade_id,
-        interessado_digitado,
-        criar_novo_interessado,
-        auto_preenchido,
-        interessado_sugerido: entidadeSugestaoTexto,
-        sugestao_acao_original: sugestaoOriginal,
-        sugestao_acao: lanc.sugestao_acao || sugestaoOriginal,
-        lancamentos_atrasados_relacionados: sugestaoOriginal === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_ids ? lanc.lancamentos_atrasados_ids : [],
-        sugestao_confirmada: false,
-        alocacoes: initialAlocacoes,
-      } as LancamentoEditado;
-    });
+        return {
+          ...lanc,
+          plano_contas_id,
+          entidade_id,
+          interessado_digitado,
+          criar_novo_interessado,
+          auto_preenchido,
+          interessado_sugerido: entidadeSugestaoTexto,
+          sugestao_acao_original: sugestaoOriginal,
+          sugestao_acao: lanc.sugestao_acao || sugestaoOriginal,
+          lancamentos_atrasados_relacionados: sugestaoOriginal === 'RELACIONAR_ATRASADOS' && lanc.lancamentos_atrasados_ids ? lanc.lancamentos_atrasados_ids : [],
+          sugestao_confirmada: false,
+          alocacoes: initialAlocacoes,
+        } as LancamentoEditado;
+      });
 
-    setLancamentosEditados(editados);
-    setCategoriaAutofillAplicada({});
+      setLancamentosEditados(editados);
+      setCategoriaAutofillAplicada({});
+    } else {
+      setLancamentosEditados((prev) =>
+        prev.map((item) => {
+          if (item.plano_contas_id != null && item.entidade_id != null) return item;
+          const key = `${item.tipo || ''}|${normalizarDescricao(item.descricao)}`;
+          const sugestao = sugestoes[key] || {};
+          const plano_contas_id = item.plano_contas_id ?? sugestao.plano_contas_id ?? null;
+          const entidadeSugestaoTexto = item.interessado_sugerido || sugestao.entidade_nome || item.razao_social || null;
+          const entidade_id = item.entidade_id
+            ?? sugestao.entidade_id
+            ?? encontrarEntidadeIdPorNome(entidadeSugestaoTexto, entidades)
+            ?? null;
+          if (plano_contas_id === item.plano_contas_id && entidade_id === item.entidade_id) return item;
+          return {
+            ...item,
+            plano_contas_id,
+            entidade_id,
+            auto_preenchido: plano_contas_id != null || entidade_id != null,
+          };
+        })
+      );
+    }
   }, [resultado, sugestoes, entidades]);
 
   const lancamentosFiltrados = useMemo(() => {
@@ -3325,10 +3445,14 @@ export function ImportacaoOfx() {
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">2. Saldo Projetado (ERP)</span>
                   <span className="text-sm font-black text-indigo-600 dark:text-indigo-400">
-                    {formatCurrency(
-                      simulacaoSaldoLocal
-                        ? simulacaoSaldoLocal.saldo_projetado
-                        : ((contaSelecionada?.saldo_atual || 0) + resumoExtrato.receitas - resumoExtrato.despesas)
+                    {contaId && !contaSelecionada ? (
+                      <span className="text-xs text-slate-400 animate-pulse">Carregando conta...</span>
+                    ) : (
+                      formatCurrency(
+                        simulacaoSaldoLocal
+                          ? simulacaoSaldoLocal.saldo_projetado
+                          : (contaSelecionada?.saldo_atual || 0)
+                      )
                     )}
                   </span>
                 </div>
@@ -3341,9 +3465,14 @@ export function ImportacaoOfx() {
                   {(() => {
                     const saldoOfx = resultado?.saldo_ofx;
                     if (saldoOfx == null) return <span className="text-xs text-slate-400">Sem referência</span>;
-                    const sim = simulacaoSaldoLocal;
-                    const saldoProj = sim ? sim.saldo_projetado : ((contaSelecionada?.saldo_atual || 0) + resumoExtrato.receitas - resumoExtrato.despesas);
+                    if (contaId && !contaSelecionada) return <span className="text-xs text-slate-400 animate-pulse">Calculando...</span>;
+
+                    const saldoProj = simulacaoSaldoLocal
+                      ? simulacaoSaldoLocal.saldo_projetado
+                      : (contaSelecionada?.saldo_atual || 0);
+
                     const dif = Number((saldoProj - saldoOfx).toFixed(2));
+
                     if (Math.abs(dif) < 0.01) {
                       return (
                         <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
@@ -3352,6 +3481,7 @@ export function ImportacaoOfx() {
                         </span>
                       );
                     }
+
                     return (
                       <span className="inline-flex items-center gap-1 text-xs font-black text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-lg border border-amber-200 dark:border-amber-800">
                         <AlertTriangle className="w-3.5 h-3.5" />
@@ -3364,13 +3494,16 @@ export function ImportacaoOfx() {
 
               <button
                 onClick={() => handleConfirmar()}
-                disabled={confirming || !resultado || resultado.lancamentos.length === 0}
+                disabled={confirming || !resultado || resultado.lancamentos.length === 0 || pendenciasAlocacao.hasPendencias}
                 className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3.5 text-sm font-extrabold transition disabled:cursor-not-allowed disabled:opacity-60 shadow-lg shadow-emerald-600/20 shrink-0"
+                title={pendenciasAlocacao.hasPendencias ? `Alocações/categorias pendentes (${pendenciasAlocacao.totalPendencias})` : 'Confirmar importação OFX'}
               >
                 {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                 {confirming && confirmProgress
                   ? `Confirmando lote ${confirmProgress.currentBatch}/${confirmProgress.totalBatches}`
-                  : 'Confirmar importação OFX'}
+                  : pendenciasAlocacao.hasPendencias
+                    ? `Pendente alocação (${pendenciasAlocacao.totalPendencias})`
+                    : 'Confirmar importação OFX'}
               </button>
             </div>
           </div>

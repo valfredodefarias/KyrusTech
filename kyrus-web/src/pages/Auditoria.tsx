@@ -337,7 +337,7 @@ export function Auditoria() {
     setBatchPreviewModalOpen(true);
     setBatchPreviewLoading(true);
     try {
-      const { data } = await api.get(`/auditoria/batch/${encodeURIComponent(batchId)}/preview`);
+      const { data } = await api.post('/auditoria/batch/preview', { batch_id: batchId });
       setBatchPreviewData(data.items || []);
     } catch (e) {
       console.error(e);
@@ -441,7 +441,7 @@ export function Auditoria() {
     if (!confirm('Deseja realmente desfazer todas as alterações deste lote de importação? Esta ação não pode ser desfeita.')) return;
     setUndoingBatchId(batchId);
     try {
-      await api.post(`/auditoria/batch/${encodeURIComponent(batchId)}/undo`);
+      await api.post('/auditoria/batch/undo', { batch_id: batchId });
       pushToast('success', 'Lote de importação desfeito com sucesso!');
       loadBatches(true);
     } catch (e: any) {

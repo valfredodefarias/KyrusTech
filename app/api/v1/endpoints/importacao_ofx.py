@@ -2750,14 +2750,16 @@ def confirmar_lancamentos(
                         continue
                     plano_contas_id_val = int(cat_id_raw)
 
+                    val_efetivo = Decimal(str(lanc_data.get("valor_pago") or lanc_data.get("valor_previsto") or lanc_data["valor"]))
                     novo_lancamento = Lancamento(
                         descricao=str(lanc_data["descricao"]),
                         tipo=str(lanc_data["tipo"]),
-                        status="PENDENTE",
+                        status="PAGO",
                         origem=str(lanc_data.get("origem") or "OFX"),
-                        valor_previsto=Decimal(str(lanc_data.get("valor_previsto") or lanc_data["valor"])),
-                        valor_pago=Decimal("0.00"),
+                        valor_previsto=val_efetivo,
+                        valor_pago=val_efetivo,
                         data_vencimento=data_vencimento,
+                        data_pagamento=data_vencimento,
                         data_competencia=data_compra_base,
                         empresa_id=empresa_id,
                         plano_contas_id=plano_contas_id_val,
@@ -2765,7 +2767,7 @@ def confirmar_lancamentos(
                         conta_id=conta_resolvida_id or request.conta_id,
                         centro_custo_id=centro_custo_resolvido,
                         import_hash=import_hash,
-                        conciliado=False,
+                        conciliado=True,
                     )
                     db.add(novo_lancamento)
                     db.flush()
@@ -2862,6 +2864,10 @@ def confirmar_lancamentos(
                     lancamento.movimento_uid = movimento.import_hash
                     
                     atualizar_lancamento_apos_baixas(db, lancamento.id)
+                    lancamento.status = "PAGO"
+                    lancamento.data_pagamento = movimento.data
+                    lancamento.conciliado = True
+                    db.add(lancamento)
 
                 movimento.status = "CONCILIADO"
                 db.add(movimento)

@@ -559,7 +559,7 @@ export function Contas() {
     if (!silent) setLoading(true);
     try {
       const [resContas] = await Promise.all([
-        api.get('/contas/'),
+        api.get('/contas/?include_saldo=true'),
         fetchCentrosCusto()
       ]);
       const contasNormalizadas = normalizeListResponse<Conta>(resContas.data);
@@ -1217,7 +1217,7 @@ export function Contas() {
     return value || '-';
   };
 
-  const extratoSaldoBanco = Number(extratoConta?.saldo_atual ?? extratoSaldoDetalhe?.saldo_atual ?? 0);
+  const extratoSaldoBanco = Number(extratoSaldoDetalhe?.saldo_atual ?? extratoConta?.saldo_atual ?? 0);
 
   return (
     <div className="flex flex-col h-full relative overflow-hidden bg-slate-50 dark:bg-slate-900">

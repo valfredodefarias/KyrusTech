@@ -594,31 +594,26 @@ export function ImportacaoOfx() {
     lancamentosEditados.forEach((item) => {
       if (item.sugestao_acao === 'DESCARTAR' || item.sugestao_acao === 'IGNORAR_DUPLICATA') return;
 
-      const ehCriarNovo = item.sugestao_acao === 'CRIAR_NOVO' && !item.duplicata_id;
-      const ehConfirmado = Boolean(item.sugestao_confirmada);
-
-      if (ehCriarNovo || ehConfirmado) {
-        const alocs = item.alocacoes && item.alocacoes.length > 0 ? item.alocacoes : getAlocacoesOrDefault(item);
-        let totalAlocado = 0;
-        alocs.forEach((a) => {
-          const val = Number(a.valor_alocado || 0);
-          if (val > 0) {
-            if (a.tipo_baixa === 'DESCONTO') {
-              totalAlocado -= val;
-            } else {
-              totalAlocado += val;
-            }
+      const alocs = item.alocacoes && item.alocacoes.length > 0 ? item.alocacoes : getAlocacoesOrDefault(item);
+      let totalAlocado = 0;
+      alocs.forEach((a) => {
+        const val = Number(a.valor_alocado || 0);
+        if (val > 0) {
+          if (a.tipo_baixa === 'DESCONTO') {
+            totalAlocado -= val;
+          } else {
+            totalAlocado += val;
           }
+        }
+      });
+      if (totalAlocado <= 0) {
+        totalAlocado = Math.abs(item.valor);
+      }
+      if (totalAlocado > 0) {
+        itens.push({
+          tipo: item.tipo,
+          valor: totalAlocado,
         });
-        if (totalAlocado <= 0 && ehCriarNovo) {
-          totalAlocado = Math.abs(item.valor);
-        }
-        if (totalAlocado > 0) {
-          itens.push({
-            tipo: item.tipo,
-            valor: totalAlocado,
-          });
-        }
       }
     });
 
@@ -1243,31 +1238,26 @@ export function ImportacaoOfx() {
     lancamentosEditados.forEach((item) => {
       if (item.sugestao_acao === 'DESCARTAR' || item.sugestao_acao === 'IGNORAR_DUPLICATA') return;
 
-      const ehCriarNovo = item.sugestao_acao === 'CRIAR_NOVO' && !item.duplicata_id;
-      const ehConfirmado = Boolean(item.sugestao_confirmada);
-
-      if (ehCriarNovo || ehConfirmado) {
-        const alocs = item.alocacoes && item.alocacoes.length > 0 ? item.alocacoes : getAlocacoesOrDefault(item);
-        let totalAlocado = 0;
-        alocs.forEach((a) => {
-          const val = Number(a.valor_alocado || 0);
-          if (val > 0) {
-            if (a.tipo_baixa === 'DESCONTO') {
-              totalAlocado -= val;
-            } else {
-              totalAlocado += val;
-            }
-          }
-        });
-        if (totalAlocado <= 0 && ehCriarNovo) {
-          totalAlocado = Math.abs(item.valor);
-        }
-        if (totalAlocado > 0) {
-          if (item.tipo === 'RECEITA') {
-            receitas += totalAlocado;
+      const alocs = item.alocacoes && item.alocacoes.length > 0 ? item.alocacoes : getAlocacoesOrDefault(item);
+      let totalAlocado = 0;
+      alocs.forEach((a) => {
+        const val = Number(a.valor_alocado || 0);
+        if (val > 0) {
+          if (a.tipo_baixa === 'DESCONTO') {
+            totalAlocado -= val;
           } else {
-            despesas += totalAlocado;
+            totalAlocado += val;
           }
+        }
+      });
+      if (totalAlocado <= 0) {
+        totalAlocado = Math.abs(item.valor);
+      }
+      if (totalAlocado > 0) {
+        if (item.tipo === 'RECEITA') {
+          receitas += totalAlocado;
+        } else {
+          despesas += totalAlocado;
         }
       }
     });

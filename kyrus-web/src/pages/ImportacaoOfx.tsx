@@ -597,46 +597,7 @@ export function ImportacaoOfx() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!contaId || lancamentosEditados.length === 0) {
-      setSimulacaoSaldo(null);
-      return;
-    }
-    const itens: { tipo: string; valor: number }[] = [];
-    lancamentosEditados.forEach((item) => {
-      if (item.sugestao_acao === 'DESCARTAR' || item.sugestao_acao === 'IGNORAR_DUPLICATA') return;
-
-      const alocs = item.alocacoes && item.alocacoes.length > 0 ? item.alocacoes : getAlocacoesOrDefault(item);
-      let totalAlocado = 0;
-      alocs.forEach((a) => {
-        const val = Number(a.valor_alocado || 0);
-        if (val > 0) {
-          if (a.tipo_baixa === 'DESCONTO') {
-            totalAlocado -= val;
-          } else {
-            totalAlocado += val;
-          }
-        }
-      });
-      if (totalAlocado <= 0) {
-        totalAlocado = Math.abs(item.valor);
-      }
-      if (totalAlocado > 0) {
-        itens.push({
-          tipo: item.tipo,
-          valor: totalAlocado,
-        });
-      }
-    });
-
-    api.post('/ofx/simular-saldo', { conta_id: Number(contaId), itens })
-      .then((res) => {
-        setSimulacaoSaldo(res.data);
-      })
-      .catch((err) => {
-        console.warn('Erro ao simular saldo:', err);
-      });
-  }, [contaId, lancamentosEditados]);
+  // Simulacao de saldo local instantanea mantida via useMemo (simulacaoSaldoLocal)
 
 
 
@@ -1248,7 +1209,7 @@ export function ImportacaoOfx() {
   }, [modoImportacao, contaSelecionada, cartaoSelecionado]);
 
   const simulacaoSaldoLocal = useMemo(() => {
-    if (lancamentosEditados.length === 0) return null;
+    if (!lancamentosEditados || lancamentosEditados.length === 0) return null;
     const saldoBase = contaSelecionada?.saldo_atual ?? 0;
     let receitas = 0;
     let despesas = 0;
@@ -1256,27 +1217,11 @@ export function ImportacaoOfx() {
     lancamentosEditados.forEach((item) => {
       if (item.sugestao_acao === 'DESCARTAR' || item.sugestao_acao === 'IGNORAR_DUPLICATA') return;
 
-      const alocs = item.alocacoes && item.alocacoes.length > 0 ? item.alocacoes : getAlocacoesOrDefault(item);
-      let totalAlocado = 0;
-      alocs.forEach((a) => {
-        const val = Number(a.valor_alocado || 0);
-        if (val > 0) {
-          if (a.tipo_baixa === 'DESCONTO') {
-            totalAlocado -= val;
-          } else {
-            totalAlocado += val;
-          }
-        }
-      });
-      if (totalAlocado <= 0) {
-        totalAlocado = Math.abs(item.valor);
-      }
-      if (totalAlocado > 0) {
-        if (item.tipo === 'RECEITA') {
-          receitas += totalAlocado;
-        } else {
-          despesas += totalAlocado;
-        }
+      const val = Math.abs(item.valor || 0);
+      if (item.tipo === 'RECEITA') {
+        receitas += val;
+      } else {
+        despesas += val;
       }
     });
 
@@ -1286,7 +1231,7 @@ export function ImportacaoOfx() {
       impacto_despesas: despesas,
       saldo_projetado: saldoBase + receitas - despesas,
     };
-  }, [contaId, contaSelecionada, lancamentosEditados]);
+  }, [contaSelecionada, lancamentosEditados]);
 
   const contasAtivas = useMemo(
     () => contas.filter((conta) => String(conta.status || 'ATIVO').toUpperCase() !== 'INATIVO'),
@@ -3381,8 +3326,8 @@ export function ImportacaoOfx() {
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">2. Saldo Projetado (ERP)</span>
                   <span className="text-sm font-black text-indigo-600 dark:text-indigo-400">
                     {formatCurrency(
-                      (simulacaoSaldoLocal || simulacaoSaldo)
-                        ? (simulacaoSaldoLocal || simulacaoSaldo)!.saldo_projetado
+                      simulacaoSaldoLocal
+                        ? simulacaoSaldoLocal.saldo_projetado
                         : ((contaSelecionada?.saldo_atual || 0) + resumoExtrato.receitas - resumoExtrato.despesas)
                     )}
                   </span>
@@ -3396,7 +3341,7 @@ export function ImportacaoOfx() {
                   {(() => {
                     const saldoOfx = resultado?.saldo_ofx;
                     if (saldoOfx == null) return <span className="text-xs text-slate-400">Sem referência</span>;
-                    const sim = simulacaoSaldoLocal || simulacaoSaldo;
+                    const sim = simulacaoSaldoLocal;
                     const saldoProj = sim ? sim.saldo_projetado : ((contaSelecionada?.saldo_atual || 0) + resumoExtrato.receitas - resumoExtrato.despesas);
                     const dif = Number((saldoProj - saldoOfx).toFixed(2));
                     if (Math.abs(dif) < 0.01) {

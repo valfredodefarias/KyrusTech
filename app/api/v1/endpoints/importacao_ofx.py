@@ -3187,7 +3187,7 @@ def desconciliar_lancamento(
     ).all()
 
     if not baixas:
-        if lancamento.conciliado:
+        if lancamento.conciliado or lancamento.status == "PAGO" or lancamento.data_pagamento is not None:
             lancamento.conciliado = False
             lancamento.data_pagamento = None
             lancamento.valor_pago = Decimal("0.00")
@@ -3196,6 +3196,20 @@ def desconciliar_lancamento(
             lancamento.valor_desconto = Decimal("0.00")
             lancamento.status = "EM ABERTO"
             db.add(lancamento)
+
+            # Reabrir movimento bancario se houver vinculo por import_hash ou movimento_uid
+            hash_target = lancamento.import_hash or lancamento.movimento_uid
+            if hash_target:
+                movs = db.exec(
+                    select(Movimento).where(
+                        Movimento.empresa_id == empresa_id,
+                        or_(Movimento.import_hash == hash_target, Movimento.movimento_uid == hash_target)
+                    )
+                ).all()
+                for mov in movs:
+                    if mov.status != "ABERTO":
+                        mov.status = "ABERTO"
+                        db.add(mov)
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -3213,6 +3227,18 @@ def desconciliar_lancamento(
                     if mov.origem == "MANUAL":
                         db.delete(mov)
                     else:
+                        mov.status = "ABERTO"
+                        db.add(mov)
+            elif lancamento.import_hash or lancamento.movimento_uid:
+                hash_target = lancamento.import_hash or lancamento.movimento_uid
+                movs = db.exec(
+                    select(Movimento).where(
+                        Movimento.empresa_id == empresa_id,
+                        or_(Movimento.import_hash == hash_target, Movimento.movimento_uid == hash_target)
+                    )
+                ).all()
+                for mov in movs:
+                    if mov.status != "ABERTO":
                         mov.status = "ABERTO"
                         db.add(mov)
 

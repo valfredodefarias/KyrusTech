@@ -1759,25 +1759,25 @@ export function Dre() {
         </section>
 
         {auditPanel ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+          <div className="fixed inset-0 z-50 flex justify-end">
             <button
               type="button"
-              className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
               onClick={() => setAuditPanel(null)}
               aria-label="Fechar lançamentos"
             />
             <aside
-              className={`relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl border p-5 shadow-2xl ${isDark ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-200 bg-white text-slate-900'}`}
+              className={`relative z-10 flex h-full w-full max-w-4xl flex-col border-l p-6 shadow-2xl transition-all duration-300 ${isDark ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-200 bg-white text-slate-900'}`}
             >
-              <div className="mb-3 flex items-start justify-between gap-2">
+              <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-200/80 pb-4 dark:border-slate-800">
                 <div>
-                  <div className={`text-sm font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>{auditPanel.title}</div>
-                  <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{auditPanel.subtitle}</div>
+                  <div className={`text-base font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>{auditPanel.title}</div>
+                  <div className={`mt-0.5 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{auditPanel.subtitle}</div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setAuditPanel(null)}
-                  className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'bg-white/6 text-white/70 hover:bg-white/12' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  className={`rounded-xl px-3.5 py-1.5 text-xs font-black uppercase tracking-[0.14em] transition ${isDark ? 'bg-white/10 text-white/80 hover:bg-white/20' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
                 >
                   Fechar
                 </button>

@@ -37,11 +37,11 @@ def get_plano_contas(db: Session, empresa_id: int, descricao: str, tipo: str) ->
         return 3013 # Cartão de Débito
     elif any(k in desc_upper for k in ["REDE VISA", "REDE MAST", "SISPAG"]):
         return 3012 # Cartão de Crédito
-    elif "LOJA ROSARIO" in desc_upper and tipo == "RECEITA":
+    elif any(k in desc_upper for k in ["LOJA ROSARIO", "DEP DIN", "DEP DINHEIRO", "DEPOSITO DINHEIRO", "DEP EM DINHEIRO"]) and tipo == "RECEITA":
         return 3046 # Transferência de Entrada
     elif "LOJA ROSARIO" in desc_upper and tipo == "DESPESA":
         return 3045 # Transferência de Saída
-    elif "PIX RECEBIDO" in desc_upper or "DEP DIN" in desc_upper:
+    elif "PIX RECEBIDO" in desc_upper:
         return 3018 # Pix QRS / Depósito
     elif "PIX ENVIADO" in desc_upper:
         return 3045 # Transferência de Saída / Outras despesas
@@ -69,7 +69,7 @@ def get_centro_custo_default(db: Session, empresa_id: int) -> int:
 def get_or_create_entidade(db: Session, empresa_id: int, descricao: str, party_name: str = "", cnpj_cpf: str = "", tipo: str = "DESPESA") -> int:
     search_text = (party_name or descricao or "").upper().strip()
     
-    # 1. Regras para Fornecedores Famosos, Tributos e Sócios
+    # 1. Regras para Fornecedores Famosos, Tributos, Depósitos e Sócios
     if "PRO SHOWS" in search_text:
         return 29408
     elif "WALDMAN" in search_text:
@@ -90,6 +90,8 @@ def get_or_create_entidade(db: Session, empresa_id: int, descricao: str, party_n
         return 29725
     elif "JUROS" in search_text or "SEGURO ITAU" in search_text:
         return 29725
+    elif any(k in search_text for k in ["DEP DIN", "DEP DINHEIRO", "DEPOSITO DINHEIRO"]):
+        return 28882 # Jorge Rosario (Caixa / Transferência)
     elif "JORGE" in search_text and "ROSARIO" in search_text:
         return 28882
     elif "MURILLO" in search_text:

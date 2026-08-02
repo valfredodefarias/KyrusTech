@@ -1759,15 +1759,15 @@ export function Dre() {
         </section>
 
         {auditPanel ? (
-          <div className="fixed inset-0 z-50">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
             <button
               type="button"
-              className="absolute inset-0 bg-slate-950/55"
+              className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
               onClick={() => setAuditPanel(null)}
               aria-label="Fechar lançamentos"
             />
             <aside
-              className={`absolute left-0 top-0 z-10 flex h-full w-[min(96vw,760px)] flex-col rounded-r-[28px] border-r px-4 py-4 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.85)] ${isDark ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-200 bg-white text-slate-900'}`}
+              className={`relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl border p-5 shadow-2xl ${isDark ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-200 bg-white text-slate-900'}`}
             >
               <div className="mb-3 flex items-start justify-between gap-2">
                 <div>

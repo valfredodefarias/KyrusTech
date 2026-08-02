@@ -66,11 +66,27 @@ def reconcile_full_july(conta_id: int = 215, apply: bool = False, file_path: str
         print(f"==========================================================================")
 
         # 1. Carregar Extrato Excel
-        if not file_path:
-            file_path = '/tmp/extratoXLSX.xlsx' if os.path.exists('/tmp/extratoXLSX.xlsx') else 'backups/extratoXLSX-08-2026.xlsx'
+        candidates = [
+            file_path,
+            "/tmp/extratoXLSX.xlsx",
+            "/tmp/extratoXLSX-08-2026.xlsx",
+            "backups/extratoXLSX-08-2026.xlsx",
+            "../backups/extratoXLSX-08-2026.xlsx"
+        ]
+        chosen_path = None
+        for c in candidates:
+            if c and os.path.exists(c):
+                chosen_path = c
+                break
+
+        if not chosen_path:
+            print(f"❌ ERRO: Arquivo do extrato Excel não encontrado!")
+            print(f"Por favor, copie o extrato para dentro do container com:")
+            print(f"docker cp backups/extratoXLSX-08-2026.xlsx kyrustech_backend:/tmp/extratoXLSX.xlsx")
+            return
             
-        print(f"📁 Lendo extrato bancário oficial: {file_path}")
-        df = pd.read_excel(file_path, header=None)
+        print(f"📁 Lendo extrato bancário oficial: {chosen_path}")
+        df = pd.read_excel(chosen_path, header=None)
         
         header_idx = None
         for idx, row in df.iterrows():

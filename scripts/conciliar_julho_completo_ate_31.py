@@ -190,6 +190,7 @@ def reconcile_full_july(conta_id: int = 215, apply: bool = False, file_path: str
                 )
                 db.add(mov)
                 db.flush()
+                mov_id = mov.id
 
                 lanc = Lancamento(
                     empresa_id=conta.empresa_id,

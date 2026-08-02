@@ -23,12 +23,16 @@ def get_plano_contas(db: Session, empresa_id: int, descricao: str, tipo: str) ->
     desc_upper = descricao.upper()
 
     # Mapeamento exato de categorias da Empresa 27
-    if any(k in desc_upper for k in ["PRO SHOWS", "WALDMAN", "WORKING", "ST WORKS", "IBANEZ", "HARMAN", "ROLAND", "AUDIOAMERICA", "EROS", "MUSIMAX", "SOMECO", "HAYAMAX", "LOG IMPORTAC", "WINDBRAS", "BARREIRINHAS", "MUSICAL EXPR"]):
+    if any(k in desc_upper for k in ["PRO SHOWS", "WALDMAN", "WORKING", "ST WORKS", "IBANEZ", "HARMAN", "ROLAND", "AUDIOAMERICA", "EROS", "MUSIMAX", "SOMECO", "HAYAMAX", "LOG IMPORTAC", "WINDBRAS", "BARREIRINHAS", "MUSICAL EXPR", "IALA", "SIGMA"]):
         return 3047 # Fornecedores
+    elif "JUROS" in desc_upper or "IOF" in desc_upper:
+        return 3324 # Juros, IOF e encargos financeiros
+    elif "SEGURO" in desc_upper:
+        return 3095 # Serviços Especializados / Outras Despesas
     elif "SIMPLES" in desc_upper or "PAGAMENTOS TRIB" in desc_upper:
         return 2995 # Simples / Tributos
-    elif any(k in desc_upper for k in ["IALA", "SECURIT", "SIGMA", "JUROS", "SEGURO", "TARIFA"]):
-        return 3100 # Tarifas de Cobrança
+    elif "TARIFA" in desc_upper:
+        return 3099 # Tarifas Bancárias
     elif "REDE MAST DB" in desc_upper:
         return 3013 # Cartão de Débito
     elif any(k in desc_upper for k in ["REDE VISA", "REDE MAST", "SISPAG"]):
@@ -78,9 +82,13 @@ def get_or_create_entidade(db: Session, empresa_id: int, descricao: str, party_n
         return 28628
     elif "IALA" in search_text:
         return 28660
+    elif "SIGMA" in search_text:
+        return 28252
     elif "SIMPLES" in search_text or "PAGAMENTOS TRIB" in search_text:
         return 31439
     elif "REDE" in search_text or "REDECARD" in search_text:
+        return 29725
+    elif "JUROS" in search_text or "SEGURO ITAU" in search_text:
         return 29725
     elif "JORGE" in search_text and "ROSARIO" in search_text:
         return 28882

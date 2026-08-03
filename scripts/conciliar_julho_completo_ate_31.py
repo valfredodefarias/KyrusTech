@@ -22,8 +22,12 @@ from app.models.entidade import Entidade
 def get_plano_contas(db: Session, empresa_id: int, descricao: str, tipo: str) -> int:
     desc_upper = descricao.upper()
 
-    # Mapeamento exato de categorias da Empresa 27
-    if any(k in desc_upper for k in ["PRO SHOWS", "WALDMAN", "WORKING", "ST WORKS", "IBANEZ", "HARMAN", "ROLAND", "AUDIOAMERICA", "EROS", "MUSIMAX", "SOMECO", "HAYAMAX", "LOG IMPORTAC", "WINDBRAS", "BARREIRINHAS", "MUSICAL EXPR", "IALA", "SIGMA"]):
+    # 1. Regra específica de Salários
+    if any(k in desc_upper for k in ["SALARIO", "SALARIOS", "SISPAG SALARIOS", "SISPAG SALARIO"]):
+        return 3060 # Salários e Bolsas
+
+    # 2. Regra para Fornecedores Famosos e Securitizadoras
+    elif any(k in desc_upper for k in ["PRO SHOWS", "WALDMAN", "WORKING", "ST WORKS", "IBANEZ", "HARMAN", "ROLAND", "AUDIOAMERICA", "EROS", "MUSIMAX", "SOMECO", "HAYAMAX", "LOG IMPORTAC", "WINDBRAS", "BARREIRINHAS", "MUSICAL EXPR", "IALA", "SIGMA", "SISPAG FIX PAY", "SISPAG FORNECEDOR"]):
         return 3047 # Fornecedores
     elif "JUROS" in desc_upper or "IOF" in desc_upper:
         return 3324 # Juros, IOF e encargos financeiros
@@ -35,9 +39,9 @@ def get_plano_contas(db: Session, empresa_id: int, descricao: str, tipo: str) ->
         return 3099 # Tarifas Bancárias
     elif "REDE MAST DB" in desc_upper:
         return 3013 # Cartão de Débito
-    elif any(k in desc_upper for k in ["REDE VISA", "REDE MAST", "SISPAG"]):
+    elif any(k in desc_upper for k in ["REDE VISA", "REDE MAST", "SISPAG VISA", "SISPAG MAST", "SISPAG ELO"]):
         return 3012 # Cartão de Crédito
-    elif any(k in desc_upper for k in ["LOJA ROSARIO", "DEP DIN", "DEP DINHEIRO", "DEPOSITO DINHEIRO", "DEP EM DINHEIRO"]) and tipo == "RECEITA":
+    elif any(k in desc_upper for k in ["LOJA ROSARIO", "PIX LOJA ROSARIO", "DEP DIN", "DEP DINHEIRO", "DEPOSITO DINHEIRO", "DEP EM DINHEIRO"]) and tipo == "RECEITA":
         return 3046 # Transferência de Entrada
     elif "LOJA ROSARIO" in desc_upper and tipo == "DESPESA":
         return 3045 # Transferência de Saída
@@ -68,7 +72,13 @@ def get_centro_custo_default(db: Session, empresa_id: int) -> int:
 
 def get_or_create_entidade(db: Session, empresa_id: int, descricao: str, party_name: str = "", cnpj_cpf: str = "", tipo: str = "DESPESA") -> int:
     search_text = (party_name or descricao or "").upper().strip()
-    
+
+    if "SISPAG SALARIO" in search_text or "SALARIO" in search_text:
+        ents = db.exec(select(Entidade).where(Entidade.empresa_id == empresa_id)).all()
+        for e in ents:
+            if "SALARIO" in e.nome.upper() or "FOLHA" in e.nome.upper():
+                return e.id
+
     # 1. Regras para Fornecedores Famosos, Tributos, Depósitos e Sócios
     if "PRO SHOWS" in search_text:
         return 29408
@@ -86,11 +96,11 @@ def get_or_create_entidade(db: Session, empresa_id: int, descricao: str, party_n
         return 28252
     elif "SIMPLES" in search_text or "PAGAMENTOS TRIB" in search_text:
         return 31439
-    elif "REDE" in search_text or "REDECARD" in search_text:
+    elif "REDE" in search_text or "REDECARD" in search_text or "SISPAG VISA" in search_text or "SISPAG MAST" in search_text or "SISPAG ELO" in search_text:
         return 29725
     elif "JUROS" in search_text or "SEGURO ITAU" in search_text:
         return 29725
-    elif any(k in search_text for k in ["DEP DIN", "DEP DINHEIRO", "DEPOSITO DINHEIRO"]):
+    elif any(k in search_text for k in ["LOJA ROSARIO", "DEP DIN", "DEP DINHEIRO", "DEPOSITO DINHEIRO"]):
         return 28882 # Jorge Rosario (Caixa / Transferência)
     elif "JORGE" in search_text and "ROSARIO" in search_text:
         return 28882
@@ -132,6 +142,25 @@ def reconcile_full_july(conta_id: int = 215, apply: bool = False, file_path: str
         print(f"=== CONCILIAÇÃO INTEGRAL DE JULHO/2026 (01/07 A 31/07) - CONTA: {conta.nome} ===")
         print(f"=== MODO: {'APLICAÇÃO REAL (MODIFICANDO BANCO)' if apply else 'SIMULAÇÃO (DRY RUN)'} ===")
         print(f"==========================================================================")
+
+        # 0. Carregar tuplas simples de lançamentos históricos para preservação de NF-E e categorias
+        raw_old = db.execute(
+            text("SELECT data_vencimento, data_pagamento, valor_pago, valor_previsto, descricao, plano_contas_id, entidade_id FROM lancamentos WHERE conta_id = :cid"),
+            {"cid": conta_id}
+        ).fetchall()
+
+        old_records = []
+        for r in raw_old:
+            dt = r[1] or r[0]
+            val = r[2] if r[2] and r[2] > 0 else r[3]
+            old_records.append({
+                "data": dt,
+                "valor_abs": abs(Decimal(str(val))) if val else Decimal("0"),
+                "descricao": r[4] or "",
+                "plano_contas_id": r[5],
+                "entidade_id": r[6]
+            })
+        print(f"✓ Carregados {len(old_records)} registros históricos para cruzamento de NF-E e categorias.")
 
         # 1. Carregar Extrato Excel
         candidates = [
@@ -215,7 +244,6 @@ def reconcile_full_july(conta_id: int = 215, apply: bool = False, file_path: str
             )
         ).all()
 
-        # Zerar lançamentos do mês e recriar exatamente as 441 linhas fiéis ao extrato com Centro de Custo BELÉM (53) e Interessados (Entidades)
         if apply:
             for l in lances_july:
                 db.execute(text("DELETE FROM anexos_lancamento WHERE lancamento_id = :lid"), {"lid": l.id})
@@ -235,18 +263,37 @@ def reconcile_full_july(conta_id: int = 215, apply: bool = False, file_path: str
                 db.execute(text("DELETE FROM movimentos WHERE id = :mid"), {"mid": m.id})
             db.commit()
 
-        print(f"✓ Sincronizando e gravando 441 movimentações com Centro de Custo BELÉM (53) e Interessados (Entidades)...")
+        print(f"✓ Sincronizando e gravando 441 movimentações com mapeamento exato de Salários e Cartões...")
+        matched_nfe_count = 0
         if apply:
             for idx_f, f in enumerate(xlsx_items):
-                plano_id = get_plano_contas(db, conta.empresa_id, f["descricao"], f["tipo"])
-                entidade_id = get_or_create_entidade(db, conta.empresa_id, f["descricao"], f["party_name"], f["cnpj_cpf"], f["tipo"])
-                
+                # Cruzamento com histórico original por Data e Valor para preservar NFE e Categorização manual
+                best_match = None
+                for ol in old_records:
+                    if ol["data"] == f["data"] and ol["valor_abs"] == f["valor_abs"]:
+                        best_match = ol
+                        if "NFE" in ol["descricao"].upper() or "NF-E" in ol["descricao"].upper():
+                            matched_nfe_count += 1
+                            break
+
+                if best_match:
+                    if ("NFE" in best_match["descricao"].upper() or "NF-E" in best_match["descricao"].upper() or len(best_match["descricao"]) > len(f["descricao"])):
+                        final_desc = best_match["descricao"]
+                    else:
+                        final_desc = f["descricao"]
+                    final_plano_id = best_match["plano_contas_id"] if best_match["plano_contas_id"] else get_plano_contas(db, conta.empresa_id, f["descricao"], f["tipo"])
+                    final_entidade_id = best_match["entidade_id"] if best_match["entidade_id"] else get_or_create_entidade(db, conta.empresa_id, f["descricao"], f["party_name"], f["cnpj_cpf"], f["tipo"])
+                else:
+                    final_desc = f["descricao"]
+                    final_plano_id = get_plano_contas(db, conta.empresa_id, f["descricao"], f["tipo"])
+                    final_entidade_id = get_or_create_entidade(db, conta.empresa_id, f["descricao"], f["party_name"], f["cnpj_cpf"], f["tipo"])
+
                 h = hashlib.md5(f"{conta_id}_{f['data']}_{f['valor_orig']}_{f['descricao']}_{idx_f}".encode()).hexdigest()
                 mov = Movimento(
                     empresa_id=conta.empresa_id,
                     conta_id=conta_id,
                     data=f["data"],
-                    descricao=f["descricao"],
+                    descricao=final_desc,
                     valor=f["valor_orig"],
                     tipo=f["tipo"],
                     import_hash=h,
@@ -259,12 +306,12 @@ def reconcile_full_july(conta_id: int = 215, apply: bool = False, file_path: str
                 lanc = Lancamento(
                     empresa_id=conta.empresa_id,
                     conta_id=conta_id,
-                    plano_contas_id=plano_id,
+                    plano_contas_id=final_plano_id,
                     centro_custo_id=centro_custo_id,
-                    entidade_id=entidade_id,
+                    entidade_id=final_entidade_id,
                     tipo=f["tipo"],
                     status="PAGO",
-                    descricao=f["descricao"],
+                    descricao=final_desc,
                     valor_previsto=f["valor_abs"],
                     valor_pago=f["valor_abs"],
                     data_vencimento=f["data"],
@@ -306,6 +353,8 @@ def reconcile_full_july(conta_id: int = 215, apply: bool = False, file_path: str
         print("\n" + "="*80)
         print("=== RELATÓRIO FINAL DE BATIMENTO INTEGRAL DO EXTRATO ITAÚ ===")
         print("="*80)
+        print(f"✓ Mapeamento Exato: SISPAG SALARIOS -> Salários e Bolsas (ID 3060)")
+        print(f"✓ Mapeamento Exato: SISPAG VISA/MAST/ELO -> Cartão de Crédito (ID 3012)")
         print(f"✓ Centro de Custo atribuído a 100% dos lançamentos: BELÉM (ID {centro_custo_id})")
         print(f"✓ Interessados (Entidades / Favorecidos) atribuídos: 100% (441/441)")
         print(f"✓ Saldo Anterior em 30/06/2026 (Extrato Itaú): R$ {saldo_30_06:,.2f}")

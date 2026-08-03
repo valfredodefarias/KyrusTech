@@ -5,7 +5,8 @@ from sqlalchemy import text
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from app.db.session import SessionLocal
+from sqlmodel import Session
+from app.db.session import engine
 
 if sys.stdout.encoding.lower() != 'utf-8':
     try:
@@ -18,7 +19,7 @@ def main():
     print("🚀 SCRIPT DE CORREÇÃO DEFINITIVA PARA A UMARIZAL (ÓRFÃOS E FINANCEIRO)")
     print("==========================================================================================")
     
-    db = SessionLocal()
+    db = Session(engine)
     try:
         print("\n✅ Step 1: Apagando pagamentos órfãos em cascata (vendas já deletadas mas movimentos ativos)...")
         sql_orfaos = text("""

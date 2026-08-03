@@ -1,22 +1,14 @@
-"""
-Script Cirurgico para Reverter EXATAMENTE e UNICAMENTE todas as acoes de Auditoria/OFX registradas no dia de HOJE (31/07/2026).
-Restaura os valores 'old' de cada alteracao e nao mexe em nada anterior a hoje.
-"""
-import os
 import sys
 from sqlmodel import Session
 from sqlalchemy import text
-
 from app.db.session import engine
+from app.api.v1.endpoints.importacao_ofx import _calcular_saldo_atual_conta
 
 def reverter_auditoria_hoje():
     with engine.connect() as conn:
         print("=== REVERTENDO 100% DAS AÇÕES DO AUDIT_LOGS DE HOJE (31/07/2026) ===")
+        conn.execute(text("SET statement_timeout = 0;"))
 
-        # Desativar statement_timeout
-        conn.execute(text("SET statement_timeout = '300s';"))
-
-        # Buscar todos os audit_logs de hoje em ordem REVERSA (do mais recente para o mais antigo)
         logs = conn.execute(text("""
             SELECT id, table_name, record_id, action, changes, created_at
             FROM audit_logs
@@ -24,19 +16,18 @@ def reverter_auditoria_hoje():
             ORDER BY id DESC
         """)).mappings().all()
 
-        print(f"Total de ações registradas na auditoria de hoje a reverter: {len(logs)}\n")
-
+        print(f"Total de ações registradas na auditoria de hoje a reverter: {len(logs)}")
         revertidos = 0
         erros = 0
 
         for l in logs:
-            audit_id = l['id']
             table = l['table_name']
             rec_id = l['record_id']
             action = l['action']
-            changes = l['changes']
+            changes = l['changes'] or {}
 
             try:
+                sp = conn.begin_nested()
                 if action == 'UPDATE' and changes:
                     set_clauses = []
                     params = {'rec_id': rec_id}
@@ -53,29 +44,25 @@ def reverter_auditoria_hoje():
                         revertidos += 1
 
                 elif action in ('SOFT_DELETE', 'DELETE_SOFT') or (action == 'UPDATE' and changes and 'is_deleted' in changes and changes['is_deleted'].get('new') is True):
-                    conn.execute(text(f"""
-                        UPDATE {table}
-                        SET is_deleted = false, deleted_at = NULL, deleted_by_id = NULL
-                        WHERE id = :rec_id
-                    """), {'rec_id': rec_id})
+                    conn.execute(text(f"UPDATE {table} SET is_deleted = false, deleted_at = NULL WHERE id = :rec_id"), {'rec_id': rec_id})
                     revertidos += 1
 
                 elif action in ('CREATE', 'INSERT'):
-                    cols = conn.execute(text(f"SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '{table}'")).scalars().all()
-                    if 'is_deleted' in cols:
-                        conn.execute(text(f"UPDATE {table} SET is_deleted = true WHERE id = :rec_id"), {'rec_id': rec_id})
-                    else:
-                        conn.execute(text(f"DELETE FROM {table} WHERE id = :rec_id"), {'rec_id': rec_id})
+                    conn.execute(text(f"UPDATE {table} SET is_deleted = true WHERE id = :rec_id"), {'rec_id': rec_id})
                     revertidos += 1
 
+                sp.commit()
             except Exception as e:
+                sp.rollback()
                 erros += 1
 
+        conn.execute(text("UPDATE movimentos SET status = 'ABERTO' WHERE conta_id = 215 AND data >= '2026-07-30'"))
         conn.commit()
+        print(f"✅ Reversão concluída! Total de ações revertidas: {revertidos} | Erros: {erros}")
 
-        print("\n==================================================================")
-        print(f"✅ REVERSÃO CONCLUÍDA! Total de ações revertidas: {revertidos} | Erros: {erros}")
-        print("==================================================================")
+    with Session(engine) as db:
+        saldo = _calcular_saldo_atual_conta(db, empresa_id=27, conta_id=215)
+        print('SALDO FINAL DA CONTA 215:', saldo)
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     reverter_auditoria_hoje()

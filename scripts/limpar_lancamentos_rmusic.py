@@ -64,8 +64,8 @@ def clear_conta_rmusic(empresa_id: int = 27, conta_id: int = 215, apply: bool = 
                 Movimento.empresa_id == empresa_id,
                 Movimento.conta_id == conta_id,
                 Movimento.is_deleted == False,
-                Movimento.data_compensacao >= date(2026, 7, 1),
-                Movimento.data_compensacao <= date(2026, 7, 31)
+                Movimento.data >= date(2026, 7, 1),
+                Movimento.data <= date(2026, 7, 31)
             )
         ).all()
         

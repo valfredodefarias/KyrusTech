@@ -8,6 +8,9 @@
 
 ## 1. Visão Geral do Processo de Restauração
 
+> [!NOTE]
+> Para o procedimento de **geração de dumps em ambiente de produção** lendo credenciais do `.env` e prevenindo corrupção de logs, consulte o [MANUAL_DUMP_PRODUCAO.md](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/MANUAL_DUMP_PRODUCAO.md).
+
 Este guia descreve os procedimentos de nível de engenharia para realizar a restauração completa de um dump PostgreSQL (`.dump` custom format ou SQL plain) no banco de dados containerizado `db_kyrustech`.
 
 ### Datasets Garantidos no Backup Restaurado:

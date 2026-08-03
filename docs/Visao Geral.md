@@ -30,6 +30,7 @@ O Kyrus ERP é construído sob uma arquitetura de duas camadas principais (Front
 ### 📖 Manuais Operacionais e de Negócio
 *   [[MANUAL_CONCILIACAO_CARTOES]] - Manual de conciliação de cartões de crédito e adquirentes.
 *   [[MANUAL_RESTAURACAO_BACKUP]] - Procedimento passo a passo para restauração de backups em containers.
+*   [[MANUAL_MIGRACAO_DADOS]] - Guia e manual completo para migração e importação de dados de empresas.
 *   [[MANUAL_GERENTE]] - Guia de uso e relatórios para administradores e gerentes.
 *   [[OTIMIZACAO_BOLETIM]] - Checklist técnico de otimização de boletim e fechamentos contábeis.
 

@@ -3186,6 +3186,21 @@ def deletar_movimentacao_pdv(
             venda_op.deleted_by_id = current_user.id
             db.add(venda_op)
 
+        # 0. Excluir também as outras movimentações da mesma venda (caso tenha mais de um pagamento)
+        outras_movs = db.exec(
+            select(PdvMovimentacao).where(
+                PdvMovimentacao.empresa_id == empresa_id,
+                PdvMovimentacao.venda_id == m_op.venda_id,
+                PdvMovimentacao.id != m_op.id,
+                PdvMovimentacao.is_deleted == False
+            )
+        ).all()
+        for om in outras_movs:
+            om.is_deleted = True
+            om.deleted_at = datetime.utcnow()
+            om.deleted_by_id = current_user.id
+            db.add(om)
+
         # 1. Reversão em cascata das baixas de estoque da venda
         movs_estoque = db.exec(
             select(MovimentacaoEstoque).where(

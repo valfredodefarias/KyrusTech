@@ -875,6 +875,7 @@ export function PDV() {
   const [existingComprovantes, setExistingComprovantes] = useState<string[]>([]);
 
   const [savingVenda, setSavingVenda] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [errorVenda, setErrorVenda] = useState<string | null>(null);
 
   // Centros de Custo e Clientes
@@ -1627,6 +1628,7 @@ export function PDV() {
   // Submit Nova Venda
   async function handleNovaVendaSubmit(e: FormEvent) {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
     
     let validItens = [];
     if (isDirectSale) {
@@ -1700,6 +1702,7 @@ export function PDV() {
     }
 
     try {
+      isSubmittingRef.current = true;
       setSavingVenda(true);
       setErrorVenda(null);
 
@@ -1857,6 +1860,7 @@ export function PDV() {
     } catch (err: any) {
       setErrorVenda(err?.response?.data?.detail || 'Não foi possível salvar a venda.');
     } finally {
+      isSubmittingRef.current = false;
       setSavingVenda(false);
     }
   }

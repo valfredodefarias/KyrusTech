@@ -1,4 +1,5 @@
 import { type MouseEvent as ReactMouseEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarDays, ChevronDown, ChevronRight, Sigma, TrendingDown, TrendingUp } from 'lucide-react';
 
@@ -1758,7 +1759,7 @@ export function Dre() {
           </div>
         </section>
 
-        {auditPanel ? (
+        {auditPanel ? createPortal(
           <div className="fixed inset-0 z-[9999] flex justify-start">
             <button
               type="button"
@@ -1853,7 +1854,8 @@ export function Dre() {
                 </div>
               </div>
             </aside>
-          </div>
+          </div>,
+          document.body
         ) : null}
 
         <LancamentoFormDrawer

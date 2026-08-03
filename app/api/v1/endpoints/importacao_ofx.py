@@ -1886,7 +1886,6 @@ def upload_ofx(
         if hashes:
             movs_db = db.exec(
                 select(Movimento).where(
-                    Movimento.is_deleted == False,
                     Movimento.empresa_id == empresa_id,
                     Movimento.import_hash.in_(hashes)
                 )
@@ -1919,6 +1918,12 @@ def upload_ofx(
                 # Atualiza o cache local para caso haja hashes duplicados dentro do próprio arquivo
                 existing_movs[hash_item] = existing_mov
                 auditor.analisar_movimento(existing_mov)
+            else:
+                if getattr(existing_mov, "is_deleted", False):
+                    existing_mov.is_deleted = False
+                    existing_mov.status = "ABERTO"
+                    db.add(existing_mov)
+                    db.flush()
             
             lanc_raw["movimento_id"] = existing_mov.id
 

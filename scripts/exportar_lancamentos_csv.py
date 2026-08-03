@@ -6,7 +6,7 @@ try:
     conn = psycopg2.connect("dbname=kyrus_temp user=kyrus_user password=kyrus_pass host=db_kyrustech port=5432")
     cur = conn.cursor()
     cur.execute("""
-        SELECT l.data_vencimento, l.data_pagamento, l.descricao, l.valor_previsto, l.tipo, c.nome, pc.nome, cc.nome, e.nome
+        SELECT DISTINCT l.id, l.data_vencimento, l.data_pagamento, l.descricao, l.valor_previsto, l.tipo, c.nome, pc.nome, cc.nome, e.nome
         FROM lancamentos l
         LEFT JOIN contas c ON l.conta_id = c.id
         LEFT JOIN plano_contas pc ON l.plano_contas_id = pc.id
@@ -27,11 +27,11 @@ try:
         writer.writerow(["DATA VENCIMENTO", "DATA PAGAMENTO", "DESCRIÇÃO", "VALOR", "TIPO", "CONTA", "CATEGORIA", "CENTRO DE CUSTO", "ENTIDADE"])
         for row in rows:
             # format dates
-            dt_v = row[0].strftime('%d/%m/%Y') if row[0] else ''
-            dt_p = row[1].strftime('%d/%m/%Y') if row[1] else ''
+            dt_v = row[1].strftime('%d/%m/%Y') if row[1] else ''
+            dt_p = row[2].strftime('%d/%m/%Y') if row[2] else ''
             # format valor
-            val = f"{row[3]:.2f}".replace('.', ',') if row[3] else '0,00'
-            writer.writerow([dt_v, dt_p, row[2], val, row[4], row[5], row[6], row[7], row[8]])
+            val = f"{row[4]:.2f}".replace('.', ',') if row[4] else '0,00'
+            writer.writerow([dt_v, dt_p, row[3], val, row[5], row[6], row[7], row[8], row[9]])
             
     print(f"✅ CSV Exportado com sucesso para {out_path}")
 except Exception as e:

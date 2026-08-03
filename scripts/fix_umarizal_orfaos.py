@@ -13,7 +13,8 @@ if sys.stdout.encoding.lower() != 'utf-8':
 
 def run_sql(query):
     env = os.environ.copy()
-    env["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
+    if os.name == 'nt':  # Only use named pipes on Windows
+        env["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
     res = subprocess.run(
         ["docker", "exec", "db_kyrustech", "psql", "-U", "kyrus_user", "-d", "kyrus_erp", "-t", "-c", query],
         env=env, capture_output=True, text=True

@@ -3218,7 +3218,7 @@ def desconciliar_lancamento(
                 movs = db.exec(
                     select(Movimento).where(
                         Movimento.empresa_id == empresa_id,
-                        or_(Movimento.import_hash == hash_target, Movimento.movimento_uid == hash_target)
+                        Movimento.import_hash == hash_target
                     )
                 ).all()
                 for mov in movs:
@@ -3249,7 +3249,7 @@ def desconciliar_lancamento(
                 movs = db.exec(
                     select(Movimento).where(
                         Movimento.empresa_id == empresa_id,
-                        or_(Movimento.import_hash == hash_target, Movimento.movimento_uid == hash_target)
+                        Movimento.import_hash == hash_target
                     )
                 ).all()
                 for mov in movs:

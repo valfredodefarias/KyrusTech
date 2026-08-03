@@ -1752,7 +1752,7 @@ def upload_ofx(
         if not modo_cartao and conta_db_id > 0 and lancamentos_raw:
             ultimo_mov = db.exec(
                 select(Movimento)
-                .where(Movimento.conta_id == conta_db_id, Movimento.empresa_id == empresa_id)
+                .where(Movimento.is_deleted == False, Movimento.conta_id == conta_db_id, Movimento.empresa_id == empresa_id)
                 .order_by(Movimento.data.desc(), Movimento.id.desc())
             ).first()
             if ultimo_mov:
@@ -1886,6 +1886,7 @@ def upload_ofx(
         if hashes:
             movs_db = db.exec(
                 select(Movimento).where(
+                    Movimento.is_deleted == False,
                     Movimento.empresa_id == empresa_id,
                     Movimento.import_hash.in_(hashes)
                 )
@@ -2111,6 +2112,7 @@ def upload_ofx(
                 if fitid_atual:
                     mov = db.exec(
                         select(Movimento).where(
+                            Movimento.is_deleted == False,
                             Movimento.empresa_id == empresa_id,
                             Movimento.conta_id == conta_db_id,
                             Movimento.fitid == fitid_atual
@@ -2121,6 +2123,7 @@ def upload_ofx(
                 if not mov and import_hash_atual:
                     mov = db.exec(
                         select(Movimento).where(
+                            Movimento.is_deleted == False,
                             Movimento.empresa_id == empresa_id,
                             Movimento.import_hash == import_hash_atual
                         )
@@ -2130,6 +2133,7 @@ def upload_ofx(
                 if not mov and desc_raw_search and data_search:
                     mov = db.exec(
                         select(Movimento).where(
+                            Movimento.is_deleted == False,
                             Movimento.empresa_id == empresa_id,
                             Movimento.conta_id == conta_db_id,
                             Movimento.data == data_search,

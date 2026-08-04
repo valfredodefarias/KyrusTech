@@ -16,25 +16,8 @@ from app.models.user_company_profile import UserCompanyProfile
 def grant_pizza_fabio_perms():
     db = Session(engine)
     try:
-        # Busca todas as empresas para tentar encontrar a Pizza do Fabio (lidando com Row objects de tupla)
         empresas = db.exec(select(Empresa)).all()
-        empresa = next((e[0] for e in empresas if e[0].nome_fantasia and "Pizza" in e[0].nome_fantasia and "Fabio" in e[0].nome_fantasia), None)
-        
-        if not empresa:
-            print("Empresa Pizza do Fabio não encontrada. Aplicando para a primeira empresa do banco...")
-            if empresas:
-                empresa = empresas[0][0]
-            else:
-                return
-
-        print(f"Empresa selecionada: {empresa.nome_fantasia} (ID: {empresa.id})")
-
-        # Busca todos os perfis de acesso da empresa
-        perfis_rows = db.exec(select(AccessProfile).where(AccessProfile.empresa_id == empresa.id)).all()
-        perfis = [p[0] for p in perfis_rows]
-        
-        if not perfis:
-            print("Nenhum perfil de acesso encontrado para a empresa. Procurando por operadores...")
+        empresas = [e[0] for e in empresas]
         
         permissoes_alvo = [
             ("pdv:movimentacoes", "view"),
@@ -61,17 +44,21 @@ def grant_pizza_fabio_perms():
                 db.flush()
             perm_objs.append(p_obj)
 
-        # Adiciona aos perfis da empresa
-        for perfil in perfis:
-            existing_perms_ids = {p.permission_id for p in perfil.permissions}
-            for p_obj in perm_objs:
-                if p_obj.id not in existing_perms_ids:
-                    app = AccessProfilePermission(profile_id=perfil.id, permission_id=p_obj.id, allowed=True)
-                    db.add(app)
-            print(f"Permissões injetadas no perfil: {perfil.name}")
+        for empresa in empresas:
+            print(f"Empresa selecionada: {empresa.nome_fantasia} (ID: {empresa.id})")
+            perfis_rows = db.exec(select(AccessProfile).where(AccessProfile.empresa_id == empresa.id)).all()
+            perfis = [p[0] for p in perfis_rows]
+            
+            for perfil in perfis:
+                existing_perms_ids = {p.permission_id for p in perfil.permissions}
+                for p_obj in perm_objs:
+                    if p_obj.id not in existing_perms_ids:
+                        app = AccessProfilePermission(profile_id=perfil.id, permission_id=p_obj.id, allowed=True)
+                        db.add(app)
+                print(f"  -> Permissões injetadas no perfil: {perfil.name}")
 
         db.commit()
-        print("Script executado com sucesso.")
+        print("Script executado com sucesso em TODAS as empresas.")
 
     except Exception as e:
         db.rollback()

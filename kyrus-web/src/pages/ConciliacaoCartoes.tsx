@@ -175,6 +175,28 @@ export function ConciliacaoCartoes() {
   const [antecipandoEfetivo, setAntecipandoEfetivo] = useState<boolean>(false);
   const [antecipacaoDataInicio, setAntecipacaoDataInicio] = useState<string>('');
   const [antecipacaoDataFim, setAntecipacaoDataFim] = useState<string>('');
+  const [modalRecebiveis, setModalRecebiveis] = useState<Recebivel[]>([]);
+  const [loadingModalRecebiveis, setLoadingModalRecebiveis] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (showAntecipacaoModal) {
+      const fetchModalItems = async () => {
+        setLoadingModalRecebiveis(true);
+        try {
+          const params: Record<string, string> = {};
+          if (antecipacaoDataInicio) params.start_date = antecipacaoDataInicio;
+          if (antecipacaoDataFim) params.end_date = antecipacaoDataFim;
+          const res = await api.get('/pdv/recebiveis', { params });
+          setModalRecebiveis(normalizeListResponse<Recebivel>(res.data));
+        } catch (e) {
+          console.error('Erro ao carregar recebíveis para antecipação:', e);
+        } finally {
+          setLoadingModalRecebiveis(false);
+        }
+      };
+      void fetchModalItems();
+    }
+  }, [showAntecipacaoModal, antecipacaoDataInicio, antecipacaoDataFim]);
 
   // Lists from DB
   const [regras, setRegras] = useState<RegraCartao[]>([]);
@@ -3159,8 +3181,9 @@ export function ConciliacaoCartoes() {
 
                   {(() => {
                     // Compute available future credit launches filtered by period if selected
-                    const credFuturos = recebiveis.filter(r => {
-                      if (r.tipo_pagamento === 'cartao_debito' || r.status === 'PAGO') return false;
+                    const sourceList = (modalRecebiveis && modalRecebiveis.length > 0) ? modalRecebiveis : recebiveis;
+                    const credFuturos = sourceList.filter(r => {
+                      if (r.tipo_pagamento === 'cartao_debito' || r.status === 'PAGO' || r.status === 'ANTECIPADO') return false;
                       if (antecipacaoDataInicio && (r.data_vencimento || r.data_venda) < antecipacaoDataInicio) return false;
                       if (antecipacaoDataFim && (r.data_vencimento || r.data_venda) > antecipacaoDataFim) return false;
                       return true;

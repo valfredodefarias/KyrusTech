@@ -170,6 +170,9 @@ export function ConciliacaoCartoes() {
   const [showAntecipacaoModal, setShowAntecipacaoModal] = useState(false);
   const [antecipacaoTaxaPct, setAntecipacaoTaxaPct] = useState<number>(2.5);
   const [antecipacaoDias, setAntecipacaoDias] = useState<number>(30);
+  const [antecipacaoLancarFinanceiro, setAntecipacaoLancarFinanceiro] = useState<boolean>(true);
+  const [antecipacaoContaId, setAntecipacaoContaId] = useState<string>('');
+  const [antecipandoEfetivo, setAntecipandoEfetivo] = useState<boolean>(false);
 
   // Lists from DB
   const [regras, setRegras] = useState<RegraCartao[]>([]);
@@ -875,6 +878,64 @@ export function ConciliacaoCartoes() {
       alert('Erro ao conciliar lote. Verifique se os dados são válidos.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleEfetivarAntecipacao = async (credFuturos: Recebivel[], valorLiquido: number, despesaTaxa: number) => {
+    if (credFuturos.length === 0) {
+      alert('Não há recebíveis futuros de crédito abertos para antecipar.');
+      return;
+    }
+
+    const contaUsada = contas.find(c => String(c.id) === (antecipacaoContaId || String(contas[0]?.id)));
+    const nomeConta = contaUsada ? contaUsada.nome : 'Conta Financeira';
+
+    const confirmMsg = `⚡ CONFIRMAÇÃO DE ANTECIPAÇÃO DE CARTÕES\n\n` +
+      `Deseja efetivar a antecipação de ${credFuturos.length} lote(s) de crédito futuro?\n\n` +
+      `• Valor Bruto Futuro: ${BRL.format(credFuturos.reduce((a, c) => a + Number(c.valor_bruto || 0), 0))}\n` +
+      `• Taxa de Antecipação (${antecipacaoTaxaPct}%): ${BRL.format(despesaTaxa)}\n` +
+      `• Valor Líquido: ${BRL.format(valorLiquido)}\n\n` +
+      (antecipacaoLancarFinanceiro 
+        ? `• O valor de ${BRL.format(valorLiquido)} SERÁ CREDITADO na conta "${nomeConta}".`
+        : `• Os recebíveis serão BAIXADOS/QUITADOS no sistema SEM criar novo lançamento no extrato (ideal para antecipação avulsa já depositada).`);
+
+    if (!confirm(confirmMsg)) return;
+
+    setAntecipandoEfetivo(true);
+    try {
+      // 1. Mark future credit receivables as PAGO/liquidated in batches
+      const updatePromises = credFuturos.map(r => 
+        api.put(`/pdv/recebiveis/${r.id}`, {
+          status: 'PAGO',
+          valor_liquido: Number(r.valor_liquido || 0)
+        })
+      );
+
+      await Promise.all(updatePromises);
+
+      // 2. If launching financial deposit
+      if (antecipacaoLancarFinanceiro && (antecipacaoContaId || (contas.length > 0 && contas[0].id))) {
+        const targetContaId = Number(antecipacaoContaId || contas[0].id);
+        await api.post('/lancamentos/', {
+          tipo: 'RECEITA',
+          descricao: `Antecipação Avulsa de Cartões (${credFuturos.length} lote/s)`,
+          valor: valorLiquido,
+          conta_id: targetContaId,
+          data_vencimento: new Date().toISOString().split('T')[0],
+          data_pagamento: new Date().toISOString().split('T')[0],
+          pago: true,
+          origem: 'ANTECIPACAO_CARTAO'
+        });
+      }
+
+      setShowAntecipacaoModal(false);
+      await fetchAgenda();
+      alert(`⚡ Antecipação de ${credFuturos.length} recebíveis efetuada e baixada com sucesso!`);
+    } catch (e) {
+      console.error('Erro ao efetivar antecipação:', e);
+      alert('Erro ao efetivar antecipação. Verifique os dados e tente novamente.');
+    } finally {
+      setAntecipandoEfetivo(false);
     }
   };
 
@@ -3153,13 +3214,60 @@ export function ConciliacaoCartoes() {
                           </div>
                         </div>
 
+                        {/* EFETIVAÇÃO DE ANTECIPAÇÃO SECTION */}
+                        <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-amber-700 dark:text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                              <Zap className="w-4 h-4" /> Efetivar e Baixar no Sistema
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                Conta Bancária Destino
+                              </label>
+                              <select
+                                value={antecipacaoContaId || (contas.length > 0 ? String(contas[0].id) : '')}
+                                onChange={(e) => setAntecipacaoContaId(e.target.value)}
+                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 outline-none"
+                              >
+                                {contas.map(c => (
+                                  <option key={c.id} value={c.id}>{c.nome}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="flex items-center pt-4">
+                              <label className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={antecipacaoLancarFinanceiro}
+                                  onChange={(e) => setAntecipacaoLancarFinanceiro(e.target.checked)}
+                                  className="rounded text-amber-500 focus:ring-amber-500 h-4 w-4"
+                                />
+                                Gerar depósito líquido no Financeiro
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+
                         {/* Actions */}
-                        <div className="flex justify-end gap-3 pt-2">
+                        <div className="flex justify-between items-center gap-3 pt-2">
                           <button
                             onClick={() => setShowAntecipacaoModal(false)}
-                            className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs hover:opacity-90 transition shadow-sm"
+                            className="px-5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition"
                           >
-                            Fechar Simulador
+                            Fechar
+                          </button>
+
+                          <button
+                            disabled={antecipandoEfetivo || credFuturos.length === 0}
+                            onClick={() => void handleEfetivarAntecipacao(credFuturos, valorLiquidoHoje, despesaAntecipacao)}
+                            className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs transition shadow-md disabled:opacity-50 flex items-center gap-2"
+                          >
+                            <Zap className="w-4 h-4 fill-slate-950/20" />
+                            {antecipandoEfetivo ? 'Efetivando...' : 'Efetivar Antecipação e Quitar Recebíveis'}
                           </button>
                         </div>
                       </div>

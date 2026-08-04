@@ -257,7 +257,7 @@ function LayoutShell() {
           try {
             const config = JSON.parse(empresa?.pdv_config || '{}');
             const activeApps = config.active_apps || [];
-            if (!route.requiredApps.some(app => activeApps.includes(app))) {
+            if (!route.requiredApps.some((app: string) => activeApps.includes(app))) {
               return false;
             }
           } catch {

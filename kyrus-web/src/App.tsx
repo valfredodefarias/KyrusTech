@@ -80,14 +80,14 @@ function ProtectedRoute({ children, path }: { children: React.ReactNode, path: s
     !rule || 
     !rule.permissions || 
     rule.permissions.length === 0 || 
-    rule.permissions.some((p) => permissions.includes(p));
+    rule.permissions.some((p: string) => permissions.includes(p));
 
   let hasRequiredApp = true;
   if (rule?.requiredApps && rule.requiredApps.length > 0 && empresa?.pdv_config) {
     try {
       const pdvConfig = JSON.parse(empresa.pdv_config);
       const activeApps = pdvConfig.active_apps || [];
-      hasRequiredApp = rule.requiredApps.every(app => activeApps.includes(app));
+      hasRequiredApp = rule.requiredApps.every((app: string) => activeApps.includes(app));
     } catch (e) {
       console.error("Erro ao parsear pdv_config em ProtectedRoute", e);
       hasRequiredApp = false;

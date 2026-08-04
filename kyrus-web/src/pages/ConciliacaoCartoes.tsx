@@ -69,7 +69,7 @@ interface Recebivel {
   valor_bruto: number;
   valor_taxa: number;
   valor_liquido: number;
-  status: 'PAGO' | 'A RECEBER';
+  status: 'PAGO' | 'A RECEBER' | 'ANTECIPADO';
   vendedor?: string;
   cliente?: string;
   itens?: any[];
@@ -212,7 +212,7 @@ export function ConciliacaoCartoes() {
     cartao_taxa: 0,
     cartao_taxa_valor: 0,
     valor_liquido: 0,
-    status: 'A RECEBER' as 'PAGO' | 'A RECEBER',
+    status: 'A RECEBER' as 'PAGO' | 'A RECEBER' | 'ANTECIPADO',
     itens: [] as any[]
   });
 

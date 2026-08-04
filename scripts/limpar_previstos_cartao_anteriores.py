@@ -4,7 +4,7 @@ Script de Limpeza de Previstos de Cartão de Meses Anteriores
 Objetivo:
 - Remover (soft-delete is_deleted=True) APENAS os previstos/recebíveis em aberto (não conciliados)
   de cartão de crédito cujas VENDAS ocorreram em meses anteriores (< 01/08/2026), mas cujo VENCIMENTO
-  previso cai deste mês em diante (>= 01/08/2026).
+  previsto cai deste mês em diante (>= 01/08/2026).
 - Manter 100% INTACTAS todas as Vendas (PdvVenda) e vendas de Agosto/2026 em diante.
 - Gerar arquivo de BACKUP/ROLLBACK automático com a lista exata dos IDs alterados para permitir reversão instantânea.
 
@@ -27,9 +27,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from sqlmodel import Session, select, update
 from app.db.session import engine
 from app.models.pdv_movimentacao import PdvMovimentacao
+from app.models.empresa import Empresa
 from app.services.pdv_service import obter_regra_cartao, calcular_payout_date, shift_months
 
-EMPRESAS_ALVO = {
+EMPRESAS_ALVO_DEFAULT = {
+    35: "Pizza Fábio Umarizal",
     37: "Pizza Fábio Ananindeua",
     39: "Pizza Fábio Marco - Salão",
     40: "Pizza Fábio Marco - Delivery"
@@ -40,19 +42,27 @@ def decimal_default(obj):
         return str(obj)
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
-def executar_limpeza(cutoff_date: datetime.date, dry_run: bool = True):
-    print("=" * 70)
-    print(f"MODO: {'DRY-RUN (SIMULAÇÃO - NENHUMA ALTERAÇÃO SERÁ FEITA)' if dry_run else 'EXECUÇÃO REAL'}")
-    print(f"Empresas Alvo: {list(EMPRESAS_ALVO.keys())} ({', '.join(EMPRESAS_ALVO.values())})")
-    print(f"Data de Corte (Início deste mês): {cutoff_date.strftime('%d/%m/%Y')}")
-    print("=" * 70)
-
+def executar_limpeza(cutoff_date: datetime.date, empresa_ids_filtro=None, dry_run: bool = True):
     with Session(engine) as db:
+        if empresa_ids_filtro:
+            empresas_alvo = {}
+            for eid in empresa_ids_filtro:
+                emp = db.get(Empresa, eid)
+                empresas_alvo[eid] = emp.nome_fantasia if emp else f"Empresa {eid}"
+        else:
+            empresas_alvo = EMPRESAS_ALVO_DEFAULT
+
+        print("=" * 70)
+        print(f"MODO: {'DRY-RUN (SIMULAÇÃO - NENHUMA ALTERAÇÃO SERÁ FEITA)' if dry_run else 'EXECUÇÃO REAL'}")
+        print(f"Empresas Alvo: {list(empresas_alvo.keys())} ({', '.join(empresas_alvo.values())})")
+        print(f"Data de Corte (Início deste mês): {cutoff_date.strftime('%d/%m/%Y')}")
+        print("=" * 70)
+
         regras_cache = {}
         movs = db.exec(
             select(PdvMovimentacao)
             .where(
-                PdvMovimentacao.empresa_id.in_(list(EMPRESAS_ALVO.keys())),
+                PdvMovimentacao.empresa_id.in_(list(empresas_alvo.keys())),
                 PdvMovimentacao.is_deleted == False,
                 PdvMovimentacao.forma_pagamento.in_(["CREDITO_AVISTA", "CREDITO_PARCELADO"]),
                 PdvMovimentacao.conciliado == False
@@ -90,7 +100,7 @@ def executar_limpeza(cutoff_date: datetime.date, dry_run: bool = True):
                     previstos_a_remover.append({
                         "id": m.id,
                         "empresa_id": m.empresa_id,
-                        "empresa_nome": EMPRESAS_ALVO.get(m.empresa_id, ""),
+                        "empresa_nome": empresas_alvo.get(m.empresa_id, ""),
                         "venda_id": m.venda_id,
                         "data_venda": str(m.data),
                         "data_vencimento": str(dt_venc),
@@ -112,7 +122,7 @@ def executar_limpeza(cutoff_date: datetime.date, dry_run: bool = True):
         for emp_id, items in sorted(breakdown.items()):
             tot_emp = sum(i["valor"] for i in items)
             total_geral_valor += tot_emp
-            print(f"  • {EMPRESAS_ALVO.get(emp_id, f'Empresa {emp_id}')}: {len(items)} previstos | Total: R$ {tot_emp:,.2f}")
+            print(f"  • {empresas_alvo.get(emp_id, f'Empresa {emp_id}')}: {len(items)} previstos | Total: R$ {tot_emp:,.2f}")
 
         print(f"  👉 Valor Total dos Previstos a Desativar: R$ {total_geral_valor:,.2f}\n")
 
@@ -203,6 +213,7 @@ if __name__ == "__main__":
     parser.add_argument("--execute", action="store_true", help="Executa a desativação dos previstos e gera arquivo de rollback.")
     parser.add_argument("--rollback", type=str, help="Caminho do arquivo JSON de rollback para desfazer a alteração.")
     parser.add_argument("--date", type=str, default="2026-08-01", help="Data de corte do mês (YYYY-MM-DD). Padrão: 2026-08-01")
+    parser.add_argument("--empresas", type=str, help="Lista de IDs de empresas separadas por vírgula (ex: 35,37,39,40)")
 
     args = parser.parse_args()
 
@@ -215,5 +226,7 @@ if __name__ == "__main__":
         except Exception:
             cutoff = datetime.date(2026, 8, 1)
 
+        emp_filter = [int(x.strip()) for x in args.empresas.split(",")] if args.empresas else None
+
         is_dry_run = not args.execute
-        executar_limpeza(cutoff, dry_run=is_dry_run)
+        executar_limpeza(cutoff, empresa_ids_filtro=emp_filter, dry_run=is_dry_run)

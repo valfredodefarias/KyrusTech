@@ -905,10 +905,10 @@ export function ConciliacaoCartoes() {
 
     setAntecipandoEfetivo(true);
     try {
-      // 1. Mark future credit receivables as PAGO/liquidated in batches
+      // 1. Mark future credit receivables as ANTECIPADO in batches
       const updatePromises = credFuturos.map(r => 
         api.put(`/pdv/recebiveis/${r.id}`, {
-          status: 'PAGO',
+          status: 'ANTECIPADO',
           valor_liquido: Number(r.valor_liquido || 0)
         })
       );
@@ -1775,7 +1775,11 @@ export function ConciliacaoCartoes() {
                         groups[key].bruto += Number(item.valor_bruto);
                         groups[key].taxa += Number(item.valor_taxa);
                         groups[key].liquido += Number(item.valor_liquido);
-                        if (item.status !== 'PAGO') groups[key].status = 'A RECEBER';
+                        if (item.status === 'ANTECIPADO') {
+                          groups[key].status = 'ANTECIPADO';
+                        } else if (item.status !== 'PAGO' && groups[key].status !== 'ANTECIPADO') {
+                          groups[key].status = 'A RECEBER';
+                        }
                       });
 
                       const groupedList = Object.values(groups).sort((a, b) => {
@@ -1892,9 +1896,15 @@ export function ConciliacaoCartoes() {
                                     </div>
                                     
                                     <div className="flex items-center gap-2.5 shrink-0">
-                                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${group.status === 'PAGO' ? 'bg-emerald-100 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50' : 'bg-amber-100 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/50'}`}>
-                                        {group.status}
-                                      </span>
+                                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${
+                                          group.status === 'ANTECIPADO'
+                                            ? 'bg-purple-100 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                                            : group.status === 'PAGO'
+                                            ? 'bg-emerald-100 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50'
+                                            : 'bg-amber-100 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/50'
+                                        }`}>
+                                          {group.status === 'ANTECIPADO' ? '⚡ ANTECIPADO' : group.status}
+                                        </span>
                                       <svg className={`h-4 w-4 text-slate-400 transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
                                       </svg>
@@ -1943,9 +1953,15 @@ export function ConciliacaoCartoes() {
                                               <span className="text-[8px] text-slate-450 uppercase block font-semibold">Líquido</span>
                                               <span className={`text-sm font-black ${modalColor.liq}`}>{BRL.format(item.valor_liquido)}</span>
                                             </div>
-                                            <div className="text-center w-20 pl-2">
-                                              <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase border ${item.status === 'PAGO' ? 'bg-emerald-50 dark:bg-emerald-950/10 text-emerald-600 dark:text-emerald-450 border-emerald-100 dark:border-emerald-950' : 'bg-amber-50 dark:bg-amber-950/10 text-amber-600 dark:text-amber-450 border-amber-100 dark:border-amber-950'}`}>
-                                                {item.status}
+                                            <div className="text-center w-24 pl-2">
+                                              <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase border ${
+                                                item.status === 'ANTECIPADO'
+                                                  ? 'bg-purple-50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-300 border-purple-100 dark:border-purple-900/40'
+                                                  : item.status === 'PAGO'
+                                                  ? 'bg-emerald-50 dark:bg-emerald-950/10 text-emerald-600 dark:text-emerald-450 border-emerald-100 dark:border-emerald-950'
+                                                  : 'bg-amber-50 dark:bg-amber-950/10 text-amber-600 dark:text-amber-450 border-amber-100 dark:border-amber-950'
+                                              }`}>
+                                                {item.status === 'ANTECIPADO' ? '⚡ ANTECIPADO' : item.status}
                                               </span>
                                             </div>
                                           </div>

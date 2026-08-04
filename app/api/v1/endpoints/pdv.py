@@ -1039,7 +1039,7 @@ def listar_recebiveis_cartao(
         valor_taxa = (valor_bruto * fee_percentage / 100).quantize(Decimal("0.01"))
         valor_liquido = valor_bruto - valor_taxa
 
-        status_l = "PAGO" if m.conciliado else "A RECEBER"
+        status_l = m.status if (m.status and m.status in ["PAGO", "ANTECIPADO"]) else ("PAGO" if m.conciliado else "A RECEBER")
 
         recebiveis.append({
             "id": m.id,
@@ -1175,6 +1175,7 @@ class AtualizarRecebivelSchema(BaseModel):
     bandeira: Optional[str] = None
     valor: Optional[Decimal] = None
     data: Optional[str] = None
+    status: Optional[str] = None
 
 @router.put("/recebiveis/{id}", status_code=200)
 def atualizar_recebivel_cartao(
@@ -1242,6 +1243,15 @@ def atualizar_recebivel_cartao(
             m_op.data = dt.strptime(payload.data, "%Y-%m-%d").date()
             if m_op.data_competencia:
                 m_op.data_competencia = m_op.data
+        if payload.status:
+            m_op.status = payload.status
+            if payload.status in ["PAGO", "ANTECIPADO"]:
+                m_op.conciliado = True
+            for l in l_list:
+                l.status = payload.status
+                if payload.status in ["PAGO", "ANTECIPADO"]:
+                    l.pago = True
+                db.add(l)
 
         m_op.updated_at = datetime.utcnow()
         m_op.updated_by_id = current_user.id

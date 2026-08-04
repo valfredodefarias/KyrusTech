@@ -1039,7 +1039,8 @@ def listar_recebiveis_cartao(
         valor_taxa = (valor_bruto * fee_percentage / 100).quantize(Decimal("0.01"))
         valor_liquido = valor_bruto - valor_taxa
 
-        status_l = m.status if (m.status and m.status in ["PAGO", "ANTECIPADO"]) else ("PAGO" if m.conciliado else "A RECEBER")
+        m_status = getattr(m, "status", None)
+        status_l = m_status if (m_status and m_status in ["PAGO", "ANTECIPADO"]) else ("PAGO" if m.conciliado else "A RECEBER")
 
         recebiveis.append({
             "id": m.id,

@@ -771,7 +771,11 @@ export function ConciliacaoCartoes() {
       const promises: Promise<any>[] = [];
 
       const handleModality = (modality: ModalityFormState, tipo: string) => {
-        const isNewVersion = groupedRegraForm.data_inicio !== groupedRegraForm.original_data_inicio;
+        const isNewVersion = Boolean(
+          groupedRegraForm.original_data_inicio && 
+          groupedRegraForm.data_inicio && 
+          groupedRegraForm.data_inicio !== groupedRegraForm.original_data_inicio
+        );
         const targetId = isNewVersion ? null : modality.id;
         
         const payload = {
@@ -995,7 +999,8 @@ export function ConciliacaoCartoes() {
     const sortedRegras = [...regras].sort((a, b) => {
       const aTime = a.data_inicio ? new Date(a.data_inicio).getTime() : 0;
       const bTime = b.data_inicio ? new Date(b.data_inicio).getTime() : 0;
-      return bTime - aTime;
+      if (bTime !== aTime) return bTime - aTime;
+      return b.id - a.id;
     });
 
     sortedRegras.forEach(r => {

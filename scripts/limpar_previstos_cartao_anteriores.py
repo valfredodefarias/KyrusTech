@@ -3,7 +3,7 @@ Script de Limpeza de Previstos de Cartão de Meses Anteriores
 
 Objetivo:
 - Remover (soft-delete is_deleted=True) APENAS os previstos/recebíveis em aberto (não conciliados)
-  de cartão de crédito cujas VENDAS ocorreram em meses anteriores (< 01/08/2026), mas cujo VENCIMENTO
+  de cartão (Crédito ou Débito) cujas VENDAS ocorreram em meses anteriores (< 01/08/2026), mas cujo VENCIMENTO
   previsto cai deste mês em diante (>= 01/08/2026).
 - Manter 100% INTACTAS todas as Vendas (PdvVenda) e vendas de Agosto/2026 em diante.
 - Gerar arquivo de BACKUP/ROLLBACK automático com a lista exata dos IDs alterados para permitir reversão instantânea.
@@ -64,7 +64,7 @@ def executar_limpeza(cutoff_date: datetime.date, empresa_ids_filtro=None, dry_ru
             .where(
                 PdvMovimentacao.empresa_id.in_(list(empresas_alvo.keys())),
                 PdvMovimentacao.is_deleted == False,
-                PdvMovimentacao.forma_pagamento.in_(["CREDITO_AVISTA", "CREDITO_PARCELADO"]),
+                PdvMovimentacao.forma_pagamento.in_(["CREDITO_AVISTA", "CREDITO_PARCELADO", "DEBITO"]),
                 PdvMovimentacao.conciliado == False
             )
         ).all()
@@ -84,7 +84,7 @@ def executar_limpeza(cutoff_date: datetime.date, empresa_ids_filtro=None, dry_ru
                     regras_cache[cache_key] = regra
                 
                 if regra:
-                    if regra.modo_parcelamento == "ANTECIPADO":
+                    if regra.modo_parcelamento == "ANTECIPADO" or m.forma_pagamento == "DEBITO":
                         dt_venc = calcular_payout_date(m.data, regra)
                     else:
                         base_installment_date = shift_months(m.data, (m.numero_parcela or 1) - 1)
@@ -93,7 +93,8 @@ def executar_limpeza(cutoff_date: datetime.date, empresa_ids_filtro=None, dry_ru
                     if m.forma_pagamento == "CREDITO_PARCELADO":
                         dt_venc = shift_months(m.data, (m.numero_parcela or 1) - 1)
                     else:
-                        dt_venc = m.data + datetime.timedelta(days=30)
+                        prazo = 1 if m.forma_pagamento == "DEBITO" else 30
+                        dt_venc = m.data + datetime.timedelta(days=prazo)
 
                 # Condição 2: O Vencimento caindo DESTE MÊS EM DIANTE (>= cutoff_date)
                 if dt_venc >= cutoff_date:

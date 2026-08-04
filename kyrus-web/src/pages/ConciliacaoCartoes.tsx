@@ -173,6 +173,8 @@ export function ConciliacaoCartoes() {
   const [antecipacaoLancarFinanceiro, setAntecipacaoLancarFinanceiro] = useState<boolean>(true);
   const [antecipacaoContaId, setAntecipacaoContaId] = useState<string>('');
   const [antecipandoEfetivo, setAntecipandoEfetivo] = useState<boolean>(false);
+  const [antecipacaoDataInicio, setAntecipacaoDataInicio] = useState<string>('');
+  const [antecipacaoDataFim, setAntecipacaoDataFim] = useState<string>('');
 
   // Lists from DB
   const [regras, setRegras] = useState<RegraCartao[]>([]);
@@ -3140,8 +3142,13 @@ export function ConciliacaoCartoes() {
                   </div>
 
                   {(() => {
-                    // Compute available future credit launches
-                    const credFuturos = recebiveis.filter(r => r.tipo_pagamento !== 'cartao_debito' && r.status !== 'PAGO');
+                    // Compute available future credit launches filtered by period if selected
+                    const credFuturos = recebiveis.filter(r => {
+                      if (r.tipo_pagamento === 'cartao_debito' || r.status === 'PAGO') return false;
+                      if (antecipacaoDataInicio && (r.data_vencimento || r.data_venda) < antecipacaoDataInicio) return false;
+                      if (antecipacaoDataFim && (r.data_vencimento || r.data_venda) > antecipacaoDataFim) return false;
+                      return true;
+                    });
                     const totalBrutoFuturo = credFuturos.reduce((acc, curr) => acc + Number(curr.valor_bruto || 0), 0);
                     const totalLiquidoOriginal = credFuturos.reduce((acc, curr) => acc + Number(curr.valor_liquido || 0), 0);
                     
@@ -3153,6 +3160,42 @@ export function ConciliacaoCartoes() {
 
                     return (
                       <div className="space-y-5">
+                        {/* Período de Recebíveis Filter */}
+                        <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 space-y-2">
+                          <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300">
+                            Período dos Recebíveis (Filtrar Datas de Vencimento)
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">De</span>
+                              <input
+                                type="date"
+                                value={antecipacaoDataInicio}
+                                onChange={(e) => setAntecipacaoDataInicio(e.target.value)}
+                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 outline-none font-mono"
+                              />
+                            </div>
+                            <div>
+                              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Até</span>
+                              <input
+                                type="date"
+                                value={antecipacaoDataFim}
+                                onChange={(e) => setAntecipacaoDataFim(e.target.value)}
+                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 outline-none font-mono"
+                              />
+                            </div>
+                          </div>
+                          {(antecipacaoDataInicio || antecipacaoDataFim) && (
+                            <button
+                              type="button"
+                              onClick={() => { setAntecipacaoDataInicio(''); setAntecipacaoDataFim(''); }}
+                              className="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline pt-1 block"
+                            >
+                              Limpar Filtro de Período (Considerar Todos os Futuros)
+                            </button>
+                          )}
+                        </div>
+
                         {/* Input Controls */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
                           <div>

@@ -2,10 +2,10 @@
 Script de Limpeza de Previstos de Cartão de Meses Anteriores
 
 Objetivo:
-- Remover (soft-delete is_deleted=True) APENAS os previstos/recebíveis em aberto (não conciliados)
-  de cartão (Crédito ou Débito) cujas VENDAS ocorreram em meses anteriores (< 01/08/2026), mas cujo VENCIMENTO
-  previsto cai deste mês em diante (>= 01/08/2026).
-- Manter 100% INTACTAS todas as Vendas (PdvVenda) e vendas de Agosto/2026 em diante.
+- Remover (soft-delete is_deleted=True) APENAS as movimentações de cartão em aberto (não conciliadas)
+  cujas VENDAS ocorreram em meses anteriores (< 01/08/2026).
+- Manter 100% INTACTAS todas as Vendas (PdvVenda) e todas as movimentações cujas vendas foram realizadas
+  a partir deste mês (>= 01/08/2026).
 - Gerar arquivo de BACKUP/ROLLBACK automático com a lista exata dos IDs alterados para permitir reversão instantânea.
 
 Uso:
@@ -28,7 +28,6 @@ from sqlmodel import Session, select, update
 from app.db.session import engine
 from app.models.pdv_movimentacao import PdvMovimentacao
 from app.models.empresa import Empresa
-from app.services.pdv_service import obter_regra_cartao, calcular_payout_date, shift_months
 
 EMPRESAS_ALVO_DEFAULT = {
     35: "Pizza Fábio Umarizal",
@@ -58,61 +57,34 @@ def executar_limpeza(cutoff_date: datetime.date, empresa_ids_filtro=None, dry_ru
         print(f"Data de Corte (Início deste mês): {cutoff_date.strftime('%d/%m/%Y')}")
         print("=" * 70)
 
-        regras_cache = {}
-        movs = db.exec(
+        # Buscar todas as movimentações de cartão em aberto cujas VENDAS foram antes de cutoff_date
+        movs_antigas_abertas = db.exec(
             select(PdvMovimentacao)
             .where(
                 PdvMovimentacao.empresa_id.in_(list(empresas_alvo.keys())),
                 PdvMovimentacao.is_deleted == False,
                 PdvMovimentacao.forma_pagamento.in_(["CREDITO_AVISTA", "CREDITO_PARCELADO", "DEBITO"]),
-                PdvMovimentacao.conciliado == False
+                PdvMovimentacao.conciliado == False,
+                PdvMovimentacao.data < cutoff_date
             )
         ).all()
 
         previstos_a_remover = []
-
-        for m in movs:
-            # Condição 1: A Venda foi realizada ANTES deste mês (< cutoff_date)
-            if m.data < cutoff_date:
-                tipo_pag_lower = "cartao_debito" if m.forma_pagamento == "DEBITO" else ("cartao_credito_parcelado" if m.forma_pagamento == "CREDITO_PARCELADO" else "cartao_credito_vista")
-                cache_key = (m.empresa_id, tipo_pag_lower, m.bandeira, m.centro_custo_id, m.data)
-                
-                if cache_key in regras_cache:
-                    regra = regras_cache[cache_key]
-                else:
-                    regra = obter_regra_cartao(db, m.empresa_id, tipo_pag_lower, m.bandeira, m.centro_custo_id, m.data)
-                    regras_cache[cache_key] = regra
-                
-                if regra:
-                    if regra.modo_parcelamento == "ANTECIPADO" or m.forma_pagamento == "DEBITO":
-                        dt_venc = calcular_payout_date(m.data, regra)
-                    else:
-                        base_installment_date = shift_months(m.data, (m.numero_parcela or 1) - 1)
-                        dt_venc = calcular_payout_date(base_installment_date, regra)
-                else:
-                    if m.forma_pagamento == "CREDITO_PARCELADO":
-                        dt_venc = shift_months(m.data, (m.numero_parcela or 1) - 1)
-                    else:
-                        prazo = 1 if m.forma_pagamento == "DEBITO" else 30
-                        dt_venc = m.data + datetime.timedelta(days=prazo)
-
-                # Condição 2: O Vencimento caindo DESTE MÊS EM DIANTE (>= cutoff_date)
-                if dt_venc >= cutoff_date:
-                    previstos_a_remover.append({
-                        "id": m.id,
-                        "empresa_id": m.empresa_id,
-                        "empresa_nome": empresas_alvo.get(m.empresa_id, ""),
-                        "venda_id": m.venda_id,
-                        "data_venda": str(m.data),
-                        "data_vencimento": str(dt_venc),
-                        "bandeira": m.bandeira,
-                        "forma_pagamento": m.forma_pagamento,
-                        "parcela": f"{m.numero_parcela}/{m.parcelas}",
-                        "valor": float(m.valor)
-                    })
+        for m in movs_antigas_abertas:
+            previstos_a_remover.append({
+                "id": m.id,
+                "empresa_id": m.empresa_id,
+                "empresa_nome": empresas_alvo.get(m.empresa_id, ""),
+                "venda_id": m.venda_id,
+                "data_venda": str(m.data),
+                "bandeira": m.bandeira,
+                "forma_pagamento": m.forma_pagamento,
+                "parcela": f"{m.numero_parcela}/{m.parcelas}",
+                "valor": float(m.valor)
+            })
 
         print(f"\n📊 RESUMO DO DIAGNÓSTICO:")
-        print(f"Total de previstos encontrados (Venda < {cutoff_date} e Vencimento >= {cutoff_date}): {len(previstos_a_remover)}")
+        print(f"Total de movimentações de cartão em aberto (Venda < {cutoff_date}): {len(previstos_a_remover)}")
         
         breakdown = {}
         for item in previstos_a_remover:
@@ -128,13 +100,13 @@ def executar_limpeza(cutoff_date: datetime.date, empresa_ids_filtro=None, dry_ru
         print(f"  👉 Valor Total dos Previstos a Desativar: R$ {total_geral_valor:,.2f}\n")
 
         if len(previstos_a_remover) == 0:
-            print("Nenhum previsto encontrado atendendo aos critérios.")
+            print("Nenhum previsto antigo encontrado atendendo aos critérios.")
             return
 
         if dry_run:
             print("🔍 Exemplos dos primeiros 5 previstos que seriam desativados:")
             for item in previstos_a_remover[:5]:
-                print(f"   [ID {item['id']}] Empresa: {item['empresa_nome']} | Venda: {item['data_venda']} | Vencimento Previsto: {item['data_vencimento']} | {item['bandeira']} {item['forma_pagamento']} ({item['parcela']}) => R$ {item['valor']:.2f}")
+                print(f"   [ID {item['id']}] Empresa: {item['empresa_nome']} | Venda: {item['data_venda']} | {item['bandeira']} {item['forma_pagamento']} ({item['parcela']}) => R$ {item['valor']:.2f}")
             print("\n⚠️ Para EXECUTAR a limpeza real e gerar o arquivo de rollback, execute:")
             print("   python scripts/limpar_previstos_cartao_anteriores.py --execute")
         else:

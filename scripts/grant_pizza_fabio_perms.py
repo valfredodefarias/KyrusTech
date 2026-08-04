@@ -45,6 +45,10 @@ def grant_pizza_fabio_perms():
             perm_objs.append(p_obj)
 
         for empresa in empresas:
+            name = (empresa.nome_fantasia or "").lower()
+            if not ("pizza" in name or "ananindeua" in name or "delivery" in name):
+                continue
+                
             print(f"Empresa selecionada: {empresa.nome_fantasia} (ID: {empresa.id})")
             perfis_rows = db.exec(select(AccessProfile).where(AccessProfile.empresa_id == empresa.id)).all()
             perfis = [p[0] for p in perfis_rows]

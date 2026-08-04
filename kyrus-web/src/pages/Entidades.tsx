@@ -131,7 +131,7 @@ const nullableValue = (value: string) => {
   return trimmed ? trimmed : null;
 };
 
-export function Entidades() {
+export function Entidades({ tipoDefault }: { tipoDefault?: 'cliente' | 'fornecedor' }) {
   // --- ESTADOS GERAIS ---
   const [loading, setLoading] = useState(true);
   const [entidades, setEntidades] = useState<Entidade[]>([]);

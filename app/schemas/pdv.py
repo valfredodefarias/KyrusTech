@@ -135,6 +135,7 @@ class PdvVendaCreate(SQLModel):
 class RegraCartaoRead(SQLModel):
     id: int
     empresa_id: int
+    data_inicio: Optional[date] = None
     tipo_pagamento: str
     bandeira: str
     centro_custo_id: Optional[int] = None
@@ -150,6 +151,7 @@ class RegraCartaoRead(SQLModel):
 
 
 class RegraCartaoCreate(SQLModel):
+    data_inicio: Optional[datetime.date] = None
     tipo_pagamento: str
     bandeira: str = "OUTROS"
     centro_custo_id: Optional[int] = None
@@ -165,6 +167,7 @@ class RegraCartaoCreate(SQLModel):
 
 
 class RegraCartaoUpdate(SQLModel):
+    data_inicio: Optional[datetime.date] = None
     tipo_pagamento: Optional[str] = None
     bandeira: Optional[str] = None
     centro_custo_id: Optional[int] = None

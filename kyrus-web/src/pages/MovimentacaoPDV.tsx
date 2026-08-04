@@ -48,6 +48,11 @@ export function MovimentacaoPDV() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
 
+  const getLocalTodayString = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
   // --- Filtros ---
   const [filterTipo, setFilterTipo] = useState<FilterTipo>(() => {
     return (sessionStorage.getItem('pdv_filterTipo') as FilterTipo) || 'TODOS';
@@ -170,15 +175,8 @@ export function MovimentacaoPDV() {
 
       const targetSelectedDate = forceSelectedDate !== undefined ? forceSelectedDate : selectedDate;
 
-      if (list.length > 0 && !targetSelectedDate) {
-        const todayStr = new Date().toISOString().split('T')[0];
-        const validDates = list.filter(m => m.data <= todayStr);
-        const sorted = (validDates.length > 0 ? validDates : list).sort((a, b) => b.data.localeCompare(a.data));
-        const latestDate = sorted[0].data;
-        setSelectedDate(latestDate);
-        setCurrentYearMonth(latestDate.substring(0, 7));
-      } else if (!targetSelectedDate) {
-        const todayStr = new Date().toISOString().split('T')[0];
+      if (!targetSelectedDate) {
+        const todayStr = getLocalTodayString();
         setSelectedDate(todayStr);
         setCurrentYearMonth(todayStr.substring(0, 7));
       } else {
@@ -219,6 +217,8 @@ export function MovimentacaoPDV() {
       }
     });
 
+    const todayStr = getLocalTodayString();
+    
     return Object.entries(datesMap)
       .map(([date, info]) => ({
         date,
@@ -227,6 +227,7 @@ export function MovimentacaoPDV() {
         saldo: info.entradas - info.saidas,
         count: info.count
       }))
+      .filter(info => info.count > 0 || info.date === todayStr)
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [movimentacoes, currentYearMonth]);
 

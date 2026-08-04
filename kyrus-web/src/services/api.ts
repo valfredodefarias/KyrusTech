@@ -269,6 +269,15 @@ api.interceptors.response.use(
       } else if (!isAuthFlowRequest) {
         useAuthStore.getState().logout();
       }
+    } else if (status === 403) {
+      const requestUrl = String(error?.config?.url || '');
+      if (!requestUrl.includes('/usuarios/me')) {
+        api.get('/usuarios/me').then(res => {
+          if (res.data) {
+            useAuthStore.getState().setUser(res.data);
+          }
+        }).catch(() => {});
+      }
     }
     return Promise.reject(error);
   }

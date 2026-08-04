@@ -12,6 +12,7 @@ import { useAuthStore, type AuthUser, type EmpresaInfo } from '../store/authStor
 import { useTabStore, type TabItem, DEFAULT_TAB } from '../store/tabStore';
 import { useLookupStore } from '../store/lookupStore';
 import { useTransactionStore } from '../store/transactionStore';
+import { ROUTE_RULES, getFirstAllowedPath, hasPathPermission } from '../utils/routeRegistry';
 
 interface ConsultorContextoResponse {
   empresa_atual: EmpresaInfo;
@@ -210,6 +211,9 @@ function LayoutShell() {
   const setOnline = useTabStore((state) => state.setOnline);
   const lastPrunedTabName = useTabStore((state) => state.lastPrunedTabName);
   const setLastPrunedTabName = useTabStore((state) => state.setLastPrunedTabName);
+  const hydrateTabs = useTabStore((state) => state.hydrateTabs);
+  const purgeUnauthorizedTabs = useTabStore((state) => state.purgeUnauthorizedTabs);
+  const tenantKey = useTabStore((state) => state.tenantKey);
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -228,6 +232,55 @@ function LayoutShell() {
 
   const lastActiveBasePathRef = useRef<string | null>(null);
   const activeOutletRef = useRef<React.ReactNode>(null);
+
+  // Hydration Cycle
+  useEffect(() => {
+    if (storedUser?.id && empresa?.id) {
+      const expectedKey = `kyrus_tabs_u${storedUser.id}_e${empresa.id}`;
+      if (tenantKey !== expectedKey) {
+        hydrateTabs(storedUser.id, empresa.id);
+      }
+    }
+  }, [storedUser?.id, empresa?.id, tenantKey, hydrateTabs]);
+
+  // Purge Cycle
+  useEffect(() => {
+    if (tenantKey && storedUser) {
+      const hasPermission = (path: string) => {
+        if (!hasPathPermission(path, storedUser)) return false;
+        
+        const basePath = path.split('?')[0];
+        const route = ROUTE_RULES[basePath];
+        if (!route) return true;
+
+        if (route.requiredApps && route.requiredApps.length > 0) {
+          try {
+            const config = JSON.parse(empresa?.pdv_config || '{}');
+            const activeApps = config.active_apps || [];
+            if (!route.requiredApps.some(app => activeApps.includes(app))) {
+              return false;
+            }
+          } catch {
+            return false;
+          }
+        }
+        return true;
+      };
+      
+      const fallbackPath = getFirstAllowedPath(storedUser);
+      const rule = ROUTE_RULES[fallbackPath.split('?')[0]];
+      const fallbackTab = {
+        path: fallbackPath,
+        basePath: fallbackPath.split('?')[0],
+        label: rule?.defaultLabel || 'Início',
+        iconName: rule?.defaultIcon || 'Layout',
+        pinned: true,
+        dirty: false,
+        visited: true
+      };
+      purgeUnauthorizedTabs(hasPermission, fallbackTab);
+    }
+  }, [tenantKey, storedUser, empresa?.pdv_config, purgeUnauthorizedTabs]);
 
   // Guardar o outlet ativo no ref a cada renderização para podermos salvar no cache quando mudar de aba
   if (outlet && activeTabPath) {

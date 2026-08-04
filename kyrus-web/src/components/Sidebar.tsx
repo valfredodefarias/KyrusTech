@@ -11,6 +11,7 @@ import {
 import { useAuthStore, type AuthUser } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
 import { api } from '../services/api';
+import { ROUTE_RULES } from '../utils/routeRegistry';
 
 interface MenuItem {
   icon: typeof Home;
@@ -141,7 +142,10 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
   }
   
   // Filter baseMenuItems based on activeApps status
-  let finalMenuItems = menuItems.filter((item) => {
+  let finalMenuItems = menuItems.map(item => ({
+    ...item,
+    requiredPermissions: ROUTE_RULES[item.path]?.permissions || item.requiredPermissions
+  })).filter((item) => {
     if (item.path === '/pdv' || item.path === '/produtos') {
       return activeApps.includes('pdv_estoque');
     }
@@ -154,7 +158,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
       label: 'iFood PDV',
       path: '/apps/ifood',
       category: 'vendas',
-      requiredPermissions: ['page:integracoes:view'],
+      requiredPermissions: ROUTE_RULES['/apps/ifood'].permissions,
     });
   }
 
@@ -164,7 +168,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
       label: 'Movimentação PDV',
       path: '/apps/movimentacao-pdv',
       category: 'vendas',
-      requiredPermissions: ['page:importacao:view'],
+      requiredPermissions: ROUTE_RULES['/apps/movimentacao-pdv'].permissions,
     });
   }
 

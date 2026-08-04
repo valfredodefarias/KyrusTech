@@ -18,8 +18,11 @@ export interface TabStoreState {
   refreshCounters: Record<string, number>;
   closedTabsHistory: { path: string; label: string; iconName: string }[];
   lastPrunedTabName: string | null;
+  tenantKey: string | null;
   
   // Ações
+  hydrateTabs: (userId: number, empresaId: number) => void;
+  purgeUnauthorizedTabs: (hasPermission: (path: string) => boolean, fallbackTab?: TabItem) => void;
   openTab: (path: string, label: string, iconName: string) => void;
   closeTab: (path: string, force?: boolean) => void;
   setActiveTab: (path: string) => void;
@@ -34,16 +37,6 @@ export interface TabStoreState {
   setLastPrunedTabName: (name: string | null) => void;
 }
 
-// Auxiliares de armazenamento
-const SESSION_KEYS = {
-  TABS: 'kyrus_session_tabs',
-  ACTIVE_TAB: 'kyrus_session_active_tab',
-};
-
-const LOCAL_KEYS = {
-  FAVORITES: 'kyrus_local_favorites',
-};
-
 // Aba padrão (Visão Geral)
 export const DEFAULT_TAB: TabItem = {
   path: '/home',
@@ -55,93 +48,108 @@ export const DEFAULT_TAB: TabItem = {
   visited: true,
 };
 
-// Auxiliar para salvar apenas abas fixadas persistentes
-const savePinnedTabs = (tabs: TabItem[]) => {
-  try {
-    const pinned = tabs.filter((t) => t.pinned);
-    localStorage.setItem('kyrus_pinned_tabs', JSON.stringify(pinned));
-  } catch {}
-};
-
-// Carregar estado inicial
-const getInitialTabs = (): TabItem[] => {
-  try {
-    const stored = sessionStorage.getItem(SESSION_KEYS.TABS);
-    if (stored) {
-      const parsed = JSON.parse(stored) as TabItem[];
-      if (parsed.length > 0) {
-        // Garantir que a Visão Geral sempre exista e esteja no topo
-        const hasHome = parsed.some((t) => t.basePath === '/home');
-        if (!hasHome) {
-          return [DEFAULT_TAB, ...parsed];
-        }
-        return parsed;
-      }
-    }
-  } catch (e) {
-    console.error('Erro ao ler abas do sessionStorage:', e);
-  }
-
-  // Se for nova sessão (sessionStorage vazio), carregar abas fixadas persistentes do localStorage
-  try {
-    const storedPinned = localStorage.getItem('kyrus_pinned_tabs');
-    if (storedPinned) {
-      const pinned = JSON.parse(storedPinned) as TabItem[];
-      if (pinned.length > 0) {
-        const hasHome = pinned.some((t) => t.basePath === '/home');
-        if (!hasHome) {
-          return [DEFAULT_TAB, ...pinned];
-        }
-        return pinned;
-      }
-    }
-  } catch {}
-
-  return [DEFAULT_TAB];
-};
-
-const getInitialActiveTab = (): string => {
-  return sessionStorage.getItem(SESSION_KEYS.ACTIVE_TAB) || '/home';
-};
-
-const getInitialFavorites = (): string[] => {
-  try {
-    const stored = localStorage.getItem(LOCAL_KEYS.FAVORITES);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-};
-
 const MAX_TABS = 12;
 
+const persistTabs = (tenantKey: string | null, tabs: TabItem[], activePath: string) => {
+  if (!tenantKey) return;
+  try {
+    localStorage.setItem(tenantKey, JSON.stringify(tabs));
+    sessionStorage.setItem(`${tenantKey}_active`, activePath);
+  } catch (e) {
+    console.error('Erro ao salvar abas no storage:', e);
+  }
+};
+
 export const useTabStore = create<TabStoreState>((set, get) => ({
-  tabs: getInitialTabs(),
-  activeTabPath: getInitialActiveTab(),
-  favorites: getInitialFavorites(),
+  tabs: [DEFAULT_TAB],
+  activeTabPath: '/home',
+  favorites: [],
   online: navigator.onLine,
   refreshCounters: {},
   closedTabsHistory: [],
   lastPrunedTabName: null,
+  tenantKey: null,
+
+  hydrateTabs: (userId: number, empresaId: number) => {
+    const tenantKey = `kyrus_tabs_u${userId}_e${empresaId}`;
+    
+    let nextTabs: TabItem[] = [DEFAULT_TAB];
+    let nextActive = '/home';
+
+    try {
+      const stored = localStorage.getItem(tenantKey);
+      if (stored) {
+        const parsed = JSON.parse(stored) as TabItem[];
+        if (parsed.length > 0) {
+          nextTabs = parsed;
+        }
+      } else {
+        // Zero Data Loss Migration from legacy keys
+        const legacyStoredSession = sessionStorage.getItem('kyrus_session_tabs');
+        const legacyStoredLocal = localStorage.getItem('kyrus_pinned_tabs');
+        
+        if (legacyStoredSession) {
+          const parsed = JSON.parse(legacyStoredSession) as TabItem[];
+          if (parsed.length > 0) nextTabs = parsed;
+        } else if (legacyStoredLocal) {
+          const parsed = JSON.parse(legacyStoredLocal) as TabItem[];
+          if (parsed.length > 0) nextTabs = parsed;
+        }
+      }
+
+      // Não força mais o Home se o usuário fechou ou não tem permissão
+
+      const storedActive = sessionStorage.getItem(`${tenantKey}_active`);
+      if (storedActive) {
+        nextActive = storedActive;
+      } else {
+        nextActive = nextTabs[0].path;
+      }
+    } catch (e) {
+      console.error("Erro na hidratação das abas:", e);
+    }
+
+    set({ tabs: nextTabs, activeTabPath: nextActive, tenantKey });
+    persistTabs(tenantKey, nextTabs, nextActive);
+  },
+
+  purgeUnauthorizedTabs: (hasPermission, fallbackTab?: TabItem) => {
+    const { tabs, activeTabPath, tenantKey } = get();
+    if (!tenantKey) return;
+
+    const filteredTabs = tabs.filter(t => hasPermission(t.path));
+    
+    if (filteredTabs.length === 0) {
+      const fb = fallbackTab || DEFAULT_TAB;
+      set({ tabs: [fb], activeTabPath: fb.path });
+      persistTabs(tenantKey, [fb], fb.path);
+      return;
+    }
+
+    let nextActive = activeTabPath;
+    if (!hasPermission(activeTabPath)) {
+      nextActive = filteredTabs[0].path;
+    }
+
+    set({ tabs: filteredTabs, activeTabPath: nextActive });
+    persistTabs(tenantKey, filteredTabs, nextActive);
+  },
 
   openTab: (path, label, iconName) => {
     const basePath = path.split('?')[0];
-    const { tabs, closedTabsHistory } = get();
+    const { tabs, closedTabsHistory, tenantKey } = get();
 
     // 1. Verificar se a aba já está aberta
     const existingIndex = tabs.findIndex((t) => t.basePath === basePath);
 
     if (existingIndex !== -1) {
-      // Atualizar o path completo da aba com os novos parâmetros e marcar como visitada
       const updatedTabs = tabs.map((t, idx) =>
         idx === existingIndex
-          ? { ...t, path, visited: true }
+          ? { ...t, path, visited: true, label, iconName }
           : t
       );
       set({ tabs: updatedTabs, activeTabPath: path });
-      sessionStorage.setItem(SESSION_KEYS.TABS, JSON.stringify(updatedTabs));
-      sessionStorage.setItem(SESSION_KEYS.ACTIVE_TAB, path);
-      savePinnedTabs(updatedTabs);
+      persistTabs(tenantKey, updatedTabs, path);
       return;
     }
 
@@ -151,8 +159,6 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
     let nextHistory = [...closedTabsHistory];
 
     if (finalTabs.length >= MAX_TABS) {
-      // Encontrar a aba não-fixada, não-dirty mais antiga para fechar
-      // Ignorar a primeira aba (geralmente /home)
       const indexToClose = finalTabs.findIndex(
         (t, idx) => idx > 0 && !t.pinned && !t.dirty
       );
@@ -161,7 +167,6 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
         prunedTabName = closed.label;
         finalTabs.splice(indexToClose, 1);
         
-        // Registrar aba podada no histórico
         nextHistory = [
           { path: closed.path, label: closed.label, iconName: closed.iconName },
           ...nextHistory
@@ -187,115 +192,95 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
       closedTabsHistory: nextHistory,
       lastPrunedTabName: prunedTabName 
     });
-    sessionStorage.setItem(SESSION_KEYS.TABS, JSON.stringify(newTabList));
-    sessionStorage.setItem(SESSION_KEYS.ACTIVE_TAB, path);
-    savePinnedTabs(newTabList);
+    persistTabs(tenantKey, newTabList, path);
   },
 
   closeTab: (path, force = false) => {
     const basePath = path.split('?')[0];
-    const { tabs, activeTabPath, closedTabsHistory } = get();
+    const { tabs, activeTabPath, closedTabsHistory, tenantKey } = get();
 
     const tabToClose = tabs.find((t) => t.basePath === basePath);
     if (!tabToClose || tabToClose.pinned) return;
 
-    // Alerta de confirmação se for dirty (não salvo) e não for forçado
     if (tabToClose.dirty && !force) {
-      const confirm = window.confirm(
-        `A aba "${tabToClose.label}" tem alterações não salvas. Deseja realmente fechar?`
-      );
-      if (!confirm) return;
+      if (!window.confirm('Existem alterações não salvas. Deseja realmente fechar?')) {
+        return;
+      }
     }
 
-    // Registrar aba fechada no histórico
-    const updatedHistory = [
+    const filteredTabs = tabs.filter((t) => t.basePath !== basePath);
+    
+    let nextActiveTab = activeTabPath;
+    if (activeTabPath.split('?')[0] === basePath) {
+      const closedIndex = tabs.findIndex((t) => t.basePath === basePath);
+      const newActiveTab = filteredTabs[closedIndex] || filteredTabs[closedIndex - 1] || filteredTabs[0];
+      nextActiveTab = newActiveTab.path;
+    }
+
+    const nextHistory = [
       { path: tabToClose.path, label: tabToClose.label, iconName: tabToClose.iconName },
       ...closedTabsHistory
     ].slice(0, 10);
 
-    // Apagar rascunho de formulário do sessionStorage se aplicável
-    try {
-      sessionStorage.removeItem(`kyrus_draft_${basePath}`);
-    } catch {}
-
-    const remainingTabs = tabs.filter((t) => t.basePath !== basePath);
-    let nextActivePath = activeTabPath;
-
-    // Se a aba fechada era a aba ativa atual, precisamos focar outra aba
-    if (activeTabPath.split('?')[0] === basePath) {
-      const closedIndex = tabs.findIndex((t) => t.basePath === basePath);
-      const newIndex = Math.max(0, closedIndex - 1);
-      nextActivePath = remainingTabs[newIndex]?.path || '/home';
-    }
-
-    // Fallback de segurança se esvaziar todas as abas
-    if (remainingTabs.length === 0) {
-      remainingTabs.push(DEFAULT_TAB);
-      nextActivePath = '/home';
-    }
-
     set({ 
-      tabs: remainingTabs, 
-      activeTabPath: nextActivePath,
-      closedTabsHistory: updatedHistory 
+      tabs: filteredTabs, 
+      activeTabPath: nextActiveTab,
+      closedTabsHistory: nextHistory 
     });
-    sessionStorage.setItem(SESSION_KEYS.TABS, JSON.stringify(remainingTabs));
-    sessionStorage.setItem(SESSION_KEYS.ACTIVE_TAB, nextActivePath);
-    savePinnedTabs(remainingTabs);
+    persistTabs(tenantKey, filteredTabs, nextActiveTab);
   },
 
   setActiveTab: (path) => {
-    const { tabs } = get();
-    // Marcar aba como visitada no lazy loading
+    const { tabs, tenantKey } = get();
+    const basePath = path.split('?')[0];
+    
+    const tabExists = tabs.find(t => t.basePath === basePath);
+    if (!tabExists) return;
+
     const updatedTabs = tabs.map((t) =>
-      t.path === path || t.basePath === path.split('?')[0]
-        ? { ...t, visited: true }
-        : t
+      t.basePath === basePath ? { ...t, path, visited: true } : t
     );
 
     set({ tabs: updatedTabs, activeTabPath: path });
-    sessionStorage.setItem(SESSION_KEYS.TABS, JSON.stringify(updatedTabs));
-    sessionStorage.setItem(SESSION_KEYS.ACTIVE_TAB, path);
+    persistTabs(tenantKey, updatedTabs, path);
   },
 
   togglePin: (basePath) => {
-    const { tabs } = get();
+    const { tabs, tenantKey, activeTabPath } = get();
     const updatedTabs = tabs.map((t) =>
       t.basePath === basePath ? { ...t, pinned: !t.pinned } : t
     );
+    
+    // Reordenar abas fixadas para o começo (após o Home)
+    const homeTab = updatedTabs.find(t => t.basePath === '/home');
+    const pinned = updatedTabs.filter((t) => t.pinned && t.basePath !== '/home');
+    const unpinned = updatedTabs.filter((t) => !t.pinned && t.basePath !== '/home');
+    
+    const finalTabs = homeTab ? [homeTab, ...pinned, ...unpinned] : [...pinned, ...unpinned];
 
-    // Reordenar abas: Pinned primeiro
-    const pinned = updatedTabs.filter((t) => t.pinned);
-    const unpinned = updatedTabs.filter((t) => !t.pinned);
-    const reordered = [...pinned, ...unpinned];
-
-    set({ tabs: reordered });
-    sessionStorage.setItem(SESSION_KEYS.TABS, JSON.stringify(reordered));
-    savePinnedTabs(reordered);
+    set({ tabs: finalTabs });
+    persistTabs(tenantKey, finalTabs, activeTabPath);
   },
 
   toggleFavorite: (path) => {
     const { favorites } = get();
-    const basePath = path.split('?')[0];
-    let nextFavorites: string[];
+    const newFavorites = favorites.includes(path)
+      ? favorites.filter((p) => p !== path)
+      : [...favorites, path];
 
-    if (favorites.includes(basePath)) {
-      nextFavorites = favorites.filter((f) => f !== basePath);
-    } else {
-      nextFavorites = [...favorites, basePath];
-    }
-
-    set({ favorites: nextFavorites });
-    localStorage.setItem(LOCAL_KEYS.FAVORITES, JSON.stringify(nextFavorites));
+    set({ favorites: newFavorites });
+    try {
+      localStorage.setItem('kyrus_local_favorites', JSON.stringify(newFavorites));
+    } catch {}
   },
 
   setTabDirty: (basePath, dirty) => {
-    const { tabs } = get();
+    const { tabs, tenantKey, activeTabPath } = get();
     const updatedTabs = tabs.map((t) =>
       t.basePath === basePath ? { ...t, dirty } : t
     );
     set({ tabs: updatedTabs });
-    sessionStorage.setItem(SESSION_KEYS.TABS, JSON.stringify(updatedTabs));
+    persistTabs(tenantKey, updatedTabs, activeTabPath);
   },
 
   triggerRefresh: (basePath) => {
@@ -312,20 +297,18 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
   },
 
   reorderTabs: (startIndex, endIndex) => {
-    const { tabs } = get();
+    const { tabs, tenantKey, activeTabPath } = get();
     const result = Array.from(tabs);
     const [removed] = result.splice(startIndex, 1);
     result.splice(endIndex, 0, removed);
 
     set({ tabs: result });
-    sessionStorage.setItem(SESSION_KEYS.TABS, JSON.stringify(result));
-    savePinnedTabs(result);
+    persistTabs(tenantKey, result, activeTabPath);
   },
 
   clearSession: () => {
-    set({ tabs: [DEFAULT_TAB], activeTabPath: '/home', closedTabsHistory: [] });
-    sessionStorage.removeItem(SESSION_KEYS.TABS);
-    sessionStorage.removeItem(SESSION_KEYS.ACTIVE_TAB);
+    set({ tabs: [DEFAULT_TAB], activeTabPath: '/home', closedTabsHistory: [], tenantKey: null });
+    // Na limpeza de sessão, deixamos o localStorage daquela empresa quieto, apenas limpamos o estado em memória.
   },
 
   reopenLastTab: () => {
@@ -334,11 +317,9 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
 
     const [lastTab, ...remainingHistory] = closedTabsHistory;
     
-    // Abrir a aba
     const { openTab } = get();
     openTab(lastTab.path, lastTab.label, lastTab.iconName);
     
-    // Atualizar o histórico
     set({ closedTabsHistory: remainingHistory });
   },
 
@@ -346,4 +327,3 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
     set({ lastPrunedTabName: name });
   },
 }));
-

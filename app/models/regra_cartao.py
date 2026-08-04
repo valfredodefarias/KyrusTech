@@ -5,6 +5,7 @@ from typing import Optional, TYPE_CHECKING
 from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 from decimal import Decimal
+import datetime
 from .base_audit import AuditMixin
 
 if TYPE_CHECKING:
@@ -22,6 +23,8 @@ class RegraCartao(AuditMixin, SQLModel, table=True):
     tipo_pagamento: str = Field(index=True)  # ex: cartao_credito_vista, cartao_credito_parcelado, cartao_debito
     bandeira: str = Field(default="OUTROS", index=True)  # ex: VISA, MASTERCARD, ELO, PIX, OUTROS
     centro_custo_id: Optional[int] = Field(default=None, foreign_key="centros_custo.id", index=True, nullable=True)
+    
+    data_inicio: Optional[datetime.date] = Field(default=None, index=True)
     
     taxa_porcentagem: Decimal = Field(default=Decimal("0.00"), max_digits=5, decimal_places=2)
     dias_payout: int = Field(default=30)

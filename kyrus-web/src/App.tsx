@@ -5,9 +5,10 @@ import type { JSX } from 'react';
 // Components & Store
 import { Layout } from './components/Layout';
 import { api } from './services/api';
-import { useAuthStore, type AuthUser } from './store/authStore';
+import { useAuthStore } from './store/authStore';
 import { useTabStore } from './store/tabStore';
 import { TabSyncGuard } from './components/TabSyncGuard';
+import { ROUTE_RULES, hasPathPermission, getFirstAllowedPath } from './utils/routeRegistry';
 
 const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
 const Home = lazy(() => import('./pages/Home').then((module) => ({ default: module.Home })));
@@ -36,188 +37,8 @@ const ImportacaoPDV = lazy(() => import('./pages/ImportacaoPDV'));
 const Produtos = lazy(() => import('./pages/Produtos'));
 const Apps = lazy(() => import('./pages/Apps').then((module) => ({ default: module.Apps })));
 const MovimentacaoPDV = lazy(() => import('./pages/MovimentacaoPDV').then((module) => ({ default: module.MovimentacaoPDV })));
+const Entidades = lazy(() => import('./pages/Entidades').then((module) => ({ default: module.Entidades })));
 
-const PAGE_PERMISSIONS: Record<string, string[]> = {
-  '/apps': ['page:configuracoes:view'],
-  '/apps/:tab': ['page:integracoes:view'],
-  '/apps/movimentacao-pdv': ['page:importacao:view'],
-  '/produtos': ['PDV_VER_TODAS_VENDAS', 'PDV_SER_VENDEDOR'],
-  '/home': ['page:home:view'],
-  '/boletim': ['page:boletim:view'],
-  '/contas': ['page:contas:view'],
-  '/lancamentos': ['page:lancamentos:view'],
-  '/caixa': ['page:caixa:view'],
-  '/cartoes': ['page:cartoes:view'],
-  '/conciliacao-cartoes': ['page:cartoes:view'],
-  '/orcamentos': ['page:dre:view'],
-  '/budget': ['page:dre:view'],
-  '/dre': ['page:dre:view'],
-  '/comissoes': ['page:boletim:view', 'PDV_SER_VENDEDOR', 'PDV_VER_TODAS_VENDAS'],
-  '/consultor': ['page:consultor:view'],
-  '/auditoria': ['page:auditoria:view'],
-  '/config': ['page:configuracoes:view'],
-  '/importacao': ['page:importacao:view'],
-  '/importacao_nfe': ['page:importacao_nfe:view', 'page:importacao:view'],
-  '/importacao_ofx': ['page:importacao_ofx:view'],
-  '/importacao_interessados': ['page:importacao_entidades:view'],
-  '/integracoes/asaas': ['page:integracoes:view'],
-  '/pdv': [
-    'PDV_VER_TODAS_VENDAS',
-    'PDV_SER_VENDEDOR',
-    'PDV_REALIZAR_SANGRIA',
-    'PDV_CANCELAR_VENDA',
-    'PDV_CONCEDER_DESCONTO',
-  ],
-  '/pdv/fechamento': [
-    'PDV_VER_TODAS_VENDAS',
-    'PDV_SER_VENDEDOR',
-    'PDV_REALIZAR_SANGRIA',
-    'PDV_CANCELAR_VENDA',
-    'PDV_CONCEDER_DESCONTO',
-  ],
-  '/pdv/importar': [
-    'PDV_VER_TODAS_VENDAS',
-    'PDV_SER_VENDEDOR',
-    'PDV_REALIZAR_SANGRIA',
-    'PDV_CANCELAR_VENDA',
-    'PDV_CONCEDER_DESCONTO',
-  ],
-};
-
-const PAGE_LABELS: Record<string, string> = {
-  '/home': 'Visão Geral',
-  '/boletim': 'Boletim',
-  '/dre': 'DRE',
-  '/consultor': 'Área do Consultor',
-  '/lancamentos': 'Lançamentos',
-  '/contas': 'Contas Bancárias',
-  '/orcamentos': 'Orçamentos',
-  '/budget': 'Budget',
-  '/cartoes': 'Cartões',
-  '/conciliacao-cartoes': 'Conciliadora de Cartões',
-  '/pdv': 'PDV',
-  '/pdv/importar': 'Importação PDV',
-  '/caixa': 'Caixa',
-  '/config': 'Configurações',
-  '/importacao_ofx': 'Importação OFX',
-  '/importacao_nfe': 'Importação NF-e',
-  '/auditoria': 'Auditoria',
-  '/comissoes': 'Comissões e Metas',
-  '/apps/movimentacao-pdv': 'Movimentação PDV',
-  '/apps/ifood': 'iFood PDV',
-};
-
-const PAGE_ICONS: Record<string, string> = {
-  '/home': 'Home',
-  '/boletim': 'BarChart2',
-  '/dre': 'LineChart',
-  '/consultor': 'Briefcase',
-  '/lancamentos': 'PlusCircle',
-  '/contas': 'Landmark',
-  '/orcamentos': 'Calculator',
-  '/budget': 'Table2',
-  '/cartoes': 'CreditCard',
-  '/conciliacao-cartoes': 'Coins',
-  '/pdv': 'ShoppingBag',
-  '/pdv/importar': 'FileSpreadsheet',
-  '/caixa': 'Banknote',
-  '/config': 'Settings',
-  '/importacao_ofx': 'Landmark',
-  '/importacao_nfe': 'FileText',
-  '/auditoria': 'History',
-  '/comissoes': 'Award',
-  '/apps/movimentacao-pdv': 'Calculator',
-  '/apps/ifood': 'Utensils',
-};
-
-export function hasPathPermission(path: string, user: AuthUser | null): boolean {
-  if (!user) return false;
-  const permissions = user.permissions || [];
-  if (permissions.includes('*')) return true;
-  
-  const basePath = path.split('?')[0];
-  
-  if (basePath === '/pdv' || basePath === '/produtos' || basePath.startsWith('/pdv/')) {
-    const empresa = useAuthStore.getState().empresa;
-    if (empresa) {
-      let activeApps: string[] = [];
-      if (empresa.pdv_config) {
-        try {
-          const config = JSON.parse(empresa.pdv_config);
-          activeApps = config.active_apps || [];
-        } catch {}
-      }
-      if (!activeApps.includes('pdv_estoque')) {
-        return false;
-      }
-    }
-  }
-  
-  const required = PAGE_PERMISSIONS[basePath];
-  if (!required) return true;
-  
-  return required.some((p) => permissions.includes(p));
-}
-
-function PdvEstoqueRoute({ children }: { children: React.ReactNode }) {
-  const empresa = useAuthStore((state) => state.empresa);
-  
-  const activeApps = useMemo(() => {
-    if (!empresa?.pdv_config) return [];
-    try {
-      const config = JSON.parse(empresa.pdv_config);
-      return config.active_apps || [];
-    } catch {
-      return [];
-    }
-  }, [empresa]);
-
-  if (!empresa) {
-    return <RouteFallback />;
-  }
-
-  if (!activeApps.includes('pdv_estoque')) {
-    return <Navigate to="/apps" replace />;
-  }
-  return <>{children}</>;
-}
-
-export function getFirstAllowedPath(user: AuthUser | null): string {
-  if (!user) return "/login";
-  const permissions = user.permissions || [];
-  if (permissions.includes('*')) return "/home";
-  
-  const order = [
-    '/home',
-    '/boletim',
-    '/lancamentos',
-    '/contas',
-    '/caixa',
-    '/cartoes',
-    '/pdv',
-    '/apps/movimentacao-pdv',
-    '/apps/ifood',
-    '/dre',
-    '/importacao',
-    '/config',
-    '/consultor',
-    '/auditoria'
-  ];
-  
-  for (const path of order) {
-    if (hasPathPermission(path, user)) {
-      return path;
-    }
-  }
-  
-  for (const path of Object.keys(PAGE_PERMISSIONS)) {
-    if (hasPathPermission(path, user)) {
-      return path;
-    }
-  }
-  
-  return "/login";
-}
 
 const RouteFallback = () => (
   <div className="flex min-h-[40vh] items-center justify-center px-6 text-sm font-semibold text-slate-500 dark:text-slate-300">
@@ -236,10 +57,11 @@ function PrivateRoute({ children }: { children: JSX.Element }) {
   return isAuthenticated ? children : <Navigate to="/" />;
 }
 
-function ProtectedRoute({ children, requiredPermissions }: { children: JSX.Element; requiredPermissions?: string[] }) {
-  const initialized = useAuthStore((state) => state.initialized);
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
-  const user = useAuthStore((state) => state.user);
+function ProtectedRoute({ children, path }: { children: React.ReactNode, path: string }) {
+  const initialized = useAuthStore(state => state.initialized);
+  const user = useAuthStore(state => state.user);
+  const empresa = useAuthStore(state => state.empresa);
+  const isAuthenticated = useAuthStore(state => state.isAuthenticated());
 
   if (!initialized) {
     return <RouteFallback />;
@@ -249,18 +71,34 @@ function ProtectedRoute({ children, requiredPermissions }: { children: JSX.Eleme
     return <Navigate to="/" />;
   }
 
+  const basePath = path.split('?')[0];
+  const rule = ROUTE_RULES[basePath];
+
   const permissions = user?.permissions || [];
   const hasPermission = 
     permissions.includes('*') || 
-    !requiredPermissions || 
-    requiredPermissions.length === 0 || 
-    requiredPermissions.some((p) => permissions.includes(p));
+    !rule || 
+    !rule.permissions || 
+    rule.permissions.length === 0 || 
+    rule.permissions.some((p) => permissions.includes(p));
 
-  if (!hasPermission) {
+  let hasRequiredApp = true;
+  if (rule?.requiredApps && rule.requiredApps.length > 0 && empresa?.pdv_config) {
+    try {
+      const pdvConfig = JSON.parse(empresa.pdv_config);
+      const activeApps = pdvConfig.active_apps || [];
+      hasRequiredApp = rule.requiredApps.every(app => activeApps.includes(app));
+    } catch (e) {
+      console.error("Erro ao parsear pdv_config em ProtectedRoute", e);
+      hasRequiredApp = false;
+    }
+  }
+
+  if (!hasPermission || !hasRequiredApp) {
     return <Navigate to={getFirstAllowedPath(user)} replace />;
   }
 
-  return children;
+  return <>{children}</>;
 }
 
 function App() {
@@ -280,11 +118,12 @@ function App() {
       
       if (filteredTabs.length === 0) {
         const fallback = getFirstAllowedPath(user);
+        const rule = ROUTE_RULES[fallback.split('?')[0]];
         const nextTabs = [{
           path: fallback,
           basePath: fallback.split('?')[0],
-          label: PAGE_LABELS[fallback] || 'Visão Geral',
-          iconName: PAGE_ICONS[fallback] || 'Home',
+          label: rule?.defaultLabel || 'Início',
+          iconName: rule?.defaultIcon || 'Layout',
           pinned: true,
           dirty: false,
           visited: true
@@ -300,7 +139,6 @@ function App() {
     }
   }, [user]);
 
-  // Sistema de autopropagação de atualizações em produção
   useEffect(() => {
     if (import.meta.env.DEV) return;
 
@@ -310,24 +148,21 @@ function App() {
         if (!response.ok) return;
         const html = await response.text();
         
-        // Achar o hash do script principal no HTML retornado do servidor
         const match = html.match(/src="[^"]*assets\/index-([A-Za-z0-9_-]+)\.js"/);
         if (!match) return;
         const serverHash = match[1];
 
-        // Achar o hash do script principal atualmente carregado
         const scriptElement = document.querySelector('script[src*="assets/index-"]');
         const currentSrc = scriptElement?.getAttribute('src') || '';
         const currentMatch = currentSrc.match(/assets\/index-([A-Za-z0-9_-]+)\.js/);
         
         if (currentMatch && currentMatch[1] !== serverHash) {
-          console.warn('[AutoUpdate] Nova versão detectada no servidor. Recarregando a aplicação...');
           window.location.reload();
         }
       } catch (err) {
         console.error('[AutoUpdate] Erro ao verificar atualizações:', err);
       }
-    }, 180000); // Verifica a cada 3 minutos
+    }, 180000);
 
     return () => clearInterval(interval);
   }, []);
@@ -374,7 +209,6 @@ function App() {
     };
   }, []);
 
-  // Rastrear atividade da sessão em background para desconectar imediatamente se outro dispositivo logar
   useEffect(() => {
     if (!authenticated) {
       return;
@@ -389,7 +223,7 @@ function App() {
       } catch (err) {
         console.error('Erro de validação em background da sessão:', err);
       }
-    }, 30000); // Executa a cada 30 segundos
+    }, 30000);
 
     return () => clearInterval(interval);
   }, [authenticated]);
@@ -410,95 +244,65 @@ function App() {
             <Route path="/login" element={<Login />} />
 
             <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
-              <Route path="/home" element={<ProtectedRoute requiredPermissions={['page:home:view']}><Home /></ProtectedRoute>} />
-              <Route path="/boletim" element={<ProtectedRoute requiredPermissions={['page:boletim:view']}><Boletim /></ProtectedRoute>} />
-              <Route path="/dre" element={<ProtectedRoute requiredPermissions={['page:dre:view']}><Dre /></ProtectedRoute>} />
-              <Route path="/consultor" element={<ProtectedRoute requiredPermissions={['page:consultor:view']}><Consultor /></ProtectedRoute>} />
-              <Route path="/lancamentos" element={<ProtectedRoute requiredPermissions={['page:lancamentos:view']}><Lancamentos /></ProtectedRoute>} />
-              <Route path="/entidades" element={<Navigate to="/config?tab=INTERESSADOS" replace />} />
-              <Route path="/contas" element={<ProtectedRoute requiredPermissions={['page:contas:view']}><Contas /></ProtectedRoute>} />
-              <Route path="/orcamentos" element={<ProtectedRoute requiredPermissions={['page:dre:view']}><Orcamentos /></ProtectedRoute>} />
-              <Route path="/budget" element={<ProtectedRoute requiredPermissions={['page:dre:view']}><Budget /></ProtectedRoute>} />
-              <Route path="/cartoes" element={<ProtectedRoute requiredPermissions={['page:cartoes:view']}><Cartoes /></ProtectedRoute>} />
-              <Route path="/conciliacao-cartoes" element={<ProtectedRoute requiredPermissions={['page:cartoes:view']}><ConciliacaoCartoes /></ProtectedRoute>} />
-              <Route
-                path="/pdv"
+              <Route path="/home" element={<ProtectedRoute path='/home'><Home /></ProtectedRoute>} />
+              <Route path="/boletim" element={<ProtectedRoute path='/boletim'><Boletim /></ProtectedRoute>} />
+              <Route path="/dre" element={<ProtectedRoute path='/dre'><Dre /></ProtectedRoute>} />
+              <Route path="/consultor" element={<ProtectedRoute path='/consultor'><Consultor /></ProtectedRoute>} />
+              <Route path="/lancamentos" element={<ProtectedRoute path='/lancamentos'><Lancamentos /></ProtectedRoute>} />
+              <Route path="/contas" element={<ProtectedRoute path='/contas'><Contas /></ProtectedRoute>} />
+              <Route path="/orcamentos" element={<ProtectedRoute path='/orcamentos'><Orcamentos /></ProtectedRoute>} />
+              <Route path="/budget" element={<ProtectedRoute path='/budget'><Budget /></ProtectedRoute>} />
+              <Route path="/cartoes" element={<ProtectedRoute path='/cartoes'><Cartoes /></ProtectedRoute>} />
+              <Route path="/conciliacao-cartoes" element={<ProtectedRoute path='/conciliacao-cartoes'><ConciliacaoCartoes /></ProtectedRoute>} />
+              <Route 
+                path="/entidades" 
                 element={
-                  <PdvEstoqueRoute>
-                    <ProtectedRoute
-                      requiredPermissions={[
-                        'PDV_VER_TODAS_VENDAS',
-                        'PDV_SER_VENDEDOR',
-                        'PDV_REALIZAR_SANGRIA',
-                        'PDV_CANCELAR_VENDA',
-                        'PDV_CONCEDER_DESCONTO',
-                      ]}
-                    >
-                      <Pdv />
-                    </ProtectedRoute>
-                  </PdvEstoqueRoute>
-                }
+                  <ProtectedRoute path='/entidades'>
+                    <Entidades />
+                  </ProtectedRoute>
+                } 
               />
-              <Route
-                path="/pdv/fechamento"
+              <Route 
+                path="/entidades/clientes" 
                 element={
-                  <PdvEstoqueRoute>
-                    <ProtectedRoute
-                      requiredPermissions={[
-                        'PDV_VER_TODAS_VENDAS',
-                        'PDV_SER_VENDEDOR',
-                        'PDV_REALIZAR_SANGRIA',
-                        'PDV_CANCELAR_VENDA',
-                        'PDV_CONCEDER_DESCONTO',
-                      ]}
-                    >
-                      <PdvFechamento />
-                    </ProtectedRoute>
-                  </PdvEstoqueRoute>
-                }
+                  <ProtectedRoute path='/entidades'>
+                    <Entidades tipoDefault="cliente" />
+                  </ProtectedRoute>
+                } 
               />
-              <Route
-                path="/pdv/importar"
+              <Route 
+                path="/entidades/fornecedores" 
                 element={
-                  <PdvEstoqueRoute>
-                    <ProtectedRoute
-                      requiredPermissions={[
-                        'PDV_VER_TODAS_VENDAS',
-                        'PDV_SER_VENDEDOR',
-                        'PDV_REALIZAR_SANGRIA',
-                        'PDV_CANCELAR_VENDA',
-                        'PDV_CONCEDER_DESCONTO',
-                      ]}
-                    >
-                      <ImportacaoPDV />
-                    </ProtectedRoute>
-                  </PdvEstoqueRoute>
-                }
+                  <ProtectedRoute path='/entidades'>
+                    <Entidades tipoDefault="fornecedor" />
+                  </ProtectedRoute>
+                } 
               />
-              <Route
-                path="/produtos"
+              <Route 
+                path="/produtos" 
                 element={
-                  <PdvEstoqueRoute>
-                    <ProtectedRoute requiredPermissions={['PDV_VER_TODAS_VENDAS', 'PDV_SER_VENDEDOR']}>
-                      <Produtos />
-                    </ProtectedRoute>
-                  </PdvEstoqueRoute>
-                }
+                  <ProtectedRoute path='/produtos'>
+                    <Produtos />
+                  </ProtectedRoute>
+                } 
               />
-              <Route path="/apps" element={<ProtectedRoute requiredPermissions={['page:configuracoes:view']}><Apps /></ProtectedRoute>} />
-              <Route path="/apps/movimentacao-pdv" element={<ProtectedRoute requiredPermissions={['page:importacao:view']}><MovimentacaoPDV /></ProtectedRoute>} />
-              <Route path="/apps/:tab" element={<ProtectedRoute requiredPermissions={['page:integracoes:view']}><Apps /></ProtectedRoute>} />
-              <Route path="/caixa" element={<ProtectedRoute requiredPermissions={['page:caixa:view']}><Caixa /></ProtectedRoute>} />
-              <Route path="/centro-custo" element={<ProtectedRoute requiredPermissions={['page:centro_custo:view']}><CentroCusto /></ProtectedRoute>} />
-              <Route path="/config" element={<ProtectedRoute requiredPermissions={['page:configuracoes:view']}><Configuracoes /></ProtectedRoute>} />
-              <Route path="/importacao" element={<ProtectedRoute requiredPermissions={['page:importacao:view']}><Importacao /></ProtectedRoute>} />
-              <Route path="/importacao_interessados" element={<ProtectedRoute requiredPermissions={['page:importacao_entidades:view']}><ImportacaoEntidades /></ProtectedRoute>} />
-              <Route path="/importacao_ofx" element={<ProtectedRoute requiredPermissions={['page:importacao_ofx:view']}><ImportacaoOfx /></ProtectedRoute>} />
-              <Route path="/importacao_nfe" element={<ProtectedRoute requiredPermissions={['page:importacao_nfe:view']}><ImportacaoNfe /></ProtectedRoute>} />
-              <Route path="/auditoria" element={<ProtectedRoute requiredPermissions={['page:auditoria:view']}><Auditoria /></ProtectedRoute>} />
-              <Route path="/comissoes" element={<ProtectedRoute requiredPermissions={['page:boletim:view']}><ComissoesDashboard /></ProtectedRoute>} />
-              <Route path="/integracoes" element={<Navigate to="/integracoes/asaas" replace />} />
-              <Route path="/integracoes/asaas" element={<ProtectedRoute requiredPermissions={['page:integracoes:view']}><IntegracaoAsaas /></ProtectedRoute>} />
+              <Route path="/apps" element={<ProtectedRoute path='/apps'><Apps /></ProtectedRoute>} />
+              <Route path="/apps/ifood" element={<ProtectedRoute path='/apps/ifood'><Apps /></ProtectedRoute>} />
+              <Route path="/apps/movimentacao-pdv" element={<ProtectedRoute path='/apps/movimentacao-pdv'><MovimentacaoPDV /></ProtectedRoute>} />
+              <Route path="/apps/:tab" element={<ProtectedRoute path='/apps/:tab'><Apps /></ProtectedRoute>} />
+              <Route path="/caixa" element={<ProtectedRoute path='/caixa'><Caixa /></ProtectedRoute>} />
+              <Route path="/centro-custo" element={<ProtectedRoute path='/centro-custo'><CentroCusto /></ProtectedRoute>} />
+              <Route path="/config" element={<ProtectedRoute path='/config'><Configuracoes /></ProtectedRoute>} />
+              <Route path="/importacao" element={<ProtectedRoute path='/importacao'><Importacao /></ProtectedRoute>} />
+              <Route path="/importacao_interessados" element={<ProtectedRoute path='/importacao_interessados'><ImportacaoEntidades /></ProtectedRoute>} />
+              <Route path="/importacao_ofx" element={<ProtectedRoute path='/importacao_ofx'><ImportacaoOfx /></ProtectedRoute>} />
+              <Route path="/importacao_nfe" element={<ProtectedRoute path='/importacao_nfe'><ImportacaoNfe /></ProtectedRoute>} />
+              <Route path="/auditoria" element={<ProtectedRoute path='/auditoria'><Auditoria /></ProtectedRoute>} />
+              <Route path="/comissoes" element={<ProtectedRoute path='/comissoes'><ComissoesDashboard /></ProtectedRoute>} />
+              <Route path="/integracoes/asaas" element={<ProtectedRoute path='/integracoes/asaas'><IntegracaoAsaas /></ProtectedRoute>} />
+              <Route path="/pdv" element={<ProtectedRoute path='/pdv'><Pdv /></ProtectedRoute>} />
+              <Route path="/pdv/fechamento" element={<ProtectedRoute path='/pdv/fechamento'><PdvFechamento /></ProtectedRoute>} />
+              <Route path="/pdv/importar" element={<ProtectedRoute path='/pdv/importar'><ImportacaoPDV /></ProtectedRoute>} />
             </Route>
 
             <Route path="*" element={<Navigate to="/boletim" replace />} />

@@ -39,6 +39,7 @@ const formatSafeDate = (dateStr: string | null | undefined, options?: Intl.DateT
 
 // --- INTERFACES ---
 interface RegraCartao {
+  data_inicio?: string | null;
   id: number;
   tipo_pagamento: string;
   bandeira: string;
@@ -71,6 +72,7 @@ interface Recebivel {
   status: 'PAGO' | 'A RECEBER';
   vendedor?: string;
   cliente?: string;
+  itens?: any[];
 }
 
 interface DepositoExtrato {
@@ -240,6 +242,8 @@ export function ConciliacaoCartoes() {
 
   const [groupedRegraForm, setGroupedRegraForm] = useState({
     bandeira: 'VISA',
+    data_inicio: '',
+    original_data_inicio: '',
     conta_destino_id: '',
     plano_contas_taxa_id: '',
     debito: initialModalityState('cartao_debito'),
@@ -614,7 +618,8 @@ export function ConciliacaoCartoes() {
       // Sincroniza bandeira e valor no PDV e recarrega taxa/líquido no financeiro
       await api.put(`/pdv/recebiveis/${recebivelForm.id}`, {
         bandeira: recebivelForm.bandeira,
-        valor: Number(recebivelForm.valor_bruto)
+        valor: Number(recebivelForm.valor_bruto),
+        data: recebivelForm.data_venda
       });
 
       setShowEditRecebivelDrawer(false);
@@ -656,6 +661,23 @@ export function ConciliacaoCartoes() {
     }
   };
 
+  const handleSyncFinanceiro = async (dayStr: string) => {
+    if (!confirm(`Deseja atualizar os valores financeiros deste dia (${formatSafeDate(dayStr)}) baseados nas sub-vendas?`)) return;
+    setSyncing(true);
+    try {
+      await api.post('/pdv/recebiveis/sync', { data: dayStr });
+      setCopyToast('Valores Financeiros Sincronizados com Sucesso!');
+      setTimeout(() => setCopyToast(null), 4000);
+      await fetchAgenda();
+    } catch (err: any) {
+      console.error('Erro ao sincronizar financeiro:', err);
+      const detail = err?.response?.data?.detail || 'Erro ao sincronizar.';
+      alert(`⚠️ ${detail}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // Load auto-match suggestions when a deposit is selected
   useEffect(() => {
     if (!selectedDeposito) {
@@ -681,6 +703,8 @@ export function ConciliacaoCartoes() {
   const handleOpenConfigureBrand = (brandName: string) => {
     setGroupedRegraForm({
       bandeira: brandName,
+      data_inicio: '',
+      original_data_inicio: '',
       conta_destino_id: contas.length > 0 ? String(contas[0].id) : '',
       plano_contas_taxa_id: categoriasDespesa.length > 0 ? String(categoriasDespesa[0].id) : '',
       debito: { ...initialModalityState('cartao_debito'), active: true },
@@ -716,6 +740,8 @@ export function ConciliacaoCartoes() {
 
     setGroupedRegraForm({
       bandeira: g.bandeira,
+      data_inicio: g.data_inicio || '',
+      original_data_inicio: g.data_inicio || '',
       conta_destino_id: commonRule ? String(commonRule.conta_destino_id) : (contas.length > 0 ? String(contas[0].id) : ''),
       plano_contas_taxa_id: commonRule ? String(commonRule.plano_contas_taxa_id) : (categoriasDespesa.length > 0 ? String(categoriasDespesa[0].id) : ''),
       debito: mapRuleToState(g.debito, 'cartao_debito'),
@@ -745,9 +771,13 @@ export function ConciliacaoCartoes() {
       const promises: Promise<any>[] = [];
 
       const handleModality = (modality: ModalityFormState, tipo: string) => {
+        const isNewVersion = groupedRegraForm.data_inicio !== groupedRegraForm.original_data_inicio;
+        const targetId = isNewVersion ? null : modality.id;
+        
         const payload = {
           tipo_pagamento: tipo,
           bandeira: groupedRegraForm.bandeira.toUpperCase(),
+          data_inicio: groupedRegraForm.data_inicio || null,
           taxa_porcentagem: Number(modality.taxa_porcentagem),
           taxa_antecipacao: Number(modality.taxa_antecipacao),
           dias_payout: Number(modality.dias_payout),
@@ -760,14 +790,14 @@ export function ConciliacaoCartoes() {
         };
 
         if (modality.active) {
-          if (modality.id) {
-            promises.push(api.put(`/pdv/regras-cartao/${modality.id}`, payload));
+          if (targetId) {
+            promises.push(api.put(`/pdv/regras-cartao/${targetId}`, payload));
           } else {
             promises.push(api.post('/pdv/regras-cartao', payload));
           }
         } else {
-          if (modality.id) {
-            promises.push(api.delete(`/pdv/regras-cartao/${modality.id}`));
+          if (targetId) {
+            promises.push(api.delete(`/pdv/regras-cartao/${targetId}`));
           }
         }
       };
@@ -944,10 +974,12 @@ export function ConciliacaoCartoes() {
 
   // Group rules by brand
   interface GroupedBandeira {
+  data_inicio?: string | null;
     bandeira: string;
     debito?: RegraCartao;
     credito_vista?: RegraCartao;
     credito_parcelado?: RegraCartao;
+    pix?: RegraCartao;
   }
 
   const groupedRegras = useMemo(() => {
@@ -956,29 +988,45 @@ export function ConciliacaoCartoes() {
     
     // Initialize groups for default brands
     defaultBrands.forEach(b => {
-      groups[b] = { bandeira: b };
+      groups[b] = { bandeira: b, data_inicio: null };
     });
 
-    regras.forEach(r => {
+    // Sort regras by data_inicio descending so we process the newest first
+    const sortedRegras = [...regras].sort((a, b) => {
+      const aTime = a.data_inicio ? new Date(a.data_inicio).getTime() : 0;
+      const bTime = b.data_inicio ? new Date(b.data_inicio).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    sortedRegras.forEach(r => {
       const brand = r.bandeira.toUpperCase();
+      
       if (!groups[brand]) {
-        groups[brand] = { bandeira: brand };
+        groups[brand] = { bandeira: brand, data_inicio: r.data_inicio };
+      } else if (!groups[brand].data_inicio && r.data_inicio) {
+        groups[brand].data_inicio = r.data_inicio;
       }
-      if (r.tipo_pagamento === 'cartao_debito') {
+      
+      if (r.tipo_pagamento === 'cartao_debito' && !groups[brand].debito) {
         groups[brand].debito = r;
-      } else if (r.tipo_pagamento === 'cartao_credito_vista') {
+      } else if (r.tipo_pagamento === 'cartao_credito_vista' && !groups[brand].credito_vista) {
         groups[brand].credito_vista = r;
-      } else if (r.tipo_pagamento === 'cartao_credito_parcelado') {
+      } else if (r.tipo_pagamento === 'cartao_credito_parcelado' && !groups[brand].credito_parcelado) {
         groups[brand].credito_parcelado = r;
+      } else if (r.tipo_pagamento === 'pix' && !groups[brand].pix) {
+        groups[brand].pix = r;
       }
     });
 
     return Object.values(groups).sort((a, b) => {
       const aIdx = defaultBrands.indexOf(a.bandeira);
       const bIdx = defaultBrands.indexOf(b.bandeira);
-      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1 && bIdx !== -1) {
+          return aIdx - bIdx;
+      }
       if (aIdx !== -1) return -1;
       if (bIdx !== -1) return 1;
+      
       return a.bandeira.localeCompare(b.bandeira);
     });
   }, [regras]);
@@ -1345,7 +1393,7 @@ export function ConciliacaoCartoes() {
                         </div>
 
                         <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                          {grupo.itens.map(item => {
+                          {[...grupo.itens].sort((a, b) => Number(b.valor_liquido || 0) - Number(a.valor_liquido || 0)).map(item => {
                             const brandObj = inferCardBrand(item.bandeira);
                             return (
                               <div key={`${item.id}-${item.venda_id_uuid || ''}`} onClick={() => handleOpenEditRecebivel(item)} className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 cursor-pointer transition">
@@ -1578,6 +1626,17 @@ export function ConciliacaoCartoes() {
                         <button
                           type="button"
                           onClick={() => {
+                            handleSyncFinanceiro(selectedDay);
+                          }}
+                          className="text-xs bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold px-3 py-1.5 rounded-lg border border-amber-500/20 transition flex items-center gap-1.5 shadow-2xs group"
+                          title="Atualizar Financeiro com os valores das sub-vendas"
+                        >
+                          <Sparkles className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                          Atualizar Financeiro
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
                             const dayItems = filteredAgenda.filter(r => r.data_vencimento === selectedDay);
                             handleCopyWhatsAppSummary(selectedDay, dayItems);
                           }}
@@ -1777,61 +1836,91 @@ export function ConciliacaoCartoes() {
                                 
                                 {isExpanded && (
                                   <div className="bg-slate-50/40 dark:bg-slate-900/20 border-t border-slate-100 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 pl-4 pr-3">
-                                    {group.items.map(item => (
-                                      <div
-                                        key={`${item.id}-${item.venda_id_uuid || ''}`}
-                                        onClick={() => handleOpenEditRecebivel(item)}
-                                        className="py-3.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-white dark:hover:bg-slate-800/40 cursor-pointer transition px-2 my-1 rounded-lg"
-                                      >
-                                        <div className="min-w-0 flex-1">
-                                          <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="font-bold text-slate-850 dark:text-slate-200 text-xs">{item.descricao}</span>
-                                            <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono shrink-0">{item.rv}</span>
-                                            <span className="text-[9px] font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0 font-mono">
-                                              {item.tipo_pagamento === 'cartao_credito_parcelado' ? 'Parcelado' : 'À Vista'}
-                                            </span>
+                                    {[...group.items].sort((a, b) => Number(b.valor_liquido || 0) - Number(a.valor_liquido || 0)).map(item => (
+                                      <div key={`${item.id}-${item.venda_id_uuid || ''}`} className="py-1 flex flex-col">
+                                        <div
+                                          onClick={() => handleOpenEditRecebivel(item)}
+                                          className="py-3.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-white dark:hover:bg-slate-800/40 cursor-pointer transition px-2 rounded-lg"
+                                        >
+                                          <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                              <span className="font-bold text-slate-850 dark:text-slate-200 text-xs">{item.descricao}</span>
+                                              <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono shrink-0">{item.rv}</span>
+                                              <span className="text-[9px] font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0 font-mono">
+                                                {item.tipo_pagamento === 'cartao_credito_parcelado' ? 'Parcelado' : 'À Vista'}
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 flex-wrap">
+                                              <span>Venda: {formatSafeDate(item.data_venda)}</span>
+                                              <span>•</span>
+                                              <span>Venc: {formatSafeDate(item.data_vencimento)}</span>
+                                              {item.numero_parcela && (
+                                                <>
+                                                  <span>•</span>
+                                                  <span>Parcela {item.numero_parcela}/{item.total_parcelas}</span>
+                                                </>
+                                              )}
+                                            </div>
                                           </div>
-                                          <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 flex-wrap">
-                                            <span>Venda: {formatSafeDate(item.data_venda)}</span>
-                                            {item.numero_parcela && (
-                                              <>
-                                                <span>•</span>
-                                                <span>Parcela {item.numero_parcela}/{item.total_parcelas}</span>
-                                              </>
-                                            )}
-                                            {item.vendedor && (
-                                              <>
-                                                <span>•</span>
-                                                <span>Vendedor: <b className="text-slate-500 dark:text-slate-400 font-semibold">{item.vendedor}</b></span>
-                                              </>
-                                            )}
-                                            {item.cliente && (
-                                              <>
-                                                <span>•</span>
-                                                <span>Cliente: <b className="text-slate-500 dark:text-slate-400 font-semibold">{item.cliente}</b></span>
-                                              </>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <div className="flex items-center gap-5 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-slate-100 dark:border-slate-855 font-mono text-slate-550">
-                                          <div className="text-right w-20">
-                                            <span className="text-[8px] text-slate-450 uppercase block font-semibold">Bruto</span>
-                                            <span className="text-xs">{BRL.format(item.valor_bruto)}</span>
-                                          </div>
-                                          <div className="text-right w-20">
-                                            <span className="text-[8px] text-slate-450 uppercase block font-semibold">Taxa</span>
-                                            <span className="text-xs text-rose-500">-{BRL.format(item.valor_taxa)}</span>
-                                          </div>
-                                          <div className="text-right w-24">
-                                            <span className="text-[8px] text-slate-450 uppercase block font-semibold">Líquido</span>
-                                            <span className={`text-sm font-black ${modalColor.liq}`}>{BRL.format(item.valor_liquido)}</span>
-                                          </div>
-                                          <div className="text-center w-20 pl-2">
-                                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase border ${item.status === 'PAGO' ? 'bg-emerald-50 dark:bg-emerald-950/10 text-emerald-600 dark:text-emerald-450 border-emerald-100 dark:border-emerald-950' : 'bg-amber-50 dark:bg-amber-950/10 text-amber-600 dark:text-amber-450 border-amber-100 dark:border-amber-950'}`}>
-                                              {item.status}
-                                            </span>
+                                          <div className="flex items-center gap-5 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-slate-100 dark:border-slate-855 font-mono text-slate-550">
+                                            <div className="text-right w-20">
+                                              <span className="text-[8px] text-slate-450 uppercase block font-semibold">Bruto</span>
+                                              <span className="text-xs">{BRL.format(item.valor_bruto)}</span>
+                                            </div>
+                                            <div className="text-right w-20">
+                                              <span className="text-[8px] text-slate-450 uppercase block font-semibold">Taxa</span>
+                                              <span className="text-xs text-rose-500">-{BRL.format(item.valor_taxa)}</span>
+                                            </div>
+                                            <div className="text-right w-24">
+                                              <span className="text-[8px] text-slate-450 uppercase block font-semibold">Líquido</span>
+                                              <span className={`text-sm font-black ${modalColor.liq}`}>{BRL.format(item.valor_liquido)}</span>
+                                            </div>
+                                            <div className="text-center w-20 pl-2">
+                                              <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase border ${item.status === 'PAGO' ? 'bg-emerald-50 dark:bg-emerald-950/10 text-emerald-600 dark:text-emerald-450 border-emerald-100 dark:border-emerald-950' : 'bg-amber-50 dark:bg-amber-950/10 text-amber-600 dark:text-amber-450 border-amber-100 dark:border-amber-950'}`}>
+                                                {item.status}
+                                              </span>
+                                            </div>
                                           </div>
                                         </div>
+
+                                        {/* Sub-vendas */}
+                                        {item.itens && item.itens.length > 0 && (
+                                          <div className="pl-6 md:pl-10 relative mt-1 mb-3">
+                                            {/* Linha guia visual */}
+                                            <div className="absolute top-0 bottom-4 left-3 md:left-5 w-[1.5px] bg-slate-200 dark:bg-slate-700/60 rounded"></div>
+                                            <div className="space-y-1.5">
+                                              {item.itens.map((sub: any) => (
+                                                <div 
+                                                  key={sub.id}
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleOpenEditRecebivel(sub);
+                                                  }}
+                                                  className="relative flex items-center justify-between gap-3 p-2.5 bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-700/30 rounded-lg text-xs hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer group"
+                                                  title={`Vendedor: ${sub.vendedor}`}
+                                                >
+                                                  {/* Tracinho visual ligando à linha */}
+                                                  <div className="absolute -left-3 md:-left-5 top-1/2 w-3 md:w-5 h-[1.5px] bg-slate-200 dark:bg-slate-700/60"></div>
+
+                                                  <div className="flex items-center gap-3">
+                                                    <span className="font-mono text-slate-500 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded-md text-[9px] shadow-sm">{sub.rv}</span>
+                                                    <div className="flex flex-col">
+                                                      <span className="text-slate-600 dark:text-slate-300 font-bold">{formatSafeDate(sub.data_venda)}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                                                      <span className="bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400 p-1 rounded-md shadow-sm border border-blue-100 dark:border-blue-900/50">
+                                                        <Edit2 className="w-3 h-3" />
+                                                      </span>
+                                                    </div>
+                                                  </div>
+                                                  <div className="font-mono font-black text-slate-600 dark:text-slate-300">
+                                                    {BRL.format(sub.valor_bruto)}
+                                                  </div>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
                                       </div>
                                     ))}
                                   </div>
@@ -2218,9 +2307,16 @@ export function ConciliacaoCartoes() {
                               <div>
                                 <span className="font-black text-slate-950 dark:text-white text-sm block">{g.bandeira}</span>
                                 {isConfigured ? (
-                                  <span className="text-[9px] bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider block mt-0.5 w-max">
-                                    Configurado
-                                  </span>
+                                  <>
+                                    <span className="text-[9px] bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider block mt-0.5 w-max">
+                                      Configurado
+                                    </span>
+                                    {g.data_inicio && (
+                                      <span className="text-[9px] bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider block mt-1 w-max" title="Válido a partir desta data">
+                                        A partir de: {formatSafeDate(g.data_inicio)}
+                                      </span>
+                                    )}
+                                  </>
                                 ) : (
                                   <span className="text-[9px] bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider block mt-0.5 w-max">
                                     Não Configurado
@@ -2405,6 +2501,20 @@ export function ConciliacaoCartoes() {
                           }}
                           className="rounded text-blue-500 focus:ring-blue-500 h-4 w-4"
                         />
+                      </div>
+
+                      {/* Data Início */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                          Válido a partir de (Data de Início)
+                        </label>
+                        <input
+                          type="date"
+                          value={groupedRegraForm.data_inicio}
+                          onChange={e => setGroupedRegraForm(prev => ({ ...prev, data_inicio: e.target.value }))}
+                          className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-transparent text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                        />
+                        <p className="text-[10px] text-slate-400 mt-1">Se alterado, criará uma nova versão da regra a partir desta data, mantendo o histórico anterior.</p>
                       </div>
 
                       {/* Bandeira */}

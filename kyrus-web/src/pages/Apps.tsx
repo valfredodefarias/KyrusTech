@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
   ArrowLeft, ArrowRight, Store, CreditCard, Users, Megaphone, 
   Plus, Calendar, DollarSign, Clock, HelpCircle, Check, X, 
@@ -25,8 +25,10 @@ interface iFoodTransaction {
 }
 
 export function Apps() {
-  const { tab } = useParams<{ tab?: string }>();
+  const { tab: paramTab } = useParams<{ tab?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const tab = paramTab || (location.pathname.endsWith('/ifood') ? 'ifood' : undefined);
 
   const [activeApp, setActiveApp] = useState<'marketplace' | 'ifood'>('marketplace');
   const [transactions, setTransactions] = useState<iFoodTransaction[]>([]);
@@ -451,12 +453,16 @@ export function Apps() {
     ifoodAccId: number | ''
   ) => {
     try {
+      const currentConfigRes = await api.get('/pdv/config');
+      const currentConfig = currentConfigRes.data;
+      const backendActiveApps = currentConfig.active_apps || [];
+
       const nextActiveApps = active 
-        ? [...activeApps.filter(a => a !== 'ifood'), 'ifood']
-        : activeApps.filter(a => a !== 'ifood');
+        ? [...backendActiveApps.filter((a: string) => a !== 'ifood'), 'ifood']
+        : backendActiveApps.filter((a: string) => a !== 'ifood');
 
       const response = await api.put('/pdv/config', {
-        marcar_como_pago: {},
+        ...currentConfig,
         active_apps: nextActiveApps,
         ifood_comissao_taxa: customTaxa,
         ifood_merchant_name: merchantName,
@@ -504,19 +510,17 @@ export function Apps() {
     sangriaEntradaPlanoId?: number | ''
   ) => {
     try {
+      const currentConfigRes = await api.get('/pdv/config');
+      const currentConfig = currentConfigRes.data;
+
       const response = await api.put('/pdv/config', {
+        ...currentConfig,
         marcar_como_pago: pdvConfigMarcadoPago,
-        active_apps: activeApps,
-        ifood_comissao_taxa: ifoodTaxa,
-        ifood_merchant_name: ifoodMerchantName,
         pdv_centro_custo_padrao_id: pdvCcId === '' ? null : pdvCcId,
         pdv_centro_custo_flexivel: pdvCcFlex,
         pdv_conta_padrao_id: pdvAccId === '' ? null : pdvAccId,
         pdv_sangria_saida_plano_contas_id: sangriaSaidaPlanoId === '' ? null : sangriaSaidaPlanoId,
         pdv_sangria_entrada_plano_contas_id: sangriaEntradaPlanoId === '' ? null : sangriaEntradaPlanoId,
-        ifood_centro_custo_padrao_id: ifoodCentroCustoPadraoId === '' ? null : ifoodCentroCustoPadraoId,
-        ifood_centro_custo_flexivel: ifoodCentroCustoFlexivel,
-        ifood_conta_padrao_id: ifoodContaPadraoId === '' ? null : ifoodContaPadraoId,
         formas_pagamento: formasPagamento,
         categorias: settingsPdvCategorias,
         contas: pdvConfigContas
@@ -534,6 +538,12 @@ export function Apps() {
         setPdvSangriaSaidaPlanoContasId(response.data.pdv_sangria_saida_plano_contas_id ?? '');
         setPdvSangriaEntradaPlanoContasId(response.data.pdv_sangria_entrada_plano_contas_id ?? '');
         setPdvConfigCategorias(response.data.categorias || {});
+
+        const empresa = useAuthStore.getState().empresa;
+        if (empresa) {
+          useAuthStore.getState().setEmpresa({ ...empresa, pdv_config: JSON.stringify(response.data) });
+        }
+
         showToastMessage('Configurações de Movimentação PDV atualizadas!', 'success');
       }
       setShowPdvSettingsModal(false);
@@ -544,24 +554,27 @@ export function Apps() {
 
   const handleToggleApp = async (appKey: string, enable: boolean) => {
     try {
+      const currentConfigRes = await api.get('/pdv/config');
+      const currentConfig = currentConfigRes.data;
+      const backendActiveApps = currentConfig.active_apps || [];
+
       const nextActiveApps = enable
-        ? [...activeApps.filter(a => a !== appKey), appKey]
-        : activeApps.filter(a => a !== appKey);
+        ? [...backendActiveApps.filter((a: string) => a !== appKey), appKey]
+        : backendActiveApps.filter((a: string) => a !== appKey);
 
       const response = await api.put('/pdv/config', {
-        marcar_como_pago: pdvConfigMarcadoPago,
-        active_apps: nextActiveApps,
-        ifood_comissao_taxa: ifoodTaxa,
-        ifood_merchant_name: ifoodMerchantName,
-        pdv_sangria_saida_plano_contas_id: pdvSangriaSaidaPlanoContasId === '' ? null : pdvSangriaSaidaPlanoContasId,
-        pdv_sangria_entrada_plano_contas_id: pdvSangriaEntradaPlanoContasId === '' ? null : pdvSangriaEntradaPlanoContasId,
-        formas_pagamento: formasPagamento,
-        categorias: pdvConfigCategorias,
-        contas: pdvConfigContas
+        ...currentConfig,
+        active_apps: nextActiveApps
       });
 
       if (response.data) {
         setActiveApps(response.data.active_apps || []);
+
+        const empresa = useAuthStore.getState().empresa;
+        if (empresa) {
+          useAuthStore.getState().setEmpresa({ ...empresa, pdv_config: JSON.stringify(response.data) });
+        }
+
         showToastMessage(
           enable ? `Aplicativo ativado com sucesso!` : `Aplicativo desativado.`,
           'success'

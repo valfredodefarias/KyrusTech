@@ -1,5 +1,6 @@
 # app/services/pdv_service.py
 from __future__ import annotations
+import datetime
 import re
 import json
 import uuid
@@ -169,7 +170,8 @@ def obter_regra_cartao(
     empresa_id: int,
     tipo_pagamento: str,
     bandeira: str,
-    centro_custo_id: Optional[int] = None
+    centro_custo_id: Optional[int] = None,
+    data_venda: Optional[datetime.date] = None
 ) -> Optional[RegraCartao]:
     bandeira_upper = bandeira.upper() if bandeira else "OUTROS"
     
@@ -181,66 +183,51 @@ def obter_regra_cartao(
         tipo_norm = "CREDITO_PARCELADO"
     elif tipo_pagamento and tipo_pagamento.lower() in ["cartao_debito", "debito"]:
         tipo_norm = "DEBITO"
+        
+    def _get_rule(b: str, cc_id: Optional[int]) -> Optional[RegraCartao]:
+        from sqlalchemy import or_
+        query = select(RegraCartao).where(
+            RegraCartao.empresa_id == empresa_id,
+            RegraCartao.tipo_pagamento.in_([tipo_pagamento, tipo_norm]),
+            RegraCartao.bandeira == b,
+            RegraCartao.is_deleted == False
+        )
+        if cc_id is not None:
+            query = query.where(RegraCartao.centro_custo_id == cc_id)
+        else:
+            query = query.where(RegraCartao.centro_custo_id == None)
+            
+        if data_venda:
+            query = query.where(
+                or_(
+                    RegraCartao.data_inicio == None,
+                    RegraCartao.data_inicio <= data_venda
+                )
+            )
+        
+        # O mais recente válido ganha. Regras sem data_inicio (None) ficam pro final.
+        query = query.order_by(RegraCartao.data_inicio.desc().nulls_last())
+        return db.exec(query).first()
 
     # 1. Tentar correspondência exata: tipo, bandeira e centro de custo
     if centro_custo_id:
-        regra = db.exec(
-            select(RegraCartao)
-            .where(
-                RegraCartao.empresa_id == empresa_id,
-                RegraCartao.tipo_pagamento.in_([tipo_pagamento, tipo_norm]),
-                RegraCartao.bandeira == bandeira_upper,
-                RegraCartao.centro_custo_id == centro_custo_id,
-                RegraCartao.is_deleted == False
-            )
-        ).first()
-        if regra:
-            return regra
+        regra = _get_rule(bandeira_upper, centro_custo_id)
+        if regra: return regra
 
     # 2. Tentar tipo e bandeira, sem centro de custo (centro_custo_id = None)
-    regra = db.exec(
-        select(RegraCartao)
-        .where(
-            RegraCartao.empresa_id == empresa_id,
-            RegraCartao.tipo_pagamento.in_([tipo_pagamento, tipo_norm]),
-            RegraCartao.bandeira == bandeira_upper,
-            RegraCartao.centro_custo_id == None,
-            RegraCartao.is_deleted == False
-        )
-    ).first()
-    if regra:
-        return regra
+    regra = _get_rule(bandeira_upper, None)
+    if regra: return regra
 
     # 3. Tentar tipo e bandeira "OUTROS" com centro de custo
     if centro_custo_id and bandeira_upper != "OUTROS":
-        regra = db.exec(
-            select(RegraCartao)
-            .where(
-                RegraCartao.empresa_id == empresa_id,
-                RegraCartao.tipo_pagamento == tipo_pagamento,
-                RegraCartao.bandeira == "OUTROS",
-                RegraCartao.centro_custo_id == centro_custo_id,
-                RegraCartao.is_deleted == False
-            )
-        ).first()
-        if regra:
-            return regra
+        regra = _get_rule("OUTROS", centro_custo_id)
+        if regra: return regra
 
     # 4. Tentar tipo e bandeira "OUTROS" sem centro de custo
     if bandeira_upper != "OUTROS":
-        regra = db.exec(
-            select(RegraCartao)
-            .where(
-                RegraCartao.empresa_id == empresa_id,
-                RegraCartao.tipo_pagamento == tipo_pagamento,
-                RegraCartao.bandeira == "OUTROS",
-                RegraCartao.centro_custo_id == None,
-                RegraCartao.is_deleted == False
-            )
-        ).first()
-        if regra:
-            return regra
-
+        regra = _get_rule("OUTROS", None)
+        if regra: return regra
+        
     return None
 
 

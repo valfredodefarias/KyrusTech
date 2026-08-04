@@ -651,6 +651,8 @@ def atualizar_regra_cartao(
         regra.fds_proximo_dia_util = regra_in.fds_proximo_dia_util
     if regra_in.modo_parcelamento is not None:
         regra.modo_parcelamento = regra_in.modo_parcelamento
+    if regra_in.data_inicio is not None:
+        regra.data_inicio = regra_in.data_inicio
     if regra_in.taxa_antecipacao is not None:
         regra.taxa_antecipacao = regra_in.taxa_antecipacao
     if regra_in.conta_destino_id is not None:
@@ -949,6 +951,7 @@ def listar_recebiveis_cartao(
     grouped_launches = db.exec(query_grouped).all()
 
     covered_mov_keys = set()
+    grouped_launches = []
     for gl in grouped_launches:
         if gl.observacao:
             try:
@@ -972,8 +975,9 @@ def listar_recebiveis_cartao(
         )
         .order_by(PdvMovimentacao.data.desc(), PdvMovimentacao.id.desc())
     )
+    from dateutil.relativedelta import relativedelta
     if start_date:
-        query = query.where(PdvMovimentacao.data >= start_date)
+        query = query.where(PdvMovimentacao.data >= start_date - relativedelta(months=12))
     if end_date:
         query = query.where(PdvMovimentacao.data <= end_date)
 
@@ -998,17 +1002,23 @@ def listar_recebiveis_cartao(
                 "subtotal": float(vi.subtotal)
             })
 
+    regras_cache = {}
     recebiveis = []
     for m, venda, vendedor, cliente in rows:
         # Se a movimentacao ja estiver coberta por um lancamento agrupado no Financeiro, ignorar para evitar duplicacao na tela
         v_id_str = str(m.venda_id or m.id)
         m_id_str = str(m.id)
-        if v_id_str in covered_mov_keys or m_id_str in covered_mov_keys:
-            continue
+        # if v_id_str in covered_mov_keys or m_id_str in covered_mov_keys:
+        #     continue
 
         tipo_pag_lower = "cartao_debito" if m.forma_pagamento == "DEBITO" else ("cartao_credito_parcelado" if m.forma_pagamento == "CREDITO_PARCELADO" else "cartao_credito_vista")
 
-        regra = obter_regra_cartao(db, empresa_id, tipo_pag_lower, m.bandeira, m.centro_custo_id)
+        cache_key = (empresa_id, tipo_pag_lower, m.bandeira, m.centro_custo_id, m.data)
+        if cache_key in regras_cache:
+            regra = regras_cache[cache_key]
+        else:
+            regra = obter_regra_cartao(db, empresa_id, tipo_pag_lower, m.bandeira, m.centro_custo_id, m.data)
+            regras_cache[cache_key] = regra
         if regra:
             if regra.modo_parcelamento == "ANTECIPADO":
                 fee_percentage = regra.taxa_porcentagem + (m.numero_parcela - 1) * regra.taxa_antecipacao
@@ -1050,11 +1060,12 @@ def listar_recebiveis_cartao(
             "vendedor_id": venda.vendedor_id if venda else None,
             "cliente": (cliente.nome or cliente.nome_fantasia or "Cliente Final") if cliente else "Cliente Final",
             "cliente_id": venda.entidade_id if venda else None,
-            "itens": items_map.get(m.venda_id, []) if m.venda_id else [],
+            "itens": [],
             "conta_id": m.conta_id,
             "plano_contas_id": None
         })
 
+    grouped_launches = []
     for gl in grouped_launches:
         dt_venc = gl.data_vencimento or gl.data_pagamento or date.today()
         dt_comp = gl.data_competencia or dt_venc
@@ -1086,16 +1097,28 @@ def listar_recebiveis_cartao(
             val_liquido_gl = gl.valor_previsto or Decimal("0.00")
 
         val_bruto_from_meta = None
+        gl_itens = []
         try:
             if gl.observacao:
                 parsed_meta = json.loads(gl.observacao)
                 contribuicoes = parsed_meta.get("contribuicoes", {})
                 if contribuicoes and isinstance(contribuicoes, dict):
-                    val_bruto_from_meta = sum(
-                        Decimal(str(item.get("valor", 0)))
-                        for item in contribuicoes.values()
-                        if isinstance(item, dict)
-                    )
+                    val_bruto_from_meta = Decimal("0.00")
+                    for v_id, item in contribuicoes.items():
+                        if isinstance(item, dict):
+                            item_val = Decimal(str(item.get("valor", 0)))
+                            val_bruto_from_meta += item_val
+                            gl_itens.append({
+                                "id": v_id,
+                                "venda_id_uuid": v_id,
+                                "rv": item.get("rv", "N/A"),
+                                "data_venda": str(dt_comp),
+                                "valor_bruto": item_val,
+                                "vendedor": item.get("vendedor", "N/A"),
+                                "cliente": item.get("cliente", "N/A"),
+                                "status": item.get("status", "REALIZADO"),
+                                "bandeira": bandeira_gl
+                            })
         except Exception:
             pass
 
@@ -1130,12 +1153,20 @@ def listar_recebiveis_cartao(
             "vendedor_id": None,
             "cliente": "Recebimento Cartões",
             "cliente_id": None,
-            "itens": [],
+            "itens": gl_itens,
             "conta_id": gl.conta_id,
             "plano_contas_id": gl.plano_contas_id
         })
 
-    return recebiveis
+    final_recebiveis = []
+    for r in recebiveis:
+        dt = r['data_vencimento']
+        if start_date and dt < str(start_date):
+            continue
+        if end_date and dt > str(end_date):
+            continue
+        final_recebiveis.append(r)
+    return final_recebiveis
 
 
 from pydantic import BaseModel
@@ -1143,6 +1174,7 @@ from pydantic import BaseModel
 class AtualizarRecebivelSchema(BaseModel):
     bandeira: Optional[str] = None
     valor: Optional[Decimal] = None
+    data: Optional[str] = None
 
 @router.put("/recebiveis/{id}", status_code=200)
 def atualizar_recebivel_cartao(
@@ -1169,6 +1201,7 @@ def atualizar_recebivel_cartao(
             )
         
         # Verificar lançamentos financeiros vinculados
+        l_list = []
         if m_op.venda_id:
             l_list = db.exec(
                 select(Lancamento).where(
@@ -1177,6 +1210,16 @@ def atualizar_recebivel_cartao(
                     Lancamento.is_deleted == False
                 )
             ).all()
+            if not l_list:
+                l_group = db.exec(
+                    select(Lancamento).where(
+                        Lancamento.empresa_id == empresa_id,
+                        Lancamento.is_deleted == False,
+                        Lancamento.observacao.like(f'%"{m_op.venda_id}"%')
+                    )
+                ).first()
+                if l_group:
+                    l_list = [l_group]
         else:
             l_item = db.get(Lancamento, m_op.id)
             l_list = [l_item] if l_item else []
@@ -1194,12 +1237,17 @@ def atualizar_recebivel_cartao(
             m_op.bandeira = payload.bandeira.upper()
         if payload.valor is not None and payload.valor > 0:
             m_op.valor = payload.valor
+        if payload.data:
+            from datetime import datetime as dt
+            m_op.data = dt.strptime(payload.data, "%Y-%m-%d").date()
+            if m_op.data_competencia:
+                m_op.data_competencia = m_op.data
 
         m_op.updated_at = datetime.utcnow()
         m_op.updated_by_id = current_user.id
         db.add(m_op)
 
-        # Recalcular taxa e valor líquido
+        # Recalcular taxa e valor líquido (apenas para não-agrupados localmente, agrupados usarão os totais)
         tipo_pag_lower = "cartao_debito" if m_op.forma_pagamento == "DEBITO" else ("cartao_credito_parcelado" if m_op.forma_pagamento == "CREDITO_PARCELADO" else "cartao_credito_vista")
         regra = obter_regra_cartao(db, empresa_id, tipo_pag_lower, m_op.bandeira, m_op.centro_custo_id)
         fee_pct = regra.taxa_porcentagem if regra else Decimal("0.00")
@@ -1207,17 +1255,39 @@ def atualizar_recebivel_cartao(
         valor_liquido = m_op.valor - valor_taxa
 
         for l in l_list:
-            l.valor_previsto = valor_liquido
             meta = {}
             if l.observacao:
                 try:
                     meta = json.loads(l.observacao)
                 except Exception:
                     meta = {}
-            meta["bandeira"] = m_op.bandeira
-            meta["valor_bruto"] = float(m_op.valor)
-            meta["valor_taxa"] = float(valor_taxa)
-            meta["valor_liquido"] = float(valor_liquido)
+            
+            is_grouped = l.id_parcelamento != m_op.venda_id
+            
+            if is_grouped:
+                contribuicoes = meta.get("contribuicoes", {})
+                if m_op.venda_id in contribuicoes:
+                    contribuicoes[m_op.venda_id]["valor"] = float(m_op.valor)
+                    # Não mudamos a bandeira nem excluímos do grupo AQUI. 
+                    # Apenas atualizamos visualmente o valor. A sincronização final cuidará de reagrupar.
+                    meta["contribuicoes"] = contribuicoes
+                    
+                    total_bruto = sum(Decimal(str(v.get("valor", 0))) for v in contribuicoes.values() if isinstance(v, dict))
+                    meta["valor_bruto"] = float(total_bruto)
+                    
+                    total_taxa = (total_bruto * fee_pct / Decimal("100")).quantize(Decimal("0.01"))
+                    total_liquido = total_bruto - total_taxa
+                    
+                    meta["valor_taxa"] = float(total_taxa)
+                    meta["valor_liquido"] = float(total_liquido)
+                    l.valor_previsto = total_liquido
+            else:
+                l.valor_previsto = valor_liquido
+                meta["bandeira"] = m_op.bandeira
+                meta["valor_bruto"] = float(m_op.valor)
+                meta["valor_taxa"] = float(valor_taxa)
+                meta["valor_liquido"] = float(valor_liquido)
+                
             l.observacao = json.dumps(meta)
             l.updated_at = datetime.utcnow()
             l.updated_by_id = current_user.id
@@ -3369,3 +3439,156 @@ def deletar_lote_cartao(
     db.delete(lote)
     db.commit()
     return {"status": "success", "message": "Lote de cartão desfeito com sucesso."}
+
+class SyncRecebiveisSchema(BaseModel):
+    data: str  # YYYY-MM-DD
+
+@router.post("/recebiveis/sync", status_code=200)
+def sync_recebiveis_financeiro(
+    payload: SyncRecebiveisSchema,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    current_user: Usuario = Depends(get_current_active_user)
+):
+    """
+    Ressincroniza os recebimentos de cartão do dia. 
+    Lê o estado atual das PdvMovimentacao e regera os Lotes Agrupados no Financeiro,
+    poupando Lotes que já estejam com status PAGO.
+    """
+    from datetime import datetime as dt
+    from app.services.pdv_service import (
+        adicionar_ou_atualizar_recebivel_cartao_agrupado,
+        obter_categoria_receita_pdv,
+        calcular_payout_date,
+        shift_months,
+        obter_regra_cartao,
+        format_card_description
+    )
+    from sqlalchemy.orm import selectinload
+    
+    target_date = dt.strptime(payload.data, "%Y-%m-%d").date()
+    
+    # 1. Buscar todos os Lançamentos agrupados do dia alvo (A RECEBER e PAGO)
+    lancamentos_dia = db.exec(
+        select(Lancamento).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            col(Lancamento.observacao).like('%"grouped_card_launch": true%'),
+            Lancamento.data_competencia == target_date
+        )
+    ).all()
+    
+    # Limpar as contribuições dos que NÃO estão pagos (para recalcular do zero)
+    paid_venda_ids = set()
+    for l in lancamentos_dia:
+        meta = {}
+        if l.observacao:
+            try:
+                meta = json.loads(l.observacao)
+            except Exception:
+                pass
+        
+        contribuicoes = meta.get("contribuicoes", {})
+        if l.status == "PAGO":
+            # Marca estas vendas como travadas, não re-adicionar
+            for k in contribuicoes.keys():
+                paid_venda_ids.add(str(k))
+        else:
+            # Limpa para re-adicionar do zero
+            meta["contribuicoes"] = {}
+            l.observacao = json.dumps(meta)
+            l.valor_previsto = Decimal("0.00")
+            db.add(l)
+            
+    db.flush()
+
+    # 2. Buscar todas as Movimentações do PDV do dia
+    movs = db.exec(
+        select(PdvMovimentacao)
+        .options(selectinload(PdvMovimentacao.venda))
+        .where(
+            PdvMovimentacao.empresa_id == empresa_id,
+            PdvMovimentacao.is_deleted == False,
+            PdvMovimentacao.data == target_date,
+            PdvMovimentacao.forma_pagamento.in_(["CREDITO_AVISTA", "CREDITO_PARCELADO", "DEBITO"])
+        )
+    ).all()
+
+    plano_id = obter_categoria_receita_pdv(db, empresa_id)
+
+    # 3. Readicionar cada movimentação
+    for m in movs:
+        v_id_str = str(m.venda_id or m.id)
+        if v_id_str in paid_venda_ids:
+            continue # Já está coberto por um lote pago, não mexe
+        
+        # Calcular vencimento baseado na regra atual
+        tp_lower = "cartao_debito" if m.forma_pagamento == "DEBITO" else ("cartao_credito_parcelado" if m.forma_pagamento == "CREDITO_PARCELADO" else "cartao_credito_vista")
+        regra = obter_regra_cartao(db, empresa_id, tp_lower, m.bandeira, m.centro_custo_id)
+        
+        if regra:
+            if regra.modo_parcelamento == "ANTECIPADO":
+                vencimento = calcular_payout_date(m.data, regra)
+            else:
+                base_installment_date = shift_months(m.data, (m.numero_parcela or 1) - 1)
+                vencimento = calcular_payout_date(base_installment_date, regra)
+        else:
+            if m.forma_pagamento == "CREDITO_PARCELADO":
+                vencimento = shift_months(m.data, (m.numero_parcela or 1) - 1)
+            else:
+                prazo = 1 if m.forma_pagamento == "DEBITO" else 30
+                vencimento = m.data + timedelta(days=prazo)
+
+        bandeira_nome = m.bandeira or "OUTROS"
+        formatted_desc = format_card_description(bandeira_nome, tp_lower)
+        modality = "Debito" if ("debito" in tp_lower or "debit" in tp_lower) else "Credito"
+        
+        vendedor_nome = "N/A"
+        cliente_nome = "N/A"
+        rv = f"RV-{m.id:06d}"
+        
+        if m.venda:
+            rv = m.venda.rv or rv
+            if m.venda.vendedor_id:
+                u = db.get(Usuario, m.venda.vendedor_id)
+                vendedor_nome = u.nome or u.email if u else "N/A"
+            if m.venda.entidade_id:
+                e = db.get(Entidade, m.venda.entidade_id)
+                cliente_nome = e.nome or e.nome_fantasia if e else "N/A"
+                
+        adicionar_ou_atualizar_recebivel_cartao_agrupado(
+            db=db,
+            empresa_id=empresa_id,
+            venda_id=v_id_str,
+            vencimento=vencimento,
+            valor=m.valor,
+            formatted_desc=formatted_desc,
+            plano_id=plano_id,
+            conta_id=None,
+            centro_custo_id=m.centro_custo_id,
+            hoje_pag=m.data,
+            bandeira=bandeira_nome.upper(),
+            modality=modality,
+            current_user_id=current_user.id,
+            venda_rv=rv,
+            vendedor_nome=vendedor_nome,
+            cliente_nome=cliente_nome
+        )
+
+    # 4. Deletar os agrupamentos que ficaram vazios (0 contribuições)
+    db.flush()
+    for l in lancamentos_dia:
+        if l.status != "PAGO":
+            meta = {}
+            if l.observacao:
+                try:
+                    meta = json.loads(l.observacao)
+                except Exception:
+                    pass
+            contribuicoes = meta.get("contribuicoes", {})
+            if not contribuicoes:
+                l.is_deleted = True
+                db.add(l)
+
+    db.commit()
+    return {"status": "success", "message": "Financeiro recalculado com sucesso."}

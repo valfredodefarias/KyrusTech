@@ -304,6 +304,13 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
             Lancamento.is_deleted == False
         )
     ).first()
+    
+    val_bruto_venda = Decimal(str(valor))
+    tipo_pag_lower = "cartao_debito" if (modality.lower() == "debito" or "debito" in formatted_desc.lower()) else "cartao_credito_vista"
+    regra = obter_regra_cartao(db, empresa_id, tipo_pag_lower, bandeira, centro_custo_id)
+    fee_pct = regra.taxa_porcentagem if regra else Decimal("0.00")
+    val_taxa_venda = (val_bruto_venda * fee_pct / Decimal("100")).quantize(Decimal("0.01"))
+    val_liquido_venda = val_bruto_venda - val_taxa_venda
 
     if l:
         if l.status == "PAGO" and l.conta_id is not None:
@@ -314,36 +321,9 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
                 detail=f"Não é possível adicionar a venda. O recebível agrupado '{formatted_desc}' para o dia {target_vencimento.strftime('%d/%m/%Y')} já foi liquidado no banco '{nome_conta}'."
             )
         
-        meta = {}
-        if l.observacao:
-            try:
-                meta = json.loads(l.observacao)
-            except Exception:
-                pass
-        
-        contribuicoes = meta.setdefault("contribuicoes", {})
-        contribuicoes[venda_id] = {
-            "valor": float(valor),
-            "rv": venda_rv or "N/A",
-            "vendedor": vendedor_nome or "N/A",
-            "cliente": cliente_nome or "N/A",
-            "status": "REALIZADO"
-        }
-        
-        total_bruto = sum(
-            Decimal(str(item["valor"]))
-            for item in contribuicoes.values()
-            if isinstance(item, dict) and item.get("status") == "REALIZADO"
-        )
-        tipo_pag_lower = "cartao_debito" if (modality.lower() == "debito" or "debito" in formatted_desc.lower()) else "cartao_credito_vista"
-        regra = obter_regra_cartao(db, empresa_id, tipo_pag_lower, bandeira, centro_custo_id)
-        fee_pct = regra.taxa_porcentagem if regra else Decimal("0.00")
-        val_taxa = (total_bruto * fee_pct / Decimal("100")).quantize(Decimal("0.01"))
-        total_liquido = total_bruto - val_taxa
-
-        l.valor_previsto = total_liquido
+        # Apenas soma o valor líquido da nova venda ao valor_previsto existente
+        l.valor_previsto += val_liquido_venda
         l.entidade_id = entidade.id
-        l.observacao = json.dumps(meta)
         l.updated_by_id = current_user_id
         l.updated_at = datetime.utcnow()
         db.add(l)
@@ -351,49 +331,28 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
         meta = {
             "grouped_card_launch": True,
             "bandeira": bandeira,
-            "modalidade": modality,
-            "contribuicoes": {
-                venda_id: {
-                    "valor": float(valor),
-                    "rv": venda_rv or "N/A",
-                    "vendedor": vendedor_nome or "N/A",
-                    "cliente": cliente_nome or "N/A",
-                    "status": "REALIZADO"
-                }
-            }
+            "modalidade": modality
         }
-        val_bruto_init = Decimal(str(valor))
-        tipo_pag_lower = "cartao_debito" if (modality.lower() == "debito" or "debito" in formatted_desc.lower()) else "cartao_credito_vista"
-        regra = obter_regra_cartao(db, empresa_id, tipo_pag_lower, bandeira, centro_custo_id)
-        fee_pct = regra.taxa_porcentagem if regra else Decimal("0.00")
-        val_taxa_init = (val_bruto_init * fee_pct / Decimal("100")).quantize(Decimal("0.01"))
-        val_liquido_init = val_bruto_init - val_taxa_init
-
+        
         l = Lancamento(
             descricao=formatted_desc,
             tipo="RECEITA",
             status="EM ABERTO",
             origem="PDV",
-            valor_previsto=val_liquido_init,
+            valor_previsto=val_liquido_venda,
             valor_pago=Decimal("0.00"),
             valor_juros=Decimal("0.00"),
             valor_desconto=Decimal("0.00"),
             valor_multa=Decimal("0.00"),
             data_vencimento=target_vencimento,
-            data_pagamento=None,
-            data_competencia=hoje_pag,
+            data_competencia=target_vencimento,
             empresa_id=empresa_id,
             plano_contas_id=plano_id,
-            conta_id=None,
+            conta_id=conta_id,
             entidade_id=entidade.id,
             centro_custo_id=centro_custo_id,
             observacao=json.dumps(meta),
             is_deleted=False,
-            ipp=False,
-            previsto=True,
-            conciliado=False,
-            numero_parcela=None,
-            id_parcelamento=None,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow()
         )

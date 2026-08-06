@@ -3462,12 +3462,10 @@ def sync_recebiveis_financeiro(
 ):
     """
     Ressincroniza os recebimentos de cartão do dia. 
-    Lê o estado atual das PdvMovimentacao e regera os Lotes Agrupados no Financeiro,
-    poupando Lotes que já estejam com status PAGO.
+    Lê o estado atual das PdvMovimentacao e regera os Lançamentos Agrupados no Financeiro.
     """
-    from datetime import datetime as dt
+    from datetime import datetime as dt, timedelta
     from app.services.pdv_service import (
-        adicionar_ou_atualizar_recebivel_cartao_agrupado,
         obter_categoria_receita_pdv,
         calcular_payout_date,
         shift_months,
@@ -3478,127 +3476,149 @@ def sync_recebiveis_financeiro(
     
     target_date = dt.strptime(payload.data, "%Y-%m-%d").date()
     
-    # 1. Buscar todos os Lançamentos agrupados do dia alvo (A RECEBER e PAGO)
-    lancamentos_dia = db.exec(
-        select(Lancamento).where(
-            Lancamento.empresa_id == empresa_id,
-            Lancamento.is_deleted == False,
-            col(Lancamento.observacao).like('%"grouped_card_launch": true%'),
-            Lancamento.data_competencia == target_date
-        )
-    ).all()
-    
-    # Limpar as contribuições dos que NÃO estão pagos (para recalcular do zero)
-    paid_venda_ids = set()
-    for l in lancamentos_dia:
-        meta = {}
-        if l.observacao:
-            try:
-                meta = json.loads(l.observacao)
-            except Exception:
-                pass
-        
-        contribuicoes = meta.get("contribuicoes", {})
-        if l.status == "PAGO":
-            # Marca estas vendas como travadas, não re-adicionar
-            for k in contribuicoes.keys():
-                paid_venda_ids.add(str(k))
-        else:
-            # Limpa para re-adicionar do zero
-            meta["contribuicoes"] = {}
-            l.observacao = json.dumps(meta)
-            l.valor_previsto = Decimal("0.00")
-            db.add(l)
-            
-    db.flush()
+    # 1. Buscar todas as Movimentações do PDV nos últimos 60 dias para achar as que vencem hoje
+    start_lookback = target_date - timedelta(days=60)
+    end_lookback = target_date + timedelta(days=15)
 
-    # 2. Buscar todas as Movimentações do PDV do dia
     movs = db.exec(
         select(PdvMovimentacao)
         .options(selectinload(PdvMovimentacao.venda))
         .where(
             PdvMovimentacao.empresa_id == empresa_id,
             PdvMovimentacao.is_deleted == False,
-            PdvMovimentacao.data == target_date,
+            PdvMovimentacao.data >= start_lookback,
+            PdvMovimentacao.data <= end_lookback,
             PdvMovimentacao.forma_pagamento.in_(["CREDITO_AVISTA", "CREDITO_PARCELADO", "DEBITO"])
         )
     ).all()
 
-    plano_id = obter_categoria_receita_pdv(db, empresa_id)
-
-    # 3. Readicionar cada movimentação
+    # 2. Avaliar regras e somar totais por modalidade/bandeira APENAS para os que vencem em target_date
+    totais_por_descricao = {}
+    
+    regras_cache = {}
     for m in movs:
-        v_id_str = str(m.venda_id or m.id)
-        if v_id_str in paid_venda_ids:
-            continue # Já está coberto por um lote pago, não mexe
-        
-        # Calcular vencimento baseado na regra atual
         tp_lower = "cartao_debito" if m.forma_pagamento == "DEBITO" else ("cartao_credito_parcelado" if m.forma_pagamento == "CREDITO_PARCELADO" else "cartao_credito_vista")
-        regra = obter_regra_cartao(db, empresa_id, tp_lower, m.bandeira, m.centro_custo_id)
         
+        cache_key = (empresa_id, tp_lower, m.bandeira, m.centro_custo_id)
+        if cache_key in regras_cache:
+            regra = regras_cache[cache_key]
+        else:
+            regra = obter_regra_cartao(db, empresa_id, tp_lower, m.bandeira, m.centro_custo_id)
+            regras_cache[cache_key] = regra
+            
         if regra:
             if regra.modo_parcelamento == "ANTECIPADO":
                 vencimento = calcular_payout_date(m.data, regra)
+                fee_percentage = regra.taxa_porcentagem + ((m.numero_parcela or 1) - 1) * regra.taxa_antecipacao
             else:
                 base_installment_date = shift_months(m.data, (m.numero_parcela or 1) - 1)
                 vencimento = calcular_payout_date(base_installment_date, regra)
+                fee_percentage = regra.taxa_porcentagem
         else:
             if m.forma_pagamento == "CREDITO_PARCELADO":
                 vencimento = shift_months(m.data, (m.numero_parcela or 1) - 1)
             else:
                 prazo = 1 if m.forma_pagamento == "DEBITO" else 30
                 vencimento = m.data + timedelta(days=prazo)
+            fee_percentage = Decimal("0.00")
 
+        if vencimento != target_date:
+            continue
+            
+        # Essa movimentação cai no target_date!
         bandeira_nome = m.bandeira or "OUTROS"
         formatted_desc = format_card_description(bandeira_nome, tp_lower)
         modality = "Debito" if ("debito" in tp_lower or "debit" in tp_lower) else "Credito"
         
-        vendedor_nome = "N/A"
-        cliente_nome = "N/A"
-        rv = f"RV-{m.id:06d}"
+        valor_bruto = m.valor
+        valor_taxa = (valor_bruto * fee_percentage / Decimal("100")).quantize(Decimal("0.01"))
+        valor_liquido = valor_bruto - valor_taxa
         
-        if m.venda:
-            rv = m.venda.rv or rv
-            if m.venda.vendedor_id:
-                u = db.get(Usuario, m.venda.vendedor_id)
-                vendedor_nome = u.nome or u.email if u else "N/A"
-            if m.venda.entidade_id:
-                e = db.get(Entidade, m.venda.entidade_id)
-                cliente_nome = e.nome or e.nome_fantasia if e else "N/A"
-                
-        adicionar_ou_atualizar_recebivel_cartao_agrupado(
-            db=db,
-            empresa_id=empresa_id,
-            venda_id=v_id_str,
-            vencimento=vencimento,
-            valor=m.valor,
-            formatted_desc=formatted_desc,
-            plano_id=plano_id,
-            conta_id=None,
-            centro_custo_id=m.centro_custo_id,
-            hoje_pag=m.data,
-            bandeira=bandeira_nome.upper(),
-            modality=modality,
-            current_user_id=current_user.id,
-            venda_rv=rv,
-            vendedor_nome=vendedor_nome,
-            cliente_nome=cliente_nome
-        )
+        if formatted_desc not in totais_por_descricao:
+            totais_por_descricao[formatted_desc] = {
+                "bruto": Decimal("0.00"),
+                "liquido": Decimal("0.00"),
+                "bandeira": bandeira_nome.upper(),
+                "modality": modality,
+                "centro_custo_id": m.centro_custo_id
+            }
+            
+        totais_por_descricao[formatted_desc]["bruto"] += valor_bruto
+        totais_por_descricao[formatted_desc]["liquido"] += valor_liquido
 
-    # 4. Deletar os agrupamentos que ficaram vazios (0 contribuições)
-    db.flush()
-    for l in lancamentos_dia:
-        if l.status != "PAGO":
-            meta = {}
-            if l.observacao:
-                try:
-                    meta = json.loads(l.observacao)
-                except Exception:
-                    pass
-            contribuicoes = meta.get("contribuicoes", {})
-            if not contribuicoes:
-                l.is_deleted = True
+    plano_id = obter_categoria_receita_pdv(db, empresa_id)
+
+    # 3. Atualizar os Lançamentos do dia
+    lancamentos_existentes = db.exec(
+        select(Lancamento).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            col(Lancamento.observacao).like('%"grouped_card_launch": true%'),
+            Lancamento.data_vencimento == target_date
+        )
+    ).all()
+    
+    lancamentos_map = {l.descricao: l for l in lancamentos_existentes}
+
+    for desc, totais in totais_por_descricao.items():
+        if totais["liquido"] <= 0:
+            continue
+            
+        l = lancamentos_map.get(desc)
+        if l:
+            if l.status != "PAGO":
+                l.valor_previsto = totais["liquido"]
+                l.updated_at = dt.utcnow()
+                l.updated_by_id = current_user.id
                 db.add(l)
+            lancamentos_map.pop(desc)
+        else:
+            # Criar entidade genérica de Cartão se não existir
+            entidade_nome = "Recebimento Cartões"
+            entidade = db.exec(select(Entidade).where(Entidade.empresa_id == empresa_id, Entidade.nome == entidade_nome)).first()
+            if not entidade:
+                entidade = Entidade(
+                    nome=entidade_nome, empresa_id=empresa_id, tipo="AMBOS", tipo_pessoa="PJ",
+                    status="ATIVO", created_by_id=current_user.id, updated_by_id=current_user.id
+                )
+                db.add(entidade)
+                db.flush()
+                
+            meta = {
+                "grouped_card_launch": True,
+                "bandeira": totais["bandeira"],
+                "modalidade": totais["modality"]
+            }
+            novo_l = Lancamento(
+                descricao=desc,
+                tipo="RECEITA",
+                status="EM ABERTO",
+                origem="PDV",
+                valor_previsto=totais["liquido"],
+                valor_pago=Decimal("0.00"),
+                valor_juros=Decimal("0.00"),
+                valor_desconto=Decimal("0.00"),
+                valor_multa=Decimal("0.00"),
+                data_vencimento=target_date,
+                data_competencia=target_date,
+                empresa_id=empresa_id,
+                plano_contas_id=plano_id,
+                entidade_id=entidade.id,
+                centro_custo_id=totais["centro_custo_id"],
+                observacao=json.dumps(meta),
+                is_deleted=False,
+                created_by_id=current_user.id,
+                updated_by_id=current_user.id
+            )
+            db.add(novo_l)
+
+    # 4. Deletar (ou zerar) os Lançamentos que não tiveram NENHUMA movimentação projetada pra hoje
+    for desc, l_restante in lancamentos_map.items():
+        if l_restante.status != "PAGO":
+            l_restante.is_deleted = True
+            l_restante.updated_at = dt.utcnow()
+            l_restante.updated_by_id = current_user.id
+            db.add(l_restante)
 
     db.commit()
-    return {"status": "success", "message": "Financeiro recalculado com sucesso."}
+    return {"status": "success", "message": "Financeiro recalculado com sucesso pela Data de Vencimento."}

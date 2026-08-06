@@ -1475,19 +1475,19 @@ export function Dre() {
             <table ref={tableRef} className="w-full min-w-[1520px] border-separate border-spacing-0 text-sm">
               <thead>
                 <tr>
-                  <th className="sticky left-0 z-20 border-b border-r border-slate-255 bg-slate-900 px-5 py-4 text-left text-[10px] font-black uppercase tracking-[0.24em] !text-white">Conta</th>
-                  <th className="z-10 border-b border-r border-slate-255 bg-slate-900 px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.24em] !text-white">Total</th>
+                  <th className="sticky top-0 left-0 z-30 border-b border-r border-slate-255 bg-slate-900 px-5 py-4 text-left text-[10px] font-black uppercase tracking-[0.24em] !text-white shadow-sm">Conta</th>
+                  <th className="sticky top-0 z-20 border-b border-r border-slate-255 bg-slate-900 px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.24em] !text-white shadow-sm">Total</th>
                   {monthLabels.map((label, index) => (
                     <th
                       key={label}
                       onClick={() => setSelectedMonth((prev) => (prev === index ? null : index))}
                       title={selectedMonth === index ? 'Clique para voltar ao ano inteiro' : `Clique para filtrar ${label}`}
-                      className={`z-10 cursor-pointer border-b border-r px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 ${selectedMonth === index ? selectedMonthHeaderClass : 'border-slate-255 bg-slate-900 !text-white'}`}
+                      className={`sticky top-0 z-20 cursor-pointer border-b border-r px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 shadow-sm ${selectedMonth === index ? selectedMonthHeaderClass : 'border-slate-255 bg-slate-900 !text-white'}`}
                     >
                       {label}
                     </th>
                   ))}
-                  <th className="z-10 w-3 border-b border-amber-300 bg-amber-200 px-0 py-0" />
+                  <th className="sticky top-0 z-20 w-3 border-b border-amber-300 bg-amber-200 px-0 py-0" />
                 </tr>
               </thead>
               <tbody>

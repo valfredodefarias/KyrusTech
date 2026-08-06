@@ -17,9 +17,20 @@ if sys.stdout.encoding.lower() != 'utf-8':
         pass
 
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
+def load_env(filepath=".env"):
+    if not os.path.exists(filepath):
+        return
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                key, val = line.split("=", 1)
+                os.environ[key.strip()] = val.strip().strip("'").strip('"')
+
+load_env()
 
 def run_psql(sql):
     db_user = os.getenv("POSTGRES_USER", "postgres")

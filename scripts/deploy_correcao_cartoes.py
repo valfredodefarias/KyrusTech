@@ -16,8 +16,15 @@ if sys.stdout.encoding.lower() != 'utf-8':
     except Exception:
         pass
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 def run_psql(sql):
-    cmd = ["docker", "exec", "db_kyrustech", "psql", "-U", "kyrus_user", "-d", "kyrus_erp", "-c", sql]
+    db_user = os.getenv("POSTGRES_USER", "postgres")
+    db_name = os.getenv("POSTGRES_DB", "postgres")
+    cmd = ["docker", "exec", "db_kyrustech", "psql", "-U", db_user, "-d", db_name, "-c", sql]
     res = subprocess.run(cmd, capture_output=True, text=True)
     return res.returncode, res.stdout.strip(), res.stderr
 

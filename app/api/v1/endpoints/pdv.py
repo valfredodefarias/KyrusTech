@@ -976,31 +976,30 @@ def listar_recebiveis_cartao(
         .order_by(PdvMovimentacao.data.desc(), PdvMovimentacao.id.desc())
     )
     from dateutil.relativedelta import relativedelta
+    from app.models.regra_cartao import RegraCartao
+    
     if start_date:
-        query = query.where(PdvMovimentacao.data >= start_date - relativedelta(months=12))
+        # Optimization: Only look back 12 months if there's a PRO_RATA rule for installments.
+        # Otherwise, 2 months is more than enough for ANTECIPADO and standard CREDIT delays.
+        has_pro_rata = db.exec(
+            select(RegraCartao)
+            .where(
+                RegraCartao.empresa_id == empresa_id,
+                RegraCartao.tipo_pagamento == "cartao_credito_parcelado",
+                RegraCartao.modo_parcelamento == "PRO_RATA",
+                RegraCartao.is_deleted == False
+            )
+        ).first()
+        
+        lookback_months = 12 if has_pro_rata else 2
+        query = query.where(PdvMovimentacao.data >= start_date - relativedelta(months=lookback_months))
+        
     if end_date:
         query = query.where(PdvMovimentacao.data <= end_date)
 
     rows = db.exec(query).all()
 
-    # Prefetch items for performance (avoiding N+1 queries)
-    venda_ids = [m.venda_id for m, *_ in rows if m.venda_id]
-    items_map = {}
-    if venda_ids:
-        venda_items = db.exec(
-            select(PdvVendaItem)
-            .options(selectinload(PdvVendaItem.produto))
-            .where(PdvVendaItem.venda_id.in_(venda_ids))
-        ).all()
-        for vi in venda_items:
-            items_map.setdefault(vi.venda_id, []).append({
-                "produto_id": vi.produto_id,
-                "nome": vi.nome_customizado or (vi.produto.nome if vi.produto else "Produto"),
-                "quantidade": float(vi.quantidade),
-                "preco_unitario": float(vi.preco_unitario),
-                "desconto": float(vi.desconto or 0),
-                "subtotal": float(vi.subtotal)
-            })
+    # Prefetch items removed since it is not used in the final response and consumes memory
 
     regras_cache = {}
     recebiveis = []

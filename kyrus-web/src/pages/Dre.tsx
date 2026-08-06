@@ -1470,8 +1470,8 @@ export function Dre() {
           </aside>
         ) : null}
 
-        <section className={`overflow-hidden rounded-none border shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] ${isDark ? 'border-slate-800 bg-slate-950/75' : 'border-slate-200 bg-white'}`}>
-          <div className="overflow-x-auto overflow-y-visible">
+        <section className={`rounded-none border shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] ${isDark ? 'border-slate-800 bg-slate-950/75' : 'border-slate-200 bg-white'}`}>
+          <div className="overflow-auto max-h-[75vh] custom-scrollbar">
             <table ref={tableRef} className="w-full min-w-[1520px] border-separate border-spacing-0 text-sm">
               <thead>
                 <tr>

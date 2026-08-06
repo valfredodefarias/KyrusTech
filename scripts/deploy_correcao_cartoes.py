@@ -84,6 +84,24 @@ def main():
         print(f"❌ Erro ao limpar parcelas fantasmas: {err.strip()}")
         sys.exit(1)
 
+    # 3. LIMPEZA DOS LANÇAMENTOS FINANCEIROS ÓRFÃOS GERADOS PELOS FANTASMAS
+    print("\n3️⃣ Limpando Lançamentos Financeiros (A Receber) associados às parcelas fantasmas...")
+    sql_lancamentos = """
+        UPDATE lancamentos
+        SET is_deleted = true, updated_at = NOW()
+        WHERE empresa_id IN (35, 37, 39, 40)
+          AND is_deleted = false
+          AND status = 'EM ABERTO'
+          AND observacao LIKE '%"grouped_card_launch": true%'
+          AND data_competencia < '2026-08-01';
+    """
+    code, out, err = run_psql(sql_lancamentos)
+    if code == 0:
+        print(f"✅ Lançamentos fantasmas no Financeiro removidos com sucesso: {out.strip()}")
+    else:
+        print(f"❌ Erro ao limpar lançamentos financeiros: {err.strip()}")
+        sys.exit(1)
+
     print("\n🎉 SCRIPT FINALIZADO COM SUCESSO!")
 
 if __name__ == "__main__":

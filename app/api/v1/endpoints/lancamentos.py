@@ -39,6 +39,7 @@ from app.core.network import get_client_ip
 from app.api.deps import get_current_user, get_empresa_id_from_user, require_permission
 
 from app.services.lancamento_service import LancamentoService
+from app.websockets.manager import broadcast_sync
 from app.crud import crud_plano_contas
 
 # --- Schemas ---
@@ -1774,6 +1775,7 @@ def criar_lancamento(lancamento_in: LancamentoCreate, service: LancamentoService
     created = service.create(dados=lancamento_in, empresa_id=empresa_id, user_id=user_id)
     from app.core.cache import clear_transaction_cache
     clear_transaction_cache(empresa_id)
+    broadcast_sync(empresa_id, 'LANCAMENTO_CREATED', {'id': created.id})
     return created
 
 @router.get("/{lancamento_id}", response_model=LancamentoRead)
@@ -1811,6 +1813,7 @@ def atualizar_lancamento(lancamento_id: int, lancamento_in: LancamentoUpdate, se
     updated = service.update(lancamento_id=lancamento_id, dados_atualizacao=lancamento_in, empresa_id=empresa_id, user_id=user_id)
     from app.core.cache import clear_transaction_cache
     clear_transaction_cache(empresa_id)
+    broadcast_sync(empresa_id, 'LANCAMENTO_UPDATED', {'id': updated.id})
     return updated
 
 @router.delete(
@@ -1828,6 +1831,7 @@ def deletar_lancamento(
     service.delete(lancamento_id, empresa_id, user_id, confirmar_exclusao_pagos=confirmar_exclusao_pagos)
     from app.core.cache import clear_transaction_cache
     clear_transaction_cache(empresa_id)
+    broadcast_sync(empresa_id, 'LANCAMENTO_DELETED', {'id': lancamento_id})
 
 # ==========================================
 # AÇÕES EM MASSA (BULK)

@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BankAvatar } from '../components/BrandAvatar';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useBankPresetStore, type BankPreset } from '../store/bankPresetStore';
 import { PlanoContasManager } from './Importacao';
 import type { ItemSistema } from './Importacao';
-import {
-  Building2, Search, UserPlus, ArrowRightLeft, Briefcase, Upload, X, Loader2, Pencil, Users, Shield, Plus, Trash2, ChevronDown, ChevronUp, Landmark,
-  KeyRound, CheckCircle2, Layers
-} from 'lucide-react';
+import { Building2, Search, ArrowRight, UploadCloud, Users, Tag, CreditCard, ChevronRight, CheckCircle2, ShieldAlert, KeySquare, ToggleRight, LayoutTemplate, Briefcase, FileText, Database, Shield, Box, Loader2, ListTree, RefreshCw, Smartphone, ChevronDown, Layers, Landmark, UserPlus, Pencil, Trash2, ChevronUp, Plus, Upload, KeyRound, X, ArrowRightLeft } from 'lucide-react';
 
 // --- TIPAGENS ---
 interface Empresa {
@@ -1239,16 +1237,20 @@ export function Consultor() {
             <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_2fr_2fr]">
               <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 dark:border-slate-700 dark:bg-slate-900/30">
                 <p className="mb-2 text-sm font-bold text-slate-800 dark:text-slate-100">Empresa</p>
-                <select
-                  value={selectedEmpresaAutoAdjustId ?? ''}
-                  onChange={(e) => setSelectedEmpresaAutoAdjustId(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                >
-                  <option value="">Selecione a empresa</option>
-                  {empresas.map((empresa) => (
-                    <option key={empresa.id} value={empresa.id}>{empresa.nome_fantasia}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={selectedEmpresaAutoAdjustId === null ? '' : String(selectedEmpresaAutoAdjustId)}
+                  onChange={(val) => setSelectedEmpresaAutoAdjustId(val ? Number(val) : null)}
+                  options={[{
+                    label: 'Empresa',
+                    options: [
+                      { id: '', label: 'Selecione a empresa' },
+                      ...empresas.map((empresa) => ({
+                        id: String(empresa.id),
+                        label: empresa.nome_fantasia || ''
+                      }))
+                    ]
+                  }]}
+                />
                 {empresaAutoAdjustConfig?.tipo_pessoa ? (
                   <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Tipo pessoa: {empresaAutoAdjustConfig.tipo_pessoa}</p>
                 ) : null}
@@ -1616,14 +1618,17 @@ export function Consultor() {
                 </div>
                 <div>
                   <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Tipo</label>
-                  <select
-                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  <SearchableSelect
                     value={formEmpresa.tipo_pessoa}
-                    onChange={e => setFormEmpresa({ ...formEmpresa, tipo_pessoa: e.target.value as 'PF' | 'PJ' })}
-                  >
-                    <option value="PF">Pessoa Física</option>
-                    <option value="PJ">Pessoa Jurídica</option>
-                  </select>
+                    onChange={val => setFormEmpresa({ ...formEmpresa, tipo_pessoa: String(val) as 'PF' | 'PJ' })}
+                    options={[{
+                      label: 'Tipo',
+                      options: [
+                        { id: 'PF', label: 'Pessoa Física' },
+                        { id: 'PJ', label: 'Pessoa Jurídica' }
+                      ]
+                    }]}
+                  />
                 </div>
                 <div>
                   <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Cor da Marca</label>
@@ -1668,10 +1673,18 @@ export function Consultor() {
               </div>
               <div>
                 <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Vincular Empresa</label>
-                <select className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" value={isSuperConsultor ? newUser.empresa_id : (currentUser?.empresa_id || 0)} onChange={e => setNewUser({...newUser, empresa_id: Number(e.target.value)})} disabled={!isSuperConsultor || newUser.is_consultor}>
-                  <option value={0}>{newUser.is_consultor ? '-- Consultores acessam múltiplas empresas --' : '-- Selecione --'}</option>
-                  {!newUser.is_consultor && (isSuperConsultor ? empresas : empresas.filter(emp => emp.id === currentUser?.empresa_id)).map(emp => (<option key={emp.id} value={emp.id}>{emp.nome_fantasia}</option>))}
-                </select>
+                <SearchableSelect
+                  value={isSuperConsultor ? newUser.empresa_id : (currentUser?.empresa_id || 0)}
+                  onChange={(val) => setNewUser({...newUser, empresa_id: Number(val)})}
+                  disabled={!isSuperConsultor || newUser.is_consultor}
+                  options={[{
+                    label: 'Empresas',
+                    options: [
+                      { id: 0, label: newUser.is_consultor ? '-- Consultores acessam múltiplas empresas --' : '-- Selecione --' },
+                      ...(!newUser.is_consultor ? (isSuperConsultor ? empresas : empresas.filter(emp => emp.id === currentUser?.empresa_id)).map(emp => ({ id: emp.id, label: emp.nome_fantasia })) : [])
+                    ]
+                  }]}
+                />
               </div>
               {isSuperConsultor ? (
                 <div className="flex items-center gap-2 pt-2 bg-slate-50 dark:bg-slate-700/50 p-2 rounded">

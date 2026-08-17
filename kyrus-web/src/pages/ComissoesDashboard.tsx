@@ -5,6 +5,7 @@ import {
   RefreshCw, AlertCircle, Award, 
   ChevronDown, ChevronUp, Target, Sparkles, UserCheck, Users, Share2, DollarSign, Search
 } from 'lucide-react';
+import { SearchableSelect } from '../components/SearchableSelect';
 
 const formatBRL = (val: number, forceDecimals = false) => {
   if (val === undefined || val === null) return '0';
@@ -451,28 +452,26 @@ export function ComissoesDashboard() {
         <div className="flex items-center gap-4">
           <div className="relative flex items-center gap-1.5">
             <span className="text-xs text-amber-500/80 uppercase font-black tracking-wider">Mês:</span>
-            <select
-              value={mes}
-              onChange={(e) => setMes(Number(e.target.value))}
-              className="pl-3 pr-8 py-1.5 rounded border border-amber-500/30 bg-black text-sm text-slate-200 outline-none cursor-pointer focus:ring-1 focus:ring-amber-500 hover:border-amber-500/60 transition"
-            >
-              {mesesMap.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={String(mes)}
+              onChange={(val) => setMes(Number(val))}
+              options={[{
+                label: 'Mês',
+                options: mesesMap.map((m) => ({ id: String(m.value), label: m.label }))
+              }]}
+            />
           </div>
 
           <div className="relative flex items-center gap-1.5">
             <span className="text-xs text-amber-500/80 uppercase font-black tracking-wider">Ano:</span>
-            <select
-              value={ano}
-              onChange={(e) => setAno(Number(e.target.value))}
-              className="pl-3 pr-8 py-1.5 rounded border border-amber-500/30 bg-black text-sm text-slate-200 outline-none cursor-pointer focus:ring-1 focus:ring-amber-500 hover:border-amber-500/60 transition"
-            >
-              {anosList.map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={String(ano)}
+              onChange={(val) => setAno(Number(val))}
+              options={[{
+                label: 'Ano',
+                options: anosList.map((a) => ({ id: String(a), label: String(a) }))
+              }]}
+            />
           </div>
 
           <button
@@ -644,17 +643,14 @@ export function ComissoesDashboard() {
                   <div className="flex items-center gap-2">
                     <span className="text-amber-500 text-xs font-black uppercase tracking-widest">Nome:</span>
                     {isAdminOrConsultor ? (
-                      <select
-                        value={selectedVendedorId}
-                        onChange={(e) => setSelectedVendedorId(Number(e.target.value))}
-                        className="bg-black text-amber-500 border-2 border-amber-500/50 rounded px-3 py-1.5 outline-none cursor-pointer font-black focus:ring-1 focus:ring-amber-500 text-sm hover:border-amber-500 transition"
-                      >
-                        {availableVendedores.map((v) => (
-                          <option key={v.vendedor_id} value={v.vendedor_id} className="bg-neutral-900 text-white">
-                            {v.vendedor} {v.vendedor_id > 0 ? `(${v.vendedor_id})` : ''}
-                          </option>
-                        ))}
-                      </select>
+                      <SearchableSelect
+                        value={String(selectedVendedorId)}
+                        onChange={(val) => setSelectedVendedorId(Number(val))}
+                        options={[{
+                          label: 'Nome',
+                          options: availableVendedores.map((v) => ({ id: String(v.vendedor_id), label: `${v.vendedor} ${v.vendedor_id > 0 ? `(${v.vendedor_id})` : ''}` }))
+                        }]}
+                      />
                     ) : (
                       <div className="inline-flex items-center gap-2 bg-amber-950/40 text-amber-400 border border-amber-500/40 rounded px-3 py-1.5 text-sm font-black select-none shadow-sm">
                         <UserCheck className="w-4 h-4 text-amber-500" />

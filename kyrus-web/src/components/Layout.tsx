@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, useRef, Component, type ReactNode, type DragEvent, useCallback } from 'react';
-import { Outlet, useLocation, useNavigate, useOutlet } from 'react-router-dom';
+import { useEffect, useMemo, useState, useRef, Component, type ReactNode, type DragEvent, useCallback, memo } from 'react';
+import { useLocation, useNavigate, MemoryRouter, Outlet, useLocation as useMemoryLocation, useNavigate as useMemoryNavigate } from 'react-router-dom';
+import { ErpRoutes } from './ErpRoutes';
 import { 
   AlertTriangle, Clock3, LogOut, Menu, Moon, RefreshCw, Sun, 
   Search, Star, Pin, X, ChevronLeft, ChevronRight, CheckCircle2,
@@ -12,11 +13,24 @@ import { useAuthStore, type AuthUser, type EmpresaInfo } from '../store/authStor
 import { useTabStore, type TabItem, DEFAULT_TAB } from '../store/tabStore';
 import { useLookupStore } from '../store/lookupStore';
 import { useTransactionStore } from '../store/transactionStore';
+import { useKyrusWebSocket } from '../hooks/useKyrusWebSocket';
 import { ROUTE_RULES, getFirstAllowedPath, hasPathPermission } from '../utils/routeRegistry';
 
 interface ConsultorContextoResponse {
   empresa_atual: EmpresaInfo;
 }
+
+const TabRouteWrapper = memo(({ tabItem }: { tabItem: TabItem }) => {
+  const customLocation = useMemo(() => ({
+    pathname: tabItem.basePath,
+    search: tabItem.path.includes('?') ? '?' + tabItem.path.split('?')[1] : '',
+    hash: '',
+    state: null,
+    key: tabItem.basePath
+  }), [tabItem.basePath, tabItem.path]);
+
+  return <ErpRoutes customLocation={customLocation} />;
+});
 
 // Mapeador de ícones Lucide dinâmico
 function TabIcon({ name, className, size = 13 }: { name: string; className?: string; size?: number }) {
@@ -180,13 +194,11 @@ function highlightText(text: string, query: string) {
   );
 }
 
+
 function LayoutShell() {
   const location = useLocation();
   const navigate = useNavigate();
-  const outlet = useOutlet();
-  
-  // Cache de elementos do useOutlet para Keep-Alive de abas
-  const [outletCache, setOutletCache] = useState<Record<string, React.ReactNode>>({});
+
 
   const logout = useAuthStore((state) => state.logout);
   const storedUser = useAuthStore((state) => state.user);
@@ -214,6 +226,12 @@ function LayoutShell() {
   const hydrateTabs = useTabStore((state) => state.hydrateTabs);
   const purgeUnauthorizedTabs = useTabStore((state) => state.purgeUnauthorizedTabs);
   const tenantKey = useTabStore((state) => state.tenantKey);
+  const splitMode = useTabStore((state) => state.splitMode);
+  const secondaryTabPath = useTabStore((state) => state.secondaryTabPath);
+  const focusedTabPath = useTabStore((state) => state.focusedTabPath);
+  const enableSplitMode = useTabStore((state) => state.enableSplitMode);
+  const disableSplitMode = useTabStore((state) => state.disableSplitMode);
+  const setFocusedTab = useTabStore((state) => state.setFocusedTab);
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -229,9 +247,8 @@ function LayoutShell() {
   
   const [minhasEmpresas, setMinhasEmpresas] = useState<any[]>([]);
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
+  const [dragOverZone, setDragOverZone] = useState<'left' | 'right' | null>(null);
 
-  const lastActiveBasePathRef = useRef<string | null>(null);
-  const activeOutletRef = useRef<React.ReactNode>(null);
 
   // Hydration Cycle
   useEffect(() => {
@@ -282,42 +299,7 @@ function LayoutShell() {
     }
   }, [tenantKey, storedUser, empresa?.pdv_config, purgeUnauthorizedTabs]);
 
-  // Guardar o outlet ativo no ref a cada renderização para podermos salvar no cache quando mudar de aba
-  if (outlet && activeTabPath) {
-    activeOutletRef.current = outlet;
-  }
 
-  // Salvar no cache de outlets apenas quando mudar de aba (basePath diferente)
-  useEffect(() => {
-    if (activeTabPath) {
-      const activeBasePath = activeTabPath.split('?')[0];
-      const lastActiveBasePath = lastActiveBasePathRef.current;
-
-      if (lastActiveBasePath && lastActiveBasePath !== activeBasePath && activeOutletRef.current) {
-        setOutletCache((prev) => ({
-          ...prev,
-          [lastActiveBasePath]: activeOutletRef.current,
-        }));
-      }
-      lastActiveBasePathRef.current = activeBasePath;
-    }
-  }, [activeTabPath]);
-
-  // Remover outlets de abas que foram fechadas (verificando por basePath)
-  useEffect(() => {
-    setOutletCache((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      const openBasePaths = tabs.map((t) => t.basePath);
-      for (const cachedBasePath in next) {
-        if (!openBasePaths.includes(cachedBasePath)) {
-          delete next[cachedBasePath];
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [tabs]);
 
   // Prefetching de transações do ano e mês correntes em background
   useEffect(() => {
@@ -409,6 +391,7 @@ function LayoutShell() {
 
   const tabScrollRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const sidebarTimeoutRef = useRef<number | null>(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
 
@@ -503,6 +486,9 @@ function LayoutShell() {
     }
   }, [activeTabPath]);
 
+  // Initialize global WebSocket connection
+  useKyrusWebSocket(storedUser?.empresa_id ?? undefined);
+
   // Interceptador de clique global na fase de captura para bloquear transições se a aba ativa for dirty
   useEffect(() => {
     const handleGlobalClick = (e: MouseEvent) => {
@@ -536,14 +522,51 @@ function LayoutShell() {
 
     if (MAIN_PAGES[basePath]) {
       const pageInfo = MAIN_PAGES[basePath];
-      setIsTabNavigating(true);
-      const timer = setTimeout(() => setIsTabNavigating(false), 250);
       
-      openTab(currentPath, pageInfo.label, pageInfo.iconName);
+      const { splitMode, activeTabPath, secondaryTabPath, focusedTabPath } = useTabStore.getState();
       
-      return () => clearTimeout(timer);
+      let isCurrentTab = false;
+      if (splitMode) {
+        // Se a tela está dividida, verifica se a rota atual já é a aba que está FOCADA
+        const focusedPath = focusedTabPath === secondaryTabPath ? secondaryTabPath : activeTabPath;
+        isCurrentTab = currentPath === focusedPath;
+      } else {
+        isCurrentTab = currentPath === activeTabPath;
+      }
+
+      if (!isCurrentTab) {
+        setIsTabNavigating(true);
+        const timer = setTimeout(() => setIsTabNavigating(false), 250);
+        openTab(currentPath, pageInfo.label, pageInfo.iconName);
+        return () => clearTimeout(timer);
+      }
     }
   }, [location.pathname, location.search, openTab]);
+
+  // Detector global de clique para controle de foco perfeito
+  useEffect(() => {
+    const handleGlobalMouseDown = (e: MouseEvent) => {
+      const { splitMode, activeTabPath, secondaryTabPath, focusedTabPath, setFocusedTab } = useTabStore.getState();
+      if (!splitMode) return;
+      
+      const target = e.target as HTMLElement;
+      // Checa se o clique foi no painel direito
+      if (target.closest('#right-pane')) {
+        if (secondaryTabPath && focusedTabPath !== secondaryTabPath) {
+          setFocusedTab(secondaryTabPath);
+        }
+      } 
+      // Checa se o clique foi no painel esquerdo
+      else if (target.closest('#left-pane')) {
+        if (focusedTabPath !== activeTabPath) {
+          setFocusedTab(activeTabPath);
+        }
+      }
+    };
+    
+    document.addEventListener('mousedown', handleGlobalMouseDown, true);
+    return () => document.removeEventListener('mousedown', handleGlobalMouseDown, true);
+  }, []);
 
   // Função de navegação com confirmação de alterações pendentes (programática)
   const handleNavigateToTab = useCallback((path: string) => {
@@ -1113,11 +1136,21 @@ function LayoutShell() {
   }, [storedUser]);
 
   const handleSidebarMouseEnter = () => {
-    setSidebarCollapsed((prev) => (prev ? false : prev));
+    if (sidebarTimeoutRef.current) {
+      window.clearTimeout(sidebarTimeoutRef.current);
+      sidebarTimeoutRef.current = null;
+    }
+    if (!isSidebarDocked) {
+      setSidebarCollapsed(false);
+    }
   };
 
   const handleSidebarMouseLeave = () => {
-    setSidebarCollapsed((prev) => (prev ? prev : true));
+    if (!isSidebarDocked) {
+      sidebarTimeoutRef.current = window.setTimeout(() => {
+        setSidebarCollapsed(true);
+      }, 150);
+    }
   };
 
   const companyName = empresa?.nome_fantasia || 'Empresa não selecionada';
@@ -1177,14 +1210,55 @@ function LayoutShell() {
 
   const handleDragEnd = () => {
     setDraggedTabPath(null);
+    setDragOverTabIndex(null);
   };
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>, targetIndex: number) => {
-    const sourceIndex = parseInt(e.dataTransfer.getData('tabIndex'), 10);
-    if (!isNaN(sourceIndex) && sourceIndex !== targetIndex) {
-      reorderTabs(sourceIndex, targetIndex);
+  const handleDrop = (e: DragEvent<HTMLDivElement>, dropIndex: number) => {
+    e.preventDefault();
+    if (draggedTabPath) {
+      const draggedIndex = tabs.findIndex((t) => t.path === draggedTabPath);
+      if (draggedIndex !== -1 && draggedIndex !== dropIndex) {
+        reorderTabs(draggedIndex, dropIndex);
+      }
     }
     setDraggedTabPath(null);
+  };
+
+  const handleDropSplit = (e: DragEvent<HTMLDivElement>, position: 'left' | 'right') => {
+    e.preventDefault();
+    if (draggedTabPath) {
+      const draggedTab = tabs.find((t) => t.path === draggedTabPath);
+      if (draggedTab) {
+        if (draggedTabPath === activeTabPath) {
+          // Arrastou a aba ativa: precisamos encontrar outra aba para ocupar o espaço vazio
+          const otherTab = tabs.find((t) => t.path !== activeTabPath);
+          if (otherTab) {
+            if (position === 'left') {
+              // Soltou na esquerda: aba ativa fica na esquerda (primária), a outra vai para a direita (secundária)
+              setActiveTab(draggedTabPath);
+              enableSplitMode(otherTab.path);
+              navigate(draggedTabPath);
+            } else {
+              // Soltou na direita: aba ativa vai para a direita (secundária), a outra vira primária
+              setActiveTab(otherTab.path);
+              enableSplitMode(draggedTabPath);
+              navigate(draggedTabPath);
+            }
+          }
+        } else {
+          // Arrastou uma aba inativa
+          if (position === 'left') {
+            const currentPrimary = activeTabPath;
+            setActiveTab(draggedTabPath);
+            enableSplitMode(currentPrimary);
+            navigate(draggedTabPath);
+          } else {
+            enableSplitMode(draggedTabPath);
+            navigate(activeTabPath); // FIX: Keep URL in sync with the primary (left) tab!
+          }
+        }
+      }
+    }
   };
 
   // Menu de Contexto (Right Click)
@@ -1314,7 +1388,7 @@ function LayoutShell() {
       <div className="flex h-screen flex-col overflow-hidden bg-[#f6f8fa] font-sans text-slate-800 dark:bg-[#090d16] dark:text-slate-200">
         
         {/* CABEÇALHO COMPACTO (52px) */}
-        <header className="sticky top-0 z-20 shrink-0 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-[#161b22] px-4">
+        <header className="sticky top-0 z-40 shrink-0 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-[#161b22] px-4">
           <div className="flex h-[52px] w-full items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <button
@@ -1523,6 +1597,7 @@ function LayoutShell() {
               className="hidden md:flex flex-1 h-full items-end gap-0.5 overflow-x-auto custom-scrollbar-none pr-10 pl-6"
             >
               {tabs.map((tab, idx) => {
+                if (splitMode && tab.path === secondaryTabPath) return null;
                 const isActive = tab.path === activeTabPath;
                 const isGhost = draggedTabPath === tab.path;
                 return (
@@ -1540,7 +1615,6 @@ function LayoutShell() {
                     }}
                     onDrop={(e) => {
                       handleDrop(e, idx);
-                      setDragOverTabIndex(null);
                     }}
                     onContextMenu={(e) => handleContextMenu(e, tab.path)}
                     onClick={() => {
@@ -1723,29 +1797,113 @@ function LayoutShell() {
           <MobileSidebar open={mobileOpen} onClose={() => setMobileOpen(false)} />
           
           {/* Espaçamento Flush (padding 0) */}
-          <main ref={mainContentRef} className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-0 flex flex-col">
+          <main ref={mainContentRef} className="min-w-0 flex-1 flex flex-row overflow-hidden p-0 relative">
             {!online && (
-              <div className="shrink-0 bg-rose-500/10 border-b border-rose-500/20 text-rose-700 dark:text-rose-450 px-4 py-1.5 text-[10px] font-semibold text-center flex justify-center items-center gap-2 animate-in slide-in-from-top-1 duration-200">
+              <div className="absolute top-0 left-0 w-full z-20 bg-rose-500/10 border-b border-rose-500/20 text-rose-700 dark:text-rose-450 px-4 py-1.5 text-[10px] font-semibold text-center flex justify-center items-center gap-2 animate-in slide-in-from-top-1 duration-200">
                 <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping shrink-0" />
                 <span>Modo Offline: Você está desconectado da internet. A sincronização de dados e novas ações estão temporariamente suspensas.</span>
               </div>
             )}
-            <div className="flex-1 flex flex-col relative min-h-full w-full">
+
+            {/* Zona de Drop para Split Screen */}
+            {draggedTabPath && !splitMode && (
+              <div 
+                className="absolute inset-0 z-[9999] flex"
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setDragOverZone(null);
+                  }
+                }}
+                onDrop={() => {
+                  setDragOverZone(null);
+                }}
+              >
+                {/* Metade Esquerda */}
+                <div 
+                  className="flex-1 relative transition-all"
+                  onDragEnter={(e) => { e.preventDefault(); setDragOverZone('left'); }}
+                  onDragOver={(e) => { e.preventDefault(); if (dragOverZone !== 'left') setDragOverZone('left'); }}
+                  onDrop={(e) => { e.preventDefault(); setDragOverZone(null); handleDropSplit(e, 'left'); }}
+                >
+                  <div className={`absolute inset-0 bg-blue-500/10 border-r-[3px] border-blue-500/50 flex items-center justify-center transition-all duration-200 backdrop-blur-[2px] pointer-events-none ${dragOverZone === 'left' ? 'opacity-100' : 'opacity-0'}`}>
+                    <div className={`bg-white/90 dark:bg-slate-900/90 text-blue-600 dark:text-blue-400 font-bold px-6 py-3 rounded-xl shadow-xl border border-blue-200 dark:border-blue-800/50 transform transition-transform ${dragOverZone === 'left' ? 'scale-100' : 'scale-95'}`}>
+                      Dividir Tela na Esquerda
+                    </div>
+                  </div>
+                </div>
+
+                {/* Metade Direita */}
+                <div 
+                  className="flex-1 relative transition-all"
+                  onDragEnter={(e) => { e.preventDefault(); setDragOverZone('right'); }}
+                  onDragOver={(e) => { e.preventDefault(); if (dragOverZone !== 'right') setDragOverZone('right'); }}
+                  onDrop={(e) => { e.preventDefault(); setDragOverZone(null); handleDropSplit(e, 'right'); }}
+                >
+                  <div className={`absolute inset-0 bg-blue-500/10 border-l-[3px] border-blue-500/50 flex items-center justify-center transition-all duration-200 backdrop-blur-[2px] pointer-events-none ${dragOverZone === 'right' ? 'opacity-100' : 'opacity-0'}`}>
+                    <div className={`bg-white/90 dark:bg-slate-900/90 text-blue-600 dark:text-blue-400 font-bold px-6 py-3 rounded-xl shadow-xl border border-blue-200 dark:border-blue-800/50 transform transition-transform ${dragOverZone === 'right' ? 'scale-100' : 'scale-95'}`}>
+                      Dividir Tela na Direita
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PAINEL PRIMÁRIO (Esquerda ou Centro) */}
+            <div 
+               id="left-pane"
+               className={`flex-1 flex flex-col relative min-h-full h-full overflow-y-auto ${splitMode ? 'border-r border-slate-200 dark:border-slate-800' : 'w-full'} ${focusedTabPath === activeTabPath && splitMode ? 'ring-1 ring-inset ring-blue-500/20' : ''}`}
+            >
               {(() => {
-                const activeBasePath = activeTabPath ? activeTabPath.split('?')[0] : '';
-                const basePathsToRender = Array.from(new Set([...Object.keys(outletCache), activeBasePath].filter(Boolean)));
+                let activeBasePath = activeTabPath ? activeTabPath.split('?')[0] : '';
+                const secondaryBasePath = secondaryTabPath ? secondaryTabPath.split('?')[0] : '';
+                const tabsToRender = tabs.filter(t => t.basePath !== secondaryBasePath);
                 
-                return basePathsToRender.map((basePath) => {
+                // FIX: se a aba ativa não estiver na lista de renderização (desync de estado), força a primeira aba a ser renderizada
+                if (tabsToRender.length > 0 && !tabsToRender.some(t => t.basePath === activeBasePath)) {
+                  activeBasePath = tabsToRender[0].basePath;
+                }
+
+                return tabsToRender.map((tabItem) => {
+                  const basePath = tabItem.basePath;
                   const isActive = basePath === activeBasePath;
-                  const element = (isActive ? outlet : null) || outletCache[basePath];
-                  const tabItem = tabs.find((t) => t.basePath === basePath) || DEFAULT_TAB;
+                  const element = (
+                    <TabRouteWrapper tabItem={tabItem} />
+                  );
                   
                   return (
                     <div
                       key={basePath}
                       style={{ display: isActive ? 'flex' : 'none' }}
-                      className="min-h-full w-full animate-tab-content flex-1 flex flex-col"
+                      className="min-h-full w-full flex-1 flex flex-col relative"
                     >
+                      {splitMode && isActive && (
+                        <div 
+                          className="flex shrink-0 items-center justify-between px-4 py-2 border-b bg-slate-50/80 dark:bg-[#0d1117]/80 border-slate-200 dark:border-slate-800 transition-colors"
+                          style={focusedTabPath === activeTabPath ? { borderTopWidth: '2px', borderTopStyle: 'solid', borderTopColor: empresa?.cor_primaria || '#2563eb' } : { borderTopWidth: '2px', borderTopStyle: 'solid', borderTopColor: 'transparent' }}
+                        >
+                          <div className="flex items-center gap-2 overflow-hidden">
+                             <TabIcon name={tabItem.iconName} className={focusedTabPath === activeTabPath ? 'text-blue-500' : 'text-slate-400'} size={14} />
+                             <span className={`text-xs font-bold truncate ${focusedTabPath === activeTabPath ? 'text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'}`}>
+                               {tabItem.label}
+                             </span>
+                          </div>
+                          <button 
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              const secondary = secondaryTabPath;
+                              disableSplitMode();
+                              if (secondary) {
+                                setActiveTab(secondary);
+                                navigate(secondary);
+                              }
+                            }}
+                            className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors shrink-0 ml-2"
+                            title="Fechar painel"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      )}
                       {!online && !tabItem.visited ? (
                         <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh] bg-white dark:bg-[#0d1117] rounded-md m-6 border border-dashed border-slate-200 dark:border-slate-800">
                           <AlertTriangle className="w-12 h-12 text-amber-500 mb-4 animate-pulse" />
@@ -1764,6 +1922,66 @@ function LayoutShell() {
                 });
               })()}
             </div>
+
+            {/* PAINEL SECUNDÁRIO (Direita) */}
+            {splitMode && secondaryTabPath && (
+              <div 
+                 id="right-pane"
+                 className={`flex-1 flex flex-col relative min-h-full h-full overflow-y-auto ${focusedTabPath === secondaryTabPath ? 'ring-1 ring-inset ring-blue-500/20' : ''}`}
+              >
+                {(() => {
+                  const secondaryBasePath = secondaryTabPath.split('?')[0];
+                  const tabItem = tabs.find((t) => t.basePath === secondaryBasePath) || DEFAULT_TAB;
+                  const element = <TabRouteWrapper tabItem={tabItem} />;
+                  
+                  return (
+                    <div className="min-h-full w-full flex-1 flex flex-col relative">
+                       {/* Header visual do painel secundário */}
+                       <div 
+                         className="flex shrink-0 items-center justify-between px-4 py-2 border-b bg-slate-50/80 dark:bg-[#0d1117]/80 border-slate-200 dark:border-slate-800 transition-colors"
+                         style={focusedTabPath === secondaryTabPath ? { borderTopWidth: '2px', borderTopStyle: 'solid', borderTopColor: empresa?.cor_primaria || '#2563eb' } : { borderTopWidth: '2px', borderTopStyle: 'solid', borderTopColor: 'transparent' }}
+                       >
+                         <div className="flex items-center gap-2 overflow-hidden">
+                            <TabIcon name={tabItem.iconName} className={focusedTabPath === secondaryTabPath ? 'text-blue-500' : 'text-slate-400'} size={14} />
+                            <span className={`text-xs font-bold truncate ${focusedTabPath === secondaryTabPath ? 'text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'}`}>
+                              {tabItem.label}
+                            </span>
+                         </div>
+                         <button 
+                           onClick={(e) => { e.stopPropagation(); disableSplitMode(); }}
+                           className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors shrink-0 ml-2"
+                           title="Fechar painel"
+                         >
+                           <X size={14} />
+                         </button>
+                       </div>
+
+                       {/* Overlay se não renderizou nada ainda (não tem cache nem é outlet ativo) */}
+                       {!element && (
+                          <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-50 dark:bg-[#0d1117] bg-opacity-70">
+                            <button 
+                              onClick={() => navigate(secondaryTabPath)}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm shadow hover:bg-blue-700"
+                            >
+                              Clique para carregar conteúdo
+                            </button>
+                          </div>
+                       )}
+                       {!online && !tabItem.visited ? (
+                         <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh] bg-white dark:bg-[#0d1117] rounded-md m-6 border border-dashed border-slate-200 dark:border-slate-800">
+                           <AlertTriangle className="w-12 h-12 text-amber-500 mb-4 animate-pulse" />
+                           <h3 className="text-base font-bold text-slate-850 dark:text-white">Sem Conexão com a Internet</h3>
+                         </div>
+                       ) : (
+                         <TabErrorBoundary key={`${tabItem.basePath}-${refreshCounters[tabItem.basePath] || 0}`} tab={tabItem}>
+                           {element}
+                         </TabErrorBoundary>
+                       )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </main>
         </div>
 
@@ -1810,12 +2028,40 @@ function LayoutShell() {
             </button>
             <hr className="border-slate-200 dark:border-slate-800 my-1" />
             <button
-              onClick={() => handleCloseOthers(activeContextMenu.path)}
+              onClick={() => {
+                handleCloseOthers(activeContextMenu.path);
+                setActiveContextMenu(null);
+              }}
               className="flex w-full px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-left gap-2 items-center"
             >
               <X size={11} />
               <span>Fechar Outras Abas</span>
             </button>
+            <button
+              onClick={() => {
+                const path = activeContextMenu.path;
+                if (splitMode && secondaryTabPath === path) {
+                  disableSplitMode();
+                } else if (!splitMode) {
+                  if (path === activeTabPath) {
+                    const otherTab = tabs.find(t => t.path !== activeTabPath);
+                    if (otherTab) {
+                      setActiveTab(otherTab.path);
+                      enableSplitMode(path);
+                      navigate(otherTab.path);
+                    }
+                  } else {
+                    enableSplitMode(path);
+                  }
+                }
+                setActiveContextMenu(null);
+              }}
+              className="flex w-full px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-left gap-2 items-center"
+            >
+              <Icons.SplitSquareHorizontal size={11} />
+              {splitMode && secondaryTabPath === activeContextMenu.path ? 'Remover Divisão' : 'Dividir Tela'}
+            </button>
+            <hr className="border-slate-200 dark:border-slate-800 my-1" />
             <button
               onClick={() => handleCloseLeft(activeContextMenu.path)}
               className="flex w-full px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-left gap-2 items-center"

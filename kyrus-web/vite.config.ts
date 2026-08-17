@@ -1,4 +1,5 @@
-import { defineConfig } from 'vite'
+/// <reference types="vitest" />
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
@@ -6,6 +7,11 @@ const hasPackage = (id: string, pkg: string) => id.includes(`/node_modules/${pkg
 const localBackendTarget = 'http://localhost:8000'
 
 export default defineConfig({
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/setupTests.ts',
+  },
   plugins: [react()],
   resolve: {
     alias: {

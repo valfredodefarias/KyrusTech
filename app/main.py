@@ -221,8 +221,12 @@ async def lifespan(app: FastAPI):
         SCHEDULER_STOP_EVENT.clear()
         SCHEDULER_TASK = asyncio.create_task(run_integracao_scheduler(SCHEDULER_STOP_EVENT))
     
+    from app.websockets.manager import manager
+    await manager.connect_redis()
+    
     yield
     
+    await manager.disconnect_redis()
     SCHEDULER_STOP_EVENT.set()
     if SCHEDULER_TASK is not None:
         try:
@@ -231,7 +235,6 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Falha ao finalizar scheduler de integração: {exc}")
         finally:
             SCHEDULER_TASK = None
-
 
 is_production = settings.ENVIRONMENT.lower() == "production"
 

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import type { FormEvent } from 'react';
-import { AlertCircle, Plus, X, Trash2, Edit3, Package, DollarSign, Percent, Info, QrCode, Search, Loader2 } from 'lucide-react';
+import { Edit2, Plus, Search, Trash2, Tag, Box, PackageOpen, AlertCircle, RefreshCw, X, Link, Check, FileDown, Eye, Upload, Loader2, Info, QrCode, Edit3, Percent, DollarSign, Package } from 'lucide-react';
+import { toast } from 'sonner';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { api, toPublicAssetUrl, normalizeListResponse } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 
@@ -847,18 +849,20 @@ export default function Produtos() {
 
                 <div>
                   <label className="mb-1.5 block text-xs font-bold text-slate-500 dark:text-slate-350">Selecione o Produto de Destino</label>
-                  <select
+                  <SearchableSelect
                     value={selectedExistenteId}
-                    onChange={(e) => setSelectedExistenteId(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white cursor-pointer"
-                  >
-                    <option value="">-- Selecione o Produto --</option>
-                    {produtos.filter(p => !p.revisao_pendente && p.is_active !== false && p.id !== editingProduto?.id).map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.nome} ({p.tipo === 'SERVICO' ? 'Serviço' : 'Produto'} - {currency.format(p.preco_unitario)})
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setSelectedExistenteId(String(val))}
+                    options={[{
+                      label: 'Produto',
+                      options: [
+                        { id: '', label: '-- Selecione o Produto --' },
+                        ...produtos.filter(p => !p.revisao_pendente && p.is_active !== false && p.id !== editingProduto?.id).map((p) => ({
+                          id: p.id,
+                          label: `${p.nome} (${p.tipo === 'SERVICO' ? 'Serviço' : 'Produto'} - ${currency.format(p.preco_unitario)})`
+                        }))
+                      ]
+                    }]}
+                  />
                 </div>
               </div>
 

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, normalizeListResponse } from '../services/api';
-import { RefreshCw, Link as LinkIcon, Loader2, Save, Search, ChevronDown, KeyRound } from 'lucide-react';
+import { Save, Plus, ArrowLeft, RefreshCw, Eye, Edit2, AlertCircle, Link2, Copy, Settings, ArrowRight, Wallet, Check, AlertTriangle, ChevronDown, Search, Link as LinkIcon, KeyRound, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { SearchableSelect } from '../components/SearchableSelect';
 
 interface Conta {
   id: number;
@@ -732,18 +734,20 @@ export function IntegracaoAsaas() {
         {!contaIdParamNumber && integracoesAsaas.length > 1 ? (
           <div>
             <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Integração</label>
-            <select
-              className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+            <SearchableSelect
               value={selectedIntegracaoId || ''}
-              onChange={(e) => setSelectedIntegracaoId(e.target.value ? parseInt(e.target.value, 10) : null)}
-            >
-              <option value="">Selecione...</option>
-              {integracoesAsaas.map((integracao) => (
-                <option key={integracao.id} value={integracao.id}>
-                  {integracao.nome} ({integracao.ambiente})
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setSelectedIntegracaoId(val ? parseInt(String(val), 10) : null)}
+              options={[{
+                label: 'Integração',
+                options: [
+                  { id: '', label: 'Selecione...' },
+                  ...integracoesAsaas.map((integracao) => ({
+                    id: integracao.id,
+                    label: `${integracao.nome} (${integracao.ambiente})`
+                  }))
+                ]
+              }]}
+            />
           </div>
         ) : null}
 

@@ -1766,26 +1766,19 @@ export const LancamentoFormDrawer = ({
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Centro de Custo</label>
                 <div className="mb-3">
-                  <select
-                    className="w-full p-2 text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={formData.conciliado}
+                  <SearchableSelect
+                    options={[{ label: 'Centros', options: centros.map((c) => ({ id: String(c.id), label: c.nome })) }]}
                     value={formData.centro_custo_id}
-                    onChange={(e) =>
+                    onChange={(v) =>
                       setFormData((prev: any) => ({
                         ...prev,
-                        centro_custo_id: e.target.value,
+                        centro_custo_id: String(v),
                         conta_id: '',
                         cartao_id: '',
                       }))
                     }
-                  >
-                    <option value="">Selecione um centro de custo</option>
-                    {centros.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nome}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Selecione um centro de custo"
+                  />
                 </div>
 
                 <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-slate-50 dark:bg-slate-800/30 space-y-4">

@@ -6,7 +6,9 @@ import { useLookupStore } from '../../store/lookupStore';
 import { useAuthStore } from '../../store/authStore';
 import { useTransactionStore } from '../../store/transactionStore';
 import { useTabStore } from '../../store/tabStore';
+import { useKyrusWsListener } from '../../hooks/useKyrusWebSocket';
 import { buildOperationalCategoriaIds } from '../../utils/planoContas';
+import { SearchableSelect } from '../../components/SearchableSelect';
 import {
   Plus,
   Search,
@@ -71,6 +73,21 @@ export function Lancamentos({
   const pagedLancamentos = useTransactionStore((state) => state.pagedLancamentos);
   const pagedCacheKey = useTransactionStore((state) => state.pagedCacheKey);
   const setPagedLancamentos = useTransactionStore((state) => state.setPagedLancamentos);
+  const removeTransactionFromCache = useTransactionStore((state) => state.removeTransactionFromCache);
+  const fetchWsSyncItem = useTransactionStore((state) => state.fetchWsSyncItem);
+
+  // WebSocket Listeners for real-time Sync
+  const handleWsUpsert = useCallback((payload: any) => {
+    if (payload?.id) fetchWsSyncItem(payload.id);
+  }, [fetchWsSyncItem]);
+
+  const handleWsDelete = useCallback((payload: any) => {
+    if (payload?.id) removeTransactionFromCache(payload.id);
+  }, [removeTransactionFromCache]);
+
+  useKyrusWsListener('LANCAMENTO_CREATED', handleWsUpsert);
+  useKyrusWsListener('LANCAMENTO_UPDATED', handleWsUpsert);
+  useKyrusWsListener('LANCAMENTO_DELETED', handleWsDelete);
 
   const lancamentos = pagedLancamentos;
 
@@ -1290,35 +1307,33 @@ export function Lancamentos({
               />
             </div>
             <div className="w-full sm:w-48">
-              <select
-                className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-white outline-none focus:border-blue-500"
+              <SearchableSelect
                 value={centroCustoFiltro}
-                onChange={(e) => setCentroCustoFiltro(e.target.value)}
-              >
-                <option value="">Todos Centros</option>
-                {centros.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nome}
-                  </option>
-                ))}
-              </select>
+                onChange={(val: any) => setCentroCustoFiltro(String(val))}
+                options={[{
+                  label: 'Centro de custo',
+                  options: [
+                    { id: '', label: 'Todos Centros' },
+                    ...centros.map((c) => ({ id: c.id, label: c.nome }))
+                  ]
+                }]}
+              />
             </div>
           </div>
 
           <div className="flex w-full items-center gap-2 overflow-x-auto lg:w-auto lg:justify-end lg:overflow-visible">
             <div className="hidden shrink-0 lg:block lg:w-56">
-              <select
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+              <SearchableSelect
                 value={centroCustoFiltro}
-                onChange={(e) => setCentroCustoFiltro(e.target.value)}
-              >
-                <option value="">Centro de custo</option>
-                {centros.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nome}
-                  </option>
-                ))}
-              </select>
+                onChange={(val: any) => setCentroCustoFiltro(String(val))}
+                options={[{
+                  label: 'Centro de custo',
+                  options: [
+                    { id: '', label: 'Centro de custo' },
+                    ...centros.map((c) => ({ id: c.id, label: c.nome }))
+                  ]
+                }]}
+              />
             </div>
             <button
               onClick={() => setShowTransfer(true)}

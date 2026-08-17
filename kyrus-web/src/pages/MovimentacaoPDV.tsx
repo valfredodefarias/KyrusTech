@@ -1,41 +1,48 @@
 // kyrus-web/src/pages/MovimentacaoPDV.tsx
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Calendar, DollarSign, Trash2, Edit, CheckCircle, AlertCircle,
   RefreshCw, ChevronLeft, ChevronRight, X, PlusCircle, MinusCircle,
   Search, Download, Printer, TrendingUp, TrendingDown
 } from 'lucide-react';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { api, normalizeListResponse } from '../services/api';
 import { useAuthStore } from '../store/authStore';
+import { useKyrusWsListener } from '../hooks/useKyrusWebSocket';
 
-interface MovimentacaoPDV {
-  id: number;
-  id_parcelamento?: string | null;
-  tipo: 'ENTRADA' | 'SAIDA';
-  descricao: string;
-  valor: number;
-  forma_pagamento: string;
-  bandeira: string;
-  parcelas: number;
-  data: string;
-  centro_custo_id?: number | null;
-  conta_id?: number | null;
-  conciliado: boolean;
-}
+import { usePdvMovimentacaoStore, type MovimentacaoPDV } from '../store/pdvMovimentacaoStore';
 
 type FilterTipo = 'TODOS' | 'ENTRADA' | 'SAIDA';
 type FilterForma = 'TODOS' | 'DINHEIRO' | 'PIX' | 'DEBITO' | 'CREDITO';
 type FilterConciliado = 'TODOS' | 'SIM' | 'NAO';
+
+function formatExpressionCentsFirst(input: string): string {
+  if (!input) return '';
+  const tokens = input.split(/([+\-*/()])/g);
+  const formattedTokens = tokens.map((token) => {
+    if (/^[0-9]+$/.test(token)) {
+      const padded = token.padStart(3, '0');
+      const integerPart = padded.slice(0, -2).replace(/^0+(?=\d)/, '') || '0';
+      const decimalPart = padded.slice(-2);
+      return `${integerPart},${decimalPart}`;
+    }
+    return token;
+  });
+  return formattedTokens.join('');
+}
 
 export function MovimentacaoPDV() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const printRef = useRef<HTMLDivElement>(null);
 
-  const [movimentacoes, setMovimentacoes] = useState<MovimentacaoPDV[]>([]);
-  const [loading, setLoading] = useState(false);
+  const fetchMovimentacoesAction = usePdvMovimentacaoStore((state) => state.fetchMovimentacoes);
+  const invalidateStore = usePdvMovimentacaoStore((state) => state.invalidate);
   const [saving, setSaving] = useState(false);
+
+  const fetchWsSyncItems = usePdvMovimentacaoStore((state) => state.fetchWsSyncItems);
+  const removeMovimentacao = usePdvMovimentacaoStore((state) => state.removeMovimentacao);
 
   // Selection & Dates
   const [selectedDate, setSelectedDate] = useState<string>(() => {
@@ -47,6 +54,34 @@ export function MovimentacaoPDV() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
+
+  // WebSocket listeners para atualizar a lista em tempo real sem recarregar o mês inteiro
+  const handleWsUpsert = useCallback((payload: any, eventName: string) => {
+    const refId = payload?.id || payload?.id_parcelamento;
+    if (refId) fetchWsSyncItems(eventName, refId);
+  }, [fetchWsSyncItems]);
+
+  const handleWsDelete = useCallback((payload: any) => {
+    const refId = payload?.id || payload?.id_parcelamento;
+    if (refId) removeMovimentacao(refId);
+  }, [removeMovimentacao]);
+
+  useKyrusWsListener('VENDA_CREATED', (payload) => handleWsUpsert(payload, 'VENDA_CREATED'));
+  useKyrusWsListener('VENDA_UPDATED', (payload) => handleWsUpsert(payload, 'VENDA_UPDATED'));
+  useKyrusWsListener('VENDA_DELETED', handleWsDelete);
+  useKyrusWsListener('MOVIMENTACAO_PDV_CREATED', (payload) => handleWsUpsert(payload, 'MOVIMENTACAO_PDV_CREATED'));
+  useKyrusWsListener('MOVIMENTACAO_PDV_UPDATED', (payload) => handleWsUpsert(payload, 'MOVIMENTACAO_PDV_UPDATED'));
+  useKyrusWsListener('MOVIMENTACAO_PDV_DELETED', handleWsDelete);
+  // Lançamentos comuns vinculados a centro de custos ou com "sangria" podem aparecer aqui:
+  useKyrusWsListener('LANCAMENTO_CREATED', (payload) => handleWsUpsert(payload, 'MOVIMENTACAO_PDV_CREATED'));
+  useKyrusWsListener('LANCAMENTO_UPDATED', (payload) => handleWsUpsert(payload, 'MOVIMENTACAO_PDV_UPDATED'));
+  useKyrusWsListener('LANCAMENTO_DELETED', handleWsDelete);
+
+  const monthCache = usePdvMovimentacaoStore((state) => state.monthCache);
+  const loadingMonths = usePdvMovimentacaoStore((state) => state.loadingMonths);
+
+  const movimentacoes = useMemo(() => monthCache[currentYearMonth] || [], [monthCache, currentYearMonth]);
+  const loading = loadingMonths[currentYearMonth] || false;
 
   const getLocalTodayString = () => {
     const d = new Date();
@@ -90,6 +125,7 @@ export function MovimentacaoPDV() {
   const [formTipo, setFormTipo] = useState<'ENTRADA' | 'SAIDA'>('ENTRADA');
   const [formDescricao, setFormDescricao] = useState('');
   const [formValor, setFormValor] = useState('');
+  const [formValorText, setFormValorText] = useState('');
   const [formFormaPagamento, setFormFormaPagamento] = useState('DINHEIRO');
   const [formBandeira, setFormBandeira] = useState('OUTROS');
   const [formParcelas, setFormParcelas] = useState(1);
@@ -100,6 +136,7 @@ export function MovimentacaoPDV() {
   // Sangria State
   const [showSangriaDrawer, setShowSangriaDrawer] = useState(false);
   const [sangriaValor, setSangriaValor] = useState('');
+  const [sangriaValorText, setSangriaValorText] = useState('');
   const [sangriaData, setSangriaData] = useState('');
   const [sangriaContaDestinoId, setSangriaContaDestinoId] = useState<number | ''>('');
 
@@ -164,14 +201,33 @@ export function MovimentacaoPDV() {
     }
   };
 
-  const fetchMovimentacoes = async (monthStr?: string, forceSelectedDate?: string) => {
-    setLoading(true);
+  useEffect(() => {
+    const handleWsUpdate = () => {
+      usePdvMovimentacaoStore.getState().invalidate();
+      fetchMovimentacoes(currentYearMonth, undefined, true);
+    };
+    
+    const onEvent = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      if (
+        customEvent.detail?.type === 'MOVIMENTACAO_PDV_CREATED' ||
+        customEvent.detail?.type === 'MOVIMENTACAO_PDV_UPDATED' ||
+        customEvent.detail?.type === 'MOVIMENTACAO_PDV_DELETED'
+      ) {
+        handleWsUpdate();
+      }
+    };
+    
+    window.addEventListener('kyrus-ws-event', onEvent);
+    return () => {
+      window.removeEventListener('kyrus-ws-event', onEvent);
+    };
+  }, [currentYearMonth]);
+
+  const fetchMovimentacoes = async (monthStr?: string, forceSelectedDate?: string, forceFetch = false) => {
     try {
-      const res = await api.get('/pdv/movimentacoes', {
-        params: monthStr ? { mes: monthStr } : {}
-      });
-      const list = normalizeListResponse<MovimentacaoPDV>(res.data);
-      setMovimentacoes(list);
+      const targetMonth = monthStr || currentYearMonth;
+      await fetchMovimentacoesAction(targetMonth, forceFetch);
 
       const targetSelectedDate = forceSelectedDate !== undefined ? forceSelectedDate : selectedDate;
 
@@ -185,8 +241,6 @@ export function MovimentacaoPDV() {
       }
     } catch (err) {
       console.error('Erro ao carregar movimentações:', err);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -453,6 +507,7 @@ export function MovimentacaoPDV() {
   const handleOpenSangriaDrawer = () => {
     const availableCash = dailyTotals?.dinheiro?.valor ?? 0;
     setSangriaValor(availableCash > 0 ? String(availableCash) : '');
+    setSangriaValorText(availableCash > 0 ? formatExpressionCentsFirst(String(availableCash)) : '');
     setSangriaData(selectedDate || new Date().toISOString().split('T')[0]);
     
     const sourceAccountId = pdvConfig?.pdv_conta_padrao_id;
@@ -520,7 +575,8 @@ export function MovimentacaoPDV() {
       
       localStorage.setItem('kyrus_last_sangria_destination_id', String(sangriaContaDestinoId));
       setShowSangriaDrawer(false);
-      await fetchMovimentacoes(currentYearMonth, selectedDate);
+      invalidateStore();
+      await fetchMovimentacoes(currentYearMonth, selectedDate, true);
     } catch (err: any) {
       console.error('Erro ao salvar sangria:', err);
       alert(err?.response?.data?.detail || 'Erro ao registrar sangria.');
@@ -530,6 +586,47 @@ export function MovimentacaoPDV() {
   };
 
   // ---------- FORM ----------
+
+  
+  const handleFormValorBlur = () => {
+    if (!formValorText) {
+      setFormValor('');
+      return;
+    }
+    const cleanExpr = formValorText.replace(/\./g, '').replace(/,/g, '.');
+    if (/^[0-9+\-*/().\s]+$/.test(cleanExpr)) {
+      try {
+        const result = Function(`"use strict"; return (${cleanExpr})`)();
+        if (Number.isFinite(result) && result >= 0) {
+          const formatted = result.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          setFormValorText(formatted);
+          setFormValor(String(result.toFixed(2)));
+        }
+      } catch (err) {
+        console.error("Invalid math expression", err);
+      }
+    }
+  };
+
+  const handleSangriaValorBlur = () => {
+    if (!sangriaValorText) {
+      setSangriaValor('');
+      return;
+    }
+    const cleanExpr = sangriaValorText.replace(/\./g, '').replace(/,/g, '.');
+    if (/^[0-9+\-*/().\s]+$/.test(cleanExpr)) {
+      try {
+        const result = Function(`"use strict"; return (${cleanExpr})`)();
+        if (Number.isFinite(result) && result >= 0) {
+          const formatted = result.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          setSangriaValorText(formatted);
+          setSangriaValor(String(result.toFixed(2)));
+        }
+      } catch (err) {
+        console.error("Invalid math expression", err);
+      }
+    }
+  };
 
   const handleOpenDrawer = (tipo: 'ENTRADA' | 'SAIDA', editItem?: MovimentacaoPDV) => {
     if (editItem) {
@@ -541,6 +638,7 @@ export function MovimentacaoPDV() {
       setFormTipo(editItem.tipo);
       setFormDescricao(editItem.descricao);
       setFormValor(String(editItem.valor));
+      setFormValorText(formatExpressionCentsFirst(String(editItem.valor)));
       setFormFormaPagamento(editItem.forma_pagamento);
       setFormBandeira(editItem.bandeira);
       setFormParcelas(editItem.parcelas);
@@ -552,6 +650,7 @@ export function MovimentacaoPDV() {
       setFormTipo(tipo);
       setFormDescricao(tipo === 'ENTRADA' ? 'Venda Frente de Caixa' : 'Sangria / Retirada');
       setFormValor('');
+      setFormValorText('');
       setFormFormaPagamento('DINHEIRO');
       setFormBandeira('OUTROS');
       setFormParcelas(1);
@@ -596,7 +695,8 @@ export function MovimentacaoPDV() {
       const targetMonth = formData.substring(0, 7);
       setSelectedDate(formData);
       setCurrentYearMonth(targetMonth);
-      await fetchMovimentacoes(targetMonth, formData);
+      invalidateStore();
+      await fetchMovimentacoes(targetMonth, formData, true);
     } catch (err: any) {
       console.error('Erro ao salvar movimentação:', err);
       alert(err?.response?.data?.detail || 'Erro ao registrar movimentação.');
@@ -614,7 +714,8 @@ export function MovimentacaoPDV() {
     setSaving(true);
     try {
       await api.delete(`/pdv/movimentacoes/${item.id}`);
-      await fetchMovimentacoes(currentYearMonth, selectedDate);
+      invalidateStore();
+      await fetchMovimentacoes(currentYearMonth, selectedDate, true);
     } catch (err: any) {
       alert(err?.response?.data?.detail || 'Erro ao excluir movimentação.');
     } finally {
@@ -643,7 +744,8 @@ export function MovimentacaoPDV() {
     try {
       await Promise.all(toDelete.map(m => api.delete(`/pdv/movimentacoes/${m.id}`)));
       setSelectedIds(new Set());
-      await fetchMovimentacoes(currentYearMonth, selectedDate);
+      invalidateStore();
+      await fetchMovimentacoes(currentYearMonth, selectedDate, true);
     } catch (err: any) {
       alert(err?.response?.data?.detail || 'Erro ao excluir movimentações.');
     } finally {
@@ -1435,7 +1537,7 @@ export function MovimentacaoPDV() {
             className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-40 transition-opacity"
             onClick={() => !saving && setShowSangriaDrawer(false)}
           />
-          <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 z-50 shadow-2xl flex flex-col animate-in slide-in-from-right duration-250 rounded-none">
+          <div className="fixed inset-y-0 right-0 w-full max-w-xl bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 z-50 shadow-2xl flex flex-col animate-in slide-in-from-right duration-250 rounded-none">
 
             {/* Header */}
             <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/20 dark:bg-slate-950/10">
@@ -1481,14 +1583,17 @@ export function MovimentacaoPDV() {
                 <div className="relative">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">R$</span>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
+                    type="text"
                     required
-                    placeholder="0,00"
+                    placeholder="0,00 ou 10+5"
                     disabled={saving}
-                    value={sangriaValor}
-                    onChange={(e) => setSangriaValor(e.target.value)}
+                    value={sangriaValorText}
+                    onChange={(e) => {
+                      const cleanExpr = e.target.value.replace(/\./g, '').replace(/,/g, '');
+                      setSangriaValorText(formatExpressionCentsFirst(cleanExpr));
+                    }}
+                    onBlur={handleSangriaValorBlur}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSangriaValorBlur(); }}
                     className="w-full pl-9 pr-4 py-3 rounded-none border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-rose-500 transition disabled:opacity-50 font-mono"
                   />
                 </div>
@@ -1698,17 +1803,12 @@ export function MovimentacaoPDV() {
                       })}
                     </div>
                   ) : (
-                    <select
+                    <SearchableSelect
+                      options={[{ label: 'Centros', options: centrosCusto.map(cc => ({ id: String(cc.id), label: cc.nome })) }]}
                       value={formCentroCustoId}
-                      onChange={(e) => setFormCentroCustoId(e.target.value)}
-                      className="w-full rounded-none border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-slate-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white"
-                      required
-                    >
-                      <option value="">Selecione...</option>
-                      {centrosCusto.map(cc => (
-                        <option key={cc.id} value={cc.id}>{cc.nome}</option>
-                      ))}
-                    </select>
+                      onChange={(v) => setFormCentroCustoId(String(v))}
+                      placeholder="Selecione..."
+                    />
                   )}
                 </div>
               )}
@@ -1717,61 +1817,76 @@ export function MovimentacaoPDV() {
               {!pdvConfig?.pdv_conta_padrao_id && (
                 <div className="space-y-1">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Conta / Caixa *</label>
-                  <select
+                  <SearchableSelect
+                    options={[{ label: 'Contas', options: contas.map(c => ({ id: String(c.id), label: c.nome })) }]}
                     value={formContaId}
-                    onChange={(e) => setFormContaId(e.target.value)}
-                    className="w-full rounded-none border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-slate-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white"
-                    required
-                  >
-                    <option value="">Selecione...</option>
-                    {contas.map(c => (
-                      <option key={c.id} value={c.id}>{c.nome}</option>
-                    ))}
-                  </select>
+                    onChange={(v) => setFormContaId(String(v))}
+                    placeholder="Selecione..."
+                  />
                 </div>
               )}
 
               {/* Forma de Pagamento (apenas ENTRADA) */}
               {formTipo === 'ENTRADA' && (
                 <>
-                  <div className="space-y-1">
+                  <div className="space-y-2 mt-4">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Forma de Pagamento *</label>
-                    <select
-                      value={formFormaPagamento}
-                      onChange={(e) => {
-                        setFormFormaPagamento(e.target.value);
-                        if (!e.target.value.includes('CREDITO') && !e.target.value.includes('DEBITO')) {
-                          setFormBandeira('OUTROS');
-                          setFormParcelas(1);
-                        }
-                      }}
-                      className="w-full rounded-none border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-slate-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white"
-                      required
-                    >
-                      <option value="DINHEIRO">Dinheiro</option>
-                      <option value="PIX">Pix</option>
-                      <option value="DEBITO">Cartão de Débito</option>
-                      <option value="CREDITO_AVISTA">Cartão de Crédito à Vista</option>
-                      <option value="CREDITO_PARCELADO">Cartão de Crédito Parcelado</option>
-                    </select>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {[
+                        { id: 'DINHEIRO', label: 'Dinheiro' },
+                        { id: 'PIX', label: 'Pix' },
+                        { id: 'DEBITO', label: 'Cartão de Débito' },
+                        { id: 'CREDITO_AVISTA', label: 'Crédito à Vista' },
+                        { id: 'CREDITO_PARCELADO', label: 'Crédito Parcelado' }
+                      ].map(forma => (
+                        <button
+                          key={forma.id}
+                          type="button"
+                          onClick={() => {
+                            const val = forma.id;
+                            setFormFormaPagamento(val);
+                            if (!val.includes('CREDITO') && !val.includes('DEBITO')) {
+                              setFormBandeira('');
+                              setFormParcelas(1);
+                            }
+                          }}
+                          className={`px-3 py-2 border rounded-md text-xs font-medium transition-all ${
+                            formFormaPagamento === forma.id 
+                              ? 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400 ring-1 ring-blue-500' 
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          {forma.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {(formFormaPagamento === 'DEBITO' || formFormaPagamento.startsWith('CREDITO')) && (
-                    <div className="space-y-1">
+                    <div className="space-y-2 mt-4">
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Bandeira *</label>
-                      <select
-                        value={formBandeira}
-                        onChange={(e) => setFormBandeira(e.target.value)}
-                        className="w-full rounded-none border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-slate-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white"
-                        required
-                      >
-                        <option value="VISA">Visa</option>
-                        <option value="MASTERCARD">Mastercard</option>
-                        <option value="ELO">Elo</option>
-                        <option value="HIPERCARD">Hipercard</option>
-                        <option value="AMEX">American Express</option>
-                        <option value="OUTROS">Outros</option>
-                      </select>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                        {[
+                          { id: 'VISA', label: 'Visa' },
+                          { id: 'MASTERCARD', label: 'Mastercard' },
+                          { id: 'ELO', label: 'Elo' },
+                          { id: 'HIPERCARD', label: 'Hipercard' },
+                          { id: 'AMEX', label: 'Amex' }
+                        ].map(bandeira => (
+                          <button
+                            key={bandeira.id}
+                            type="button"
+                            onClick={() => setFormBandeira(bandeira.id)}
+                            className={`px-3 py-2 border rounded-md text-xs font-medium transition-all ${
+                              formBandeira === bandeira.id 
+                                ? 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400 ring-1 ring-blue-500' 
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
+                            }`}
+                          >
+                            {bandeira.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
 

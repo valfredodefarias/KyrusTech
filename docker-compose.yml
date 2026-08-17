@@ -22,6 +22,15 @@ services:
     networks:
       - kyrus_db_internal
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis_kyrustech
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - kyrus_db_internal
+
   backend:
     build: .
     container_name: kyrustech_backend
@@ -32,7 +41,7 @@ services:
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production-env}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
       - ALGORITHM=${ALGORITHM:-HS256}
-      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://192.168.0.60:3000}
       - AUTO_RUN_MIGRATIONS=${AUTO_RUN_MIGRATIONS:-0}
       - POSTGRES_SERVER=db_kyrustech
       - POSTGRES_PORT=5432
@@ -58,6 +67,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - DISABLE_SCHEDULER=${DISABLE_SCHEDULER:-0}
+      - REDIS_URL=redis://redis:6379/0
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:

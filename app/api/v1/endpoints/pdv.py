@@ -35,6 +35,7 @@ from app.models.pdv_venda_item import PdvVendaItem
 from app.models.pdv_movimentacao import PdvMovimentacao
 from app.models.fornecedor_produto_equivalencia import FornecedorProdutoEquivalencia
 from app.services.compras_service import calcular_novo_custo_medio
+from app.websockets.manager import broadcast_sync
 from app.schemas.pdv import (
     PdvVendaGrupoRead,
     PdvVendaItemRead,
@@ -344,6 +345,11 @@ def criar_produto_pdv(
     db.commit()
     db.refresh(produto)
     
+    try:
+        broadcast_sync(empresa_id, 'PRODUTO_CREATED', {'id': produto.id})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
+    
     p_read = ProdutoRead.model_validate(produto)
     p_read.quantidade_estoque = 0.0
     return p_read
@@ -401,6 +407,11 @@ def atualizar_produto_pdv(
         )
     ).one()
     
+    try:
+        broadcast_sync(empresa_id, 'PRODUTO_UPDATED', {'id': produto.id})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
+    
     p_read = ProdutoRead.model_validate(produto)
     p_read.quantidade_estoque = float(estoque_sum or 0.0)
     return p_read
@@ -423,6 +434,12 @@ def deletar_produto_pdv(
     produto.deleted_by_id = current_user.id
     db.add(produto)
     db.commit()
+    
+    try:
+        broadcast_sync(empresa_id, 'PRODUTO_DELETED', {'id': produto_id})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
+
     return
 
 
@@ -728,6 +745,13 @@ def criar_venda_pdv(
             log.updated_at = datetime.utcnow()
             db.add(log)
             db.commit()
+            db.commit()
+
+    try:
+        if response_data and response_data.uuid:
+            broadcast_sync(empresa_id, 'VENDA_CREATED', {'id': response_data.uuid})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
 
     return response_data
 
@@ -769,6 +793,13 @@ def atualizar_venda_pdv(
         current_user_id=int(current_user.id or 0)
     )
     db.commit()
+    
+    try:
+        if result and result.uuid:
+            broadcast_sync(empresa_id, 'VENDA_UPDATED', {'id': result.uuid})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
+
     return result
 
 @router.patch("/vendas/{venda_id}/status", status_code=200)
@@ -820,6 +851,12 @@ def atualizar_status_venda_pdv(
     clear_transaction_cache(empresa_id, force=True)
 
     db.commit()
+    
+    try:
+        broadcast_sync(empresa_id, 'VENDA_UPDATED', {'id': venda_id})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
+
     return {"message": f"Status da venda atualizado para {novo_status} com sucesso."}
 
 
@@ -915,6 +952,12 @@ def upload_comprovante_venda_pdv(
         db.add(l)
 
     db.commit()
+    
+    try:
+        broadcast_sync(empresa_id, 'VENDA_UPDATED', {'id': venda_id})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
+
     return {"message": "Comprovantes anexados com sucesso.", "urls": [u[1] for u in uploaded_urls]}
 
 
@@ -2142,6 +2185,11 @@ def criar_transacao_ifood(
     db.commit()
     db.refresh(nova_transacao)
     
+    try:
+        broadcast_sync(empresa_id, 'IFOOD_TRANSACAO_CREATED', {'id': nova_transacao.id})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
+    
     return PdvIfoodLancamentoRead(
         id=nova_transacao.id,
         empresa_id=nova_transacao.empresa_id,
@@ -2365,6 +2413,11 @@ def atualizar_transacao_ifood(
     db.commit()
     db.refresh(transacao)
     
+    try:
+        broadcast_sync(empresa_id, 'IFOOD_TRANSACAO_UPDATED', {'id': transacao.id})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
+    
     despesas = transacao.despesas_extras_str.split(",") if transacao.despesas_extras_str else []
     
     return PdvIfoodLancamentoRead(
@@ -2411,6 +2464,11 @@ def excluir_transacao_ifood(
     
     db.add(transacao)
     db.commit()
+    
+    try:
+        broadcast_sync(empresa_id, 'IFOOD_TRANSACAO_DELETED', {'id': transacao_id})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
     
     return {"status": "success", "message": "Transação excluída com sucesso."}
 
@@ -2558,6 +2616,12 @@ def consolidar_dia_ifood(
         db.add(t)
         
     db.commit()
+    
+    try:
+        broadcast_sync(empresa_id, 'IFOOD_TRANSACAO_UPDATED', {'consolidado': True})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
+        
     return {"status": "success", "lancamento_id": consolidado_receita.id, "valor_consolidado": float(total_liquido)}
 
 
@@ -2641,6 +2705,76 @@ def listar_movimentacoes_pdv(
     movs = db.exec(query).all()
     
     # Pre-fetch contas para mapeamento rápido de nomes
+    contas = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
+    contas_map = {c.id: c.nome for c in contas if c.id is not None}
+
+    movimentacoes = []
+    for m in movs:
+        conta_destino_id = None
+        conta_destino_nome = None
+        if not m.venda_id:
+            l_orig = db.get(Lancamento, m.id)
+            if l_orig and l_orig.observacao and "sangria" in l_orig.observacao.lower():
+                try:
+                    meta_s = json.loads(l_orig.observacao)
+                    conta_destino_id = meta_s.get("conta_destino_id")
+                    if conta_destino_id:
+                        conta_destino_nome = contas_map.get(conta_destino_id)
+                except Exception:
+                    pass
+
+        movimentacoes.append({
+            "id": m.id,
+            "id_parcelamento": m.venda_id,
+            "tipo": m.tipo,
+            "descricao": m.descricao,
+            "valor": float(m.valor),
+            "forma_pagamento": m.forma_pagamento,
+            "bandeira": m.bandeira,
+            "parcelas": m.parcelas,
+            "numero_parcela": m.numero_parcela,
+            "data": str(m.data),
+            "centro_custo_id": m.centro_custo_id,
+            "conta_id": m.conta_id,
+            "conta_destino_id": conta_destino_id,
+            "conta_destino_nome": conta_destino_nome,
+            "conciliado": m.conciliado
+        })
+        
+    return movimentacoes
+
+@router.get("/movimentacoes/ws-sync")
+def sync_movimentacoes_pdv_ws(
+    event: str,
+    ref_id: str,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    current_user: Usuario = Depends(get_current_active_user)
+):
+    """
+    Endpoint leve para buscar apenas a(s) movimentação(ões) afetada(s) por um evento de WebSocket.
+    Isso evita o recarregamento do mês inteiro.
+    """
+    query = select(PdvMovimentacao).where(
+        PdvMovimentacao.empresa_id == empresa_id,
+        PdvMovimentacao.is_deleted == False
+    )
+
+    if event == "VENDA_CREATED" or event == "VENDA_UPDATED":
+        query = query.where(PdvMovimentacao.venda_id == ref_id)
+    elif event == "MOVIMENTACAO_PDV_CREATED" or event == "MOVIMENTACAO_PDV_UPDATED":
+        # Pode vir id (int) ou id_parcelamento (uuid)
+        try:
+            m_id = int(ref_id)
+            query = query.where(PdvMovimentacao.id == m_id)
+        except ValueError:
+            query = query.where(PdvMovimentacao.venda_id == ref_id)
+    else:
+        return []
+
+    movs = db.exec(query).all()
+    
+    # Pre-fetch contas
     contas = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
     contas_map = {c.id: c.nome for c in contas if c.id is not None}
 
@@ -2813,6 +2947,12 @@ def criar_movimentacao_pdv(
             )
             db.add(m_op)
             db.commit()
+            
+            try:
+                broadcast_sync(empresa_id, 'MOVIMENTACAO_PDV_CREATED', {'id': m_op.id})
+            except Exception as e:
+                print(f"Erro no broadcast WebSocket: {e}")
+                
             return {"status": "success", "id": m_op.id}
             
         else:
@@ -2880,6 +3020,12 @@ def criar_movimentacao_pdv(
                 db.add(l)
 
             db.commit()
+            
+            try:
+                broadcast_sync(empresa_id, 'MOVIMENTACAO_PDV_CREATED', {'id_parcelamento': venda_uuid})
+            except Exception as e:
+                print(f"Erro no broadcast WebSocket: {e}")
+                
             return {"status": "success", "id_parcelamento": venda_uuid}
             
     else:
@@ -2963,6 +3109,12 @@ def criar_movimentacao_pdv(
         )
         db.add(m_op)
         db.commit()
+        
+        try:
+            broadcast_sync(empresa_id, 'MOVIMENTACAO_PDV_CREATED', {'id': m_op.id})
+        except Exception as e:
+            print(f"Erro no broadcast WebSocket: {e}")
+            
         return {"status": "success", "id": l.id}
 
 
@@ -3324,6 +3476,16 @@ def deletar_movimentacao_pdv(
         db.add(lanc)
         
     db.commit()
+
+    try:
+        if m_op.venda_id:
+            broadcast_sync(empresa_id, 'MOVIMENTACAO_PDV_DELETED', {'id_parcelamento': m_op.venda_id})
+            broadcast_sync(empresa_id, 'VENDA_DELETED', {'id': m_op.venda_id})
+        else:
+            broadcast_sync(empresa_id, 'MOVIMENTACAO_PDV_DELETED', {'id': id})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
+
     return {"status": "success", "message": "Movimentação excluída com sucesso."}
 
 @router.put("/movimentacoes/{id}")

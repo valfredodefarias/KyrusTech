@@ -2103,18 +2103,20 @@ export function PDV() {
                       <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
                       <div className="relative">
                         <Layers className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-450 dark:text-slate-500 pointer-events-none" />
-                        <select
+                        <SearchableSelect
                           value={filtroStatus}
-                          onChange={(e) => setFiltroStatus(e.target.value)}
-                          className="w-full rounded-xl border border-slate-300 bg-white pl-9 pr-8 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white appearance-none cursor-pointer"
-                        >
-                          <option value="TODOS">Todos os Status</option>
-                          <option value="REALIZADO">Realizado</option>
-                          <option value="ORCAMENTO">Em Andamento</option>
-                          <option value="CANCELADO">Cancelado</option>
-                          <option value="DEVOLVIDO">Devolvido</option>
-                        </select>
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 pointer-events-none">▼</span>
+                          onChange={(val: any) => setFiltroStatus(String(val))}
+                          options={[{
+                            label: 'Status',
+                            options: [
+                              { id: 'TODOS', label: 'Todos os Status' },
+                              { id: 'REALIZADO', label: 'Realizado' },
+                              { id: 'ORCAMENTO', label: 'Em Andamento' },
+                              { id: 'CANCELADO', label: 'Cancelado' },
+                              { id: 'DEVOLVIDO', label: 'Devolvido' }
+                            ]
+                          }]}
+                        />
                       </div>
                     </div>
                     {data?.pode_ver_todas && (
@@ -2122,17 +2124,20 @@ export function PDV() {
                         <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Vendedor</label>
                         <div className="relative">
                           <User className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-450 dark:text-slate-500 pointer-events-none" />
-                          <select
+                          <SearchableSelect
                             value={filtroVendedor}
-                            onChange={(e) => setFiltroVendedor(e.target.value)}
-                            className="w-full rounded-xl border border-slate-300 bg-white pl-9 pr-8 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white appearance-none cursor-pointer"
-                          >
-                            <option value="TODOS">Todos os Vendedores</option>
-                            {vendedores.map((v) => (
-                              <option key={v.id} value={v.id}>{v.nome || v.email.split('@')[0]}</option>
-                            ))}
-                          </select>
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 pointer-events-none">▼</span>
+                            onChange={(val: any) => setFiltroVendedor(String(val))}
+                            options={[{
+                              label: 'Vendedor',
+                              options: [
+                                { id: 'TODOS', label: 'Todos os Vendedores' },
+                                ...vendedores.map((v) => ({
+                                  id: v.id,
+                                  label: v.nome || v.email.split('@')[0]
+                                }))
+                              ]
+                            }]}
+                          />
                         </div>
                       </div>
                     )}
@@ -2942,10 +2947,10 @@ export function PDV() {
                                 </button>
                               </div>
 
-                              <select
+                              <SearchableSelect
                                 value={camposExtrasForm.vendedor_externo_id || ''}
-                                onChange={(e) => {
-                                  const selId = e.target.value;
+                                onChange={(val: any) => {
+                                  const selId = String(val);
                                   const list = pdvConfig?.vendedores_externos || [];
                                   const found = list.find((ve: any) => String(ve.id) === String(selId));
                                   setCamposExtrasForm((prev) => ({
@@ -2955,15 +2960,17 @@ export function PDV() {
                                     vendedor_externo_comissao_pct: found ? found.comissao_pct : 5.0
                                   }));
                                 }}
-                                className="w-full rounded-xl border border-blue-300 dark:border-blue-800 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-800 dark:text-white font-bold outline-none cursor-pointer focus:ring-2 focus:ring-blue-500"
-                              >
-                                <option value="">-- Selecione o Vendedor Externo --</option>
-                                {(pdvConfig?.vendedores_externos || []).map((ve: any) => (
-                                  <option key={ve.id} value={ve.id}>
-                                    {ve.nome} {ve.telefone ? `(${ve.telefone})` : ''} - {ve.comissao_pct || 5}% Comissão
-                                  </option>
-                                ))}
-                              </select>
+                                options={[{
+                                  label: 'Vendedor Externo',
+                                  options: [
+                                    { id: '', label: '-- Selecione o Vendedor Externo --' },
+                                    ...(pdvConfig?.vendedores_externos || []).map((ve: any) => ({
+                                      id: ve.id,
+                                      label: `${ve.nome} ${ve.telefone ? `(${ve.telefone})` : ''} - ${ve.comissao_pct || 5}% Comissão`
+                                    }))
+                                  ]
+                                }]}
+                              />
 
                               {camposExtrasForm.vendedor_externo_nome && (
                                 <div className="text-[11px] font-bold text-blue-700 dark:text-blue-300 flex items-center justify-between px-1 bg-white/60 dark:bg-slate-900/60 p-2 rounded-lg border border-blue-100 dark:border-blue-900/30">
@@ -2975,18 +2982,20 @@ export function PDV() {
                           )}
 
                           {campo.type === 'select' && (
-                            <select
+                            <SearchableSelect
                               value={value}
-                              onChange={(e) => handleChange(e.target.value)}
-                              className="w-full rounded-xl border border-slate-350 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white"
-                            >
-                              <option value="">Selecione...</option>
-                              {(campo.options || []).map((opt: string) => (
-                                <option key={opt} value={opt}>
-                                  {opt}
-                                </option>
-                              ))}
-                            </select>
+                              onChange={(val: any) => handleChange(String(val))}
+                              options={[{
+                                label: 'Selecione...',
+                                options: [
+                                  { id: '', label: 'Selecione...' },
+                                  ...(campo.options || []).map((opt: string) => ({
+                                    id: opt,
+                                    label: opt
+                                  }))
+                                ]
+                              }]}
+                            />
                           )}
 
                           {campo.type === 'boolean' && (
@@ -3237,14 +3246,17 @@ export function PDV() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="mb-1.5 block text-xs font-bold text-slate-400 uppercase tracking-wider">Status da Venda</label>
-                  <select
+                  <SearchableSelect
                     value={vendaStatus}
-                    onChange={(e) => setVendaStatus(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                  >
-                    <option value="REALIZADO">Realizado (Venda Concluída)</option>
-                    <option value="ORCAMENTO">Em Andamento (Orçamento)</option>
-                  </select>
+                    onChange={(val: any) => setVendaStatus(String(val))}
+                    options={[{
+                      label: 'Status da Venda',
+                      options: [
+                        { id: 'REALIZADO', label: 'Realizado (Venda Concluída)' },
+                        { id: 'ORCAMENTO', label: 'Em Andamento (Orçamento)' }
+                      ]
+                    }]}
+                  />
                 </div>
 
                 <div>
@@ -3294,15 +3306,19 @@ export function PDV() {
                     return (
                       <div key={index} className="flex flex-col bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative gap-3 animate-in fade-in">
                         <div className="flex items-center justify-between font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-200">
-                          <select
-                            value={pag.tipoPagamento}
-                            onChange={(e) => handlePaymentChange(index, 'tipoPagamento', e.target.value)}
-                            className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-1 text-xs font-bold text-slate-850 dark:text-white outline-none cursor-pointer hover:border-slate-400 transition"
-                          >
-                            {paymentMethods.filter((m: any) => m.ativa !== false).map((m: any) => (
-                              <option key={m.key} value={m.key}>{m.label}</option>
-                            ))}
-                          </select>
+                          <div className="flex-1 max-w-[200px]">
+                            <SearchableSelect
+                              value={pag.tipoPagamento}
+                              onChange={(val: any) => handlePaymentChange(index, 'tipoPagamento', String(val))}
+                              options={[{
+                                label: 'Forma de Pagamento',
+                                options: paymentMethods.filter((m: any) => m.ativa !== false).map((m: any) => ({
+                                  id: m.key,
+                                  label: m.label
+                                }))
+                              }]}
+                            />
+                          </div>
 
                           <button
                             type="button"
@@ -3351,15 +3367,17 @@ export function PDV() {
                             <>
                               <div className="col-span-1">
                                 <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Parcelas</label>
-                                <select
+                                <SearchableSelect
                                   value={pag.numeroParcelas}
-                                  onChange={(e) => handlePaymentChange(index, 'numeroParcelas', e.target.value)}
-                                  className="w-full rounded-xl border border-slate-300 bg-white px-2 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                                >
-                                  {[1,2,3,4,5,6,7,8,9,10,11,12].map(n => (
-                                    <option key={n} value={n}>{n}x</option>
-                                  ))}
-                                </select>
+                                  onChange={(val: any) => handlePaymentChange(index, 'numeroParcelas', String(val))}
+                                  options={[{
+                                    label: 'Parcelas',
+                                    options: [1,2,3,4,5,6,7,8,9,10,11,12].map(n => ({
+                                      id: String(n),
+                                      label: `${n}x`
+                                    }))
+                                  }]}
+                                />
                               </div>
 
                               <div className="col-span-1 text-right flex flex-col justify-end pb-2">

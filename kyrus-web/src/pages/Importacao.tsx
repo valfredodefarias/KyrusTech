@@ -9,8 +9,12 @@ import {
     Plus, Check, X, Wallet, Users, Layers, Tag, 
     TrendingUp, TrendingDown, Edit2, Trash2, ChevronDown, ChevronRight,
     ArrowUp, ArrowDown, FileText,
-    Wand2, GripVertical 
+    Wand2, GripVertical, CheckCircle2, Copy, Building, MapPin, 
+    Filter, MoreVertical, 
+    Settings, UserCheck, Calculator, UserPlus
 } from 'lucide-react';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { toast } from 'sonner';
 
 // --- INTERFACES ---
 export interface ItemSistema { 
@@ -420,7 +424,7 @@ const StepBadge = ({ num, current, label }: { num: number, current: number, labe
     );
 };
 
-const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione...", label }: any) => {
+const SearchableTreeSelect = ({ value, options, onChange, placeholder = "Selecione...", label }: any) => {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState('');
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -528,8 +532,6 @@ const SearchableSelect = ({ value, options, onChange, placeholder = "Selecione..
         </div>
     );
 };
-
-// --- ÁRVORE DRAGGABLE ---
 
 const DraggableTreeItem = ({ item, depth = 0, inheritedOperational = false, canManageOperational = false, onDragStart, onDrop, onEdit, onDelete, onCreateChild, onMove, onMoveUp, onMoveDown, canMoveUp, canMoveDown, onToggle, expandedIds }: any) => {
     const isExpanded = expandedIds.has(item.id);
@@ -1655,18 +1657,25 @@ export const PlanoContasManager = ({
                       )}
                       
                       {shouldShowTipoField && (
-                          <div>
+                          <div className="mb-4">
                               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tipo</label>
-                              <select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white" value={formData.tipo} onChange={e=>setFormData({...formData, tipo:e.target.value})}>
-                                  <option value="R">Entrada</option>
-                                  <option value="D">Saida</option>
-                              </select>
+                              <SearchableSelect
+                                  value={formData.tipo}
+                                  onChange={(val: any) => setFormData({...formData, tipo: String(val)})}
+                                  options={[{
+                                      label: 'Tipo',
+                                      options: [
+                                          { id: 'R', label: 'Entrada' },
+                                          { id: 'D', label: 'Saida' }
+                                      ]
+                                  }]}
+                              />
                           </div>
                       )}
 
                       {modalMode === 'MOVE' && (
                       <div>
-                          <SearchableSelect
+                          <SearchableTreeSelect
                               label="Categoria pai"
                               value={formData.conta_pai_id}
                               options={parentSelectGroups}
@@ -1698,15 +1707,17 @@ export const PlanoContasManager = ({
                       {modalMode !== 'MOVE' && canManageOperational && (
                           <div>
                               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Grupo da DRE</label>
-                              <select
-                                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white"
+                              <SearchableTreeSelect
                                   value={normalizeDreGrupo(formData.dre_grupo, formData.tipo)}
-                                  onChange={(e) => setFormData({ ...formData, dre_grupo: e.target.value, eh_operacional: e.target.value !== 'NAO_OPERACIONAL' })}
-                              >
-                                  {DRE_GRUPO_OPTIONS.map((option) => (
-                                      <option key={option.value} value={option.value}>{option.label}</option>
-                                  ))}
-                              </select>
+                                  onChange={(val: any) => setFormData({ ...formData, dre_grupo: String(val), eh_operacional: val !== 'NAO_OPERACIONAL' })}
+                                  options={[{
+                                    label: 'Grupo da DRE',
+                                    options: DRE_GRUPO_OPTIONS.map((option) => ({
+                                      id: option.value,
+                                      nome: option.label
+                                    }))
+                                  }]}
+                              />
                               <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Define onde esta categoria entra na DRE. Selecionar <strong>Não operacional</strong> exclui a categoria de todos os indicadores.</p>
                           </div>
                       )}
@@ -1753,7 +1764,7 @@ const MappingRow = ({ label, original, value, options, onChange, onCreate, typeL
                     <Plus className="w-3 h-3"/> Criar {typeLabel}
                 </button>
             </div>
-            <SearchableSelect 
+            <SearchableTreeSelect 
                 value={value} 
                 options={options} 
                 onChange={onChange} 
@@ -2766,8 +2777,8 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
                                     <div><label className="text-xs font-bold text-slate-500 uppercase">{documentoInteressadoLabel}</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition font-mono" value={entityForm.cpf_cnpj} onChange={e=>handleEntityDocumentoChange(e.target.value)} placeholder={entityForm.tipo_pessoa === 'PF' ? '000.000.000-00' : '00.000.000/0000-00'} /></div>
                                 </div>
 
-                                <div className="grid gap-4 sm:grid-cols-1">
-                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Classificação</label><select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={entityForm.tipo} onChange={e=>setEntityForm(prev=>({...prev, tipo:e.target.value as QuickEntityFormState['tipo']}))}><option value="CLIENTE">Cliente</option><option value="FORNECEDOR">Fornecedor</option><option value="AMBOS">Ambos</option></select></div>
+                                <div className="grid gap-4 sm:grid-cols-1 mb-4 mt-2">
+                                    <div><label className="text-xs font-bold text-slate-500 uppercase">Classificação</label><div className="mt-1"><SearchableSelect value={entityForm.tipo} onChange={(val: any)=>setEntityForm(prev=>({...prev, tipo:String(val) as QuickEntityFormState['tipo']}))} options={[{label:'Classificação', options:[{id:'CLIENTE',label:'Cliente'},{id:'FORNECEDOR',label:'Fornecedor'},{id:'AMBOS',label:'Ambos'}]}]} /></div></div>
                                 </div>
 
                                 <div className="grid gap-4 sm:grid-cols-2">
@@ -2810,14 +2821,14 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
                             <div className="sm:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase">Número da conta</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.conta_numero} onChange={e=>setQuickContaForm(prev=>({...prev, conta_numero:e.target.value}))} /></div>
                             <div><label className="text-xs font-bold text-slate-500 uppercase">Dígito</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.conta_digito} onChange={e=>setQuickContaForm(prev=>({...prev, conta_digito:e.target.value}))} /></div>
                         </div>
-                        <div className="grid gap-4 sm:grid-cols-2">
-                            <div><label className="text-xs font-bold text-slate-500 uppercase">Tipo</label><select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.tipo} onChange={e=>setQuickContaForm(prev=>({...prev, tipo:e.target.value as QuickContaFormState['tipo']}))}><option value="CORRENTE">Corrente</option><option value="POUPANCA">Poupança</option><option value="CAIXA">Caixa</option><option value="INVESTIMENTO">Investimento</option></select></div>
+                        <div className="grid gap-4 sm:grid-cols-2 mb-4">
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">Tipo</label><div className="mt-1"><SearchableSelect value={quickContaForm.tipo} onChange={(val: any)=>setQuickContaForm(prev=>({...prev, tipo:String(val) as QuickContaFormState['tipo']}))} options={[{label:'Tipo', options:[{id:'CORRENTE',label:'Corrente'},{id:'POUPANCA',label:'Poupança'},{id:'CAIXA',label:'Caixa'},{id:'INVESTIMENTO',label:'Investimento'}]}]} /></div></div>
                             <div><label className="text-xs font-bold text-slate-500 uppercase">Saldo inicial</label><input type="number" step="0.01" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.saldo_inicial} onChange={e=>setQuickContaForm(prev=>({...prev, saldo_inicial:e.target.value}))} /></div>
                         </div>
-                        <div className="grid gap-4 sm:grid-cols-3">
-                            <div><label className="text-xs font-bold text-slate-500 uppercase">Centro de custo</label><select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.centro_custo_id} onChange={e=>setQuickContaForm(prev=>({...prev, centro_custo_id: e.target.value ? Number(e.target.value) : ''}))}><option value="">Sem centro</option>{sistemaData.centros.map((centro) => (<option key={centro.id} value={centro.id}>{centro.nome}</option>))}</select></div>
-                            <div><label className="text-xs font-bold text-slate-500 uppercase">Status</label><select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.status} onChange={e=>setQuickContaForm(prev=>({...prev, status: e.target.value as QuickContaFormState['status']}))}><option value="ATIVO">Ativo</option><option value="INATIVO">Inativo</option></select></div>
-                            <div><label className="text-xs font-bold text-slate-500 uppercase">Integração</label><select className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.tipo_integracao} onChange={e=>setQuickContaForm(prev=>({...prev, tipo_integracao: e.target.value as QuickContaFormState['tipo_integracao']}))}><option value="MANUAL">Manual</option><option value="OFX">OFX</option><option value="OPEN_FINANCE">Open Finance</option></select></div>
+                        <div className="grid gap-4 sm:grid-cols-3 mb-4">
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">Centro de custo</label><div className="mt-1"><SearchableSelect value={quickContaForm.centro_custo_id || ''} onChange={(val: any)=>setQuickContaForm(prev=>({...prev, centro_custo_id: val ? Number(val) : ''}))} options={[{label:'Centro de custo', options:[{id:'',label:'Sem centro'},...sistemaData.centros.map(c=>({id:c.id,label:c.nome}))]}]} /></div></div>
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">Status</label><div className="mt-1"><SearchableSelect value={quickContaForm.status} onChange={(val: any)=>setQuickContaForm(prev=>({...prev, status: String(val) as QuickContaFormState['status']}))} options={[{label:'Status', options:[{id:'ATIVO',label:'Ativo'},{id:'INATIVO',label:'Inativo'}]}]} /></div></div>
+                            <div><label className="text-xs font-bold text-slate-500 uppercase">Integração</label><div className="mt-1"><SearchableSelect value={quickContaForm.tipo_integracao} onChange={(val: any)=>setQuickContaForm(prev=>({...prev, tipo_integracao: String(val) as QuickContaFormState['tipo_integracao']}))} options={[{label:'Integração', options:[{id:'MANUAL',label:'Manual'},{id:'OFX',label:'OFX'},{id:'OPEN_FINANCE',label:'Open Finance'}]}]} /></div></div>
                         </div>
                         <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
                             <div><label className="text-xs font-bold text-slate-500 uppercase">URL da logo (opcional)</label><input type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={quickContaForm.logo_url} onChange={e=>setQuickContaForm(prev=>({...prev, logo_url:e.target.value}))} /></div>
@@ -2829,7 +2840,7 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
                     <div className="space-y-4">
                         <div><label className="text-xs font-bold text-slate-500 uppercase">Nome da categoria</label><input autoFocus type="text" className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white mt-1 outline-none focus:border-blue-500 transition" value={modalValue} onChange={e=>setModalValue(e.target.value)} /></div>
                         <div>
-                            <SearchableSelect
+                            <SearchableTreeSelect
                                 label="Família (categoria pai)"
                                 value={quickCategoriaParentId}
                                 options={categoriaSelectOptions}

@@ -1,4 +1,5 @@
 import { Trash2 } from 'lucide-react';
+import { SearchableSelect } from '../../../components/SearchableSelect';
 
 interface BulkDeleteModalProps {
   showBulkDelete: boolean;
@@ -66,17 +67,17 @@ export const BulkDeleteModal = ({
           <div className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Motivo</label>
-              <select
-                className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-white outline-none"
+              <SearchableSelect
+                options={[{ label: 'Motivos', options: [
+                  { id: 'DUPLICADO', label: 'Duplicado' },
+                  { id: 'LANCAMENTO_INCORRETO', label: 'Lançamento incorreto' },
+                  { id: 'CANCELADO', label: 'Cancelado' },
+                  { id: 'OUTRO', label: 'Outro' }
+                ]}]}
                 value={deleteReason}
-                onChange={(e) => setDeleteReason(e.target.value)}
-              >
-                <option value="">Selecionar...</option>
-                <option value="DUPLICADO">Duplicado</option>
-                <option value="LANCAMENTO_INCORRETO">Lançamento incorreto</option>
-                <option value="CANCELADO">Cancelado</option>
-                <option value="OUTRO">Outro</option>
-              </select>
+                onChange={(v) => setDeleteReason(String(v))}
+                placeholder="Selecionar..."
+              />
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400">Selecione um motivo para prosseguir.</div>
           </div>

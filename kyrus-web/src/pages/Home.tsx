@@ -4,19 +4,13 @@ import { api, toPublicAssetUrl } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
 import { BankAvatar } from '../components/BrandAvatar';
-import {
-  Home as HomeIcon,
-  Wallet,
-  Banknote,
-  PlusCircle,
-  Activity,
-  Landmark,
-  Building2,
-  CreditCard,
-  Settings,
-  ShoppingBag,
-  ArrowRight,
+import { 
+  Building2, Receipt, Search, CreditCard, Banknote, Calendar, 
+  ArrowRight, FileText, CheckCircle2, TrendingUp, TrendingDown,
+  Activity, ArrowDownCircle, ArrowUpCircle, AlertCircle, Maximize2, Minimize2,
+  MoreHorizontal, PlusCircle, Home as HomeIcon, Wallet, Settings, ShoppingBag, Landmark
 } from 'lucide-react';
+import { SearchableSelect } from '../components/SearchableSelect';
 
 interface ContaResumo {
   id: number;
@@ -236,26 +230,29 @@ export function Home() {
             <Link to="/boletim" className="bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-250 px-4 py-2 rounded-md font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-750 transition flex items-center gap-1.5 border border-slate-200 dark:border-slate-700 w-full sm:w-auto justify-center">
               <Activity size={16} /> Abrir Boletim
             </Link>
-            <label className="bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-250 px-3 py-2 rounded-md font-semibold border border-slate-200 dark:border-slate-700 flex items-center gap-2 w-full sm:w-auto text-xs">
+            <div className="bg-white dark:bg-slate-800 px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 flex items-center gap-2 w-full sm:w-auto">
               <Building2 size={14} className="shrink-0 text-slate-400" />
-              <span className="uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">Centro</span>
-              <select
-                value={selectedCentroCustoId === null ? '' : String(selectedCentroCustoId)}
-                onChange={(event) => {
-                  const nextId = Number(event.target.value);
-                  if (!Number.isFinite(nextId) || nextId <= 0) return;
-                  setSelectedCentroCustoId(nextId);
-                }}
-                className="min-w-[170px] bg-transparent text-slate-800 dark:text-white font-bold outline-none border-0 text-xs"
-              >
-                <option value="" disabled className="text-slate-900 dark:text-slate-100 dark:bg-slate-800">Selecione um centro</option>
-                {centrosCusto.map((centro) => (
-                  <option key={centro.id} value={centro.id} className="text-slate-900 dark:text-slate-100 dark:bg-slate-800">
-                    {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <div className="min-w-[170px]">
+                <SearchableSelect
+                  value={selectedCentroCustoId === null ? '' : String(selectedCentroCustoId)}
+                  onChange={(val) => {
+                    const nextId = Number(val);
+                    if (!Number.isFinite(nextId) || nextId <= 0) return;
+                    setSelectedCentroCustoId(nextId);
+                  }}
+                  options={[{
+                    label: 'Centro',
+                    options: [
+                      { id: '', label: 'Selecione um centro' },
+                      ...centrosCusto.map((centro) => ({
+                        id: centro.id,
+                        label: `${centro.codigo ? `${centro.codigo} - ` : ''}${centro.nome}`
+                      }))
+                    ]
+                  }]}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </section>

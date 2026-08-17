@@ -6,23 +6,14 @@ import {
   Trash2, AlertCircle, Percent, ArrowUpRight, TrendingUp, CheckCircle, Package,
   Lock, Settings, Edit, Sparkles, ShieldAlert, Calculator, Utensils
 } from 'lucide-react';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { api, normalizeListResponse } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
 import { getTodayLocalYmd } from './Lancamentos/utils';
+import { useKyrusWsListener } from '../hooks/useKyrusWebSocket';
 
-// Type definitions
-interface iFoodTransaction {
-  id: number;
-  forma_recebimento: string;
-  valor_bruto: number;
-  valor_liquido: number;
-  data_venda: string;
-  hora_venda: string;
-  data_recebimento_ajustada: string;
-  despesas_extras: string[];
-  status_conciliado: boolean;
-}
+import { useIfoodStore, type iFoodTransaction } from '../store/ifoodStore';
 
 export function Apps() {
   const { tab: paramTab } = useParams<{ tab?: string }>();
@@ -31,8 +22,10 @@ export function Apps() {
   const tab = paramTab || (location.pathname.endsWith('/ifood') ? 'ifood' : undefined);
 
   const [activeApp, setActiveApp] = useState<'marketplace' | 'ifood'>('marketplace');
-  const [transactions, setTransactions] = useState<iFoodTransaction[]>([]);
-  const [loading, setLoading] = useState(false);
+  const transactions = useIfoodStore((state) => state.transactions);
+  const loading = useIfoodStore((state) => state.loading);
+  const fetchTransactionsAction = useIfoodStore((state) => state.fetchTransactions);
+  const invalidateStore = useIfoodStore((state) => state.invalidate);
   const [showDrawer, setShowDrawer] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>('');
   
@@ -167,16 +160,31 @@ export function Apps() {
     }
   };
 
+  useKyrusWsListener('IFOOD_TRANSACAO_CREATED', () => {
+    if (activeApp === 'ifood') {
+      useIfoodStore.getState().invalidate();
+      fetchTransactions(true);
+    }
+  });
+  useKyrusWsListener('IFOOD_TRANSACAO_UPDATED', () => {
+    if (activeApp === 'ifood') {
+      useIfoodStore.getState().invalidate();
+      fetchTransactions(true);
+    }
+  });
+  useKyrusWsListener('IFOOD_TRANSACAO_DELETED', () => {
+    if (activeApp === 'ifood') {
+      useIfoodStore.getState().invalidate();
+      fetchTransactions(true);
+    }
+  });
+
   // Fetch transactions from API
-  const fetchTransactions = async () => {
-    setLoading(true);
+  const fetchTransactions = async (forceFetch = false) => {
     try {
-      const response = await api.get('/pdv/ifood/transacoes');
-      setTransactions(normalizeListResponse<iFoodTransaction>(response.data));
+      await fetchTransactionsAction(forceFetch);
     } catch (error) {
       console.error('Erro ao carregar transações iFood:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -423,7 +431,8 @@ export function Apps() {
       setEditingTransaction(null);
       
       // Refresh board
-      await fetchTransactions();
+      invalidateStore();
+      await fetchTransactions(true);
       setShowDrawer(false);
     } catch (error: any) {
       showToastMessage(error?.response?.data?.detail || 'Erro ao salvar lançamento iFood.', 'error');
@@ -591,7 +600,8 @@ export function Apps() {
     try {
       await api.delete(`/pdv/ifood/transacoes/${txToDelete.id}`);
       showToastMessage('Transação iFood excluída com sucesso!', 'success');
-      await fetchTransactions();
+      invalidateStore();
+      await fetchTransactions(true);
       setTxToDelete(null);
       setShowDeleteModal(false);
     } catch (err: any) {
@@ -611,7 +621,8 @@ export function Apps() {
       });
       if (response.data) {
         showToastMessage(`Dia consolidado com sucesso no Caixa Geral!`, 'success');
-        await fetchTransactions();
+        invalidateStore();
+        await fetchTransactions(true);
         setShowConsolidateModal(false);
       }
     } catch (err: any) {
@@ -1633,16 +1644,17 @@ export function Apps() {
               {/* Centro de Custo Padrão */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-450 uppercase tracking-wider">Centro de Custo Padrão</label>
-                <select
-                  value={settingsIfoodCentroCustoPadraoId}
-                  onChange={(e) => setSettingsIfoodCentroCustoPadraoId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500"
-                >
-                  <option value="">Sem centro de custo padrão</option>
-                  {centrosCusto.map((cc) => (
-                    <option key={cc.id} value={cc.id}>{cc.nome}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={settingsIfoodCentroCustoPadraoId ? String(settingsIfoodCentroCustoPadraoId) : ''}
+                  onChange={(val) => setSettingsIfoodCentroCustoPadraoId(val ? Number(val) : '')}
+                  options={[{
+                    label: 'Centro de Custo Padrão',
+                    options: [
+                      { id: '', label: 'Sem centro de custo padrão' },
+                      ...centrosCusto.map((cc) => ({ id: String(cc.id), label: cc.nome }))
+                    ]
+                  }]}
+                />
               </div>
 
               {/* Centro de Custo Flexível toggle */}
@@ -1667,16 +1679,17 @@ export function Apps() {
               {/* Conta / Caixa de Registro Padrão */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-450 uppercase tracking-wider">Conta / Caixa de Registro Padrão</label>
-                <select
-                  value={settingsIfoodContaPadraoId}
-                  onChange={(e) => setSettingsIfoodContaPadraoId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
-                >
-                  <option value="">Sem conta padrão</option>
-                  {contas.map((c) => (
-                    <option key={c.id} value={c.id}>{c.nome}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={settingsIfoodContaPadraoId ? String(settingsIfoodContaPadraoId) : ''}
+                  onChange={(val) => setSettingsIfoodContaPadraoId(val ? Number(val) : '')}
+                  options={[{
+                    label: 'Conta Padrão',
+                    options: [
+                      { id: '', label: 'Sem conta padrão' },
+                      ...contas.map((c) => ({ id: String(c.id), label: c.nome }))
+                    ]
+                  }]}
+                />
               </div>
             </div>
 
@@ -1734,16 +1747,19 @@ export function Apps() {
               {/* Centro de Custo Padrão */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-450 uppercase tracking-wider">Centro de Custo Padrão</label>
-                <select
-                  value={settingsPdvCentroCustoPadraoId}
-                  onChange={(e) => setSettingsPdvCentroCustoPadraoId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
-                >
-                  <option value="">Sem centro de custo padrão</option>
-                  {centrosCusto.map((cc: any) => (
-                    <option key={cc.id} value={cc.id}>{cc.nome}</option>
-                  ))}
-                </select>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={settingsPdvCentroCustoPadraoId}
+                    onChange={(val) => setSettingsPdvCentroCustoPadraoId(val ? Number(val) : '')}
+                    options={[{
+                      label: 'Centro de Custo',
+                      options: [
+                        { id: '', label: 'Sem centro de custo padrão' },
+                        ...centrosCusto.map((cc: any) => ({ id: cc.id, label: cc.nome }))
+                      ]
+                    }]}
+                  />
+                </div>
               </div>
 
               {/* Centro de Custo Flexível toggle */}
@@ -1768,46 +1784,55 @@ export function Apps() {
               {/* Conta / Caixa de Registro Padrão */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-450 uppercase tracking-wider">Conta / Caixa de Registro Padrão</label>
-                <select
-                  value={settingsPdvContaPadraoId}
-                  onChange={(e) => setSettingsPdvContaPadraoId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
-                >
-                  <option value="">Sem conta padrão</option>
-                  {contas.map((c: any) => (
-                    <option key={c.id} value={c.id}>{c.nome}</option>
-                  ))}
-                </select>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={settingsPdvContaPadraoId}
+                    onChange={(val) => setSettingsPdvContaPadraoId(val ? Number(val) : '')}
+                    options={[{
+                      label: 'Conta',
+                      options: [
+                        { id: '', label: 'Sem conta padrão' },
+                        ...contas.map((c: any) => ({ id: c.id, label: c.nome }))
+                      ]
+                    }]}
+                  />
+                </div>
               </div>
 
               {/* Categoria Padrão Saída (Sangria) */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-450 uppercase tracking-wider">Categoria Padrão Saída (Sangria)</label>
-                <select
-                  value={settingsPdvSangriaSaidaPlanoContasId}
-                  onChange={(e) => setSettingsPdvSangriaSaidaPlanoContasId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-955 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
-                >
-                  <option value="">Sem categoria padrão de saída</option>
-                  {planoContas.filter((pc: any) => (pc.tipo === 'D' || pc.tipo === 'DESPESA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc: any) => (
-                    <option key={pc.id} value={pc.id}>{pc.codigo} - {pc.nome}</option>
-                  ))}
-                </select>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={settingsPdvSangriaSaidaPlanoContasId}
+                    onChange={(val) => setSettingsPdvSangriaSaidaPlanoContasId(val ? Number(val) : '')}
+                    options={[{
+                      label: 'Categoria (Despesa)',
+                      options: [
+                        { id: '', label: 'Sem categoria padrão de saída' },
+                        ...planoContas.filter((pc: any) => (pc.tipo === 'D' || pc.tipo === 'DESPESA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc: any) => ({ id: pc.id, label: `${pc.codigo} - ${pc.nome}` }))
+                      ]
+                    }]}
+                  />
+                </div>
               </div>
 
               {/* Categoria Padrão Entrada (Banco Destino) */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-450 uppercase tracking-wider">Categoria Padrão Entrada (Banco Destino)</label>
-                <select
-                  value={settingsPdvSangriaEntradaPlanoContasId}
-                  onChange={(e) => setSettingsPdvSangriaEntradaPlanoContasId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-955 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
-                >
-                  <option value="">Sem categoria padrão de entrada</option>
-                  {planoContas.filter((pc: any) => (pc.tipo === 'R' || pc.tipo === 'RECEITA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc: any) => (
-                    <option key={pc.id} value={pc.id}>{pc.codigo} - {pc.nome}</option>
-                  ))}
-                </select>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={settingsPdvSangriaEntradaPlanoContasId}
+                    onChange={(val) => setSettingsPdvSangriaEntradaPlanoContasId(val ? Number(val) : '')}
+                    options={[{
+                      label: 'Categoria (Receita)',
+                      options: [
+                        { id: '', label: 'Sem categoria padrão de entrada' },
+                        ...planoContas.filter((pc: any) => (pc.tipo === 'R' || pc.tipo === 'RECEITA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc: any) => ({ id: pc.id, label: `${pc.codigo} - ${pc.nome}` }))
+                      ]
+                    }]}
+                  />
+                </div>
               </div>
 
               {/* Categoria por Forma de Pagamento */}
@@ -1818,19 +1843,22 @@ export function Apps() {
                     {formasPagamento.map((forma) => (
                       <div key={forma.key} className="flex items-center justify-between gap-3 text-xs">
                         <span className="font-semibold text-slate-700 dark:text-slate-350">{forma.label}</span>
-                        <select
-                          value={settingsPdvCategorias[forma.key] || ''}
-                          onChange={(e) => setSettingsPdvCategorias({
-                            ...settingsPdvCategorias,
-                            [forma.key]: e.target.value
-                          })}
-                          className="w-1/2 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-955 text-xs text-slate-850 dark:text-white outline-none transition focus:border-rose-500 font-bold"
-                        >
-                          <option value="">Automático</option>
-                          {planoContas.filter((pc: any) => (pc.tipo === 'R' || pc.tipo === 'RECEITA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc: any) => (
-                            <option key={pc.id} value={pc.id}>{pc.nome}</option>
-                          ))}
-                        </select>
+                        <div className="w-[60%]">
+                          <SearchableSelect
+                            value={settingsPdvCategorias[forma.key] || ''}
+                            onChange={(val) => setSettingsPdvCategorias({
+                              ...settingsPdvCategorias,
+                              [forma.key]: String(val)
+                            })}
+                            options={[{
+                              label: 'Categoria',
+                              options: [
+                                { id: '', label: 'Automático' },
+                                ...planoContas.filter((pc: any) => (pc.tipo === 'R' || pc.tipo === 'RECEITA') && !pc.eh_cabecalho && pc.permite_lancamentos).map((pc: any) => ({ id: pc.id, label: pc.nome }))
+                              ]
+                            }]}
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1939,17 +1967,17 @@ export function Apps() {
 
             <div className="space-y-1.5">
               <label className="block text-xs font-bold text-slate-450 uppercase tracking-wider">Conta Bancária / Caixa Destino *</label>
-              <select
-                value={selectedContaId}
-                onChange={(e) => setSelectedContaId(e.target.value ? Number(e.target.value) : '')}
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-white outline-none transition focus:border-rose-500 font-bold"
-                required
-              >
-                <option value="">Selecione uma conta...</option>
-                {contas.map((c) => (
-                  <option key={c.id} value={c.id}>{c.nome}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={selectedContaId ? String(selectedContaId) : ''}
+                onChange={(val) => setSelectedContaId(val ? Number(val) : '')}
+                options={[{
+                  label: 'Conta Destino',
+                  options: [
+                    { id: '', label: 'Selecione uma conta...' },
+                    ...contas.map((c) => ({ id: String(c.id), label: c.nome }))
+                  ]
+                }]}
+              />
             </div>
 
             <div className="flex justify-end gap-2.5 pt-2">

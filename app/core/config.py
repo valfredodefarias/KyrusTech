@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # No .env use: BACKEND_CORS_ORIGINS=http://localhost:5501,http://meuapp.com
     BACKEND_CORS_ORIGINS: Union[List[str], str] = "*"
 
+    # --- INFRA ---
+    REDIS_URL: str | None = None
+
     # --- IA ASSISTENTE ---
     AI_PROVIDER: str = "gemini"  # gemini | openai
     AI_TIMEOUT_SECONDS: int = 30

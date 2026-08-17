@@ -3,11 +3,9 @@ import { api, normalizeListResponse } from '../services/api';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
 import { BrandAvatar, CARD_BRAND_OPTIONS, inferCardBrand } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
-import { 
-  Plus, RefreshCw, Edit2, X, Check, Loader2, 
-        ChevronLeft, ChevronRight, CheckCircle2, Building2,
-        AlertCircle, Info
-} from 'lucide-react';
+import { Building2, CreditCard, Filter, Plus, Save, Trash2, X, PlusCircle, CheckCircle2, Search, ArrowRightLeft, Loader2, ArrowUpRight, ArrowDownRight, RefreshCw, Calendar, Tag, AlertTriangle, AlertCircle, Info, ChevronLeft, ChevronRight, Edit2, Check } from 'lucide-react';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { toast } from 'sonner';
 
 // --- INTERFACES ---
 interface Cartao {
@@ -77,41 +75,34 @@ export function Cartoes() {
   const dataFetchedRef = useRef(false);
   const autoFaturaRef = useRef<number | null>(null);
 
-  // Helper to render bank account dropdown options grouped by branch (Centro de Custo)
-  const renderContaOptions = () => {
-    // Only show active accounts (skip INATIVO)
+  const buildContaOptions = () => {
     const contasAtivas = contas.filter(c => c.status !== 'INATIVO');
 
     const groups = centros.map(cc => {
         const contasDoCc = contasAtivas.filter(c => String(c.centro_custo_id) === String(cc.id));
         if (contasDoCc.length === 0) return null;
-        return (
-            <optgroup key={cc.id} label={cc.nome || cc.descricao || 'Geral'} className="bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-400 font-bold">
-                {contasDoCc.map(c => (
-                    <option key={c.id} value={c.id} className="bg-white dark:bg-slate-800 text-slate-800 dark:text-white font-normal">
-                        {c.nome || c.descricao}
-                    </option>
-                ))}
-            </optgroup>
-        );
-    }).filter(Boolean);
+        return {
+            label: cc.nome || cc.descricao || 'Geral',
+            options: contasDoCc.map(c => ({
+                id: c.id,
+                label: c.nome || c.descricao || ''
+            }))
+        };
+    }).filter(Boolean) as any[];
 
     const semCc = contasAtivas.filter(c => !c.centro_custo_id || !centros.some(cc => String(cc.id) === String(c.centro_custo_id)));
     
-    return (
-        <>
-            {groups}
-            {semCc.length > 0 && (
-                <optgroup label="Outras Contas" className="bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-400 font-bold">
-                    {semCc.map(c => (
-                        <option key={c.id} value={c.id} className="bg-white dark:bg-slate-800 text-slate-800 dark:text-white font-normal">
-                            {c.nome || c.descricao}
-                        </option>
-                    ))}
-                </optgroup>
-            )}
-        </>
-    );
+    if (semCc.length > 0) {
+        groups.push({
+            label: "Outras Contas",
+            options: semCc.map(c => ({
+                id: c.id,
+                label: c.nome || c.descricao || ''
+            }))
+        });
+    }
+
+    return groups;
   };
 
   const [loading, setLoading] = useState(true);
@@ -656,11 +647,17 @@ export function Cartoes() {
         </div>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
             <div className="relative flex-1 sm:flex-none sm:w-48">
-                <Building2 className="absolute left-3 top-2.5 w-4 h-4 text-slate-400"/>
-                <select className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500" value={filtroCC} onChange={e => setFiltroCC(e.target.value)}>
-                    <option value="">Todas as Filiais</option>
-                    {centros.map(c => <option key={c.id} value={c.id}>{c.nome || c.descricao}</option>)}
-                </select>
+                <SearchableSelect
+                    value={filtroCC}
+                    onChange={(val) => setFiltroCC(String(val))}
+                    options={[{
+                        label: 'Filiais',
+                        options: [
+                            { id: '', label: 'Todas as Filiais' },
+                            ...centros.map(c => ({ id: c.id, label: c.nome || c.descricao || '' }))
+                        ]
+                    }]}
+                />
             </div>
             <button onClick={() => { dataFetchedRef.current = false; void (async () => { await carregarDados(); await handleReloadCurrentInvoice(); })(); }} className="p-2 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition"><RefreshCw className={`w-5 h-5 ${loading || lancamentosLoading ? 'animate-spin' : ''}`}/></button>
             <button onClick={handleOpenCreate} className="px-4 py-2 rounded-lg text-white font-bold text-sm shadow hover:brightness-110 flex items-center gap-2 w-full sm:w-auto justify-center" style={{backgroundColor: primaryColor}}><Plus className="w-4 h-4"/> Novo</button>
@@ -834,17 +831,31 @@ export function Cartoes() {
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Centro de Custo</label>
-                                <select className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:border-blue-500" value={formData.centro_custo_id} onChange={e => setFormData({...formData, centro_custo_id: e.target.value})}>
-                                    <option value="">Selecione...</option>
-                                    {centros.map(c => <option key={c.id} value={c.id}>{c.nome || c.descricao}</option>)}
-                                </select>
+                                <SearchableSelect
+                                    value={formData.centro_custo_id}
+                                    onChange={(val) => setFormData({...formData, centro_custo_id: String(val)})}
+                                    options={[{
+                                        label: 'Centro de Custo',
+                                        options: [
+                                            { id: '', label: 'Selecione...' },
+                                            ...centros.map(c => ({ id: c.id, label: c.nome || c.descricao || '' }))
+                                        ]
+                                    }]}
+                                />
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Conta Padrão</label>
-                                <select className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:border-blue-500" value={formData.conta_id} onChange={e => setFormData({...formData, conta_id: e.target.value})}>
-                                    <option value="">Perguntar ao pagar</option>
-                                    {renderContaOptions()}
-                                </select>
+                                <SearchableSelect
+                                    value={formData.conta_id}
+                                    onChange={(val) => setFormData({...formData, conta_id: String(val)})}
+                                    options={[
+                                        {
+                                            label: 'Opções',
+                                            options: [{ id: '', label: 'Perguntar ao pagar' }]
+                                        },
+                                        ...buildContaOptions()
+                                    ]}
+                                />
                             </div>
                         </div>
 
@@ -876,27 +887,25 @@ export function Cartoes() {
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-xs font-bold text-purple-500 dark:text-purple-400 uppercase mb-1">Dia Fechamento</label>
-                                <select 
-                                    className="w-full p-3 text-center rounded-lg border border-purple-300 dark:border-purple-900/50 bg-purple-50 dark:bg-slate-800 text-purple-700 dark:text-purple-400 font-bold outline-none focus:border-purple-500" 
-                                    value={formData.dia_fechamento} 
-                                    onChange={e => setFormData({...formData, dia_fechamento: e.target.value})}
-                                >
-                                    {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
-                                        <option key={day} value={day} className="bg-white dark:bg-slate-800 text-slate-800 dark:text-white">Dia {day}</option>
-                                    ))}
-                                </select>
+                                <SearchableSelect
+                                    value={formData.dia_fechamento}
+                                    onChange={(val) => setFormData({...formData, dia_fechamento: String(val)})}
+                                    options={[{
+                                        label: 'Dia do Fechamento',
+                                        options: Array.from({ length: 31 }, (_, i) => i + 1).map(day => ({ id: day, label: `Dia ${day}` }))
+                                    }]}
+                                />
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-red-500 dark:text-red-400 uppercase mb-1">Dia Vencimento</label>
-                                <select 
-                                    className="w-full p-3 text-center rounded-lg border border-red-300 dark:border-red-900/50 bg-red-50 dark:bg-slate-800 text-red-700 dark:text-red-400 font-bold outline-none focus:border-red-500" 
-                                    value={formData.dia_vencimento} 
-                                    onChange={e => setFormData({...formData, dia_vencimento: e.target.value})}
-                                >
-                                    {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
-                                        <option key={day} value={day} className="bg-white dark:bg-slate-800 text-slate-800 dark:text-white">Dia {day}</option>
-                                    ))}
-                                </select>
+                                <SearchableSelect
+                                    value={formData.dia_vencimento}
+                                    onChange={(val) => setFormData({...formData, dia_vencimento: String(val)})}
+                                    options={[{
+                                        label: 'Dia do Vencimento',
+                                        options: Array.from({ length: 31 }, (_, i) => i + 1).map(day => ({ id: day, label: `Dia ${day}` }))
+                                    }]}
+                                />
                             </div>
                         </div>
                     </div>
@@ -927,10 +936,14 @@ export function Cartoes() {
                     <InputDark label="Data do Pagamento" type="date" value={payData.data} onChange={(e:any) => setPayData({...payData, data: e.target.value})} />
                     <div>
                         <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Sair da Conta</label>
-                        <select className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white outline-none focus:border-blue-500" value={payData.conta_id} onChange={e => setPayData({...payData, conta_id: e.target.value})}>
-                            <option value="">Selecione...</option>
-                            {renderContaOptions()}
-                        </select>
+                        <SearchableSelect
+                            value={payData.conta_id}
+                            onChange={(val) => setPayData({...payData, conta_id: String(val)})}
+                            options={[
+                                { label: 'Geral', options: [{ id: '', label: 'Selecione...' }] },
+                                ...buildContaOptions()
+                            ]}
+                        />
                     </div>
                 </div>
 

@@ -2,6 +2,7 @@ import { Filter, X, CalendarClock, AlertCircle, CheckCircle2, Layers, LayoutGrid
 import { BankAvatar } from '../../../components/BrandAvatar';
 import { MultiSelectDropdown } from '../../../components/MultiSelectDropdown';
 import { toPublicAssetUrl } from '../../../services/api';
+import { SearchableSelect } from '../../../components/SearchableSelect';
 
 interface FiltrosSidebarProps {
   showFiltrosSidebar: boolean;
@@ -92,18 +93,17 @@ export const FiltrosSidebar = ({
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">
               Centro de Custo
             </label>
-            <select
-              className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+            <SearchableSelect
               value={centroCustoFiltro}
-              onChange={(e) => setCentroCustoFiltro(e.target.value)}
-            >
-              <option value="">Todos os centros de custo</option>
-              {centros.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nome}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setCentroCustoFiltro(String(val))}
+              options={[{
+                label: 'Centro de Custo',
+                options: [
+                  { id: '', label: 'Todos os centros de custo' },
+                  ...centros.map((c) => ({ id: c.id, label: c.nome }))
+                ]
+              }]}
+            />
           </div>
 
           {/* Filtro Tipo */}

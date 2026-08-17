@@ -8,14 +8,25 @@ import {
   Database,
   Filter,
   Info,
+  LinkIcon,
   Loader2,
+  Maximize2,
+  MoreHorizontal,
+  Package,
   Paperclip,
   Plus,
   RefreshCw,
+  Save,
   Search,
+  Shield,
+  Trash2,
+  TrendingDown,
+  Upload,
   UploadCloud,
   X,
 } from 'lucide-react';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { toast } from 'sonner';
 
 import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 
@@ -1755,18 +1766,19 @@ export function ImportacaoNfe() {
               </div>
 
               <div className="flex w-full items-center gap-2 overflow-x-auto xl:ml-auto xl:w-auto xl:justify-end">
-                <select
-                  value={pageSize}
-                  onChange={(event) => {
-                    setPageSize(Number(event.target.value));
-                    setPage(1);
-                  }}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                >
-                  {PAGE_SIZE_OPTIONS.map((size) => (
-                    <option key={size} value={size}>{size} por pagina</option>
-                  ))}
-                </select>
+                <div className="w-32">
+                  <SearchableSelect
+                    value={String(pageSize)}
+                    onChange={(val) => {
+                      setPageSize(Number(val));
+                      setPage(1);
+                    }}
+                    options={[{
+                      label: 'Tamanho',
+                      options: PAGE_SIZE_OPTIONS.map((size) => ({ id: String(size), label: `${size} por pagina` }))
+                    }]}
+                  />
+                </div>
 
                 <button
                   type="button"
@@ -1969,40 +1981,40 @@ export function ImportacaoNfe() {
 
                 <div className="space-y-2">
                   <label className="block text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Status</label>
-                  <select
+                  <SearchableSelect
                     value={statusFilter}
-                    onChange={(event) => {
-                      setStatusFilter(event.target.value as StatusFilter);
+                    onChange={(val) => {
+                      setStatusFilter(String(val) as StatusFilter);
                       setPage(1);
                     }}
-                    className={inputClassName}
-                  >
-                    <option value="TODOS">Todos os status</option>
-                    <option value="AGUARDANDO_ENTREGA">Aguardando entrega</option>
-                    <option value="ENTREGUE">Entregue</option>
-                    <option value="CANCELADA">Cancelada</option>
-                  </select>
+                    options={[{
+                      label: 'Status',
+                      options: [
+                        { id: 'TODOS', label: 'Todos os status' },
+                        { id: 'AGUARDANDO_ENTREGA', label: 'Aguardando entrega' },
+                        { id: 'ENTREGUE', label: 'Entregue' },
+                        { id: 'CANCELADA', label: 'Cancelada' }
+                      ]
+                    }]}
+                  />
                 </div>
 
                 <div className="space-y-2">
                   <label className="block text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Centro de custo</label>
-                  <select
+                  <SearchableSelect
                     value={centroCustoFiltroId}
-                    onChange={(event) => {
-                      setCentroCustoFiltroId(event.target.value);
+                    onChange={(val) => {
+                      setCentroCustoFiltroId(String(val));
                       setPage(1);
                     }}
-                    className={inputClassName}
-                    disabled={loadingCentrosCusto}
-                  >
-                    <option value="">Todos os centros</option>
-                    {loadingCentrosCusto ? <option value="">Carregando centros de custo...</option> : null}
-                    {centrosCusto.map((centro) => (
-                      <option key={centro.id} value={centro.id}>
-                        {centro.codigo ? `${centro.codigo} - ${centro.nome}` : centro.nome}
-                      </option>
-                    ))}
-                  </select>
+                    options={[{
+                      label: 'Centro de custo',
+                      options: [
+                        { id: '', label: loadingCentrosCusto ? 'Carregando centros de custo...' : 'Todos os centros' },
+                        ...centrosCusto.map((cc) => ({ id: String(cc.id), label: `${cc.codigo ? `${cc.codigo} - ` : ''}${cc.nome}` }))
+                      ]
+                    }]}
+                  />
                   {erroCentrosCusto ? <p className="text-xs text-rose-600 dark:text-rose-300">{erroCentrosCusto}</p> : null}
                 </div>
 
@@ -2071,10 +2083,19 @@ export function ImportacaoNfe() {
 
               <label>
                 <span className={labelClassName}>Modelo</span>
-                <select className={inputClassName} value={novoForm.modelo} onChange={(event) => atualizarNovoForm('modelo', event.target.value)}>
-                  <option value="55">55</option>
-                  <option value="65">65</option>
-                </select>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={novoForm.modelo}
+                    onChange={(val) => atualizarNovoForm('modelo', String(val))}
+                    options={[{
+                      label: 'Modelo',
+                      options: [
+                        { id: '55', label: '55' },
+                        { id: '65', label: '65' }
+                      ]
+                    }]}
+                  />
+                </div>
               </label>
 
               <label className="md:col-span-3">
@@ -2151,19 +2172,37 @@ export function ImportacaoNfe() {
 
               <label className="md:col-span-3">
                 <span className={labelClassName}>Finalidade</span>
-                <select className={inputClassName} value={novoForm.finalidade} onChange={(event) => atualizarNovoForm('finalidade', event.target.value)}>
-                  <option value="NORMAL">Normal</option>
-                  <option value="COMPLEMENTAR">Complementar</option>
-                </select>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={novoForm.finalidade}
+                    onChange={(val) => atualizarNovoForm('finalidade', String(val))}
+                    options={[{
+                      label: 'Finalidade',
+                      options: [
+                        { id: 'NORMAL', label: 'Normal' },
+                        { id: 'COMPLEMENTAR', label: 'Complementar' }
+                      ]
+                    }]}
+                  />
+                </div>
               </label>
 
               <label className="md:col-span-3">
                 <span className={labelClassName}>Situacao</span>
-                <select className={inputClassName} value={novoForm.situacao} onChange={(event) => atualizarNovoForm('situacao', event.target.value)}>
-                  <option value="AGUARDANDO_ENTREGA">Aguardando Entrega</option>
-                  <option value="ENTREGUE">Entregue</option>
-                  <option value="CANCELADA">Cancelada</option>
-                </select>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={novoForm.situacao}
+                    onChange={(val) => atualizarNovoForm('situacao', String(val))}
+                    options={[{
+                      label: 'Situação',
+                      options: [
+                        { id: 'AGUARDANDO_ENTREGA', label: 'Aguardando Entrega' },
+                        { id: 'ENTREGUE', label: 'Entregue' },
+                        { id: 'CANCELADA', label: 'Cancelada' }
+                      ]
+                    }]}
+                  />
+                </div>
               </label>
 
               <div className="md:col-span-3">
@@ -2177,18 +2216,17 @@ export function ImportacaoNfe() {
                     Carregando plano de contas...
                   </div>
                 ) : (
-                  <select
-                    className={inputClassName}
-                    value={planoContasSelecionadoId || ''}
-                    onChange={(event) => setPlanoContasSelecionadoId(Number(event.target.value) || null)}
-                  >
-                    <option value="">-- Selecione a categoria --</option>
-                    {planoContas.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.codigo ? `${cat.codigo} - ${cat.nome}` : cat.nome}
-                      </option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    value={planoContasSelecionadoId ? String(planoContasSelecionadoId) : ''}
+                    onChange={(val) => setPlanoContasSelecionadoId(Number(val) || null)}
+                    options={[{
+                      label: 'Plano de Contas',
+                      options: [
+                        { id: '', label: '-- Selecione a categoria --' },
+                        ...planoContas.map((cat) => ({ id: String(cat.id), label: cat.codigo ? `${cat.codigo} - ${cat.nome}` : cat.nome }))
+                      ]
+                    }]}
+                  />
                 )}
                 {erroPlanoContas ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{erroPlanoContas}</p> : null}
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
@@ -2500,18 +2538,21 @@ export function ImportacaoNfe() {
 
                           <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                             Forma
-                            <select
-                              className={tableInputClassName}
+                            <SearchableSelect
                               value={pagamento.formaPagamento}
-                              onChange={(event) => atualizarPagamento(pagamento.id, 'formaPagamento', event.target.value)}
-                            >
-                              <option value="DINHEIRO">Dinheiro</option>
-                              <option value="PIX">PIX</option>
-                              <option value="CARTAO_CREDITO">Cartao de credito</option>
-                              <option value="CARTAO_DEBITO">Cartao de debito</option>
-                              <option value="BOLETO">Boleto</option>
-                              <option value="TRANSFERENCIA">Transferencia</option>
-                            </select>
+                              onChange={(val) => atualizarPagamento(pagamento.id, 'formaPagamento', String(val))}
+                              options={[{
+                                label: 'Forma',
+                                options: [
+                                  { id: 'DINHEIRO', label: 'Dinheiro' },
+                                  { id: 'PIX', label: 'PIX' },
+                                  { id: 'CARTAO_CREDITO', label: 'Cartao de credito' },
+                                  { id: 'CARTAO_DEBITO', label: 'Cartao de debito' },
+                                  { id: 'BOLETO', label: 'Boleto' },
+                                  { id: 'TRANSFERENCIA', label: 'Transferencia' }
+                                ]
+                              }]}
+                            />
                           </label>
 
                           <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -2950,23 +2991,21 @@ export function ImportacaoNfe() {
                           <span>Carregando catálogo interno...</span>
                         </div>
                       ) : (
-                        <select
+                        <SearchableSelect
                           value={selectedMapping[code] || ''}
-                          onChange={(e) => {
-                            const val = e.target.value;
+                          onChange={(val) => {
                             if (val) {
                               void salvarEquivalencia(code, Number(val));
                             }
                           }}
-                          className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-800 dark:text-white outline-none focus:border-blue-500 transition"
-                        >
-                          <option value="">-- Selecione o produto correspondente no ERP --</option>
-                          {produtos.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.nome} {p.codigo_barras ? `(EAN: ${p.codigo_barras})` : ''}
-                            </option>
-                          ))}
-                        </select>
+                          options={[{
+                            label: 'Produto Interno',
+                            options: [
+                              { id: '', label: '-- Selecione o produto correspondente no ERP --' },
+                              ...produtos.map((p) => ({ id: String(p.id), label: `${p.nome} ${p.codigo_barras ? `(EAN: ${p.codigo_barras})` : ''}` }))
+                            ]
+                          }]}
+                        />
                       )}
                     </div>
                   </div>

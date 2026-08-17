@@ -24,6 +24,7 @@ from app.api.v1.endpoints import (
     compras,
     comissoes,
     comissao_config,
+    ws,
 )
 
 api_router = APIRouter()
@@ -72,3 +73,6 @@ api_router.include_router(comissao_config.router, prefix="/comissoes/config", ta
 
 # --- DRE ---
 api_router.include_router(dre.router, prefix="/dre", tags=["DRE"])
+
+# --- WEBSOCKETS ---
+api_router.include_router(ws.router, prefix="/ws", tags=["WebSockets"])

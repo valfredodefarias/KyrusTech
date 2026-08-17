@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { toast } from 'sonner';
 import { 
   Plus, Search, Edit2, Trash2, X, Check, Users, Truck, Briefcase, Loader2, AlertCircle
 } from 'lucide-react';
@@ -530,19 +532,24 @@ export function Entidades({ tipoDefault }: { tipoDefault?: 'cliente' | 'forneced
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <label className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
                 <span>Por página</span>
-                <select
-                  className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-white"
-                  value={pageSize}
-                  onChange={(e) => {
-                    const next = Number(e.target.value) || 50;
-                    setPage(0);
-                    setPageSize(next);
-                  }}
-                >
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
+                <div className="w-20">
+                  <SearchableSelect
+                    value={String(pageSize)}
+                    onChange={(val) => {
+                      const next = Number(val) || 50;
+                      setPage(0);
+                      setPageSize(next);
+                    }}
+                    options={[{
+                      label: 'Tamanho',
+                      options: [
+                        { id: '25', label: '25' },
+                        { id: '50', label: '50' },
+                        { id: '100', label: '100' }
+                      ]
+                    }]}
+                  />
+                </div>
               </label>
               <div className="flex items-center justify-end gap-2">
                 <button
@@ -599,15 +606,33 @@ export function Entidades({ tipoDefault }: { tipoDefault?: 'cliente' | 'forneced
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:bg-slate-900 lg:col-span-2">
                   <div className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">Relacionamento</div>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <select className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-800 outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-white" value={form.tipo} onChange={e => setForm({...form, tipo: e.target.value as any})}>
-                      <option value="CLIENTE">Cliente</option>
-                      <option value="FORNECEDOR">Fornecedor</option>
-                      <option value="AMBOS">Cliente e fornecedor</option>
-                    </select>
-                    <select className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-800 outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-white" value={form.status} onChange={e => setForm({...form, status: e.target.value as any})}>
-                      <option value="ATIVO">Ativo</option>
-                      <option value="INATIVO">Inativo</option>
-                    </select>
+                    <div className="w-full">
+                      <SearchableSelect
+                        value={form.tipo}
+                        onChange={(val) => setForm({...form, tipo: String(val) as any})}
+                        options={[{
+                          label: 'Tipo',
+                          options: [
+                            { id: 'CLIENTE', label: 'Cliente' },
+                            { id: 'FORNECEDOR', label: 'Fornecedor' },
+                            { id: 'AMBOS', label: 'Cliente e fornecedor' }
+                          ]
+                        }]}
+                      />
+                    </div>
+                    <div className="w-full">
+                      <SearchableSelect
+                        value={form.status}
+                        onChange={(val) => setForm({...form, status: String(val) as any})}
+                        options={[{
+                          label: 'Status',
+                          options: [
+                            { id: 'ATIVO', label: 'Ativo' },
+                            { id: 'INATIVO', label: 'Inativo' }
+                          ]
+                        }]}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

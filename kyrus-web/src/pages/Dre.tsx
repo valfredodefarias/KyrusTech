@@ -1,11 +1,18 @@
 import { type MouseEvent as ReactMouseEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CalendarDays, ChevronDown, ChevronRight, Sigma, TrendingDown, TrendingUp } from 'lucide-react';
+import { 
+  Building2, Receipt, Search, CreditCard, Banknote, Calendar, 
+  ArrowRight, FileText, CheckCircle2, TrendingUp, TrendingDown,
+  Activity, ArrowDownCircle, ArrowUpCircle, AlertCircle, Maximize2, Minimize2,
+  MoreHorizontal, Download, LayoutDashboard, CalendarDays, Filter, ChevronDown, ChevronRight, Sigma
+} from 'lucide-react';
 
 import axios from 'axios';
 import { api, normalizeListResponse } from '../services/api';
+import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { useTransactionStore } from '../store/transactionStore';
 import type { LancamentoResumo } from '../store/transactionStore';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
@@ -1330,35 +1337,40 @@ export function Dre() {
                 />
               </div>
               
-              <select
-                value={selectedMonth === null ? 'ALL' : String(selectedMonth)}
-                onChange={(event) => {
-                  setSelectedMonth(event.target.value === 'ALL' ? null : Number(event.target.value));
-                }}
-                title="Mês"
-                className="h-8 w-24 sm:w-28 rounded-lg border border-slate-200 bg-white px-2 text-xs sm:text-sm font-bold text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-white outline-none focus:border-blue-500 transition cursor-pointer"
-              >
-                <option value="ALL">Ano todo</option>
-                {monthLabels.map((label, index) => (
-                  <option key={`month-select-${label}`} value={index}>{label}</option>
-                ))}
-              </select>
+              <div className="w-24 sm:w-28">
+                <SearchableSelect
+                  value={selectedMonth === null ? 'ALL' : String(selectedMonth)}
+                  onChange={(val) => {
+                    setSelectedMonth(val === 'ALL' ? null : Number(val));
+                  }}
+                  options={[{
+                    label: 'Mês',
+                    options: [
+                      { id: 'ALL', label: 'Ano todo' },
+                      ...monthLabels.map((label, index) => ({ id: index, label }))
+                    ]
+                  }]}
+                />
+              </div>
 
-              <select
-                value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
-                onChange={(event) => {
-                  setSelectedCentroCustoId(event.target.value === 'ALL' ? 'ALL' : Number(event.target.value));
-                }}
-                title="Centro de custo"
-                className="h-8 w-32 sm:w-44 rounded-lg border border-slate-200 bg-white px-2 text-xs sm:text-sm font-bold text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-white outline-none focus:border-blue-500 transition cursor-pointer"
-              >
-                <option value="ALL">Todos CCs</option>
-                {centrosCusto.map((centro) => (
-                  <option key={centro.id} value={centro.id}>
-                    {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
-                  </option>
-                ))}
-              </select>
+              <div className="w-32 sm:w-44">
+                <SearchableSelect
+                  value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
+                  onChange={(val) => {
+                    setSelectedCentroCustoId(val === 'ALL' ? 'ALL' : Number(val));
+                  }}
+                  options={[{
+                    label: 'Centro de custo',
+                    options: [
+                      { id: 'ALL', label: 'Todos CCs' },
+                      ...centrosCusto.map((centro) => ({
+                        id: centro.id,
+                        label: `${centro.codigo ? `${centro.codigo} - ` : ''}${centro.nome}`
+                      }))
+                    ]
+                  }]}
+                />
+              </div>
 
               <div className="flex items-center space-x-1 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-900 h-8 border border-slate-200 dark:border-slate-800">
                 <button

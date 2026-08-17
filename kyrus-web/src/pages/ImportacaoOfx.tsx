@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { BankAvatar } from '../components/BrandAvatar';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { api, normalizeListResponse } from '../services/api';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
 import { OfxBalanceSimulationCard } from './ImportacaoOfx/components/OfxBalanceSimulationCard';
@@ -2867,22 +2868,21 @@ export function ImportacaoOfx() {
 
                                       <div className="w-full md:w-64">
                                         <label className="block text-xs font-bold uppercase tracking-[0.16em] text-slate-500 mb-1">Centro de custo</label>
-                                        <select
+                                        <SearchableSelect
                                           value={buscaDisponiveis.centroCustoId ?? ''}
-                                          onChange={(event) => {
-                                            const centroId = event.target.value ? Number(event.target.value) : null;
+                                          onChange={(val) => {
+                                            const centroId = val ? Number(val) : null;
                                             setBuscaDisponiveis((prev) => ({ ...prev, centroCustoId: centroId }));
                                             carregarLancamentosDisponiveis(lanc, buscaDisponiveis.incluirFuturos, centroId);
                                           }}
-                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
-                                        >
-                                          <option value="">Sem centro de custo</option>
-                                          {centrosCusto.map((centro) => (
-                                            <option key={centro.id} value={centro.id}>
-                                              {centro.nome}
-                                            </option>
-                                          ))}
-                                        </select>
+                                          options={[{
+                                            label: 'Centro de custo',
+                                            options: [
+                                              { id: '', label: 'Sem centro de custo' },
+                                              ...centrosCusto.map((centro) => ({ id: centro.id, label: centro.nome }))
+                                            ]
+                                          }]}
+                                        />
                                       </div>
 
                                       <div className="flex items-center">
@@ -3115,22 +3115,21 @@ export function ImportacaoOfx() {
 
                                 <div className="w-full md:w-64">
                                   <label className="block text-xs font-bold uppercase tracking-[0.16em] text-slate-500 mb-1">Centro de custo</label>
-                                  <select
+                                  <SearchableSelect
                                     value={buscaDisponiveis.centroCustoId ?? ''}
-                                    onChange={(event) => {
-                                      const centroId = event.target.value ? Number(event.target.value) : null;
+                                    onChange={(val) => {
+                                      const centroId = val ? Number(val) : null;
                                       setBuscaDisponiveis((prev) => ({ ...prev, centroCustoId: centroId }));
                                       carregarLancamentosDisponiveis(lanc, buscaDisponiveis.incluirFuturos, centroId);
                                     }}
-                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
-                                  >
-                                    <option value="">Sem centro de custo</option>
-                                    {centrosCusto.map((centro) => (
-                                      <option key={centro.id} value={centro.id}>
-                                        {centro.nome}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    options={[{
+                                      label: 'Centro de custo',
+                                      options: [
+                                        { id: '', label: 'Sem centro de custo' },
+                                        ...centrosCusto.map((centro) => ({ id: centro.id, label: centro.nome }))
+                                      ]
+                                    }]}
+                                  />
                                 </div>
 
                                 <div className="flex items-center">

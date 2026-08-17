@@ -23,6 +23,7 @@ import {
   FileText,
   AlertTriangle
 } from 'lucide-react';
+import { SearchableSelect } from '../components/SearchableSelect';
 
 interface AuditLogItem {
   id: number;
@@ -672,31 +673,37 @@ export function Auditoria() {
               <div className="flex flex-wrap gap-4">
                 <div className="flex flex-col gap-1 min-w-[150px]">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status do Alerta</label>
-                  <select
+                  <SearchableSelect
                     value={alertsStatusFilter}
-                    onChange={(e) => { setAlertsPage(0); setAlertsStatusFilter(e.target.value); }}
-                    className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
-                  >
-                    <option value="">Todos</option>
-                    <option value="PENDENTE">Pendentes</option>
-                    <option value="RESOLVIDO">Resolvidos</option>
-                    <option value="IGNORADO">Ignorados</option>
-                  </select>
+                    onChange={(val) => { setAlertsPage(0); setAlertsStatusFilter(String(val)); }}
+                    options={[{
+                      label: 'Status do Alerta',
+                      options: [
+                        { id: '', label: 'Todos' },
+                        { id: 'PENDENTE', label: 'Pendentes' },
+                        { id: 'RESOLVIDO', label: 'Resolvidos' },
+                        { id: 'IGNORADO', label: 'Ignorados' }
+                      ]
+                    }]}
+                  />
                 </div>
 
                 <div className="flex flex-col gap-1 min-w-[150px]">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Gravidade</label>
-                  <select
+                  <SearchableSelect
                     value={alertsGravityFilter}
-                    onChange={(e) => { setAlertsPage(0); setAlertsGravityFilter(e.target.value); }}
-                    className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
-                  >
-                    <option value="">Todas</option>
-                    <option value="CRITICA">Crítica</option>
-                    <option value="ALTA">Alta</option>
-                    <option value="MEDIA">Média</option>
-                    <option value="BAIXA">Baixa</option>
-                  </select>
+                    onChange={(val) => { setAlertsPage(0); setAlertsGravityFilter(String(val)); }}
+                    options={[{
+                      label: 'Gravidade',
+                      options: [
+                        { id: '', label: 'Todas' },
+                        { id: 'CRITICA', label: 'Crítica' },
+                        { id: 'ALTA', label: 'Alta' },
+                        { id: 'MEDIA', label: 'Média' },
+                        { id: 'BAIXA', label: 'Baixa' }
+                      ]
+                    }]}
+                  />
                 </div>
               </div>
 
@@ -837,15 +844,20 @@ export function Auditoria() {
             <div className="flex items-center justify-between">
               <div className="text-xs text-slate-400">Total: {alertsTotal}</div>
               <div className="flex items-center gap-2">
-                <select
-                  value={alertsLimit}
-                  onChange={(e) => { setAlertsPage(0); setAlertsLimit(Number(e.target.value)); }}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-100"
-                >
-                  <option value={20}>20</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
+                <div className="w-24">
+                  <SearchableSelect
+                    value={String(alertsLimit)}
+                    onChange={(val) => { setAlertsPage(0); setAlertsLimit(Number(val)); }}
+                    options={[{
+                      label: 'Itens por página',
+                      options: [
+                        { id: '20', label: '20' },
+                        { id: '50', label: '50' },
+                        { id: '100', label: '100' }
+                      ]
+                    }]}
+                  />
+                </div>
                 <button
                   onClick={() => setAlertsPage(p => Math.max(0, p - 1))}
                   disabled={alertsPage === 0}
@@ -940,34 +952,40 @@ export function Auditoria() {
 
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tabela / Módulo</label>
-                <select
+                <SearchableSelect
                   value={tableName}
-                  onChange={(e) => { setPage(0); setTableName(e.target.value); }}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
-                >
-                  <option value="">Todas</option>
-                  <option value="lancamentos">Lançamentos</option>
-                  <option value="contas">Contas Bancárias</option>
-                  <option value="cartoes">Cartões de Crédito</option>
-                  <option value="entidades">Clientes / Fornecedores</option>
-                  <option value="usuarios">Usuários</option>
-                  <option value="integracoes_bancarias">Integrações</option>
-                </select>
+                  onChange={(val) => { setPage(0); setTableName(String(val)); }}
+                  options={[{
+                    label: 'Tabela / Módulo',
+                    options: [
+                      { id: '', label: 'Todas' },
+                      { id: 'lancamentos', label: 'Lançamentos' },
+                      { id: 'contas', label: 'Contas Bancárias' },
+                      { id: 'cartoes', label: 'Cartões de Crédito' },
+                      { id: 'entidades', label: 'Clientes / Fornecedores' },
+                      { id: 'usuarios', label: 'Usuários' },
+                      { id: 'integracoes_bancarias', label: 'Integrações' }
+                    ]
+                  }]}
+                />
               </div>
 
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ação</label>
-                <select
+                <SearchableSelect
                   value={action}
-                  onChange={(e) => { setPage(0); setAction(e.target.value); }}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
-                >
-                  <option value="">Todas</option>
-                  <option value="CREATE">Criação</option>
-                  <option value="UPDATE">Alteração</option>
-                  <option value="SOFT_DELETE">Arquivamento</option>
-                  <option value="RESTORE">Restauração</option>
-                </select>
+                  onChange={(val) => { setPage(0); setAction(String(val)); }}
+                  options={[{
+                    label: 'Ação',
+                    options: [
+                      { id: '', label: 'Todas' },
+                      { id: 'CREATE', label: 'Criação' },
+                      { id: 'UPDATE', label: 'Alteração' },
+                      { id: 'SOFT_DELETE', label: 'Arquivamento' },
+                      { id: 'RESTORE', label: 'Restauração' }
+                    ]
+                  }]}
+                />
               </div>
 
               <div className="flex flex-col gap-1">
@@ -1139,15 +1157,20 @@ export function Auditoria() {
             <div className="flex items-center justify-between">
               <div className="text-xs text-slate-400">Total: {total}</div>
               <div className="flex items-center gap-2">
-                <select
-                  value={limit}
-                  onChange={(e) => { setPage(0); setLimit(Number(e.target.value)); }}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-100"
-                >
-                  <option value={20}>20</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
+                <div className="w-24">
+                  <SearchableSelect
+                    value={String(limit)}
+                    onChange={(val) => { setPage(0); setLimit(Number(val)); }}
+                    options={[{
+                      label: 'Itens por página',
+                      options: [
+                        { id: '20', label: '20' },
+                        { id: '50', label: '50' },
+                        { id: '100', label: '100' }
+                      ]
+                    }]}
+                  />
+                </div>
                 <button
                   onClick={() => setPage(p => Math.max(0, p - 1))}
                   disabled={page === 0}
@@ -1479,43 +1502,44 @@ export function Auditoria() {
             <div className="mt-6 bg-slate-50 dark:bg-slate-900 p-4 rounded-2xl border border-slate-150 dark:border-slate-750 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tipo de Anomalia</label>
-                <select
+                <SearchableSelect
                   value={newRule.tipo_anomalia}
-                  onChange={(e) => setNewRule(prev => ({ ...prev, tipo_anomalia: e.target.value }))}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-100 outline-none"
-                >
-                  {Object.entries(ANOMALY_TRANSLATIONS).map(([key, label]) => (
-                    <option key={key} value={key}>{label}</option>
-                  ))}
-                </select>
+                  onChange={(val) => setNewRule(prev => ({ ...prev, tipo_anomalia: String(val) }))}
+                  options={[{
+                    label: 'Tipo de Anomalia',
+                    options: Object.entries(ANOMALY_TRANSLATIONS).map(([key, label]) => ({ id: key, label }))
+                  }]}
+                />
               </div>
 
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Plano de Contas (Opcional)</label>
-                <select
+                <SearchableSelect
                   value={newRule.plano_contas_id}
-                  onChange={(e) => setNewRule(prev => ({ ...prev, plano_contas_id: e.target.value }))}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-100 outline-none"
-                >
-                  <option value="">Qualquer Categoria</option>
-                  {categories.map(c => (
-                    <option key={c.id} value={c.id}>{c.nome}</option>
-                  ))}
-                </select>
+                  onChange={(val) => setNewRule(prev => ({ ...prev, plano_contas_id: String(val) }))}
+                  options={[{
+                    label: 'Plano de Contas',
+                    options: [
+                      { id: '', label: 'Qualquer Categoria' },
+                      ...categories.map(c => ({ id: String(c.id), label: c.nome }))
+                    ]
+                  }]}
+                />
               </div>
 
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Fornecedor / Cliente (Opcional)</label>
-                <select
+                <SearchableSelect
                   value={newRule.entidade_id}
-                  onChange={(e) => setNewRule(prev => ({ ...prev, entidade_id: e.target.value }))}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-100 outline-none"
-                >
-                  <option value="">Qualquer Entidade</option>
-                  {entities.map(e => (
-                    <option key={e.id} value={e.id}>{e.nome}</option>
-                  ))}
-                </select>
+                  onChange={(val) => setNewRule(prev => ({ ...prev, entidade_id: String(val) }))}
+                  options={[{
+                    label: 'Fornecedor / Cliente',
+                    options: [
+                      { id: '', label: 'Qualquer Entidade' },
+                      ...entities.map(e => ({ id: String(e.id), label: e.nome }))
+                    ]
+                  }]}
+                />
               </div>
 
               <div className="flex flex-col gap-1">

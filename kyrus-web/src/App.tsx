@@ -243,67 +243,7 @@ function App() {
             />
             <Route path="/login" element={<Login />} />
 
-            <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
-              <Route path="/home" element={<ProtectedRoute path='/home'><Home /></ProtectedRoute>} />
-              <Route path="/boletim" element={<ProtectedRoute path='/boletim'><Boletim /></ProtectedRoute>} />
-              <Route path="/dre" element={<ProtectedRoute path='/dre'><Dre /></ProtectedRoute>} />
-              <Route path="/consultor" element={<ProtectedRoute path='/consultor'><Consultor /></ProtectedRoute>} />
-              <Route path="/lancamentos" element={<ProtectedRoute path='/lancamentos'><Lancamentos /></ProtectedRoute>} />
-              <Route path="/contas" element={<ProtectedRoute path='/contas'><Contas /></ProtectedRoute>} />
-              <Route path="/orcamentos" element={<ProtectedRoute path='/orcamentos'><Orcamentos /></ProtectedRoute>} />
-              <Route path="/budget" element={<ProtectedRoute path='/budget'><Budget /></ProtectedRoute>} />
-              <Route path="/cartoes" element={<ProtectedRoute path='/cartoes'><Cartoes /></ProtectedRoute>} />
-              <Route path="/conciliacao-cartoes" element={<ProtectedRoute path='/conciliacao-cartoes'><ConciliacaoCartoes /></ProtectedRoute>} />
-              <Route 
-                path="/entidades" 
-                element={
-                  <ProtectedRoute path='/entidades'>
-                    <Entidades />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route 
-                path="/entidades/clientes" 
-                element={
-                  <ProtectedRoute path='/entidades'>
-                    <Entidades tipoDefault="cliente" />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route 
-                path="/entidades/fornecedores" 
-                element={
-                  <ProtectedRoute path='/entidades'>
-                    <Entidades tipoDefault="fornecedor" />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route 
-                path="/produtos" 
-                element={
-                  <ProtectedRoute path='/produtos'>
-                    <Produtos />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route path="/apps" element={<ProtectedRoute path='/apps'><Apps /></ProtectedRoute>} />
-              <Route path="/apps/ifood" element={<ProtectedRoute path='/apps/ifood'><Apps /></ProtectedRoute>} />
-              <Route path="/apps/movimentacao-pdv" element={<ProtectedRoute path='/apps/movimentacao-pdv'><MovimentacaoPDV /></ProtectedRoute>} />
-              <Route path="/apps/:tab" element={<ProtectedRoute path='/apps/:tab'><Apps /></ProtectedRoute>} />
-              <Route path="/caixa" element={<ProtectedRoute path='/caixa'><Caixa /></ProtectedRoute>} />
-              <Route path="/centro-custo" element={<ProtectedRoute path='/centro-custo'><CentroCusto /></ProtectedRoute>} />
-              <Route path="/config" element={<ProtectedRoute path='/config'><Configuracoes /></ProtectedRoute>} />
-              <Route path="/importacao" element={<ProtectedRoute path='/importacao'><Importacao /></ProtectedRoute>} />
-              <Route path="/importacao_interessados" element={<ProtectedRoute path='/importacao_interessados'><ImportacaoEntidades /></ProtectedRoute>} />
-              <Route path="/importacao_ofx" element={<ProtectedRoute path='/importacao_ofx'><ImportacaoOfx /></ProtectedRoute>} />
-              <Route path="/importacao_nfe" element={<ProtectedRoute path='/importacao_nfe'><ImportacaoNfe /></ProtectedRoute>} />
-              <Route path="/auditoria" element={<ProtectedRoute path='/auditoria'><Auditoria /></ProtectedRoute>} />
-              <Route path="/comissoes" element={<ProtectedRoute path='/comissoes'><ComissoesDashboard /></ProtectedRoute>} />
-              <Route path="/integracoes/asaas" element={<ProtectedRoute path='/integracoes/asaas'><IntegracaoAsaas /></ProtectedRoute>} />
-              <Route path="/pdv" element={<ProtectedRoute path='/pdv'><Pdv /></ProtectedRoute>} />
-              <Route path="/pdv/fechamento" element={<ProtectedRoute path='/pdv/fechamento'><PdvFechamento /></ProtectedRoute>} />
-              <Route path="/pdv/importar" element={<ProtectedRoute path='/pdv/importar'><ImportacaoPDV /></ProtectedRoute>} />
-            </Route>
+            <Route path="/*" element={<PrivateRoute><Layout /></PrivateRoute>} />
 
             <Route path="*" element={<Navigate to="/boletim" replace />} />
           </Routes>

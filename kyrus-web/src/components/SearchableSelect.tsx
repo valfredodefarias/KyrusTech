@@ -22,6 +22,7 @@ export interface SearchableSelectProps {
   onChange: (value: number | string) => void;
   placeholder?: string;
   label?: string;
+  disabled?: boolean;
 }
 
 export function SearchableSelect({
@@ -29,7 +30,8 @@ export function SearchableSelect({
   value,
   onChange,
   placeholder = 'Selecione...',
-  label
+  label,
+  disabled = false
 }: SearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -48,15 +50,7 @@ export function SearchableSelect({
     ? 'text-emerald-600 dark:text-emerald-400 font-medium'
     : 'text-slate-800 dark:text-white font-medium';
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [wrapperRef]);
+  // Removed handleClickOutside in favor of a fixed backdrop for perfect portal compatibility
 
   const filteredGroups = options
     .map((group) => ({
@@ -68,24 +62,34 @@ export function SearchableSelect({
     .filter((group) => group.options.length > 0);
 
   return (
-    <div className="relative w-full" ref={wrapperRef}>
+    <div className={`relative ${disabled ? 'opacity-60 pointer-events-none' : ''}`} ref={wrapperRef}>
       {label && (
         <label className="block text-xs font-bold text-slate-400 uppercase mb-1">
           {label}
         </label>
       )}
-      <div
-        onClick={() => setIsOpen(!isOpen)}
+      <button
+        type="button"
+        onClick={() => !disabled && setIsOpen(!isOpen)}
         className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 cursor-pointer flex justify-between items-center text-sm min-h-11.5 hover:border-blue-500 transition shadow-sm"
       >
         <span className={selectedColorClass}>
           {selectedOption ? selectedOption.label : placeholder}
         </span>
         <ChevronDown className="w-4 h-4 text-slate-400" />
-      </div>
+      </button>
 
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl shadow-2xl max-h-96 flex flex-col animate-in fade-in zoom-in-95 duration-100">
+        <>
+          {/* Backdrop invisível que cobre a tela toda para fechar o dropdown ao clicar fora */}
+          <div 
+            className="fixed inset-0 z-40" 
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsOpen(false);
+            }} 
+          />
+          <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl shadow-2xl max-h-96 flex flex-col animate-in fade-in zoom-in-95 duration-100">
           <div className="p-2 border-b border-slate-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800 rounded-t-xl">
             <input
               autoFocus
@@ -114,7 +118,9 @@ export function SearchableSelect({
                   return (
                     <div
                       key={opt.id}
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        console.log('Option clicked (onClick):', opt.id);
                         if (!isDisabled) {
                           onChange(opt.id);
                           setIsOpen(false);
@@ -143,6 +149,7 @@ export function SearchableSelect({
             )}
           </div>
         </div>
+        </>
       )}
     </div>
   );

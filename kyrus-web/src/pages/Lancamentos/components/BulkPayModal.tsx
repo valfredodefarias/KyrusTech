@@ -1,3 +1,7 @@
+import { Loader2 } from 'lucide-react';
+
+import { SearchableSelect } from '../../../components/SearchableSelect';
+
 interface BulkPayData {
   conta_id: string;
   modoData: string;
@@ -37,18 +41,17 @@ export const BulkPayModal = ({
         <div className="space-y-4">
           <div>
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Conta de pagamento</p>
-            <select
-              className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-white outline-none"
+            <SearchableSelect
               value={bulkPayData.conta_id}
-              onChange={(e) => setBulkPayData((prev) => ({ ...prev, conta_id: e.target.value }))}
-            >
-              <option value="">Selecionar...</option>
-              {contasAtivas.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nome}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setBulkPayData((prev) => ({ ...prev, conta_id: String(val) }))}
+              options={[{
+                label: 'Conta de pagamento',
+                options: [
+                  { id: '', label: 'Selecionar...' },
+                  ...contasAtivas.map((c) => ({ id: c.id, label: c.nome }))
+                ]
+              }]}
+            />
           </div>
           <div>
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Data de pagamento</p>

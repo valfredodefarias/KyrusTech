@@ -22,6 +22,7 @@ import {
 
 import { api, toPublicAssetUrl } from '../services/api';
 import { useAuthStore } from '../store/authStore';
+import { SearchableSelect } from './SearchableSelect';
 
 interface PermissionItem {
   id: number;
@@ -919,22 +920,22 @@ export function RbacManager() {
                       required
                       className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                     />
-                    <select
-                      value={newUserProfileId}
-                      onChange={(event) => {
-                        const val = event.target.value;
+                    <SearchableSelect
+                      value={newUserProfileId ? String(newUserProfileId) : ''}
+                      onChange={(val: any) => {
                         setNewUserProfileId(val ? Number(val) : '');
                       }}
-                      required
-                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                    >
-                      <option value="">Selecione o perfil de acesso</option>
-                      {profiles.map((profile) => (
-                        <option key={profile.id} value={profile.id}>
-                          {profile.name} {profile.is_system ? '(sistema)' : ''}
-                        </option>
-                      ))}
-                    </select>
+                      options={[{
+                        label: 'Perfil de acesso',
+                        options: [
+                          { id: '', label: 'Selecione o perfil de acesso' },
+                          ...profiles.map((profile) => ({
+                            id: String(profile.id),
+                            label: `${profile.name} ${profile.is_system ? '(sistema)' : ''}`
+                          }))
+                        ]
+                      }]}
+                    />
                   </div>
                 </div>
 
@@ -1213,23 +1214,25 @@ export function RbacManager() {
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Troque o perfil desse usuário sem sair da tela de cartões.</p>
                   </div>
 
-                  <select
-                    value={selectedUserProfileId}
-                    onChange={(event) => {
-                      if (!event.target.value) return;
-                      const profileId = Number(event.target.value);
+                  <SearchableSelect
+                    value={selectedUserProfileId ? String(selectedUserProfileId) : ''}
+                    onChange={(val: any) => {
+                      if (!val) return;
+                      const profileId = Number(val);
                       setSelectedUserProfileId(profileId);
                       void handleAssignProfile(selectedUser.id, profileId);
                     }}
-                    className="w-full rounded-2xl border border-slate-350 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
-                  >
-                    <option value="">Selecione um perfil</option>
-                    {profiles.map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name} {profile.is_system ? '(sistema)' : ''}
-                      </option>
-                    ))}
-                  </select>
+                    options={[{
+                      label: 'Perfil',
+                      options: [
+                        { id: '', label: 'Selecione um perfil' },
+                        ...profiles.map((profile) => ({
+                          id: String(profile.id),
+                          label: `${profile.name} ${profile.is_system ? '(sistema)' : ''}`
+                        }))
+                      ]
+                    }]}
+                  />
 
                   <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-400">
                     Perfil atual: <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedUser.profile_name || 'Sem perfil'}</span>

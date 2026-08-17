@@ -23,6 +23,7 @@ import {
 import { api, normalizeListResponse } from '../services/api';
 import { useLookupStore } from '../store/lookupStore';
 import { useAuthStore } from '../store/authStore';
+import { SearchableSelect } from '../components/SearchableSelect';
 
 // --- INTERFACES ---
 interface CustomFieldConfig {
@@ -611,16 +612,17 @@ export default function ImportacaoPDV() {
                     return (
                       <label key={key} className="block">
                         <span className="text-xs font-bold text-slate-650 dark:text-slate-350 block mb-1">{labelMap[key] || key}</span>
-                        <select
+                        <SearchableSelect
                           value={(mapping as any)[key] || ''}
-                          onChange={(e) => setMapping({ ...mapping, [key]: e.target.value })}
-                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                        >
-                          <option value="">-- Não Mapear (Apenas usar valor padrão/nulo) --</option>
-                          {headers.map((h) => (
-                            <option key={h} value={h}>{h}</option>
-                          ))}
-                        </select>
+                          onChange={(val) => setMapping({ ...mapping, [key]: String(val) })}
+                          options={[{
+                            label: 'Campo',
+                            options: [
+                              { id: '', label: '-- Não Mapear (Apenas usar valor padrão/nulo) --' },
+                              ...headers.map((h) => ({ id: h, label: h }))
+                            ]
+                          }]}
+                        />
                       </label>
                     );
                   })}
@@ -640,21 +642,22 @@ export default function ImportacaoPDV() {
                         <span className="text-xs font-bold text-slate-650 dark:text-slate-350 block mb-1">
                           {cf.label} {cf.required && <span className="text-rose-500">*</span>}
                         </span>
-                        <select
+                        <SearchableSelect
                           value={mapping.campos_extras[cf.id] || ''}
-                          onChange={(e) =>
+                          onChange={(val) =>
                             setMapping({
                               ...mapping,
-                              campos_extras: { ...mapping.campos_extras, [cf.id]: e.target.value }
+                              campos_extras: { ...mapping.campos_extras, [cf.id]: String(val) }
                             })
                           }
-                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                        >
-                          <option value="">-- Não Mapear (Nulo ou Sem valor) --</option>
-                          {headers.map((h) => (
-                            <option key={h} value={h}>{h}</option>
-                          ))}
-                        </select>
+                          options={[{
+                            label: 'Campo Personalizado',
+                            options: [
+                              { id: '', label: '-- Não Mapear (Nulo ou Sem valor) --' },
+                              ...headers.map((h) => ({ id: h, label: h }))
+                            ]
+                          }]}
+                        />
                       </label>
                     ))
                   )}

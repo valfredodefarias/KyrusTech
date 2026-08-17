@@ -2,6 +2,7 @@ import { ArrowRightLeft, CheckCircle2 } from 'lucide-react';
 import { BankAvatar } from '../../../components/BrandAvatar';
 import { toPublicAssetUrl } from '../../../services/api';
 import { InputDark, CurrencyInputDark } from './InputDark';
+import { SearchableSelect } from '../../../components/SearchableSelect';
 
 interface TransferModalProps {
   showTransfer: boolean;
@@ -125,18 +126,17 @@ export const TransferModal = ({
 
           <div>
             <label className="text-xs font-bold text-slate-400 uppercase mb-1">Centro de Custo</label>
-            <select
-              className="w-full p-2 rounded bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-white text-sm"
+            <SearchableSelect
               value={transferData.centro_custo_id}
-              onChange={(e) => setTransferData((prev: any) => ({ ...prev, centro_custo_id: e.target.value }))}
-            >
-              <option value="">Opcional</option>
-              {centros.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nome}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setTransferData((prev: any) => ({ ...prev, centro_custo_id: String(val) }))}
+              options={[{
+                label: 'Centro de Custo',
+                options: [
+                  { id: '', label: 'Opcional' },
+                  ...centros.map((c) => ({ id: c.id, label: c.nome }))
+                ]
+              }]}
+            />
           </div>
 
           <InputDark

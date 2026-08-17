@@ -11,6 +11,9 @@ import {
   fetchCepAddress,
   nullableValue,
 } from '../utils';
+import { cpf, cnpj } from 'cpf-cnpj-validator';
+
+import { SearchableSelect } from '../../../components/SearchableSelect';
 
 interface QuickEntityDrawerProps {
   showEntityDrawer: boolean;
@@ -228,15 +231,18 @@ export const QuickEntityDrawer = ({
                 />
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Classificação</label>
-                  <select
-                    className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                  <SearchableSelect
                     value={newEntityData.tipo}
-                    onChange={(e: any) => setNewEntityData((prev) => ({ ...prev, tipo: e.target.value as any }))}
-                  >
-                    <option value="CLIENTE">Cliente</option>
-                    <option value="FORNECEDOR">Fornecedor</option>
-                    <option value="AMBOS">Ambos</option>
-                  </select>
+                    onChange={(val) => setNewEntityData((prev) => ({ ...prev, tipo: String(val) as any }))}
+                    options={[{
+                      label: 'Classificação',
+                      options: [
+                        { id: 'CLIENTE', label: 'Cliente' },
+                        { id: 'FORNECEDOR', label: 'Fornecedor' },
+                        { id: 'AMBOS', label: 'Ambos' }
+                      ]
+                    }]}
+                  />
                 </div>
               </div>
 

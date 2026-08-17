@@ -18,6 +18,12 @@ import {
   FileSpreadsheet,
   Download,
 } from 'lucide-react';
+import { 
+  CreditCard, UploadCloud,
+  History, Wallet, Search,
+  ArrowRight, FileText, AlertCircle, Calendar, Edit2, Archive, Loader2, PlayCircle, Eye, Printer, Layers, RefreshCw
+} from 'lucide-react';
+import { SearchableSelect } from '../components/SearchableSelect';
 import ExcelJS from 'exceljs';
 
 
@@ -28,6 +34,7 @@ import axios from 'axios';
 import { api, getPublicBaseUrl, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
+import { useKyrusWsListener } from '../hooks/useKyrusWebSocket';
 import { useTransactionStore } from '../store/transactionStore';
 import type { LancamentoResumo, NormalizedRow, StatusFilter, FlowFilter } from '../store/transactionStore';
 
@@ -574,6 +581,15 @@ export function Boletim() {
   const [isLancamentoDrawerOpen, setIsLancamentoDrawerOpen] = useState(false);
   const [editingLancamentoId, setEditingLancamentoId] = useState<number | null>(null);
   const refreshCount = useTransactionStore((state) => state.refreshCount);
+  const currentEmpresaId = useAuthStore((state) => state.empresa?.id || state.user?.empresa_id);
+
+  // --- WEBSOCKETS ---
+  useKyrusWsListener('LANCAMENTO_CREATED', () => useTransactionStore.getState().invalidateAndRefresh());
+  useKyrusWsListener('LANCAMENTO_UPDATED', () => useTransactionStore.getState().invalidateAndRefresh());
+  useKyrusWsListener('LANCAMENTO_DELETED', () => useTransactionStore.getState().invalidateAndRefresh());
+  useKyrusWsListener('MOVIMENTACAO_PDV_CREATED', () => useTransactionStore.getState().invalidateAndRefresh());
+  useKyrusWsListener('MOVIMENTACAO_PDV_UPDATED', () => useTransactionStore.getState().invalidateAndRefresh());
+  useKyrusWsListener('MOVIMENTACAO_PDV_DELETED', () => useTransactionStore.getState().invalidateAndRefresh());
 
   const buildLancamentosDestino = (lancamentoId: number, includeEmbed: boolean) => {
     const params = new URLSearchParams();
@@ -2259,25 +2275,28 @@ export function Boletim() {
                   </span>
                 ) : null}
               </div>
-              <select
-                value={selectedCentroCustoId === null ? 'TODOS' : String(selectedCentroCustoId)}
-                onChange={(event) => {
-                  const val = event.target.value;
-                  if (val === 'TODOS') {
-                    setSelectedCentroCustoId(null);
-                  } else {
-                    setSelectedCentroCustoId(Number(val));
-                  }
-                }}
-                className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white md:w-72"
-              >
-                <option value="TODOS">Todos os centros de custo</option>
-                {centrosCusto.map((centro) => (
-                  <option key={centro.id} value={centro.id}>
-                    {centro.codigo ? `${centro.codigo} - ` : ''}{centro.nome}
-                  </option>
-                ))}
-              </select>
+              <div className="w-full md:w-72">
+                <SearchableSelect
+                  value={selectedCentroCustoId === null ? 'TODOS' : String(selectedCentroCustoId)}
+                  onChange={(val) => {
+                    if (val === 'TODOS') {
+                      setSelectedCentroCustoId(null);
+                    } else {
+                      setSelectedCentroCustoId(Number(val));
+                    }
+                  }}
+                  options={[{
+                    label: 'Centro de Custo',
+                    options: [
+                      { id: 'TODOS', label: 'Todos os centros de custo' },
+                      ...centrosCusto.map((centro) => ({
+                        id: centro.id,
+                        label: `${centro.codigo ? `${centro.codigo} - ` : ''}${centro.nome}`
+                      }))
+                    ]
+                  }]}
+                />
+              </div>
             </div>
           </div>
 

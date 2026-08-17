@@ -4,6 +4,7 @@ import {
   Layers, PlusCircle, Search, Edit3, Trash2, X, Check, 
   Loader2, Hash, Type, Activity, AlertTriangle 
 } from 'lucide-react';
+import { SearchableSelect } from '../components/SearchableSelect';
 
 // --- TIPAGENS ---
 interface CentroCusto {
@@ -324,15 +325,17 @@ export function CentroCusto() {
                   <div>
                     <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Status</label>
                     <div className="relative">
-                      <Activity className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                      <select 
-                        className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 focus:border-(--color-primary) focus:bg-white dark:focus:bg-slate-800 outline-none transition appearance-none cursor-pointer"
+                      <SearchableSelect
                         value={form.status}
-                        onChange={e => setForm({...form, status: e.target.value})}
-                      >
-                        <option value="ATIVO">ATIVO</option>
-                        <option value="INATIVO">INATIVO</option>
-                      </select>
+                        onChange={(val) => setForm({...form, status: String(val)})}
+                        options={[{
+                          label: 'Status',
+                          options: [
+                            { id: 'ATIVO', label: 'ATIVO' },
+                            { id: 'INATIVO', label: 'INATIVO' }
+                          ]
+                        }]}
+                      />
                     </div>
                   </div>
                 </div>

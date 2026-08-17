@@ -9,10 +9,9 @@ import { BankAvatar } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
 import { useBankPresetStore } from '../store/bankPresetStore';
-import { 
-  Landmark, RefreshCw, Plus, Edit2, Trash2, ChevronRight, X, Check, Loader2, ChevronDown,
-  Banknote, TrendingUp, AlertTriangle, Filter, Search, Settings
-} from 'lucide-react';
+import { Building2, Plus, Edit2, Trash2, CheckCircle2, AlertCircle, RefreshCw, Loader2, ArrowUpRight, ArrowDownRight, MoreVertical, Building, MapPin, Receipt, X, Filter, ChevronLeft, ChevronRight, FileText, UploadCloud, Share2, Printer, KeyRound, Search, Activity, SearchIcon, Check, AlertTriangle, Landmark, ChevronDown, Banknote, Settings, TrendingUp } from 'lucide-react';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { toast } from 'sonner';
 
 // --- TIPAGENS ---
 interface Conta {
@@ -1914,17 +1913,17 @@ export function Contas() {
                     <Filter className="absolute left-4 top-3.5 text-slate-400 transition-colors" size={20} 
                        style={{ color: filterCentroId ? primaryColor : undefined }}
                     />
-                    <select 
-                      className="w-full pl-12 pr-8 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition shadow-sm appearance-none cursor-pointer text-slate-600 dark:text-slate-300 focus:ring-2"
-                      style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                    <SearchableSelect
                       value={filterCentroId}
-                      onChange={(e) => setFilterCentroId(e.target.value)}
-                    >
-                        <option value="">Todos os Centros</option>
-                        {centros.map(c => (
-                          <option key={c.id} value={c.id}>{c.nome}</option>
-                        ))}
-                    </select>
+                      onChange={(val) => setFilterCentroId(String(val))}
+                      options={[{
+                        label: 'Centros',
+                        options: [
+                          { id: '', label: 'Todos os Centros' },
+                          ...centros.map(c => ({ id: c.id, label: c.nome }))
+                        ]
+                      }]}
+                    />
                     <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
                     </div>
@@ -2155,17 +2154,19 @@ export function Contas() {
               <div className="grid grid-cols-2 gap-4">
                   <div>
                       <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Tipo</label>
-                      <select 
-                        className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
-                        style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                      <SearchableSelect
                         value={form.tipo}
-                        onChange={e => setForm({...form, tipo: e.target.value})}
-                      >
-                          <option value="CORRENTE">Conta Corrente</option>
-                          <option value="POUPANCA">Poupança</option>
-                          <option value="CAIXA">Caixa Físico</option>
-                          <option value="INVESTIMENTO">Investimento</option>
-                      </select>
+                        onChange={(val) => setForm({...form, tipo: String(val)})}
+                        options={[{
+                          label: 'Tipo',
+                          options: [
+                            { id: 'CORRENTE', label: 'Conta Corrente' },
+                            { id: 'POUPANCA', label: 'Poupança' },
+                            { id: 'CAIXA', label: 'Caixa Físico' },
+                            { id: 'INVESTIMENTO', label: 'Investimento' }
+                          ]
+                        }]}
+                      />
                   </div>
                   <div>
                       <label className={getLabelClass(Boolean(formErrors.banco))}>Banco</label>
@@ -2458,15 +2459,17 @@ export function Contas() {
 
               <div>
                   <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Status</label>
-                  <select 
-                    className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
-                    style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                  <SearchableSelect
                     value={form.status}
-                    onChange={e => setForm({...form, status: e.target.value})}
-                  >
-                      <option value="ATIVO">Ativa</option>
-                      <option value="INATIVO">Inativa</option>
-                  </select>
+                    onChange={(val) => setForm({...form, status: String(val)})}
+                    options={[{
+                      label: 'Status',
+                      options: [
+                        { id: 'ATIVO', label: 'Ativa' },
+                        { id: 'INATIVO', label: 'Inativa' }
+                      ]
+                    }]}
+                  />
               </div>
           </div>
 

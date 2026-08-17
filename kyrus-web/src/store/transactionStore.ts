@@ -78,9 +78,11 @@ interface TransactionState {
   invalidate: () => void;
   clearCache: () => void;
   incrementRefreshCount: () => void;
+  invalidateAndRefresh: () => void;
   addTransactionToCache: (transaction: LancamentoResumo) => void;
   updateTransactionInCache: (transaction: LancamentoResumo) => void;
   removeTransactionFromCache: (id: number) => void;
+  fetchWsSyncItem: (id: number) => Promise<void>;
 }
 
 // In-flight promise registries for deduplication
@@ -378,21 +380,22 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
     Object.keys(yearPromises).forEach((k) => delete yearPromises[Number(k)]);
     Object.keys(asaasPromises).forEach((k) => delete asaasPromises[Number(k)]);
 
-    // 3. Clear entire state (preserving refreshCount)
+    // 3. Clear state (preserving yearCache, asaasCache, pagedLancamentos for Stale-While-Revalidate)
     set({
-      yearCache: {},
-      asaasCache: {},
       cacheTimestamps: {},
       loadingYears: {},
       loadingAsaas: {},
-      pagedLancamentos: [],
-      pagedCacheKey: '',
       pendingDeletedIds: new Set<number>(),
       pendingUpdatedTxs: new Map<number, { tx: LancamentoResumo; timestamp: number }>(),
     });
   },
 
   incrementRefreshCount: () => set((state) => ({ refreshCount: state.refreshCount + 1 })),
+
+  invalidateAndRefresh: () => {
+    get().invalidate();
+    set((state) => ({ refreshCount: state.refreshCount + 1 }));
+  },
 
   addTransactionToCache: (transaction) => {
     const date = parseDateOnly(transaction.data_vencimento);
@@ -481,15 +484,16 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
   removeTransactionFromCache: (id) => {
     console.log('[Zustand] removeTransactionFromCache called for ID:', id);
     set((state) => {
+      const numericId = Number(id);
       const nextPending = new Set(state.pendingDeletedIds);
-      nextPending.add(id);
+      nextPending.add(numericId);
 
       const updatedYearCache = { ...state.yearCache };
       Object.keys(updatedYearCache).forEach((yKey) => {
         const y = Number(yKey);
-        updatedYearCache[y] = updatedYearCache[y].filter((t) => t.id !== id);
+        updatedYearCache[y] = updatedYearCache[y].filter((t) => Number(t.id) !== Number(id));
       });
-      const nextPaged = state.pagedLancamentos.filter((t) => t.id !== id);
+      const nextPaged = state.pagedLancamentos.filter((t) => Number(t.id) !== Number(id));
       return {
         pendingDeletedIds: nextPending,
         yearCache: updatedYearCache,
@@ -500,12 +504,42 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
     // Auto-prune entry from pendingDeletedIds after 60 seconds
     setTimeout(() => {
       set((state) => {
-        if (!state.pendingDeletedIds.has(id)) return state;
+        const numericId = Number(id);
+        if (!state.pendingDeletedIds.has(numericId)) return state;
         const nextPending = new Set(state.pendingDeletedIds);
-        nextPending.delete(id);
+        nextPending.delete(numericId);
         return { pendingDeletedIds: nextPending };
       });
     }, 60000);
+  },
+
+  fetchWsSyncItem: async (id: number) => {
+    try {
+      const res = await api.get('/lancamentos', {
+        params: { ids: id, minimized: true, sem_paginacao: true }
+      });
+      const data = normalizeListResponse<LancamentoResumo>(res.data);
+      if (data && data.length > 0) {
+        const item = data[0];
+        // Ensure it doesn't already exist first, to decide if add or update
+        let found = false;
+        const state = get();
+        for (const year of Object.keys(state.yearCache).map(Number)) {
+          if (state.yearCache[year]?.some(t => t.id === id)) {
+            found = true;
+            break;
+          }
+        }
+        
+        if (found) {
+          get().updateTransactionInCache(item);
+        } else {
+          get().addTransactionToCache(item);
+        }
+      }
+    } catch (err) {
+      console.error('[transactionStore] Error fetching ws sync item:', err);
+    }
   }
   };
 });

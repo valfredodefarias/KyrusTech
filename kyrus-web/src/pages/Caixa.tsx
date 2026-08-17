@@ -21,6 +21,7 @@ import {
   FileText,
 } from 'lucide-react';
 
+import { SearchableSelect } from '../components/SearchableSelect';
 import type { Lancamento, ToastItem } from './Lancamentos/types';
 import {
   getTodayLocalYmd,
@@ -509,17 +510,14 @@ export function Caixa() {
             <label className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 px-2 py-0.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
               <Banknote className="h-3.5 w-3.5 text-slate-400" />
               <span className="text-slate-400 font-normal">Caixa:</span>
-              <select
+              <SearchableSelect
                 value={selectedContaId === null ? '' : String(selectedContaId)}
-                onChange={(e) => setSelectedContaId(Number(e.target.value))}
-                className="bg-transparent font-black text-slate-700 dark:text-white outline-none cursor-pointer"
-              >
-                {caixasFisicos.map((c) => (
-                  <option key={c.id} value={c.id} className="text-slate-900">
-                    {c.nome}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setSelectedContaId(Number(val))}
+                options={[{
+                  label: 'Caixa',
+                  options: caixasFisicos.map((c) => ({ id: String(c.id), label: c.nome }))
+                }]}
+              />
             </label>
           ) : (
             <span className="text-[11px] italic text-rose-500 font-bold">Nenhum caixa ativo.</span>

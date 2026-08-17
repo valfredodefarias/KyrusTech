@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
 import { BrandAvatar, inferCardBrand } from '../components/BrandAvatar';
 import { usePosStore } from '../store/usePosStore';
+import { SearchableSelect } from '../components/SearchableSelect';
 
 // Interfaces
 interface Produto {

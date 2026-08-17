@@ -1828,10 +1828,14 @@ def deletar_lancamento(
     current_user: Usuario = Depends(get_current_user),
 ):
     empresa_id, user_id = require_empresa_user(current_user)
-    service.delete(lancamento_id, empresa_id, user_id, confirmar_exclusao_pagos=confirmar_exclusao_pagos)
+    deleted_ids = service.delete(lancamento_id, empresa_id, user_id, confirmar_exclusao_pagos=confirmar_exclusao_pagos)
     from app.core.cache import clear_transaction_cache
     clear_transaction_cache(empresa_id)
-    broadcast_sync(empresa_id, 'LANCAMENTO_DELETED', {'id': lancamento_id})
+    if deleted_ids:
+        for did in deleted_ids:
+            broadcast_sync(empresa_id, 'LANCAMENTO_DELETED', {'id': did})
+    else:
+        broadcast_sync(empresa_id, 'LANCAMENTO_DELETED', {'id': lancamento_id})
 
 # ==========================================
 # AÇÕES EM MASSA (BULK)
@@ -1853,12 +1857,15 @@ def criar_multiplos(lista_in: List[LancamentoCreate], service: LancamentoService
 )
 def deletar_multiplos(payload: BulkActionSchema, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
-    service.deletar_em_massa(
+    deleted_ids = service.deletar_em_massa(
         payload.ids,
         empresa_id,
         user_id,
         confirmar_exclusao_pagos=bool(payload.confirmar_exclusao_pagos),
     )
+    if deleted_ids:
+        for did in deleted_ids:
+            broadcast_sync(empresa_id, 'LANCAMENTO_DELETED', {'id': did})
     return {"msg": "Lançamentos deletados com sucesso"}
 
 @router.post(

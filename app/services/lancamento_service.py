@@ -842,6 +842,8 @@ class LancamentoService:
             from app.services.auditor_anomalia_service import schedule_analise_exclusao
             for item in related:
                 schedule_analise_exclusao(item.id)
+        
+        return list(delete_ids)
 
     def restore(self, lancamento_id: int, empresa_id: int, user_id: int) -> Lancamento:
         query = select(Lancamento).where(
@@ -970,7 +972,7 @@ class LancamentoService:
                 ids_para_deletar.add(int(lanc.id))
 
         if not ids_para_deletar:
-            return
+            return []
 
         related = self.session.exec(
             select(Lancamento).where(
@@ -1014,6 +1016,8 @@ class LancamentoService:
             from app.services.auditor_anomalia_service import schedule_analise_exclusao
             for lanc in related:
                 schedule_analise_exclusao(lanc.id)
+        
+        return list(ids_para_deletar)
 
     def baixar_em_massa(self, ids: List[int], data_pagamento: date, conta_id: Optional[int], empresa_id: int, user_id: int) -> int:
         statement = select(Lancamento).where(

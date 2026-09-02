@@ -30,7 +30,7 @@ const TabRouteWrapper = memo(({ tabItem }: { tabItem: TabItem }) => {
   }), [tabItem.basePath, tabItem.path]);
 
   return <ErpRoutes customLocation={customLocation} />;
-});
+}, (prev, next) => prev.tabItem.path === next.tabItem.path);
 
 // Mapeador de ícones Lucide dinâmico
 function TabIcon({ name, className, size = 13 }: { name: string; className?: string; size?: number }) {
@@ -129,7 +129,7 @@ const SEARCH_PAGES: SearchPageItem[] = [
   { path: '/contas', label: 'Contas Bancárias', iconName: 'Landmark', category: 'Financeiro', tags: ['banco', 'itau', 'bradesco', 'saldo', 'extrato'] },
   { path: '/orcamentos', label: 'Orçamentos', iconName: 'Calculator', category: 'Financeiro', tags: ['planejamento', 'orcamento', 'metas'] },
   { path: '/budget', label: 'Budget', iconName: 'Table2', category: 'Financeiro', tags: ['budget', 'despesas', 'investimento'] },
-  { path: '/cartoes', label: 'Cartões', iconName: 'CreditCard', category: 'Financeiro', tags: ['credito', 'limite', 'fatura', 'nubank'] },
+  { path: '/cartoes', label: 'Cartões Corporativos', iconName: 'CreditCard', category: 'Financeiro', tags: ['credito', 'limite', 'fatura', 'nubank'] },
   { path: '/conciliacao-cartoes', label: 'Conciliadora de Cartões', iconName: 'Coins', category: 'Financeiro', tags: ['cartao', 'visa', 'master', 'conciliacao'] },
   { path: '/pdv', label: 'PDV', iconName: 'ShoppingBag', category: 'Comercial', tags: ['vendas', 'caixa', 'cupom', 'cliente'] },
   { path: '/produtos', label: 'Produtos e Estoque', iconName: 'Package', category: 'Comercial', tags: ['estoque', 'produto', 'servico', 'inventario', 'catalogo'] },
@@ -234,10 +234,9 @@ function LayoutShell() {
   const setFocusedTab = useTabStore((state) => state.setFocusedTab);
 
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const [isSidebarDocked, setIsSidebarDocked] = useState<boolean>(() => {
-    return localStorage.getItem('kyrus_sidebar_docked') === 'true';
-  });
+  const initialDocked = localStorage.getItem('kyrus_sidebar_docked') === 'true';
+  const [isSidebarDocked, setIsSidebarDocked] = useState<boolean>(initialDocked);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(!initialDocked);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('theme') as 'dark' | 'light') || 'light');
   const [headerUser, setHeaderUser] = useState<AuthUser | null>(storedUser);
   const empresa = useAuthStore((state) => state.empresa);

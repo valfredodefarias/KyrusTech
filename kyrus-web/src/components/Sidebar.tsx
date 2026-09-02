@@ -88,8 +88,8 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     // Financeiro
     { icon: Landmark, label: 'Contas Bancárias', path: '/contas', category: 'financeiro', requiredPermissions: ['page:contas:view'] },
     { icon: PlusCircle, label: 'Lançamentos', path: '/lancamentos', category: 'financeiro', requiredPermissions: ['page:lancamentos:view'] },
-    { icon: Banknote, label: 'Caixa', path: '/caixa', category: 'financeiro', requiredPermissions: ['page:caixa:view'] },
-    { icon: CreditCard, label: 'Cartões', path: '/cartoes', category: 'financeiro', requiredPermissions: ['page:cartoes:view'] },
+    { icon: Banknote, label: 'Caixa', path: '/caixa', category: 'vendas', requiredPermissions: ['page:caixa:view'] },
+    { icon: CreditCard, label: 'Cartões Corporativos', path: '/cartoes', category: 'financeiro', requiredPermissions: ['page:cartoes:view'] },
     { icon: Coins, label: 'Conciliadora de Cartões', path: '/conciliacao-cartoes', category: 'financeiro', requiredPermissions: ['page:cartoes:view'] },
     { icon: Calculator, label: 'Orçamentos', path: '/orcamentos', category: 'financeiro', requiredPermissions: ['page:dre:view'] },
     { icon: Table2, label: 'Budget', path: '/budget', category: 'financeiro', requiredPermissions: ['page:dre:view'] },
@@ -206,8 +206,8 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>(() => {
     const path = location.pathname;
     return {
-      financeiro: ['/lancamentos', '/caixa', '/contas', '/cartoes', '/conciliacao-cartoes', '/dre', '/orcamentos', '/budget'].some(p => path.startsWith(p)),
-      vendas: ['/comissoes', '/pdv', '/importacao_nfe', '/produtos', '/apps/ifood'].some(p => path.startsWith(p)),
+      financeiro: ['/lancamentos', '/contas', '/cartoes', '/conciliacao-cartoes', '/dre', '/orcamentos', '/budget'].some(p => path.startsWith(p)),
+      vendas: ['/caixa', '/comissoes', '/pdv', '/importacao_nfe', '/produtos', '/apps/ifood'].some(p => path.startsWith(p)),
       admin: ['/auditoria', '/config', '/apps'].some(p => {
         if (path.startsWith('/apps/ifood')) return false;
         return path.startsWith(p);
@@ -225,8 +225,8 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     } else {
       const path = location.pathname;
       setExpandedCategories({
-        financeiro: ['/lancamentos', '/caixa', '/contas', '/cartoes', '/conciliacao-cartoes', '/dre', '/orcamentos', '/budget', '/comissoes'].some(p => path.startsWith(p)),
-        vendas: ['/pdv', '/importacao_nfe', '/produtos', '/apps/ifood'].some(p => path.startsWith(p)),
+        financeiro: ['/lancamentos', '/contas', '/cartoes', '/conciliacao-cartoes', '/dre', '/orcamentos', '/budget', '/comissoes'].some(p => path.startsWith(p)),
+        vendas: ['/caixa', '/pdv', '/importacao_nfe', '/produtos', '/apps/ifood'].some(p => path.startsWith(p)),
         admin: ['/auditoria', '/config', '/apps'].some(p => {
           if (path.startsWith('/apps/ifood')) return false;
           return path.startsWith(p);
@@ -400,13 +400,13 @@ export function Sidebar({
   onMouseLeave?: () => void; 
 }) {
   return (
-    <aside className={`relative z-30 hidden h-full min-h-0 shrink-0 overflow-visible md:flex transition-[width] duration-150 ${isDocked ? (collapsed ? 'w-[60px]' : 'w-[200px]') : 'w-[60px]'}`}>
+    <aside className={`relative z-30 hidden h-full min-h-0 shrink-0 overflow-visible md:flex transition-[width] duration-150 ${isDocked ? 'w-[260px]' : 'w-[60px]'}`}>
       <div
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        className={`${collapsed ? 'w-[60px]' : 'w-[200px]'} absolute inset-y-0 left-0 z-30 min-h-0 overflow-hidden border-r border-slate-200 bg-slate-50/70 ${!isDocked && !collapsed ? 'shadow-xl dark:shadow-2xl bg-white dark:bg-[#0d1117] border-r-slate-350 dark:border-r-slate-800' : 'shadow-sm dark:bg-[#0d1117]/60'} transition-[width,box-shadow,background-color] duration-150`}
+        className={`${isDocked ? 'w-[260px]' : (collapsed ? 'w-[60px]' : 'w-[260px]')} absolute inset-y-0 left-0 z-30 min-h-0 overflow-hidden border-r border-slate-200 bg-slate-50/70 ${!isDocked && !collapsed ? 'shadow-xl dark:shadow-2xl bg-white dark:bg-[#0d1117] border-r-slate-350 dark:border-r-slate-800' : 'shadow-sm dark:bg-[#0d1117]/60'} transition-[width,box-shadow,background-color] duration-150`}
       >
-        <SidebarPanel collapsed={collapsed} isDocked={isDocked} toggleDock={toggleDock} />
+        <SidebarPanel collapsed={isDocked ? false : collapsed} isDocked={isDocked} toggleDock={toggleDock} />
       </div>
     </aside>
   );
@@ -420,7 +420,7 @@ export function MobileSidebar({ open, onClose }: { open: boolean; onClose: () =>
         onClick={onClose}
       />
       <aside
-        className={`absolute left-0 top-0 h-full w-64 border-r border-slate-200 bg-white shadow-xl transition-transform dark:border-slate-700 dark:bg-[#0d1117] ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`absolute left-0 top-0 h-full w-[260px] border-r border-slate-200 bg-white shadow-xl transition-transform dark:border-slate-700 dark:bg-[#0d1117] ${open ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <SidebarPanel onNavigate={onClose} showClose collapsed={false} />
       </aside>

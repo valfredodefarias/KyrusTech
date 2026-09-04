@@ -648,6 +648,9 @@ export function Boletim() {
 
   const { isDark } = useLookupStore();
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
+  const [selectedCategoriasIds, setSelectedCategoriasIds] = useState<number[]>([]);
+  const [selectedContasIds, setSelectedContasIds] = useState<number[]>([]);
+  const [selectedInteressadosIds, setSelectedInteressadosIds] = useState<number[]>([]);
   const contas = useLookupStore((state) => state.contas);
   const categorias = useLookupStore((state) => state.planoContas);
   const entidades = useLookupStore((state) => state.entidadesLookup);

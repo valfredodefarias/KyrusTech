@@ -24,6 +24,7 @@ import {
   ArrowRight, FileText, AlertCircle, Calendar, Edit2, Archive, Loader2, PlayCircle, Eye, Printer, Layers, RefreshCw, Filter
 } from 'lucide-react';
 import { BoletimFiltrosSidebar } from '../components/BoletimFiltrosSidebar';
+import type { BoletimFiltrosAvancados } from '../components/BoletimFiltrosSidebar';
 import { SearchableSelect } from '../components/SearchableSelect';
 import ExcelJS from 'exceljs';
 
@@ -648,9 +649,13 @@ export function Boletim() {
 
   const { isDark } = useLookupStore();
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
-  const [selectedCategoriasIds, setSelectedCategoriasIds] = useState<number[]>([]);
-  const [selectedContasIds, setSelectedContasIds] = useState<number[]>([]);
-  const [selectedInteressadosIds, setSelectedInteressadosIds] = useState<number[]>([]);
+  const [filtrosAvancados, setFiltrosAvancados] = useState<BoletimFiltrosAvancados>({
+    categoriaIds: new Set<number>(),
+    contaIds: new Set<number>(),
+    interessados: new Set<string>(),
+    dataInicio: '',
+    dataFim: ''
+  });
   const contas = useLookupStore((state) => state.contas);
   const categorias = useLookupStore((state) => state.planoContas);
   const entidades = useLookupStore((state) => state.entidadesLookup);
@@ -2876,36 +2881,48 @@ export function Boletim() {
                             <tr>
                               <td colSpan={6} className={`px-4 py-12 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Nenhum lançamento para os filtros atuais.</td>
                             </tr>
-                          ) : dashboard.tableRows.map((row) => (
-                            <tr key={row.rowKey} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
-                              <td className="px-4 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
-                              <td className="px-4 py-2.5 font-semibold">{row.interessado}</td>
-                              <td className="max-w-85 truncate px-4 py-2.5" title={row.descricao}>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="truncate">{row.descricao}</span>
-                                  {(row.id <= 0 || row.origem === 'ASAAS') && (
-                                    <span className="shrink-0 inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-400/20">
-                                      Asaas
+                          ) : (
+                            <>
+                              {dashboard.tableRows.slice(0, 500).map((row) => (
+                                <tr key={row.rowKey} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
+                                  <td className="px-4 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
+                                  <td className="px-4 py-2.5 font-semibold">{row.interessado}</td>
+                                  <td className="max-w-85 truncate px-4 py-2.5" title={row.descricao}>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="truncate">{row.descricao}</span>
+                                      {(row.id <= 0 || row.origem === 'ASAAS') && (
+                                        <span className="shrink-0 inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-400/20">
+                                          Asaas
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-2.5">
+                                    <span
+                                      title={row.flowType === 'RECEBIMENTO' ? 'Recebimento' : 'Pagamento'}
+                                      className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-black ${row.flowType === 'RECEBIMENTO' ? isDark ? 'border border-blue-400/35 bg-blue-500/20 text-blue-300' : 'border border-blue-200 bg-blue-100 text-blue-700' : isDark ? 'border border-rose-400/35 bg-rose-500/20 text-rose-300' : 'border border-rose-200 bg-rose-100 text-rose-700'}`}
+                                    >
+                                      {row.flowType === 'RECEBIMENTO' ? 'R' : 'P'}
                                     </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <span
-                                  title={row.flowType === 'RECEBIMENTO' ? 'Recebimento' : 'Pagamento'}
-                                  className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-black ${row.flowType === 'RECEBIMENTO' ? isDark ? 'border border-blue-400/35 bg-blue-500/20 text-blue-300' : 'border border-blue-200 bg-blue-100 text-blue-700' : isDark ? 'border border-rose-400/35 bg-rose-500/20 text-rose-300' : 'border border-rose-200 bg-rose-100 text-rose-700'}`}
-                                >
-                                  {row.flowType === 'RECEBIMENTO' ? 'R' : 'P'}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${row.statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : row.statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                                  {row.statusLabel}
-                                </span>
-                              </td>
-                              <td className={`px-4 py-2.5 text-right font-black whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrency(row.valor)}</td>
-                            </tr>
-                          ))}
+                                  </td>
+                                  <td className="px-4 py-2.5">
+                                    <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${row.statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : row.statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                                      {row.statusLabel}
+                                    </span>
+                                  </td>
+                                  <td className={`px-4 py-2.5 text-right font-black whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrency(row.valor)}</td>
+                                </tr>
+                              ))}
+                              {dashboard.tableRows.length > 500 && (
+                                <tr className={isDark ? 'border-t border-white/8 bg-slate-800 text-slate-300' : 'border-t border-slate-100 bg-amber-50 text-amber-800'}>
+                                  <td colSpan={6} className="px-4 py-4 text-center text-xs font-semibold">
+                                    Exibindo apenas os primeiros 500 de {dashboard.tableRows.length} lançamentos. <br/>
+                                    Para visualizar todos, clique no botão "Exportar Indicadores em Excel".
+                                  </td>
+                                </tr>
+                              )}
+                            </>
+                          )}
                           <tr className={isDark ? 'border-t border-white/10 bg-black/25 text-white' : 'border-t border-slate-200 bg-slate-50 text-slate-900'}>
                             <td colSpan={5} className="px-4 py-3 text-right font-black uppercase tracking-[0.14em]">Total geral</td>
                             <td className={`px-4 py-3 text-right font-black whitespace-nowrap ${getValueTone(dashboard.tableRows.reduce((sum, row) => sum + row.valor, 0), isDark)}`}>{formatCurrency(dashboard.tableRows.reduce((sum, row) => sum + row.valor, 0))}</td>
@@ -3065,36 +3082,48 @@ export function Boletim() {
                         <tr>
                           <td colSpan={6} className={`px-4 py-12 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Nenhum pedido para os filtros atuais.</td>
                         </tr>
-                      ) : comprasView.tableRows.map((row, index) => (
-                        <tr key={`compra-row-${index}-${row.numeroNfe || 'sem-nf'}`} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
-                          <td className="px-4 py-2.5 font-medium">{formatDate(row.vencimento)}</td>
-                          <td className="px-4 py-2.5 font-semibold">{row.emitente || '-'}</td>
-                          <td className="px-4 py-2.5">
-                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${row.tipoCompra === 'ENCOMENDA'
-                                ? isDark ? 'border-blue-400/35 bg-blue-500/20 text-blue-300' : 'border-blue-200 bg-blue-100 text-blue-700'
-                                : row.tipoCompra === 'ESTOQUE'
-                                  ? isDark ? 'border-teal-400/35 bg-teal-500/20 text-teal-300' : 'border-teal-200 bg-teal-100 text-teal-700'
-                                  : isDark ? 'border-purple-400/35 bg-purple-500/20 text-purple-300' : 'border-purple-200 bg-purple-100 text-purple-700'
-                              }`}>
-                              {row.tipoCompra === 'ENCOMENDA' ? 'Encomenda' : row.tipoCompra === 'ESTOQUE' ? 'Estoque' : 'Demonstração'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${row.tipoCompra === 'DEMONSTRACAO'
-                                ? isDark ? 'border-purple-400/30 bg-purple-400/10 text-purple-300' : 'border-purple-200 bg-purple-50 text-purple-700'
-                                : normalizeText(row.status).includes('pago')
-                                  ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                  : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'
-                              }`}>
-                              {row.tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAÇÃO' : String(row.status || '-').toUpperCase()}
-                            </span>
-                          </td>
-                          <td className={`px-4 py-2.5 text-right font-black whitespace-nowrap ${row.tipoCompra === 'DEMONSTRACAO'
-                              ? isDark ? 'text-purple-300' : 'text-purple-600'
-                              : isDark ? 'text-rose-300' : 'text-rose-600'
-                            }`}>{formatCurrency(row.tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(row.valor))}</td>
-                        </tr>
-                      ))}
+                      ) : (
+                        <>
+                          {comprasView.tableRows.slice(0, 500).map((row, index) => (
+                            <tr key={`compra-row-${index}-${row.numeroNfe || 'sem-nf'}`} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
+                              <td className="px-4 py-2.5 font-medium">{formatDate(row.vencimento)}</td>
+                              <td className="px-4 py-2.5 font-semibold">{row.emitente || '-'}</td>
+                              <td className="px-4 py-2.5 font-medium text-slate-500">{row.numeroNfe || '-'}</td>
+                              <td className="px-4 py-2.5">
+                                <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${row.tipoCompra === 'ENCOMENDA'
+                                    ? isDark ? 'border-blue-400/35 bg-blue-500/20 text-blue-300' : 'border-blue-200 bg-blue-100 text-blue-700'
+                                    : row.tipoCompra === 'ESTOQUE'
+                                      ? isDark ? 'border-teal-400/35 bg-teal-500/20 text-teal-300' : 'border-teal-200 bg-teal-100 text-teal-700'
+                                      : isDark ? 'border-purple-400/35 bg-purple-500/20 text-purple-300' : 'border-purple-200 bg-purple-100 text-purple-700'
+                                  }`}>
+                                  {row.tipoCompra === 'ENCOMENDA' ? 'Encomenda' : row.tipoCompra === 'ESTOQUE' ? 'Estoque' : 'Demonstração'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${row.tipoCompra === 'DEMONSTRACAO'
+                                    ? isDark ? 'border-purple-400/30 bg-purple-400/10 text-purple-300' : 'border-purple-200 bg-purple-50 text-purple-700'
+                                    : normalizeText(row.status).includes('pago')
+                                      ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                      : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'
+                                  }`}>
+                                  {row.tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAÇÃO' : String(row.status || '-').toUpperCase()}
+                                </span>
+                              </td>
+                              <td className={`px-4 py-2.5 text-right font-black whitespace-nowrap ${row.tipoCompra === 'DEMONSTRACAO'
+                                  ? isDark ? 'text-purple-300' : 'text-purple-600'
+                                  : isDark ? 'text-rose-300' : 'text-rose-600'
+                                }`}>{formatCurrency(row.tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(row.valor))}</td>
+                            </tr>
+                          ))}
+                          {comprasView.tableRows.length > 500 && (
+                            <tr className={isDark ? 'border-t border-white/8 bg-slate-800 text-slate-300' : 'border-t border-slate-100 bg-amber-50 text-amber-800'}>
+                              <td colSpan={6} className="px-4 py-4 text-center text-xs font-semibold">
+                                Exibindo apenas os primeiros 500 de {comprasView.tableRows.length} pedidos.
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -3123,32 +3152,24 @@ export function Boletim() {
           </div>
         )}
         <BoletimFiltrosSidebar
-        showSidebar={showFiltrosSidebar}
-        onClose={() => setShowFiltrosSidebar(false)}
-        categorias={categorias}
-        contas={contas}
-        entidades={entidades}
-        
-        selectedCategoriasIds={selectedCategoriasIds || []}
-        setSelectedCategoriasIds={(val) => {}}
-        
-        selectedContasIds={selectedContasIds || []}
-        setSelectedContasIds={(val) => {}}
-        
-        selectedInteressadosIds={selectedInteressadosIds || []}
-        setSelectedInteressadosIds={(val) => {}}
-        
-        filterDateStart={referenceDate}
-        setFilterDateStart={setReferenceDate}
-        
-        filterDateEnd={referenceDate}
-        setFilterDateEnd={setReferenceDate}
-        
-        handleClearFilters={() => {
-          setReferenceDate(getBusinessTodayIso());
-        }}
-      />
-    </div>
+          showFiltrosSidebar={showFiltrosSidebar}
+          setShowFiltrosSidebar={setShowFiltrosSidebar}
+          filtrosAvancados={filtrosAvancados}
+          setFiltrosAvancados={setFiltrosAvancados}
+          resetFiltros={() => {
+            setFiltrosAvancados({
+              categoriaIds: new Set<number>(),
+              contaIds: new Set<number>(),
+              interessados: new Set<string>(),
+              dataInicio: '',
+              dataFim: ''
+            });
+          }}
+          categorias={categorias}
+          contas={contas}
+          interessadosList={Array.from(new Set(entidades.map(e => e.nome)))}
+        />
+      </div>
     </div>
   );
 }

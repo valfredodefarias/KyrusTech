@@ -127199,3 +127199,153 @@ tos/
 tos/
 <== REQUEST END: GET /api/v1/lancamentos/ - 200
 <== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+
+==> REQUEST START: GET /api/v1/contas/
+entos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png
+<== REQUEST END: GET /static/logos/logo_27_0307f8ee.jpg - 404
+-acf22857a798.png
+<== REQUEST END: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png - 404
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+==> REQUEST START: OPTIONS /api/v1/contas/
+tos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/contas/
+tos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+tos/
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+ 200
+==> REQUEST START: GET /api/v1/contas/
+tos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png - 404
+<== REQUEST END: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png - 404
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+==> REQUEST START: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png
+==> REQUEST START: OPTIONS /health
+ads/75eeb13e-be89-4959-b0c5-acf22857a798.png
+<== REQUEST END: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png - 404
+<== REQUEST END: OPTIONS /health - 200
+entos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /health - 200
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+==> REQUEST START: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber
+200
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber
+<== REQUEST END: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber
+r - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+tos/
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+==> REQUEST START: GET /api/v1/contas/
+tos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber
+<== REQUEST END: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+==> REQUEST START: OPTIONS /api/v1/contas/
+tos/
+200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+ 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber
+<== REQUEST END: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/contas/
+tos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber
+200
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber
+<== REQUEST END: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200

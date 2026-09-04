@@ -1024,6 +1024,15 @@ export function Boletim() {
       ...lancamentos
         .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
         .filter((item) => {
+          if (filtrosAvancados.categoriaIds.size > 0 && !filtrosAvancados.categoriaIds.has(Number(item.plano_contas_id))) return false;
+          if (filtrosAvancados.contaIds.size > 0 && !filtrosAvancados.contaIds.has(Number(item.conta_id || (item as any).conta_bancaria_id))) return false;
+          if (filtrosAvancados.interessados.size > 0) {
+            const int = resolveLancamentoInteressado(item, entityMap);
+            if (!filtrosAvancados.interessados.has(int)) return false;
+          }
+          if (filtrosAvancados.dataInicio && item.data_vencimento < filtrosAvancados.dataInicio) return false;
+          if (filtrosAvancados.dataFim && item.data_vencimento > filtrosAvancados.dataFim) return false;
+
           const isPaid = getStatusKey(item, todayIso, tomorrowIso) === 'PAGO' || Boolean(item.data_pagamento) || Number(item.valor_pago || 0) > 0;
           const bankId = Number(item.conta_id || (item as any).conta_bancaria_id || 0);
           if (isPaid && bankId <= 0) return false;
@@ -1085,6 +1094,12 @@ export function Boletim() {
         })
         .filter((item) => selectedCentroCustoId === null || Number(item.centroCustoId) === selectedCentroCustoId)
         .filter((item) => {
+          if (filtrosAvancados.categoriaIds.size > 0) return false;
+          if (filtrosAvancados.contaIds.size > 0) return false;
+          if (filtrosAvancados.interessados.size > 0 && !filtrosAvancados.interessados.has(item.interessado)) return false;
+          if (filtrosAvancados.dataInicio && item.dataVencimento < filtrosAvancados.dataInicio) return false;
+          if (filtrosAvancados.dataFim && item.dataVencimento > filtrosAvancados.dataFim) return false;
+
           const asaasId = item.rowKey.replace('asaas-charge-', '');
           return !dbAsaasIds.has(asaasId);
         })
@@ -1236,7 +1251,7 @@ export function Boletim() {
       todayIso,
       tomorrowIso,
     };
-  }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter, referenceDate, asaasRows, searchTerm]);
+  }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter, referenceDate, asaasRows, searchTerm, filtrosAvancados]);
 
   const groupedRows = useMemo(() => {
     if (auditPanel?.mode !== 'LANCAMENTOS' || !auditPanel.rows) return { groups: {}, sortedDates: [] };
@@ -1828,9 +1843,21 @@ export function Boletim() {
     const effectiveMonth = selectedCompraMonthIndex ?? fallbackMonth;
     const monthLabels = dashboard.monthLabels;
 
+    const entityMap = new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]));
     const nfeRows = lancamentos
       .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
       .filter((item) => String(item.origem || '').trim().toUpperCase() === 'NFE_XML')
+      .filter((item) => {
+        if (filtrosAvancados.categoriaIds.size > 0 && !filtrosAvancados.categoriaIds.has(Number(item.plano_contas_id))) return false;
+        if (filtrosAvancados.contaIds.size > 0 && !filtrosAvancados.contaIds.has(Number(item.conta_id || (item as any).conta_bancaria_id))) return false;
+        if (filtrosAvancados.interessados.size > 0) {
+          const int = resolveLancamentoInteressado(item, entityMap);
+          if (!filtrosAvancados.interessados.has(int)) return false;
+        }
+        if (filtrosAvancados.dataInicio && item.data_vencimento < filtrosAvancados.dataInicio) return false;
+        if (filtrosAvancados.dataFim && item.data_vencimento > filtrosAvancados.dataFim) return false;
+        return true;
+      })
       .map((item) => ({
         item,
         numeroNfe: resolveNfeNumeroFromLancamento(item),
@@ -2098,7 +2125,7 @@ export function Boletim() {
       tableRows,
       countsByTipo,
     };
-  }, [compraChartMode, compraTipoFilter, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, entidades, isDark, lancamentos, selectedCentroCustoId, selectedCompraMonthIndex]);
+  }, [compraChartMode, compraTipoFilter, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, entidades, isDark, lancamentos, selectedCentroCustoId, selectedCompraMonthIndex, filtrosAvancados]);
 
   const consistencyChecks = useMemo(() => {
     const currentMonth = selectedMonthIndex ?? dashboard.fallbackMonthIndex;
@@ -2261,6 +2288,14 @@ export function Boletim() {
                   }]}
                 />
               </div>
+              <button
+                type="button"
+                onClick={() => setShowFiltrosSidebar(true)}
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${isDark ? 'border-white/10 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'} transition shadow-sm`}
+                title="Filtros avançados"
+              >
+                <Filter className="h-5 w-5" />
+              </button>
             </div>
           </div>
 
